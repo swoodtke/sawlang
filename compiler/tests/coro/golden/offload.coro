@@ -120,6 +120,6 @@ item #118: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #0: offload.main()
     state: every point
     _0 result: none
-    _1 buf: bb1.2-t s2 r2 bb2.0-t bb3.t
+    _1 buf: bb1.1-t s2 r2 bb2.0-t bb3.t
     offload pause: bb0.t s1 r1
     offload fill: bb1.t s2 r2

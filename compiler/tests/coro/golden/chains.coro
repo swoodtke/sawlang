@@ -126,31 +126,31 @@ item #124: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #0: chains.main()
     state: every point
     _0 result: none
-    _1 bed: bb0.2-t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
-    _3 add: bb0.t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0
+    _1 bed: bb0.1-t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
+    _3 add: bb0.3-t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0
     _5: bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
     _7: r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
     child chains.rest(bed: &chains.Bed): bb2.t s1 r1
     child prologue chains.Bed.slot() receiver exclusive: bb4.t s2 r2
 lifetimes #6: chains.rest(bed: &chains.Bed)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.0-t
     _1 param bed: every point
     child chains.Napper.twice() self chains.Bed: bb0.t s1 r1
 lifetimes #7: prologue chains.Bed.slot() receiver exclusive
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t
     _1 self: every point
     offload usleep: bb0.t s1 r1
 lifetimes #12: chains.Napper.twice() self chains.Bed
     state: every point
-    _0 result: bb2.t
+    _0 result: bb2.1-t
     _1 self: every point
     _3: r1 bb1.0-t s2 r2 bb2.0
     child chains.Bed.nap(): bb0.t s1 r1
     child chains.Bed.nap(): bb1.t s2 r2
 lifetimes #17: chains.Bed.nap()
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.2-t
     _1 self: every point
     offload usleep: bb0.t s1 r1

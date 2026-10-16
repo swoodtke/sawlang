@@ -22,7 +22,7 @@ import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValu
 import sawcoro.suspends.{coro_call_suspends}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
                               mir_init_apply_all}
-import sawmir.model.{MirCallKind, MirFuncKind, MirStmtKind, MirTermKind}
+import sawmir.model.{MirCallKind, MirFuncKind, MirProjKind, MirStmt, MirStmtKind, MirTermKind}
 
 // One function's program points and its locals' lifetimes over them:
 // `live[l * points + p]` says local `l`'s bytes are needed just before point
@@ -102,6 +102,7 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
             coro_mark_live(&facts, &state, &var lt, p)
+            coro_mark_destination(&coro, &stmt, &var lt, p)
             coro_mark_records(&coro, f, &open, b * width, -1, -1, &var lt, p)
             if stmt.kind == MirStmtKind.Budget {
                 lt.charges = true
@@ -287,6 +288,30 @@ func coro_mark_live(facts: &MirInit, state: &Vector<Int>, lt: &var CoroLifetimes
         }
         q = q + 1
     }
+}
+
+// Marks, at point `p`, the local an assignment `stmt` writes into its own
+// bytes, whole or a part of it: its lifetime starts at the statement that
+// initialises it, not after. The backend writes an rvalue straight into its
+// destination, a moved memory value by one `memcpy` and an aggregate member
+// by member, reading each operand as it goes, so the destination and every
+// value the statement reads must not share bytes at that point.
+func coro_mark_destination(coro: &CoroProgram, stmt: &MirStmt, lt: &var CoroLifetimes, p: Int) {
+    if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+        return
+    }
+    let place = coro.mono.dp.bc.mir.places[stmt.place]
+    if place.local < 0 {
+        return
+    }
+    var j = 0
+    while j < place.count {
+        if coro.mono.dp.bc.mir.projs[place.first + j].kind == MirProjKind.Deref {
+            return
+        }
+        j = j + 1
+    }
+    lt.live[place.local * lt.points + p] = true
 }
 
 // The windows of function `f` that may be open on entry to each block:

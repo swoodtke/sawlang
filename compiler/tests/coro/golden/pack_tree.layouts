@@ -1,0 +1,112 @@
+frame #5: pack_tree.root() task root  (size 304 align 8, lower bound 304)
+    suspend 1: bb0 call w2
+    suspend 2: bb1 call w4
+    suspend 3: bb2 call w8
+    suspend 4: bb3 call t3
+    suspend 5: bb4 call t2
+    suspend 6: bb5 call t1
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[264: Int]  size 8 align 8  _1 a  (across 2 3 4 5 6)
+    (*frame).[272: Int]  size 8 align 8  _3 b  (across 3 4 5 6)
+    (*frame).[280: Int]  size 8 align 8  _5 c  (across 4 5 6)
+    (*frame).[288: Int]  size 8 align 8  _7 d  (across 5 6)
+    (*frame).[296: Int]  size 8 align 8  _9 e  (across 6)
+    (*frame).[8: frame pack_tree.w2(k: Int)]  size 208 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.w4(k: Int)]  size 224 align 8  child  (across 2)
+    (*frame).[8: frame pack_tree.w8(k: Int)]  size 256 align 8  child  (across 3)
+    (*frame).[8: frame pack_tree.t3(k: Int)]  size 208 align 8  child  (across 4)
+    (*frame).[8: frame pack_tree.t2(k: Int)]  size 232 align 8  child  (across 5)
+    (*frame).[8: frame pack_tree.t1(k: Int)]  size 256 align 8  child  (across 6)
+    stack: _2 _4 _6 _8 _10 _11 _12 _13 _14 _15 _16 _17
+frame #9: pack_tree.w2(k: Int)  (size 208 align 8, lower bound 208)
+    suspend 1: bb0 call leaf
+    suspend 2: bb1 call leaf
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[192: Int]  size 8 align 8  _1 param k  (across 1 2)
+    (*frame).[200: Int]  size 8 align 8  _2 a  (across 2)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 2)
+    stack: _3 _4 _5 _6
+frame #10: pack_tree.w4(k: Int)  (size 224 align 8, lower bound 224)
+    suspend 1: bb0 call leaf
+    suspend 2: bb1 call leaf
+    suspend 3: bb2 call leaf
+    suspend 4: bb3 call leaf
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[192: Int]  size 8 align 8  _1 param k  (across 1 2 3 4)
+    (*frame).[200: Int]  size 8 align 8  _2 a  (across 2 3 4)
+    (*frame).[208: Int]  size 8 align 8  _4 b  (across 3 4)
+    (*frame).[216: Int]  size 8 align 8  _6 c  (across 4)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 2)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 3)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 4)
+    stack: _3 _5 _7 _8 _9 _10 _11 _12
+frame #11: pack_tree.w8(k: Int)  (size 256 align 8, lower bound 256)
+    suspend 1: bb0 call leaf
+    suspend 2: bb1 call leaf
+    suspend 3: bb2 call leaf
+    suspend 4: bb3 call leaf
+    suspend 5: bb4 call leaf
+    suspend 6: bb5 call leaf
+    suspend 7: bb6 call leaf
+    suspend 8: bb7 call leaf
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[192: Int]  size 8 align 8  _1 param k  (across 1 2 3 4 5 6 7 8)
+    (*frame).[200: Int]  size 8 align 8  _2 a  (across 2 3 4 5 6 7 8)
+    (*frame).[208: Int]  size 8 align 8  _4 b  (across 3 4 5 6 7 8)
+    (*frame).[216: Int]  size 8 align 8  _6 c  (across 4 5 6 7 8)
+    (*frame).[224: Int]  size 8 align 8  _8 d  (across 5 6 7 8)
+    (*frame).[232: Int]  size 8 align 8  _10 e  (across 6 7 8)
+    (*frame).[240: Int]  size 8 align 8  _12 f  (across 7 8)
+    (*frame).[248: Int]  size 8 align 8  _14 g  (across 8)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 2)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 3)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 4)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 5)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 6)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 7)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 8)
+    stack: _3 _5 _7 _9 _11 _13 _15 _16 _17 _18 _19 _20 _21 _22 _23 _24
+frame #12: pack_tree.t3(k: Int)  (size 208 align 8, lower bound 208)
+    suspend 1: bb0 call leaf
+    suspend 2: bb1 call leaf
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[192: Int]  size 8 align 8  _1 param k  (across 1 2)
+    (*frame).[200: Int]  size 8 align 8  _2 a  (across 2)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 2)
+    stack: _3 _4 _5 _6 _7
+frame #13: pack_tree.t2(k: Int)  (size 232 align 8, lower bound 232)
+    suspend 1: bb0 call t3
+    suspend 2: bb1 call t3
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[216: Int]  size 8 align 8  _1 param k  (across 1 2)
+    (*frame).[224: Int]  size 8 align 8  _2 a  (across 2)
+    (*frame).[8: frame pack_tree.t3(k: Int)]  size 208 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.t3(k: Int)]  size 208 align 8  child  (across 2)
+    stack: _3 _4 _5 _6 _7
+frame #14: pack_tree.t1(k: Int)  (size 256 align 8, lower bound 256)
+    suspend 1: bb0 call t2
+    suspend 2: bb1 call t2
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[240: Int]  size 8 align 8  _1 param k  (across 1 2)
+    (*frame).[248: Int]  size 8 align 8  _2 a  (across 2)
+    (*frame).[8: frame pack_tree.t2(k: Int)]  size 232 align 8  child  (across 1)
+    (*frame).[8: frame pack_tree.t2(k: Int)]  size 232 align 8  child  (across 2)
+    stack: _3 _4 _5 _6 _7
+frame #17: pack_tree.leaf(k: Int)  (size 184 align 8, lower bound 184)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[168: Int]  size 8 align 8  _0 result
+    (*frame).[176: Int]  size 8 align 8  _1 param k  (across 1)
+    (*frame).[8: [Int; 20]]  size 160 align 8  _2 pad  (across 1)
+    stack: _3 _4 _5

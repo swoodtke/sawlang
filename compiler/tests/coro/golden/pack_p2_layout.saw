@@ -1,0 +1,23 @@
+// Packing (SL:coroutines B2) of the oracle sweep's `p2_layout` shape: `caller`
+// drives four children in sequence and keeps each one's result. Stage 0 lays
+// `caller` out in 432 bytes, each child's frame embedded beside the others;
+// here the four child slots share one offset.
+struct Block { a: Int, b: Int, c: Int }
+
+func child(k: Int) -> Int {
+    let block = Block(a: k, b: k + 1, c: k + 2)
+    __saw_suspend()
+    block.a + block.b + block.c
+}
+
+func caller() -> Int {
+    let w = child(1)
+    let x = child(2)
+    let y = child(3)
+    let z = child(4)
+    w + x + y + z
+}
+
+func main() {
+    print("{}", __saw_drive(caller()))
+}

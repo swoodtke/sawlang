@@ -1,0 +1,33 @@
+// Packing (SL:coroutines B2): sequential suspending calls. `a()` then `b()`
+// drive their children one after the other, so the two child slots' lifetimes
+// are disjoint and the slots share one offset; so do `first` and `second`,
+// whose results are moved out before the next call starts.
+func a() {
+    __saw_suspend()
+}
+
+func b() {
+    __saw_suspend()
+}
+
+func first(k: Int) -> Int {
+    let n = k * 3
+    __saw_suspend()
+    n + 1
+}
+
+func second(k: Int, label: String) -> Int {
+    __saw_suspend()
+    k + label.len()
+}
+
+func run() -> Int {
+    a()
+    b()
+    let x = first(2)
+    second(x, "four")
+}
+
+func main() {
+    print("{}", __saw_drive(run()))
+}

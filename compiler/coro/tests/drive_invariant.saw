@@ -5,6 +5,7 @@
 // that slot as written no times. Paths are the repository root's, where the
 // runner runs.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.frames.{coro_frame_of}
 import sawcoro.lower.{coro_check_drives}
 import sawcoro.program.{CoroPointKind, CoroProgram}
 import sawmir.model.{MirProjKind}
@@ -55,6 +56,9 @@ func unlink_first_slot_write(coro: &var CoroProgram, k: Int) -> Bool {
     let f = coro.frames[resume.frame].body
     let at = coro.mono.dp.bc.mir.funcs[f].block_first + point.block
     var block = coro.mono.dp.bc.mir.blocks[at]
+    // A frame value of the caller's own may lie past the child's slot, in a
+    // block that also writes the child's parameters.
+    let end = point.slot + coro.frames[coro_frame_of(&coro, point.child)].size
     var prev = -1
     var s = block.first
     while s >= 0 {
@@ -62,7 +66,7 @@ func unlink_first_slot_write(coro: &var CoroProgram, k: Int) -> Bool {
         let place = coro.mono.dp.bc.mir.places[stmt.place]
         let step = coro.mono.dp.bc.mir.projs[place.first + place.count - 1]
         let slot = place.local == resume.frame_local && place.count == 2 && step.kind == MirProjKind.FrameSlot
-        if slot && step.index >= point.slot {
+        if slot && step.index >= point.slot && step.index < end {
             if prev < 0 {
                 block.first = stmt.next
             } else {

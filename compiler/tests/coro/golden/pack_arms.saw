@@ -1,0 +1,42 @@
+// Packing (SL:coroutines B2): exclusive arms. Only one arm of an `if` or a
+// `match` runs, so the children each arm drives are never live together and
+// their slots share one offset, the frame sized by the largest of them.
+enum Pick {
+    case Small,
+    case Large,
+    case Neither
+}
+
+func small(k: Int) -> Int {
+    __saw_suspend()
+    k + 1
+}
+
+func large(k: Int, label: String) -> Int {
+    let doubled = k * 2
+    let tripled = k * 3
+    __saw_suspend()
+    doubled + tripled + label.len()
+}
+
+func by_if(flag: Bool) -> Int {
+    if flag {
+        small(1)
+    } else {
+        large(2, "two")
+    }
+}
+
+func by_match(pick: Pick) -> Int {
+    match pick {
+        case Small -> small(3),
+        case Large -> large(4, "four"),
+        case Neither -> 0
+    }
+}
+
+func main() {
+    let a = __saw_drive(by_if(true))
+    let b = __saw_drive(by_match(Pick.Large))
+    print("{} {}", a, b)
+}

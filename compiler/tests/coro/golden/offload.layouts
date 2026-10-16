@@ -1,9 +1,9 @@
-frame #0: offload.main()  (size 56 align 8)
+frame #0: offload.main()  (size 48 align 8, lower bound 48)
     suspend 1: bb0 call pause
     suspend 2: bb1 call fill
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
-    (*frame).[8: [Int8; 8]]  size 8 align 1  _1 buf  (across 2)
-    (*frame).[16: [Int; 1]]  size 8 align 8  offload pause  (across 1)
-    (*frame).[24: [Int; 4]]  size 32 align 8  offload fill  (across 2)
+    (*frame).[48: Void]  size 0 align 1  _0 result
+    (*frame).[40: [Int8; 8]]  size 8 align 1  _1 buf  (across 2)
+    (*frame).[8: [Int; 1]]  size 8 align 8  offload pause  (across 1)
+    (*frame).[8: [Int; 4]]  size 32 align 8  offload fill  (across 2)
     stack: _2 _3 _4 _5 _6 _7 _8

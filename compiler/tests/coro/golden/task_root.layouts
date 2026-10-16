@@ -1,30 +1,30 @@
-frame #5: task_root.double(n: Int) task root  (size 24 align 8)
+frame #5: task_root.double(n: Int) task root  (size 24 align 8, lower bound 24)
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param n
     stack: _2
-frame #11: task_root.hello(name: String) task root  (size 24 align 8)
+frame #11: task_root.hello(name: String) task root  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call yield_now
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[24: Void]  size 0 align 1  _0 result
     (*frame).[8: String]  size 8 align 8  _1 param name  (across 1)
     (*frame).[16: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
     stack: _2
-frame #14: task_root.twice() task root  (size 32 align 8)
+frame #14: task_root.twice() task root  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call hello
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[32: Void]  size 0 align 1  _0 result
     (*frame).[8: frame task_root.hello(name: String)]  size 24 align 8  child  (across 1)
     stack: none
-frame #37: std.task.yield_now()  (size 8 align 8)
+frame #37: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result
     stack: none
-frame #41: task_root.hello(name: String)  (size 24 align 8)
+frame #41: task_root.hello(name: String)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call yield_now
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[24: Void]  size 0 align 1  _0 result
     (*frame).[8: String]  size 8 align 8  _1 param name  (across 1)
     (*frame).[16: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
     stack: _2

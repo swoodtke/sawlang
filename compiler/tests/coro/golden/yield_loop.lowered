@@ -1,4 +1,4 @@
-resume #0: yield_loop.main()  (frame size 80 align 8, pointer _2)
+resume #0: yield_loop.main()  (frame size 72 align 8, pointer _2)
     state 0: bb0
     state 1: bb0 drive #5 yield_loop.tally(rounds: Int) at (*frame).[8]
 fn yield_loop.main() -> Void {
@@ -24,10 +24,10 @@ fn yield_loop.main() -> Void {
         goto -> bb1;
     }
 }
-resume #5: yield_loop.tally(rounds: Int)  (frame size 72 align 8, pointer _13, context _14)
+resume #5: yield_loop.tally(rounds: Int)  (frame size 64 align 8, pointer _13, context _14)
     state 0: bb0
     state 1: bb7 park ready
-    state 2: bb4 drive #9 std.task.yield_now() at (*frame).[64]
+    state 2: bb4 drive #9 std.task.yield_now() at (*frame).[16]
 fn yield_loop.tally(rounds: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param rounds

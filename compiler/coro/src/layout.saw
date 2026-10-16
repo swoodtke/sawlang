@@ -1,22 +1,25 @@
 // Frame layout: each frame value's offset, from its size and alignment and
 // from which values' storage lifetimes intersect. `coro_assign` is the one
-// place a policy decides which values may share bytes, so a packing policy
-// replaces its body and nothing else (SL:architecture §3.9).
+// place a policy decides which values share bytes, and two values share a
+// byte only when their lifetimes have no point in common, so a value is never
+// overwritten while its bytes are needed (SL:architecture §3.9).
 //
 // ENTRY POINTS of the frame layout:
 //   coro_lay_out_frames
 //   coro_interference
 //   coro_assign
+//   coro_lower_bound
 
 import sawcoro.frames.{coro_frame_of}
-import sawcoro.lifetimes.{coro_lifetimes_meet}
+import sawcoro.lifetimes.{coro_lifetime_at, coro_lifetimes_meet}
 import sawcoro.program.{CoroFrame, CoroProgram, CoroValue, CoroValueKind}
 import sawtarget.layout.{Target, TargetKind}
 
-// What one frame value needs of its bytes.
+// What one frame value needs of its bytes; `pinned` holds it at offset 0.
 public struct CoroNeed {
     size: Int
     align: Int
+    pinned: Bool
 }
 
 // Which frame values' storage lifetimes intersect: `pairs[i * count + j]`
@@ -106,7 +109,7 @@ func coro_lay_out_frame(coro: &var CoroProgram, target: &var Target, k: Int) {
             v.align = if l.align > 0 { l.align } else { 1 }
         }
         coro.values[frame.value_first + j] = v
-        try! needs.push(CoroNeed(size: v.size, align: v.align))
+        try! needs.push(CoroNeed(size: v.size, align: v.align, pinned: v.kind == CoroValueKind.State))
         j = j + 1
     }
     if frame.unsupported >= 0 {
@@ -162,21 +165,99 @@ public func coro_interference(coro: &CoroProgram, k: Int) -> CoroInterference {
     move out
 }
 
-// Each value's offset, in the order given. The policy is no sharing: each
-// value takes the next offset its alignment allows after the one before,
-// whatever `interference` says, so no two values share a byte.
+// Each value's offset, in the order given: a deterministic greedy packing.
+// The pinned value, the state word, takes offset 0 first, since the resume
+// function loads the state from the frame's first byte and a drive starts a
+// child at its slot's base. Then each other value in turn, by decreasing
+// size and then by its order here, takes the lowest offset its alignment
+// allows whose bytes no value already placed that interferes with it holds.
+// The state word counts as interfering with every value. A zero-size value
+// holds no byte, so it comes last, and it never stands on a byte another
+// value holds, so a place at the offset of a value with bytes never also
+// names a zero-size value's slot.
 public func coro_assign(values: &Vector<CoroNeed>, interference: &CoroInterference) -> Vector<Int> {
     var out = Vector<Int>()
-    var at = 0
+    var placed = Vector<Bool>()
+    var left = 0
     var k = 0
     while k < values.len() {
-        let v = values[k]
-        at = coro_align_up(at, v.align)
-        try! out.push(at)
-        at = at + v.size
+        let pinned = values[k].pinned
+        try! placed.push(pinned)
+        if pinned {
+            try! out.push(0)
+        } else {
+            try! out.push(-1)
+            left = left + 1
+        }
         k = k + 1
     }
+    while left > 0 {
+        var next = -1
+        k = 0
+        while k < values.len() {
+            if not placed[k] && (next < 0 || values[k].size > values[next].size) {
+                next = k
+            }
+            k = k + 1
+        }
+        let at = coro_first_fit(&values, &interference, &out, &placed, next)
+        out[next] = at
+        placed[next] = true
+        left = left - 1
+    }
     move out
+}
+
+// The lowest offset aligned for value `i` whose bytes no placed value that
+// interferes with it holds; for a zero-size value, the lowest that lies on
+// no placed value's byte. Every offset skipped lies inside the value that
+// moved past it, so the first one found clear is the lowest.
+func coro_first_fit(values: &Vector<CoroNeed>, interference: &CoroInterference, out: &Vector<Int>,
+                    placed: &Vector<Bool>, i: Int) -> Int {
+    let v = values[i]
+    let width = if v.size > 0 { v.size } else { 1 }
+    var at = 0
+    var moved = true
+    while moved {
+        moved = false
+        var j = 0
+        while j < values.len() {
+            let w = values[j]
+            let meets = v.size == 0 || w.pinned || interference.interferes(i, j)
+            let blocks = placed[j] && j != i && w.size > 0 && meets
+            if blocks && out[j] < at + width && at < out[j] + w.size {
+                at = coro_align_up(out[j] + w.size, v.align)
+                moved = true
+            }
+            j = j + 1
+        }
+    }
+    at
+}
+
+// Frame `k`'s lower bound: the most bytes its values need at one program
+// point. With fixed offsets over a general control-flow graph, a packing
+// may not reach it, and alignment adds to it (SL:architecture §3.9).
+public func coro_lower_bound(coro: &CoroProgram, k: Int) -> Int {
+    let frame = coro.frames[k]
+    var best = 0
+    var p = 0
+    while p < frame.points {
+        var sum = 0
+        var j = 0
+        while j < frame.value_count {
+            let v = coro.values[frame.value_first + j]
+            if v.size > 0 && coro_lifetime_at(&coro, &v, p) {
+                sum = sum + v.size
+            }
+            j = j + 1
+        }
+        if sum > best {
+            best = sum
+        }
+        p = p + 1
+    }
+    best
 }
 
 func coro_align_up(n: Int, align: Int) -> Int {

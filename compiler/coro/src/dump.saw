@@ -3,6 +3,7 @@
 // and, for one that needs a frame, the chain its suspension was found
 // through, and each frame's storage lifetimes; and each frame's layout.
 
+import sawcoro.layout.{coro_lower_bound}
 import sawcoro.lifetimes.{CoroPointLabel, CoroPointRole, coro_lifetime_across, coro_lifetime_at, coro_point_labels}
 import sawcoro.program.{CoroFrame, CoroPoint, CoroPointKind, CoroProgram, CoroResume, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_cause_chain, coro_source_label}
@@ -200,6 +201,8 @@ func coro_dump_frame(coro: &CoroProgram, out: &var StringBuilder, k: Int) {
         try! out.append(frame.size)
         try! out.append(" align ")
         try! out.append(frame.align)
+        try! out.append(", lower bound ")
+        try! out.append(coro_lower_bound(&coro, k))
         try! out.append(")\n")
     }
     var s = 0

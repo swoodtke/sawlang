@@ -1,9 +1,11 @@
 // The program compiler/coro/tests/verify_zero_size.saw lowers, then edits:
-// `outer` holds `label` across its drive of `make`, its last child, whose
-// zero-size result lies at the end of `make`'s frame, which is the end of
-// `outer`'s. One edit moves `label`'s drop to a slot that starts inside the
-// frame and runs past its end; the other copies `make`'s result slot a second
-// time, which only the drive's move-out may reach.
+// `outer` holds `n` and `label` across its drive of `make`, whose zero-size
+// result lies at the end of `make`'s frame. `outer` returns nothing, so the
+// child's slot interferes with every value that holds bytes and is laid
+// last, and that result lies at the end of `outer`'s frame too. One edit
+// moves `label`'s drop to a slot that starts inside the frame and runs past
+// its end; the other copies `make`'s result slot a second time, which only
+// the drive's move-out may reach.
 
 struct Marker {}
 
@@ -12,14 +14,13 @@ func make() -> Marker {
     Marker()
 }
 
-func outer(n: Int) -> Int {
+func outer(n: Int) {
     let label = "kept across"
     let m = make()
     let _ = m
-    print("{} {}", label, n)
-    n + 1
+    print("{} {}", label, n + 1)
 }
 
 func main() {
-    print("{}", __saw_drive(outer(4)))
+    __saw_drive(outer(4))
 }

@@ -1,7 +1,7 @@
-resume #5: op_budget.count(limit: Int) task root  (frame size 48 align 8, pointer _5, context _6)
+resume #5: op_budget.count(limit: Int) task root  (frame size 40 align 8, pointer _5, context _6)
     state 0: bb0
     state 1: bb6 park ready
-    state 2: bb4 drive #11 std.task.yield_now() at (*frame).[40]
+    state 2: bb4 drive #11 std.task.yield_now() at (*frame).[16]
 fn op_budget.count(limit: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param limit
@@ -50,9 +50,9 @@ fn op_budget.count(limit: Int) -> Int {
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
     }
 }
-resume #7: op_budget.held(limit: Int) task root  (frame size 48 align 8, pointer _9)
+resume #7: op_budget.held(limit: Int) task root  (frame size 40 align 8, pointer _9)
     state 0: bb0
-    state 1: bb0 drive #11 std.task.yield_now() at (*frame).[40]
+    state 1: bb0 drive #11 std.task.yield_now() at (*frame).[16]
 fn op_budget.held(limit: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param limit

@@ -136,55 +136,55 @@ item #134: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #5: zero_size.at_end() task root
     state: every point
     op budget: every point
-    _0 result: bb5.t
-    _1 i: bb0.1-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
-    _2 z: bb0.t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
+    _0 result: bb5.1-t
+    _1 i: every point
+    _2 z: bb0.2-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
 lifetimes #7: zero_size.mid() task root
     state: every point
     op budget: every point
-    _0 result: bb5.t
-    _1 z: bb0.2-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
-    _3 i: bb0.t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
+    _0 result: bb5.1-t
+    _1 z: bb0.1-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
+    _3 i: bb0.2-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
 lifetimes #9: zero_size.children() task root
     state: every point
-    _0 result: bb4.t
-    _1 a: bb1.1-t s2 r2 bb2.0-t s3 r3 bb3.0-t bb4.0-t
-    _4 b: bb2.t s3 r3 bb3.0-t bb4.0-t
+    _0 result: bb4.1-t
+    _1 a: bb1.0-t s2 r2 bb2.0-t s3 r3 bb3.0-t bb4.0-t
+    _4 b: bb2.0-t s3 r3 bb3.0-t bb4.0-t
     child zero_size.last_param(n: Int, z: [Int; 0]): bb0.t s1 r1
     child zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int): bb1.t s2 r2
     child zero_size.result(): bb2.t s3 r3
 lifetimes #10: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root
     state: every point
-    _0 result: bb3.t
+    _0 result: bb3.1-t
     _1 param y: every point
     _2 param z: every point
     _3 param n: every point
 lifetimes #17: zero_size.enum_at_end() task root
     state: every point
     op budget: every point
-    _0 result: bb2.t
-    _1 i: bb0.1-t bb1.0-t bb2.0-t s1 bb3.t bb4.0-t
-    _2 o: bb0.t bb1.0-t bb2.0-t s1 bb3.t bb4.0-t
+    _0 result: bb2.1-t
+    _1 i: every point
+    _2 o: bb0.2-t bb1.0-t bb2.0-t s1 bb3.t bb4.0-t
 lifetimes #23: zero_size.before_index(p: UnsafePointer<Int>) task root
     state: every point
     op budget: every point
-    _0 result: bb5.t
+    _0 result: bb5.1-t
     _1 param p: every point
-    _2 i: bb0.1-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
-    _3 t: bb0.2-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
-    _4 z: bb0.t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
+    _2 i: every point
+    _3 t: bb0.1-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
+    _4 z: bb0.3-t bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
     _8: bb1.0-t bb2.t s1 bb3.t bb4.0-t bb5.0-t
 lifetimes #24: zero_size.last_param(n: Int, z: [Int; 0])
     state: every point
-    _0 result: bb2.t
+    _0 result: bb2.1-t
     _1 param n: every point
     _2 param z: every point
 lifetimes #25: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)
     state: every point
-    _0 result: bb3.t
+    _0 result: bb3.1-t
     _1 param y: every point
     _2 param z: every point
     _3 param n: every point
 lifetimes #26: zero_size.result()
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t

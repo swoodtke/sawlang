@@ -1,43 +1,43 @@
-frame #0: chains.main()  (size 224 align 8)
+frame #0: chains.main()  (size 120 align 8, lower bound 120)
     suspend 1: bb2 call rest
     suspend 2: bb4 call Bed.slot
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
-    (*frame).[8: chains.Bed]  size 8 align 8  _1 bed  (across 1 2)
-    (*frame).[16: (Int) -> Int]  size 16 align 8  _3 add  (across 1 2)
-    (*frame).[32: Int]  size 8 align 8  _5  (across 1 2)
-    (*frame).[40: Int]  size 8 align 8  _7  (across 2)
-    (*frame).[48: frame chains.rest(bed: &chains.Bed)]  size 136 align 8  child  (across 1)
-    (*frame).[184: frame prologue chains.Bed.slot() receiver exclusive]  size 40 align 8  child  (across 2)
+    (*frame).[120: Void]  size 0 align 1  _0 result
+    (*frame).[96: chains.Bed]  size 8 align 8  _1 bed  (across 1 2)
+    (*frame).[80: (Int) -> Int]  size 16 align 8  _3 add  (across 1 2)
+    (*frame).[104: Int]  size 8 align 8  _5  (across 1 2)
+    (*frame).[112: Int]  size 8 align 8  _7  (across 2)
+    (*frame).[8: frame chains.rest(bed: &chains.Bed)]  size 72 align 8  child  (across 1)
+    (*frame).[8: frame prologue chains.Bed.slot() receiver exclusive]  size 32 align 8  child  (across 2)
     stack: _2 _4 _6 _8 _9 _10 _11
-frame #6: chains.rest(bed: &chains.Bed)  (size 136 align 8)
+frame #6: chains.rest(bed: &chains.Bed)  (size 72 align 8, lower bound 72)
     suspend 1: bb0 call Napper.twice
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: &chains.Bed]  size 8 align 8  _1 param bed  (across 1)
-    (*frame).[24: frame chains.Napper.twice() self chains.Bed]  size 112 align 8  child  (across 1)
+    (*frame).[64: &chains.Bed]  size 8 align 8  _1 param bed  (across 1)
+    (*frame).[8: frame chains.Napper.twice() self chains.Bed]  size 56 align 8  child  (across 1)
     stack: _2 _3
-frame #7: prologue chains.Bed.slot() receiver exclusive  (size 40 align 8)
+frame #7: prologue chains.Bed.slot() receiver exclusive  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call usleep
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: &var Int]  size 8 align 8  _0 result
-    (*frame).[16: &var chains.Bed]  size 8 align 8  _1 self  (across 1)
-    (*frame).[24: [Int; 2]]  size 16 align 8  offload usleep  (across 1)
+    (*frame).[24: &var chains.Bed]  size 8 align 8  _1 self  (across 1)
+    (*frame).[8: [Int; 2]]  size 16 align 8  offload usleep  (across 1)
     stack: _2 _3
-frame #12: chains.Napper.twice() self chains.Bed  (size 112 align 8)
+frame #12: chains.Napper.twice() self chains.Bed  (size 56 align 8, lower bound 56)
     suspend 1: bb0 call Bed.nap
     suspend 2: bb1 call Bed.nap
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: &chains.Bed]  size 8 align 8  _1 self  (across 1 2)
-    (*frame).[24: Int]  size 8 align 8  _3  (across 2)
-    (*frame).[32: frame chains.Bed.nap()]  size 40 align 8  child  (across 1)
-    (*frame).[72: frame chains.Bed.nap()]  size 40 align 8  child  (across 2)
+    (*frame).[40: &chains.Bed]  size 8 align 8  _1 self  (across 1 2)
+    (*frame).[48: Int]  size 8 align 8  _3  (across 2)
+    (*frame).[8: frame chains.Bed.nap()]  size 32 align 8  child  (across 1)
+    (*frame).[8: frame chains.Bed.nap()]  size 32 align 8  child  (across 2)
     stack: _2 _4 _5 _6
-frame #17: chains.Bed.nap()  (size 40 align 8)
+frame #17: chains.Bed.nap()  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call usleep
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: &chains.Bed]  size 8 align 8  _1 self  (across 1)
-    (*frame).[24: [Int; 2]]  size 16 align 8  offload usleep  (across 1)
+    (*frame).[24: &chains.Bed]  size 8 align 8  _1 self  (across 1)
+    (*frame).[8: [Int; 2]]  size 16 align 8  offload usleep  (across 1)
     stack: _2 _3 _4

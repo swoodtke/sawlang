@@ -1,6 +1,6 @@
 resume #0: park_signal.main()  (frame size 32 align 8, pointer _4)
     state 0: bb0
-    state 1: bb1 drive #6 std.task.SignalWatch.next() at (*frame).[16]
+    state 1: bb1 drive #6 std.task.SignalWatch.next() at (*frame).[8]
 fn park_signal.main() -> Void {
     let _0: Void;  // return
     let _1: std.task.SignalWatch;  // watch
@@ -13,9 +13,9 @@ fn park_signal.main() -> Void {
     }
 
     bb1: {
-        (*_4).[8: std.task.SignalWatch] = move _2;
-        _3 = ref(shared, (*_4).[8: std.task.SignalWatch]);
-        (*_4).[24: &std.task.SignalWatch] = move _3;
+        (*_4).[24: std.task.SignalWatch] = move _2;
+        _3 = ref(shared, (*_4).[24: std.task.SignalWatch]);
+        (*_4).[16: &std.task.SignalWatch] = move _3;
         call std.task.SignalWatch.next() (owner std.task.SignalWatch) [] -> [return: bb2] suspends;
     }
 

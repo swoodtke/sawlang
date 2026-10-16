@@ -119,22 +119,22 @@ item #117: std.taskgroup.channel_parked(cx: UnsafePointer<std.taskgroup.TaskCont
 lifetimes #0: drive_arguments.main()
     state: every point
     _0 result: none
-    _1 n: bb1.1-t s2 r2 bb2.0-t bb3.t s3 r3 bb4.0-t
-    _3 s: bb2.1-t bb3.t s3 r3 bb4.0
+    _1 n: bb1.0-t s2 r2 bb2.0-t bb3.t s3 r3 bb4.0-t
+    _3 s: bb2.0-t bb3.t s3 r3 bb4.0
     child drive_arguments.inner(a: Int): bb0.t s1 r1
     child drive_arguments.label(prefix: String, p: drive_arguments.Point): bb1.t s2 r2
     child drive_arguments.effect_only(n: Int): bb3.t s3 r3
 lifetimes #5: drive_arguments.inner(a: Int)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t
     _1 param a: every point
-    _2 x: bb0.t s1 r1 bb1.0-t
+    _2 x: bb0.1-t s1 r1 bb1.0-t
 lifetimes #6: drive_arguments.label(prefix: String, p: drive_arguments.Point)
     state: every point
-    _0 result: bb1.3-t
+    _0 result: bb1.2-t
     _1 param prefix: bb0.t s1 r1 bb1.0-3
     _2 param p: every point
 lifetimes #7: drive_arguments.effect_only(n: Int)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t
     _1 param n: every point

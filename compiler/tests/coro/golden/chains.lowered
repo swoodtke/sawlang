@@ -1,7 +1,7 @@
-resume #0: chains.main()  (frame size 224 align 8, pointer _12)
+resume #0: chains.main()  (frame size 120 align 8, pointer _12)
     state 0: bb0
-    state 1: bb2 drive #6 chains.rest(bed: &chains.Bed) at (*frame).[48]
-    state 2: bb4 drive #7 prologue chains.Bed.slot() receiver exclusive at (*frame).[184]
+    state 1: bb2 drive #6 chains.rest(bed: &chains.Bed) at (*frame).[8]
+    state 2: bb4 drive #7 prologue chains.Bed.slot() receiver exclusive at (*frame).[8]
 fn chains.main() -> Void {
     let _0: Void;  // return
     let _1: chains.Bed;  // bed
@@ -20,29 +20,29 @@ fn chains.main() -> Void {
 
     bb0: {
         _2 = chains.Bed { value: const 2: Int };
-        (*_12).[8: chains.Bed] = move _2;
+        (*_12).[96: chains.Bed] = move _2;
         _4 = closure#0 of chains.main() [];
-        (*_12).[16: (Int) -> Int] = move _4;
-        (*_12).[32: Int] = call value copy (*_12).[16: (Int) -> Int] [const 1: Int] -> [return: bb1];
+        (*_12).[80: (Int) -> Int] = move _4;
+        (*_12).[104: Int] = call value copy (*_12).[80: (Int) -> Int] [const 1: Int] -> [return: bb1];
     }
 
     bb1: {
-        call builtin print [format "{}", copy (*_12).[32: Int]] -> [return: bb2];
+        call builtin print [format "{}", copy (*_12).[104: Int]] -> [return: bb2];
     }
 
     bb2: {
-        _6 = ref(shared, (*_12).[8: chains.Bed]);
-        (*_12).[64: &chains.Bed] = move _6;
+        _6 = ref(shared, (*_12).[96: chains.Bed]);
+        (*_12).[72: &chains.Bed] = move _6;
         call chains.rest(bed: &chains.Bed) [] -> [return: bb7] suspends;
     }
 
     bb3: {
-        call builtin print [format "{}", copy (*_12).[40: Int]] -> [return: bb4];
+        call builtin print [format "{}", copy (*_12).[112: Int]] -> [return: bb4];
     }
 
     bb4: {
-        _9 = ref(exclusive, (*_12).[8: chains.Bed]);
-        (*_12).[200: &var chains.Bed] = move _9;
+        _9 = ref(exclusive, (*_12).[96: chains.Bed]);
+        (*_12).[32: &var chains.Bed] = move _9;
         window_open w0 prologue chains.Bed.slot() (owner chains.Bed) [] -> [present: bb8] suspends;
     }
 
@@ -54,23 +54,23 @@ fn chains.main() -> Void {
     }
 
     bb6: {
-        drop((*_12).[16: (Int) -> Int]);
+        drop((*_12).[80: (Int) -> Int]);
         return;
     }
 
     bb7: {
-        (*_12).[40: Int] = move (*_12).[56: Int];
+        (*_12).[112: Int] = move (*_12).[16: Int];
         goto -> bb3;
     }
 
     bb8: {
-        _8 = move (*_12).[192: &var Int];
+        _8 = move (*_12).[16: &var Int];
         goto -> bb5;
     }
 }
-resume #6: chains.rest(bed: &chains.Bed)  (frame size 136 align 8, pointer _4)
+resume #6: chains.rest(bed: &chains.Bed)  (frame size 72 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #12 chains.Napper.twice() self chains.Bed at (*frame).[24]
+    state 1: bb0 drive #12 chains.Napper.twice() self chains.Bed at (*frame).[8]
 fn chains.rest(bed: &chains.Bed) -> Int {
     let _0: Int;  // return
     let _1: &chains.Bed;  // param bed
@@ -79,8 +79,8 @@ fn chains.rest(bed: &chains.Bed) -> Int {
     let _4: &var Int;
 
     bb0: {
-        _2 = ref(shared, (*(*_4).[16: &chains.Bed]));
-        (*_4).[40: &chains.Bed] = move _2;
+        _2 = ref(shared, (*(*_4).[64: &chains.Bed]));
+        (*_4).[48: &chains.Bed] = move _2;
         call chains.Napper.twice() (owner chains.Bed) [] -> [return: bb2] suspends;
     }
 
@@ -90,15 +90,15 @@ fn chains.rest(bed: &chains.Bed) -> Int {
     }
 
     bb2: {
-        _3 = move (*_4).[32: Int];
+        _3 = move (*_4).[16: Int];
         goto -> bb1;
     }
 }
-resume #7: prologue chains.Bed.slot() receiver exclusive  (frame size 40 align 8, pointer _4, context _5)
+resume #7: prologue chains.Bed.slot() receiver exclusive  (frame size 32 align 8, pointer _4, context _5)
     state 0: bb0
-    offload bb0 start #13 extern usleep, storage (*frame).[24]
+    offload bb0 start #13 extern usleep, storage (*frame).[8]
     state 1: bb6 park offload
-    offload bb8 take #13 extern usleep, storage (*frame).[24]
+    offload bb8 take #13 extern usleep, storage (*frame).[8]
 fn prologue chains.Bed.slot() -> &var Int {
     let _0: &var Int;  // return
     let _1: &var chains.Bed;  // self
@@ -116,7 +116,7 @@ fn prologue chains.Bed.slot() -> &var Int {
     }
 
     bb1: {
-        _3 = ref(exclusive, (*(*_4).[16: &var chains.Bed]).value);
+        _3 = ref(exclusive, (*(*_4).[24: &var chains.Bed]).value);
         (*_4).[8: &var Int] = move _3;
         return;
     }
@@ -127,7 +127,7 @@ fn prologue chains.Bed.slot() -> &var Int {
     }
 
     bb3: {
-        _6 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_4).[24: Int]] -> [return: bb4];
+        _6 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_4).[8: Int]] -> [return: bb4];
     }
 
     bb4: {
@@ -138,7 +138,7 @@ fn prologue chains.Bed.slot() -> &var Int {
         (*_5).deadline = const 0: UInt64;
         (*(*_5).park) = const -1: Int;
         _7 = cast(copy (*_5).park as Int);
-        _8 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_4).[24: Int]] -> [return: bb7];
+        _8 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_4).[8: Int]] -> [return: bb7];
     }
 
     bb6: {
@@ -153,10 +153,10 @@ fn prologue chains.Bed.slot() -> &var Int {
         _2 = call chains.usleep(us: UInt32) [] -> [return: bb1];
     }
 }
-resume #12: chains.Napper.twice() self chains.Bed  (frame size 112 align 8, pointer _7)
+resume #12: chains.Napper.twice() self chains.Bed  (frame size 56 align 8, pointer _7)
     state 0: bb0
-    state 1: bb0 drive #17 chains.Bed.nap() at (*frame).[32]
-    state 2: bb1 drive #17 chains.Bed.nap() at (*frame).[72]
+    state 1: bb0 drive #17 chains.Bed.nap() at (*frame).[8]
+    state 2: bb1 drive #17 chains.Bed.nap() at (*frame).[8]
 fn chains.Napper.twice() -> Int {
     let _0: Int;  // return
     let _1: &chains.Bed;  // self
@@ -168,38 +168,38 @@ fn chains.Napper.twice() -> Int {
     let _7: &var Int;
 
     bb0: {
-        _2 = ref(shared, (*(*_7).[16: &chains.Bed]));
-        (*_7).[48: &chains.Bed] = move _2;
+        _2 = ref(shared, (*(*_7).[40: &chains.Bed]));
+        (*_7).[32: &chains.Bed] = move _2;
         call chains.Napper.nap() (owner chains.Bed) [] -> [return: bb3] suspends when Self.Napper.nap;
     }
 
     bb1: {
-        _4 = ref(shared, (*(*_7).[16: &chains.Bed]));
-        (*_7).[88: &chains.Bed] = move _4;
+        _4 = ref(shared, (*(*_7).[40: &chains.Bed]));
+        (*_7).[32: &chains.Bed] = move _4;
         call chains.Napper.nap() (owner chains.Bed) [] -> [return: bb4] suspends when Self.Napper.nap;
     }
 
     bb2: {
-        _6 = Add(move (*_7).[24: Int], move _5);
+        _6 = Add(move (*_7).[48: Int], move _5);
         (*_7).[8: Int] = move _6;
         return;
     }
 
     bb3: {
-        (*_7).[24: Int] = move (*_7).[40: Int];
+        (*_7).[48: Int] = move (*_7).[16: Int];
         goto -> bb1;
     }
 
     bb4: {
-        _5 = move (*_7).[80: Int];
+        _5 = move (*_7).[16: Int];
         goto -> bb2;
     }
 }
-resume #17: chains.Bed.nap()  (frame size 40 align 8, pointer _5, context _6)
+resume #17: chains.Bed.nap()  (frame size 32 align 8, pointer _5, context _6)
     state 0: bb0
-    offload bb0 start #13 extern usleep, storage (*frame).[24]
+    offload bb0 start #13 extern usleep, storage (*frame).[8]
     state 1: bb6 park offload
-    offload bb8 take #13 extern usleep, storage (*frame).[24]
+    offload bb8 take #13 extern usleep, storage (*frame).[8]
 fn chains.Bed.nap() -> Int {
     let _0: Int;  // return
     let _1: &chains.Bed;  // self
@@ -219,7 +219,7 @@ fn chains.Bed.nap() -> Int {
 
     bb1: {
         _3 = cast(move _2 as Int);
-        _4 = Add(move _3, copy (*(*_5).[16: &chains.Bed]).value);
+        _4 = Add(move _3, copy (*(*_5).[24: &chains.Bed]).value);
         (*_5).[8: Int] = move _4;
         return;
     }
@@ -230,7 +230,7 @@ fn chains.Bed.nap() -> Int {
     }
 
     bb3: {
-        _7 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_5).[24: Int]] -> [return: bb4];
+        _7 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_5).[8: Int]] -> [return: bb4];
     }
 
     bb4: {
@@ -241,7 +241,7 @@ fn chains.Bed.nap() -> Int {
         (*_6).deadline = const 0: UInt64;
         (*(*_6).park) = const -1: Int;
         _8 = cast(copy (*_6).park as Int);
-        _9 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_5).[24: Int]] -> [return: bb7];
+        _9 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_5).[8: Int]] -> [return: bb7];
     }
 
     bb6: {

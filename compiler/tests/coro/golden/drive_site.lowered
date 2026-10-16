@@ -30,10 +30,10 @@ fn drive_site.work(n: Int, label: String) -> Int {
         return;
     }
 }
-resume #7: drive_site.twice(n: Int) task root  (frame size 96 align 8, pointer _5)
+resume #7: drive_site.twice(n: Int) task root  (frame size 56 align 8, pointer _5)
     state 0: bb0
-    state 1: bb0 drive #16 drive_site.work(n: Int, label: String) at (*frame).[32]
-    state 2: bb1 drive #16 drive_site.work(n: Int, label: String) at (*frame).[64]
+    state 1: bb0 drive #16 drive_site.work(n: Int, label: String) at (*frame).[8]
+    state 2: bb1 drive #16 drive_site.work(n: Int, label: String) at (*frame).[8]
 fn drive_site.twice(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -43,30 +43,30 @@ fn drive_site.twice(n: Int) -> Int {
     let _5: &var Int;
 
     bb0: {
-        (*_5).[48: Int] = copy (*_5).[16: Int];
-        (*_5).[56: String] = const "a": String;
+        (*_5).[24: Int] = copy (*_5).[40: Int];
+        (*_5).[32: String] = const "a": String;
         call drive_site.work(n: Int, label: String) [] -> [return: bb3] suspends;
     }
 
     bb1: {
-        (*_5).[80: Int] = copy (*_5).[16: Int];
-        (*_5).[88: String] = const "bc": String;
+        (*_5).[24: Int] = copy (*_5).[40: Int];
+        (*_5).[32: String] = const "bc": String;
         call drive_site.work(n: Int, label: String) [] -> [return: bb4] suspends;
     }
 
     bb2: {
-        _4 = Add(move (*_5).[24: Int], move _3);
+        _4 = Add(move (*_5).[48: Int], move _3);
         (*_5).[8: Int] = move _4;
         return;
     }
 
     bb3: {
-        (*_5).[24: Int] = move (*_5).[40: Int];
+        (*_5).[48: Int] = move (*_5).[16: Int];
         goto -> bb1;
     }
 
     bb4: {
-        _3 = move (*_5).[72: Int];
+        _3 = move (*_5).[16: Int];
         goto -> bb2;
     }
 }
@@ -175,7 +175,7 @@ fn drive_site.main() -> Void {
 
     bb2: {
         (*_10).[0: Int] = const 0: Int;
-        (*_10).[16: Int] = const 2: Int;
+        (*_10).[40: Int] = const 2: Int;
         _9 = drive result drive_site.twice(n: Int) [] -> [return: bb13];
     }
 

@@ -84,9 +84,9 @@ item #82: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #83: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #5: cancel_read.watch(n: Int) task root
     state: every point
-    _0 result: bb8.t bb10.t bb12.t
+    _0 result: bb8.1-t bb10.0-t bb12.1-t
     _1 param n: every point
-    _2 early: bb1.t s1 r1 bb2.t bb3.t bb4.t bb5.t bb6.0-t bb7.0-t bb8.0-t bb9.t bb10.0-t bb11.t bb12.0-t bb13.t
+    _2 early: bb1.0-t s1 r1 bb2.t bb3.t bb4.t bb5.t bb6.0-t bb7.0-t bb8.0-t bb9.t bb10.0-t bb11.t bb12.0-t bb13.t
     child std.task.yield_now(): bb1.t s1
 lifetimes #10: std.task.yield_now()
     state: every point

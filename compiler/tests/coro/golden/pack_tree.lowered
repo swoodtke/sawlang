@@ -1,0 +1,548 @@
+resume #5: pack_tree.root() task root  (frame size 304 align 8, pointer _18)
+    state 0: bb0
+    state 1: bb0 drive #9 pack_tree.w2(k: Int) at (*frame).[8]
+    state 2: bb1 drive #10 pack_tree.w4(k: Int) at (*frame).[8]
+    state 3: bb2 drive #11 pack_tree.w8(k: Int) at (*frame).[8]
+    state 4: bb3 drive #12 pack_tree.t3(k: Int) at (*frame).[8]
+    state 5: bb4 drive #13 pack_tree.t2(k: Int) at (*frame).[8]
+    state 6: bb5 drive #14 pack_tree.t1(k: Int) at (*frame).[8]
+fn pack_tree.root() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // a
+    let _2: Int;
+    let _3: Int;  // b
+    let _4: Int;
+    let _5: Int;  // c
+    let _6: Int;
+    let _7: Int;  // d
+    let _8: Int;
+    let _9: Int;  // e
+    let _10: Int;
+    let _11: Int;  // f
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: &var Int;
+
+    bb0: {
+        (*_18).[200: Int] = const 1: Int;
+        call pack_tree.w2(k: Int) [] -> [return: bb7] suspends;
+    }
+
+    bb1: {
+        (*_18).[264: Int] = move _2;
+        (*_18).[200: Int] = const 2: Int;
+        call pack_tree.w4(k: Int) [] -> [return: bb8] suspends;
+    }
+
+    bb2: {
+        (*_18).[272: Int] = move _4;
+        (*_18).[200: Int] = const 3: Int;
+        call pack_tree.w8(k: Int) [] -> [return: bb9] suspends;
+    }
+
+    bb3: {
+        (*_18).[280: Int] = move _6;
+        (*_18).[200: Int] = const 4: Int;
+        call pack_tree.t3(k: Int) [] -> [return: bb10] suspends;
+    }
+
+    bb4: {
+        (*_18).[288: Int] = move _8;
+        (*_18).[224: Int] = const 5: Int;
+        call pack_tree.t2(k: Int) [] -> [return: bb11] suspends;
+    }
+
+    bb5: {
+        (*_18).[296: Int] = move _10;
+        (*_18).[248: Int] = const 6: Int;
+        call pack_tree.t1(k: Int) [] -> [return: bb12] suspends;
+    }
+
+    bb6: {
+        _11 = move _12;
+        _13 = Add(copy (*_18).[264: Int], copy (*_18).[272: Int]);
+        _14 = Add(move _13, copy (*_18).[280: Int]);
+        _15 = Add(move _14, copy (*_18).[288: Int]);
+        _16 = Add(move _15, copy (*_18).[296: Int]);
+        _17 = Add(move _16, copy _11);
+        (*_18).[8: Int] = move _17;
+        return;
+    }
+
+    bb7: {
+        _2 = move (*_18).[16: Int];
+        goto -> bb1;
+    }
+
+    bb8: {
+        _4 = move (*_18).[16: Int];
+        goto -> bb2;
+    }
+
+    bb9: {
+        _6 = move (*_18).[16: Int];
+        goto -> bb3;
+    }
+
+    bb10: {
+        _8 = move (*_18).[16: Int];
+        goto -> bb4;
+    }
+
+    bb11: {
+        _10 = move (*_18).[16: Int];
+        goto -> bb5;
+    }
+
+    bb12: {
+        _12 = move (*_18).[16: Int];
+        goto -> bb6;
+    }
+}
+resume #9: pack_tree.w2(k: Int)  (frame size 208 align 8, pointer _7)
+    state 0: bb0
+    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+fn pack_tree.w2(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: Int;  // a
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: Int;
+    let _6: Int;
+    let _7: &var Int;
+
+    bb0: {
+        (*_7).[184: Int] = copy (*_7).[192: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb3] suspends;
+    }
+
+    bb1: {
+        (*_7).[200: Int] = move _3;
+        (*_7).[184: Int] = copy (*_7).[200: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb4] suspends;
+    }
+
+    bb2: {
+        _4 = move _5;
+        _6 = Add(copy (*_7).[200: Int], copy _4);
+        (*_7).[8: Int] = move _6;
+        return;
+    }
+
+    bb3: {
+        _3 = move (*_7).[176: Int];
+        goto -> bb1;
+    }
+
+    bb4: {
+        _5 = move (*_7).[176: Int];
+        goto -> bb2;
+    }
+}
+resume #10: pack_tree.w4(k: Int)  (frame size 224 align 8, pointer _13)
+    state 0: bb0
+    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 3: bb2 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 4: bb3 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+fn pack_tree.w4(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: Int;  // a
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: Int;
+    let _6: Int;  // c
+    let _7: Int;
+    let _8: Int;  // d
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: &var Int;
+
+    bb0: {
+        (*_13).[184: Int] = copy (*_13).[192: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb5] suspends;
+    }
+
+    bb1: {
+        (*_13).[200: Int] = move _3;
+        (*_13).[184: Int] = copy (*_13).[200: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb6] suspends;
+    }
+
+    bb2: {
+        (*_13).[208: Int] = move _5;
+        (*_13).[184: Int] = copy (*_13).[208: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb7] suspends;
+    }
+
+    bb3: {
+        (*_13).[216: Int] = move _7;
+        (*_13).[184: Int] = copy (*_13).[216: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb8] suspends;
+    }
+
+    bb4: {
+        _8 = move _9;
+        _10 = Add(copy (*_13).[200: Int], copy (*_13).[208: Int]);
+        _11 = Add(move _10, copy (*_13).[216: Int]);
+        _12 = Add(move _11, copy _8);
+        (*_13).[8: Int] = move _12;
+        return;
+    }
+
+    bb5: {
+        _3 = move (*_13).[176: Int];
+        goto -> bb1;
+    }
+
+    bb6: {
+        _5 = move (*_13).[176: Int];
+        goto -> bb2;
+    }
+
+    bb7: {
+        _7 = move (*_13).[176: Int];
+        goto -> bb3;
+    }
+
+    bb8: {
+        _9 = move (*_13).[176: Int];
+        goto -> bb4;
+    }
+}
+resume #11: pack_tree.w8(k: Int)  (frame size 256 align 8, pointer _25)
+    state 0: bb0
+    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 3: bb2 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 4: bb3 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 5: bb4 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 6: bb5 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 7: bb6 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 8: bb7 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+fn pack_tree.w8(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: Int;  // a
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: Int;
+    let _6: Int;  // c
+    let _7: Int;
+    let _8: Int;  // d
+    let _9: Int;
+    let _10: Int;  // e
+    let _11: Int;
+    let _12: Int;  // f
+    let _13: Int;
+    let _14: Int;  // g
+    let _15: Int;
+    let _16: Int;  // h
+    let _17: Int;
+    let _18: Int;
+    let _19: Int;
+    let _20: Int;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+    let _24: Int;
+    let _25: &var Int;
+
+    bb0: {
+        (*_25).[184: Int] = copy (*_25).[192: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb9] suspends;
+    }
+
+    bb1: {
+        (*_25).[200: Int] = move _3;
+        (*_25).[184: Int] = copy (*_25).[200: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb10] suspends;
+    }
+
+    bb2: {
+        (*_25).[208: Int] = move _5;
+        (*_25).[184: Int] = copy (*_25).[208: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb11] suspends;
+    }
+
+    bb3: {
+        (*_25).[216: Int] = move _7;
+        (*_25).[184: Int] = copy (*_25).[216: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb12] suspends;
+    }
+
+    bb4: {
+        (*_25).[224: Int] = move _9;
+        (*_25).[184: Int] = copy (*_25).[224: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb13] suspends;
+    }
+
+    bb5: {
+        (*_25).[232: Int] = move _11;
+        (*_25).[184: Int] = copy (*_25).[232: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb14] suspends;
+    }
+
+    bb6: {
+        (*_25).[240: Int] = move _13;
+        (*_25).[184: Int] = copy (*_25).[240: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb15] suspends;
+    }
+
+    bb7: {
+        (*_25).[248: Int] = move _15;
+        (*_25).[184: Int] = copy (*_25).[248: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb16] suspends;
+    }
+
+    bb8: {
+        _16 = move _17;
+        _18 = Add(copy (*_25).[200: Int], copy (*_25).[208: Int]);
+        _19 = Add(move _18, copy (*_25).[216: Int]);
+        _20 = Add(move _19, copy (*_25).[224: Int]);
+        _21 = Add(move _20, copy (*_25).[232: Int]);
+        _22 = Add(move _21, copy (*_25).[240: Int]);
+        _23 = Add(move _22, copy (*_25).[248: Int]);
+        _24 = Add(move _23, copy _16);
+        (*_25).[8: Int] = move _24;
+        return;
+    }
+
+    bb9: {
+        _3 = move (*_25).[176: Int];
+        goto -> bb1;
+    }
+
+    bb10: {
+        _5 = move (*_25).[176: Int];
+        goto -> bb2;
+    }
+
+    bb11: {
+        _7 = move (*_25).[176: Int];
+        goto -> bb3;
+    }
+
+    bb12: {
+        _9 = move (*_25).[176: Int];
+        goto -> bb4;
+    }
+
+    bb13: {
+        _11 = move (*_25).[176: Int];
+        goto -> bb5;
+    }
+
+    bb14: {
+        _13 = move (*_25).[176: Int];
+        goto -> bb6;
+    }
+
+    bb15: {
+        _15 = move (*_25).[176: Int];
+        goto -> bb7;
+    }
+
+    bb16: {
+        _17 = move (*_25).[176: Int];
+        goto -> bb8;
+    }
+}
+resume #12: pack_tree.t3(k: Int)  (frame size 208 align 8, pointer _8)
+    state 0: bb0
+    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+fn pack_tree.t3(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: Int;  // a
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: &var Int;
+
+    bb0: {
+        (*_8).[184: Int] = copy (*_8).[192: Int];
+        call pack_tree.leaf(k: Int) [] -> [return: bb3] suspends;
+    }
+
+    bb1: {
+        (*_8).[200: Int] = move _3;
+        _5 = Add(copy (*_8).[192: Int], const 1: Int);
+        (*_8).[184: Int] = move _5;
+        call pack_tree.leaf(k: Int) [] -> [return: bb4] suspends;
+    }
+
+    bb2: {
+        _4 = move _6;
+        _7 = Add(copy (*_8).[200: Int], copy _4);
+        (*_8).[8: Int] = move _7;
+        return;
+    }
+
+    bb3: {
+        _3 = move (*_8).[176: Int];
+        goto -> bb1;
+    }
+
+    bb4: {
+        _6 = move (*_8).[176: Int];
+        goto -> bb2;
+    }
+}
+resume #13: pack_tree.t2(k: Int)  (frame size 232 align 8, pointer _8)
+    state 0: bb0
+    state 1: bb0 drive #12 pack_tree.t3(k: Int) at (*frame).[8]
+    state 2: bb1 drive #12 pack_tree.t3(k: Int) at (*frame).[8]
+fn pack_tree.t2(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: Int;  // a
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: &var Int;
+
+    bb0: {
+        (*_8).[200: Int] = copy (*_8).[216: Int];
+        call pack_tree.t3(k: Int) [] -> [return: bb3] suspends;
+    }
+
+    bb1: {
+        (*_8).[224: Int] = move _3;
+        _5 = Add(copy (*_8).[216: Int], const 1: Int);
+        (*_8).[200: Int] = move _5;
+        call pack_tree.t3(k: Int) [] -> [return: bb4] suspends;
+    }
+
+    bb2: {
+        _4 = move _6;
+        _7 = Add(copy (*_8).[224: Int], copy _4);
+        (*_8).[8: Int] = move _7;
+        return;
+    }
+
+    bb3: {
+        _3 = move (*_8).[16: Int];
+        goto -> bb1;
+    }
+
+    bb4: {
+        _6 = move (*_8).[16: Int];
+        goto -> bb2;
+    }
+}
+resume #14: pack_tree.t1(k: Int)  (frame size 256 align 8, pointer _8)
+    state 0: bb0
+    state 1: bb0 drive #13 pack_tree.t2(k: Int) at (*frame).[8]
+    state 2: bb1 drive #13 pack_tree.t2(k: Int) at (*frame).[8]
+fn pack_tree.t1(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: Int;  // a
+    let _3: Int;
+    let _4: Int;  // b
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: &var Int;
+
+    bb0: {
+        (*_8).[224: Int] = copy (*_8).[240: Int];
+        call pack_tree.t2(k: Int) [] -> [return: bb3] suspends;
+    }
+
+    bb1: {
+        (*_8).[248: Int] = move _3;
+        _5 = Add(copy (*_8).[240: Int], const 1: Int);
+        (*_8).[224: Int] = move _5;
+        call pack_tree.t2(k: Int) [] -> [return: bb4] suspends;
+    }
+
+    bb2: {
+        _4 = move _6;
+        _7 = Add(copy (*_8).[248: Int], copy _4);
+        (*_8).[8: Int] = move _7;
+        return;
+    }
+
+    bb3: {
+        _3 = move (*_8).[16: Int];
+        goto -> bb1;
+    }
+
+    bb4: {
+        _6 = move (*_8).[16: Int];
+        goto -> bb2;
+    }
+}
+resume #17: pack_tree.leaf(k: Int)  (frame size 184 align 8, pointer _6, context _7)
+    state 0: bb0
+    state 1: bb0 park ready
+fn pack_tree.leaf(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: [Int; 20];  // pad
+    let _3: [Int; 20];
+    let _4: Int;
+    let _5: Int;
+    let _6: &var Int;
+    let _7: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        _3 = [copy (*_6).[176: Int]; const 20: Int];
+        (*_6).[8: [Int; 20]] = move _3;
+        (*(*_7).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _4 = const 3: Int;
+        _5 = Mul(copy (*_6).[8: [Int; 20]][_4], const 2: Int);
+        (*_6).[168: Int] = move _5;
+        return;
+    }
+}
+driver #0: pack_tree.main()
+    drive bb0 task root #5 pack_tree.root() task root, descriptor _2, frame _3
+fn pack_tree.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _3: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_3).[0: Int] = const 0: Int;
+        _2 = drive result pack_tree.root() [] -> [return: bb3];
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _2, copy _3, const "`__saw_drive(...)` at compiler/tests/coro/golden/pack_tree.saw:69:17": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _1 = move (*_3).[8: Int];
+        goto -> bb1;
+    }
+}

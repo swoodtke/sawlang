@@ -1,28 +1,28 @@
-frame #0: default_caller.main()  (size 64 align 8)
+frame #0: default_caller.main()  (size 40 align 8, lower bound 40)
     suspend 1: bb0 call fills
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
-    (*frame).[8: frame default_caller.fills()]  size 56 align 8  child  (across 1)
+    (*frame).[40: Void]  size 0 align 1  _0 result
+    (*frame).[8: frame default_caller.fills()]  size 32 align 8  child  (across 1)
     stack: _1 _2 _3
-frame #5: default_caller.fills()  (size 56 align 8)
+frame #5: default_caller.fills()  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call f
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: frame default default_caller.f(n: Int).n]  size 40 align 8  child  (across 1)
+    (*frame).[8: frame default default_caller.f(n: Int).n]  size 24 align 8  child  (across 1)
     stack: _1 _2
-frame #9: default default_caller.f(n: Int).n  (size 40 align 8)
+frame #9: default default_caller.f(n: Int).n  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call slow
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: frame default_caller.slow()]  size 24 align 8  child  (across 1)
+    (*frame).[8: frame default_caller.slow()]  size 16 align 8  child  (across 1)
     stack: _1
-frame #11: default_caller.slow()  (size 24 align 8)
+frame #11: default_caller.slow()  (size 16 align 8, lower bound 16)
     suspend 1: bb0 call yield_now
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
+    (*frame).[8: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
     stack: none
-frame #12: std.task.yield_now()  (size 8 align 8)
+frame #12: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result

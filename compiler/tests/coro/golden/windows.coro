@@ -88,30 +88,30 @@ item #86: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #87: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #5: windows.held(n: Int) task root
     state: every point
-    _0 result: bb3.t
+    _0 result: bb3.2-t
     _1 param n: every point
-    _2 g: bb0.2-t bb1.0-t s1 r1 bb2.0-t bb3.0-t
+    _2 g: bb0.1-t bb1.0-t s1 r1 bb2.0-t bb3.0-t
     _4: bb1.0-t s1 r1 bb2.0-t bb3.0-t
     _6 record: bb0.t bb1.0-t s1 r1 bb2.0-t
-    _8 ref c: bb1.1-t s1 r1 bb2.0-t bb3.0-t
+    _8 ref c: bb1.0-t s1 r1 bb2.0-t bb3.0-t
     child std.task.yield_now(): bb1.t s1
 lifetimes #7: windows.halves(n: Int) task root
     state: every point
-    _0 result: bb2.t
+    _0 result: bb2.2-t
     _1 param n: every point
-    _2 g: bb0.2-t s1 r1 bb1.0-t s2 r2 bb2.0-t
+    _2 g: bb0.1-t s1 r1 bb1.0-t s2 r2 bb2.0-t
     _4: r1 bb1.0-t s2 r2 bb2.0-t
     _6 record: bb0.t s1 r1 bb1.0-t s2
-    _8 ref c: bb1.1-t s2 r2 bb2.0-t
+    _8 ref c: bb1.0-t s2 r2 bb2.0-t
     child prologue windows.Grid.slow() receiver exclusive: bb0.t s1 r1
     child epilogue windows.Grid.slow() receiver exclusive: bb1.t s2
 lifetimes #8: windows.beside(n: Int) task root
     state: every point
-    _0 result: bb4.t
+    _0 result: bb4.0-t
     _1 param n: every point
-    _2 g: bb0.t s1 r1 bb1.0-t bb2.0-t bb3.t s2 r2 bb4.0-t
+    _2 g: bb0.1-t s1 r1 bb1.0-t bb2.0-t bb3.t s2 r2 bb4.0-t
     _5: bb2.0-t bb3.t s2 r2 bb4.0-t
-    _9 ref c: bb2.1-t bb3.t s2 r2 bb4.0-t
+    _9 ref c: bb2.0-t bb3.t s2 r2 bb4.0-t
     child std.task.yield_now(): bb0.t s1
     child std.task.yield_now(): bb3.t s2
 lifetimes #12: std.task.yield_now()
@@ -119,7 +119,7 @@ lifetimes #12: std.task.yield_now()
     _0 result: none
 lifetimes #16: prologue windows.Grid.slow() receiver exclusive
     state: every point
-    _0 result: bb2.2-t
+    _0 result: bb2.1-t
     _1 record: every point
     _2 self: bb0.t s1 r1 bb1.0-t bb2.0-2
     child std.task.yield_now(): bb0.t s1
@@ -127,5 +127,5 @@ lifetimes #17: epilogue windows.Grid.slow() receiver exclusive
     state: every point
     _0 result: none
     _1 record: every point
-    _2 self: bb0.t bb1.t s1 r1 bb2.0-t
+    _2 self: every point
     child std.task.yield_now(): bb1.t s1

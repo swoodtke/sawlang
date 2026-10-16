@@ -117,7 +117,7 @@ item #115: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #0: park_signal.main()
     state: every point
     _0 result: none
-    _1 watch: bb1.1-t s1 r1 bb2.t
+    _1 watch: bb1.0-t s1 r1 bb2.t
     child std.task.SignalWatch.next(): bb1.t s1
 lifetimes #6: std.task.SignalWatch.next()
     state: every point

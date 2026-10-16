@@ -1,8 +1,8 @@
-resume #0: drive_arguments.main()  (frame size 120 align 8, pointer _8)
+resume #0: drive_arguments.main()  (frame size 56 align 8, pointer _8)
     state 0: bb0
-    state 1: bb0 drive #5 drive_arguments.inner(a: Int) at (*frame).[24]
-    state 2: bb1 drive #6 drive_arguments.label(prefix: String, p: drive_arguments.Point) at (*frame).[56]
-    state 3: bb3 drive #7 drive_arguments.effect_only(n: Int) at (*frame).[96]
+    state 1: bb0 drive #5 drive_arguments.inner(a: Int) at (*frame).[8]
+    state 2: bb1 drive #6 drive_arguments.label(prefix: String, p: drive_arguments.Point) at (*frame).[8]
+    state 3: bb3 drive #7 drive_arguments.effect_only(n: Int) at (*frame).[8]
 fn drive_arguments.main() -> Void {
     let _0: Void;  // return
     let _1: Int;  // n
@@ -15,46 +15,46 @@ fn drive_arguments.main() -> Void {
     let _8: &var Int;
 
     bb0: {
-        (*_8).[40: Int] = const 3: Int;
+        (*_8).[24: Int] = const 3: Int;
         call drive_arguments.inner(a: Int) [] -> [return: bb5] suspends;
     }
 
     bb1: {
-        (*_8).[8: Int] = move _2;
-        _4 = drive_arguments.Point { x: copy (*_8).[8: Int], y: const 1: Int };
-        (*_8).[72: String] = const "tag": String;
-        (*_8).[80: drive_arguments.Point] = move _4;
+        (*_8).[48: Int] = move _2;
+        _4 = drive_arguments.Point { x: copy (*_8).[48: Int], y: const 1: Int };
+        (*_8).[40: String] = const "tag": String;
+        (*_8).[16: drive_arguments.Point] = move _4;
         call drive_arguments.label(prefix: String, p: drive_arguments.Point) [] -> [return: bb6] suspends;
     }
 
     bb2: {
-        (*_8).[16: String] = move _5;
-        _6 = ref(shared, (*_8).[16: String]);
+        (*_8).[32: String] = move _5;
+        _6 = ref(shared, (*_8).[32: String]);
         call builtin print [format "{}", move _6] -> [return: bb3];
     }
 
     bb3: {
-        (*_8).[112: Int] = copy (*_8).[8: Int];
+        (*_8).[24: Int] = copy (*_8).[48: Int];
         call drive_arguments.effect_only(n: Int) [] -> [return: bb7] suspends;
     }
 
     bb4: {
-        drop((*_8).[16: String]);
+        drop((*_8).[32: String]);
         return;
     }
 
     bb5: {
-        _2 = move (*_8).[32: Int];
+        _2 = move (*_8).[16: Int];
         goto -> bb1;
     }
 
     bb6: {
-        _5 = move (*_8).[64: String];
+        _5 = move (*_8).[32: String];
         goto -> bb2;
     }
 
     bb7: {
-        _7 = move (*_8).[104: Int];
+        _7 = move (*_8).[16: Int];
         goto -> bb4;
     }
 }
@@ -101,10 +101,10 @@ fn drive_arguments.label(prefix: String, p: drive_arguments.Point) -> String {
     }
 
     bb1: {
-        _3 = ref(shared, (*_5).[16: String]);
-        _4 = interpolate [move _3, const "-": String, copy (*_5).[24: drive_arguments.Point].x];
-        (*_5).[8: String] = move _4;
-        drop((*_5).[16: String]);
+        _3 = ref(shared, (*_5).[32: String]);
+        _4 = interpolate [move _3, const "-": String, copy (*_5).[8: drive_arguments.Point].x];
+        (*_5).[24: String] = move _4;
+        drop((*_5).[32: String]);
         return;
     }
 }

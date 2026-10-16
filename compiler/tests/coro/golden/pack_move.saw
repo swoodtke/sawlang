@@ -1,0 +1,40 @@
+// Packing (SL:coroutines B2): a statement's destination interferes with what
+// it reads. `let x = move y` copies `y`'s bytes into `x`'s with one `memcpy`,
+// so the two may not share a byte at that statement, though `y` is dead after
+// it and `x` before it. `a` interferes with `x` alone and `b` with `y` alone;
+// without that statement in `x`'s lifetime, the greedy order would put `x`
+// at 40, over the last 8 bytes of `y` at 32.
+struct Four { a: Int, b: Int, c: Int, d: Int }
+struct Three { a: Int, b: Int, c: Int }
+struct Two { a: Int, b: Int }
+
+extension Four: NoCopy {}
+extension Three: NoCopy {}
+extension Two: NoCopy {}
+
+func use_four(v: Four) -> Int {
+    v.a + v.b + v.c + v.d
+}
+
+func use_three(v: Three) -> Int {
+    v.a + v.b + v.c
+}
+
+func use_two(v: Two) -> Int {
+    v.a * 10 + v.b
+}
+
+func moved() -> Int {
+    let b = Three(a: 1, b: 2, c: 3)
+    let y = Two(a: 4, b: 5)
+    __saw_suspend()
+    let n = use_three(move b)
+    let x = move y
+    let a = Four(a: n, b: 6, c: 7, d: 8)
+    __saw_suspend()
+    use_four(move a) + use_two(move x)
+}
+
+func main() {
+    print("{}", __saw_drive(moved()))
+}

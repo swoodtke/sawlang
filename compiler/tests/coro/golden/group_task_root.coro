@@ -132,7 +132,7 @@ item #130: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #131: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #6: group_task_root.double(n: Int) task root
     state: every point
-    _0 result: bb0.t
+    _0 result: bb0.1-t
     _1 param n: every point
 lifetimes #12: group_task_root.hello(name: String) task root
     state: every point

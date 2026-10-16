@@ -1,4 +1,4 @@
-resume #0: default_caller.main()  (frame size 64 align 8, pointer _4)
+resume #0: default_caller.main()  (frame size 40 align 8, pointer _4)
     state 0: bb0
     state 1: bb0 drive #5 default_caller.fills() at (*frame).[8]
 fn default_caller.main() -> Void {
@@ -30,9 +30,9 @@ fn default_caller.main() -> Void {
         goto -> bb1;
     }
 }
-resume #5: default_caller.fills()  (frame size 56 align 8, pointer _3)
+resume #5: default_caller.fills()  (frame size 32 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #9 default default_caller.f(n: Int).n at (*frame).[16]
+    state 1: bb0 drive #9 default default_caller.f(n: Int).n at (*frame).[8]
 fn default_caller.fills() -> Int {
     let _0: Int;  // return
     let _1: Int;
@@ -53,13 +53,13 @@ fn default_caller.fills() -> Int {
     }
 
     bb3: {
-        _1 = move (*_3).[24: Int];
+        _1 = move (*_3).[16: Int];
         goto -> bb1;
     }
 }
-resume #9: default default_caller.f(n: Int).n  (frame size 40 align 8, pointer _2)
+resume #9: default default_caller.f(n: Int).n  (frame size 24 align 8, pointer _2)
     state 0: bb0
-    state 1: bb0 drive #11 default_caller.slow() at (*frame).[16]
+    state 1: bb0 drive #11 default_caller.slow() at (*frame).[8]
 fn default default_caller.f(n: Int).n -> Int {
     let _0: Int;  // return
     let _1: Int;
@@ -75,13 +75,13 @@ fn default default_caller.f(n: Int).n -> Int {
     }
 
     bb2: {
-        _1 = move (*_2).[24: Int];
+        _1 = move (*_2).[16: Int];
         goto -> bb1;
     }
 }
-resume #11: default_caller.slow()  (frame size 24 align 8, pointer _1)
+resume #11: default_caller.slow()  (frame size 16 align 8, pointer _1)
     state 0: bb0
-    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[8]
 fn default_caller.slow() -> Int {
     let _0: Int;  // return
     let _1: &var Int;

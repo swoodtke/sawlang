@@ -1,0 +1,74 @@
+resume #5: pack_disjoint.disjoint() task root  (frame size 40 align 8, pointer _8, context _9)
+    state 0: bb0
+    state 1: bb0 park ready
+    state 2: bb2 park ready
+fn pack_disjoint.disjoint() -> Int {
+    let _0: Int;  // return
+    let _1: pack_disjoint.Token;  // first
+    let _2: pack_disjoint.Token;
+    let _3: Int;  // n
+    let _4: Int;
+    let _5: pack_disjoint.Token;  // second
+    let _6: pack_disjoint.Token;
+    let _7: Int;
+    let _8: &var Int;
+    let _9: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        _2 = pack_disjoint.Token { id: const 1: Int, weight: const 2: Int, rank: const 3: Int };
+        (*_8).[8: pack_disjoint.Token] = move _2;
+        (*(*_9).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _4 = call pack_disjoint.spend(t: pack_disjoint.Token) [move (*_8).[8: pack_disjoint.Token]] -> [return: bb2];
+    }
+
+    bb2: {
+        (*_8).[32: Int] = move _4;
+        _6 = pack_disjoint.Token { id: copy (*_8).[32: Int], weight: const 4: Int, rank: const 5: Int };
+        (*_8).[8: pack_disjoint.Token] = move _6;
+        (*(*_9).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb3] suspends;
+    }
+
+    bb3: {
+        _7 = call pack_disjoint.spend(t: pack_disjoint.Token) [move (*_8).[8: pack_disjoint.Token]] -> [return: bb4];
+    }
+
+    bb4: {
+        (*_8).[8: Int] = move _7;
+        return;
+    }
+}
+driver #0: pack_disjoint.main()
+    drive bb0 task root #5 pack_disjoint.disjoint() task root, descriptor _2, frame _3
+fn pack_disjoint.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _3: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_3).[0: Int] = const 0: Int;
+        _2 = drive result pack_disjoint.disjoint() [] -> [return: bb3];
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _2, copy _3, const "`__saw_drive(...)` at compiler/tests/coro/golden/pack_disjoint.saw:22:17": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _1 = move (*_3).[8: Int];
+        goto -> bb1;
+    }
+}

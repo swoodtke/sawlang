@@ -140,10 +140,15 @@ layout's interference and the dump all read it from the one funnel,
 - **the state word and the op-budget counter:** every point;
 - **a local**, the result and the parameters included: the points just before
   which the initialisation analysis says it may be initialised, whole or in
-  part (`compiler/mir/src/initialisation.saw`). So it runs through its
+  part (`compiler/mir/src/initialisation.saw`), and the point of each
+  assignment that writes into it, whole or in part, other than through a
+  dereference. So it runs from the statement that initialises it through its
   scope-end drop, and a local that is moved is dead until it is assigned
   again. A local only ever copied never stops being initialised, so its
-  lifetime runs to the end;
+  lifetime runs to the end. The assignment's own point is in it because the
+  backend writes an rvalue straight into its destination, a moved memory
+  value by one `memcpy` and an aggregate member by member, while it still
+  reads the values the statement moves out of (golden `pack_move`);
 - **a window's state record**, a local whose accessor's halves write and read
   it through a reference the analysis never sees: also every point at which
   its window may be open, from its open's terminator through its close's
@@ -164,8 +169,8 @@ read by its own scope-end drop (the spec's "Scope-end release"), so its
 storage is never dead before that drop, and only a value with no drop could
 end earlier.
 
-Sequential suspending calls have disjoint child-slot lifetimes, so packing
-(SL:coroutines B2) may overlay them (golden `lifetimes`).
+Sequential suspending calls have disjoint child-slot lifetimes, so the layout
+overlays them (goldens `lifetimes` and `pack_sequential`).
 
 **The lifetimes in `--dump`**, per frame, in item order:
 
@@ -214,23 +219,39 @@ between two suspensions keeps it on the stack.
 **Layout.** Each value's size and alignment are the target's
 (`compiler/target`), and a child slot's are its child's frame's, so frames
 are laid out callees first. Two values interfere when their storage
-lifetimes share a point. `coro_assign` takes the values and their
-interference and gives each an offset; its policy is no sharing, each value
-at the next offset its alignment allows after the one before, so packing
-(SL:coroutines B2) changes that policy and nothing else. The frame's
+lifetimes share a point, and two values share a byte only when they do not
+interfere. `coro_assign` takes the values and their interference and gives
+each an offset by a deterministic greedy packing (SL:coroutines B2):
+
+1. the state word takes offset 0, since the resume function loads the state
+   from the frame's first byte and a drive starts a child at its slot's
+   base; it counts as interfering with every value;
+2. then each other value in turn, by decreasing size and then in the frame's
+   order, takes the lowest offset its alignment allows whose bytes no value
+   already placed that interferes with it holds.
+
+So sequential children and exclusive arms share one slot (goldens
+`pack_sequential`, `pack_arms`, `pack_tree`, `pack_p2_layout`), and so do
+values whose lifetimes are disjoint (golden `pack_disjoint`). The frame's
 alignment is its values' largest, and its size the end of its last value
 rounded up to it. A zero-size value, such as an empty struct, the `Void`
-payload of a `try!`, an empty tuple or a zero-length array, takes its offset
-the same way and occupies no byte: it lies at the offset of the value after
-it, or at the frame's end when laid last. So a slot is told apart by its
-offset and its type, and zero-size parameters of one type share a slot
-(golden `zero_size`). A frame holding a value the target cannot lay out, a child
-frame that cannot be among them, gets no offsets.
+payload of a `try!`, an empty tuple or a zero-length array, occupies no byte
+and is placed after every value that does: it takes the lowest offset its
+alignment allows that lies on no byte another value holds, often the frame's
+end. A slot is told apart by its offset and its type, and zero-size
+parameters of one type share a slot (golden `zero_size`). A frame holding a value the target cannot
+lay out, a child frame that cannot be among them, gets no offsets.
+
+The frame's **lower bound** is the most bytes its values need at one
+program point: the sum of the sizes of the values live there, at the point
+where that sum is largest. It is the packing's goal, not a size formula
+(SL:architecture §3.9): with fixed offsets over a general control-flow graph
+a packing may not reach it, and alignment adds to it.
 
 **The `--layouts` record**, per frame, in item order:
 
 ```
-frame #K: NAME  (size S align A)
+frame #K: NAME  (size S align A, lower bound B)
     suspend N: bbB call LABEL
     suspend N: bbB budget
     (*frame).[OFFSET: T]  size S align A  state
@@ -241,6 +262,7 @@ frame #K: NAME  (size S align A)
     stack: _L...
 ```
 
+S in the header is the frame's extent and B its lower bound (Layout, above).
 The header's parenthesis is `(unsupported: T)` for a frame holding a value
 of type T the target cannot lay out, and each OFFSET is then `?`; a child
 slot's type is `frame NAME`, its child item's frame. LABEL names
@@ -699,7 +721,13 @@ which `oracle.v0_compiler` finds; nothing else does.
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it, and whose op-budget point gives
 its frame a counter): the values each frame holds, and
-offsets with no sharing. Golden `lifetimes` is the storage lifetimes, one
+their packed offsets. The `pack_` goldens are the packing's shapes:
+sequential children (`pack_sequential`), exclusive `if` and `match` arms
+(`pack_arms`), values in disjoint ranges (`pack_disjoint`), a move whose
+destination and source never share a byte (`pack_move`), design 163's
+synthetic call tree (`pack_tree`; Stage 0 lays its `root` out in 7,440
+bytes) and the oracle sweep's `p2_layout`, four sequential children
+(`pack_p2_layout`; 432 bytes in Stage 0). Golden `lifetimes` is the storage lifetimes, one
 function per shape: a value live across one suspension only, a child slot
 through its result's move-out, a window's record, an offload's storage, and
 sequential children whose lifetimes are disjoint. Golden `drive_and_park` is the lowered shapes: drives

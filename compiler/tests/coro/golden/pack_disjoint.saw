@@ -1,0 +1,23 @@
+// Packing (SL:coroutines B2): values in disjoint ranges. `first` is consumed
+// before `second` is made, so the two are never live at one point and share
+// one offset, though each is held across a suspension.
+struct Token { id: Int, weight: Int, rank: Int }
+
+extension Token: NoCopy {}
+
+func spend(t: Token) -> Int {
+    t.id + t.weight + t.rank
+}
+
+func disjoint() -> Int {
+    let first = Token(id: 1, weight: 2, rank: 3)
+    __saw_suspend()
+    let n = spend(move first)
+    let second = Token(id: n, weight: 4, rank: 5)
+    __saw_suspend()
+    spend(move second)
+}
+
+func main() {
+    print("{}", __saw_drive(disjoint()))
+}

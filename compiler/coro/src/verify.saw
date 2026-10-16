@@ -675,7 +675,7 @@ func coro_verify_same_place(coro: &CoroProgram, body: &CoroBeforeBody, frame: In
 // Whether the `count` steps from `a`, as body `body` named them, and from
 // `b`, as lowering left them, are equal. An index by local `_x` may become an
 // index by a temporary lowering added that only ever copies `_x`'s frame
-// slot (`coro_verify_index_source`), since a projection cannot name a slot.
+// slot (`coro_verify_index_copies`), since a projection cannot name a slot.
 func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: Int, a: Int, b: Int,
                             count: Int) -> Bool {
     var j = 0
@@ -687,7 +687,7 @@ func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: In
             return false
         }
         if x.index != y.index {
-            let loaded = x.kind == MirProjKind.Index && coro_verify_index_source(&coro, &body, frame, y.index) == x.index
+            let loaded = x.kind == MirProjKind.Index && coro_verify_index_copies(&coro, &body, frame, y.index, x.index)
             if not loaded {
                 return false
             }
@@ -696,10 +696,25 @@ func coro_verify_same_steps(coro: &CoroProgram, body: &CoroBeforeBody, frame: In
     true
 }
 
-// The local of body `b` whose frame slot local `t` holds a copy of, when `t`
-// is a local lowering added whose every write is `_t = copy (*_F).[OFFSET:
-// T]` through frame pointer `frame` at that local's one offset; else -1.
-func coro_verify_index_source(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, t: Int) -> Int {
+// Whether local `t` is a temporary lowering added that only ever copies the
+// frame slot of local `l` of body `b`: the slot its frame's layout gives `l`,
+// of `l`'s type. Locals whose lifetimes never meet may share an offset, so
+// the slot is matched against `l`'s own, never mapped back to a local.
+func coro_verify_index_copies(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, t: Int, l: Int) -> Bool {
+    let s = coro_verify_index_slot(&coro, &b, frame, t)
+    if s < 0 || l < 0 || l >= b.local_count {
+        return false
+    }
+    let slot = coro.mono.dp.bc.mir.projs[s]
+    let ty = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[b.body].local_first + l].ty
+    slot.index == coro_verify_layout_offset(&coro, b.item, l) && slot.ty == ty
+}
+
+// The frame slot step every write of local `t` copies, when `t` is a local
+// lowering added whose every write is `_t = copy (*_F).[OFFSET: T]` through
+// frame pointer `frame`, at one offset and type at which body `b`'s frame
+// lays a local's value; else -1.
+func coro_verify_index_slot(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, t: Int) -> Int {
     if t < b.local_count || frame < 0 {
         return -1
     }
@@ -723,11 +738,21 @@ func coro_verify_index_source(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int
                 continue
             }
             let from = coro_verify_copied_slot(&coro, stmt.rvalue, frame)
-            let l = coro_verify_local_at(&coro, b.item, from)
-            if l < 0 || (source >= 0 && source != l) {
+            if from < 0 {
                 return -1
             }
-            source = l
+            let slot = coro.mono.dp.bc.mir.projs[from]
+            if not coro_verify_holds_local_at(&coro, b.item, slot.index, slot.ty) {
+                return -1
+            }
+            if source < 0 {
+                source = from
+            } else {
+                let first = coro.mono.dp.bc.mir.projs[source]
+                if first.index != slot.index || first.ty != slot.ty {
+                    return -1
+                }
+            }
         }
     }
     source
@@ -738,8 +763,8 @@ func coro_verify_writes_local(coro: &CoroProgram, p: Int, l: Int) -> Bool {
     p >= 0 && coro.mono.dp.bc.mir.places[p].local == l
 }
 
-// The offset of the frame slot rvalue `rv` copies whole, `copy (*_F).[OFFSET:
-// T]` through `frame`, or -1.
+// The frame slot step of the place rvalue `rv` copies whole, `copy
+// (*_F).[OFFSET: T]` through `frame`, or -1.
 func coro_verify_copied_slot(coro: &CoroProgram, rv: Int, frame: Int) -> Int {
     if rv < 0 {
         return -1
@@ -749,19 +774,18 @@ func coro_verify_copied_slot(coro: &CoroProgram, rv: Int, frame: Int) -> Int {
         return -1
     }
     let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[r.first]]
-    if o.kind != MirOperandKind.Copy {
+    if o.kind != MirOperandKind.Copy || coro_verify_slot_offset(&coro, o.place, frame) < 0 {
         return -1
     }
-    coro_verify_slot_offset(&coro, o.place, frame)
+    coro.mono.dp.bc.mir.places[o.place].first + 1
 }
 
-// The local whose value item `item`'s frame layout puts at `offset`, or -1.
-// A zero-size value shares its offset with the value after it, and a copy of
-// that slot is a copy of the value whose bytes are there.
-func coro_verify_local_at(coro: &CoroProgram, item: Int, offset: Int) -> Int {
+// Whether item `item`'s frame layout lays a local's value of type `ty` at
+// `offset`: the result, a parameter or a resident local.
+func coro_verify_holds_local_at(coro: &CoroProgram, item: Int, offset: Int, ty: Int) -> Bool {
     let fr = coro_frame_of(&coro, item)
     if fr < 0 || offset < 0 {
-        return -1
+        return false
     }
     let frame = coro.frames[fr]
     var k = 0
@@ -769,11 +793,11 @@ func coro_verify_local_at(coro: &CoroProgram, item: Int, offset: Int) -> Int {
         let v = coro.values[frame.value_first + k]
         k = k + 1
         let held = v.kind != CoroValueKind.Child && v.kind != CoroValueKind.State
-        if v.offset == offset && v.size > 0 && v.local >= 0 && held {
-            return v.local
+        if v.offset == offset && v.ty == ty && v.size > 0 && v.local >= 0 && held {
+            return true
         }
     }
-    return -1
+    false
 }
 
 // The offset of the slot `post` reaches local `pre.local`'s value at, when
@@ -1698,6 +1722,12 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
         if coro_verify_named_before(&coro, &b, p) {
             continue
         }
+        // Values whose lifetimes never meet may share bytes, so an offset can
+        // lie in a child's region, an offload's storage and a local's slot at
+        // once: a place is judged by what reaches it before where it lies.
+        if coro_verify_find(&allowed, p) >= 0 || coro_verify_index_load(&coro, &b, frame, p) {
+            continue
+        }
         // A zero-size slot at a child's end is that child's: its last value,
         // whose offset is where the next child's region begins.
         let offset = slot.index
@@ -1723,17 +1753,12 @@ func coro_verify_regions(coro: &var CoroProgram, target: &var Target, b: &CoroBe
             r = r + 1
         }
         if inside >= 0 {
-            if coro_verify_find(&allowed, p) < 0 {
-                var what = StringBuilder()
-                try! what.append("a place reaches into the frame of child `")
-                try! what.append(coro.mono.item_name(children[inside]))
-                try! what.append("`, which only its argument writes and its result's move-out may: ")
-                coro.mono.dp.bc.mir.append_place(&var what, p)
-                coro_verify_problem(&var coro, 2, b.item, what.build())
-            }
-            continue
-        }
-        if coro_verify_index_load(&coro, &b, frame, p) {
+            var what = StringBuilder()
+            try! what.append("a place reaches into the frame of child `")
+            try! what.append(coro.mono.item_name(children[inside]))
+            try! what.append("`, which only its argument writes and its result's move-out may: ")
+            coro.mono.dp.bc.mir.append_place(&var what, p)
+            coro_verify_problem(&var coro, 2, b.item, what.build())
             continue
         }
         var l = 0
@@ -1778,7 +1803,7 @@ func coro_verify_written(coro: &CoroProgram, f: Int, p: Int) -> Bool {
 
 // Whether place `p` is only read by an index temporary's load, `_t = copy p`
 // for a `_t` whose every write copies one frame value
-// (`coro_verify_index_source`): a copy of an index, which no ownership
+// (`coro_verify_index_slot`): a copy of an index, which no ownership
 // operation is.
 func coro_verify_index_load(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, p: Int) -> Bool {
     let info = coro.mono.dp.bc.mir.funcs[b.body]
@@ -1811,7 +1836,7 @@ func coro_verify_index_load(coro: &CoroProgram, b: &CoroBeforeBody, frame: Int, 
                 return false
             }
             let target = coro.mono.dp.bc.mir.places[stmt.place]
-            if target.count != 0 || coro_verify_index_source(&coro, &b, frame, target.local) < 0 {
+            if target.count != 0 || coro_verify_index_slot(&coro, &b, frame, target.local) < 0 {
                 return false
             }
             found = true

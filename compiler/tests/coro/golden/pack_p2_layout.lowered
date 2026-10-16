@@ -1,0 +1,136 @@
+resume #5: pack_p2_layout.caller() task root  (frame size 80 align 8, pointer _12)
+    state 0: bb0
+    state 1: bb0 drive #9 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 2: bb1 drive #9 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 3: bb2 drive #9 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 4: bb3 drive #9 pack_p2_layout.child(k: Int) at (*frame).[8]
+fn pack_p2_layout.caller() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // w
+    let _2: Int;
+    let _3: Int;  // x
+    let _4: Int;
+    let _5: Int;  // y
+    let _6: Int;
+    let _7: Int;  // z
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: &var Int;
+
+    bb0: {
+        (*_12).[48: Int] = const 1: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb5] suspends;
+    }
+
+    bb1: {
+        (*_12).[56: Int] = move _2;
+        (*_12).[48: Int] = const 2: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb6] suspends;
+    }
+
+    bb2: {
+        (*_12).[64: Int] = move _4;
+        (*_12).[48: Int] = const 3: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb7] suspends;
+    }
+
+    bb3: {
+        (*_12).[72: Int] = move _6;
+        (*_12).[48: Int] = const 4: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb8] suspends;
+    }
+
+    bb4: {
+        _7 = move _8;
+        _9 = Add(copy (*_12).[56: Int], copy (*_12).[64: Int]);
+        _10 = Add(move _9, copy (*_12).[72: Int]);
+        _11 = Add(move _10, copy _7);
+        (*_12).[8: Int] = move _11;
+        return;
+    }
+
+    bb5: {
+        _2 = move (*_12).[40: Int];
+        goto -> bb1;
+    }
+
+    bb6: {
+        _4 = move (*_12).[40: Int];
+        goto -> bb2;
+    }
+
+    bb7: {
+        _6 = move (*_12).[40: Int];
+        goto -> bb3;
+    }
+
+    bb8: {
+        _8 = move (*_12).[40: Int];
+        goto -> bb4;
+    }
+}
+resume #9: pack_p2_layout.child(k: Int)  (frame size 48 align 8, pointer _9, context _10)
+    state 0: bb0
+    state 1: bb0 park ready
+fn pack_p2_layout.child(k: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param k
+    let _2: pack_p2_layout.Block;  // block
+    let _3: Int;
+    let _4: Int;
+    let _5: Int;
+    let _6: pack_p2_layout.Block;
+    let _7: Int;
+    let _8: Int;
+    let _9: &var Int;
+    let _10: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        _3 = copy (*_9).[40: Int];
+        _4 = Add(copy (*_9).[40: Int], const 1: Int);
+        _5 = Add(copy (*_9).[40: Int], const 2: Int);
+        _6 = pack_p2_layout.Block { a: move _3, b: move _4, c: move _5 };
+        (*_9).[8: pack_p2_layout.Block] = move _6;
+        (*(*_10).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _7 = Add(copy (*_9).[8: pack_p2_layout.Block].a, copy (*_9).[8: pack_p2_layout.Block].b);
+        _8 = Add(move _7, copy (*_9).[8: pack_p2_layout.Block].c);
+        (*_9).[32: Int] = move _8;
+        return;
+    }
+}
+driver #0: pack_p2_layout.main()
+    drive bb0 task root #5 pack_p2_layout.caller() task root, descriptor _2, frame _3
+fn pack_p2_layout.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _3: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_3).[0: Int] = const 0: Int;
+        _2 = drive result pack_p2_layout.caller() [] -> [return: bb3];
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _2, copy _3, const "`__saw_drive(...)` at compiler/tests/coro/golden/pack_p2_layout.saw:22:17": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _1 = move (*_3).[8: Int];
+        goto -> bb1;
+    }
+}

@@ -1,0 +1,22 @@
+frame #5: pack_p2_layout.caller() task root  (size 80 align 8, lower bound 80)
+    suspend 1: bb0 call child
+    suspend 2: bb1 call child
+    suspend 3: bb2 call child
+    suspend 4: bb3 call child
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[56: Int]  size 8 align 8  _1 w  (across 2 3 4)
+    (*frame).[64: Int]  size 8 align 8  _3 x  (across 3 4)
+    (*frame).[72: Int]  size 8 align 8  _5 y  (across 4)
+    (*frame).[8: frame pack_p2_layout.child(k: Int)]  size 48 align 8  child  (across 1)
+    (*frame).[8: frame pack_p2_layout.child(k: Int)]  size 48 align 8  child  (across 2)
+    (*frame).[8: frame pack_p2_layout.child(k: Int)]  size 48 align 8  child  (across 3)
+    (*frame).[8: frame pack_p2_layout.child(k: Int)]  size 48 align 8  child  (across 4)
+    stack: _2 _4 _6 _7 _8 _9 _10 _11
+frame #9: pack_p2_layout.child(k: Int)  (size 48 align 8, lower bound 48)
+    suspend 1: bb0 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[32: Int]  size 8 align 8  _0 result
+    (*frame).[40: Int]  size 8 align 8  _1 param k  (across 1)
+    (*frame).[8: pack_p2_layout.Block]  size 24 align 8  _2 block  (across 1)
+    stack: _3 _4 _5 _6 _7 _8

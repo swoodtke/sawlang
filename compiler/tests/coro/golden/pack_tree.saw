@@ -1,0 +1,70 @@
+// Packing (SL:coroutines B2) over design 163's synthetic call tree. `w2`, `w4`
+// and `w8` call a leaf two, four and eight times in sequence; `t3`, `t2` and
+// `t1` are a branching-2 tree of depth one, two and three; `root` has six
+// call sites over the others. The leaf holds a 160-byte array across its
+// suspension, which makes its Stage 0 frame 224 bytes, the size of design
+// 163's leaf. Sequential children share one slot, so each frame is its own
+// values plus its largest child, not the sum of them.
+func leaf(k: Int) -> Int {
+    let pad = [k; 20]
+    __saw_suspend()
+    pad[3] * 2
+}
+
+func w2(k: Int) -> Int {
+    let a = leaf(k)
+    let b = leaf(a)
+    a + b
+}
+
+func w4(k: Int) -> Int {
+    let a = leaf(k)
+    let b = leaf(a)
+    let c = leaf(b)
+    let d = leaf(c)
+    a + b + c + d
+}
+
+func w8(k: Int) -> Int {
+    let a = leaf(k)
+    let b = leaf(a)
+    let c = leaf(b)
+    let d = leaf(c)
+    let e = leaf(d)
+    let f = leaf(e)
+    let g = leaf(f)
+    let h = leaf(g)
+    a + b + c + d + e + f + g + h
+}
+
+func t3(k: Int) -> Int {
+    let a = leaf(k)
+    let b = leaf(k + 1)
+    a + b
+}
+
+func t2(k: Int) -> Int {
+    let a = t3(k)
+    let b = t3(k + 1)
+    a + b
+}
+
+func t1(k: Int) -> Int {
+    let a = t2(k)
+    let b = t2(k + 1)
+    a + b
+}
+
+func root() -> Int {
+    let a = w2(1)
+    let b = w4(2)
+    let c = w8(3)
+    let d = t3(4)
+    let e = t2(5)
+    let f = t1(6)
+    a + b + c + d + e + f
+}
+
+func main() {
+    print("{}", __saw_drive(root()))
+}

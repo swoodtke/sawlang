@@ -1,0 +1,9 @@
+frame #5: pack_disjoint.disjoint() task root  (size 40 align 8, lower bound 40)
+    suspend 1: bb0 call __saw_suspend
+    suspend 2: bb2 call __saw_suspend
+    (*frame).[0: Int]  size 8 align 8  state
+    (*frame).[8: Int]  size 8 align 8  _0 result
+    (*frame).[8: pack_disjoint.Token]  size 24 align 8  _1 first  (across 1)
+    (*frame).[32: Int]  size 8 align 8  _3 n  (across 2)
+    (*frame).[8: pack_disjoint.Token]  size 24 align 8  _5 second  (across 2)
+    stack: _2 _4 _6 _7

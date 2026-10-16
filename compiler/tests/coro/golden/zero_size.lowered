@@ -74,7 +74,7 @@ fn zero_size.mid() -> Int {
     bb0: {
         (*_8).[8: Int] = const 128: Int;
         _2 = [];
-        (*_8).[24: [Int; 0]] = move _2;
+        (*_8).[32: [Int; 0]] = move _2;
         (*_8).[24: Int] = const 0: Int;
         goto -> bb1;
     }
@@ -85,7 +85,7 @@ fn zero_size.mid() -> Int {
     }
 
     bb2: {
-        _6 = call zero_size.count(of: [Int; 0]) [copy (*_8).[24: [Int; 0]]] -> [return: bb5];
+        _6 = call zero_size.count(of: [Int; 0]) [copy (*_8).[32: [Int; 0]]] -> [return: bb5];
     }
 
     bb3: {
@@ -112,11 +112,11 @@ fn zero_size.mid() -> Int {
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
     }
 }
-resume #9: zero_size.children() task root  (frame size 88 align 8, pointer _13)
+resume #9: zero_size.children() task root  (frame size 40 align 8, pointer _13)
     state 0: bb0
-    state 1: bb0 drive #24 zero_size.last_param(n: Int, z: [Int; 0]) at (*frame).[32]
-    state 2: bb1 drive #25 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) at (*frame).[56]
-    state 3: bb2 drive #26 zero_size.result() at (*frame).[80]
+    state 1: bb0 drive #24 zero_size.last_param(n: Int, z: [Int; 0]) at (*frame).[8]
+    state 2: bb1 drive #25 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) at (*frame).[8]
+    state 3: bb2 drive #26 zero_size.result() at (*frame).[8]
 fn zero_size.children() -> Int {
     let _0: Int;  // return
     let _1: Int;  // a
@@ -135,29 +135,29 @@ fn zero_size.children() -> Int {
 
     bb0: {
         _2 = [];
-        (*_13).[48: Int] = const 1: Int;
-        (*_13).[56: [Int; 0]] = move _2;
+        (*_13).[24: Int] = const 1: Int;
+        (*_13).[32: [Int; 0]] = move _2;
         call zero_size.last_param(n: Int, z: [Int; 0]) [] -> [return: bb5] suspends;
     }
 
     bb1: {
-        (*_13).[16: Int] = move _3;
+        (*_13).[32: Int] = move _3;
         _5 = [];
         _6 = [];
-        (*_13).[72: [Int; 0]] = move _5;
-        (*_13).[72: [Int; 0]] = move _6;
-        (*_13).[72: Int] = const 2: Int;
+        (*_13).[32: [Int; 0]] = move _5;
+        (*_13).[32: [Int; 0]] = move _6;
+        (*_13).[24: Int] = const 2: Int;
         call zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
-        (*_13).[24: Int] = move _7;
+        (*_13).[16: Int] = move _7;
         call zero_size.result() [] -> [return: bb7] suspends;
     }
 
     bb3: {
         _8 = move _9;
-        _10 = Add(copy (*_13).[16: Int], copy (*_13).[24: Int]);
+        _10 = Add(copy (*_13).[32: Int], copy (*_13).[16: Int]);
         _11 = call zero_size.count(of: [Int; 0]) [copy _8] -> [return: bb4];
     }
 
@@ -168,17 +168,17 @@ fn zero_size.children() -> Int {
     }
 
     bb5: {
-        _3 = move (*_13).[40: Int];
+        _3 = move (*_13).[16: Int];
         goto -> bb1;
     }
 
     bb6: {
-        _7 = move (*_13).[64: Int];
+        _7 = move (*_13).[16: Int];
         goto -> bb2;
     }
 
     bb7: {
-        _9 = move (*_13).[88: [Int; 0]];
+        _9 = move (*_13).[16: [Int; 0]];
         goto -> bb3;
     }
 }
@@ -205,12 +205,12 @@ fn zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
 
     bb1: {
         _4 = copy (*_9).[16: Int];
-        _5 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb2];
+        _5 = call zero_size.count(of: [Int; 0]) [copy (*_9).[24: [Int; 0]]] -> [return: bb2];
     }
 
     bb2: {
         _6 = Add(move _4, move _5);
-        _7 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb3];
+        _7 = call zero_size.count(of: [Int; 0]) [copy (*_9).[24: [Int; 0]]] -> [return: bb3];
     }
 
     bb3: {
@@ -298,7 +298,7 @@ fn zero_size.before_index(p: UnsafePointer<Int>) -> Int {
         (*_13).[32: Int] = const 0: Int;
         (*_13).[40: Int] = const 0: Int;
         _5 = [];
-        (*_13).[48: [Int; 0]] = move _5;
+        (*_13).[56: [Int; 0]] = move _5;
         goto -> bb1;
     }
 
@@ -308,7 +308,7 @@ fn zero_size.before_index(p: UnsafePointer<Int>) -> Int {
     }
 
     bb2: {
-        _11 = call zero_size.count(of: [Int; 0]) [copy (*_13).[48: [Int; 0]]] -> [return: bb5];
+        _11 = call zero_size.count(of: [Int; 0]) [copy (*_13).[56: [Int; 0]]] -> [return: bb5];
     }
 
     bb3: {
@@ -392,12 +392,12 @@ fn zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
 
     bb1: {
         _4 = copy (*_9).[16: Int];
-        _5 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb2];
+        _5 = call zero_size.count(of: [Int; 0]) [copy (*_9).[24: [Int; 0]]] -> [return: bb2];
     }
 
     bb2: {
         _6 = Add(move _4, move _5);
-        _7 = call zero_size.count(of: [Int; 0]) [copy (*_9).[16: [Int; 0]]] -> [return: bb3];
+        _7 = call zero_size.count(of: [Int; 0]) [copy (*_9).[24: [Int; 0]]] -> [return: bb3];
     }
 
     bb3: {
@@ -497,8 +497,8 @@ fn zero_size.main() -> Void {
         _4 = [];
         _5 = [];
         (*_24).[0: Int] = const 0: Int;
-        (*_24).[16: [Int; 0]] = move _4;
-        (*_24).[16: [Int; 0]] = move _5;
+        (*_24).[24: [Int; 0]] = move _4;
+        (*_24).[24: [Int; 0]] = move _5;
         (*_24).[16: Int] = const 3: Int;
         _23 = drive result zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb24];
     }
@@ -542,8 +542,8 @@ fn zero_size.main() -> Void {
 
     bb16: {
         (*_14).[0: Int] = const 0: Int;
-        (*_14).[16: [Int; 0]] = move _7;
-        (*_14).[16: [Int; 0]] = move _8;
+        (*_14).[24: [Int; 0]] = move _7;
+        (*_14).[24: [Int; 0]] = move _8;
         (*_14).[16: Int] = const 4: Int;
         _16 = std.taskgroup.TaskProvenance::Singleton;
         _15 = call std.taskgroup.__saw_exec_background() [] -> [return: bb17];

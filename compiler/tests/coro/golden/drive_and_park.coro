@@ -115,15 +115,15 @@ item #113: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #114: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #0: drive_and_park.main()
     state: every point
-    _0 result: bb3.1-t
-    _1 p: bb0.2-t s1 r1 bb1.t s2 r2 bb2.0-t bb3.0-2
-    _3 s: bb0.t s1 r1 bb1.t s2 r2 bb2.0-t bb3.0-1
+    _0 result: bb3.0-t
+    _1 p: bb0.1-t s1 r1 bb1.t s2 r2 bb2.0-t bb3.0-2
+    _3 s: bb0.2-t s1 r1 bb1.t s2 r2 bb2.0-t bb3.0-1
     child drive_and_park.outer(): bb0.t s1
     child std.task.yield_now(): bb1.t s2
 lifetimes #5: drive_and_park.outer()
     state: every point
     _0 result: none
-    _1 n: bb0.t s1 r1 bb1.0-t s2 r2 bb2.0-t bb3.t
+    _1 n: every point
     child drive_and_park.inner(): bb0.t s1
     child std.task.yield_now(): bb1.t s2
 lifetimes #6: std.task.yield_now()
@@ -132,6 +132,6 @@ lifetimes #6: std.task.yield_now()
 lifetimes #11: drive_and_park.inner()
     state: every point
     _0 result: none
-    _1 label: bb0.1-t bb1.t s1 r1 bb2.0-t bb3.t s2 r2 bb4.0-t bb5.0
+    _1 label: bb0.0-t bb1.t s1 r1 bb2.0-t bb3.t s2 r2 bb4.0-t bb5.0
     child std.task.yield_now(): bb1.t s1
     child std.task.yield_now(): bb3.t s2

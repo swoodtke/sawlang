@@ -130,9 +130,9 @@ item #128: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #0: lifetimes.main()
     state: every point
     _0 result: none
-    _1 a: bb1.t s2 r2 bb2.0-t s3 r3 bb3.0-t s4 r4 bb4.t s5 r5 bb5.0-t bb6.t
-    _3 b: bb2.t s3 r3 bb3.0-t s4 r4 bb4.t s5 r5 bb5.0-t bb6.t
-    _5 c: bb3.t s4 r4 bb4.t s5 r5 bb5.0-t bb6.t
+    _1 a: bb1.0-t s2 r2 bb2.0-t s3 r3 bb3.0-t s4 r4 bb4.t s5 r5 bb5.0-t bb6.t
+    _3 b: bb2.0-t s3 r3 bb3.0-t s4 r4 bb4.t s5 r5 bb5.0-t bb6.t
+    _5 c: bb3.0-t s4 r4 bb4.t s5 r5 bb5.0-t bb6.t
     child lifetimes.across_one(): bb0.t s1 r1
     child lifetimes.child_result(): bb1.t s2 r2
     child lifetimes.window_record(): bb2.t s3 r3
@@ -140,39 +140,39 @@ lifetimes #0: lifetimes.main()
     child lifetimes.sequential(): bb4.t s5 r5
 lifetimes #5: lifetimes.across_one()
     state: every point
-    _0 result: bb3.t
-    _1 s: bb0.t s1 r1 bb1.t
-    _2 n: bb2.t s2 r2 bb3.0-t
+    _0 result: bb3.0-t
+    _1 s: bb0.0-t s1 r1 bb1.t
+    _2 n: bb2.0-t s2 r2 bb3.0-t
 lifetimes #6: lifetimes.child_result()
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.2-t
     child lifetimes.child(k: Int): bb0.t s1 r1
 lifetimes #7: lifetimes.window_record()
     state: every point
-    _0 result: bb3.t
-    _1 g: bb0.2-t bb1.0-t s1 r1 bb2.0-t bb3.0-t
+    _0 result: bb3.1-t
+    _1 g: bb0.1-t bb1.0-t s1 r1 bb2.0-t bb3.0-t
     _3: bb1.0-t s1 r1 bb2.0-t bb3.0-t
     _5 record: bb0.t bb1.0-t s1 r1 bb2.0-t
-    _7 ref c: bb1.1-t s1 r1 bb2.0-t bb3.0-t
+    _7 ref c: bb1.0-t s1 r1 bb2.0-t bb3.0-t
 lifetimes #8: lifetimes.offload_storage()
     state: every point
     _0 result: none
     offload pause: bb0.t s1 r1
 lifetimes #9: lifetimes.sequential()
     state: every point
-    _0 result: bb2.t
-    _1 x: bb1.t s2 r2 bb2.0-t
+    _0 result: bb2.0-t
+    _1 x: bb1.0-t s2 r2 bb2.0-t
     child lifetimes.step_a(k: Int): bb0.t s1 r1
     child lifetimes.step_b(k: Int): bb1.t s2 r2
 lifetimes #13: lifetimes.child(k: Int)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t
     _1 param k: every point
 lifetimes #20: lifetimes.step_a(k: Int)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t
     _1 param k: every point
 lifetimes #21: lifetimes.step_b(k: Int)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.1-t
     _1 param k: every point

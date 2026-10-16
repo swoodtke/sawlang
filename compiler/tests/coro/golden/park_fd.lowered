@@ -1,7 +1,7 @@
-resume #0: park_fd.main()  (frame size 64 align 8, pointer _1)
+resume #0: park_fd.main()  (frame size 40 align 8, pointer _1)
     state 0: bb0
     state 1: bb0 drive #5 std.task.fd_wait(fd: Int, write: Int) at (*frame).[8]
-    state 2: bb1 drive #6 std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) at (*frame).[32]
+    state 2: bb1 drive #6 std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) at (*frame).[8]
 fn park_fd.main() -> Void {
     let _0: Void;  // return
     let _1: &var Int;
@@ -13,9 +13,9 @@ fn park_fd.main() -> Void {
     }
 
     bb1: {
-        (*_1).[40: Int] = const 1: Int;
-        (*_1).[48: Int] = const 1: Int;
-        (*_1).[56: UInt64] = const 5000000: UInt64;
+        (*_1).[16: Int] = const 1: Int;
+        (*_1).[24: Int] = const 1: Int;
+        (*_1).[32: UInt64] = const 5000000: UInt64;
         call std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) [] -> [return: bb2] suspends;
     }
 

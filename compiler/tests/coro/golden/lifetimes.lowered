@@ -1,10 +1,10 @@
-resume #0: lifetimes.main()  (frame size 248 align 8, pointer _9)
+resume #0: lifetimes.main()  (frame size 72 align 8, pointer _9)
     state 0: bb0
-    state 1: bb0 drive #5 lifetimes.across_one() at (*frame).[32]
-    state 2: bb1 drive #6 lifetimes.child_result() at (*frame).[64]
-    state 3: bb2 drive #7 lifetimes.window_record() at (*frame).[104]
-    state 4: bb3 drive #8 lifetimes.offload_storage() at (*frame).[160]
-    state 5: bb4 drive #9 lifetimes.sequential() at (*frame).[176]
+    state 1: bb0 drive #5 lifetimes.across_one() at (*frame).[8]
+    state 2: bb1 drive #6 lifetimes.child_result() at (*frame).[8]
+    state 3: bb2 drive #7 lifetimes.window_record() at (*frame).[8]
+    state 4: bb3 drive #8 lifetimes.offload_storage() at (*frame).[8]
+    state 5: bb4 drive #9 lifetimes.sequential() at (*frame).[8]
 fn lifetimes.main() -> Void {
     let _0: Void;  // return
     let _1: Int;  // a
@@ -22,17 +22,17 @@ fn lifetimes.main() -> Void {
     }
 
     bb1: {
-        (*_9).[8: Int] = move _2;
+        (*_9).[56: Int] = move _2;
         call lifetimes.child_result() [] -> [return: bb8] suspends;
     }
 
     bb2: {
-        (*_9).[16: Int] = move _4;
+        (*_9).[64: Int] = move _4;
         call lifetimes.window_record() [] -> [return: bb9] suspends;
     }
 
     bb3: {
-        (*_9).[24: Int] = move _6;
+        (*_9).[48: Int] = move _6;
         call lifetimes.offload_storage() [] -> [return: bb4] suspends;
     }
 
@@ -42,7 +42,7 @@ fn lifetimes.main() -> Void {
 
     bb5: {
         _7 = move _8;
-        call builtin print [format "{} {} {} {}", copy (*_9).[8: Int], copy (*_9).[16: Int], copy (*_9).[24: Int], copy _7] -> [return: bb6];
+        call builtin print [format "{} {} {} {}", copy (*_9).[56: Int], copy (*_9).[64: Int], copy (*_9).[48: Int], copy _7] -> [return: bb6];
     }
 
     bb6: {
@@ -50,26 +50,26 @@ fn lifetimes.main() -> Void {
     }
 
     bb7: {
-        _2 = move (*_9).[40: Int];
+        _2 = move (*_9).[16: Int];
         goto -> bb1;
     }
 
     bb8: {
-        _4 = move (*_9).[72: Int];
+        _4 = move (*_9).[16: Int];
         goto -> bb2;
     }
 
     bb9: {
-        _6 = move (*_9).[112: Int];
+        _6 = move (*_9).[32: Int];
         goto -> bb3;
     }
 
     bb10: {
-        _8 = move (*_9).[184: Int];
+        _8 = move (*_9).[16: Int];
         goto -> bb5;
     }
 }
-resume #5: lifetimes.across_one()  (frame size 32 align 8, pointer _4, context _5)
+resume #5: lifetimes.across_one()  (frame size 24 align 8, pointer _4, context _5)
     state 0: bb0
     state 1: bb0 park ready
     state 2: bb2 park ready
@@ -82,29 +82,29 @@ fn lifetimes.across_one() -> Int {
     let _5: &var std.taskgroup.TaskContext;
 
     bb0: {
-        (*_4).[16: String] = const "word": String;
+        (*_4).[8: String] = const "word": String;
         (*(*_5).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb1] suspends;
     }
 
     bb1: {
-        _3 = call lifetimes.consume(s: String) [move (*_4).[16: String]] -> [return: bb2];
+        _3 = call lifetimes.consume(s: String) [move (*_4).[8: String]] -> [return: bb2];
     }
 
     bb2: {
-        (*_4).[24: Int] = move _3;
+        (*_4).[16: Int] = move _3;
         (*(*_5).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb3] suspends;
     }
 
     bb3: {
-        (*_4).[8: Int] = copy (*_4).[24: Int];
+        (*_4).[8: Int] = copy (*_4).[16: Int];
         return;
     }
 }
-resume #6: lifetimes.child_result()  (frame size 40 align 8, pointer _4)
+resume #6: lifetimes.child_result()  (frame size 32 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #13 lifetimes.child(k: Int) at (*frame).[16]
+    state 1: bb0 drive #13 lifetimes.child(k: Int) at (*frame).[8]
 fn lifetimes.child_result() -> Int {
     let _0: Int;  // return
     let _1: Int;  // v
@@ -113,7 +113,7 @@ fn lifetimes.child_result() -> Int {
     let _4: &var Int;
 
     bb0: {
-        (*_4).[32: Int] = const 3: Int;
+        (*_4).[24: Int] = const 3: Int;
         call lifetimes.child(k: Int) [] -> [return: bb2] suspends;
     }
 
@@ -125,11 +125,11 @@ fn lifetimes.child_result() -> Int {
     }
 
     bb2: {
-        _2 = move (*_4).[24: Int];
+        _2 = move (*_4).[16: Int];
         goto -> bb1;
     }
 }
-resume #7: lifetimes.window_record()  (frame size 56 align 8, pointer _10, context _11)
+resume #7: lifetimes.window_record()  (frame size 48 align 8, pointer _10, context _11)
     state 0: bb0
     state 1: bb1 park ready
 fn lifetimes.window_record() -> Int {
@@ -149,27 +149,27 @@ fn lifetimes.window_record() -> Int {
 
     bb0: {
         _2 = lifetimes.Grid { a: const 1: Int, gates: const 0: Int };
-        (*_10).[16: lifetimes.Grid] = move _2;
-        _4 = ref(exclusive, (*_10).[16: lifetimes.Grid]);
-        _6 = ref(exclusive, (*_10).[40: (&var lifetimes.Grid,)]);
+        (*_10).[8: lifetimes.Grid] = move _2;
+        _4 = ref(exclusive, (*_10).[8: lifetimes.Grid]);
+        _6 = ref(exclusive, (*_10).[24: (&var lifetimes.Grid,)]);
         (*_10).[32: &var Int] = window_open w0 prologue lifetimes.Grid.counted() (owner lifetimes.Grid) [move _6, move _4] -> [present: bb1];
     }
 
     bb1: {
-        (*_10).[48: &var Int] = ref(exclusive, (*(*_10).[32: &var Int]));
-        (*(*_10).[48: &var Int]) = Add(copy (*(*_10).[48: &var Int]), const 1: Int);
+        (*_10).[40: &var Int] = ref(exclusive, (*(*_10).[32: &var Int]));
+        (*(*_10).[40: &var Int]) = Add(copy (*(*_10).[40: &var Int]), const 1: Int);
         (*(*_11).park) = const 0: Int;
         call builtin __saw_suspend [] -> [return: bb2] suspends;
     }
 
     bb2: {
-        _8 = ref(exclusive, (*_10).[40: (&var lifetimes.Grid,)]);
+        _8 = ref(exclusive, (*_10).[24: (&var lifetimes.Grid,)]);
         window_close w0 epilogue lifetimes.Grid.counted() (owner lifetimes.Grid) [move _8] -> [return: bb3];
     }
 
     bb3: {
-        _9 = Add(copy (*_10).[16: lifetimes.Grid].a, copy (*_10).[16: lifetimes.Grid].gates);
-        (*_10).[8: Int] = move _9;
+        _9 = Add(copy (*_10).[8: lifetimes.Grid].a, copy (*_10).[8: lifetimes.Grid].gates);
+        (*_10).[24: Int] = move _9;
         return;
     }
 }
@@ -227,10 +227,10 @@ fn lifetimes.offload_storage() -> Void {
         call lifetimes.pause() [] -> [return: bb1];
     }
 }
-resume #9: lifetimes.sequential()  (frame size 72 align 8, pointer _4)
+resume #9: lifetimes.sequential()  (frame size 40 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #20 lifetimes.step_a(k: Int) at (*frame).[24]
-    state 2: bb1 drive #21 lifetimes.step_b(k: Int) at (*frame).[48]
+    state 1: bb0 drive #20 lifetimes.step_a(k: Int) at (*frame).[8]
+    state 2: bb1 drive #21 lifetimes.step_b(k: Int) at (*frame).[8]
 fn lifetimes.sequential() -> Int {
     let _0: Int;  // return
     let _1: Int;  // x
@@ -239,13 +239,13 @@ fn lifetimes.sequential() -> Int {
     let _4: &var Int;
 
     bb0: {
-        (*_4).[40: Int] = const 1: Int;
+        (*_4).[24: Int] = const 1: Int;
         call lifetimes.step_a(k: Int) [] -> [return: bb3] suspends;
     }
 
     bb1: {
-        (*_4).[16: Int] = move _2;
-        (*_4).[64: Int] = copy (*_4).[16: Int];
+        (*_4).[32: Int] = move _2;
+        (*_4).[24: Int] = copy (*_4).[32: Int];
         call lifetimes.step_b(k: Int) [] -> [return: bb4] suspends;
     }
 
@@ -255,12 +255,12 @@ fn lifetimes.sequential() -> Int {
     }
 
     bb3: {
-        _2 = move (*_4).[32: Int];
+        _2 = move (*_4).[16: Int];
         goto -> bb1;
     }
 
     bb4: {
-        _3 = move (*_4).[56: Int];
+        _3 = move (*_4).[16: Int];
         goto -> bb2;
     }
 }

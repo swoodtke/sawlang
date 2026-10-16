@@ -1,71 +1,71 @@
-frame #0: lifetimes.main()  (size 248 align 8)
+frame #0: lifetimes.main()  (size 72 align 8, lower bound 72)
     suspend 1: bb0 call across_one
     suspend 2: bb1 call child_result
     suspend 3: bb2 call window_record
     suspend 4: bb3 call offload_storage
     suspend 5: bb4 call sequential
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
-    (*frame).[8: Int]  size 8 align 8  _1 a  (across 2 3 4 5)
-    (*frame).[16: Int]  size 8 align 8  _3 b  (across 3 4 5)
-    (*frame).[24: Int]  size 8 align 8  _5 c  (across 4 5)
-    (*frame).[32: frame lifetimes.across_one()]  size 32 align 8  child  (across 1)
-    (*frame).[64: frame lifetimes.child_result()]  size 40 align 8  child  (across 2)
-    (*frame).[104: frame lifetimes.window_record()]  size 56 align 8  child  (across 3)
-    (*frame).[160: frame lifetimes.offload_storage()]  size 16 align 8  child  (across 4)
-    (*frame).[176: frame lifetimes.sequential()]  size 72 align 8  child  (across 5)
+    (*frame).[72: Void]  size 0 align 1  _0 result
+    (*frame).[56: Int]  size 8 align 8  _1 a  (across 2 3 4 5)
+    (*frame).[64: Int]  size 8 align 8  _3 b  (across 3 4 5)
+    (*frame).[48: Int]  size 8 align 8  _5 c  (across 4 5)
+    (*frame).[8: frame lifetimes.across_one()]  size 24 align 8  child  (across 1)
+    (*frame).[8: frame lifetimes.child_result()]  size 32 align 8  child  (across 2)
+    (*frame).[8: frame lifetimes.window_record()]  size 48 align 8  child  (across 3)
+    (*frame).[8: frame lifetimes.offload_storage()]  size 16 align 8  child  (across 4)
+    (*frame).[8: frame lifetimes.sequential()]  size 40 align 8  child  (across 5)
     stack: _2 _4 _6 _7 _8
-frame #5: lifetimes.across_one()  (size 32 align 8)
+frame #5: lifetimes.across_one()  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     suspend 2: bb2 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: String]  size 8 align 8  _1 s  (across 1)
-    (*frame).[24: Int]  size 8 align 8  _2 n  (across 2)
+    (*frame).[8: String]  size 8 align 8  _1 s  (across 1)
+    (*frame).[16: Int]  size 8 align 8  _2 n  (across 2)
     stack: _3
-frame #6: lifetimes.child_result()  (size 40 align 8)
+frame #6: lifetimes.child_result()  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call child
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: frame lifetimes.child(k: Int)]  size 24 align 8  child  (across 1)
+    (*frame).[8: frame lifetimes.child(k: Int)]  size 24 align 8  child  (across 1)
     stack: _1 _2 _3
-frame #7: lifetimes.window_record()  (size 56 align 8)
+frame #7: lifetimes.window_record()  (size 48 align 8, lower bound 48)
     suspend 1: bb1 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: lifetimes.Grid]  size 16 align 8  _1 g  (across 1)
+    (*frame).[24: Int]  size 8 align 8  _0 result
+    (*frame).[8: lifetimes.Grid]  size 16 align 8  _1 g  (across 1)
     (*frame).[32: &var Int]  size 8 align 8  _3  (across 1)
-    (*frame).[40: (&var lifetimes.Grid,)]  size 8 align 8  _5 record  (across 1)
-    (*frame).[48: &var Int]  size 8 align 8  _7 ref c  (across 1)
+    (*frame).[24: (&var lifetimes.Grid,)]  size 8 align 8  _5 record  (across 1)
+    (*frame).[40: &var Int]  size 8 align 8  _7 ref c  (across 1)
     stack: _2 _4 _6 _8 _9
-frame #8: lifetimes.offload_storage()  (size 16 align 8)
+frame #8: lifetimes.offload_storage()  (size 16 align 8, lower bound 16)
     suspend 1: bb0 call pause
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[8: Void]  size 0 align 1  _0 result
+    (*frame).[16: Void]  size 0 align 1  _0 result
     (*frame).[8: [Int; 1]]  size 8 align 8  offload pause  (across 1)
     stack: none
-frame #9: lifetimes.sequential()  (size 72 align 8)
+frame #9: lifetimes.sequential()  (size 40 align 8, lower bound 40)
     suspend 1: bb0 call step_a
     suspend 2: bb1 call step_b
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
-    (*frame).[16: Int]  size 8 align 8  _1 x  (across 2)
-    (*frame).[24: frame lifetimes.step_a(k: Int)]  size 24 align 8  child  (across 1)
-    (*frame).[48: frame lifetimes.step_b(k: Int)]  size 24 align 8  child  (across 2)
+    (*frame).[32: Int]  size 8 align 8  _1 x  (across 2)
+    (*frame).[8: frame lifetimes.step_a(k: Int)]  size 24 align 8  child  (across 1)
+    (*frame).[8: frame lifetimes.step_b(k: Int)]  size 24 align 8  child  (across 2)
     stack: _2 _3
-frame #13: lifetimes.child(k: Int)  (size 24 align 8)
+frame #13: lifetimes.child(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param k  (across 1)
     stack: _2
-frame #20: lifetimes.step_a(k: Int)  (size 24 align 8)
+frame #20: lifetimes.step_a(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param k  (across 1)
     stack: _2
-frame #21: lifetimes.step_b(k: Int)  (size 24 align 8)
+frame #21: lifetimes.step_b(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result

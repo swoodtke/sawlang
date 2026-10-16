@@ -1,7 +1,7 @@
-resume #8: index_reads.store(p: UnsafePointer<Int>, i: Int) task root  (frame size 120 align 8, pointer _9)
+resume #8: index_reads.store(p: UnsafePointer<Int>, i: Int) task root  (frame size 72 align 8, pointer _9)
     state 0: bb0
-    state 1: bb0 drive #10 index_reads.slow(v: Int) at (*frame).[56]
-    state 2: bb1 drive #10 index_reads.slow(v: Int) at (*frame).[88]
+    state 1: bb0 drive #10 index_reads.slow(v: Int) at (*frame).[8]
+    state 2: bb1 drive #10 index_reads.slow(v: Int) at (*frame).[8]
 fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
     let _0: Int;  // return
     let _1: UnsafePointer<Int>;  // param p
@@ -17,40 +17,40 @@ fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
     let _11: Int;
 
     bb0: {
-        (*_9).[32: Int] = copy (*_9).[24: Int];
-        (*_9).[72: Int] = const 10: Int;
+        (*_9).[48: Int] = copy (*_9).[40: Int];
+        (*_9).[24: Int] = const 10: Int;
         call index_reads.slow(v: Int) [] -> [return: bb3] suspends;
     }
 
     bb1: {
-        _10 = copy (*_9).[32: Int];
-        (*_9).[16: UnsafePointer<Int>][_10] = move _4;
-        (*_9).[40: Int] = copy (*_9).[24: Int];
-        _11 = copy (*_9).[40: Int];
-        (*_9).[48: Int] = copy (*_9).[16: UnsafePointer<Int>][_11];
-        (*_9).[104: Int] = const 1: Int;
+        _10 = copy (*_9).[48: Int];
+        (*_9).[32: UnsafePointer<Int>][_10] = move _4;
+        (*_9).[56: Int] = copy (*_9).[40: Int];
+        _11 = copy (*_9).[56: Int];
+        (*_9).[64: Int] = copy (*_9).[32: UnsafePointer<Int>][_11];
+        (*_9).[24: Int] = const 1: Int;
         call index_reads.slow(v: Int) [] -> [return: bb4] suspends;
     }
 
     bb2: {
-        _8 = Add(move (*_9).[48: Int], move _7);
+        _8 = Add(move (*_9).[64: Int], move _7);
         (*_9).[8: Int] = move _8;
         return;
     }
 
     bb3: {
-        _4 = move (*_9).[64: Int];
+        _4 = move (*_9).[16: Int];
         goto -> bb1;
     }
 
     bb4: {
-        _7 = move (*_9).[96: Int];
+        _7 = move (*_9).[16: Int];
         goto -> bb2;
     }
 }
-resume #10: index_reads.slow(v: Int)  (frame size 32 align 8, pointer _2)
+resume #10: index_reads.slow(v: Int)  (frame size 24 align 8, pointer _2)
     state 0: bb0
-    state 1: bb0 drive #13 std.task.yield_now() at (*frame).[24]
+    state 1: bb0 drive #13 std.task.yield_now() at (*frame).[8]
 fn index_reads.slow(v: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param v
@@ -102,8 +102,8 @@ fn index_reads.run() -> Void {
         _5 = cast(move _4 as UnsafePointer<Int>);
         _3 = move _5;
         (*_8).[0: Int] = const 0: Int;
-        (*_8).[16: UnsafePointer<Int>] = copy _3;
-        (*_8).[24: Int] = const 1: Int;
+        (*_8).[32: UnsafePointer<Int>] = copy _3;
+        (*_8).[40: Int] = const 1: Int;
         _7 = drive result index_reads.store(p: UnsafePointer<Int>, i: Int) [] -> [return: bb3];
     }
 

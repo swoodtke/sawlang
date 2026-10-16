@@ -83,17 +83,17 @@ item #81: std.stringbuilder.StringBuilder.mark_truncated()  (frame no)
 item #82: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (frame no)
 lifetimes #8: index_reads.store(p: UnsafePointer<Int>, i: Int) task root
     state: every point
-    _0 result: bb2.t
+    _0 result: bb2.1-t
     _1 param p: every point
     _2 param i: every point
-    _3: bb0.t s1 r1 bb1.0-t s2 r2 bb2.0-t
-    _5: bb1.2-t s2 r2 bb2.0-t
-    _6: bb1.t s2 r2 bb2.0
+    _3: every point
+    _5: bb1.1-t s2 r2 bb2.0-t
+    _6: bb1.2-t s2 r2 bb2.0
     child index_reads.slow(v: Int): bb0.t s1 r1
     child index_reads.slow(v: Int): bb1.t s2 r2
 lifetimes #10: index_reads.slow(v: Int)
     state: every point
-    _0 result: bb1.t
+    _0 result: bb1.0-t
     _1 param v: every point
     child std.task.yield_now(): bb0.t s1
 lifetimes #13: std.task.yield_now()

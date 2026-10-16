@@ -1,0 +1,87 @@
+resume #5: pack_move.moved() task root  (frame size 72 align 8, pointer _13, context _14)
+    state 0: bb0
+    state 1: bb0 park ready
+    state 2: bb2 park ready
+fn pack_move.moved() -> Int {
+    let _0: Int;  // return
+    let _1: pack_move.Three;  // b
+    let _2: pack_move.Three;
+    let _3: pack_move.Two;  // y
+    let _4: pack_move.Two;
+    let _5: Int;  // n
+    let _6: Int;
+    let _7: pack_move.Two;  // x
+    let _8: pack_move.Four;  // a
+    let _9: pack_move.Four;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: &var Int;
+    let _14: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        _2 = pack_move.Three { a: const 1: Int, b: const 2: Int, c: const 3: Int };
+        (*_13).[8: pack_move.Three] = move _2;
+        _4 = pack_move.Two { a: const 4: Int, b: const 5: Int };
+        (*_13).[32: pack_move.Two] = move _4;
+        (*(*_14).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _6 = call pack_move.use_three(v: pack_move.Three) [move (*_13).[8: pack_move.Three]] -> [return: bb2];
+    }
+
+    bb2: {
+        (*_13).[64: Int] = move _6;
+        (*_13).[48: pack_move.Two] = move (*_13).[32: pack_move.Two];
+        _9 = pack_move.Four { a: copy (*_13).[64: Int], b: const 6: Int, c: const 7: Int, d: const 8: Int };
+        (*_13).[8: pack_move.Four] = move _9;
+        (*(*_14).park) = const 0: Int;
+        call builtin __saw_suspend [] -> [return: bb3] suspends;
+    }
+
+    bb3: {
+        _10 = call pack_move.use_four(v: pack_move.Four) [move (*_13).[8: pack_move.Four]] -> [return: bb4];
+    }
+
+    bb4: {
+        _11 = call pack_move.use_two(v: pack_move.Two) [move (*_13).[48: pack_move.Two]] -> [return: bb5];
+    }
+
+    bb5: {
+        _12 = Add(move _10, move _11);
+        (*_13).[8: Int] = move _12;
+        return;
+    }
+}
+driver #0: pack_move.main()
+    drive bb0 task root #5 pack_move.moved() task root, descriptor _2, frame _3
+fn pack_move.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _3: UnsafePointer<UInt8>;
+
+    bb0: {
+        (*_3).[0: Int] = const 0: Int;
+        _2 = drive result pack_move.moved() [] -> [return: bb3];
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        call std.taskgroup.__saw_exec_drive(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, site: String) [copy _2, copy _3, const "`__saw_drive(...)` at compiler/tests/coro/golden/pack_move.saw:39:17": String] -> [return: bb4];
+    }
+
+    bb4: {
+        _1 = move (*_3).[8: Int];
+        goto -> bb1;
+    }
+}
