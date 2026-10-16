@@ -1,0 +1,75 @@
+// Directory.create, remove and exists on a scratch directory of the
+// program's own, named by its pid under the temporary root, and the Err each
+// mutation surfaces: a second create, a second remove, a missing parent and a
+// directory that still holds an entry.
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func getpid() -> Int32
+}
+
+func scratch_root() -> Path {
+    let root = Path(s: Env.get("TMPDIR") ?? "/tmp")
+    let pid = getpid()
+    root.join("saw_directory_create_remove_{pid}")
+}
+
+func main() {
+    let dir = scratch_root()
+    print("before: {}", Directory.exists(dir))
+
+    match Directory.create(dir) {
+        case Ok(_) -> print("create: ok"),
+        case Err(e) -> print("create: {}", e.kind().describe())
+    }
+    print("after create: {}", Directory.exists(dir))
+
+    match Directory.create(dir) {
+        case Ok(_) -> print("create again UNEXPECTED ok"),
+        case Err(e) -> print("create again: {}", e.kind().describe())
+    }
+
+    match Directory.create(dir.join("no_parent").join("child")) {
+        case Ok(_) -> print("create under a missing parent UNEXPECTED ok"),
+        case Err(e) -> print("create under a missing parent: {}", e.kind().describe())
+    }
+
+    // A directory holding an entry refuses rmdir, and stays.
+    let inner = dir.join("inner")
+    match Directory.create(inner) {
+        case Ok(_) -> print("create inner: ok"),
+        case Err(e) -> print("create inner: {}", e.kind().describe())
+    }
+    match Directory.remove(dir) {
+        case Ok(_) -> print("remove non-empty UNEXPECTED ok"),
+        case Err(e) -> print("remove non-empty: {}", e.kind().describe())
+    }
+    print("still there: {}", Directory.exists(dir))
+
+    // exists answers for a file too.
+    let file = dir.join("plain_file")
+    match File.create(file) {
+        case Ok(_) -> print("file created"),
+        case Err(e) -> print("file: {}", e.kind().describe())
+    }
+    print("exists on a file: {}", Directory.exists(file))
+    let _ = File.remove(file)
+
+    match Directory.remove(inner) {
+        case Ok(_) -> print("remove inner: ok"),
+        case Err(e) -> print("remove inner: {}", e.kind().describe())
+    }
+    match Directory.remove(dir) {
+        case Ok(_) -> print("remove: ok"),
+        case Err(e) -> print("remove: {}", e.kind().describe())
+    }
+    print("after remove: {}", Directory.exists(dir))
+
+    match Directory.remove(dir) {
+        case Ok(_) -> print("remove again UNEXPECTED ok"),
+        case Err(e) -> print("remove again: {}", e.kind().describe())
+    }
+}

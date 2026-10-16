@@ -11,7 +11,7 @@ alloc_data_push_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "pani
 alloc_data_reports_oom.saw	stage0-wrong	annotated SL-735	sawc2 meets its directives
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
-alloc_hosted_no_degradation.saw	refused	resolve import.unknown-module	no module `std.directory`
+alloc_hosted_no_degradation.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
 alloc_map_copy_panics.saw	pass	-	-
 alloc_map_insert_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
 alloc_map_set_reports_oom.saw	pass	-	-
@@ -905,10 +905,10 @@ df3_generic_no_wrap_error.saw	pass	-	-
 df3_move_nocopy_wrap.saw	pass	-	-
 df3_no_double_wrap.saw	pass	-	-
 df3_overload_exact_wins.saw	pass	-	-
-directory_current_long_path.saw	refused	resolve import.unknown-module	no module `std.directory`
-directory_error_surfaced.saw	refused	resolve import.unknown-module	no module `std.directory`
-directory_list_names_exact.saw	refused	resolve import.unknown-module	no module `std.directory`
-directory_simple.saw	refused	resolve import.unknown-module	no module `std.directory`
+directory_current_long_path.saw	refused	typecheck member.unknown	`std.directory.Directory` has no method `set_current` this module can see
+directory_error_surfaced.saw	pass	-	-
+directory_list_names_exact.saw	refused	typecheck member.unknown	`String` has no method `to_data` this module can see
+directory_simple.saw	refused	typecheck member.unknown	`std.directory.Directory` has no method `current` this module can see
 discard_forms_release_matrix.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
 discard_let_deinit_immediate.saw	pass	-	-
 discard_let_read_error.saw	refused	resolve name.undefined	cannot find `_` in scope
@@ -1545,8 +1545,8 @@ ffi/sizeof_test.saw	pass	-	-
 field_assign_through_ref_param.saw	pass	-	-
 field_call_indirect.saw	pass	-	-
 file_error_surfaced.saw	pass	-	-
-file_open_modes.saw	refused	resolve import.unknown-module	no module `std.directory`
-file_open_read_write_surfaced.saw	refused	resolve import.unknown-module	no module `std.directory`
+file_open_modes.saw	refused	typecheck member.unknown	`String` has no method `to_data` this module can see
+file_open_read_write_surfaced.saw	refused	resolve import.unknown-module	no module `std.net`
 file_simple.saw	refused	resolve import.unknown-module	no module `std.net`
 fixed_string_builder.saw	crash	INVARIANT	23:24 an expression has no type
 fixed_string_builder_too_small_error.saw	crash	INVARIANT	13:34 an expression has no type
@@ -2301,7 +2301,7 @@ shift_out_of_range_panic.saw	pass	-	-
 shift_signed_unsigned.saw	pass	-	-
 short_circuit_skipped_operand_temp_cleanup.saw	pass	-	-
 short_circuit_token_field_no_crash.saw	pass	-	-
-signal_concurrency_pins.saw	refused	resolve import.unknown-module	no module `std.directory`
+signal_concurrency_pins.saw	refused	typecheck operator.undefined	an optional binding unwraps an Optional, and this is `Result<std.path.Path, std.systemerror.SystemError>`
 sizeof_missing_type_arg_error.saw	pass	-	type.arity: `sizeof` and `alignof` take one type argument, as `sizeof<T>()`
 slab_basic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
 sleep_seam_multi_chunk.saw	pass	-	-

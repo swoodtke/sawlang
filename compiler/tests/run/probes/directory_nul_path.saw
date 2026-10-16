@@ -1,0 +1,44 @@
+// probe: stated
+// about: a Directory path holding a NUL byte is refused before C, never cut short at the NUL (SL-720)
+// stage 0: hands the text to C as it stands, so the call acts on the prefix before the NUL
+// speeds: -O0 -O2
+// prints: create: invalid argument true
+// prints: prefix made false
+// prints: list: invalid argument true
+// prints: remove: invalid argument true
+// prints: exists false
+// The NUL is checked first, so no call reaches the system with a shorter
+// path than the one the caller wrote.
+import std.directory.{Directory}
+import std.env.{Env}
+import std.path.{Path}
+import std.systemerror.{SystemErrorKind}
+
+extern "C" {
+    func getpid() -> Int32
+}
+
+func process_id() unsafe -> Int32 {
+    getpid()
+}
+
+func main() {
+    let root = Path(s: Env.get("TMPDIR") ?? "/tmp")
+    let prefix = root.join("saw_directory_nul_{process_id()}")
+    let holding_nul = Path(s: "{prefix.as_string()}\u{0}rest")
+
+    match Directory.create(holding_nul) {
+        case Ok(_) -> print("create UNEXPECTED ok"),
+        case Err(e) -> print("create: {} {}", e.kind().describe(), e.kind() == SystemErrorKind.InvalidArgument)
+    }
+    print("prefix made {}", Directory.exists(prefix))
+    match Directory.list(holding_nul) {
+        case Ok(_) -> print("list UNEXPECTED ok"),
+        case Err(e) -> print("list: {} {}", e.kind().describe(), e.kind() == SystemErrorKind.InvalidArgument)
+    }
+    match Directory.remove(holding_nul) {
+        case Ok(_) -> print("remove UNEXPECTED ok"),
+        case Err(e) -> print("remove: {} {}", e.kind().describe(), e.kind() == SystemErrorKind.InvalidArgument)
+    }
+    print("exists {}", Directory.exists(holding_nul))
+}

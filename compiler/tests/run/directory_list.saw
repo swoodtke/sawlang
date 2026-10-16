@@ -1,0 +1,80 @@
+// Directory.list on a scratch directory of the program's own, named by its
+// pid under the temporary root: an empty directory, then three entries each
+// joined onto the directory and found exactly once whatever order the system
+// lists them in, with `.` and `..` left out; and the Err of a missing
+// directory and of a file.
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func getpid() -> Int32
+}
+
+func scratch_root() -> Path {
+    let root = Path(s: Env.get("TMPDIR") ?? "/tmp")
+    let pid = getpid()
+    root.join("saw_directory_list_{pid}")
+}
+
+// How many of `entries` are `dir` joined with `name`.
+func count_named(entries: &Vector<Path>, dir: Path, name: String) -> Int {
+    let dir_name = dir.file_name() ?? ""
+    var found = 0
+    var i = 0
+    while i < entries.len() {
+        let own_name = entries[i].file_name() ?? ""
+        if let parent = entries[i].parent() {
+            let parent_name = parent.file_name() ?? ""
+            if own_name == name && parent_name == dir_name {
+                found = found + 1
+            }
+        }
+        i = i + 1
+    }
+    found
+}
+
+func main() {
+    let dir = scratch_root()
+    let _ = Directory.create(dir)
+
+    match Directory.list(dir) {
+        case Ok(v) -> print("empty: {}", v.len()),
+        case Err(e) -> print("empty: {}", e.kind().describe())
+    }
+
+    let _ = File.create(dir.join("alpha.txt"))
+    let _ = File.create(dir.join(".hidden"))
+    let _ = Directory.create(dir.join("sub"))
+
+    match Directory.list(dir) {
+        case Ok(v) -> {
+            print("entries: {}", v.len())
+            print("alpha.txt: {}", count_named(&v, dir, "alpha.txt"))
+            print(".hidden: {}", count_named(&v, dir, ".hidden"))
+            print("sub: {}", count_named(&v, dir, "sub"))
+            print(".: {}", count_named(&v, dir, "."))
+            print("..: {}", count_named(&v, dir, ".."))
+        },
+        case Err(e) -> print("list: {}", e.kind().describe())
+    }
+
+    match Directory.list(dir.join("no_such_directory")) {
+        case Ok(_) -> print("list missing UNEXPECTED ok"),
+        case Err(e) -> print("list missing: {}", e.kind().describe())
+    }
+    match Directory.list(dir.join("alpha.txt")) {
+        case Ok(_) -> print("list a file UNEXPECTED ok"),
+        case Err(e) -> print("list a file: {}", e.kind().describe())
+    }
+
+    let _ = File.remove(dir.join("alpha.txt"))
+    let _ = File.remove(dir.join(".hidden"))
+    let _ = Directory.remove(dir.join("sub"))
+    match Directory.remove(dir) {
+        case Ok(_) -> print("cleaned up"),
+        case Err(e) -> print("cleanup: {}", e.kind().describe())
+    }
+}

@@ -428,6 +428,7 @@ extension ResProgram {
         self.std_module("path")
         self.std_module("env")
         self.std_module("file")
+        self.std_module("directory")
         self.std_module("process")
         self.std_module("duration")
         self.std_module("map")

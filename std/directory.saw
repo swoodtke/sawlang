@@ -1,0 +1,137 @@
+//! `Directory`: listing, creating and removing directories.
+//!
+//! Every operation is synchronous: none suspends, so the calling thread waits
+//! in the system call until it returns. That is prompt on a healthy local
+//! disk, and unbounded on a network filesystem that has stopped answering.
+
+import std.env.{c_string_length}
+import std.file.{File}
+import std.path.{Path}
+import std.string.{string_from_bytes}
+import std.systemerror.{SystemError, SystemErrorKind}
+import std.utf8.{utf8_error_offset}
+
+extern "C" {
+    // The `DIR*`, or NULL with the positive tag stored through `status_out`
+    // (runtime/ABI.md). readdir(3) and closedir(3) stay bare: readdir's end
+    // of stream is not an error, and closedir's status is not actionable.
+    func __saw_rt_fs_opendir(name: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
+    func readdir(dirp: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func closedir(dirp: UnsafePointer<Int8>) -> Int32
+    // The NUL-terminated name inside a `struct dirent`, whose offset differs
+    // between hosts.
+    func __saw_rt_fs_dirent_name(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8>
+    // Each returns 0, or a negated portable tag.
+    func __saw_rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int
+    func __saw_rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int
+}
+
+// mkdir(2)'s mode, 0755: a directory needs its search bit to be entered,
+// which a file's creation permission leaves out.
+static DIRECTORY_MODE: Int = 493
+static DOT: Int8 = 46
+
+/// Directory operations, as static methods; never constructed.
+public struct Directory {
+    private unused: Int
+}
+
+extension Directory {
+    /// Returns the path of every entry in the directory at `path`, each
+    /// joined onto `path`, leaving out `.` and `..`.
+    ///
+    /// The entries come in the order the system lists them, which is
+    /// unspecified: sort them for a stable order. An empty `Ok` means the
+    /// directory is empty. Returns `Err(SystemError)` with the reason
+    /// opendir(3) refused, such as `NotFound` or `PermissionDenied`; a path
+    /// holding a NUL byte is `InvalidArgument`, and a list that cannot grow
+    /// is `ResourcesExhausted`. Panics if an entry's name is not valid UTF-8,
+    /// which no `String` may hold.
+    public static func list(path: Path) unsafe -> Result<Vector<Path>, SystemError> {
+        let text = path.as_string()
+        if text.index_of(0).is_some() {
+            return SystemError.raised("opendir", SystemErrorKind.InvalidArgument)
+        }
+        var status = 0
+        guard let stream = __saw_rt_fs_opendir(text.c_bytes(), (&status) as UnsafePointer<Int>) else {
+            return SystemError.of("opendir", status)
+        }
+        var result = Vector<Path>()
+        while true {
+            guard let entry = readdir(stream) else {
+                break
+            }
+            let name = __saw_rt_fs_dirent_name(entry)
+            if is_dot_entry(name) {
+                continue
+            }
+            let length = c_string_length(name)
+            if let offset = utf8_error_offset(name, length) {
+                closedir(stream)
+                panic("Directory.list: an entry's name is not valid UTF-8 (byte {})", offset)
+            }
+            // readdir reuses the entry's buffer, so the name is copied out
+            // before the next call.
+            let full = path.join(string_from_bytes(name, length))
+            match result.push(full) {
+                case Ok(_) -> {},
+                case Err(_) -> {
+                    closedir(stream)
+                    return SystemError.raised("readdir", SystemErrorKind.ResourcesExhausted)
+                }
+            }
+        }
+        closedir(stream)
+        return move result
+    }
+
+    /// Creates the directory at `path`, with permission 0755.
+    ///
+    /// Returns `Err(SystemError)` with the reason mkdir(2) refused, such as
+    /// `AlreadyExists`, or `NotFound` when a parent is missing; a path
+    /// holding a NUL byte is `InvalidArgument`.
+    public static func create(path: Path) unsafe -> Result<Void, SystemError> {
+        let text = path.as_string()
+        if text.index_of(0).is_some() {
+            return SystemError.raised("mkdir", SystemErrorKind.InvalidArgument)
+        }
+        let status = __saw_rt_fs_mkdir(text.c_bytes(), DIRECTORY_MODE)
+        if status != 0 {
+            return SystemError.of("mkdir", 0 - status)
+        }
+        return
+    }
+
+    /// Removes the empty directory at `path`.
+    ///
+    /// Returns `Err(SystemError)` with the reason rmdir(2) refused, such as
+    /// `NotFound`; a directory that still holds entries is `Unknown`, which
+    /// the portable kinds have no word for, and a path holding a NUL byte is
+    /// `InvalidArgument`.
+    public static func remove(path: Path) unsafe -> Result<Void, SystemError> {
+        let text = path.as_string()
+        if text.index_of(0).is_some() {
+            return SystemError.raised("rmdir", SystemErrorKind.InvalidArgument)
+        }
+        let status = __saw_rt_fs_rmdir(text.c_bytes())
+        if status != 0 {
+            return SystemError.of("rmdir", 0 - status)
+        }
+        return
+    }
+
+    /// Returns whether a file or directory exists at `path` and the process
+    /// may reach it, as `File.exists` does; a path holding a NUL byte names
+    /// nothing.
+    public static func exists(path: Path) unsafe -> Bool {
+        File.exists(path)
+    }
+}
+
+// Whether the C string at `name` is `.` or `..`.
+func is_dot_entry(name: UnsafePointer<Int8>) unsafe -> Bool {
+    if name[0] != DOT {
+        return false
+    }
+    name[1] == 0 || (name[1] == DOT && name[2] == 0)
+}
