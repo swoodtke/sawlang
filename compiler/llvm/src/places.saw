@@ -7,14 +7,14 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts,
                          ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
-import sawllvm.text.{ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
+import sawllvm.text.{ll_double_constant, ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout, TargetShape, target_struct_fields}
-import sawtypecheck.arith.{tc_arith_max, tc_arith_min}
+import sawtypecheck.arith.{tc_arith_max, tc_arith_min, tc_float_bits}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
@@ -284,6 +284,11 @@ extension LlEmitter {
             var out = StringBuilder()
             try! out.append(ll_fit_signed(ll_integer_value(text), l.bits))
             return out.build()
+        }
+        if op.const_kind == MirConstKind.Float && l.kind == TargetKind.Float {
+            // An unrepresentable literal saturates; no rule refuses it yet.
+            let v = tc_float_bits(&text)
+            return ll_double_constant(v.bits)
         }
         if op.const_kind == MirConstKind.Bool {
             if text.equals("true") {

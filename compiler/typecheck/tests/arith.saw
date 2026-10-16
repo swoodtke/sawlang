@@ -1,8 +1,10 @@
 // Typed integer arithmetic at the edges of each width: what a value of each
 // type holds, where an operation overflows, how a shift and a division
-// fault, and how a 64-bit unsigned value past `Int.max` is held and printed.
+// fault, how a 64-bit unsigned value past `Int.max` is held and printed, and
+// the bits a float literal's text converts to.
 import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert, tc_arith_literal,
-                               tc_arith_max, tc_arith_min, tc_arith_shift, tc_arith_text, tc_arith_unary}
+                               tc_arith_max, tc_arith_min, tc_arith_shift, tc_arith_text, tc_arith_unary,
+                               tc_float_bits}
 
 func expect_value(v: TcValue, bits: Int, what: String) {
     assert(v.ok, "{} faulted", what)
@@ -24,6 +26,36 @@ func shift(op: String, a: Int, w: Int, signed: Bool, count: Int) -> TcValue {
 
 func literal(text: String) -> TcValue {
     tc_arith_literal(&text)
+}
+
+func float_bits(text: String) -> TcValue {
+    tc_float_bits(&text)
+}
+
+// `0.`, then `zeros` zeros, then `digits`.
+func small_literal(zeros: Int, digits: String) -> String {
+    var out = StringBuilder()
+    try! out.append("0.")
+    var k = 0
+    while k < zeros {
+        try! out.append("0")
+        k = k + 1
+    }
+    try! out.append(digits)
+    out.build()
+}
+
+// `digits`, then `zeros` zeros, then `.0`.
+func large_literal(digits: String, zeros: Int) -> String {
+    var out = StringBuilder()
+    try! out.append(digits)
+    var k = 0
+    while k < zeros {
+        try! out.append("0")
+        k = k + 1
+    }
+    try! out.append(".0")
+    out.build()
 }
 
 func unary(op: String, a: Int, w: Int, signed: Bool) -> TcValue {
@@ -114,6 +146,24 @@ func main() {
     expect_value(literal("0o755"), 493, "an octal literal")
     expect_value(literal("255u8"), 255, "a suffixed literal")
     expect_fault(literal("18446744073709551616"), TcFault.NotFit, "2^64 as a literal")
+
+    // A float literal's bits: the nearest binary64, ties to even, `_` left
+    // off, saturating with a fault past the finite range.
+    expect_value(float_bits("0.0"), 0, "0.0")
+    expect_value(float_bits("0.1"), 4591870180066957722, "0.1")
+    expect_value(float_bits("0.30000000000000004"), 4599075939470750516, "0.30000000000000004")
+    expect_value(float_bits("1.5"), 4609434218613702656, "1.5")
+    expect_value(float_bits("3.14"), 4614253070214989087, "3.14")
+    expect_value(float_bits("1_000.5"), 4652011706887700480, "1_000.5")
+    expect_value(float_bits("9007199254740993.0"), 4845873199050653696, "2^53 + 1 ties to even")
+    expect_value(float_bits("9007199254740995.0"), 4845873199050653698, "2^53 + 3 ties to even")
+    expect_value(float_bits("12345678901234567890.0"), 4892433759222981601, "a twenty-digit literal")
+    expect_value(float_bits(small_literal(323, "49406564584124654")), 1, "the minimum subnormal")
+    expect_value(float_bits(small_literal(323, "5")), 1, "5e-324")
+    expect_value(float_bits(large_literal("17976931348623157", 292)), 9218868437227405311, "the maximum finite value")
+    expect_fault(float_bits(large_literal("1", 400)), TcFault.NotFit, "1e400")
+    expect_fault(float_bits(small_literal(400, "1")), TcFault.NotFit, "1e-401")
+    expect_fault(float_bits("1.5e3"), TcFault.NotConstant, "an exponent")
 
     // Each width's bounds.
     assert(tc_arith_max(8, true) == 127 && tc_arith_min(8, true) == -128, "Int8's bounds")

@@ -1,0 +1,76 @@
+// The bits of a Float literal, at every position a constant reaches, read
+// back through a pointer so that no Float is printed: the float literal
+// funnel's correctly rounded value, ties to even, `_` left off (SL-722).
+
+type Miles = Float
+
+struct Point {
+    x: Float,
+    n: Int
+}
+
+enum Reading {
+    case Value(f: Float),
+    case Missing
+}
+
+extern "C" {
+    func copysign(x: Float, y: Float) -> Float
+}
+
+func bits(f: Float) unsafe -> UInt64 {
+    let v: Float = f
+    ((&v) as UnsafePointer<UInt64>)[0]
+}
+
+func pass(f: Float) -> Float {
+    f
+}
+
+func given(f: Float = 9007199254740995.0) -> Float {
+    f
+}
+
+func give() -> Float {
+    0.1
+}
+
+func reading(r: Reading) -> Float {
+    match r {
+        case Value(f) -> f,
+        case Missing -> 0.0
+    }
+}
+
+func main() {
+    let zero = 0.0
+    print("let 0.0 {}", bits(zero))
+    let negative = -0.0
+    print("let -0.0 {}", bits(negative))
+    let third = 0.30000000000000004
+    print("let 0.30000000000000004 {}", bits(third))
+    let pi = 3.14
+    print("let 3.14 {}", bits(pi))
+    let tiny = 0.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000049406564584124654
+    print("let min subnormal {}", bits(tiny))
+    let huge = 179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.0
+    print("let max finite {}", bits(huge))
+    let p = Point(x: 1.5, n: 2)
+    print("field {} {}", bits(p.x), p.n)
+    let t = (12345678901234567890.0, 7)
+    print("tuple {} {}", bits(t.0), t.1)
+    let o: Float? = 9007199254740993.0
+    print("optional {}", bits(o!))
+    print("payload {}", bits(reading(Reading.Value(f: 1_000.5))))
+    let a: [Float; 3] = [0.1, 1.5, 3.14]
+    print("array {} {} {}", bits(a[0]), bits(a[1]), bits(a[2]))
+    var v = Vector<Float>()
+    try! v.push(0.30000000000000004)
+    print("vector {}", bits(v[0]))
+    print("argument {}", bits(pass(1_000.5)))
+    print("default {}", bits(given()))
+    print("extern {}", bits(copysign(1.5, -0.0)))
+    print("return {}", bits(give()))
+    let m = Miles(2.5)
+    print("alias {}", bits(m))
+}

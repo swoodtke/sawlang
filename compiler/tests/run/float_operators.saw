@@ -1,0 +1,64 @@
+// Float operators, IEEE's: `+ - * /` and their compound assignments, unary
+// `-` as negation (so `-x` of `0.0` is negative zero), and the six
+// comparisons over ordinary values, both zeros, NaN and both infinities,
+// where every ordering involving a NaN is false and `!=` is the negation of
+// `==` (SL-722). A value is shown as its bits, never a NaN's.
+
+func bits(f: Float) unsafe -> UInt64 {
+    let v: Float = f
+    ((&v) as UnsafePointer<UInt64>)[0]
+}
+
+func compare(name: String, a: Float, b: Float) {
+    print("{} {} {} {} {} {} {}", name, a == b, a != b, a < b, a <= b, a > b, a >= b)
+}
+
+func main() {
+    let a = 1.5
+    let b = 0.25
+    print("add {}", bits(a + b))
+    print("sub {}", bits(a - b))
+    print("mul {}", bits(a * b))
+    print("div {}", bits(a / b))
+    print("tenths {}", bits(0.1 + 0.2))
+
+    let zero = 0.0
+    let inf = 1.0 / zero
+    let ninf = -1.0 / zero
+    let nan = zero / zero
+    print("inf {}", bits(inf))
+    print("-inf {}", bits(ninf))
+    print("nan {} {}", nan != nan, nan == nan)
+    print("nan sum {}", (nan + 1.0) != (nan + 1.0))
+    let unbounded = inf - inf
+    print("inf - inf {}", unbounded != unbounded)
+    print("inf + 1 {}", inf + 1.0 == inf)
+    print("neg zero {}", bits(-zero))
+    print("neg neg zero {}", bits(-(-zero)))
+    print("zero - zero {}", bits(zero - zero))
+    print("neg a {}", bits(-a))
+
+    var x = 1.0
+    x += 2.5
+    print("+= {}", bits(x))
+    x -= 0.5
+    print("-= {}", bits(x))
+    x *= 3.0
+    print("*= {}", bits(x))
+    x /= 4.0
+    print("/= {}", bits(x))
+
+    compare("1.5 2.5", a, 2.5)
+    compare("2.5 1.5", 2.5, a)
+    compare("1.5 1.5", a, 1.5)
+    compare("0 -0", zero, -zero)
+    compare("-0 0", -zero, zero)
+    compare("nan nan", nan, nan)
+    compare("nan 1.5", nan, a)
+    compare("1.5 nan", a, nan)
+    compare("nan inf", nan, inf)
+    compare("inf inf", inf, inf)
+    compare("-inf inf", ninf, inf)
+    compare("inf 1.5", inf, a)
+    compare("-inf -0", ninf, -zero)
+}

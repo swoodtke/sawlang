@@ -4,7 +4,8 @@
 // `/` and `%` check a zero divisor and the signed `MIN / -1`; a shift checks
 // its count against the width; an `as` between integers that can lose the
 // value checks that it fits (design 170). Each check panics with Stage 0's
-// wording at the statement's `FILE:LINE`.
+// wording at the statement's `FILE:LINE`. A Float operator is IEEE's and
+// checks nothing.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
@@ -149,6 +150,12 @@ extension LlEmitter {
         mono.dp.bc.mir.tc.is_integer(t) && not mono.dp.bc.mir.tc.is_unsigned(t)
     }
 
+    // THE OPERATOR LOWERING: a builtin binary operator by its operand's
+    // layout, an integer's, a raw pointer's, a Float's, a String's or a
+    // memory value's compared part by part. A compound assignment arrives
+    // here as its operator.
+    // ENTRY POINTS:
+    //     rvalue_into (Binary)
     func binary_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
                      node: Int) {
         let op = mono.dp.bc.mir.tc.name_text(rv.op)
@@ -168,6 +175,10 @@ extension LlEmitter {
         let l = self.lay_at(&var mono, &var target, left_type, node)
         if l.kind == TargetKind.Memory {
             self.memory_comparison(&var mono, &var target, op, a, b, left_type, dest, node)
+            return
+        }
+        if l.kind == TargetKind.Float {
+            self.float_binary_into(&var mono, &var target, op, a, b, dest, node)
             return
         }
         if l.kind != TargetKind.Int && l.kind != TargetKind.Pointer {
@@ -241,6 +252,32 @@ extension LlEmitter {
         self.store(ty, result, dest)
     }
 
+    // A Float operator, IEEE's: `+ - * /` round to nearest and never trap,
+    // and a comparison is ordered, so each involving a NaN is false, but for
+    // `!=`, the negation of `==`. Any other operator is refused here, the
+    // wrapping ones included, which take integer operands only.
+    func float_binary_into(&var self, mono: &var MonoProgram, target: &var Target, op: String, a: Int, b: Int,
+                           dest: String, node: Int) {
+        let word = ll_float_word(op)
+        if word.len() == 0 {
+            var msg = StringBuilder()
+            try! msg.append("the operator `")
+            try! msg.append(op)
+            try! msg.append("` on a Float is not in the backend slice yet")
+            self.refuse_here(&var mono, node, msg.build())
+            return
+        }
+        let x = self.operand_value(&var mono, &var target, a, node)
+        let y = self.operand_value(&var mono, &var target, b, node)
+        let v = self.simple(word, "double", x, y)
+        if ll_compare_predicate(op, false).len() > 0 {
+            let byte = self.to_bool(v)
+            self.store("i8", byte, dest)
+            return
+        }
+        self.store("double", v, dest)
+    }
+
     // `==` or `!=` on a trivially copyable value held in memory: its
     // automatic Equatable, which compares member by member, a payload-free
     // enum by its case and an Optional by its case and then its payload.
@@ -253,7 +290,7 @@ extension LlEmitter {
             try! msg.append(op)
             try! msg.append("` on `")
             try! msg.append(mono.dp.bc.mir.tc.type_text(t))
-            try! msg.append("` is not in the backend slice yet: only `==` and `!=` on integers, Bools, raw pointers, payload-free enums, and Optionals, structs and tuples of them")
+            try! msg.append("` is not in the backend slice yet: only `==` and `!=` on integers, Floats, Bools, raw pointers, payload-free enums, and Optionals, structs and tuples of them")
             self.refuse_here(&var mono, node, msg.build())
             return
         }
@@ -268,10 +305,13 @@ extension LlEmitter {
         self.store("i8", v, dest)
     }
 
-    // Whether a value of `t` is equal to another exactly when its parts are,
-    // part by part, as `equal_at` compares them. Its parts are the inline
-    // members of a finite type, so the walk ends, and it follows the paths
-    // `equal_at` emits a comparison along.
+    // MEMORY EQUALITY, with `equal_at`: whether a value of `t` is equal to
+    // another exactly when its parts are, part by part, as `equal_at`
+    // compares them. Its parts are the inline members of a finite type, so the
+    // walk ends, and it follows the paths `equal_at` emits a comparison along.
+    // A Float part compares by IEEE equality, not by its bits.
+    // ENTRY POINTS:
+    //     memory_comparison
     func comparable_bits(&var self, mono: &var MonoProgram, target: &var Target, t: Int) -> Bool {
         if mono.dp.bc.mir.tc.is_string(t) {
             return false
@@ -281,7 +321,7 @@ extension LlEmitter {
             return false
         }
         let l = self.lay(&var mono, &var target, t)
-        if l.kind == TargetKind.Int {
+        if l.kind == TargetKind.Int || l.kind == TargetKind.Float {
             return true
         }
         if l.kind == TargetKind.Pointer {
@@ -343,7 +383,10 @@ extension LlEmitter {
 
     // An `i1` saying whether the values of type `t` at `x` and `y` are equal,
     // for a type `comparable_bits` accepts. An Optional's payloads are read
-    // only when both are present.
+    // only when both are present; a Float part is `fcmp oeq`, so a NaN member
+    // makes its aggregate unequal and `-0.0` equals `0.0`.
+    // ENTRY POINTS:
+    //     memory_comparison
     func equal_at(&var self, mono: &var MonoProgram, target: &var Target, x: String, y: String, t: Int,
                   node: Int) -> String {
         let l = self.lay_at(&var mono, &var target, t, node)
@@ -355,6 +398,11 @@ extension LlEmitter {
             let vx = self.load(ty, x)
             let vy = self.load(ty, y)
             return self.simple("icmp eq", ty, vx, vy)
+        }
+        if l.kind == TargetKind.Float {
+            let vx = self.load("double", x)
+            let vy = self.load("double", y)
+            return self.simple("fcmp oeq", "double", vx, vy)
         }
         if l.shape == TargetShape.Enum {
             let tx = self.tag_of(&var mono, &var target, x, t, node)
@@ -683,12 +731,27 @@ extension LlEmitter {
         }
     }
 
+    // The operator lowering's unary half: `-`, `not` and `~` on an integer,
+    // `-` on a Float.
+    // ENTRY POINTS:
+    //     rvalue_into (Unary)
     func unary_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
                     node: Int) {
         let op = mono.dp.bc.mir.tc.name_text(rv.op)
         let a = mono.dp.bc.mir.lists[rv.first]
         let t = mono.dp.bc.mir.operands[a].ty
         let l = self.lay_at(&var mono, &var target, t, node)
+        if l.kind == TargetKind.Float && op.equals("-") {
+            // IEEE negation flips the sign alone, so `-0.0` is negative zero,
+            // which `0.0 - x` is not.
+            let x = self.operand_value(&var mono, &var target, a, node)
+            var neg = StringBuilder()
+            try! neg.append("fneg double ")
+            try! neg.append(x)
+            let v = self.assign(neg.build())
+            self.store("double", v, dest)
+            return
+        }
         if l.kind != TargetKind.Int {
             self.refuse_here(&var mono, node, "this operator's operand type is not in the backend slice yet")
             return
@@ -940,6 +1003,42 @@ func ll_declares_equality(tc: &TcProgram, d: Int) -> Bool {
 func ll_raw_pointer(tc: &TcProgram, t: Int) -> Bool {
     let d = tc.nominal_decl(t)
     d >= 0 && (d == tc.known.unsafe_pointer || d == tc.known.unsafe_const_pointer)
+}
+
+// The instruction and predicate of Float operator `op`, or "" for one a
+// Float does not take. `!=` is `une`, true for an unordered pair.
+func ll_float_word(op: String) -> String {
+    if op.equals("+") {
+        return "fadd"
+    }
+    if op.equals("-") {
+        return "fsub"
+    }
+    if op.equals("*") {
+        return "fmul"
+    }
+    if op.equals("/") {
+        return "fdiv"
+    }
+    if op.equals("==") {
+        return "fcmp oeq"
+    }
+    if op.equals("!=") {
+        return "fcmp une"
+    }
+    if op.equals("<") {
+        return "fcmp olt"
+    }
+    if op.equals("<=") {
+        return "fcmp ole"
+    }
+    if op.equals(">") {
+        return "fcmp ogt"
+    }
+    if op.equals(">=") {
+        return "fcmp oge"
+    }
+    ""
 }
 
 // The `icmp` predicate of comparison `op`, or "" for any other operator.

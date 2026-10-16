@@ -1,0 +1,7 @@
+program	compiler/tests/run/float_field.saw
+triple	aarch64-unknown-linux-gnu
+source	1d709c2286a19495
+build	ok
+exit	0
+stdout	"2"
+stdout	""

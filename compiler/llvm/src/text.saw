@@ -248,6 +248,19 @@ func ll_printable(b: Int) -> String {
     all.substring(b - LL_SPACE, b - LL_SPACE + 1)
 }
 
+// A `double` constant from its 64-bit pattern `bits`: LLVM's hexadecimal
+// spelling, which states the bits exactly, where a decimal one is reparsed.
+public func ll_double_constant(bits: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("0x")
+    var k = 15
+    while k >= 0 {
+        try! out.append(ll_hex_digit((bits >> (4 * k)) & 15))
+        k = k - 1
+    }
+    out.build()
+}
+
 func ll_hex_digit(d: Int) -> String {
     let digits = "0123456789ABCDEF"
     digits.substring(d, d + 1)

@@ -1,6 +1,4 @@
-// due: a Float constant has no lowering in the backend slice yet
-// refuses: backend.not-yet at 10:22
-// A Float written into a struct literal is refused at the Float itself.
+// A Float written into a struct literal, beside an Int field.
 struct Point {
     x: Float
     n: Int

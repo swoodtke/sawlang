@@ -1,0 +1,12 @@
+program	compiler/tests/run/float_equality.saw
+triple	aarch64-unknown-linux-gnu
+source	27da3e40ca04e92d
+build	ok
+exit	0
+stdout	"struct false true true"
+stdout	"struct n false"
+stdout	"tuple false true false"
+stdout	"optional false true false"
+stdout	"optional none true false"
+stdout	"nested true false true"
+stdout	""

@@ -230,6 +230,16 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   order, each a loop. `fixed_array_literal`, `repeat_literal`,
   `fixed_array_glue`, `map_set_literal` and `map_literal_alloc_failure` pin
   the kinds, element kinds and positions (SL-710).
+- **Floats.** A Float literal is its `double` bits, written in LLVM's
+  hexadecimal spelling: typecheck's float literal funnel, `tc_float_bits`,
+  converts the text exactly (design 253's decimal path, integer arithmetic
+  only), to the nearest binary64 with ties to even, and a literal past the
+  finite range saturates to infinity or zero. `+ - * /` are `fadd`, `fsub`,
+  `fmul` and `fdiv`, unchecked, a compound assignment included; unary `-` is
+  `fneg`, so `-x` of `0.0` is `-0.0`. The comparisons are `fcmp oeq`, `une`,
+  `olt`, `ole`, `ogt` and `oge`, so every one involving a NaN is false but
+  `!=`. `float_constants`, `float_operators` and `float_equality` pin each
+  constant position, operator and value class.
 - **Comparisons.** An integer, a Bool or a raw-backed enum compares by
   `icmp` at its signedness. A String compares its bytes through the String
   layer's `string_equals` and `string_compare`, each operand read in place,
@@ -238,8 +248,8 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   reference or a function pointer, is refused. `==` and `!=` on a trivially
   copyable value in memory compare part by part: a payload-free enum by its
   case, an Optional by its case and then, when both are present, its
-  payload, a struct or tuple member by member; a type declaring its own
-  `Equatable`, a String or a Float inside one is refused.
+  payload, a struct or tuple member by member, a Float member by `fcmp oeq`;
+  a type declaring its own `Equatable` or a String inside one is refused.
 - **Erased values** (spec, `any Trait` existentials; SL-721). A pointer to
   an erased value, a `&any Trait` or the pointer an erased box holds, is two
   words: the value's address, then its vtable's. A vtable is a private
@@ -318,7 +328,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: a Float constant, an operator on a Float, or on anything but an integer, a Bool, a String, two raw pointers or the memory values compared part by part, a slice, a take capture, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `float_field` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a take capture, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every

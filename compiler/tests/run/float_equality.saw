@@ -1,0 +1,40 @@
+// `==` and `!=` on a struct, a tuple and an Optional holding a Float compare
+// that member by IEEE equality, not by its bits: a NaN member makes its
+// aggregate unequal to itself, and `-0.0` equals `0.0` (SL-722).
+
+struct Sample {
+    x: Float,
+    n: Int
+}
+
+struct Pair {
+    first: Sample,
+    second: Float?
+}
+
+func main() {
+    let zero = 0.0
+    let nan = zero / zero
+    let s = Sample(x: nan, n: 1)
+    let pz = Sample(x: 0.0, n: 2)
+    let nz = Sample(x: -0.0, n: 2)
+    print("struct {} {} {}", s == s, pz == nz, s != s)
+    print("struct n {}", pz == Sample(x: 0.0, n: 3))
+
+    let a = (nan, 1)
+    let b = (0.0, 2)
+    let c = (-0.0, 2)
+    print("tuple {} {} {}", a == a, b == c, b != c)
+
+    let some_nan: Float? = nan
+    let some_pz: Float? = 0.0
+    let some_nz: Float? = -0.0
+    let none: Float? = None
+    print("optional {} {} {}", some_nan == some_nan, some_pz == some_nz, some_pz != some_nz)
+    print("optional none {} {}", none == none, none == some_pz)
+
+    let p = Pair(first: pz, second: 1.5)
+    let q = Pair(first: nz, second: 1.5)
+    let r = Pair(first: pz, second: nan)
+    print("nested {} {} {}", p == q, r == r, p != r)
+}
