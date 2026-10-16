@@ -5,3 +5,11 @@
 examples/conformance/INDEX.md merge=union
 compiler/tests/borrowck/CONFORMANCE.md merge=union
 compiler/tests/drops/conformance.tsv merge=union
+
+# A derived file, the measurement of the tree it ships with: it is never merged
+# by hand. A rebase takes main's version whole, and `corpusdiff.py run
+# --baseline` regenerates it. keep-main keeps %A, which is main's side on a
+# rebase, on a cherry-pick onto main and in `git apply --3way`; `git merge
+# main` into a branch keeps the branch's. The driver is defined in each clone's
+# config by tools/git_setup.sh; without it git merges the text.
+compiler/tests/corpusdiff/corpus_diff.tsv merge=keep-main

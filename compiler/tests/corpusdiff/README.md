@@ -199,6 +199,17 @@ carries the rewritten rows, which review reads as the patch's effect on the
 corpus; the gate then finds nothing moved. Details outside `stage0-wrong`, a
 refusal's message or the first line that differs, may change freely.
 
+The baseline is a measurement, so its rows are never merged by hand. On a
+rebase, take main's `corpus_diff.tsv` whole and re-run `run --baseline` on the
+rebased tree: rows the branch never claimed can move under it, and only a full
+run sees them. Run `tools/git_setup.sh` once per clone, and git keeps main's
+file on a rebase by itself (`.gitattributes` names its merge driver; a clone
+without the setup gets an ordinary text merge). Under `git merge main` the
+driver keeps the branch's file instead, so rebase rather than merge main.
+Whichever side the driver keeps, the re-measure is still owed before
+submitting. A forgotten one is never silent: the gate compares every measured
+verdict with the file and fails with the moved programs named.
+
 The per-patch gate (`tools/patch_gate.py`) runs it when what sawc2 is built
 from changes, or what the measurement reads: `tests/corpus/`, the vector
 files the programs read, `examples/` (the twins the snapshot must be current
