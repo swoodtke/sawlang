@@ -28,9 +28,9 @@ run of every program must meet its oracle: a fault, a signal or wrong output
 fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
-COVERAGE: ownership runs a program in 5 of its 6 categories, and 2 of its 26
+COVERAGE: ownership runs a program in 6 of its 6 categories, and 10 of its 26
 Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
-and 4 of its 25 Stage 0 programs build.
+and 10 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
 the lanes count, it must pass natively and fault under Guard Malloc; a lane
@@ -81,8 +81,9 @@ Category = collections.namedtuple("Category", "name shape twins stand_ins blocke
 # `why` is the gap in a few words; `rule` is the first refusal's rule.
 Blocked = collections.namedtuple("Blocked", "path rule unit why")
 
-ARC = "Arc is not in the new std"
-SPAWN = "`group.spawn` is not in the slice"
+CLOSURE_OWNING = "a closure capturing a value that owns something is not in the backend"
+ARRAY_LITERAL = "an array, repeat, Map or Set literal is not in the backend"
+SPAWN_BORROW = "a borrow a `group.spawn` root takes of its spawner is not in the slice"
 
 OWNERSHIP = (
     Category(
@@ -101,7 +102,7 @@ OWNERSHIP = (
             RUN_LANE + "copy_hook_conformance.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "df151b_implicit_tier_transfers.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151b_implicit_tier_transfers.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
             Blocked(CORPUS + "df139a_copy_then_overwrite.saw", "backend.not-yet", "unfiled",
                     "a fixed-array literal is not in the backend"),
             Blocked(CORPUS + "repeat_literal_implicit_copy.saw", "mono.not-yet", "unfiled",
@@ -116,13 +117,15 @@ OWNERSHIP = (
             RUN_LANE + "closure_captures.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "closure_copyable_struct_copied.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "closure_deinit_arc_balance.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "closure_borrow_lend_balance.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "closure_copyable_struct_copied.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
+            Blocked(CORPUS + "closure_deinit_arc_balance.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
+            Blocked(CORPUS + "closure_borrow_lend_balance.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
         )),
     Category(
         "container read-out", "an owning value copied out of a container that keeps its own",
-        twins=(),
+        twins=(
+            CORPUS + "map_string_owning_value_balance.saw",
+        ),
         stand_ins=(
             # A String-holding element read out of a Vector, and the copy and
             # deinit counts of each tier's read.
@@ -136,14 +139,17 @@ OWNERSHIP = (
         blocked=(
             Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",
                     "an escaping closure's environment is not built"),
-            Blocked(CORPUS + "map_string_owning_value_balance.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "set_algebra_owning_balance.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "set_algebra_owning_balance.saw", "mono.not-yet", "SL-598",
+                    "a synthesized `Hashable.hash` on `Int` is not in the backend"),
+            Blocked(CORPUS + "generic_for_loop_owning_balance.saw", "member.unknown", "SL-703",
+                    "Vector.iter is not in the new std"),
         )),
     Category(
         "optional, match and tuple transfers",
         "copies into optional destinations, match scrutinee temporaries, tuple glue, assignment sources",
-        twins=(),
+        twins=(
+            CORPUS + "df151c_optional_dest_copy.saw",
+        ),
         stand_ins=(
             # Every face of the payload read retains once, and the payload
             # outlives the source it was read from.
@@ -158,17 +164,22 @@ OWNERSHIP = (
             CORPUS + "autowrap_ok_no_premature_free.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "df151c_optional_dest_copy.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "df151d_match_temporary_scrutinee.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "df151e_optional_element_array.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "df151f_tuple_drop_glue.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "df151i_tuple_copy.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "df151j_tuple_element_write.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "df151h_assign_rhs_retain.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "df151d_match_temporary_scrutinee.saw", "slice.not-yet", "SL-674",
+                    "a value-producing `break` is not in the slice"),
+            Blocked(CORPUS + "df151e_optional_element_array.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
+            Blocked(CORPUS + "df151f_tuple_drop_glue.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
+            Blocked(CORPUS + "df151i_tuple_copy.saw", "mono.not-yet", "SL-734",
+                    "the builtin `copy` is not in the backend"),
+            Blocked(CORPUS + "df151j_tuple_element_write.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
+            Blocked(CORPUS + "df151h_assign_rhs_retain.saw", "backend.not-yet", "SL-710", ARRAY_LITERAL),
         )),
     Category(
         "hand-off between one task's frames", "a value moved between frames one task owns, dropped on one side",
-        twins=(),
+        twins=(
+            CORPUS + "coro_spawn_and_embed_owning.saw",
+            CORPUS + "coro_tail_move_local.saw",
+            CORPUS + "coro_move_scrutinee_span.saw",
+        ),
         stand_ins=(
             # A payload moved out of a driven match arm to each destination.
             CORPUS + "coro_driven_match_move_out_releases_once.saw",
@@ -177,21 +188,18 @@ OWNERSHIP = (
             # A root's owned arguments and its result through a drive site.
             RUN_LANE + "drive_ownership.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "coro_spawn_and_embed_owning.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "coro_tail_move_local.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "coro_move_scrutinee_span.saw", "slice.not-yet", "SL-564", SPAWN),
-        )),
+        blocked=()),
     Category(
         "Data copy-on-write", "a separation that releases the old storage while a sibling still reads it",
-        twins=(),
+        twins=(
+            CORPUS + "data_cow_slice.saw",
+            CORPUS + "data_cow_value_semantics.saw",
+            CORPUS + "data_cow_self_append.saw",
+        ),
         stand_ins=(),
         blocked=(
-            Blocked(CORPUS + "data_cow_slice.saw", "call.no-match", "SL-596", "Data has no public init"),
-            Blocked(CORPUS + "data_cow_value_semantics.saw", "call.no-match", "SL-596", "Data has no public init"),
             Blocked(CORPUS + "data_iter_outlives_source.saw", "name.undefined", "SL-596",
                     "DataIterator is not in the new std"),
-            Blocked(CORPUS + "data_cow_self_append.saw", "member.unknown", "SL-596", "Data has no public len"),
         )),
 )
 
@@ -205,6 +213,7 @@ CONCURRENCY = (
             CORPUS + "coro_conditional_move_across_suspend.saw",
             CORPUS + "coro_destructure_across_suspend.saw",
             CORPUS + "coro_ref_param_deinit_once.saw",
+            CORPUS + "coro_moved_arc_param_deinit_once.saw",
         ),
         stand_ins=(
             # A hoisted intermediate dies at its statement's end, once.
@@ -213,8 +222,7 @@ CONCURRENCY = (
             CORPUS + "conformance/O12_iflet_move_binding_released_in_coroutine.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "coro_moved_arc_param_deinit_once.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "spawn_ref_param_referent_deinit_once.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "spawn_ref_param_referent_deinit_once.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
         )),
     Category(
         "captures", "an environment a frame owns, and a root a task borrows",
@@ -225,16 +233,21 @@ CONCURRENCY = (
             CORPUS + "coro_closure_captures_self_nested.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "coro_closure_deinit_once.saw", "name.undefined", "SL-701", ARC),
-            Blocked(CORPUS + "coro_closure_taskgroup.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "spawn_capture_declared_before.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "spawn_capture_join_releases.saw", "slice.not-yet", "SL-564", SPAWN),
+            Blocked(CORPUS + "coro_closure_deinit_once.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
+            Blocked(CORPUS + "coro_closure_taskgroup.saw", "mono.not-yet", "SL-525",
+                    "an escaping closure's environment is not built"),
+            Blocked(CORPUS + "spawn_capture_declared_before.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
+            Blocked(CORPUS + "spawn_capture_join_releases.saw", "slice.not-yet", "SL-565", SPAWN_BORROW),
             Blocked(CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw", "member.unknown", "SL-703",
                     "Vector.iter is not in the new std"),
         )),
     Category(
         "join and teardown", "who drops a task's values, and when",
-        twins=(),
+        twins=(
+            CORPUS + "taskgroup_eager_teardown.saw",
+            CORPUS + "taskgroup_result_unjoined_once.saw",
+            CORPUS + "taskgroup_slot_reuse_o_live.saw",
+        ),
         stand_ins=(
             # At main's return the background group cancels and joins its
             # tasks, whose owned values deinit on the cancel path.
@@ -243,11 +256,8 @@ CONCURRENCY = (
             CORPUS + "conformance/K89_detach_gives_up_the_result.saw",
         ),
         blocked=(
-            Blocked(CORPUS + "taskgroup_eager_teardown.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "taskgroup_result_unjoined_once.saw", "slice.not-yet", "SL-564", SPAWN),
             Blocked(CORPUS + "taskgroup_threads_deinit_once.saw", "call.label", "SL-578",
                     "`TaskGroup(threads:)` is not in the new std"),
-            Blocked(CORPUS + "taskgroup_slot_reuse_o_live.saw", "slice.not-yet", "SL-564", SPAWN),
         )),
     Category(
         "the executor's drive paths", "main as a frame the executor drives, beside the tasks it spawns",
@@ -277,11 +287,15 @@ CONCURRENCY = (
         blocked=(
             Blocked(CORPUS + "channel_recv_producer_consumer.saw", "import.unknown-module", "SL-571",
                     "std.channel is not in the new std"),
-            Blocked(CORPUS + "taskgroup_send_containers.saw", "member.unknown", "SL-596", "Data has no public len"),
+            Blocked(CORPUS + "taskgroup_send_containers.saw", "call.label", "SL-578",
+                    "`TaskGroup.init()` has no `threads:` label"),
         )),
     Category(
         "errors in a frame", "an error or Ok payload the frame owns across a suspension",
-        twins=(),
+        twins=(
+            CORPUS + "coro_try_block_positions.saw",
+            CORPUS + "coro_reassign_owning_local.saw",
+        ),
         stand_ins=(
             # An inline catch whose block suspends, over an error that owns a
             # String field.
@@ -292,10 +306,10 @@ CONCURRENCY = (
                     "Printable on `Box<any Error>` is not in the backend"),
             Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "unfiled",
                     "a method `Box` forwards to its payload is not in the slice"),
-            Blocked(CORPUS + "coro_try_block_positions.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "coro_try_propagate_suspending.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "coro_reassign_owning_local.saw", "slice.not-yet", "SL-564", SPAWN),
-            Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "name.undefined", "SL-701", ARC),
+            Blocked(CORPUS + "coro_try_propagate_suspending.saw", "mono.not-yet", "SL-713",
+                    "Printable on `Box<any Error>` is not in the backend"),
+            Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "slice.not-yet", "SL-712",
+                    "a method `Arc` forwards to its payload is not in the slice"),
         )),
 )
 

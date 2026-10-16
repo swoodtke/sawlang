@@ -677,8 +677,8 @@ coro_deinit_across_suspend.saw	pass	-	-
 coro_destructure_across_suspend.saw	pass	-	-
 coro_destructure_nocopy_into_frame.saw	pass	-	-
 coro_destructuring_let_suspending_rhs.saw	pass	-	-
-coro_discarded_match_payload_field_drop_order.saw	stage0-wrong	annotated SL-513	sawc2: output line 4 is 'arm', expected 'DEINIT t2'
-coro_discarded_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2: output line 3 is 'arm', expected 'DEINIT t1'
+coro_discarded_match_payload_field_drop_order.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
+coro_discarded_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
 coro_discarded_tail_move_cross_module.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_discarded_tail_move_in_nested_block.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
 coro_discarded_tail_move_in_nested_control_flow.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `iter` this module can see
@@ -736,7 +736,7 @@ coro_match_binds_scrutinee.saw	pass	-	-
 coro_match_move_out_releases_once_in_loop_try_and_task.saw	pass	-	-
 coro_match_moved_payload_survives_return.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 coro_method_root_and_embedded.saw	pass	-	-
-coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2: output line 4 is 'arm', expected 'DEINIT t2'
+coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
 coro_module_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_module_tagged_free_callee_discovery.saw	pass	-	-
 coro_move_in_a_while_condition_driven.saw	pass	-	-

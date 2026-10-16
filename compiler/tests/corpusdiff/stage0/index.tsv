@@ -677,8 +677,8 @@ coro_deinit_across_suspend.saw	arm64-apple-darwin	same	68ae09d050ee	success	ok	0
 coro_destructure_across_suspend.saw	arm64-apple-darwin	same	5757f59bd6a6	success	ok	0	9:01d357ae9493	0:e3b0c44298fc	-	yes	-
 coro_destructure_nocopy_into_frame.saw	arm64-apple-darwin	same	950cb38e00b3	success	ok	0	69:7dc83add517c	0:e3b0c44298fc	-	yes	-
 coro_destructuring_let_suspending_rhs.saw	arm64-apple-darwin	same	33ea261f4d07	success	ok	0	100:fff4ab8cc986	0:e3b0c44298fc	-	yes	-
-coro_discarded_match_payload_field_drop_order.saw	arm64-apple-darwin	same	c7f4f72dd0d2	success	ok	0	954:b4b6e9ec11c3	0:e3b0c44298fc	-	yes	-
-coro_discarded_match_payload_released_at_extraction.saw	arm64-apple-darwin	same	4e0646a38335	success	ok	0	386:7dee085bae96	0:e3b0c44298fc	-	yes	-
+coro_discarded_match_payload_field_drop_order.saw	arm64-apple-darwin	same	926acf1829b5	success	ok	0	954:b4b6e9ec11c3	0:e3b0c44298fc	-	no: output line 4 is 'DEINIT t2', expected 'arm'	-
+coro_discarded_match_payload_released_at_extraction.saw	arm64-apple-darwin	same	35106e2c02be	success	ok	0	386:7dee085bae96	0:e3b0c44298fc	-	no: output line 3 is 'DEINIT t1', expected 'arm'	-
 coro_discarded_tail_move_cross_module.saw	arm64-apple-darwin	same	d43c47461f22	success	ok	0	10:68c8a5d9475d	0:e3b0c44298fc	-	yes	-
 coro_discarded_tail_move_in_nested_block.saw	arm64-apple-darwin	same	4f0fc89d9694	success	ok	0	20:8756a92a6518	0:e3b0c44298fc	-	yes	-
 coro_discarded_tail_move_in_nested_control_flow.saw	arm64-apple-darwin	same	1caeb251a429	success	ok	0	32:5dd90fe19847	0:e3b0c44298fc	-	yes	-
@@ -736,7 +736,7 @@ coro_match_binds_scrutinee.saw	arm64-apple-darwin	same	4482d096dacb	success	ok	0
 coro_match_move_out_releases_once_in_loop_try_and_task.saw	arm64-apple-darwin	same	b00d33ba4699	success	ok	0	180:ef18a797cc0c	0:e3b0c44298fc	-	yes	-
 coro_match_moved_payload_survives_return.saw	arm64-apple-darwin	same	b8c730cc0834	success	ok	0	204:6c4bb5f74795	0:e3b0c44298fc	-	yes	-
 coro_method_root_and_embedded.saw	arm64-apple-darwin	same	de5a1ea90d2b	success	ok	0	10:3b546953fa2f	0:e3b0c44298fc	-	yes	-
-coro_mixed_match_payload_released_at_extraction.saw	arm64-apple-darwin	same	2eb9b69cc7df	success	ok	0	120:fe10bc661250	0:e3b0c44298fc	-	yes	-
+coro_mixed_match_payload_released_at_extraction.saw	arm64-apple-darwin	same	c00a1bfa7918	success	ok	0	120:fe10bc661250	0:e3b0c44298fc	-	no: output line 4 is 'DEINIT t2', expected 'arm'	-
 coro_module_json_encode_in_task.saw	arm64-apple-darwin	differs	de6290e738c1	success	ok	0	31:a92ad56b2ca0	0:e3b0c44298fc	-	yes	-
 coro_module_tagged_free_callee_discovery.saw	arm64-apple-darwin	same	55b0ef8bee6a	success	ok	0	33:4c781e364daf	0:e3b0c44298fc	-	yes	-
 coro_move_in_a_while_condition_driven.saw	arm64-apple-darwin	same	b3e5fc0b9cab	success	ok	0	106:18cab4e684e4	0:e3b0c44298fc	-	yes	-

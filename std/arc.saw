@@ -3,7 +3,7 @@
 //! An `Arc` is `Copy`: a copy retains the one heap block the handles share,
 //! and the last handle to die destroys the payload and frees the block. The
 //! payload is shared, never duplicated, so write to it through a `Mutex`, or
-//! through `with_unique` while no other handle exists.
+//! through `unique()` while no other handle exists.
 //!
 //! ```saw-fragment
 //! let shared = try! Arc<Int>(value: 7)

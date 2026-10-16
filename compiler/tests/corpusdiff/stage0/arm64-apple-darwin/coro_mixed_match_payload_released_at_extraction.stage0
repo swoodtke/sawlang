@@ -19,4 +19,4 @@ stdout	"arm"
 stdout	"DEINIT t1"
 stdout	"scope closed"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 4 is 'DEINIT t2', expected 'arm'

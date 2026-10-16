@@ -1,41 +1,26 @@
-// A `_`-DISCARDED payload's fields drop in REVERSE declaration order, on both
-// twins (DF-218y, RULED and FIXED Aug 22).
+// A `_`-DISCARDED payload's fields drop in REVERSE declaration order, after the
+// arm that discarded them, on both twins (SL:hazards C11, SL-513 ruling B).
 //
-// DF-218w's per-arm edge put both twins at the same POINT — an arm that claims
-// nothing of the scrutinee releases at its START. What it could not reconcile
-// was the order WITHIN the payload, because each side reached the fields
-// through a different destructor. Sync dropped a `_`-discarded field inline as
-// it EXTRACTED it, so its loop ran in binding-index order, FORWARD. The driven
-// twin releases the frame temp as ONE value, and the enum's synthesized
-// memberwise deinit is reverse-declaration, which is what design 128 states for
-// every structural teardown in the language.
+// A discarded part is not released where it is extracted. It dies when the
+// construct that consumed it completes, so the arm's output comes first and the
+// DEINIT lines follow it. Within the payload the order is reverse declaration,
+// which is what design 128 states for every structural teardown in the
+// language. The oracle is `named_control` below: it binds all three fields, and
+// a named binding is released in reverse by the arm scope that registers it.
 //
-// The RULING: reverse-declaration everywhere. Sync's forward inline loop was
-// the only drop path in Saw that was not, and forward was an artifact of
-// emitting the drop where the field was extracted — never a contract anything
-// relied on. So the fix landed on the SYNC side and this pin flipped with it,
-// and the oracle was already in the file: `named_control` below binds all three
-// fields, and a named binding has always been released in reverse, by the arm
-// scope that registers it.
-//
-// The obligation-4 sweep found the same forward loop at a SECOND position — the
-// destructuring `let`'s wildcard leaves, which codegen walks for `let (_, _)`,
-// `if let (v, _, _)` and the `guard let` twin. That one was forward on BOTH
-// twins (the transform does not rewrite a destructure's leaves), so it never
-// diverged and simply disagreed with the language; it moves with the match
-// lowering here.
+// In a mixed arm the named field is released first and the discarded fields
+// follow it in reverse. A destructuring `let`'s wildcard leaves (`let (_, _)`)
+// drop when the `let` completes, in reverse, before the next statement.
 //
 // Rows:
 //   all_discarded        — `case Pair(_, _)`: the shape that diverged. Twins.
 //   three_discarded      — `case Trip(_, _, _)`: three, so a reversed order is
 //                          distinguishable from a swapped pair. Twins.
 //   mixed_head           — `case Trip(v, _, _)`: TWO discarded fields beside a
-//                          named one, which is what makes the discard loop's
-//                          own order visible in a mixed arm. Sync only: the
-//                          mixed shape's driven TIMING is DF-218w's standing
-//                          residue, pinned XFAIL in
-//                          coro_mixed_match_payload_released_at_extraction.saw,
-//                          and the order is what this row is for.
+//                          named one, which is what makes the discard order
+//                          visible in a mixed arm. Sync only; the mixed shape's
+//                          driven twin is
+//                          coro_mixed_match_payload_released_at_extraction.saw.
 //   mixed_tail           — `case Trip(_, _, v)`: the discarded fields lead, so
 //                          the reversal is not an artifact of their position.
 //   destructure          — `let (_, _, _)`: the swept sibling. Twins.
@@ -44,7 +29,7 @@
 //   iflet_tuple          — `if let (v, _, _)`: the same walk, reached through
 //                          an optional binding.
 //   named_control        — `case Trip(x, y, z)`: the ORACLE. Never in question,
-//                          and the order every row above now matches.
+//                          and the order every row above matches.
 //
 // Never a leak: the counts balance on every row.
 // EXPECT: success
@@ -52,52 +37,52 @@
 // -- all_discarded sync
 // NEW t1
 // NEW t2
+// arm
 // DEINIT t2
 // DEINIT t1
-// arm
 // scope closed
 // -- all_discarded driven
 // NEW t1
 // NEW t2
+// arm
 // DEINIT t2
 // DEINIT t1
-// arm
 // scope closed
 // -- three_discarded sync
 // NEW t1
 // NEW t2
 // NEW t3
+// arm
 // DEINIT t3
 // DEINIT t2
 // DEINIT t1
-// arm
 // scope closed
 // -- three_discarded driven
 // NEW t1
 // NEW t2
 // NEW t3
+// arm
 // DEINIT t3
 // DEINIT t2
 // DEINIT t1
-// arm
 // scope closed
 // -- mixed_head sync
 // NEW t1
 // NEW t2
 // NEW t3
-// DEINIT t3
-// DEINIT t2
 // arm
 // DEINIT t1
+// DEINIT t3
+// DEINIT t2
 // scope closed
 // -- mixed_tail sync
 // NEW t1
 // NEW t2
 // NEW t3
-// DEINIT t2
-// DEINIT t1
 // arm
 // DEINIT t3
+// DEINIT t2
+// DEINIT t1
 // scope closed
 // -- destructure sync
 // NEW t1
@@ -128,10 +113,10 @@
 // NEW t1
 // NEW t2
 // NEW t3
-// DEINIT t3
-// DEINIT t2
 // bound
 // DEINIT t1
+// DEINIT t3
+// DEINIT t2
 // scope closed
 // -- named_control sync
 // NEW t1

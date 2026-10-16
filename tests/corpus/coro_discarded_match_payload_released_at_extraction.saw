@@ -1,23 +1,12 @@
-// A driven `case Has(_)` releases the discarded payload at EXTRACTION, where
-// the sync twin releases it — DF-218w.
+// A `case Has(_)` payload dies when the match completes, after the arm, on both
+// twins (SL:hazards C11, SL-513 ruling B).
 //
-// DF-217p's scope-end migration moved this cell from "frame teardown" to "the
-// end of the match statement" and stopped there. A `_` payload binding names no
-// value to own, so it is registered in no cleanup scope and no scope exit can
-// reach it; sync answers that by dropping it INLINE at extraction
-// (codegen/match.py's consume branch, the DF-217n fix). The driven twin has no
-// consume mode to be in — its scrutinee is the frame TEMP the container-head
-// hoist made (`self.__headN`), not an owned local — so the temp's own release
-// was what dropped the payload, one position late.
-//
-// DF-218w's first fix was an EDGE (E-ARM): an arm that claimed nothing of the
-// scrutinee released the hoisted temp at its own start, since the payload was
-// then aliased by nobody. Design 247 replaced the edge with the MODE the whole
-// row wanted — the hoisted temp is take-read now, so the scrutinee reaching
-// codegen is an owned temporary and the ordinary consume model drops an
-// unclaimed payload inline at extraction, deciding it by the same rule as the
-// sync twin instead of by a driven-only edge. The mixed `case Both(v, _)` shape
-// the edge could not reach came with it, and is pinned beside this file.
+// A `_` payload binding names no value to own, so no cleanup scope holds it.
+// The discarded part is released when the construct that consumed it completes,
+// not where it is extracted: the arm's output comes first and the DEINIT line
+// follows it. The driven twin takes the same answer, because its hoisted
+// scrutinee temp is take-read and the ordinary consume model applies to it
+// (design 247).
 //
 // MATRIX. The rows are the arm shapes that claim nothing, plus the control that
 // claims, plus both lowerings:
@@ -25,48 +14,48 @@
 //   discard   — `case Has(_)`, the original cell, lowered IN PLACE (the head
 //               was the only suspending part, so the construct itself spans
 //               nothing once it is hoisted)
-//   wildcard  — `case _` over an owning variant, where sync drops the whole
-//               scrutinee at the arm's start for the same reason
+//   wildcard  — `case _` over an owning variant, where the whole scrutinee dies
+//               with the match
 //   split     — `case Has(_)` where the ARM suspends too, so the match is
-//               CFG-split and the drop rides the arm's entry state
+//               CFG-split and the release rides the construct's exit
 //   named     — the control: an arm that binds by name keeps the arm's END on
 //               BOTH twins, because the binding is live for the arm
 //
 // The neighbouring shapes are pinned separately: the mixed `case Both(v, _)`
-// (coro_mixed_match_payload_released_at_extraction.saw, closed with this one by
-// design 247) and a multi-field all-`_` payload's field ORDER
-// (coro_discarded_match_payload_field_drop_order.saw, DF-218y).
+// (coro_mixed_match_payload_released_at_extraction.saw) and a multi-field
+// all-`_` payload's field ORDER
+// (coro_discarded_match_payload_field_drop_order.saw).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- sync
 // NEW t1
-// DEINIT t1
 // arm
+// DEINIT t1
 // scope closed
 // -- driven
 // NEW t1
-// DEINIT t1
 // arm
+// DEINIT t1
 // scope closed
 // -- sync wildcard
 // NEW t2
-// DEINIT t2
 // arm
+// DEINIT t2
 // scope closed
 // -- driven wildcard
 // NEW t2
-// DEINIT t2
 // arm
+// DEINIT t2
 // scope closed
 // -- sync split
 // NEW t3
-// DEINIT t3
 // arm
+// DEINIT t3
 // scope closed
 // -- driven split
 // NEW t3
-// DEINIT t3
 // arm
+// DEINIT t3
 // scope closed
 // -- sync named
 // NEW t4

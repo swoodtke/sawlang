@@ -1,42 +1,31 @@
-// A driven `case Both(v, _)` drops the DISCARDED field at extraction and the
-// NAMED one at the arm's end, exactly as the sync twin does — DF-218w's
-// narrowed residue, CLOSED by design 247.
+// A driven `case Pair(v, _)` releases the NAMED field and then the DISCARDED
+// one after the arm, exactly as the sync twin does (SL:hazards C11, SL-513
+// ruling B).
 //
-// Sync answers this arm shape with two drops at two points: the `_` field
-// INLINE at extraction (codegen/match.py's consume branch), the named binding
-// at the arm's end through the arm cleanup scope it is registered in. The
-// driven twin could not, because it held ONE value — the frame temp the
-// container-head hoist made, carrying the whole enum — and `_release_shape`
-// releases a field WHOLE. There was no spelling that dropped `b` while `a` was
-// still named, so the temp's own release at the statement's end dropped both,
-// one position late for the discarded half. DF-218w's per-arm edge (E-ARM)
-// could not take this arm either: it fires only where the arm claims NOTHING by
-// name, and releasing here would free the value `v` reads for the arm's length.
-//
-// WHAT CLOSED IT was not a third edge but the encoding. The hoisted temp is
-// take-read now (`self.__headN.take()`), so the scrutinee reaching codegen is
-// an OWNED TEMPORARY and the ordinary consume model applies: the `_` field is
-// dropped inline at extraction and `v` is registered in the arm's cleanup
-// scope. Both twins now take one code path to one answer, which is why the
-// timing agrees by construction rather than by two release systems being kept
-// apart. Its E-ARM sibling
+// Neither field dies at extraction. The named binding is registered in the arm's
+// cleanup scope and released at the arm's end; the discarded field belongs to no
+// scope and dies when the match completes, right behind it. The driven twin
+// takes one code path to the same answer, because its hoisted scrutinee temp is
+// take-read (`self.__headN.take()`) and so reaches codegen as an owned
+// temporary under the ordinary consume model (design 247). The timing agrees by
+// construction rather than by two release systems being kept apart. Its sibling
 // (`coro_discarded_match_payload_released_at_extraction.saw`) reaches the same
-// answer through the same model.
+// model through the all-`_` shapes.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- sync
 // NEW t1
 // NEW t2
-// DEINIT t2
 // arm
 // DEINIT t1
+// DEINIT t2
 // scope closed
 // -- driven
 // NEW t1
 // NEW t2
-// DEINIT t2
 // arm
 // DEINIT t1
+// DEINIT t2
 // scope closed
 
 import std.task.{yield_now}
