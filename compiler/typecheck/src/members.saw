@@ -300,7 +300,7 @@ extension TcProgram {
 
     // Whether an extension of type `d` writes its `deinit`, whose name is
     // `name`.
-    func has_written_deinit(&self, d: Int, name: Int) -> Bool {
+    public func has_written_deinit(&self, d: Int, name: Int) -> Bool {
         var at = self.extensions_of.first(d, 0)
         while at >= 0 {
             let ext = self.extensions_of.value(at)

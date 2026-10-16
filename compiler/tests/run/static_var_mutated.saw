@@ -1,0 +1,54 @@
+// `unsafe static var`s of aggregate type start from their initializers' values
+// and are writable storage: a table of structs from a repeat, a header struct
+// and an array literal, each written after start and read back (SL-722).
+
+struct Slot {
+    owner: Int32
+    used: Bool
+}
+
+struct Header {
+    magic: UInt32
+    entries: UInt16
+    sealed: Bool
+}
+
+unsafe static var TABLE: [Slot; 4] = [Slot(owner: -1, used: false); 4]
+unsafe static var HEADER: Header = Header(magic: 0xCAFE, entries: 0, sealed: false)
+unsafe static var WEIGHTS: [Int64; 3] = [5, -6, 7]
+
+func claim(owner: Int32) unsafe -> Int {
+    var k = 0
+    while k < 4 {
+        if not TABLE[k].used {
+            TABLE[k] = Slot(owner: owner, used: true)
+            HEADER.entries = HEADER.entries + 1
+            return k
+        }
+        k = k + 1
+    }
+    -1
+}
+
+func report() unsafe {
+    print("{} {} {}", HEADER.magic, HEADER.entries, HEADER.sealed)
+    var k = 0
+    while k < 4 {
+        print("{} {}", TABLE[k].owner, TABLE[k].used)
+        k = k + 1
+    }
+    print("{} {} {}", WEIGHTS[0], WEIGHTS[1], WEIGHTS[2])
+}
+
+func run() unsafe {
+    report()
+    print(claim(11))
+    print(claim(22))
+    HEADER.sealed = true
+    WEIGHTS[1] = WEIGHTS[1] * 100
+    report()
+}
+
+func main() {
+    run()
+}

@@ -1,0 +1,42 @@
+// flags: --std-root std
+// The immortal rule's matrix (spec, Module-level statics: "Immortal"). A
+// `Once` whose payload owns something is refused, its `String` named, whether
+// the payload is the `String` itself or a struct holding one; each of those
+// is refused first for its all-zero value, which no `String` has. Accepted: a
+// `Once<Int>`, a `SpinLock` and a `Mutex` with no initializer, a struct of
+// scalars declaring `NoCopy`, and a struct holding an `Atomic`. The rule's
+// other cells, each refused first by it, are fixtures
+// (`refuse/static.immortal.*`).
+
+import std.mutex.{Mutex}
+import std.once.{Once}
+import std.spinlock.{SpinLock}
+
+struct Cfg {
+    path: String
+    workers: Int
+}
+
+struct Plain {
+    count: Int
+    ready: Bool
+}
+
+extension Plain: NoCopy {}
+
+struct Stats {
+    hits: Atomic<Int>
+    peak: UInt16
+}
+
+extension Stats: NoCopy {}
+
+static PATH: Once<String>
+static CONFIG: Once<Cfg>
+static LIMIT: Once<Int>
+static LOCK: SpinLock<Int>
+static REGISTRY: Mutex<Int>
+static PLAIN: Plain = Plain(count: 3, ready: true)
+static STATS: Stats = Stats(hits: Atomic(0), peak: 7)
+
+func main() {}

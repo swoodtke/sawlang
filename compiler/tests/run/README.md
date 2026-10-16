@@ -276,7 +276,21 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - **Strings and statics.** A String literal is a private constant in the
   String layer's literal block (an immortal refcount, the length, the bytes,
   a NUL), wrapped through `string_literal`; a literal message's bytes are
-  written as they are. A static is a global holding the evaluator's value.
+  written as they are. A static is an internal, writable global, written
+  once by `static_global` in `compiler/llvm/src/places.saw` (its funnel): an
+  integer or a `Bool` as its scalar; any other value the evaluator holds as a
+  packed constant with every part at the offset the target's layout gives
+  it, zero bytes between, so no LLVM layout rule moves a part (an integer, a
+  `Bool`, an atomic's word and a case's tag each an integer of its size, a
+  struct and an array their parts in order, a part no byte of which is set
+  `zeroinitializer`, which costs the image nothing); and a static with no
+  initializer as `zeroinitializer` of its size, at its alignment.
+  `static_aggregates`, `static_zerofill`, `static_imported`,
+  `static_var_mutated`, `static_large_table`, `lock_statics` and the probe
+  `static_alias_construction` pin the kinds, element types and positions
+  (SL-722); the due program `static_float_leaf` pins the refusal of a static
+  whose initializer holds a Float, since the constant evaluator holds no
+  Float value yet (SL-722).
 - **The entry.** The C `main(argc, argv)` keeps both for the argument
   accessors the compiler emits into every program (runtime/ABI.md, "Program
   arguments"), calls the program's `main`, and exits with its `Int`, or 0
@@ -330,7 +344,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a take capture, a static that is not an integer or a Bool, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a take capture, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every

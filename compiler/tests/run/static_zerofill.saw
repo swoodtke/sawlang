@@ -1,0 +1,60 @@
+// A static with no initializer is all zero, in every shape: an integer, a
+// `Bool`, a struct, a struct holding an `Atomic`, a payload-free enum (its
+// first case), a fixed array of structs and an `Int8` byte region, and an
+// `unsafe static var` region the program then writes (SL-685).
+
+struct Slot {
+    generation: Int
+    owner: Int32
+    used: Bool
+}
+
+struct Gauge {
+    level: Atomic<Int>
+    peak: UInt16
+}
+
+extension Gauge: NoCopy {}
+
+enum Mode {
+    case Idle,
+    case Busy
+}
+
+static COUNT: Int
+static READY: Bool
+static ORIGIN: Slot
+static GAUGE: Gauge
+static MODE: Mode
+static SLOTS: [Slot; 4]
+static REGION: [Int8; 64]
+unsafe static var SCRATCH: [UInt8; 32]
+
+func scribble() unsafe -> Int {
+    var k = 0
+    while k < 32 {
+        SCRATCH[k] = UInt8.from(truncating: k * 3)
+        k = k + 1
+    }
+    SCRATCH[31] as Int
+}
+
+func main() {
+    print("{} {}", COUNT, READY)
+    print("{} {} {}", ORIGIN.generation, ORIGIN.owner, ORIGIN.used)
+    GAUGE.level.fetch_add(4)
+    print("{} {}", GAUGE.level.load(), GAUGE.peak)
+    match MODE {
+        case Idle -> print("idle"),
+        case Busy -> print("busy")
+    }
+    print("{} {}", SLOTS[3].owner, SLOTS[3].used)
+    var sum = 0
+    var k = 0
+    while k < 64 {
+        sum = sum + (REGION[k] as Int)
+        k = k + 1
+    }
+    print(sum)
+    print(scribble())
+}

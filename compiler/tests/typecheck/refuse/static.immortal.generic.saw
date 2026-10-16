@@ -1,0 +1,23 @@
+// refuses: static.immortal at 21:8
+// a static of a generic struct's instance whose argument writes its own
+// `deinit`, reached through the instance's field
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+struct Wrap<T> {
+    value: T
+}
+
+extension Wrap<T>: NoCopy {}
+
+static WRAPPED: Wrap<Guard> = Wrap<Guard>(value: Guard(id: 1))
+
+func main() {}

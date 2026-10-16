@@ -12,13 +12,19 @@ import sawtypecheck.program.{TcProgram}
 
 // What an evaluated value is: an integer of type `ty`, a `Bool`, a
 // payload-free case `decl` of an enum, `()`, an `Atomic(<int>)` of type `ty`
-// whose word is `bits` (SL:open-questions D38), or no value.
+// whose word is `bits` (SL:open-questions D38), an aggregate, or no value.
+// An aggregate's parts live in `EvalProgram.parts`: a struct's construction
+// (`decl` the struct) or a fixed array's literal (`decl` -1) is the run of
+// `count` parts from `bits`, in field or index order, and `[v; N]` is the one
+// part at `bits`, `count` times.
 public enum EvalKind {
     case Integer,
     case Boolean,
     case Case,
     case Unit,
     case Cell,
+    case Aggregate,
+    case Repeat,
     case Missing
 }
 
@@ -28,16 +34,17 @@ public struct EvalValue {
     bits: Int
     ty: Int
     decl: Int
+    count: Int
     fault: TcFault
 }
 
 extension EvalValue {
     public init(kind: EvalKind, bits: Int, ty: Int) -> EvalValue {
-        EvalValue(kind: kind, bits: bits, ty: ty, decl: -1, fault: TcFault.Clean)
+        EvalValue(kind: kind, bits: bits, ty: ty, decl: -1, count: 0, fault: TcFault.Clean)
     }
 
     public static func missing(fault: TcFault) -> EvalValue {
-        EvalValue(kind: EvalKind.Missing, bits: 0, ty: -1, decl: -1, fault: fault)
+        EvalValue(kind: EvalKind.Missing, bits: 0, ty: -1, decl: -1, count: 0, fault: fault)
     }
 }
 
@@ -59,6 +66,9 @@ public struct EvalProgram {
     values: Vector<EvalValue>
     ends: Vector<EvalEnd>
     active: Vector<Bool>
+    // Every aggregate's parts. A part is never rewritten, so two aggregates
+    // may share one: a static naming an earlier one shares its runs.
+    parts: Vector<EvalValue>
     // By declaration: the MIR function computing a static's initializer or a
     // raw-backed case's value, or -1.
     constant_of: Vector<Int>
@@ -109,7 +119,7 @@ public func eval_program(mir: &MirProgram) -> EvalProgram {
         }
         k = k + 1
     }
-    EvalProgram(values: move values, ends: move ends, active: move active,
+    EvalProgram(values: move values, ends: move ends, active: move active, parts: Vector<EvalValue>(),
                 constant_of: move constant_of, stack: Vector<Int>(), steps: 0, diags: Vector<MirDiag>(),
                 last_fault: TcFault.Clean)
 }

@@ -1,4 +1,10 @@
-// refuses: slice.not-yet at 4:28
-// an aggregate, a constant the bootstrap slice's evaluator does not hold yet
+// refuses: slice.not-yet at 10:24
+// a Float leaf, a constant the bootstrap slice's evaluator does not hold yet
+// (SL-722)
 
-static TABLE: [UInt8; 4] = [0; 4]
+struct Point {
+    x: Float
+    n: Int
+}
+
+static ORIGIN: Point = Point(x: 1.5, n: 2)

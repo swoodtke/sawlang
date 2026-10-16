@@ -1,0 +1,10 @@
+program	compiler/tests/run/static_imported.saw
+triple	arm64-apple-darwin
+source	ca276f2ba294723e
+build	ok
+exit	0
+stdout	"64 128 true"
+stdout	"10 20 65535"
+stdout	"7 7"
+stdout	"64 128"
+stdout	""

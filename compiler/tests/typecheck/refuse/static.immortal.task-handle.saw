@@ -1,6 +1,6 @@
-// refuses: loan.handle-escape at 12:12
-// a handle stored into a static: no scope ends a static, so it outlives every
-// group.
+// refuses: static.immortal at 8:19
+// a group handle's type writes its own `deinit`, so no static can hold one,
+// and a handle can never be stored into one (K164's static cell).
 func work(n: Int) -> Int {
     n
 }

@@ -1,0 +1,8 @@
+program	compiler/tests/run/static_large_table.saw
+triple	arm64-apple-darwin
+source	751c7f7b6393ecec
+build	ok
+exit	0
+stdout	"12285948757477592399 11367666870570824289 6581561498260345859"
+stdout	"9509512736001999272 667 14"
+stdout	""

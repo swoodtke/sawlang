@@ -11330,7 +11330,9 @@ deterministically as tasks unwind, and `main` returns normally.
 written once and read many times. A `static` is image bytes and there is no
 life-before-main, so a global whose initial value must be COMPUTED cannot be a
 static initializer in any form; this is the answer for the half of that which is
-set once.
+set once. A `Once` static is immortal like every static, so its payload is never
+dropped and must be trivially destructible: no `String`, `Vector` or hand-written
+`deinit` anywhere in it (`static PATH: Once<String>` is a compile error).
 
 ```saw
 import std.once.*

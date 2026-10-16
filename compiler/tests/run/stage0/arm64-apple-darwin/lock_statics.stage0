@@ -1,0 +1,9 @@
+program	compiler/tests/run/lock_statics.saw
+triple	arm64-apple-darwin
+source	e55d92e11f6c8731
+build	ok
+exit	0
+stdout	"false"
+stdout	"false"
+stdout	"true"
+stdout	""

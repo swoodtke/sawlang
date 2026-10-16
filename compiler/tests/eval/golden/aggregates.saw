@@ -1,0 +1,60 @@
+// The aggregates a static holds, each part a constant: a struct over the
+// integer widths and a `Bool`, a struct holding an `Atomic`, a payload-free
+// case, a fixed array literal, a repeat, nested structs in an array, a generic
+// struct's instance, and an earlier static as a whole value, a field and a
+// repeated element.
+
+struct Widths {
+    a: Int8
+    b: UInt16
+    c: Int32
+    d: UInt64
+    e: Bool
+}
+
+struct Slot {
+    generation: Int
+    owner: Int32
+}
+
+struct Table {
+    head: Slot
+    slots: [Slot; 2]
+}
+
+struct Pair<T> {
+    left: T
+    right: T
+}
+
+struct Counter {
+    hits: Atomic<Int>
+    step: Int
+}
+
+extension Counter: NoCopy {}
+
+enum Mode: UInt8 {
+    case Idle = 0,
+    case Busy = 7
+}
+
+struct Setting {
+    mode: Mode
+    level: UInt8
+}
+
+static WIDTHS: Widths = Widths(a: -128, b: 65535, c: Int32.min, d: UInt64.max, e: true)
+static FREE: Slot = Slot(generation: 3, owner: -1)
+static SPARE: Slot = FREE
+static ROW: [Int16; 3] = [1, -2, 300]
+static SLOTS: [Slot; 4] = [FREE; 4]
+static ZEROS: [UInt8; 4096] = [0; 4096]
+static NEST: [Table; 2] = [Table(head: FREE, slots: [FREE, Slot(generation: 9, owner: 2)]),
+                           Table(head: Slot(generation: 4, owner: 5), slots: [FREE; 2])]
+static PAIR: Pair<UInt8> = Pair<UInt8>(left: 1, right: 255)
+static COUNTER: Counter = Counter(hits: Atomic(10), step: 5)
+static SETTING: Setting = Setting(mode: Mode.Busy, level: 3)
+static BARE: Slot
+
+func main() {}

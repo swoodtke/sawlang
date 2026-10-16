@@ -40,11 +40,19 @@ where two are compared, as typecheck's fold and the run time compare them),
 and reads of other statics and raw-backed cases, evaluated once each, before or after the
 reader in the source. Arithmetic is typed: each operation runs at its
 operands' type through `sawtypecheck.arith`, the rule typecheck's fold
-follows too. Calls, loops, aggregates, references and every other construct
-are outside it.
+follows too. A static also holds the aggregates its initializer builds out
+of those (spec, statics tier 2): a struct's construction, a fixed array's
+literal, `[v; N]`, `Atomic(<int>)` as a part, and an earlier static as a
+whole part, an alias's construction keeping its parts. It holds no Float
+value yet (SL-722). Calls, loops, tuples, a case carrying a payload, references and
+every other construct are outside it.
 
 The value of every constant position is a side table, `EvalProgram.values`,
-indexed by MIR function, which later stages read.
+indexed by MIR function, which later stages read; an aggregate's parts are a
+run of `EvalProgram.parts`, which mono takes whole with the values
+(`mono_take_statics`), and the backend writes each static's global from them
+(`compiler/tests/run/README.md`, "Strings and statics"). A static with no
+initializer has no MIR function and no value: it is zero.
 
 ## `sawc2 eval`
 
@@ -67,7 +75,9 @@ starts with `FILE<TAB>path` and holds, in order:
   `NAME: TYPE (no value)` when its evaluation was refused or read a refused
   constant. NAME is its MIR function's (`static`, `raw`, `align`,
   `static_assert`). VALUE is an integer in decimal, an unsigned one past
-  `Int.max` included, `true` or `false`, or a case's identity.
+  `Int.max` included, `true` or `false`, a case's identity, an atomic as
+  `TYPE(WORD)`, or an aggregate's parts in order: `TYPE { A, B }` for a
+  struct, `[A, B]` for an array literal and `[A; N]` for a repeat.
 
 The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
 otherwise.
@@ -89,7 +99,7 @@ which has none, by its condition's position: `the static_assert at 12:16`.
 | `eval.not-fit` | a value converted, adopted or written as a literal at a type that cannot hold it | eval.not-fit |
 | `eval.cycle` | a static whose value depends on itself, naming the statics around the cycle; an evaluation past the step budget, naming the statics under way | eval.cycle |
 | `eval.assert` | a `static_assert` whose condition is `false` | eval.assert |
-| `slice.not-yet` | a construct outside the evaluator: a call, a loop, an aggregate, a part of a value, a mutable static, a static whose initializer this program does not lower | slice.not-yet |
+| `slice.not-yet` | a construct outside the evaluator: a call, a loop, a Float constant, a tuple, a case carrying a payload, a part of a value, a mutable static, a static whose initializer this program does not lower | slice.not-yet |
 
 Typecheck's constant-position funnel (`compiler/tests/typecheck/README.md`)
 reads the same fold at every constant position and refuses each fault, a
@@ -99,7 +109,7 @@ program typecheck accepts reaches the six `eval.` rules: they stand as
 defence in depth, held to the fold by the agreement check. Each one's fixture
 is headed `// shadowed: TC-RULE at L:C` instead: it is refused first by that
 typecheck rule at that position, and it covers the evaluator rule it is named
-for. `slice.not-yet` stays the evaluator's own: an aggregate, a float, a call
+for. `slice.not-yet` stays the evaluator's own: a Float constant, a call
 the grammar admits (`sizeof`), constants it does not hold yet.
 
 ## The verifier
@@ -110,8 +120,10 @@ The evaluator's verifier checks, per lowered module:
   position's type;
 - typecheck's fold (`compiler/typecheck/src/fold.saw`), which computes the
   same constants from the tree, agrees with the evaluator on every one: the
-  same value at the same type, or the same fault. A constant whose value is an
-  enum case is skipped, since the fold has no form for one.
+  same value at the same type, or the same fault. A constant the fold has no
+  form for is skipped: one whose value is an enum case, an atomic or an
+  aggregate, and one at a position whose type is neither an integer nor a
+  `Bool`.
 
 ## The lane
 

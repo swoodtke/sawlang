@@ -1,5 +1,3 @@
-// due: the backend lowers a static of an integer or a Bool only, not a bare static of a lock or a `Once` (SL-685)
-// refuses: backend.not-yet at 14:11
 // A bare static of a `SpinLock` and of a `Once` is an unlocked lock and an
 // unset slot: zero is each one's starting state, so neither needs an
 // initializer.

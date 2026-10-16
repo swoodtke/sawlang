@@ -3,8 +3,9 @@
 // type, or a refusal, or no value because a constant it reads was refused;
 // and that typecheck's fold (`fold.saw`), which computes the same constants
 // from the tree, agrees with every one: the same value at the same type, or
-// the same fault. The only constants it skips are those whose value is an
-// enum case or an atomic, which the fold has no form for.
+// the same fault. The only constants it skips are those the fold has no form
+// for: a position of a type that is neither an integer nor a `Bool`, and a
+// value that is an enum case, an atomic or an aggregate.
 
 import sawmir.dump.{mir_module_functions}
 import sawmir.model.{MirFuncKind}
@@ -56,7 +57,13 @@ extension EvalProgram {
     // The evaluator and typecheck's fold agree on constant `f`.
     func verify_agreement(&var self, mir: &var MirProgram, f: Int, out: &var Vector<String>) {
         let v = self.values[f]
-        if v.kind == EvalKind.Case || v.kind == EvalKind.Cell {
+        if v.kind == EvalKind.Case || v.kind == EvalKind.Cell || v.kind == EvalKind.Aggregate || v.kind == EvalKind.Repeat {
+            return
+        }
+        // The fold folds integers and `Bool`s only, so at a position of any
+        // other type it has nothing to agree with, a fault included.
+        let t = mir.locals[mir.funcs[f].local_first].ty
+        if not mir.tc.is_integer(t) && not mir.tc.is_bool(t) {
             return
         }
         let root = mir.funcs[f].root
@@ -90,9 +97,45 @@ extension EvalProgram {
     }
 
     // A value as the dump writes it: an integer in decimal, `true`, `false`,
-    // a case's identity, or the fault that left none.
+    // a case's identity, an aggregate's parts in order (`TYPE { a, b }` for
+    // a struct, `[a, b]` for an array, `[v; N]` for a repeat), or the fault
+    // that left none.
     public func value_text(&self, mir: &MirProgram, v: &EvalValue) -> String {
         match v.kind {
+            case Aggregate -> {
+                var out = StringBuilder()
+                if v.decl >= 0 {
+                    try! out.append(mir.tc.type_text(v.ty))
+                    try! out.append(" \{ ")
+                } else {
+                    try! out.append("[")
+                }
+                var k = 0
+                while k < v.count {
+                    if k > 0 {
+                        try! out.append(", ")
+                    }
+                    let part = self.parts[v.bits + k]
+                    try! out.append(self.value_text(&mir, &part))
+                    k = k + 1
+                }
+                if v.decl >= 0 {
+                    try! out.append(" \}")
+                } else {
+                    try! out.append("]")
+                }
+                out.build()
+            },
+            case Repeat -> {
+                var out = StringBuilder()
+                try! out.append("[")
+                let part = self.parts[v.bits]
+                try! out.append(self.value_text(&mir, &part))
+                try! out.append("; ")
+                try! out.append(v.count)
+                try! out.append("]")
+                out.build()
+            },
             case Integer -> tc_arith_text(v.bits, mir.tc.int_width(v.ty), not mir.tc.is_unsigned(v.ty)),
             case Boolean -> if v.bits != 0 { "true" } else { "false" },
             case Case -> mir.tc.res.decl_identity(v.decl),

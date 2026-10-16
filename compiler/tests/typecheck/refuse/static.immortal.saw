@@ -1,0 +1,17 @@
+// refuses: static.immortal at 15:8
+// a static whose type writes its own `deinit`, which an immortal static would
+// never run (spec, Module-level statics: "Immortal")
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+static HELD: Guard = Guard(id: 1)
+
+func main() {}

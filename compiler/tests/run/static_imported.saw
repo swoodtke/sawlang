@@ -1,0 +1,15 @@
+// Aggregate statics another module declares, read through the qualified
+// spelling (`static_provider.LIMITS`) and the selective one (`{STEPS}`), and
+// named as a leaf of this module's own static (SL-722).
+
+import modules.static_provider
+import modules.static_provider.{STEPS, MARKS}
+
+static COPY: static_provider.Limits = static_provider.LIMITS
+
+func main() {
+    print("{} {} {}", static_provider.LIMITS.soft, static_provider.LIMITS.hard, static_provider.LIMITS.strict)
+    print("{} {} {}", STEPS[0], STEPS[1], STEPS[2])
+    print("{} {}", MARKS[0], MARKS[3])
+    print("{} {}", COPY.soft, COPY.hard)
+}

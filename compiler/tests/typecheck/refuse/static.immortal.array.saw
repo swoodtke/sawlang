@@ -1,0 +1,16 @@
+// refuses: static.immortal at 14:8
+// a static fixed array whose element type writes its own `deinit`
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+static GUARDS: [Guard; 2] = [Guard(id: 1), Guard(id: 2)]
+
+func main() {}

@@ -1,0 +1,32 @@
+// probe: stated
+// about: a static whose initializer is an alias's construction over an aggregate keeps the aggregate's parts (SL-722)
+// stage 0: refuses an alias's construction in a constant position
+// speeds: -O0 -O2
+// An alias of a fixed array built over an array literal and over a repeat in
+// statics, and an alias of a struct built memberwise, the first named as a
+// later static's leaf.
+// prints: 9 8 7
+// prints: 4 4 4
+// prints: 5 -6 true
+// prints: 9 8 7
+
+struct Slot {
+    generation: Int
+    owner: Int32
+    used: Bool
+}
+
+type Block = Slot
+type Row = [UInt16; 3]
+
+static ROW: Row = Row([9, 8, 7])
+static FOURS: Row = Row([4; 3])
+static BLOCK: Block = Block(generation: 5, owner: -6, used: true)
+static AGAIN: Row = ROW
+
+func main() {
+    print("{} {} {}", ROW[0], ROW[1], ROW[2])
+    print("{} {} {}", FOURS[0], FOURS[1], FOURS[2])
+    print("{} {} {}", BLOCK.generation, BLOCK.owner, BLOCK.used)
+    print("{} {} {}", AGAIN[0], AGAIN[1], AGAIN[2])
+}

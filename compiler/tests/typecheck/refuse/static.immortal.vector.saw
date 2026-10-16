@@ -1,0 +1,12 @@
+// refuses: static.immortal at 10:8
+// a static of a struct holding a `Vector`, a member that owns its buffer
+
+struct Queue {
+    items: Vector<Int>?
+}
+
+extension Queue: NoCopy {}
+
+static QUEUE: Queue
+
+func main() {}

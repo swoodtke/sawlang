@@ -1,0 +1,20 @@
+program	compiler/tests/run/static_var_mutated.saw
+triple	arm64-apple-darwin
+source	aaddcdb71295a474
+build	ok
+exit	0
+stdout	"51966 0 false"
+stdout	"-1 false"
+stdout	"-1 false"
+stdout	"-1 false"
+stdout	"-1 false"
+stdout	"5 -6 7"
+stdout	"0"
+stdout	"1"
+stdout	"51966 2 true"
+stdout	"11 true"
+stdout	"22 true"
+stdout	"-1 false"
+stdout	"-1 false"
+stdout	"5 -600 7"
+stdout	""

@@ -1,0 +1,13 @@
+program	compiler/tests/run/static_zerofill.saw
+triple	arm64-apple-darwin
+source	2d719adb0039effe
+build	ok
+exit	0
+stdout	"0 false"
+stdout	"0 0 false"
+stdout	"4 0"
+stdout	"idle"
+stdout	"0 false"
+stdout	"0"
+stdout	"93"
+stdout	""

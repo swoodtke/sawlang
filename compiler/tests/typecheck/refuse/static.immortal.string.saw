@@ -1,0 +1,13 @@
+// refuses: static.immortal at 11:8
+// a static of a struct holding a `String`, a member that owns its bytes; the
+// field is optional so that the all-zero value is valid and this rule is the
+// first to refuse
+
+struct Named {
+    name: String?
+    id: Int
+}
+
+static NAMED: Named
+
+func main() {}

@@ -1,0 +1,24 @@
+// refuses: static.immortal at 22:8
+// a static of a struct whose field's type writes its own `deinit`, named down
+// to that type
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+struct Outer {
+    held: Guard
+    count: Int
+}
+
+extension Outer: NoCopy {}
+
+static OUTER: Outer = Outer(held: Guard(id: 1), count: 2)
+
+func main() {}

@@ -1,0 +1,59 @@
+ERROR	static.zero-invalid	compiler/tests/typecheck/golden/static_immortal.saw:34:8	`PATH` has no initializer, so its all-zero value builds a `String`, and `String` owns its bytes, so all-zero is not a valid `String`: give the static an initializer
+ERROR	static.zero-invalid	compiler/tests/typecheck/golden/static_immortal.saw:35:8	`CONFIG` has no initializer, so its all-zero value builds a `String`, and `String` owns its bytes, so all-zero is not a valid `String`: give the static an initializer
+ERROR	static.immortal	compiler/tests/typecheck/golden/static_immortal.saw:34:8	the static `PATH` has type `std.once.Once<String>`, which owns a resource (Deinit) through `String`, a heap string; statics are immortal and never run deinit, so a static's type is trivially destructible: no hand-written `deinit` anywhere in it, and no `String`, `Vector`, `Box`, `Arc` or other member that owns a resource
+ERROR	static.immortal	compiler/tests/typecheck/golden/static_immortal.saw:35:8	the static `CONFIG` has type `std.once.Once<static_immortal.Cfg>`, which owns a resource (Deinit) through `String`, a heap string; statics are immortal and never run deinit, so a static's type is trivially destructible: no hand-written `deinit` anywhere in it, and no `String`, `Vector`, `Box`, `Arc` or other member that owns a resource
+(Module static_immortal
+  (declarations
+    (struct Cfg 15:8 private)
+    (field Cfg.path 16:5 private String)
+    (field Cfg.workers 17:5 private Int)
+    (struct Plain 20:8 private)
+    (field Plain.count 21:5 private Int)
+    (field Plain.ready 22:5 private Bool)
+    (extension 25:1 (target static_immortal.Plain) (conforms NoCopy))
+    (struct Stats 27:8 private)
+    (field Stats.hits 28:5 private Atomic<Int>)
+    (field Stats.peak 29:5 private UInt16)
+    (extension 32:1 (target static_immortal.Stats) (conforms NoCopy))
+    (static PATH 34:8 private std.once.Once<String>)
+    (static CONFIG 35:8 private std.once.Once<static_immortal.Cfg>)
+    (static LIMIT 36:8 private std.once.Once<Int>)
+    (static LOCK 37:8 private std.spinlock.SpinLock<Int>)
+    (static REGISTRY 38:8 private std.mutex.Mutex<Int>)
+    (static PLAIN 39:8 private static_immortal.Plain)
+    (static STATS 40:8 private static_immortal.Stats)
+    (func main 42:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (static_immortal.Cfg
+      (field path String private declared)
+      (field workers Int private declared)
+      (method deinit public (synthesized Deinit)))
+    (static_immortal.Plain
+      (field count Int private declared)
+      (field ready Bool private declared))
+    (static_immortal.Stats
+      (field hits Atomic<Int> private declared)
+      (field peak UInt16 private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (static_immortal.Cfg path workers deinit)
+    (static_immortal.Plain count ready)
+    (static_immortal.Stats hits peak deinit))
+  (conformances
+    (static_immortal.Plain NoCopy 25:18 (deinit implicit))
+    (static_immortal.Stats NoCopy 32:18 (deinit implicit)))
+  (copy-tier
+    (static_immortal.Cfg Copy)
+    (static_immortal.Plain NoCopy declared)
+    (static_immortal.Stats NoCopy declared))
+  (bodies
+    (PLAIN 39:8
+      (39:23-39:51 Call.paren static_immortal.Plain value temp (memberwise static_immortal.Plain (owner static_immortal.Plain)))
+      (39:36-39:37 IntLit Int value temp)
+      (39:46-39:50 BoolLit.true Bool value temp))
+    (STATS 40:8
+      (40:23-40:54 Call.paren static_immortal.Stats value temp (memberwise static_immortal.Stats (owner static_immortal.Stats)))
+      (40:35-40:44 Call.paren Atomic<Int> value temp (conversion Atomic atomic (owner Atomic<Int>)))
+      (40:42-40:43 IntLit Int value temp)
+      (40:52-40:53 IntLit Int (adopt UInt16) value temp))
+    (main 42:6)))

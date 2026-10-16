@@ -1,0 +1,12 @@
+// refuses: static.immortal at 10:8
+// a static of a struct holding a `Box`, a member that owns its allocation
+
+struct Boxed {
+    value: Box<Int>?
+}
+
+extension Boxed: NoCopy {}
+
+static BOXED: Boxed
+
+func main() {}

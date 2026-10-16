@@ -1,0 +1,13 @@
+module aggregates
+raw aggregates.Mode.Idle: UInt8 = 0
+raw aggregates.Mode.Busy: UInt8 = 7
+static aggregates.WIDTHS: aggregates.Widths = aggregates.Widths { -128, 65535, -2147483648, 18446744073709551615, true }
+static aggregates.FREE: aggregates.Slot = aggregates.Slot { 3, -1 }
+static aggregates.SPARE: aggregates.Slot = aggregates.Slot { 3, -1 }
+static aggregates.ROW: [Int16; 3] = [1, -2, 300]
+static aggregates.SLOTS: [aggregates.Slot; 4] = [aggregates.Slot { 3, -1 }; 4]
+static aggregates.ZEROS: [UInt8; 4096] = [0; 4096]
+static aggregates.NEST: [aggregates.Table; 2] = [aggregates.Table { aggregates.Slot { 3, -1 }, [aggregates.Slot { 3, -1 }, aggregates.Slot { 9, 2 }] }, aggregates.Table { aggregates.Slot { 4, 5 }, [aggregates.Slot { 3, -1 }; 2] }]
+static aggregates.PAIR: aggregates.Pair<UInt8> = aggregates.Pair<UInt8> { 1, 255 }
+static aggregates.COUNTER: aggregates.Counter = aggregates.Counter { Atomic<Int>(10), 5 }
+static aggregates.SETTING: aggregates.Setting = aggregates.Setting { aggregates.Mode.Busy, 3 }

@@ -1,0 +1,15 @@
+// due: a static whose initializer holds a Float: the constant evaluator holds no Float value yet (SL-722)
+// refuses: backend.not-yet at 14:5
+// A struct static with a Float field among its integers is refused at its
+// first use, naming the Float.
+
+struct Point {
+    x: Float
+    n: Int
+}
+
+static ORIGIN: Point = Point(x: 1.5, n: 2)
+
+func main() {
+    print(ORIGIN.n)
+}

@@ -1,0 +1,12 @@
+// The statics `static_imported.saw` reads across a module boundary: a struct,
+// an array literal and a repeat, each evaluated in this module.
+
+public struct Limits {
+    soft: Int
+    hard: Int32
+    strict: Bool
+}
+
+public static LIMITS: Limits = Limits(soft: 64, hard: 128, strict: true)
+public static STEPS: [UInt16; 3] = [10, 20, 65535]
+public static MARKS: [Int; 4] = [7; 4]

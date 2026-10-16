@@ -1,0 +1,10 @@
+// refuses: static.immortal at 8:8
+// a static of a struct holding an `Arc`, a member that owns a reference count
+
+struct Shared {
+    value: Arc<Int>?
+}
+
+static SHARED: Shared
+
+func main() {}

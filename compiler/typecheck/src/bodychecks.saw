@@ -14,6 +14,7 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.fold.{TcFold}
+import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_UNSAFE,
                                TC_FLAG_BORROWS_STRUCT, TC_FLAG_UNSAFE_VAR, TcAdjust, TcAdjustKind,
                                TcCall, TcLend, TcParam, TcRole, TcSig, TcUse}
@@ -315,12 +316,20 @@ extension TcProgram {
         b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias
     }
 
-    // A static's own type is never an optional (spec, Module-level statics:
-    // "Never optional"); an `unsafe static var`, whose absence may be real,
-    // is exempt.
+    // THE STATIC TYPE FUNNEL: every rule on a static's declared type, each
+    // refused at the declaration (spec, Module-level statics). Every static
+    // is immortal, so its type is trivially destructible; an `unsafe static
+    // var` is exempt from the rest: it is `Sync` by its author's claim, and
+    // its absence may be real, so it may be optional.
+    // ENTRY POINTS:
+    //     check_containment_signatures
     func check_static_type(&var self, d: Int) {
         let s = self.sigs[d]
-        if s.result < 0 || (s.flags & TC_FLAG_UNSAFE_VAR) != 0 {
+        if s.result < 0 {
+            return
+        }
+        self.check_static_immortal(d)
+        if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 {
             return
         }
         self.check_static_sync(d)
@@ -336,6 +345,118 @@ extension TcProgram {
         try! msg.append("`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `unsafe static var`")
         let site = self.decl_site(d)
         self.refuse_in(info.module, site, "static.optional", msg.build())
+    }
+
+    // A static is never destroyed, so its type owns nothing a drop would
+    // release (spec, Module-level statics: "Immortal"): a destructor that
+    // never runs would be silently skipped.
+    func check_static_immortal(&var self, d: Int) {
+        let t = self.sigs[d].result
+        if self.has_error(t) {
+            return
+        }
+        let owner = self.static_owner(t)
+        if owner < 0 {
+            return
+        }
+        let info = self.res.decls[d]
+        var msg = StringBuilder()
+        try! msg.append("the static `")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` has type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which owns a resource (Deinit) through `")
+        try! msg.append(self.type_text(owner))
+        let oi = self.types.ty(owner)
+        if oi.kind == TcKind.Func {
+            try! msg.append("`, a closure's environment")
+        } else if oi.kind == TcKind.Nominal && oi.decl == self.known.string {
+            try! msg.append("`, a heap string")
+        } else {
+            try! msg.append("`, whose `deinit` is written by hand")
+        }
+        try! msg.append("; statics are immortal and never run deinit, so a static's type is trivially destructible: no hand-written `deinit` anywhere in it, and no `String`, `Vector`, `Box`, `Arc` or other member that owns a resource")
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, "static.immortal", msg.build())
+    }
+
+    // The first type inside `t`, `t` included, that owns something a drop
+    // would release: a `String`, a closure, or a struct or enum whose
+    // `deinit` is written by hand; -1 when there is none. A builtin type
+    // holds its arguments inline (a cell its payload), a raw pointer and a
+    // reference own nothing, and each type is visited once.
+    func static_owner(&var self, t: Int) -> Int {
+        let deinit_name = self.res.intern("deinit")
+        var seen = tc_memo()
+        var pending = Vector<Int>()
+        try! pending.push(t)
+        var head = 0
+        while head < pending.len() {
+            let u = pending[head]
+            head = head + 1
+            if u < 0 || not seen.mark(u, 0) {
+                continue
+            }
+            let info = self.types.ty(u)
+            if info.kind == TcKind.Func {
+                return u
+            }
+            if info.kind == TcKind.Array {
+                try! pending.push(info.b)
+                continue
+            }
+            if info.kind == TcKind.Tuple {
+                var k = 0
+                while k < info.count {
+                    try! pending.push(self.types.arg(u, k))
+                    k = k + 1
+                }
+                continue
+            }
+            if info.kind != TcKind.Nominal {
+                continue
+            }
+            let d = info.decl
+            if d == self.known.string {
+                return u
+            }
+            if d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer || d == self.known.func_pointer {
+                continue
+            }
+            let decl = self.res.decls[d]
+            if decl.kind == ResDeclKind.Primitive || decl.node < 0 {
+                var k = 0
+                while k < info.count {
+                    try! pending.push(self.types.arg(u, k))
+                    k = k + 1
+                }
+                continue
+            }
+            if self.has_written_deinit(d, deinit_name) {
+                return u
+            }
+            let arguments = self.nominal_args(u)
+            let subst = TcSubst(owner: d, args: move arguments)
+            let members = self.members_of(d)
+            var k = 0
+            while k < members.len() {
+                let m = members[k]
+                k = k + 1
+                let mi = self.res.decls[m]
+                let ms = self.sigs[m]
+                if mi.kind == ResDeclKind.Field && ms.result >= 0 {
+                    try! pending.push(self.subst(ms.result, &subst))
+                } else if mi.kind == ResDeclKind.Case {
+                    var j = 0
+                    while j < ms.param_count {
+                        let p = self.params[ms.param_first + j]
+                        try! pending.push(self.subst(p.ty, &subst))
+                        j = j + 1
+                    }
+                }
+            }
+        }
+        return -1
     }
 
     // A static's type is `Sync`, since every thread reaches it (spec,

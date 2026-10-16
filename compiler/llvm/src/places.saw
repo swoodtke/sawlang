@@ -13,9 +13,11 @@ import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
-import sawtarget.layout.{Target, TargetKind, TargetLayout, TargetShape, target_struct_fields}
+import saweval.program.{EvalKind, EvalValue}
+import sawtarget.layout.{Target, TargetKind, TargetLayout, TargetShape, target_member_type, target_struct_fields}
 import sawtypecheck.arith.{tc_arith_max, tc_arith_min, tc_float_bits}
 import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.fold.{TcFold}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -205,8 +207,13 @@ extension LlEmitter {
         self.put_label(pass)
     }
 
-    // The global of static `d`, of concrete type `t`, from its evaluated
-    // value.
+    // THE STATIC GLOBAL FUNNEL: the global of static `d`, of concrete type
+    // `t`, written once from its evaluated value with every part at the
+    // offset the target's layout gives it, or zero-filled for a static with
+    // no initializer, whose all-zero value typecheck has already admitted.
+    // Every static is writable storage, so none is a constant.
+    // ENTRY POINTS:
+    //     place_prefix_addr
     func static_global(&var self, mono: &var MonoProgram, target: &var Target, d: Int, t: Int, node: Int) -> String {
         var name = StringBuilder()
         try! name.append("@\"static ")
@@ -217,33 +224,155 @@ extension LlEmitter {
             return symbol
         }
         let l = self.lay_at(&var mono, &var target, t, node)
-        let kind = mono.static_kinds[d]
-        if kind == 3 && l.size == target.word {
-            // An `Atomic(<int>)`: its cell is layout-transparent, so the
-            // static is the word, in writable storage like every static.
-            var cell = StringBuilder()
-            try! cell.append(symbol)
-            try! cell.append(" = internal global i64 ")
-            try! cell.append(mono.static_bits[d])
-            try! cell.append(", align ")
-            try! cell.append(l.align)
-            try! self.globals.append(cell.build())
-            try! self.globals.append("\n")
-            return symbol
-        }
-        if not ll_is_scalar(&l) || (kind != 0 && kind != 1) {
-            self.refuse_here(&var mono, node, "a static whose value is not an integer or a Bool is not in the backend slice yet")
-            return symbol
-        }
+        let v = mono.static_values[d]
         var line = StringBuilder()
         try! line.append(symbol)
         try! line.append(" = internal global ")
-        try! line.append(ll_value_type(&l))
-        try! line.append(" ")
-        try! line.append(ll_fit_signed(mono.static_bits[d], l.bits))
+        if v.kind == EvalKind.Missing {
+            if mono.dp.bc.mir.tc.static_initializer(d) >= 0 {
+                if ll_holds_float(&var mono, &var target, t) {
+                    self.refuse_here(&var mono, node, "a static whose initializer holds a Float: the constant evaluator holds no Float value yet (SL-722)")
+                } else {
+                    self.refuse_here(&var mono, node, "a static whose initializer the constant evaluator does not hold is not in the backend slice yet")
+                }
+                return symbol
+            }
+            try! line.append("[")
+            try! line.append(l.size)
+            try! line.append(" x i8] zeroinitializer, align ")
+            try! line.append(l.align)
+        } else if ll_is_scalar(&l) && (v.kind == EvalKind.Integer || v.kind == EvalKind.Boolean) {
+            try! line.append(ll_value_type(&l))
+            try! line.append(" ")
+            try! line.append(ll_fit_signed(v.bits, l.bits))
+        } else {
+            let c = self.static_part(&var mono, &var target, v, t, node)
+            if not c.ok {
+                return symbol
+            }
+            try! line.append(c.ty)
+            try! line.append(" ")
+            try! line.append(c.value)
+            try! line.append(", align ")
+            try! line.append(l.align)
+        }
         try! self.globals.append(line.build())
         try! self.globals.append("\n")
         symbol
+    }
+
+    // Value `v` of type `t` as an LLVM constant whose bytes are its layout's:
+    // an integer, a `Bool`, an atomic's word or a case's tag as an integer
+    // of its size, and a struct, an array or a repeat as a packed run of its
+    // parts with zeroed padding between them, so no LLVM layout rule moves a
+    // part. A value no part of which is set is `zeroinitializer`.
+    func static_part(&var self, mono: &var MonoProgram, target: &var Target, v: EvalValue, t: Int,
+                     node: Int) -> LlConstant {
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if l.kind == TargetKind.Unsupported {
+            return LlConstant(ty: "", value: "", zero: true, ok: false)
+        }
+        match v.kind {
+            case Integer -> ll_word_constant(l.size, v.bits),
+            case Boolean -> ll_word_constant(l.size, v.bits),
+            case Cell -> ll_word_constant(l.size, v.bits),
+            case Case -> {
+                let c = target.case_of(&var mono.dp.bc.mir.tc, t, v.decl)
+                if c.decl < 0 || l.tag_bytes <= 0 {
+                    self.refuse_here(&var mono, node, "a static holding a case of this type is not in the backend slice yet")
+                    return LlConstant(ty: "", value: "", zero: true, ok: false)
+                }
+                let tag = ll_word_constant(l.tag_bytes, c.tag)
+                var run = LlRun()
+                run.add(&tag)
+                run.pad(l.size - l.tag_bytes)
+                run.closed()
+            },
+            case Aggregate -> {
+                if v.decl >= 0 {
+                    return self.static_struct(&var mono, &var target, v, t, &l, node)
+                }
+                if v.count != l.length || l.shape != TargetShape.Array {
+                    self.refuse_here(&var mono, node, "a static array literal whose length is not its type's")
+                    return LlConstant(ty: "", value: "", zero: true, ok: false)
+                }
+                var elements = Vector<LlConstant>()
+                var k = 0
+                while k < v.count {
+                    let part = mono.static_parts[v.bits + k]
+                    let c = self.static_part(&var mono, &var target, part, l.element, node)
+                    if not c.ok {
+                        return c
+                    }
+                    try! elements.push(c)
+                    k = k + 1
+                }
+                ll_array_constant(&elements, l.length, l.size)
+            },
+            case Repeat -> {
+                if v.count != l.length || l.shape != TargetShape.Array {
+                    self.refuse_here(&var mono, node, "a static repeat whose count is not its type's length")
+                    return LlConstant(ty: "", value: "", zero: true, ok: false)
+                }
+                let part = mono.static_parts[v.bits]
+                let c = self.static_part(&var mono, &var target, part, l.element, node)
+                if not c.ok {
+                    return c
+                }
+                if c.zero {
+                    // A zero region stays one zeroinitializer however long
+                    // it is, so it costs the image no bytes.
+                    var ty = StringBuilder()
+                    try! ty.append("[")
+                    try! ty.append(l.length)
+                    try! ty.append(" x ")
+                    try! ty.append(c.ty)
+                    try! ty.append("]")
+                    return LlConstant(ty: ty.build(), value: "zeroinitializer", zero: true, ok: true)
+                }
+                var elements = Vector<LlConstant>()
+                var k = 0
+                while k < v.count {
+                    try! elements.push(c)
+                    k = k + 1
+                }
+                ll_array_constant(&elements, l.length, l.size)
+            },
+            case _ -> {
+                self.refuse_here(&var mono, node, "a static holding this value is not in the backend slice yet")
+                LlConstant(ty: "", value: "", zero: true, ok: false)
+            }
+        }
+    }
+
+    // Struct value `v` of type `t`, laid out as `l`: each field at its offset.
+    func static_struct(&var self, mono: &var MonoProgram, target: &var Target, v: EvalValue, t: Int,
+                       l: &TargetLayout, node: Int) -> LlConstant {
+        let fields = target_struct_fields(&mono.dp.bc.mir.tc, v.decl)
+        if fields.len() != v.count || l.shape != TargetShape.Record {
+            self.refuse_here(&var mono, node, "a static struct whose parts are not its fields")
+            return LlConstant(ty: "", value: "", zero: true, ok: false)
+        }
+        var run = LlRun()
+        var at = 0
+        var k = 0
+        while k < fields.len() {
+            let written = mono.dp.bc.mir.tc.sigs[fields[k]].result
+            let member = target_member_type(&var mono.dp.bc.mir.tc, t, written)
+            let off = target.member_offset(&var mono.dp.bc.mir.tc, t, k)
+            let part = mono.static_parts[v.bits + k]
+            let c = self.static_part(&var mono, &var target, part, member, node)
+            if not c.ok {
+                return c
+            }
+            let size = target.layout(&var mono.dp.bc.mir.tc, member).size
+            run.pad(off - at)
+            run.add(&c)
+            at = off + size
+            k = k + 1
+        }
+        run.pad(l.size - at)
+        run.closed()
     }
 
     // The SSA value of scalar operand `o`.
@@ -407,6 +536,160 @@ extension LlEmitter {
         try! line.append(")")
         self.put(line.build())
     }
+}
+
+// An LLVM constant: its type, its value spelled at that type, and whether
+// every byte of it is zero; `ok` false when it could not be written, its
+// refusal already reported.
+struct LlConstant {
+    ty: String
+    value: String
+    zero: Bool
+    ok: Bool
+}
+
+// A packed struct constant built part by part, each part at the byte after
+// the one before it.
+struct LlRun {
+    types: Vector<String>
+    values: Vector<String>
+    zero: Bool
+}
+
+extension LlRun: NoCopy {}
+
+extension LlRun {
+    init() -> LlRun {
+        LlRun(types: Vector<String>(), values: Vector<String>(), zero: true)
+    }
+
+    func add(&var self, c: &LlConstant) {
+        try! self.types.push(c.ty)
+        try! self.values.push(c.value)
+        if not c.zero {
+            self.zero = false
+        }
+    }
+
+    // `n` zero bytes of padding.
+    func pad(&var self, n: Int) {
+        if n <= 0 {
+            return
+        }
+        var ty = StringBuilder()
+        try! ty.append("[")
+        try! ty.append(n)
+        try! ty.append(" x i8]")
+        try! self.types.push(ty.build())
+        try! self.values.push("zeroinitializer")
+    }
+
+    func closed(&self) -> LlConstant {
+        var ty = StringBuilder()
+        var value = StringBuilder()
+        try! ty.append("<\{")
+        try! value.append("<\{")
+        var k = 0
+        while k < self.types.len() {
+            if k > 0 {
+                try! ty.append(",")
+                try! value.append(",")
+            }
+            try! ty.append(" ")
+            try! ty.append(self.types[k])
+            try! value.append(" ")
+            try! value.append(self.types[k])
+            try! value.append(" ")
+            try! value.append(self.values[k])
+            k = k + 1
+        }
+        if self.types.len() > 0 {
+            try! ty.append(" ")
+            try! value.append(" ")
+        }
+        try! ty.append("\}>")
+        try! value.append("\}>")
+        if self.zero {
+            return LlConstant(ty: ty.build(), value: "zeroinitializer", zero: true, ok: true)
+        }
+        LlConstant(ty: ty.build(), value: value.build(), zero: false, ok: true)
+    }
+}
+
+// An integer of `size` bytes holding `bits`, the low bits kept.
+func ll_word_constant(size: Int, bits: Int) -> LlConstant {
+    var ty = StringBuilder()
+    try! ty.append("i")
+    try! ty.append(size * 8)
+    let v = ll_fit_signed(bits, size * 8)
+    var value = StringBuilder()
+    try! value.append(v)
+    LlConstant(ty: ty.build(), value: value.build(), zero: v == 0, ok: true)
+}
+
+// A fixed array of `length` elements, `elements`, one type each, `size`
+// bytes in all.
+func ll_array_constant(elements: &Vector<LlConstant>, length: Int, size: Int) -> LlConstant {
+    var ty = StringBuilder()
+    if length == 0 {
+        try! ty.append("[0 x i8]")
+        return LlConstant(ty: ty.build(), value: "zeroinitializer", zero: true, ok: true)
+    }
+    let element = elements[0].ty
+    try! ty.append("[")
+    try! ty.append(length)
+    try! ty.append(" x ")
+    try! ty.append(element)
+    try! ty.append("]")
+    var zero = true
+    var value = StringBuilder()
+    try! value.append("[")
+    var k = 0
+    while k < elements.len() {
+        let c = elements[k]
+        if not c.zero {
+            zero = false
+        }
+        if k > 0 {
+            try! value.append(", ")
+        }
+        try! value.append(c.ty)
+        try! value.append(" ")
+        try! value.append(c.value)
+        k = k + 1
+    }
+    try! value.append("]")
+    if zero {
+        return LlConstant(ty: ty.build(), value: "zeroinitializer", zero: true, ok: true)
+    }
+    LlConstant(ty: ty.build(), value: value.build(), zero: false, ok: true)
+}
+
+// Whether a value of type `t` holds a Float: is one, or is a struct or an
+// array with one among its parts.
+func ll_holds_float(mono: &var MonoProgram, target: &var Target, t: Int) -> Bool {
+    let l = target.layout(&var mono.dp.bc.mir.tc, t)
+    if l.kind == TargetKind.Float {
+        return true
+    }
+    if l.shape == TargetShape.Array {
+        return ll_holds_float(&var mono, &var target, l.element)
+    }
+    let d = mono.dp.bc.mir.tc.nominal_decl(t)
+    if l.shape != TargetShape.Record || d < 0 {
+        return false
+    }
+    let fields = target_struct_fields(&mono.dp.bc.mir.tc, d)
+    var k = 0
+    while k < fields.len() {
+        let written = mono.dp.bc.mir.tc.sigs[fields[k]].result
+        let member = target_member_type(&var mono.dp.bc.mir.tc, t, written)
+        if ll_holds_float(&var mono, &var target, member) {
+            return true
+        }
+        k = k + 1
+    }
+    false
 }
 
 // Whether `text` ends in `suffix`.

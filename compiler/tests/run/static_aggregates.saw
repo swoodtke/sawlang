@@ -1,0 +1,106 @@
+// Statics of every aggregate kind, each global written from the evaluator's
+// value at the target's offsets: a struct over every integer width and a
+// `Bool`, array literals of `Int16`, `Bool` and an `Int8` byte region, a
+// repeat, nested structs in an array, a generic struct's instance, a struct
+// holding an `Atomic`, structs holding a raw-backed case, and an earlier
+// static as a whole value, a field and a repeated element (SL-722).
+
+struct Widths {
+    a: Int8
+    b: UInt8
+    c: Int16
+    d: UInt16
+    e: Int32
+    f: UInt32
+    g: Int64
+    h: UInt64
+    i: Int
+    j: UInt
+    k: Bool
+}
+
+struct Slot {
+    generation: Int
+    owner: Int32
+    used: Bool
+}
+
+struct Table {
+    head: Slot
+    slots: [Slot; 2]
+    count: UInt8
+}
+
+struct Pair<T> {
+    left: T
+    right: T
+}
+
+struct Counter {
+    hits: Atomic<Int>
+    step: Int
+}
+
+extension Counter: NoCopy {}
+
+enum Mode: UInt16 {
+    case Idle = 0,
+    case Busy = 700
+}
+
+struct Setting {
+    level: UInt8
+    mode: Mode
+}
+
+static WIDTHS: Widths = Widths(a: Int8.min, b: UInt8.max, c: Int16.min, d: UInt16.max, e: Int32.min,
+                               f: UInt32.max, g: Int64.min, h: UInt64.max, i: -7, j: 7, k: true)
+static FREE: Slot = Slot(generation: 3, owner: -1, used: false)
+static SPARE: Slot = FREE
+static ROW: [Int16; 4] = [1, -2, 300, -32768]
+static FLAGS: [Bool; 3] = [true, false, true]
+static BYTES: [Int8; 8] = [-1, 0, 1, 127, -128, 2, 3, 4]
+static SLOTS: [Slot; 3] = [FREE; 3]
+static NEST: [Table; 2] = [
+    Table(head: FREE, slots: [FREE, Slot(generation: 9, owner: 2, used: true)], count: 1),
+    Table(head: Slot(generation: 4, owner: 5, used: true), slots: [FREE; 2], count: 2),
+]
+static PAIR: Pair<UInt64> = Pair<UInt64>(left: 1, right: UInt64.max)
+static SMALL: Pair<Int8> = Pair<Int8>(left: -3, right: 4)
+static COUNTER: Counter = Counter(hits: Atomic(10), step: 5)
+static SETTINGS: [Setting; 2] = [Setting(level: 3, mode: Mode.Busy), Setting(level: 4, mode: Mode.Idle)]
+
+func show(s: &Slot) {
+    print("{} {} {}", s.generation, s.owner, s.used)
+}
+
+func main() {
+    print("{} {} {} {}", WIDTHS.a, WIDTHS.b, WIDTHS.c, WIDTHS.d)
+    print("{} {} {} {}", WIDTHS.e, WIDTHS.f, WIDTHS.g, WIDTHS.h)
+    print("{} {} {}", WIDTHS.i, WIDTHS.j, WIDTHS.k)
+    show(&FREE)
+    show(&SPARE)
+    print("{} {} {} {}", ROW[0], ROW[1], ROW[2], ROW[3])
+    print("{} {} {}", FLAGS[0], FLAGS[1], FLAGS[2])
+    var k = 0
+    while k < 8 {
+        print(BYTES[k])
+        k = k + 1
+    }
+    show(&SLOTS[2])
+    show(&NEST[0].head)
+    show(&NEST[0].slots[1])
+    print(NEST[0].count)
+    show(&NEST[1].head)
+    show(&NEST[1].slots[0])
+    print(NEST[1].count)
+    print("{} {}", PAIR.left, PAIR.right)
+    print("{} {}", SMALL.left, SMALL.right)
+    COUNTER.hits.fetch_add(COUNTER.step)
+    print(COUNTER.hits.load())
+    var s = 0
+    while s < 2 {
+        print("{} {}", SETTINGS[s].level, SETTINGS[s].mode as UInt16)
+        s = s + 1
+    }
+}

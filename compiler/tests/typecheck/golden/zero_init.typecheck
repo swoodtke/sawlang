@@ -22,7 +22,7 @@
     (field Mixed.wire 39:5 private zero_init.Wire)
     (field Mixed.pair 40:5 private (Int, Int))
     (field Mixed.table 41:5 private [Int; 4])
-    (field Mixed.note 42:5 private String?)
+    (field Mixed.note 42:5 private zero_init.Shape?)
     (field Mixed.ledger 43:5 private zero_init.Ledger)
     (field Mixed.gauge 44:5 private zero_init.Gauge)
     (static COUNT 47:8 private Int)
@@ -35,7 +35,9 @@
     (static HELD 54:8 private zero_init.Holder<zero_init.Gauge>)
     (static HELD_LEDGER 55:8 private zero_init.Holder<zero_init.Ledger>)
     (static MIXED 56:19 private zero_init.Mixed unsafe-var)
-    (func main 58:6 private (signature (params) (effects unsafe) -> Void) (summary body (suspends no) (sync-callable yes))))
+    (func main 58:6 private (signature (params) (effects unsafe) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (enum Shape 63:6 private)
+    (case Shape.Dot 64:10 (payload (x Int))))
   (members
     (zero_init.Mode
       (case Idle private declared)
@@ -60,17 +62,20 @@
       (field wire zero_init.Wire private declared)
       (field pair (Int, Int) private declared)
       (field table [Int; 4] private declared)
-      (field note String? private declared)
+      (field note zero_init.Shape? private declared)
       (field ledger zero_init.Ledger private declared)
       (field gauge zero_init.Gauge private declared)
-      (method deinit public (synthesized Deinit))))
+      (method deinit public (synthesized Deinit)))
+    (zero_init.Shape
+      (case Dot private declared)))
   (views
     (zero_init.Mode Idle Busy)
     (zero_init.Wire On Off from)
     (zero_init.Ledger credits debits)
     (zero_init.Gauge level)
     (zero_init.Holder value deinit)
-    (zero_init.Mixed flag ratio base mode wire pair table note ledger gauge deinit))
+    (zero_init.Mixed flag ratio base mode wire pair table note ledger gauge deinit)
+    (zero_init.Shape Dot))
   (conformances
     (zero_init.Gauge ZeroInit 28:18))
   (copy-tier
@@ -79,7 +84,8 @@
     (zero_init.Ledger Copy)
     (zero_init.Gauge Copy)
     (zero_init.Holder (join Copy T))
-    (zero_init.Mixed Copy))
+    (zero_init.Mixed Copy)
+    (zero_init.Shape Copy))
   (bodies
     (Wire.On 15:10
       (15:15-15:16 IntLit Int (adopt UInt8) value temp))

@@ -1,0 +1,17 @@
+// refuses: static.immortal at 15:19
+// an `unsafe static var` is immortal too: its exemptions from `Sync` and from
+// `Never optional` do not reach the destructor it would never run
+
+struct Guard {
+    id: Int
+}
+
+extension Guard: NoCopy {
+    func deinit(&var self) {
+        print(self.id)
+    }
+}
+
+unsafe static var HELD: Guard = Guard(id: 1)
+
+func main() {}

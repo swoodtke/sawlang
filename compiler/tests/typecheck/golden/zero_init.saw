@@ -2,7 +2,7 @@
 // The bare statics the zero-init funnel accepts in one module (SL-660): every
 // part a scalar, `Bool`, `Float`, a raw pointer, a payload-free enum (zero is
 // its first case), a raw-backed enum with a case of value 0, a tuple, an
-// array, an `Atomic<Int>`, an Optional of any type (zero is `None`), a struct
+// array, an `Atomic<Int>`, an Optional (zero is `None`), a struct
 // of those whose private fields this module sees, a struct declaring
 // `ZeroInit`, and a generic struct whose argument is one of those.
 
@@ -39,7 +39,7 @@ struct Mixed {
     wire: Wire
     pair: (Int, Int)
     table: [Int; 4]
-    note: String?
+    note: Shape?
     ledger: Ledger
     gauge: Gauge
 }
@@ -58,4 +58,8 @@ unsafe static var MIXED: Mixed
 func main() unsafe {
     print(COUNT)
     print(MIXED.pair.0)
+}
+
+enum Shape {
+    case Dot(x: Int)
 }

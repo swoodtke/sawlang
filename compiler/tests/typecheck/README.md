@@ -1537,6 +1537,7 @@ says what the fixture shows.
 | `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
 | `operator.undefined` | an operator over a type it is not defined for, the integer-only ones over a `Float` or a `Bool` among them (the integer-only operator matrix below); a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements; a `try`, an inline catch's included, over a value that is no Result, and an optional assignment's `?.` hop over one that is no Optional |
+| `static.immortal` | a static or `unsafe static var` whose type owns something a drop would release, at any depth: a `String`, a closure, or a type writing its own `deinit` (`Vector`, `Box` and `Arc` among them), naming it (spec, Module-level statics: "Immortal"; the immortal matrix below) |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-sync` | a static whose type is not `Sync`, naming the member that blocks the derivation, down to a cell-carrying type and the `UnsafeSync` declaration it owes, or a conditional `UnsafeSync` and the bound its argument fails; an `unsafe static var` is exempt (spec, Module-level statics: "Sync-only"; the static Sync matrix) |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
@@ -1648,7 +1649,7 @@ prelude and unbound under Stage 0's, so a row that declares it runs with
 |---|---|---|
 | a scalar, `Bool`, `Float`, a raw pointer, a tuple, an array, `Atomic<Int>` | accepted | `z.` |
 | a payload-free enum, zero being its first case; a raw-backed enum with a case of value 0, written in any position | accepted | `z.` |
-| an Optional of any type, its payload's fields hidden included: zero is `None` | accepted | `z.`, `zm.` |
+| an Optional, of a type with no valid zero or with hidden fields: zero is `None` (one owning a resource is the immortal rule's, below) | accepted | `z.`, `zm.` |
 | a struct of this module with private fields, at the top, in a field, behind a generic argument | accepted: the module sees them | `z.` |
 | a struct declaring `ZeroInit` in its own module, its fields private, from another module | accepted | `zm.` |
 | a `ZeroInit` struct holding another struct of its module whose fields are private | accepted: the declaring module sees them | `zm.` |
@@ -1715,6 +1716,26 @@ row says:
 | `%=` | refused, as `%` is | `operator.undefined.compound-remainder` |
 | `&=`, `\|=`, `^=`, `<<=`, `>>=` | refused | no fixture of its own |
 | `+`, `-`, `*`, `/`, unary `-`, and `+=`, `-=`, `*=`, `/=` | accepted: IEEE arithmetic | no fixture of its own |
+
+The immortal matrix (spec, Module-level statics: "Immortal"; SL-722). A
+static is never destroyed, so its type owns nothing a drop would release.
+`check_static_type` (`compiler/typecheck/src/bodychecks.saw`) is the funnel
+for every rule on a static's declared type, and its docstring names its entry
+point; `static_owner` walks the type, substituting a generic instance's
+arguments into its fields and payloads, and holding a builtin type's
+arguments inline. Unlike `static.not-sync` and `static.optional`, the rule
+covers an `unsafe static var` too. `golden/static_immortal` is abbreviated
+`i.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a type writing its own `deinit`: the static's type, a field's, an array element's, a generic instance's argument | refused, naming the type | `static.immortal`, `.nested`, `.array`, `.generic` |
+| the same, as an `unsafe static var` | refused | `static.immortal.var` |
+| a member owning a resource: a `String`, a `Vector`, a `Box`, an `Arc`, each in an optional field so that its zero is valid | refused, naming it | `static.immortal.string`, `.vector`, `.box`, `.arc` |
+| a group handle, `Task<Int>?` (its type writes its own `deinit`), which closes K164's static cell before borrowck's `loan.handle-escape` | refused, naming `Task<Int>` | `static.immortal.task-handle` |
+| `Once<String>`, and `Once<Cfg>` with a `String` field | refused, after `static.zero-invalid` | `i.` |
+| `Once<Int>`, `SpinLock<Int>`, `Mutex<Int>`, a struct of scalars declaring `NoCopy`, a struct holding an `Atomic` | accepted | `i.` |
+| a static whose own type is an optional | `static.optional`, which already refused it | `static.optional` |
 
 ## The lane
 

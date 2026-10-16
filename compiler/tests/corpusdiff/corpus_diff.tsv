@@ -27,7 +27,7 @@ alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	pass	-	-
 any_box_deinit.saw	pass	-	-
 any_box_iflet_move_out.saw	pass	-	-
-any_box_slab.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+any_box_slab.saw	pass	-	-
 any_ref_dispatch.saw	pass	-	-
 any_sync_effect.saw	pass	-	-
 any_var_self.saw	pass	-	-
@@ -85,7 +85,7 @@ associated_type.saw	pass	-	-
 associated_type_generic.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 async_main_nested_sleep.saw	pass	-	-
 async_main_sleep_yield.saw	pass	-	-
-atomic_field_self_method.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+atomic_field_self_method.saw	pass	-	-
 atomic_nocopy_cell_clause.saw	pass	-	-
 attr_bad_arity_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_bad_arity_error.saw` (syntax.rule.attribute-position), so its declarations are not available
 attr_duplicate_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/attr_duplicate_error.saw` (syntax.rule.attribute-position), so its declarations are not available
@@ -227,9 +227,9 @@ coercion/qualname_local.saw	pass	-	-
 coercion/qualname_mod_static.saw	pass	-	-
 coercion/qualname_mod_static_assign.saw	pass	-	-
 coercion/qualname_mod_static_compound_assign.saw	pass	-	-
-coercion/qualname_mod_static_elem_write.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+coercion/qualname_mod_static_elem_write.saw	pass	-	-
 coercion/qualname_mod_static_immutable_error.saw	pass	-	mutability.immutable: this assignment writes `qualname_static_dep.K`, and a `static` is immutable: only an `unsafe static var` is written (design 149)
-coercion/qualname_mod_static_refarg.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+coercion/qualname_mod_static_refarg.saw	pass	-	-
 coercion/qualname_obj_field.saw	pass	-	-
 coercion/result_slot_const_expression.saw	pass	-	-
 collection_literal_closure_rule.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -633,7 +633,7 @@ const_static_length_crossmodule.saw	refused	typecheck slice.not-yet	a constant a
 const_static_length_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 const_static_length_shadow.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
 const_static_static_assert_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
-constructor_infers_type_arguments.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+constructor_infers_type_arguments.saw	pass	-	-
 consumes_cross_module_call.saw	pass	-	-
 consumes_field_extraction.saw	pass	-	-
 consumes_foreign_module_declaration_error.saw	wrong	accepts a refusal test	`leak` cannot be declared `consumes` here: a consuming method replaces `Handle`'s teardown, and this module does not define `Handle`
@@ -1385,7 +1385,7 @@ errors/unsafe_modifier_on_enum.saw	pass	-	resolve.parse-refused: the parser refu
 errors/unsafe_prefix_on_init.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_prefix_on_init.saw` (syntax.decl.refused-effect-prefix), so its declarations are not available
 errors/unsafe_reference_param_triggers.saw	pass	-	unsafe.undeclared: `peek` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int8>`): write `unsafe` after its parameter list, where every caller can see it
 errors/unsafe_send_not_erasable.saw	pass	-	erasure.not-object-safe: cannot form `any UnsafeSend`: `UnsafeSend` is a declared thread-safety assertion, written only in a conformance header, and as a marker trait it has no requirement to dispatch
-errors/unsafe_static_needs_deinit.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+errors/unsafe_static_needs_deinit.saw	pass	-	static.immortal: the static `HELD` has type `unsafe_static_needs_deinit.Guard`, which owns a resource (Deinit) through `unsafe_static_needs_deinit.Guard`, whose `deinit` is written by hand; statics ar
 errors/unsafe_static_trigger.saw	pass	-	unsafe.undeclared: `peek_owner` is not declared `unsafe`, but its body names an unsafe static (`TABLE`): write `unsafe` after its parameter list, where every caller can see it
 errors/unsafe_static_without_var.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_static_without_var.saw` (syntax.decl.refused-static), so its declarations are not available
 errors/unsafe_struct_name_not_prefixed.saw	pass	-	unsafe.type-name: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`: rename it to `UnsafeMmioReg`, or drop `unsafe` if the type is safe to name, hold and pass
@@ -1688,7 +1688,7 @@ import247b_nonbinding_form_qualifier_error.saw	refused	resolve name.undefined	ca
 import247b_pair_one_identity.saw	refused	typecheck type.mismatch	expected `Int`, the type of the parameter, and found `pair247b.Widget`
 import_rename_function_positions.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 import_std_function_rename.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
-indexed_read_addresses_the_live_array.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+indexed_read_addresses_the_live_array.saw	pass	-	-
 infer_generic_driven.saw	pass	-	-
 infer_generic_spawned.saw	pass	-	-
 infer_move_argument_checked_once.saw	pass	-	-
@@ -1717,7 +1717,7 @@ int_widening_transfer_preserves_unsigned.saw	pass	-	-
 interior_cell_by_pointer_receiver.saw	pass	-	-
 interior_cell_primitive.saw	pass	-	-
 interior_cell_static_placement.saw	refused	typecheck static.not-constant	`UnsafeMutableInterior(11)` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `
-interior_cell_user_type.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+interior_cell_user_type.saw	pass	-	-
 interp_escapes_scope.saw	pass	-	-
 interp_hot_loop.saw	pass	-	-
 interp_large_string.saw	pass	-	-
@@ -1744,7 +1744,7 @@ json_value_object_serialize.saw	refused	resolve import.unknown-module	no module 
 json_value_roundtrip.saw	refused	resolve import.unknown-module	no module `std.json`
 json_value_structural_reject.saw	refused	resolve import.unknown-module	no module `std.json`
 json_value_synthesized_deep_copy.saw	refused	resolve import.unknown-module	no module `std.json`
-kernel_slab_idiom.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+kernel_slab_idiom.saw	pass	-	-
 l18_module_qualified_annotation.saw	pass	-	-
 l3_private_struct_bare.saw	refused	resolve name.undefined	cannot find `Secret` in scope
 l3_qualified_still_works.saw	pass	-	-
@@ -1901,7 +1901,7 @@ module_tests/test_reexport_module.saw	refused	resolve slice.not-yet	`syntax.decl
 module_tests/test_return_module_enum.saw	pass	-	-
 module_tests/test_return_type.saw	pass	-	-
 module_tests/test_static_collision.saw	wrong	accepts a refusal test	ambiguous static `SHARED`: defined in both `static_dup_a` and `static_dup_b`
-module_tests/test_static_cross_module.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+module_tests/test_static_cross_module.saw	pass	-	-
 module_tests/test_static_methods.saw	pass	-	-
 module_tests/test_static_symbol_import.saw	pass	-	-
 module_tests/test_struct_contexts.saw	pass	-	-
@@ -1917,7 +1917,7 @@ mutex_basic.saw	pass	-	-
 mutex_counter.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 mutex_lock_result.saw	pass	-	-
 mutex_static_contention_mt.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-mutex_static_inline.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+mutex_static_inline.saw	pass	-	-
 named_tuple_basic.saw	refused	typecheck subscript.role	`(x: Int, y: Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
 named_tuple_different_names_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(a: Int, b: Int)`
 named_tuple_equality.saw	pass	-	-
@@ -2013,9 +2013,9 @@ offload_seam_first_tick.saw	refused	coro coro.not-yet	`blocker` suspends (blocke
 offload_signature_shapes.saw	refused	coro coro.not-yet	`shapes` suspends (shapes -> usleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
 offload_spawn_interleave.saw	refused	coro coro.not-yet	`worker` suspends (worker -> __saw_rt_blocking_sleep), so it needs a coroutine frame, which is not lowered yet (SL-545)
 once_cross_thread_publish.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-once_double_set_panic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-once_get_before_set_panic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
-once_static_set_get.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+once_double_set_panic.saw	pass	-	-
+once_get_before_set_panic.saw	pass	-	-
+once_static_set_get.saw	pass	-	-
 optimization_level_o0_preserves_semantics.saw	pass	-	-
 optimization_level_o2_preserves_semantics.saw	pass	-	-
 optimization_level_os_preserves_semantics.saw	pass	-	-
@@ -2172,7 +2172,7 @@ qualified_type_in_declaration_slot.saw	pass	-	-
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
 reactor_cross_thread_wake.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
-receiver_temporary_evaluated_once.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+receiver_temporary_evaluated_once.saw	pass	-	-
 recursive_enum_built_in_a_task.saw	pass	-	-
 recursive_enum_inline_payload_refused.saw	pass	-	type.infinite-size: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node -> Tree; hold the recursive member behind a heap indirection, such as `Box`
 recursive_enum_synthesized_deep_copy.saw	pass	-	-
@@ -2223,7 +2223,7 @@ repeat_literal_implicit_copy.saw	pass	-	-
 repeat_literal_negative_error.saw	link	clang or the link	sawc2 build: clang exited 1
 repeat_literal_nocopy_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `repeat_literal_nocopy_error.Handle` is NoCopy: write the elements out, or build the array from a Copy value
 repeat_literal_nonconst_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `n`, is not in the bootstrap slice yet
-repeat_literal_static.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+repeat_literal_static.saw	pass	-	-
 repeat_literal_vector_error.saw	pass	-	type.mismatch: expected `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, the type of the annotated binding, and found `[Int; 8]`
 resolve_seam_offloads.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MAX_ADDRS`, is not in the bootstrap slice yet
 result_autowrap_final.saw	pass	-	-
@@ -2303,7 +2303,7 @@ short_circuit_skipped_operand_temp_cleanup.saw	pass	-	-
 short_circuit_token_field_no_crash.saw	pass	-	-
 signal_concurrency_pins.saw	refused	typecheck operator.undefined	an optional binding unwraps an Optional, and this is `Result<std.path.Path, std.systemerror.SystemError>`
 sizeof_missing_type_arg_error.saw	pass	-	type.arity: `sizeof` and `alignof` take one type argument, as `sizeof<T>()`
-slab_basic.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+slab_basic.saw	pass	-	-
 sleep_seam_multi_chunk.saw	pass	-	-
 slot_all_four_tiers.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
@@ -2336,23 +2336,23 @@ static_assert_fail_error.saw	pass	-	static_assert.failed: static assertion faile
 static_assert_nonconst_error.saw	pass	-	static.not-constant: `side()` is not a constant, and a `static_assert` condition is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `siz
 static_assert_pass.saw	pass	-	-
 static_assert_statement_fail_error.saw	pass	-	static_assert.failed: static assertion failed: statement-position check
-static_atomic_counter.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+static_atomic_counter.saw	pass	-	-
 static_atomic_threaded.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 static_const_declaration_order.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `PAGE_SIZE`, is not in the bootstrap slice yet
 static_const_expr_init.saw	pass	-	-
 static_derived_from_imported_const.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `A`, is not in the bootstrap slice yet
-static_generic_struct_const_init.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+static_generic_struct_const_init.saw	pass	-	-
 static_method_args.saw	pass	-	-
 static_method_called_on_instance.saw	refused	typecheck member.unknown	`static_method_called_on_instance.Bag` has no method `solo` this module can see
 static_method_through_field_receiver.saw	refused	typecheck member.unknown	`static_method_through_field_receiver.Inner` has no method `nullary` this module can see
 static_methods.saw	pass	-	-
 static_named_array_type_init.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-static_non_optional_types_unaffected.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+static_non_optional_types_unaffected.saw	pass	-	-
 static_optional_type_refused.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_optional_type_refused_none.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
-static_pod.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+static_pod.saw	pass	-	-
 static_zero_bss.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-static_zero_init.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+static_zero_init.saw	pass	-	-
 std_gated_name_redefined_by_user.saw	pass	-	-
 std_import_gate_signature_position.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it
 std_time.saw	pass	-	-
@@ -2458,7 +2458,7 @@ taskgroup_threads_send_enum_field.saw	refused	typecheck call.label	no parameter 
 taskgroup_threads_sleep.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_two_task_yield.saw	pass	-	-
 taskgroup_unjoined_drop.saw	pass	-	-
-thread_assertion_survives_a_glob_import.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+thread_assertion_survives_a_glob_import.saw	pass	-	-
 thread_fate_is_written_not_dropped.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_name_belongs_to_the_user.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
 thread_spawn_blocking_beside_a_driven_root.saw	refused	resolve slice.not-yet	the `Thread.spawn` form is not in the bootstrap slice yet
@@ -2547,7 +2547,7 @@ unsafe_mem_normal_region.saw	refused	resolve name.undefined	cannot find `UnsafeM
 unsafe_mem_projection_nested.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
 unsafe_mem_static_board.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
 unsafe_not_transitive.saw	pass	-	-
-unsafe_static_var.saw	refused	llvm backend.not-yet	a static whose value is not an integer or a Bool is not in the backend slice yet
+unsafe_static_var.saw	pass	-	-
 unsafe_surface_ok.saw	pass	-	-
 unsafe_sync_declared.saw	refused	typecheck static.not-constant	`UnsafeMutableInterior(12)` is not a constant, and a static's initializer is a constant expression: a call runs only at run time, an `init` body included; only a type alias's construction, `sizeof`, `
 unsafe_trait_requirement_effect.saw	pass	-	conformance.signature: `Plain.peek` does not meet `Raw.peek`, as `Plain` conforms to `Raw` needs: the requirement declares `unsafe`, so the implementation must too

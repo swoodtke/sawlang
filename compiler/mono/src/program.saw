@@ -7,7 +7,9 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
+import saweval.program.{EvalKind, EvalValue}
 import sawmir.program.{MirProgram}
+import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
 import sawmir.model.{MirDiag}
 import sawparse.tree.{AstNode}
@@ -93,10 +95,10 @@ public struct MonoProgram {
     // Refusals (`mono.not-yet`, `mono.depth`) and broken invariants.
     diags: Vector<MirDiag>
     problems: Vector<String>
-    // By declaration: a static's evaluated value, `kind` -1 for none; 0 an
-    // integer, 1 a Bool, 2 a payload-free case whose declaration is `bits`.
-    static_kinds: Vector<Int>
-    static_bits: Vector<Int>
+    // By declaration: a static's evaluated value, `Missing` for none, and
+    // the parts its aggregates name, numbered as the evaluator numbers them.
+    static_values: Vector<EvalValue>
+    static_parts: Vector<EvalValue>
     // The roots: the entry's `main`, then the lang functions the backend's
     // own lowering calls; -1 when absent.
     main_item: Int
@@ -205,20 +207,18 @@ public static MONO_DEPTH_LIMIT: Int = 64
 
 public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
     let first = dp.bc.mir.funcs.len()
-    var kinds = Vector<Int>()
-    var bits = Vector<Int>()
+    var values = Vector<EvalValue>()
     var bodies = Vector<Int>()
     var k = 0
     while k < dp.bc.mir.tc.res.decls.len() {
-        try! kinds.push(-1)
-        try! bits.push(0)
+        try! values.push(EvalValue.missing(fault: TcFault.NotConstant))
         try! bodies.push(-1)
         k = k + 1
     }
     MonoProgram(dp: move dp, items: Vector<MonoItem>(), item_types: Vector<Int>(), by_key: ResIndex(),
                 call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
-                diags: Vector<MirDiag>(), problems: Vector<String>(), static_kinds: move kinds,
-                static_bits: move bits, main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
+                diags: Vector<MirDiag>(), problems: Vector<String>(), static_values: move values,
+                static_parts: Vector<EvalValue>(), main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
                 length_item: -1, exec_item: -1, spawn_box_item: -1, spawn_background_item: -1,
                 spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(), drive_item: -1,
                 drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,
@@ -239,9 +239,10 @@ extension MonoProgram {
     public func target_for(&self, triple: String) -> Target {
         var target = Target(triple: triple)
         var d = 0
-        while d < self.static_kinds.len() {
-            if self.static_kinds[d] == 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Case {
-                target.set_case_value(d, self.static_bits[d])
+        while d < self.static_values.len() {
+            let v = self.static_values[d]
+            if v.kind == EvalKind.Integer && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Case {
+                target.set_case_value(d, v.bits)
             }
             d = d + 1
         }

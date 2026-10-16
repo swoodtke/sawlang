@@ -5,9 +5,10 @@
 // arithmetic (`sawtypecheck.arith`, the one rule typecheck's fold also
 // follows), bit and shift operators, comparisons, `&&` and `||` as the
 // branches MIR makes them, casts between integer types, a type alias's
-// construction (the identity), and reads of other constant statics and
-// raw-backed cases. Calls, loops and memory are outside
-// it, refused by name. An overflow, an out-of-range shift, a division by zero
+// construction (the identity), reads of other constant statics and
+// raw-backed cases, and the aggregates a static holds: a struct's
+// construction, a fixed array's literal and `[v; N]` over those. Calls, loops
+// and memory are outside it, refused by name. An overflow, an out-of-range shift, a division by zero
 // or a value that does not fit is a compile error naming the statics the
 // evaluation went through; a static whose value depends on itself is a cycle,
 // and a step budget bounds every evaluation besides.
@@ -91,8 +92,15 @@ extension EvalProgram {
         }
     }
 
-    // The value of MIR function `f`, evaluated once; a function already under
-    // way is a cycle among the statics on the stack.
+    // THE STATIC VALUE FUNNEL: the value of MIR function `f`, evaluated once;
+    // a function already under way is a cycle among the statics on the stack.
+    // A static's leaves are made only by `constant`, its aggregates only by
+    // `aggregate`, and the backend reads the value only as
+    // `mono_take_statics` hands it on, parts and all.
+    // ENTRY POINTS:
+    //     constant
+    //     aggregate
+    //     mono_take_statics
     public func evaluate(&var self, mir: &MirProgram, f: Int) -> EvalValue {
         if self.ends[f] != EvalEnd.Pending {
             return self.values[f]
@@ -226,12 +234,7 @@ extension EvalProgram {
             case Cast -> self.converted(&mir, f, &rv, &locals),
             case Widen -> self.converted(&mir, f, &rv, &locals),
             case Adopt -> self.converted(&mir, f, &rv, &locals),
-            case Aggregate -> {
-                if rv.aggregate == MirAggregate.Case && rv.count == 0 {
-                    return EvalValue(kind: EvalKind.Case, bits: 0, ty: rv.ty, decl: rv.decl, fault: TcFault.Clean)
-                }
-                self.not_yet(&mir, f, "an aggregate")
-            },
+            case Aggregate -> self.aggregate(&mir, f, &rv, &locals),
             case Ref -> self.not_yet(&mir, f, "a reference"),
             case Conversion -> {
                 let word = mir.tc.name_text(rv.op)
@@ -482,7 +485,76 @@ extension EvalProgram {
         if v.kind != EvalKind.Integer {
             return self.not_yet(&mir, f, "an atomic over a value of no integer type")
         }
-        EvalValue(kind: EvalKind.Cell, bits: v.bits, ty: rv.ty, decl: -1, fault: TcFault.Clean)
+        EvalValue(kind: EvalKind.Cell, bits: v.bits, ty: rv.ty, decl: -1, count: 0, fault: TcFault.Clean)
+    }
+
+    // An aggregate rvalue: a payload-free case; or a struct's construction,
+    // a fixed array's literal or `[v; N]`, each part a value this evaluator
+    // holds, kept in `parts` as `EvalKind` says.
+    func aggregate(&var self, mir: &MirProgram, f: Int, rv: &MirRvalue, locals: &Vector<EvalValue>) -> EvalValue {
+        match rv.aggregate {
+            case Case -> {
+                if rv.count == 0 {
+                    return EvalValue(kind: EvalKind.Case, bits: 0, ty: rv.ty, decl: rv.decl, count: 0,
+                                     fault: TcFault.Clean)
+                }
+                self.not_yet(&mir, f, "an enum case carrying a payload")
+            },
+            case Repeat -> {
+                // Stage 0 workaround (SL:hazards S4): canonical: let value = self.operand(&mir, f, mir.lists[rv.first], &locals)
+                let first = mir.lists[rv.first]
+                let value = self.operand(&mir, f, first, &locals)
+                if value.kind == EvalKind.Missing {
+                    return value
+                }
+                // Stage 0 workaround (SL:hazards S4): canonical: let n = self.operand(&mir, f, mir.lists[rv.first + 1], &locals)
+                let second = mir.lists[rv.first + 1]
+                let n = self.operand(&mir, f, second, &locals)
+                if n.kind == EvalKind.Missing {
+                    return n
+                }
+                if n.kind != EvalKind.Integer {
+                    return self.not_yet(&mir, f, "a repeat count of no integer type")
+                }
+                let at = self.parts.len()
+                try! self.parts.push(value)
+                EvalValue(kind: EvalKind.Repeat, bits: at, ty: rv.ty, decl: -1, count: n.bits, fault: TcFault.Clean)
+            },
+            case Struct -> {
+                // Stage 0 workaround (SL:hazards S4): canonical: self.parts_of(&mir, f, &rv, &locals, rv.decl)
+                let decl = rv.decl
+                self.parts_of(&mir, f, &rv, &locals, decl)
+            },
+            case Array -> self.parts_of(&mir, f, &rv, &locals, -1),
+            case Tuple -> self.not_yet(&mir, f, "a tuple"),
+            case _ -> self.not_yet(&mir, f, "an aggregate")
+        }
+    }
+
+    // A struct's construction (`decl` the struct) or a fixed array's literal
+    // (`decl` -1): every operand evaluated first, since a static it reads
+    // may add parts of its own, then the run of them.
+    func parts_of(&var self, mir: &MirProgram, f: Int, rv: &MirRvalue, locals: &Vector<EvalValue>,
+                  decl: Int) -> EvalValue {
+        var held = Vector<EvalValue>()
+        var k = 0
+        while k < rv.count {
+            // Stage 0 workaround (SL:hazards S4): canonical: let v = self.operand(&mir, f, mir.lists[rv.first + k], &locals)
+            let o = mir.lists[rv.first + k]
+            let v = self.operand(&mir, f, o, &locals)
+            if v.kind == EvalKind.Missing {
+                return v
+            }
+            try! held.push(v)
+            k = k + 1
+        }
+        let at = self.parts.len()
+        k = 0
+        while k < held.len() {
+            try! self.parts.push(held[k])
+            k = k + 1
+        }
+        EvalValue(kind: EvalKind.Aggregate, bits: at, ty: rv.ty, decl: decl, count: rv.count, fault: TcFault.Clean)
     }
 
     // A typed arithmetic result at type `t`, or its fault reported.

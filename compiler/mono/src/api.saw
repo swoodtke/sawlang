@@ -194,38 +194,24 @@ func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
 }
 
 // Each static's evaluated value, by declaration, from the evaluation `ev` of
-// this program's own lowering. No stage between declares anything, so the
-// two tables are one length.
+// this program's own lowering, with every aggregate part the values name. No
+// stage between declares anything, so the two tables are one length.
 func mono_take_statics(mono: &var MonoProgram, ev: &EvalProgram) {
     let count = ev.constant_of.len()
-    if count != mono.static_kinds.len() {
+    if count != mono.static_values.len() {
         try! mono.problems.push("the evaluator's table and mono's number the declarations differently")
         return
+    }
+    var k = 0
+    while k < ev.parts.len() {
+        try! mono.static_parts.push(ev.parts[k])
+        k = k + 1
     }
     var d = 0
     while d < count {
         let f = ev.constant_of[d]
         if f >= 0 && ev.ends[f] == EvalEnd.Valued {
-            let v = ev.values[f]
-            match v.kind {
-                case Integer -> {
-                    mono.static_kinds[d] = 0
-                    mono.static_bits[d] = v.bits
-                },
-                case Boolean -> {
-                    mono.static_kinds[d] = 1
-                    mono.static_bits[d] = v.bits
-                },
-                case Case -> {
-                    mono.static_kinds[d] = 2
-                    mono.static_bits[d] = v.decl
-                },
-                case Cell -> {
-                    mono.static_kinds[d] = 3
-                    mono.static_bits[d] = v.bits
-                },
-                case _ -> {}
-            }
+            mono.static_values[d] = ev.values[f]
         }
         d = d + 1
     }
