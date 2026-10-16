@@ -1,0 +1,504 @@
+module redefinitions
+
+fn redefinitions.extend(r: &redefinitions.Res) -> redefinitions.Res {
+    let _0: redefinitions.Res;  // return
+    let _1: &redefinitions.Res;  // param r
+    let _2: Int;
+    let _3: redefinitions.Res;
+
+    bb0: {
+        _2 = Add(copy (*_1).id, const 1: Int);
+        _3 = redefinitions.Res { id: move _2 };
+        _0 = move _3;
+        return;
+    }
+}
+
+fn redefinitions.take(r: redefinitions.Res) -> redefinitions.Res {
+    let _0: redefinitions.Res;  // return
+    let _1: redefinitions.Res;  // param r
+    let _2: Int;
+    let _3: redefinitions.Res;
+
+    bb0: {
+        _2 = Mul(copy _1.id, const 2: Int);
+        _3 = redefinitions.Res { id: move _2 };
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.split(r: &redefinitions.Res) -> (redefinitions.Res, Int) {
+    let _0: (redefinitions.Res, Int);  // return
+    let _1: &redefinitions.Res;  // param r
+    let _2: redefinitions.Res;
+    let _3: (redefinitions.Res, Int);
+
+    bb0: {
+        _2 = redefinitions.Res { id: copy (*_1).id };
+        _3 = (move _2, const 7: Int);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn redefinitions.maybe(r: &redefinitions.Res) -> redefinitions.Res? {
+    let _0: redefinitions.Res?;  // return
+    let _1: &redefinitions.Res;  // param r
+    let _2: redefinitions.Res;
+    let _3: redefinitions.Res?;
+
+    bb0: {
+        _2 = redefinitions.Res { id: copy (*_1).id };
+        _3 = redefinitions.Res?::Some(move _2);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn redefinitions.borrowed() -> Int {
+    let _0: Int;  // return
+    let _1: redefinitions.Res;  // s
+    let _2: redefinitions.Res;
+    let _3: redefinitions.Res;  // s
+    let _4: &redefinitions.Res;
+    let _5: redefinitions.Res;
+    let _6: redefinitions.Res;  // s
+    let _7: &redefinitions.Res;
+    let _8: redefinitions.Res;
+
+    bb0: {
+        _2 = redefinitions.Res { id: const 1: Int };
+        _1 = move _2;
+        _4 = ref(shared, _1);
+        _5 = call redefinitions.extend(r: &redefinitions.Res) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _5;
+        drop(_1);
+        _7 = ref(shared, _3);
+        _8 = call redefinitions.extend(r: &redefinitions.Res) [move _7] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = move _8;
+        drop(_3);
+        _0 = copy _6.id;
+        drop(_6);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.moved() -> Int {
+    let _0: Int;  // return
+    let _1: redefinitions.Res;  // s
+    let _2: redefinitions.Res;
+    let _3: redefinitions.Res;  // s
+    let _4: redefinitions.Res;
+
+    bb0: {
+        _2 = redefinitions.Res { id: const 1: Int };
+        _1 = move _2;
+        _4 = call redefinitions.take(r: redefinitions.Res) [move _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _4;
+        _0 = copy _3.id;
+        drop(_3);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.conditional(c: Bool) -> Int {
+    let _0: Int;  // return
+    let _1: Bool;  // param c
+    let _2: redefinitions.Res;  // s
+    let _3: redefinitions.Res;
+    let _4: redefinitions.Res;  // s
+    let _5: &redefinitions.Res;
+    let _6: redefinitions.Res;
+    let _7: Bool;  // flag _2
+
+    bb0: {
+        _7 = const false: Bool;
+        _3 = redefinitions.Res { id: const 1: Int };
+        _2 = move _3;
+        _7 = const true: Bool;
+        switch copy _1 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        switch copy _7 -> [true: bb5, false: bb6];
+    }
+
+    bb2: {
+        _4 = move _2;
+        _7 = const false: Bool;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _5 = ref(shared, _2);
+        _6 = call redefinitions.extend(r: &redefinitions.Res) [move _5] -> [return: bb4];
+    }
+
+    bb4: {
+        _4 = move _6;
+        goto -> bb1;
+    }
+
+    bb5: {
+        drop(_2);
+        _7 = const false: Bool;
+        goto -> bb6;
+    }
+
+    bb6: {
+        _0 = copy _4.id;
+        drop(_4);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.text() -> Int {
+    let _0: Int;  // return
+    let _1: String;  // s
+    let _2: String;  // s
+    let _3: &String;
+    let _4: String;
+    let _5: &String;
+    let _6: Int;
+
+    bb0: {
+        _1 = const "a": String;
+        _3 = ref(shared, _1);
+        _4 = interpolate [move _3, const "b": String];
+        _2 = move _4;
+        drop(_1);
+        _5 = ref(shared, _2);
+        _6 = call std.string.String.len() (owner String) [move _5] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _6;
+        drop(_2);
+        return;
+    }
+
+    glue String: builtin
+}
+
+fn redefinitions.temporary() -> Int {
+    let _0: Int;  // return
+    let _1: redefinitions.Res;  // s
+    let _2: redefinitions.Res;
+    let _3: redefinitions.Res;  // s
+    let _4: Int;
+    let _5: redefinitions.Res;
+    let _6: &redefinitions.Res;
+    let _7: redefinitions.Res;
+    let _8: Int;
+    let _9: redefinitions.Res;
+
+    bb0: {
+        _2 = redefinitions.Res { id: const 1: Int };
+        _1 = move _2;
+        _4 = copy _1.id;
+        _5 = redefinitions.Res { id: const 5: Int };
+        _6 = ref(shared, _5);
+        _7 = call redefinitions.extend(r: &redefinitions.Res) [move _6] -> [return: bb1];
+    }
+
+    bb1: {
+        _8 = Add(move _4, copy _7.id);
+        _9 = redefinitions.Res { id: move _8 };
+        _3 = move _9;
+        drop(_1);
+        drop(_7);
+        drop(_5);
+        _0 = copy _3.id;
+        drop(_3);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.looped() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // n
+    let _2: Bool;
+    let _3: redefinitions.Res;  // s
+    let _4: redefinitions.Res;
+    let _5: redefinitions.Res;  // s
+    let _6: &redefinitions.Res;
+    let _7: redefinitions.Res;
+    let _8: Int;
+
+    bb0: {
+        _1 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _2 = Lt(copy _1, const 2: Int);
+        switch move _2 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        _0 = copy _1;
+        return;
+    }
+
+    bb3: {
+        budget(yield-capable);
+        goto -> bb4;
+    }
+
+    bb4: {
+        _4 = redefinitions.Res { id: copy _1 };
+        _3 = move _4;
+        _6 = ref(shared, _3);
+        _7 = call redefinitions.extend(r: &redefinitions.Res) [move _6] -> [return: bb5];
+    }
+
+    bb5: {
+        _5 = move _7;
+        drop(_3);
+        _8 = Add(copy _1, copy _5.id);
+        _1 = move _8;
+        drop(_5);
+        goto -> bb1;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.destructured() -> Int {
+    let _0: Int;  // return
+    let _1: redefinitions.Res;  // s
+    let _2: redefinitions.Res;
+    let _3: &redefinitions.Res;
+    let _4: (redefinitions.Res, Int);
+    let _5: redefinitions.Res;  // s
+    let _6: Int;  // k
+    let _7: Int;
+
+    bb0: {
+        _2 = redefinitions.Res { id: const 1: Int };
+        _1 = move _2;
+        _3 = ref(shared, _1);
+        _4 = call redefinitions.split(r: &redefinitions.Res) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = move _4.0;
+        _6 = copy _4.1;
+        drop(_1);
+        _7 = Add(copy _5.id, copy _6);
+        _0 = move _7;
+        drop(_5);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.guarded() -> Int {
+    let _0: Int;  // return
+    let _1: redefinitions.Res;  // s
+    let _2: redefinitions.Res;
+    let _3: &redefinitions.Res;
+    let _4: redefinitions.Res?;
+    let _5: redefinitions.Res;  // s
+
+    bb0: {
+        _2 = redefinitions.Res { id: const 1: Int };
+        _1 = move _2;
+        _3 = ref(shared, _1);
+        _4 = call redefinitions.maybe(r: &redefinitions.Res) [move _3] -> [return: bb1];
+    }
+
+    bb1: {
+        switch discriminant(_4) -> [Some: bb2, None: bb3];
+    }
+
+    bb2: {
+        _5 = move (_4 as Some).0;
+        drop(_1);
+        _0 = copy _5.id;
+        drop(_5);
+        return;
+    }
+
+    bb3: {
+        drop(_4);
+        _0 = const 0: Int;
+        drop(_1);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+    glue redefinitions.Res?: structural
+}
+
+fn redefinitions.run(f: (redefinitions.Res) -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: (redefinitions.Res) -> Int;  // param f
+    let _2: redefinitions.Res;
+    let _3: Int;
+
+    bb0: {
+        _2 = redefinitions.Res { id: const 3: Int };
+        _3 = call value copy _1 [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _3;
+        drop(_1);
+        return;
+    }
+
+    glue (redefinitions.Res) -> Int: closure environment
+}
+
+fn redefinitions.in_closure() -> Int {
+    let _0: Int;  // return
+    let _1: (redefinitions.Res) -> Int;
+    let _2: Int;
+
+    bb0: {
+        _1 = closure#0 of redefinitions.in_closure() [];
+        _2 = call redefinitions.run(f: (redefinitions.Res) -> Int) [move _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _0 = move _2;
+        return;
+    }
+}
+
+fn closure#0 of redefinitions.in_closure() -> Int {
+    let _0: Int;  // return
+    let _1: &();  // env
+    let _2: redefinitions.Res;  // param s
+    let _3: redefinitions.Res;  // s
+    let _4: &redefinitions.Res;
+    let _5: redefinitions.Res;
+    let _6: redefinitions.Res;  // s
+    let _7: &redefinitions.Res;
+    let _8: redefinitions.Res;
+
+    bb0: {
+        _4 = ref(shared, _2);
+        _5 = call redefinitions.extend(r: &redefinitions.Res) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = move _5;
+        _7 = ref(shared, _3);
+        _8 = call redefinitions.extend(r: &redefinitions.Res) [move _7] -> [return: bb2];
+    }
+
+    bb2: {
+        _6 = move _8;
+        drop(_3);
+        _0 = copy _6.id;
+        drop(_6);
+        drop(_2);
+        return;
+    }
+
+    glue redefinitions.Res: structural
+}
+
+fn redefinitions.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+    let _2: Int;
+    let _3: Int;
+    let _4: Int;
+    let _5: Int;
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: Int;
+    let _19: Int;
+
+    bb0: {
+        _1 = call redefinitions.borrowed() [] -> [return: bb1];
+    }
+
+    bb1: {
+        _2 = call redefinitions.moved() [] -> [return: bb2];
+    }
+
+    bb2: {
+        _3 = Add(move _1, move _2);
+        _4 = call redefinitions.conditional(c: Bool) [const true: Bool] -> [return: bb3];
+    }
+
+    bb3: {
+        _5 = Add(move _3, move _4);
+        _6 = call redefinitions.conditional(c: Bool) [const false: Bool] -> [return: bb4];
+    }
+
+    bb4: {
+        _7 = Add(move _5, move _6);
+        _8 = call redefinitions.text() [] -> [return: bb5];
+    }
+
+    bb5: {
+        _9 = Add(move _7, move _8);
+        _10 = call redefinitions.temporary() [] -> [return: bb6];
+    }
+
+    bb6: {
+        _11 = Add(move _9, move _10);
+        _12 = call redefinitions.looped() [] -> [return: bb7];
+    }
+
+    bb7: {
+        _13 = Add(move _11, move _12);
+        _14 = call redefinitions.destructured() [] -> [return: bb8];
+    }
+
+    bb8: {
+        _15 = Add(move _13, move _14);
+        _16 = call redefinitions.guarded() [] -> [return: bb9];
+    }
+
+    bb9: {
+        _17 = Add(move _15, move _16);
+        _18 = call redefinitions.in_closure() [] -> [return: bb10];
+    }
+
+    bb10: {
+        _19 = Add(move _17, move _18);
+        call builtin print [move _19] -> [return: bb11];
+    }
+
+    bb11: {
+        return;
+    }
+}

@@ -1,0 +1,87 @@
+// A same-scope redefinition releases the binding it replaces at the
+// redefinition, once the new binding holds its value and before the
+// statement's temporaries drop; that binding's scope end drops nothing. The
+// drop takes the label the old binding's state gives it there: static when
+// the initializer only borrowed it, elided when it moved it, flagged when it
+// moved it on one path. A destructuring `let` and a `guard let` redefine as a
+// `let` does; a `let` in a loop body releases per iteration; a closure's
+// statements redefine their own bindings, and shadow its parameters, which
+// live to its end, as a function's do.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func extend(r: &Res) -> Res { Res(id: r.id + 1) }
+
+func take(r: Res) -> Res { Res(id: r.id * 2) }
+
+func split(r: &Res) -> (Res, Int) { (Res(id: r.id), 7) }
+
+func maybe(r: &Res) -> Res? { Res(id: r.id) }
+
+func borrowed() -> Int {
+    let s = Res(id: 1)
+    let s = extend(&s)
+    let s = extend(&s)
+    s.id
+}
+
+func moved() -> Int {
+    let s = Res(id: 1)
+    let s = take(move s)
+    s.id
+}
+
+func conditional(c: Bool) -> Int {
+    let s = Res(id: 1)
+    let s = if c { move s } else { extend(&s) }
+    s.id
+}
+
+func text() -> Int {
+    let s = "a"
+    let s = "{s}b"
+    s.len()
+}
+
+func temporary() -> Int {
+    let s = Res(id: 1)
+    let s = Res(id: s.id + extend(&Res(id: 5)).id)
+    s.id
+}
+
+func looped() -> Int {
+    var n = 0
+    while n < 2 {
+        let s = Res(id: n)
+        let s = extend(&s)
+        n = n + s.id
+    }
+    n
+}
+
+func destructured() -> Int {
+    let s = Res(id: 1)
+    let (s, k) = split(&s)
+    s.id + k
+}
+
+func guarded() -> Int {
+    let s = Res(id: 1)
+    guard let s = maybe(&s) else { return 0 }
+    s.id
+}
+
+func run(f: (Res) -> Int) -> Int { f(Res(id: 3)) }
+
+func in_closure() -> Int {
+    run({ s in
+        let s = extend(&s)
+        let s = extend(&s)
+        s.id
+    })
+}
+
+func main() {
+    print(borrowed() + moved() + conditional(true) + conditional(false) + text() + temporary() + looped() + destructured() + guarded() + in_closure())
+}

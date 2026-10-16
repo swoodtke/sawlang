@@ -1,0 +1,145 @@
+// The driven and spawned twins of redefinition_release_sync.saw: every
+// binding lives across a suspension, so it is held in the coroutine frame,
+// and a value the replaced binding still owns is released at the
+// redefinition all the same (spec, Scope-end release; SL-682). The cell whose
+// initializer moves the old binding on one path only is in
+// probes/redefinition_release_forms.saw, since Stage 0 cannot build it.
+import std.task.{yield_now}
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("D {self.name}") }
+}
+
+struct Tag { name: String }
+
+extension Tag: ExplicitCopy {
+    func copy(&self) -> Tag { Tag(name: "{self.name}c") }
+    func deinit(&var self) { print("T {self.name}") }
+}
+
+enum Held { case Has(r: Res), case Empty }
+extension Held: NoCopy {}
+
+func extend(r: &Res, tail: String) -> Res { Res(name: "{r.name}{tail}") }
+
+func derive(r: Res) -> Res { Res(name: "{r.name}m") }
+
+func borrowed() {
+    let s = Res(name: "b1")
+    yield_now()
+    let s = extend(&s, "2")
+    yield_now()
+    print("borrowed {s.name}")
+}
+
+func copied() {
+    let t = Tag(name: "t1")
+    yield_now()
+    let t = t.copy()
+    yield_now()
+    print("copied {t.name}")
+}
+
+func moved() {
+    let s = Res(name: "m1")
+    yield_now()
+    let s = derive(move s)
+    yield_now()
+    print("moved {s.name}")
+}
+
+func taken_apart() {
+    let h = Held.Has(r: Res(name: "h1"))
+    yield_now()
+    let h = match h {
+        case Has(r) -> Held.Has(r: extend(&r, "x")),
+        case Empty -> Held.Empty
+    }
+    yield_now()
+    match h {
+        case Has(r) -> print("taken {r.name}"),
+        case Empty -> print("taken empty")
+    }
+}
+
+func in_loop() {
+    var i = 0
+    while i < 2 {
+        let s = Res(name: "l{i}")
+        yield_now()
+        let s = extend(&s, "+")
+        yield_now()
+        print("loop {s.name}")
+        i += 1
+    }
+    print("after loop")
+}
+
+func in_arm() {
+    match Held.Has(r: Res(name: "r")) {
+        case Has(r) -> {
+            let s = Res(name: "a{r.name}")
+            yield_now()
+            let s = extend(&s, "+")
+            yield_now()
+            print("arm {s.name}")
+        },
+        case Empty -> print("arm empty")
+    }
+    print("after arm")
+}
+
+func in_if(c: Bool) {
+    if c {
+        let s = Res(name: "i1")
+        yield_now()
+        let s = extend(&s, "+")
+        yield_now()
+        print("if {s.name}")
+    }
+    print("after if")
+}
+
+func twice() {
+    let s = Res(name: "w1")
+    yield_now()
+    let s = extend(&s, "2")
+    yield_now()
+    let s = extend(&s, "3")
+    yield_now()
+    print("twice {s.name}")
+}
+
+func strings() {
+    let s = "s1"
+    yield_now()
+    let s = "{s}-2"
+    yield_now()
+    print("string {s}")
+}
+
+func spawned(n: Int) -> Int {
+    let s = Res(name: "g{n}")
+    yield_now()
+    let s = extend(&s, "+")
+    yield_now()
+    print("spawned {s.name}")
+    s.name.len()
+}
+
+func main() {
+    borrowed()
+    copied()
+    moved()
+    taken_apart()
+    in_loop()
+    in_arm()
+    in_if(true)
+    twice()
+    strings()
+    var group = TaskGroup()
+    let h = group.spawn(spawned(1))
+    print("joined {h.join()}")
+}

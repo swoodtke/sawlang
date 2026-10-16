@@ -3,6 +3,8 @@
 # it: `drops N, flags M` over its elaborated dump, or the refusal standing first.
 # A count changes only on purpose: review the program's dump, then this line.
 row	path	summary	reading
+K70	tests/corpus/conformance/K70_driven_scope_end_release_matrix.saw	drops 26, flags 0	each scope kind releases its locals on its own exits, sync and driven alike; a same-scope redefinition releases the binding it replaces at the redefinition, after its initializer, and that binding's scope end drops nothing
+S09	tests/corpus/conformance/S09_same_scope_redefinition_owning_across_suspend.saw	drops 7, flags 0	a redefinition whose initializer moves the old binding releases nothing for it: its drop at the redefinition is elided, sync and driven alike
 V25	tests/corpus/conformance/V25_implicitcopy_deinit_once.saw	drops 2, flags 0	each Copy-tier value has one static drop; the copy's retain is glue (§3.8)
 V56	tests/corpus/conformance/V56_consuming_body_replaces_deinit_body.saw	drops 8, flags 0	a consumed receiver is released field by field, statically; `self = v` drops the old referent whole, through its deinit
 V63	tests/corpus/conformance/V63_owned_match_still_consumes.saw	drops 8, flags 0	every consuming match takes its scrutinee apart, what an arm leaves over dropped as the arm completes; each part's drop is static

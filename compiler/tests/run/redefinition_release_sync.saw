@@ -1,0 +1,141 @@
+// A same-scope redefinition replaces the binding it derives from; a value the
+// old binding still owns is released at the redefinition, after the deriving
+// initializer, and never again at the scope's end (spec, Shadowing; SL-682).
+// Each function is one cell of the position matrix in a body that never
+// suspends: how the old binding fares in the initializer (borrowed, copied,
+// moved, taken apart, moved on one path only), where the redefinition sits
+// (a plain block, a loop body, a match arm, an `if` branch, two in a row),
+// and the type (a NoCopy struct with a printing deinit, an ExplicitCopy one,
+// a String).
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("D {self.name}") }
+}
+
+struct Tag { name: String }
+
+extension Tag: ExplicitCopy {
+    func copy(&self) -> Tag { Tag(name: "{self.name}c") }
+    func deinit(&var self) { print("T {self.name}") }
+}
+
+enum Held { case Has(r: Res), case Empty }
+extension Held: NoCopy {}
+
+func extend(r: &Res, tail: String) -> Res { Res(name: "{r.name}{tail}") }
+
+func derive(r: Res) -> Res { Res(name: "{r.name}m") }
+
+func mk(n: String) -> Res { Res(name: n) }
+
+func borrowed() {
+    let s = Res(name: "b1")
+    let s = extend(&s, "2")
+    print("borrowed {s.name}")
+}
+
+func copied() {
+    let t = Tag(name: "t1")
+    let t = t.copy()
+    print("copied {t.name}")
+}
+
+func moved() {
+    let s = Res(name: "m1")
+    let s = derive(move s)
+    print("moved {s.name}")
+}
+
+func taken_apart() {
+    let h = Held.Has(r: Res(name: "h1"))
+    let h = match h {
+        case Has(r) -> Held.Has(r: extend(&r, "x")),
+        case Empty -> Held.Empty
+    }
+    match h {
+        case Has(r) -> print("taken {r.name}"),
+        case Empty -> print("taken empty")
+    }
+}
+
+func conditional(c: Bool) {
+    let s = Res(name: "f1")
+    let s = if c { move s } else { extend(&s, "y") }
+    print("conditional {c} {s.name}")
+}
+
+// The statement's temporary is released after the replaced binding.
+func with_temporary() {
+    let s = Res(name: "p1")
+    let s = Res(name: "{s.name}+{mk("tmp").name}")
+    print("temporary {s.name}")
+}
+
+func in_loop() {
+    var i = 0
+    while i < 2 {
+        let s = Res(name: "l{i}")
+        let s = extend(&s, "+")
+        print("loop {s.name}")
+        i += 1
+    }
+    print("after loop")
+}
+
+func in_arm(h: Held) {
+    match h {
+        case Has(r) -> {
+            let s = Res(name: "a{r.name}")
+            let s = extend(&s, "+")
+            print("arm {s.name}")
+        },
+        case Empty -> print("arm empty")
+    }
+    print("after arm")
+}
+
+func in_if(c: Bool) {
+    if c {
+        let s = Res(name: "i1")
+        let s = extend(&s, "+")
+        print("if {s.name}")
+    }
+    print("after if")
+}
+
+func twice() {
+    let s = Res(name: "w1")
+    let s = extend(&s, "2")
+    let s = extend(&s, "3")
+    print("twice {s.name}")
+}
+
+func strings() {
+    let s = "s1"
+    let s = "{s}-2"
+    print("string {s}")
+}
+
+// A parameter is not in the body's scope: the `let` shadows it, and the
+// parameter lives to the function's end.
+func parameter(s: Res) {
+    let s = extend(&s, "+")
+    print("parameter {s.name}")
+}
+
+func main() {
+    borrowed()
+    copied()
+    moved()
+    taken_apart()
+    conditional(true)
+    conditional(false)
+    with_temporary()
+    in_loop()
+    in_arm(Held.Has(r: Res(name: "r")))
+    in_if(true)
+    twice()
+    strings()
+    parameter(Res(name: "q1"))
+}

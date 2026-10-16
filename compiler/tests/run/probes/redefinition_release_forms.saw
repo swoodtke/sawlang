@@ -1,0 +1,86 @@
+// probe: stated
+// about: a redefinition Stage 0 cannot build releases what it replaces at the redefinition (SL-682)
+// stage 0: refuses `let (s, n) = …` and `guard let s = …` beside an `s` of the same scope, and a `move` of a frame local in a driven body's value `if`
+// speeds: -O0 -O2
+// prints: D d1
+// prints: destructured d1s 7
+// prints: D d1s
+// prints: D g1
+// prints: guarded g1?
+// prints: D g1?
+// prints: conditional true f1
+// prints: D f1
+// prints: D f1
+// prints: conditional false f1y
+// prints: D f1y
+// prints: D e1
+// prints: driven destructured e1s 7
+// prints: D e1s
+// prints: D h1
+// prints: driven guarded h1?
+// prints: D h1?
+// The cells of the redefinition matrix whose forms Stage 0 refuses: a
+// destructuring `let` and a `guard let` that redefine a binding of their own
+// scope, which the spec's shadowing rules admit as any other derived
+// redefinition, and a driven body's initializer that moves the old binding on
+// one path only, so its release at the redefinition is guarded by a flag.
+import std.task.{yield_now}
+
+struct Res { name: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("D {self.name}") }
+}
+
+func extend(r: &Res, tail: String) -> Res { Res(name: "{r.name}{tail}") }
+
+func split(r: &Res) -> (Res, Int) { (Res(name: "{r.name}s"), 7) }
+
+func maybe(r: &Res) -> Res? { Res(name: "{r.name}?") }
+
+func destructured() {
+    let s = Res(name: "d1")
+    let (s, n) = split(&s)
+    print("destructured {s.name} {n}")
+}
+
+func guarded() -> Int {
+    let s = Res(name: "g1")
+    guard let s = maybe(&s) else { return 0 }
+    print("guarded {s.name}")
+    1
+}
+
+func conditional(c: Bool) {
+    let s = Res(name: "f1")
+    yield_now()
+    let s = if c { move s } else { extend(&s, "y") }
+    yield_now()
+    print("conditional {c} {s.name}")
+}
+
+func driven_destructured() {
+    let s = Res(name: "e1")
+    yield_now()
+    let (s, n) = split(&s)
+    yield_now()
+    print("driven destructured {s.name} {n}")
+}
+
+func driven_guarded() -> Int {
+    let s = Res(name: "h1")
+    yield_now()
+    guard let s = maybe(&s) else { return 0 }
+    yield_now()
+    print("driven guarded {s.name}")
+    1
+}
+
+func main() {
+    destructured()
+    let _ = guarded()
+    conditional(true)
+    conditional(false)
+    driven_destructured()
+    let _ = driven_guarded()
+}

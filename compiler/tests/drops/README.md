@@ -97,7 +97,13 @@ so those drops are `static` too and need no flag (golden `leftovers`).
 
 **Order.** A drop never moves: scope exits drop in reverse declaration order
 and a statement's temporaries in reverse creation order, as the MIR placed
-them, and a guarded drop keeps its place. A borrowing struct a `for` head
+them, and a guarded drop keeps its place. The binding a same-scope
+redefinition replaces is the MIR's to release at the redefinition, once the
+new binding holds its value and before the statement's temporaries, and its
+scope's exits drop it nowhere else; that drop takes its label like any other,
+so an initializer that moved the old binding leaves it elided, and one that
+moved it on some paths leaves it flagged (golden `redefinitions`, spec,
+Shadowing). A borrowing struct a `for` head
 lends is registered with the loop's scope after the window it is lent in, so
 it is destroyed before that window closes, on every route out, and a `deinit`
 may still read through its reference (golden `borrowing_struct`).
@@ -282,6 +288,7 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 | a dissolve under each consuming form: part drops | dissolves |
 | what a `match`, `if let` or `while let` leaves over, static, on each exit of its body: the arm's end, a `return`, across a suspension, per iteration and on `break` | leftovers |
 | a `consumes` body: field release, a field moved out and assigned again released with it, no flag | consumes |
+| a same-scope redefinition: the binding it replaces released there, static, elided or flagged, before the statement's temporaries; by `let`, a destructuring `let` and `guard let`; per iteration in a loop; a closure's own bindings redefined and its parameter shadowed | redefinitions |
 | statement temporaries in reverse creation order; one on a short circuit's right side, or `??`'s, dropped on that side before the sides join, unflagged, in a loop too | temporaries |
 | drops inside a window's body before its close; a `for` over a borrowing struct | windows |
 | a borrowing struct that owns something, built with `lends self`, destroyed before its window closes | borrowing_struct |

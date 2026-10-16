@@ -327,6 +327,7 @@ extension MirProgram {
     //     lower_if
     //     lower_while_let
     //     lower_for
+    //     lower_closure
     //     copy_blocks
     //     copy_terminator
     //     build_prologue
@@ -1080,22 +1081,76 @@ extension MirProgram {
         var k = self.scope.len() - 1
         while k >= from {
             let entry = self.scope[k]
-            if entry.window {
-                self.close_window(entry.index)
-            } else if entry.fieldwise {
-                self.release_fields_of(entry.index)
-            } else if entry.parts_count >= 0 {
-                var j = 0
-                while j < entry.parts_count {
-                    let p = self.leftover_parts[entry.parts_first + j]
-                    self.emit_drop(p)
-                    j = j + 1
-                }
-            } else {
-                let p = self.place_local(entry.index)
-                self.emit_drop(p)
-            }
+            self.emit_exit(&entry)
             k = k - 1
+        }
+    }
+
+    func emit_exit(&var self, entry: &MirScopeEntry) {
+        if entry.window {
+            self.close_window(entry.index)
+        } else if entry.fieldwise {
+            self.release_fields_of(entry.index)
+        } else if entry.parts_count >= 0 {
+            var j = 0
+            while j < entry.parts_count {
+                let p = self.leftover_parts[entry.parts_first + j]
+                self.emit_drop(p)
+                j = j + 1
+            }
+        } else {
+            let p = self.place_local(entry.index)
+            self.emit_drop(p)
+        }
+    }
+
+    // Releases what a same-scope redefinition replaces: for each of `bound`,
+    // the newest owned binding of its name in the scope at `depth`, which the
+    // new bindings join. Its exit is emitted on the path at the redefinition
+    // and its entry leaves the scope, so no later exit drops it again; the
+    // borrow check labels that drop, so an old binding the initializer moved
+    // releases nothing. Parameters, captures, patterns and heads bind in
+    // scopes of their own, so a `let` naming one shadows it instead (spec,
+    // Shadowing).
+    //
+    // ENTRY POINTS:
+    //     lower_let
+    //     lower_guard_let
+    public func release_replaced(&var self, bound: &Vector<Int>, depth: Int) {
+        if depth < 0 || depth >= self.scope_marks.len() || not self.live() {
+            return
+        }
+        let from = self.scope_marks[depth]
+        var until = self.scope.len()
+        if depth + 1 < self.scope_marks.len() {
+            until = self.scope_marks[depth + 1]
+        }
+        var k = 0
+        while k < bound.len() {
+            let fresh = self.local(bound[k])
+            k = k + 1
+            // A binding that reads through to its part may alias the old
+            // binding's storage, which must then outlive it.
+            if fresh.name < 0 || fresh.reference {
+                continue
+            }
+            let name = fresh.name
+            var at = until - 1
+            var found = -1
+            while at >= from && found < 0 {
+                let entry = self.scope[at]
+                if not entry.window && not entry.fieldwise && self.local(entry.index).name == name {
+                    found = at
+                }
+                at = at - 1
+            }
+            if found < 0 {
+                continue
+            }
+            let entry = self.scope[found]
+            self.emit_exit(&entry)
+            self.forget_local(entry.index)
+            until = until - 1
         }
     }
 

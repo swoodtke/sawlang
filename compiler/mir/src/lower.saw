@@ -660,12 +660,19 @@ extension MirProgram {
             }
             j = j + 1
         }
+        // The statements have a scope of their own, as a function's body
+        // does, so a `let` naming a parameter or a capture shadows it rather
+        // than redefining it (`release_replaced`).
+        let _ = self.open_scope()
         if self.tc.is_void(result) || self.tc.is_never(result) {
             self.lower_statements(e, -1)
         } else {
             let ret = self.place_local(0)
             self.lower_statements(e, ret)
         }
+        let saved = self.source_closing(e)
+        self.close_scope()
+        self.source_restore(saved)
         self.finish_function()
     }
 
@@ -1061,12 +1068,14 @@ func mir_is_control_alt(alt: Alt) -> Bool {
 extension MirProgram {
     // `let x = e`, `let x: T = e`, `let (a, b) = e` and their `var` forms.
     // The bindings belong to the enclosing block, the temporaries to the
-    // statement.
+    // statement. A binding the statement redefines is released once the
+    // value is bound, before the temporaries drop, as Stage 0 orders them.
     func lower_let(&var self, s: Int) {
         let target = self.tc.res.first_node_child(s)
         let value = self.tc.res.last_node_child(s)
         let m = self.tc.node_module(s)
         var bound = Vector<Int>()
+        let depth = self.scope_depth()
         let _ = self.open_scope()
         if self.tc.has_alt(target, Alt.Stmt_BindingName) {
             let leaf = self.tc.res.first_leaf(target)
@@ -1100,6 +1109,7 @@ extension MirProgram {
                 self.forget_temp(p)
             }
         }
+        self.release_replaced(&bound, depth)
         self.close_scope()
         self.scope_all(&bound)
     }
@@ -1500,6 +1510,8 @@ extension MirProgram {
         self.lower_block(block, -1)
         self.unreachable()
         self.enter(present)
+        let depth = self.scope_depth()
+        self.release_replaced(&bound, depth)
         self.scope_all(&bound)
     }
 
