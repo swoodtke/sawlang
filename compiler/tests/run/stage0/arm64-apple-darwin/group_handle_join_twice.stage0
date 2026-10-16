@@ -1,0 +1,8 @@
+program	compiler/tests/run/group_handle_join_twice.saw
+triple	arm64-apple-darwin
+source	7d6a52d9f6d4383f
+build	ok
+exit	-6
+stdout	"42"
+stdout	"panic at taskgroup.saw:1788: Task.join: this task's result was already joined"
+stdout	""

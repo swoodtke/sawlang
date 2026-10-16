@@ -2443,7 +2443,7 @@ taskgroup_spawn_and_loop.saw	pass	-	-
 taskgroup_spawn_generic.saw	pass	-	-
 taskgroup_spawn_void.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 taskgroup_stale_handle_cancel.saw	pass	-	-
-taskgroup_stale_handle_join.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Task.join: this task's result is gone: it was already joined, or detached", Stage 0 "panic at <std>: Task.join: this task's result was already joined"
+taskgroup_stale_handle_join.saw	pass	-	-
 taskgroup_structured_join.saw	pass	-	-
 taskgroup_suspending_cancel.saw	pass	-	-
 taskgroup_suspending_deinit_join.saw	pass	-	-

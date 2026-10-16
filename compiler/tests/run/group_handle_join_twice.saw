@@ -1,0 +1,18 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// Joining a `group.spawn` handle twice is a defined error (spec, "Task slot
+// lifecycle"): the first join takes the result and retires the slot's generation,
+// so the second finds the handle stale and panics with the spec's words
+// rather than reading whatever occupies the slot next.
+import std.task.{yield_now}
+
+func work(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work(21))
+    print("{}", h.join())
+    print("{}", h.join())
+}

@@ -1021,11 +1021,11 @@ extension Task<T> {
         self.consume()
         var g = self.group
         if g[0].stale(self.slot, self.generation) {
-            panic("Task.join: this task's result is gone: it was already joined, or detached")
+            panic("Task.join: this task's result was already joined")
         }
         exec_run(g as Int, self.slot, self.generation)
         if g[0].stale(self.slot, self.generation) {
-            panic("Task.join: this task's result is gone: it was already joined, or detached")
+            panic("Task.join: this task's result was already joined")
         }
         if not g[0].is_done(self.slot) {
             panic("Task.join: the task cannot finish while this join waits for it")
