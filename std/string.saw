@@ -151,6 +151,43 @@ func copy_into_scratch(target: UnsafePointer<Int8>, at: Int, source: UnsafePoint
     at + count
 }
 
+/// Returns `parts` in order with `separator` between each adjacent pair, the
+/// body of `Vector<String>.join`.
+///
+/// An empty vector yields `""` and a one-element vector yields its element.
+/// Panics if the allocation is refused, as every String producer does.
+public(package) func joined_strings(parts: &Vector<String>, separator: &String) unsafe -> String {
+    let count = parts.len()
+    if count == 0 {
+        return ""
+    }
+    if count == 1 {
+        return parts[0]
+    }
+    let sep_len = separator.len()
+    var total = sep_len * (count - 1)
+    var i = 0
+    while i < count {
+        total = total + parts[i].len()
+        i = i + 1
+    }
+    if total == 0 {
+        return ""
+    }
+    let scratch = scratch_buffer(total)
+    var out = 0
+    i = 0
+    while i < count {
+        if i > 0 {
+            out = copy_into_scratch(scratch, out, separator.bytes, 0, sep_len)
+        }
+        let piece = parts[i]
+        out = copy_into_scratch(scratch, out, piece.bytes, 0, piece.len())
+        i = i + 1
+    }
+    return string_from_scratch(scratch, total)
+}
+
 extension String {
     /// Returns the number of bytes, read from the header.
     public func len(&self) unsafe -> Int {

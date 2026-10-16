@@ -1,0 +1,45 @@
+// `Vector<String>.join`: an empty vector joins to "", one element to itself,
+// and several to the elements with the separator between each adjacent pair,
+// empty elements and an empty or multi-byte separator included.
+
+func of2(a: String, b: String) -> Vector<String> {
+    var v = Vector<String>()
+    try! v.push(a)
+    try! v.push(b)
+    return move v
+}
+
+func of3(a: String, b: String, c: String) -> Vector<String> {
+    var v = of2(a, b)
+    try! v.push(c)
+    return move v
+}
+
+func main() {
+    let none = Vector<String>()
+    print("[{}]", none.join(", "))
+    print("[{}]", none.join(""))
+
+    var one = Vector<String>()
+    try! one.push("solo")
+    print("[{}]", one.join(", "))
+    let same = one.join("--")
+    print("[{}] {}", same, same.len())
+
+    var blank = Vector<String>()
+    try! blank.push("")
+    print("[{}]", blank.join(", "))
+
+    print("[{}]", of3("a", "b", "c").join(", "))
+    print("[{}]", of3("a", "b", "c").join(""))
+    print("[{}]", of3("a", "b", "c").join(" → "))
+    print("[{}]", of3("", "mid", "").join("|"))
+    print("[{}]", of3("", "", "").join("|"))
+    print("[{}]", of3("", "", "").join(""))
+    print("[{}]", of2("héllo", "wörld").join("·"))
+    print("[{}]", of2("x", "").join("+"))
+
+    let parts = of3("usr", "local", "bin")
+    let path = parts.join("/")
+    print("[{}] {} {}", path, path.len(), parts.len())
+}

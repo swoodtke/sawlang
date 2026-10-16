@@ -17,7 +17,7 @@ alloc_map_insert_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "pan
 alloc_map_set_reports_oom.saw	pass	-	-
 alloc_panic_under_full_denial.saw	pass	-	-
 alloc_set_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Map.copy: allocation of 192 bytes (align 8) failed", Stage 0 "panic at <std>: Map.copy: allocation of 128 bytes (align 8) failed"
-alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
+alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
 alloc_string_oom_panic.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
@@ -1530,7 +1530,7 @@ extension_method_tie_break_distinguishes_the_entry_module.saw	refused	resolve sl
 extension_mutable.saw	pass	-	-
 extension_of_imported_type_with_spawn.saw	pass	-	-
 extension_simple.saw	pass	-	-
-extension_specialized.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
+extension_specialized.saw	pass	-	-
 extern_c_compiler_declared_symbol.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
 ffi/alignof_test.saw	pass	-	-
 ffi/casting.saw	pass	-	-
@@ -2377,7 +2377,7 @@ string_raw_control_byte_before_brace.saw	pass	-	-
 string_scalars_iter.saw	pass	-	-
 string_scalars_temp_receiver.saw	pass	-	-
 string_simple.saw	pass	-	-
-string_split_join.saw	refused	typecheck member.unknown	`std.vector.Vector<String, std.alloc.GlobalAllocator>` has no method `join` this module can see
+string_split_join.saw	pass	-	-
 string_substring_oob_panic.saw	pass	-	-
 string_substring_reversed_panic.saw	pass	-	-
 string_to_float.saw	refused	typecheck member.unknown	`String` has no method `to_float` this module can see

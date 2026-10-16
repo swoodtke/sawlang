@@ -1,0 +1,20 @@
+program	compiler/tests/run/string_join.saw
+triple	arm64-apple-darwin
+source	296fc69178221df7
+build	ok
+exit	0
+stdout	"[]"
+stdout	"[]"
+stdout	"[solo]"
+stdout	"[solo] 4"
+stdout	"[]"
+stdout	"[a, b, c]"
+stdout	"[abc]"
+stdout	"[a → b → c]"
+stdout	"[|mid|]"
+stdout	"[||]"
+stdout	"[]"
+stdout	"[héllo·wörld]"
+stdout	"[x+]"
+stdout	"[usr/local/bin] 13 3"
+stdout	""

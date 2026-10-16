@@ -10,6 +10,7 @@
 //! exists when the element is ExplicitCopy.
 
 import std.mem.{drop_in_place}
+import std.string.{joined_strings}
 
 static FIRST_SLOTS: Int = 4
 
@@ -378,6 +379,16 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     /// `iter()`, it borrows the vector for the whole loop.
     public func enumerated(&self) borrows -> EnumeratedIterator<T, A> {
         EnumeratedIterator<T, A>(vector: lends self, index: 0)
+    }
+}
+
+extension Vector<String> {
+    /// Returns the strings in order with `separator` between each adjacent
+    /// pair.
+    ///
+    /// An empty vector yields `""` and a one-element vector yields its element.
+    public func join(&self, separator: String) -> String {
+        joined_strings(&self, &separator)
     }
 }
 

@@ -471,6 +471,41 @@ def workaround_inventory(paths):
 _STD = None
 
 
+def split_extension_heads(files, known_types):
+    """Moves each extension head argument that names a type into `type_args`.
+
+    Both readings put every name in an extension head's `<...>` in
+    `type_params` and leave the choice to the typechecker's lookup. In the std
+    profile, which sawc2 alone compiles, a name that is a declared, builtin or
+    prelude type is a type argument (`extension Vector<String>`), so no rule
+    over type parameters sees it. The compiler profile keeps Stage 0's reading,
+    where such a head is generic and its rules fire (SL:hazards S1).
+
+    ENTRY POINTS:
+      check_std
+    """
+    known = set(known_types)
+    for _, prog in _all_programs(files):
+        known.update(decl.name for decl in _type_decls(prog))
+    for _, prog in _all_programs(files):
+        for ext in prog.extensions:
+            params, args = [], list(ext.type_args or ())
+            for tp in ext.type_params:
+                if (tp.name in known and not tp.bounds and tp.default is None
+                        and not tp.is_const):
+                    args.append(_named_type(tp.name))
+                else:
+                    params.append(tp)
+            ext.type_params, ext.type_args = params, args
+
+
+def _named_type(name):
+    kind = sawc2_reading.Reader.BUILTIN_TYPES.get(name)
+    if kind is not None:
+        return A.SawType(kind)
+    return A.SawType(A.TypeKind.STRUCT, struct_name=name)
+
+
 def std_facts():
     global _STD
     if _STD is None:
@@ -1221,13 +1256,14 @@ class FileChecker:
         for fn in prog.functions:
             BodyChecker(self, fn, None).run()
         for ext in prog.extensions:
-            if not ext.type_params and ext.struct_name == "Optional":
+            head_args = ext.type_params or ext.type_args
+            if not head_args and ext.struct_name == "Optional":
                 # Stage 0 has no struct named `Optional`, so writing the
                 # parameters trades this refusal for a `compile` one.
                 self.report(ext.line, "generic-extension-params",
                             "`Optional` cannot be extended under Stage 0; it refuses "
                             "`extension Optional<T>` too, as an undefined struct")
-            elif not ext.type_params and self.is_generic_type(ext.struct_name):
+            elif not head_args and self.is_generic_type(ext.struct_name):
                 self.report(ext.line, "generic-extension-params",
                             "`%s` is generic; write its type parameters in the extension "
                             "head" % ext.struct_name)
@@ -2818,6 +2854,7 @@ def check_std(paths=None):
     paths = sorted(set(paths))
     readings = sawc2_reading.read_files(paths)
     files = [StdSourceFile(p, readings[p]) for p in paths]
+    split_extension_heads(files, std.types)
     facts = BuildFacts(files)
     diags = []
     for f in files:
