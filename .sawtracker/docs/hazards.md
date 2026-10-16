@@ -938,7 +938,24 @@ sawc2 refuses both: `static.zero-hidden` names the field, and `static.zero-inval
 
 **Checker:** not needed: the compiler's source declares no bare static.
 
+### S36. A spawn borrow released by joining a rebound handle variable (SL-565)
 
+**Shape (silent: a use-after-free):** a `&var` (or `&`) argument or capture at a `group.spawn` borrows its root until that task's handle is joined, or until the group is torn down (spec: the borrow's extent is the task's life). Stage 0 releases the borrow at a `join` of any variable that ever held the handle, not only one that holds it at the join. So rebinding the handle variable, then joining it, ends a borrow whose task is still running:
+
+```saw
+var h = group.spawn(fill(&var buf, 200))
+h = group.spawn(quick())       // the first handle is discarded; its borrow lasts to the group's teardown
+h.join()
+consume(move buf)              // accepted: the teardown then drives `fill` into the freed buffer
+```
+
+The same hole is reached through `let g = move h; h = group.spawn(…); h.join()`. Stage 0 compiles all of these, and the program faults at the group's teardown. sawc2 refuses them once SL-565 releases a borrow only where the joined value is the borrowing task's handle on every path. The pins are its borrowck refusal fixtures.
+
+**Instead:** give each spawn that borrows its own `let` binding and join that binding. Never rebind or move out of a handle variable while its task still borrows.
+
+**Checker:** not needed: the compiler's source spawns no task.
+
+## Loud hazards
 
 
 ### L1. Integer literal adoption (SL-13, SL-53, SL-56, SL-70, SL-75, SL-84, SL-194)
