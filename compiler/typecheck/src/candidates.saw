@@ -389,7 +389,7 @@ extension TcProgram {
         var k = 0
         while k < g.bound_count {
             let bound = self.traits[g.bound_first + k]
-            let all = self.trait_and_ancestors(bound)
+            let all = self.carried_traits(bound)
             var j = 0
             while j < all.len() {
                 let reqs = self.members_of(all[j])

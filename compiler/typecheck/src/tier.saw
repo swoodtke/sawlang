@@ -858,7 +858,7 @@ extension TcProgram {
             // An associated type carries no bound, so its projection meets none.
             case Projection -> false,
             case Param -> self.param_satisfies(info.decl, info.a, tr, env_decl, env_ext),
-            case SelfType -> self.trait_refines(info.decl, tr),
+            case SelfType -> self.bound_carries(info.decl, tr),
             case Any -> self.trait_refines(info.decl, tr),
             case Nominal -> self.nominal_satisfies(t, tr, env_decl, env_ext, &var run),
             case Tuple -> {
@@ -935,7 +935,7 @@ extension TcProgram {
         var k = 0
         while k < g.bound_count {
             let bound = self.traits[g.bound_first + k]
-            if self.trait_refines(bound, tr) {
+            if self.bound_carries(bound, tr) {
                 return true
             }
             k = k + 1

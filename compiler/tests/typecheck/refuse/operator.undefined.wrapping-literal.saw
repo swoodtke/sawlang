@@ -1,0 +1,7 @@
+// refuses: operator.undefined at 5:13
+// a wrapping `&+` over two float literals, the shape of the corpus's `wrapping_requires_integers`
+
+func main() {
+    let a = 1.5 &+ 2.5
+    print(a)
+}

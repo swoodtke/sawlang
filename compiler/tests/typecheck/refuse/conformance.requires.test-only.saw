@@ -1,0 +1,23 @@
+// refuses: conformance.requires at 8:18
+// a production `Comparable` whose type is `Equatable` only in test code, checked as production code sees it
+
+struct Badge {
+    name: String
+}
+
+extension Badge: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+@test
+extension Badge: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        true
+    }
+}
+
+func main() {
+    print("ok")
+}

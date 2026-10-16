@@ -1481,6 +1481,7 @@ says what the fixture shows.
 | `conformance.policy-placement` | a policy conformance, `Copy`, `ExplicitCopy`, `NoCopy`, `NoMove`, `ZeroInit`, `UnsafeSend` or `UnsafeSync`, declared outside the file that defines its type, test code being a file of its own: each policy in an `@test` declaration and in a group, a conditional head, `@synthesize`, an enum, beside a non-policy trait in one head (bare, `.copy`, `.explicit-copy`, `.no-move`, `.unsafe-send`, `.unsafe-sync`, `.zero-init`, `.group`, `.copy-group`, `.explicit-copy-group`, `.no-move-group`, `.unsafe-send-group`, `.unsafe-sync-group`, `.zero-init-group`, `.conditional`, `.synthesize`, `.enum`, `.one-extension`, `.no-move-holder`); the policy matrix above (SL-659) |
 | `conformance.derived-only` | a written conformance to `Send` or `Sync`, which the compiler derives from the members and never takes as written (spec, Send and Sync; SL-673): on a raw-pointer holder that a `T: Send` bound would then accept (bare), `Sync` (`.sync`), a type whose members derive it anyway (`.derivable`), a conditional head (`.generic`), an enum (`.enum`), both in one head (`.one-extension`), beside `@synthesize` (`.synthesize`), a test-only extension (`.test-only`) and a test group (`.test-group`); one funnel, `check_derived_conformances`, refuses these, `conformance.deinit`'s, `conformance.derived-parent`'s and `trait.deinit-parent`'s. Golden `thread_assertions` holds the control: `UnsafeSend`/`UnsafeSync` past an unsafe-typed field meet the bounds |
 | `conformance.derived-parent` | a conformance to a user trait refining `Send` or `Sync` on a type that does not derive it under the extension's conditions, naming the parent and the blocking field or payload: a raw-pointer holder (bare), `Sync` past an interior cell (`.sync`), an unconditioned generic head (`.generic`), an enum (`.enum`), a refinement chain (`.chain`), a test-only extension (`.test-only`). The parent is required, never granted (SL-673): golden `derived_parent_grants_nothing` keeps the refused type short of a `T: Send` bound, and golden `derived_parents` holds the accepted rows and `T: Shippable` meeting `T: Send` in a generic body |
+| `conformance.requires` | a conformance to `Comparable` or `Hashable`, or to a trait refining one, on a type that does not meet `Equatable` under the extension's conditions, as code that may use the conformance sees it (spec, Ordering and Hashing: "requires Equatable"); the requires matrix below (SL-755) |
 | `trait.deinit-parent` | a user trait listing `Deinit` as a parent, which only the copy policies `NoCopy` and `ExplicitCopy` do (SL-673) |
 | `conformance.assertion-derives` | an `UnsafeSend` or `UnsafeSync` on a type that derives the property from its members under the extension's conditions, its own assertions of it deleted (spec, `UnsafeSync` / `UnsafeSend`, "Legality, checked at the header"; SL-675): a struct of `Send` fields (bare), `Sync` through a member that asserts it (`.sync`), a conditional head whose bound makes the field derive (`.conditional`), an enum (`.enum`). One funnel, `check_thread_assertion`, makes the header checks |
 | `conformance.assertion-safe-member` | an `UnsafeSend` or `UnsafeSync` past a field or case payload that blocks the derivation and whose type names no unsafe type, naming it (SL-675): a safe non-`Send` struct, which a `T: Send` bound would otherwise accept (bare), an unconditioned type parameter (`.generic`), a safe non-`Sync` struct (`.sync`), a closure (`.closure`), an enum payload (`.enum`), a member reaching the asserted type again, judged without the assertion as Stage 0 judges it (`.recursive`), a test-only extension (`.test-only`). Golden `thread_assertion_legality` holds the accepted rows: a raw pointer, an interior cell, a type argument naming an unsafe type, an enum payload, and conditional heads |
@@ -1535,7 +1536,7 @@ says what the fixture shows.
 | `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from runtime/ABI.md) does not list |
 | `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
-| `operator.undefined` | an operator over a type it is not defined for; a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements; a `try`, an inline catch's included, over a value that is no Result, and an optional assignment's `?.` hop over one that is no Optional |
+| `operator.undefined` | an operator over a type it is not defined for, the integer-only ones over a `Float` or a `Bool` among them (the integer-only operator matrix below); a raw pointer takes only `p + n` and `p - n`, an integer offset after it, which steps `n` elements; a `try`, an inline catch's included, over a value that is no Result, and an optional assignment's `?.` hop over one that is no Optional |
 | `static.optional` | a static whose own type is an optional; an `unsafe static var` is exempt (spec, Module-level statics: "Never optional") |
 | `static.not-sync` | a static whose type is not `Sync`, naming the member that blocks the derivation, down to a cell-carrying type and the `UnsafeSync` declaration it owes, or a conditional `UnsafeSync` and the bound its argument fails; an `unsafe static var` is exempt (spec, Module-level statics: "Sync-only"; the static Sync matrix) |
 | `static.not-constant` | a sub-expression outside the constant grammar of a static's initializer, a raw case's value, an `@align` argument or a `static_assert` condition, named (the constant-position funnel) |
@@ -1664,6 +1665,56 @@ prelude and unbound under Stage 0's, so a row that declares it runs with
 | `ZeroInit` on a struct with an override | refused at the declaration | `zeroinit.override` |
 | `ZeroInit` on a struct with a field of no valid zero; with a field of its unbounded type parameter; with a field of another module's type it cannot see; on a raw-backed enum with no case of value 0 | refused at the declaration, naming the field | `zeroinit.invalid`, `.param`, `.hidden`, `.enum` |
 | `ZeroInit` on another module's type | refused by resolve's orphan rule: only the type's module, or the prelude, may declare it | `conformance.orphan` (resolve) |
+
+The requires matrix (SL-755). `Comparable` and `Hashable` each require
+`Equatable` of their type, and a conformance never grants it: the prelude
+lists no parent for either, since a parent would give the type `Equatable`
+through the conformance. One funnel, `check_required_conformances`
+(`compiler/typecheck/src/checks.saw`), reads the conformance table, and
+`required_trait` (`conform.saw`) holds the pairs. Since every conformance
+meets what its trait requires, a bound carries it, as a bound carries a
+`Send` parent: `carried_traits` (`conform.saw`) answers what a bound or a
+trait's `Self` gives, for `satisfies` and for the requirements a call
+through the bound finds. No other trait in the vocabulary requires a
+trait it does not refine but `Send` and `Sync`, which `conformance.derived-parent`
+covers. `golden/required_conformances` is abbreviated `rc.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| `@synthesize`d `Comparable`, `Hashable`, on a type that is not `Equatable` | refused | `conformance.requires` (bare), `.hashable` |
+| a written `compare`, a written `hash`, on such a type | refused | `.written`, `.hashable-written` |
+| an enum with payloads, which is not automatically `Equatable` | refused | `.enum` |
+| a conformance to a user trait refining `Comparable` | refused, naming the refinement | `.refinement` |
+| an unconditioned generic `Comparable` beside an `Equatable` that holds only where `T: Equatable` | refused | `.generic` |
+| a production `Comparable` whose `Equatable` is test-only | refused, as production code sees it | `.test-only` |
+| beside a declared `Equatable`, `@synthesize`d or written | accepted | `rc.` |
+| a trivial struct or a payload-free enum, automatically `Equatable` | accepted | `rc.` |
+| an automatic `Hashable` | met by construction: the trivial types it reaches are automatically `Equatable`, and no conformance is written to check | none |
+| a conditional head whose bounds meet the condition, `T: Comparable + Equatable`, or `T: Comparable` alone, which carries `Equatable` | accepted | `rc.` |
+| `==`, `!=` and `.equals` in a generic body under `T: Comparable` or `T: Hashable`; a `T: Comparable` forwarded to a `T: Equatable` bound; `==` on `Self` in the default body of a trait refining `Comparable` | accepted: the bound carries `Equatable` (`carried_traits`, `conform.saw`) | `rc.` |
+| a refining trait's conformance beside `Equatable`; a test-only `Comparable` beside a test-only `Equatable` | accepted | `rc.` |
+| a primitive or `String` | builtin: each is `Equatable` | none |
+
+The integer-only operator matrix (SL-756). The wrapping operators `&+ &- &*`
+take integer operands only (spec, Integer Arithmetic), as the shifts, the
+bit operators and `~` do (spec, Bitwise and Shift Operators), and `%` with
+them; a `Bool` takes the logical `&&`, `||` and `not`, never a bit operator.
+A binary chain is classified by `operator_kinds`, which `arithmetic_expr`
+reads, and a compound one by `check_compound_operands`; each refuses at the
+operator, under `operator.undefined`. Over `Float`, and over `Bool` where the
+row says:
+
+| operator | verdict | covered by |
+|---|---|---|
+| `&+`, `&-`, `&*`, over values, over literals, beside `+` in one chain | refused, as a wrapping operator | `operator.undefined.wrapping-add`, `-subtract`, `-multiply`, `-literal`, `-chain` |
+| `&+` over `Bool` | refused, as a wrapping operator | `operator.undefined.wrapping-bool` |
+| `%`, `<<`, `>>` | refused, as a shift or remainder operator | no fixture of its own |
+| `&`, `\|`, `^`, `~` | refused | the corpus's `bitwise_requires_integers` holds `&`; no fixture of its own |
+| `&`, `\|`, `^` over `Bool`, over values and over literals | refused | `operator.undefined.bit-bool`, `-bool-or`, `-bool-xor`, `-bool-literal` |
+| `\|=`, `&=`, `^=` over `Bool` | refused | `operator.undefined.compound-bit-bool` |
+| `%=` | refused, as `%` is | `operator.undefined.compound-remainder` |
+| `&=`, `\|=`, `^=`, `<<=`, `>>=` | refused | no fixture of its own |
+| `+`, `-`, `*`, `/`, unary `-`, and `+=`, `-=`, `*=`, `/=` | accepted: IEEE arithmetic | no fixture of its own |
 
 ## The lane
 

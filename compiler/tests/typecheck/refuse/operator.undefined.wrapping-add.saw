@@ -1,0 +1,10 @@
+// refuses: operator.undefined at 5:5
+// a wrapping `&+` over `Float`: the wrapping operators take integers alone (spec, Integer Arithmetic)
+
+func add(a: Float, b: Float) -> Float {
+    a &+ b
+}
+
+func main() {
+    print("ok")
+}

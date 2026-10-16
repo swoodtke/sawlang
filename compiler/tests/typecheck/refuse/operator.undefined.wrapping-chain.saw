@@ -1,0 +1,10 @@
+// refuses: operator.undefined at 5:5
+// a wrapping operator in a chain beside an arithmetic one, over `Float`, refused as wrapping
+
+func mix(a: Float, b: Float, c: Float) -> Float {
+    a + b &- c
+}
+
+func main() {
+    print("ok")
+}

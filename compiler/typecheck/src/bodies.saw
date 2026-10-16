@@ -67,6 +67,7 @@ static TC_OWNER_INFER: Int = -2
 static TC_OPS_ARITHMETIC: Int = 1
 static TC_OPS_INTEGRAL: Int = 2
 static TC_OPS_LOGICAL: Int = 4
+static TC_OPS_WRAPPING: Int = 8
 static TC_INT_MAX: Int = 9223372036854775807
 
 // The positions the expected-type funnel serves, which its refusals name.
@@ -990,9 +991,13 @@ extension TcProgram {
             return
         }
         self.check_compound_value(value, t)
-        if arithmetic && not self.is_numeric(t) {
+        // `%=`, `&=`, `|=` and `^=` take integers alone, as their binary
+        // operators do; a `Bool` takes the logical operators.
+        if op.equals("%=") && not integer {
             self.refuse_operator_type(s, op, t)
-        } else if not arithmetic && not integer && not self.is_bool(t) {
+        } else if arithmetic && not self.is_numeric(t) {
+            self.refuse_operator_type(s, op, t)
+        } else if not arithmetic && not integer {
             self.refuse_operator_type(s, op, t)
         } else if integer && (op.equals("/=") || op.equals("%=")) {
             self.check_certain_fault(-1, value, t, true)
@@ -3646,8 +3651,10 @@ extension TcProgram {
         let logical = (kinds & TC_OPS_LOGICAL) != 0
         if integral && not self.is_integer(t) {
             self.refuse_operand(e, "a shift or remainder operator takes integers", t)
-        } else if logical && not self.is_integer(t) && not self.is_bool(t) {
-            self.refuse_operand(e, "a bit operator takes integers or `Bool`s", t)
+        } else if (kinds & TC_OPS_WRAPPING) != 0 && not self.is_integer(t) {
+            self.refuse_operand(e, "a wrapping operator takes integers", t)
+        } else if logical && not self.is_integer(t) {
+            self.refuse_operand(e, "a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`", t)
         } else if (kinds & TC_OPS_ARITHMETIC) != 0 && not self.is_numeric(t) {
             self.refuse_operand(e, "an arithmetic operator takes numbers", t)
         }
@@ -3882,6 +3889,8 @@ extension TcProgram {
                     kinds = kinds | TC_OPS_INTEGRAL
                 } else if op.equals("&") || op.equals("|") || op.equals("^") {
                     kinds = kinds | TC_OPS_LOGICAL
+                } else if op.equals("&+") || op.equals("&-") || op.equals("&*") {
+                    kinds = kinds | TC_OPS_WRAPPING
                 } else {
                     kinds = kinds | TC_OPS_ARITHMETIC
                 }
@@ -7089,7 +7098,7 @@ extension TcProgram {
             let ext = self.current_ext
             reqs = self.bound_requirements(info.decl, info.a, name, ext)
         } else if info.kind == TcKind.SelfType {
-            let all = self.trait_and_ancestors(info.decl)
+            let all = self.carried_traits(info.decl)
             var j = 0
             while j < all.len() {
                 let members = self.members_of(all[j])

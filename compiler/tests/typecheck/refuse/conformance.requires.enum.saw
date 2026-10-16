@@ -1,0 +1,14 @@
+// refuses: conformance.requires at 10:18
+// an `@synthesize`d `Comparable` on an enum with payloads, which is not automatically `Equatable`
+
+enum Shape {
+    case Dot(n: Int),
+    case Line(n: Int)
+}
+
+@synthesize
+extension Shape: Comparable {}
+
+func main() {
+    print("ok")
+}

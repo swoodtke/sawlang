@@ -1,10 +1,14 @@
-// refuses: operator.undefined at 19:17
+// refuses: operator.undefined at 23:17
 // ordinary code's `<` on a type only a test-only conformance makes `Comparable`
 
 struct Money {
     cents: Int
     tag: String
 }
+
+@test
+@synthesize
+extension Money: Equatable {}
 
 @test
 extension Money: Comparable {

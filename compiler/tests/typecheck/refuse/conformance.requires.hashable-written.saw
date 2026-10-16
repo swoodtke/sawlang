@@ -1,0 +1,16 @@
+// refuses: conformance.requires at 8:18
+// a `Hashable` whose `hash` is written, on a type that is not `Equatable`
+
+struct Label {
+    text: String
+}
+
+extension Label: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(self.text.len())
+    }
+}
+
+func main() {
+    print("ok")
+}

@@ -7637,6 +7637,8 @@ trait Comparable {          // requires Equatable
 - **Requires Equatable.** A `Comparable` type must also be `Equatable` (so `==`
   and `compare(...) == .Equal` agree); a trivial struct satisfies this by
   auto-`Equatable`, otherwise declare `@synthesize extension T: Equatable {}` too.
+  In a generic body the bound carries it, as a bound carries a `Send` parent:
+  `T: Comparable` meets a `T: Equatable` bound, so `a == b` compiles there.
 - `a < b` is `a.compare(&b) == .Less`, `a <= b` is `!= .Greater`, etc. A
   `T: Comparable` generic bound grants the operators in a generic body.
 - **Float NaN:** a `NaN` is unordered, so every ordering operator involving it
@@ -7758,7 +7760,8 @@ trait Hashable {            // requires Equatable
   and payload-free enums auto-conform; everything else opts in with
   `@synthesize extension T: Hashable {}` (which streams each field / active
   payload); primitives and `String` conform builtin. `Hashable` **requires
-  Equatable**.
+  Equatable**. In a generic body the bound carries it, as a bound carries a
+  `Send` parent: `T: Hashable` meets a `T: Equatable` bound.
 - **hash/== contract:** `a == b` implies `a` and `b` hash identically. Synthesis
   upholds it by streaming exactly the fields `==` compares; a hand-written
   `hash` must uphold it. (Unequal values *may* collide — that is a hash map's

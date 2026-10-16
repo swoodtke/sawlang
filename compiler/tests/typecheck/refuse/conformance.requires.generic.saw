@@ -1,0 +1,18 @@
+// refuses: conformance.requires at 10:20
+// an unconditioned generic `Comparable` beside an `Equatable` that holds only where `T: Equatable`
+
+struct Wrap<T> {
+    value: T
+}
+
+@synthesize
+extension Wrap<T: Equatable>: Equatable {}
+extension Wrap<T>: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+func main() {
+    print("ok")
+}

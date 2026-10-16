@@ -1,0 +1,16 @@
+// refuses: conformance.requires at 8:19
+// a `Comparable` whose `compare` is written, on a type that is not `Equatable`
+
+struct Ranked {
+    name: String
+}
+
+extension Ranked: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+func main() {
+    print("ok")
+}

@@ -1,0 +1,7 @@
+// refuses: operator.undefined at 5:14
+// a bit `|` over two `Bool` literals, the shape of the corpus's `bitwise_bool_rejected`
+
+func main() {
+    let ok = true | false
+    print(ok)
+}

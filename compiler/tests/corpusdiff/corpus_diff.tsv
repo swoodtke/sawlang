@@ -107,12 +107,12 @@ background_task_spawn.saw	pass	-	-
 bare_return_in_main.saw	pass	-	-
 binop_mixed_width_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
 bitwise_and_or_xor.saw	pass	-	-
-bitwise_bool_rejected.saw	wrong	accepts a refusal test	operator `|` requires integer operands, got `Bool` and `Bool`
+bitwise_bool_rejected.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `Bool`
 bitwise_complement.saw	pass	-	-
 bitwise_compound_assign.saw	pass	-	-
 bitwise_precedence.saw	pass	-	-
 bitwise_ref_wrap_coexistence.saw	pass	-	-
-bitwise_requires_integers.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `Float`
+bitwise_requires_integers.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `Float`
 borrowing_field_reads_compose.saw	pass	-	-
 borrowing_producer_every_path.saw	pass	-	-
 borrowing_rules_resolve_aliases.saw	refused	typecheck call.arity	missing an argument for `done` of It(source: &borrowing_rules_resolve_aliases.Owner, done: Bool) [borrowing_rules_resolve_aliases]
@@ -240,7 +240,7 @@ comparable_float_nan.saw	refused	llvm backend.not-yet	an operator on this type i
 comparable_generic_bound.saw	pass	-	-
 comparable_not_comparable_error.saw	pass	-	operator.undefined: `<` compares two `comparable_not_comparable_error.P`, which is not `Comparable`
 comparable_operator_desugar.saw	pass	-	-
-comparable_requires_equatable_error.saw	wrong	accepts a refusal test	`Tagged` conforms to `Comparable` but not to `Equatable`: `Comparable` requires `Equatable`
+comparable_requires_equatable_error.saw	pass	-	conformance.requires: `Tagged` conforms to `Comparable` but not to `Equatable`: `Comparable` requires `Equatable`, and a conformance never grants it; declare a conformance to `Equatable` beside it, `@
 comparable_string.saw	pass	-	-
 comparable_synth_enum.saw	pass	-	-
 comparable_synth_struct.saw	pass	-	-
@@ -944,7 +944,7 @@ enum145_raw_unbacked_cast_error.saw	pass	-	type.cast: `as` cannot convert `enum1
 enum145_raw_wire_struct.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
 enum145_traits.saw	pass	-	-
 enum_arc_struct_payload_match.saw	pass	-	-
-enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers or `Bool`s, and this is `enum_bitwise_value_error.Perm`
+enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `enum_bitwise_value_error.Perm`
 enum_extension_overloads.saw	pass	-	-
 enum_field_drop_glue.saw	pass	-	-
 enum_optional_payload_roundtrip.saw	pass	-	-
@@ -1655,7 +1655,7 @@ guard_let_no_exit_error.saw	refused	resolve name.undefined	cannot find `Some` in
 guard_let_scope.saw	pass	-	-
 guard_var.saw	pass	-	-
 hashable_auto_struct.saw	pass	-	-
-hashable_requires_equatable_error.saw	wrong	accepts a refusal test	`Keyed` conforms to `Hashable` but not to `Equatable`: `Hashable` requires `Equatable`
+hashable_requires_equatable_error.saw	pass	-	conformance.requires: `Keyed` conforms to `Hashable` but not to `Equatable`: `Hashable` requires `Equatable`, and a conformance never grants it; declare a conformance to `Equatable` beside it, `@synth
 hashable_synth_struct.saw	pass	-	-
 hello.saw	pass	-	-
 hex_binary_octal_literals.saw	pass	-	-
@@ -2659,4 +2659,4 @@ while_simple.saw	pass	-	-
 wrapped_return_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `wrapped_return_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has noth
 wrapping_and_reference_mix.saw	pass	-	-
 wrapping_operators.saw	pass	-	-
-wrapping_requires_integers.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: the backend lowers no Float operation
+wrapping_requires_integers.saw	pass	-	operator.undefined: a wrapping operator takes integers, and this is `Float`

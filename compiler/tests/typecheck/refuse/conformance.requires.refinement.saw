@@ -1,0 +1,18 @@
+// refuses: conformance.requires at 10:17
+// a conformance to a user trait refining `Comparable`, which gives the type `Comparable` and so requires `Equatable` too
+
+trait Ranked: Comparable {}
+
+struct Seat {
+    name: String
+}
+
+extension Seat: Ranked {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+func main() {
+    print("ok")
+}

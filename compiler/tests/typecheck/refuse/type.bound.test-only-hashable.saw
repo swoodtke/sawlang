@@ -1,10 +1,14 @@
-// refuses: type.bound at 18:5
+// refuses: type.bound at 22:5
 // ordinary code's `Hashable` bound met only by a test-only conformance
 
 struct Money {
     cents: Int
     tag: String
 }
+
+@test
+@synthesize
+extension Money: Equatable {}
 
 @test
 extension Money: Hashable {

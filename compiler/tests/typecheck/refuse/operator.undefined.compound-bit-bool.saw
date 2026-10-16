@@ -1,0 +1,14 @@
+// refuses: operator.undefined at 6:5
+// `|=` over `Bool`, the compound form of `|`; `&=` and `^=` follow it
+
+func gather(a: Bool, b: Bool) -> Bool {
+    var x = a
+    x |= b
+    x &= b
+    x ^= b
+    x
+}
+
+func main() {
+    print("ok")
+}

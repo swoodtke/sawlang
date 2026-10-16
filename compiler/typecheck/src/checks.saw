@@ -35,6 +35,12 @@ public func tc_check_derived_conformances(p: &var TcProgram) {
     p.check_derived_conformances()
 }
 
+// The rule that a conformance to `Comparable` or `Hashable` requires
+// `Equatable` beside it.
+public func tc_check_required_conformances(p: &var TcProgram) {
+    p.check_required_conformances()
+}
+
 // The rule that a type's policies are declared in its defining file.
 public func tc_check_policy_placement(p: &var TcProgram) {
     p.check_policy_placement()
@@ -608,6 +614,73 @@ extension TcProgram {
                 self.refuse_in(info.module, c, "trait.deinit-parent", msg.build())
             }
         }
+    }
+}
+
+// The traits a conformance requires and never grants.
+extension TcProgram {
+    // THE REQUIRES FUNNEL: a conformance to a trait `required_trait` names,
+    // or to one refining it, is refused at its head unless its type meets the
+    // required trait with the extension's conditions in scope, as code that
+    // may use the conformance sees it. It reads the conformance table, so a
+    // written, an `@synthesize`d, a conditional and a test-only conformance
+    // are each asked; an automatic `Hashable` is met only where `Equatable`
+    // is too, by the same trivial-type rule, and `Comparable` has none.
+    // ENTRY POINTS:
+    //     tc_check_required_conformances
+    public func check_required_conformances(&var self) {
+        var at = 0
+        while at < self.conformances.len() {
+            let c = self.conformances[at]
+            let traits = self.trait_and_ancestors(c.trait_decl)
+            var k = 0
+            while k < traits.len() {
+                let needs = self.required_trait(traits[k])
+                if needs >= 0 {
+                    self.check_required(at, traits[k], needs)
+                }
+                k = k + 1
+            }
+            at = at + 1
+        }
+    }
+
+    func check_required(&var self, at: Int, tr: Int, needs: Int) {
+        let c = self.conformances[at]
+        let in_test = self.is_test_only_conformance(at)
+        let t = self.self_type_of(c.type_decl)
+        if self.satisfies(t, needs, c.type_decl, c.ext, c.module, in_test) {
+            return
+        }
+        let target = self.res.decl_path(c.type_decl)
+        let name = self.res.decl_path(tr)
+        let needed = self.res.decl_path(needs)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(target)
+        try! msg.append("` conforms to `")
+        try! msg.append(self.res.decl_path(c.trait_decl))
+        if c.trait_decl != tr {
+            try! msg.append("`, which refines `")
+            try! msg.append(name)
+            try! msg.append("`,")
+        } else {
+            try! msg.append("`")
+        }
+        try! msg.append(" but not to `")
+        try! msg.append(needed)
+        try! msg.append("`: `")
+        try! msg.append(name)
+        try! msg.append("` requires `")
+        try! msg.append(needed)
+        try! msg.append("`, and a conformance never grants it; declare a conformance to `")
+        try! msg.append(needed)
+        try! msg.append("` beside it, `@synthesize`d or with a written `equals`")
+        self.ensure_generic_list(c.type_decl)
+        if self.sigs[c.type_decl].generic_count > 0 {
+            try! msg.append(", whose conditions this conformance's bounds meet")
+        }
+        self.refuse_in(c.module, c.node, "conformance.requires", msg.build())
     }
 }
 

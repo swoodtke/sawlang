@@ -1,0 +1,10 @@
+// refuses: operator.undefined at 5:5
+// a wrapping `&*` over `Float`
+
+func mul(a: Float, b: Float) -> Float {
+    a &* b
+}
+
+func main() {
+    print("ok")
+}

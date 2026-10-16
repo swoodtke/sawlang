@@ -309,6 +309,78 @@ extension TcProgram {
         false
     }
 
+    // The trait a conformance to `tr` requires of its type beside it, or -1.
+    // `Comparable` and `Hashable` each require `Equatable`, so `==` agrees
+    // with `compare` and with `hash`; the prelude lists no parent for either,
+    // since a parent would grant `Equatable` through the conformance (spec,
+    // Ordering and Hashing).
+    // ENTRY POINTS:
+    //     check_required_conformances
+    //     bound_carries
+    public func required_trait(&self, tr: Int) -> Int {
+        if tr >= 0 && (tr == self.known.comparable || tr == self.known.hashable) {
+            return self.known.equatable
+        }
+        return -1
+    }
+
+    // THE CARRIED-TRAITS FUNNEL: the traits a bound of trait `bound`, or a
+    // trait's `Self`, gives a type parameter: `bound`, every trait it
+    // refines, and what each of those requires (`required_trait`) with its
+    // own ancestors. Every conformance is checked to meet what its trait
+    // requires (`conformance.requires`), so the bound carries it as it
+    // carries a parent (spec, Send and Sync: "the bound carries the parent").
+    // ENTRY POINTS:
+    //     bound_carries
+    //     push_bound_requirements
+    //     method_candidates
+    public func carried_traits(&self, bound: Int) -> Vector<Int> {
+        var out = self.trait_and_ancestors(bound)
+        var k = 0
+        while k < out.len() {
+            let needs = self.required_trait(out[k])
+            k = k + 1
+            if needs < 0 {
+                continue
+            }
+            let more = self.trait_and_ancestors(needs)
+            var j = 0
+            while j < more.len() {
+                let t = more[j]
+                j = j + 1
+                var seen = false
+                var i = 0
+                while i < out.len() {
+                    if out[i] == t {
+                        seen = true
+                    }
+                    i = i + 1
+                }
+                if not seen {
+                    try! out.push(t)
+                }
+            }
+        }
+        move out
+    }
+
+    // Whether a bound of trait `bound`, or a trait's `Self`, meets trait
+    // `tr`: one of its `carried_traits`.
+    // ENTRY POINTS:
+    //     generic_grants
+    //     satisfies_at
+    public func bound_carries(&self, bound: Int, tr: Int) -> Bool {
+        let all = self.carried_traits(bound)
+        var k = 0
+        while k < all.len() {
+            if all[k] == tr {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
     // Whether a conformance to trait `a` gives its type trait `tr`. `Send`
     // and `Sync` are given only by themselves or by their assertions,
     // `UnsafeSend` and `UnsafeSync`: a user trait refining one requires it of

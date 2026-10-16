@@ -1,0 +1,14 @@
+// refuses: conformance.requires at 10:19
+// an `@synthesize`d `Comparable` on a type that is not `Equatable`: its `String` field keeps it off the automatic tier
+
+struct Tagged {
+    name: String
+    rank: Int
+}
+
+@synthesize
+extension Tagged: Comparable {}
+
+func main() {
+    print("ok")
+}

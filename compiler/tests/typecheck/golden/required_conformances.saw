@@ -1,0 +1,138 @@
+// A conformance to `Comparable` or `Hashable` requires `Equatable` beside it
+// (SL-755): each type below meets it, through a declared `@synthesize`d or
+// written `Equatable`, automatically as a trivial struct or a payload-free
+// enum, through a conditional head whose bounds meet the `Equatable`
+// conformance's condition, beside a refining trait, or in test code where both
+// conformances are test-only. A `T: Comparable` or `T: Hashable` bound carries
+// `Equatable`, as a bound carries a `Send` parent: a conditional head bounded
+// `T: Comparable` meets a `T: Equatable` condition, and a generic body or a
+// refining trait's default body compares with `==`.
+
+struct Named {
+    name: String
+}
+
+@synthesize
+extension Named: Equatable {}
+@synthesize
+extension Named: Comparable {}
+@synthesize
+extension Named: Hashable {}
+
+struct Written {
+    name: String
+}
+
+extension Written: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        true
+    }
+}
+
+extension Written: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+extension Written: Hashable {
+    func hash(&self, h: &var Hasher) {
+        h.write_int(0)
+    }
+}
+
+struct Point {
+    x: Int
+}
+
+@synthesize
+extension Point: Comparable {}
+@synthesize
+extension Point: Hashable {}
+
+enum Color {
+    case Red,
+    case Blue
+}
+
+@synthesize
+extension Color: Comparable {}
+
+struct Wrap<T> {
+    value: T
+}
+
+@synthesize
+extension Wrap<T: Equatable>: Equatable {}
+@synthesize
+extension Wrap<T: Comparable + Equatable>: Comparable {}
+
+struct Pair<T> {
+    value: T
+}
+
+@synthesize
+extension Pair<T: Equatable>: Equatable {}
+@synthesize
+extension Pair<T: Comparable>: Comparable {}
+
+func same<T: Comparable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func same_call<T: Comparable>(a: &T, b: &T) -> Bool {
+    a.equals(&b)
+}
+
+func differ<T: Hashable>(a: &T, b: &T) -> Bool {
+    a != b
+}
+
+func equal<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func forward<T: Comparable>(a: &T, b: &T) -> Bool {
+    equal(&a, &b)
+}
+
+trait Ranked: Comparable {
+    func tied(&self, other: &Self) -> Bool {
+        self == other
+    }
+}
+
+struct Seat {
+    name: String
+}
+
+@synthesize
+extension Seat: Equatable {}
+
+extension Seat: Ranked {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+struct Badge {
+    name: String
+}
+
+@test
+extension Badge: Equatable {
+    func equals(&self, other: &Self) -> Bool {
+        true
+    }
+}
+
+@test
+extension Badge: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        Ordering.Equal
+    }
+}
+
+func main() {
+    print("ok")
+}

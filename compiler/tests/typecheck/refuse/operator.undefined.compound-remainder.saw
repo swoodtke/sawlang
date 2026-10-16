@@ -1,0 +1,12 @@
+// refuses: operator.undefined at 6:5
+// `%=` over `Float`: the compound form of `%`, which takes integers alone, as `%` does
+
+func rem(a: Float) -> Float {
+    var x = a
+    x %= 1.5
+    x
+}
+
+func main() {
+    print("ok")
+}
