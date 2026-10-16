@@ -1,0 +1,4 @@
+waiting
+received 7
+woke within 50 ms of the send: true
+CPU over the wait below 400 us: true

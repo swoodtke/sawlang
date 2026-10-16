@@ -249,3 +249,11 @@ Command	std.process init Command.init program:String	SL-522
 (api)	std.signal method SignalWatch.next -	SL-575
 (api)	std.signal method SignalWatch.deinit -	SL-575
 (api)	std.signal conformance SignalWatch NoCopy	SL-575
+(api)	std.task struct Thread -	SL-765
+(api)	std.task method Thread.join -	SL-765
+(api)	std.task method Thread.detach -	SL-765
+(api)	std.task method Thread.deinit -	SL-765
+(api)	std.task conformance Thread UnsafeSend	SL-765
+(api)	std.task conformance Thread UnsafeSync	SL-765
+(api)	std.task conformance Thread NoCopy	SL-765
+(api)	std.task struct VoidThread -	SL-765

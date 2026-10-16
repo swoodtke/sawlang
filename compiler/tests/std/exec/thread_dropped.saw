@@ -1,0 +1,17 @@
+// expect-panic: Thread was dropped without being joined or detached
+// A `Thread<T>` handle whose fate was never written panics when it is
+// destroyed, with the spec's text, rather than joining: dropping the handle
+// is not one of the fates (LANGUAGE_SPEC, "No implicit fates"). The handle
+// is adopted over a hand-built control block with no thread behind it, since
+// its destructor reads nothing but its own fate.
+import std.task.{Thread}
+
+func abandon() unsafe {
+    let t = Thread<Int>.__saw_adopt(Thread<Int>.__saw_control_block())
+    print("handle made")
+}
+
+func main() unsafe {
+    abandon()
+    print("never reached")
+}

@@ -2286,7 +2286,7 @@ shadow255_glob_import.saw	pass	-	-
 shadow255_kinds_and_rename.saw	pass	-	-
 shadow255_local_declaration.saw	pass	-	-
 shadow255_prelude_name_reserved_error.saw	pass	-	name.reserved: `Duration` is a prelude name, so it is reserved and cannot be declared again
-shadow255_qualified_escape.saw	refused	resolve import.unknown-symbol	`Thread` is not defined in `std.task`
+shadow255_qualified_escape.saw	pass	-	-
 shadow255_selective_import.saw	pass	-	-
 shadow255_two_imports_ambiguous_error.saw	pass	-	name.ambiguous: ambiguous `Widget`: two imports bind it to different declarations; qualify the use, or import it from a single module
 shadow_derived.saw	pass	-	-

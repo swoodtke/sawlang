@@ -107,11 +107,11 @@ RUN_TIMEOUT = 60
 
 # The units whose std declarations have landed: SL-456's, SL-522's file
 # writing and process waiting, SL-563's `TaskGroup`, SL-672's locks and
-# `Once`, SL-571's `Channel`, SL-570's sockets and SL-575's signal watch. A
-# member row of a landed unit is compared, and an exception due by one fails
-# until it is resolved.
+# `Once`, SL-571's `Channel`, SL-570's sockets, SL-575's signal watch and
+# SL-765's `Thread`. A member row of a landed unit is compared, and an
+# exception due by one fails until it is resolved.
 LANDED_UNITS = ("U5b1", "U5b2", "U5b3", "SL-522", "SL-563", "SL-570", "SL-571", "SL-575",
-                "SL-672")
+                "SL-672", "SL-765")
 # The programs of `lang/` checked against the new std only, or refused.
 NEW_ONLY = ("optional_methods", "string_positions")
 REFUSED_PAIRED = ("missing_case",)

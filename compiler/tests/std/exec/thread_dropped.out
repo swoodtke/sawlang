@@ -1,0 +1,2 @@
+handle made
+panic at ?: Thread was dropped without being joined or detached — `join()` waits for it and takes its result, `detach()` gives the thread to the process

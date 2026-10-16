@@ -1,0 +1,66 @@
+// expect-panic: deadlock: every task is waiting to receive from a channel
+// The deadlock walk reports nothing while a `Thread.spawn` body is running:
+// the body is code this process can still run, and it could send. Here the
+// only task waits on a channel nobody sends to, and a counted thread runs for
+// a while and ends without sending. The executor waits in the reactor's poll
+// while the thread runs, the thread's exit (`Thread.__saw_exit`) lowers the
+// count and pokes the reactor, and the walk then finds the program quiescent
+// and reports it. `Thread.spawn` is lowered by SL-765 T3; until then the
+// thread is started through an `@export`ed start routine `dlsym` finds.
+// macOS only: there `dlsym` finds a symbol the executable exports with no
+// extra link flag (Linux needs `-rdynamic`).
+import std.channel.{Channel}
+import std.task.{Thread, ThreadControlBlock}
+import std.taskgroup.{__saw_exec_thread_started}
+
+extern "C" {
+    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
+    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static RTLD_LAZY: Int32 = 1
+// How long the thread runs before it ends: well past the deadlock walk's
+// confirmation nap, so a walk that ignored the count would report first.
+static THREAD_RUN_NANOS: UInt64 = 200_000_000
+
+func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
+    var text: [UInt8; 64] = [0; 64]
+    var i = 0
+    while i < name.len() {
+        text[i] = name.byte_at(i)
+        i = i + 1
+    }
+    let found = dlsym(dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY), (&text) as UnsafePointer<UInt8>)
+    if found as Int == 0 {
+        panic("dlsym found no `{}`", name)
+    }
+    found
+}
+
+@export("p765_quiet_body")
+func quiet_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
+    let block = raw as UnsafePointer<ThreadControlBlock<Int>>
+    __saw_rt_sleep_ns(THREAD_RUN_NANOS)
+    print("the thread ends without sending")
+    block[0].result = 0
+    let _ = Thread<Int>.__saw_exit(block)
+    0 as UnsafePointer<UInt8>
+}
+
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func main() unsafe {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(consume(orders.copy()))
+    let block = Thread<Int>.__saw_control_block()
+    __saw_exec_thread_started()
+    var b = block
+    b[0].tid = __saw_rt_thread_spawn(entry_point("p765_quiet_body"), block as UnsafePointer<UInt8>)
+    print("waiting")
+    print("never reached {}", h.join())
+}

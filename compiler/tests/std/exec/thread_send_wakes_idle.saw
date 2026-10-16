@@ -1,0 +1,130 @@
+// A `send` from another thread ends an executor's wait in the reactor's poll
+// at once, and the wait before it costs almost no CPU (SL-765, c8 point 1).
+// The only task waits on a channel; a counted thread sleeps, then sends. The
+// executor blocks in the poll, not in a re-scan nap, so the process's CPU time
+// over the wait stays under the bound, and the send's reactor poke wakes it
+// within milliseconds. The bound sits between the two waits: a blocked poll
+// costs a small fraction of it, and a 1 ms re-scan nap, which wakes once per
+// millisecond, more than twice it. `Thread.spawn` is lowered
+// by SL-765 T3; until then the thread is started through an `@export`ed start
+// routine `dlsym` finds. macOS only: there `dlsym` finds a symbol the
+// executable exports with no extra link flag (Linux needs `-rdynamic`), and
+// the bound is set from macOS measurements of `getrusage`.
+import std.channel.{Channel}
+import std.task.{Thread, ThreadControlBlock}
+import std.taskgroup.{__saw_exec_thread_started}
+
+extern "C" {
+    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
+    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
+    func getrusage(who: Int32, usage: UnsafePointer<Usage>) -> Int32
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_sleep_ns(ns: UInt64)
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+// `struct rusage`, in its C field order.
+struct Usage {
+    user_seconds: Int
+    user_micros: Int32
+    system_seconds: Int
+    system_micros: Int32
+    max_rss: Int
+    shared_rss: Int
+    unshared_data: Int
+    unshared_stack: Int
+    minor_faults: Int
+    major_faults: Int
+    swaps: Int
+    blocks_in: Int
+    blocks_out: Int
+    messages_sent: Int
+    messages_received: Int
+    signals: Int
+    voluntary_switches: Int
+    involuntary_switches: Int
+}
+
+static RTLD_LAZY: Int32 = 1
+static RUSAGE_SELF: Int32 = 0
+// How long the sender sleeps before it sends: the wait being measured.
+static SENDER_NAP_NANOS: UInt64 = 300_000_000
+static WAKE_BOUND_NANOS: Int = 50_000_000
+static CPU_BOUND_MICROS: Int = 400
+
+// The monotonic instant the sender sent at.
+static SENT_AT: Atomic<Int> = Atomic(0)
+
+func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
+    var text: [UInt8; 64] = [0; 64]
+    var i = 0
+    while i < name.len() {
+        text[i] = name.byte_at(i)
+        i = i + 1
+    }
+    let found = dlsym(dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY), (&text) as UnsafePointer<UInt8>)
+    if found as Int == 0 {
+        panic("dlsym found no `{}`", name)
+    }
+    found
+}
+
+func usage() unsafe -> Usage {
+    var u = Usage(user_seconds: 0, user_micros: 0, system_seconds: 0, system_micros: 0,
+                  max_rss: 0, shared_rss: 0, unshared_data: 0, unshared_stack: 0,
+                  minor_faults: 0, major_faults: 0, swaps: 0, blocks_in: 0, blocks_out: 0,
+                  messages_sent: 0, messages_received: 0, signals: 0,
+                  voluntary_switches: 0, involuntary_switches: 0)
+    let _ = getrusage(RUSAGE_SELF, (&u) as UnsafePointer<Usage>)
+    u
+}
+
+func cpu_micros(u: &Usage) -> Int {
+    (u.user_seconds + u.system_seconds) * 1_000_000 + (u.user_micros as Int) + (u.system_micros as Int)
+}
+
+// The sender's start routine: the block's environment holds a channel handle.
+@export("p765_sender_body")
+func sender_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
+    let block = raw as UnsafePointer<ThreadControlBlock<Void>>
+    let slot = block[0].env as UnsafePointer<Channel<Int>>
+    let orders = move slot[0]
+    GlobalAllocator().dealloc(block[0].env as UnsafePointer<Int8>, sizeof<Channel<Int>>(), 16)
+    __saw_rt_sleep_ns(SENDER_NAP_NANOS)
+    SENT_AT.store(__saw_rt_clock_monotonic_nanos() as Int)
+    try! orders.send(7)
+    let _ = Thread<Void>.__saw_exit(block)
+    0 as UnsafePointer<UInt8>
+}
+
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func main() unsafe {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(consume(orders.copy()))
+    let block = Thread<Void>.__saw_control_block()
+    guard let raw = GlobalAllocator().alloc(sizeof<Channel<Int>>(), 16) else {
+        panic("no room for the sender's channel handle")
+    }
+    let slot = raw as UnsafePointer<Channel<Int>>
+    slot[0] = orders.copy()
+    var b = block
+    b[0].env = raw as UnsafePointer<UInt8>
+    __saw_exec_thread_started()
+    b[0].tid = __saw_rt_thread_spawn(entry_point("p765_sender_body"), block as UnsafePointer<UInt8>)
+    var sender = Thread<Void>.__saw_adopt(block)
+    print("waiting")
+    let before = usage()
+    let got = h.join()
+    let woke = __saw_rt_clock_monotonic_nanos() as Int
+    let after = usage()
+    sender.join()
+    print("received {}", got)
+    let latency = woke - SENT_AT.load()
+    let cpu = cpu_micros(&after) - cpu_micros(&before)
+    print("woke within {} ms of the send: {}", WAKE_BOUND_NANOS / 1_000_000, latency < WAKE_BOUND_NANOS)
+    print("CPU over the wait below {} us: {}", CPU_BOUND_MICROS, cpu < CPU_BOUND_MICROS)
+}

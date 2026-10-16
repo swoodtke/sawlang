@@ -17,6 +17,7 @@ extern "C" {
     func __saw_rt_reactor_poll(r: Int, timeout_ms: Int) -> Int
     func __saw_rt_reactor_register(r: Int, fd: Int, write: Int, token: Int) -> Int
     func __saw_rt_reactor_unregister(r: Int, fd: Int, write: Int)
+    func __saw_rt_reactor_wake(r: Int)
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
@@ -515,6 +516,11 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 // descriptor park whose deadline has passed; and when it is a channel's
 // readiness word that is set.
 //
+// The readiness word is read atomically: a `Thread.spawn` body may set it from
+// another thread, and this load pairs with `publish_ready`'s store, so a set
+// word brings the message's queue writes with it. Both are sequentially
+// consistent, which the poke handshake also needs (`poke_reactor`).
+//
 // The cancel word is read here, after the resume that parked has returned,
 // so the park's record and its arm both precede the read: a cancel that
 // arrives before the record, between the record and the arm, or after both
@@ -541,7 +547,7 @@ func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
     }
     if park < PARK_FD && park != PARK_UNSET {
         let word = (0 - park) as UnsafePointer<Int>
-        return word[0] != 0
+        return __saw_atomic_load_i64_seq_cst(word) != 0
     }
     park == PARK_TIMER && monotonic_now() >= cx[0].deadline
 }
@@ -720,8 +726,11 @@ func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
 //
 // With no timer or descriptor to wait for and a channel park left, the
 // deadlock walk decides (`check_quiescent`): it reports when nothing in the
-// process can run, and otherwise this naps for the re-scan bound and answers
-// true, since the word's writer is then code still running elsewhere.
+// process can run, and otherwise this blocks in the reactor's poll and
+// answers true, since the word's writer is then code running on another
+// thread: a `Thread.spawn` body, which `send` and `close` poke the reactor
+// from and whose exit pokes it too (`poke_reactor`). While a `Thread.spawn`
+// body is running, the walk finds nothing to report, so this waits.
 func idle(waiter: Int) unsafe -> Bool {
     var waits = false
     var channel = false
@@ -775,6 +784,14 @@ func idle(waiter: Int) unsafe -> Bool {
         }
         cur = g[0].next
     }
+    // A writer pokes only a reactor that exists, so a channel wait publishes
+    // one and then looks again. Every later look follows the publication, and
+    // a writer either set its word before it, which that look sees, or reads
+    // the reactor after it and pokes.
+    if channel && REACTOR.load() == 0 {
+        let _ = host_reactor()
+        return true
+    }
     if waits {
         if earliest == UInt64.max {
             // Only unbounded descriptor parks wait, so nothing but a
@@ -787,16 +804,11 @@ func idle(waiter: Int) unsafe -> Bool {
     }
     if channel {
         check_quiescent(waiter)
-        wait_until(monotonic_now() + CHANNEL_RESCAN_NANOS)
+        let _ = __saw_rt_reactor_poll(host_reactor(), -1)
         return true
     }
     false
 }
-
-// The re-scan bound for a channel park the deadlock walk found someone able
-// to wake. Short, because the wake is a readiness word nothing pokes the
-// reactor for, so the next look is the only way this thread sees it.
-static CHANNEL_RESCAN_NANOS: UInt64 = 1_000_000
 
 // The confirmation nap between the deadlock walk's two looks.
 static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
@@ -808,6 +820,9 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 // Whether a sender will ever exist for a channel is not decidable, but a
 // readiness word is published only by running code, so the walk asks only
 // whether any code can run, by elimination. Each of these ends it:
+//   * a running `Thread.spawn` body (`LIVE_THREADS`), read before any
+//     readiness word: a body that sends and then exits lowers the count after
+//     its send, so a walk that reads the count as zero sees the word set;
 //   * a live frame that is not active and whose park wakes now (`park_wakes`:
 //     ready, latched, cancelled, a deadline passed, a set readiness word);
 //   * a frame parked on a timer or a descriptor, since its deadline or the
@@ -823,6 +838,9 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 // ENTRY POINTS:
 //   check_quiescent
 func quiescent_now(waiter: Int) unsafe -> Bool {
+    if LIVE_THREADS.load() != 0 {
+        return false
+    }
     var parked = false
     if waiter != 0 {
         let w = waiter as UnsafePointer<TaskContext>
@@ -922,6 +940,63 @@ func host_reactor() -> Int {
     }
     __saw_rt_reactor_destroy(fresh)
     REACTOR.load()
+}
+
+// Rouses every thread blocked in the reactor's poll, when a reactor exists,
+// so it looks again at what changed. A program that never waited makes none,
+// so its channel traffic costs neither a descriptor nor an allocation.
+//
+// The poke and the look form one handshake with `idle`, which publishes the
+// reactor before its last look: the writer stores its change and then reads
+// `REACTOR`, the waiter stores `REACTOR` and then reads the change, all
+// sequentially consistent, so at least one of the two sees the other's store.
+// Release and acquire alone would allow both to miss.
+//
+// ENTRY POINTS:
+//   __saw_exec_chan_wake
+//   __saw_exec_thread_finished
+func poke_reactor() {
+    let r = REACTOR.load()
+    if r != 0 {
+        __saw_rt_reactor_wake(r)
+    }
+}
+
+// How many `Thread.spawn` bodies are running. No run queue knows about one, and
+// one may send to a channel a task waits on, so the deadlock walk reports
+// nothing and `idle` waits while it is nonzero (design 230). Raised at the
+// spawn before the thread exists, and lowered by the thread's exit once its
+// body's effects are done, as the last thing the thread does.
+//
+// The lowering needs only a release and the walk's read only an acquire. Both
+// are sequentially consistent instead, as `Atomic` is: stronger, and the poke
+// handshake with `idle` needs it (`poke_reactor`).
+static LIVE_THREADS: Atomic<Int> = Atomic(0)
+
+/// Counts one more running `Thread.spawn` body: the spawn lowering's call,
+/// made before the thread is started.
+///
+/// A spawn the operating system refuses takes it back with
+/// `__saw_exec_thread_finished`.
+public func __saw_exec_thread_started() {
+    let _ = LIVE_THREADS.fetch_add(1)
+}
+
+/// Counts one running `Thread.spawn` body fewer, then wakes an executor blocked
+/// in the reactor's poll so its deadlock walk looks again: the last call a
+/// spawned thread makes, after its body's effects.
+public func __saw_exec_thread_finished() {
+    // Sequentially consistent, so at least a release of everything the body
+    // did, and ordered ahead of the poke's read (`poke_reactor`).
+    let _ = LIVE_THREADS.fetch_add(-1)
+    poke_reactor()
+}
+
+// A channel's readiness word changed: `send` and `close` call this after they
+// publish it, so a receiver's executor blocked in the reactor's poll on
+// another thread sees the word at once rather than at its next timeout.
+public(package) func __saw_exec_chan_wake() {
+    poke_reactor()
 }
 
 // The unit of the reactor poll's timeout, a millisecond, in nanoseconds.

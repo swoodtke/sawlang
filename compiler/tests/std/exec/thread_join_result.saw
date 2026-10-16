@@ -1,0 +1,87 @@
+// `Thread<T>.join` over a hand-built control block: the block comes from
+// `Thread.__saw_control_block`, a real OS thread runs a hand-written
+// trampoline that stores the result and calls `Thread.__saw_exit`, and the
+// handle `Thread.__saw_adopt` makes joins it and takes the result. At
+// `T = Void` the result slot is zero-sized and `join()` is a statement.
+// `Thread.spawn` itself is lowered by SL-765 T3; until then a program cannot
+// name a C function pointer, so the trampoline is an `@export`ed function
+// whose address `dlsym` finds. macOS only: there `dlsym` finds a symbol the
+// executable exports with no extra link flag (Linux needs `-rdynamic`).
+import std.task.{Thread, ThreadControlBlock}
+import std.taskgroup.{__saw_exec_thread_started}
+
+extern "C" {
+    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
+    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
+    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>) -> Int
+}
+
+static RTLD_LAZY: Int32 = 1
+
+// The address of the exported function `name`, through the C loader.
+func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
+    var text: [UInt8; 64] = [0; 64]
+    var i = 0
+    while i < name.len() {
+        text[i] = name.byte_at(i)
+        i = i + 1
+    }
+    let program = dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY)
+    let found = dlsym(program, (&text) as UnsafePointer<UInt8>)
+    if found as Int == 0 {
+        panic("dlsym found no `{}`", name)
+    }
+    found
+}
+
+// Starts the thread whose start routine is the exported `name`, on `block`,
+// counted as running, and returns the handle owning the block.
+func start<T>(name: String, block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thread<T> {
+    __saw_exec_thread_started()
+    let tid = __saw_rt_thread_spawn(entry_point(name), block as UnsafePointer<UInt8>)
+    var b = block
+    b[0].tid = tid
+    Thread<T>.__saw_adopt(block)
+}
+
+@export("p765_int_body")
+func int_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
+    var block = raw as UnsafePointer<ThreadControlBlock<Int>>
+    block[0].result = 42
+    let _ = Thread<Int>.__saw_exit(block)
+    0 as UnsafePointer<UInt8>
+}
+
+@export("p765_text_body")
+func text_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
+    let block = raw as UnsafePointer<ThreadControlBlock<String>>
+    let at = (&block[0].result) as UnsafePointer<String>
+    at[0] = "a result that owns its bytes"
+    let _ = Thread<String>.__saw_exit(block)
+    0 as UnsafePointer<UInt8>
+}
+
+@export("p765_void_body")
+func void_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
+    let block = raw as UnsafePointer<ThreadControlBlock<Void>>
+    print("void body ran")
+    let _ = Thread<Void>.__saw_exit(block)
+    0 as UnsafePointer<UInt8>
+}
+
+func main() unsafe {
+    let probe = Thread<Int>.__saw_control_block()
+    let state_at = (&probe[0].state) as UnsafePointer<Int> as Int - probe as Int
+    print("state two words in: {}", state_at == 2 * sizeof<UnsafePointer<UInt8>>())
+    print("handshake word holds the size: {}", probe[0].state == sizeof<ThreadControlBlock<Int>>())
+    print("Void block is three words: {}",
+          sizeof<ThreadControlBlock<Void>>() == 3 * sizeof<UnsafePointer<UInt8>>())
+    var number = start("p765_int_body", probe)
+    print("joined {}", number.join())
+    var text = start("p765_text_body", Thread<String>.__saw_control_block())
+    let got = text.join()
+    print("joined `{}`", got)
+    var nothing = start("p765_void_body", Thread<Void>.__saw_control_block())
+    nothing.join()
+    print("joined the Void thread")
+}

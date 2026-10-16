@@ -33,6 +33,7 @@
 
 import std.mem.{drop_in_place}
 import std.task.{__saw_park_channel}
+import std.taskgroup.{__saw_exec_chan_wake}
 
 extern "C" {
     // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
@@ -175,6 +176,7 @@ extension Channel<T: Send> {
         block[0].closed = true
         self.publish_ready()
         self.unlock_queue()
+        __saw_exec_chan_wake()
         return
     }
 
@@ -279,11 +281,16 @@ extension Channel<T: Send> {
         block[0].count += 1
         self.publish_ready()
         self.unlock_queue()
+        // A receiver's executor may be blocked in the reactor's poll on
+        // another thread, and sees the word only once that wait ends.
+        __saw_exec_chan_wake()
         return
     }
 
     // The one place the readiness invariant is written, with the lock held,
-    // after every change to what a waiting receiver would find.
+    // after every change to what a waiting receiver would find. The executor
+    // reads the word without the lock, maybe on another thread, so the store
+    // is atomic and pairs with `park_wakes`' load (std.taskgroup).
     //
     // ENTRY POINTS:
     //   close
@@ -291,10 +298,11 @@ extension Channel<T: Send> {
     //   take
     func publish_ready(&self) unsafe {
         let block = self.block
+        let word = (&block[0].ready) as UnsafePointer<Int>
         if block[0].count > 0 || block[0].closed {
-            block[0].ready = 1
+            __saw_atomic_store_i64_seq_cst(word, 1)
         } else {
-            block[0].ready = 0
+            __saw_atomic_store_i64_seq_cst(word, 0)
         }
     }
 
