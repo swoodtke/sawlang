@@ -1,0 +1,26 @@
+// probe: panics
+// about: a `close` from a `Thread.spawn` body wakes a thread blocked in `Channel.recv`, which panics on the closed, drained channel rather than waiting on (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints these lines and panics with this text under it
+// speeds: -O0 -O2
+// prints: waiting
+// panics: Channel.recv: channel is closed and drained
+// `main` blocks in `recv` before the thread closes, since the thread sleeps
+// first; the close must reach the blocked wait, or the program hangs.
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 50_000_000
+
+func main() {
+    let ch = try! Channel<Int>()
+    var closer = try! Thread.spawn { [ch] in
+        __saw_rt_sleep_ns(NAP_NANOS)
+        let _ = ch.close()
+    }
+    closer.detach()
+    print("waiting")
+    print("never reached {}", ch.recv())
+}

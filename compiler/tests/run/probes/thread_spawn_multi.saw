@@ -1,0 +1,23 @@
+// probe: stated
+// about: four `Thread.spawn` bodies run at once, each on its own capture, and each join takes its own result (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints this line under it (the corpus program `spawn_multi`)
+// speeds: -O0 -O2
+// prints: 54
+// The joins come in a fixed order, so the sum does not depend on scheduling.
+
+func work(base: Int) -> Int {
+    base * base
+}
+
+func main() {
+    let a = 2
+    let b = 3
+    let c = 4
+    let d = 5
+    var t0 = try! Thread.spawn { [a] in work(a) }
+    var t1 = try! Thread.spawn { [b] in work(b) }
+    var t2 = try! Thread.spawn { [c] in work(c) }
+    var t3 = try! Thread.spawn { [d] in work(d) }
+    let sum = t0.join() + t1.join() + t2.join() + t3.join()
+    print(sum)
+}

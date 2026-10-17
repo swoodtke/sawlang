@@ -111,7 +111,7 @@ fn thread_fates.bound() -> Int {
 
 fn closure#0 of thread_fates.bound() -> Int {
     let _0: Int;  // return
-    let _1: &();  // env
+    let _1: ();  // env
     let _2: Int;
 
     bb0: {
@@ -184,7 +184,7 @@ fn thread_fates.matched() -> Void {
 
 fn closure#0 of thread_fates.matched() -> Int {
     let _0: Int;  // return
-    let _1: &();  // env
+    let _1: ();  // env
     let _2: Int;
 
     bb0: {
@@ -225,7 +225,7 @@ fn thread_fates.chained() -> Int {
 
 fn closure#0 of thread_fates.chained() -> Int {
     let _0: Int;  // return
-    let _1: &();  // env
+    let _1: ();  // env
     let _2: Int;
 
     bb0: {
@@ -274,7 +274,7 @@ fn thread_fates.stored(pool: &var thread_fates.Pool) -> Void {
 
 fn closure#0 of thread_fates.stored(pool: &var thread_fates.Pool) -> Int {
     let _0: Int;  // return
-    let _1: &();  // env
+    let _1: ();  // env
     let _2: Int;
 
     bb0: {

@@ -1,5 +1,11 @@
-// due: Thread.spawn is not in sawc2's backend slice, SL-765 T3 (SL-737's stress pin)
-// refuses: mono.not-yet at 81:35
+// probe: stated
+// about: environment calls from several `Thread.spawn` bodies at once each see a value some write stored, whole, the stress pin of (SL-737)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b))
+// speeds: -O0 -O2
+// prints: threads 4
+// prints: rounds 2000
+// prints: reads that saw no stored value 0
+// prints: shared value at the end is one written true
 // Several OS threads set, read, test and remove environment variables at
 // once: each its own name, one name they all share, and a run of throwaway
 // names that keeps the environment growing so libc reallocates it under the

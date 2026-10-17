@@ -1,0 +1,45 @@
+// probe: stated
+// about: `Channel.recv`, the thread engine's receive, blocks `main` until a `Thread.spawn` producer's `send`, taking every value it sends (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints these lines under it (the corpus program `channel_pipeline`, then a close)
+// speeds: -O0 -O2
+// prints: 5050
+// prints: drained after the close: true
+// The sum of 1..100 is 5050 whatever the interleaving. The producer closes
+// the channel once it has sent, and a second channel's `recv` waits for that
+// close's wake; `try_receive` then reports it, since `recv` panics on a
+// closed, drained channel.
+import std.channel.{Channel}
+
+func main() {
+    let ch = try! Channel<Int>()
+    let done = try! Channel<Bool>()
+    var producer = try! Thread.spawn { [ch, done] in
+        var i = 1
+        while i <= 100 {
+            try! ch.send(i)
+            i = i + 1
+        }
+        let _ = ch.close()
+        try! done.send(true)
+        true
+    }
+    var sum = 0
+    var n = 0
+    while n < 100 {
+        sum = sum + ch.recv()
+        n = n + 1
+    }
+    let finished = done.recv()
+    let _p = producer.join()
+    print(sum)
+    var closed = false
+    match ch.try_receive() {
+        case Err(_) -> {
+            closed = true
+        },
+        case Ok(_) -> {
+            closed = false
+        }
+    }
+    print("drained after the close: {}", closed && finished)
+}

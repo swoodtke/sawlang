@@ -1,0 +1,15 @@
+// probe: stated
+// about: a `Thread.spawn` body's `send` wakes `main`'s cooperative `receive`, the thread running from its spawn (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints this line under it (conformance row K56)
+// speeds: -O0 -O2
+// prints: main got 4
+import std.channel.{Channel}
+
+func main() {
+    let inbox = try! Channel<Int>()
+    let box = inbox.copy()
+    var t = try! Thread.spawn { [box] in try! box.send(4) }
+    let got = try! inbox.receive()
+    t.join()
+    print("main got {}", got)
+}

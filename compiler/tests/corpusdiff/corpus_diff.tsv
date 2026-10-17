@@ -144,7 +144,7 @@ cbor169_limits.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_roundtrip.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_vectors.saw	refused	resolve import.unknown-module	no module `std.cbor`
 chain_assign_exclusivity_in_literal.saw	wrong	accepts a refusal test	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
-channel_pipeline.saw	refused	typecheck member.unknown	`std.channel.Channel<Int>` has no method `recv` this module can see
+channel_pipeline.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 channel_receive_cancel_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 channel_receive_in_main.saw	pass	-	-
 channel_receive_through_helper.saw	pass	-	-
@@ -181,7 +181,7 @@ closure_pushed_into_a_vector_keeps_its_captures.saw	refused	mono mono.not-yet	an
 closure_return_is_local.saw	pass	-	-
 closure_satisfies_copy_bound.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
 closure_shorthand_parameter_inside_a_try.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-closure_spawn_arc_balance.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+closure_spawn_arc_balance.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 closure_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_tail_adopts_expected_return_type.saw	pass	-	-
 closure_tail_autowraps_result.saw	pass	-	-
@@ -373,7 +373,7 @@ conformance/K53_driven_for_range_iteration_count.saw	pass	-	-
 conformance/K53_mt_group_stays_live_across_spawns.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K54_mt_task_receives_what_main_sent.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K55_mt_same_group_send_and_receive.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K56_thread_engine_feeds_main_receive.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+conformance/K56_thread_engine_feeds_main_receive.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K57_main_receives_prefilled_with_mt_group_live.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K58_main_receives_after_mt_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K59_main_receives_after_mt_group_scope.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
@@ -388,20 +388,20 @@ conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stdout differs	
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-
-conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K78_singleton_spawn_discard_is_refused.saw	pass	-	result.discarded: the result of this expression is `Result<std.task.Thread<Void>, std.systemerror.SystemError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or
 conformance/K79_unconsumed_thread_handle_is_refused.saw	pass	-	drop.must-consume: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed: `t` is dropped with no `join()` or `detach()` of it on some path. `join()` waits for it and takes its re
 conformance/K80_group_spawn_handle_may_be_dropped.saw	pass	-	-
-conformance/K81_storage_owner_discharges_the_obligation.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
-conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+conformance/K81_storage_owner_discharges_the_obligation.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
+conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → `yield_now` → __saw_park_ready: a spawned thread runs no executor, so there is nothing there to resume a su
-conformance/K84_thread_spawn_permits_a_blocking_extern.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+conformance/K84_thread_spawn_permits_a_blocking_extern.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K85_background_spawn_handle_must_be_consumed.saw	pass	-	drop.must-consume: `Task.spawn` hands back a `std.taskgroup.Task<Int>` that must be consumed, and this one is discarded. Bind it and consume it on every path: `join()` waits for it and takes its resul
 conformance/K86_background_task_handle_panics_in_deinit.saw	wrong	stdout differs	line 5: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	pass	-	-
 conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call. A background task outlives the statement that spawned it and may be detached, so no join ends the borro
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
-conformance/K90_thread_detach_is_a_fate.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+conformance/K90_thread_detach_is_a_fate.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K91_spawn_brace_captures_nothing_implicitly.saw	pass	-	spawn.implicit-capture: a spawned brace captures nothing implicitly, and this body names `count`, `label`. Name what crosses in the capture list — `Thread.spawn { [count, label] in ... }`. The list IS
 conformance/K93_timed_park_observes_cancellation.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
 conformance/K94_timed_park_times_out_in_every_engine.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
@@ -1916,7 +1916,7 @@ moved_variables_per_function_reset.saw	pass	-	-
 mutex_basic.saw	pass	-	-
 mutex_counter.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow shared.value().lock(…)`
 mutex_lock_result.saw	pass	-	-
-mutex_static_contention_mt.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+mutex_static_contention_mt.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 mutex_static_inline.saw	pass	-	-
 named_tuple_basic.saw	refused	typecheck subscript.role	`(x: Int, y: Int)` declares no subscript `[]`, so it has no getitem, setitem or place accessor
 named_tuple_different_names_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(a: Int, b: Int)`
@@ -2012,7 +2012,7 @@ offload_pointer_heap_arg.saw	pass	-	-
 offload_seam_first_tick.saw	pass	-	-
 offload_signature_shapes.saw	pass	-	-
 offload_spawn_interleave.saw	pass	-	-
-once_cross_thread_publish.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+once_cross_thread_publish.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 once_double_set_panic.saw	pass	-	-
 once_get_before_set_panic.saw	pass	-	-
 once_static_set_get.saw	pass	-	-
@@ -2317,12 +2317,12 @@ spawn_capture_caller_alias.saw	pass	-	loan.exclusive-twice: exclusive access vio
 spawn_capture_declared_before.saw	pass	-	-
 spawn_capture_join_releases.saw	pass	-	-
 spawn_capture_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 27:29 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
-spawn_join.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-spawn_multi.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+spawn_join.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
+spawn_multi.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 spawn_optional_result.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
 spawn_ref_param_dual_role_and_cancel.saw	pass	-	-
 spawn_ref_param_referent_deinit_once.saw	pass	-	-
-spawn_void_body.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+spawn_void_body.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 spawned_task_runs_before_reactor_park.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
 spinlock_contention_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
@@ -2337,7 +2337,7 @@ static_assert_nonconst_error.saw	pass	-	static.not-constant: `side()` is not a c
 static_assert_pass.saw	pass	-	-
 static_assert_statement_fail_error.saw	pass	-	static_assert.failed: static assertion failed: statement-position check
 static_atomic_counter.saw	pass	-	-
-static_atomic_threaded.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+static_atomic_threaded.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 static_const_declaration_order.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `PAGE_SIZE`, is not in the bootstrap slice yet
 static_const_expr_init.saw	pass	-	-
 static_derived_from_imported_const.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `A`, is not in the bootstrap slice yet
@@ -2460,8 +2460,8 @@ taskgroup_two_task_yield.saw	pass	-	-
 taskgroup_unjoined_drop.saw	pass	-	-
 thread_assertion_survives_a_glob_import.saw	pass	-	-
 thread_fate_is_written_not_dropped.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow shared.value().lock(…)`
-thread_name_belongs_to_the_user.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
-thread_spawn_blocking_beside_a_driven_root.saw	refused	mono mono.not-yet	the builtin `Thread.spawn` is not in the backend slice yet
+thread_name_belongs_to_the_user.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
+thread_spawn_blocking_beside_a_driven_root.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 trailing_closure_inside_a_try_operand.saw	stage0-wrong	XFAIL DF-259c	sawc2: output line 4 is '1', expected '<end>'
 trait_bound_error.saw	pass	-	type.bound: `trait_bound_error.Point` does not satisfy `Describable`, the bound on `T` of `printDescription`
 trait_default_any.saw	pass	-	-

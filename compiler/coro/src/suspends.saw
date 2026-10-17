@@ -594,6 +594,11 @@ func coro_check_summaries(coro: &var CoroProgram) {
         if info.kind != MirFuncKind.Body || info.decl < 0 || info.decl >= coro.mono.dp.bc.mir.tc.summaries.len() {
             continue
         }
+        // A thread-context item's `blocking` calls are plain, so its body
+        // suspends nowhere though its summary says it may.
+        if coro.mono.thread_keyed(item) {
+            continue
+        }
         let s = coro.mono.dp.bc.mir.tc.summaries[info.decl]
         if s.state != TC_SUMMARY_BODY {
             continue

@@ -1,0 +1,25 @@
+// probe: stated
+// about: a `blocking` extern in a `Thread.spawn` body, called directly or through a helper, is a plain call that blocks the thread, with no offload (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints this line under it, with no offload either (conformance row K84)
+// speeds: -O0 -O2
+// ll omits: __saw_rt_offload_start
+// ll omits: __saw_rt_offload_take
+// prints: napped
+// The helper is reached only from a thread, so the program holds only its
+// thread-context item, in which the extern call is plain too.
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func nap_helper() -> Int {
+    __saw_rt_blocking_sleep(1)
+}
+
+func main() {
+    var direct = try! Thread.spawn { __saw_rt_blocking_sleep(1) }
+    var through = try! Thread.spawn { nap_helper() }
+    let _ = direct.join()
+    let _ = through.join()
+    print("napped")
+}

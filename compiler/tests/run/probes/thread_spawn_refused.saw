@@ -1,0 +1,142 @@
+// probe: stated
+// about: a thread the operating system refuses is `Thread.spawn`'s `Err`, of kind `ResourcesExhausted`: the body never runs, and the capture the brace took is dropped exactly once (SL-765)
+// stage 0: its `Thread.spawn` has no `Result`, and it panics on a refused thread naming the cause (SL-765 c6)
+// speeds: -O0 -O2
+// prints: a spawn was refused: true
+// prints: the refusal is resources exhausted: true
+// prints: capture 1 dropped
+// prints: pthread_create failed (resources exhausted)
+// prints: the body never ran: true
+// prints: captures dropped: 1
+// prints: every started thread joined: true
+// Threads that block on an empty pipe are started until the operating system
+// refuses one. On Linux the per-user process limit, which counts threads, is
+// lowered to one first, so the first spawn is refused; macOS has no such
+// limit for threads, so its per-process thread limit is met instead. The
+// refused spawn's capture is dropped by the spawn, before its `Err` is
+// matched. Then one byte per started thread releases them all, and each is
+// joined.
+import std.systemerror.{SystemError, SystemErrorKind}
+import std.task.{Thread}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<UInt8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<UInt8>, count: Int) -> Int
+    func access(path: UnsafePointer<UInt8>, mode: Int32) -> Int32
+    func setrlimit(resource: Int32, limit: UnsafePointer<Limit>) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Limit {
+    soft: UInt64
+    hard: UInt64
+}
+
+// Linux's `RLIMIT_NPROC`; the number is another limit on macOS, which this
+// program never sets there.
+static LINUX_RLIMIT_NPROC: Int32 = 6
+// Far past any per-process thread limit, so a run that never meets one ends.
+static MOST_THREADS: Int = 100_000
+
+static BODY_RAN: Atomic<Int> = Atomic(0)
+static DROPPED: Atomic<Int> = Atomic(0)
+
+// A capture that says when it is dropped.
+struct Loud {
+    id: Int
+}
+
+extension Loud: NoCopy {
+    func deinit(&var self) {
+        print("capture {} dropped", self.id)
+        let _ = DROPPED.fetch_add(1)
+    }
+}
+
+func on_linux() unsafe -> Bool {
+    var path: [UInt8; 16] = [0; 16]
+    let text = "/proc/self/exe"
+    var i = 0
+    while i < text.len() {
+        path[i] = text.byte_at(i)
+        i = i + 1
+    }
+    access((&path) as UnsafePointer<UInt8>, 0 as Int32) == (0 as Int32)
+}
+
+// Reads one byte, blocking until it arrives; returns how many were read.
+func blocked(fd: Int32) unsafe -> Int {
+    var byte: UInt8 = 0
+    read(fd, (&byte) as UnsafePointer<UInt8>, 1)
+}
+
+func release(fd: Int32, count: Int) unsafe {
+    var byte: UInt8 = 1
+    var sent = 0
+    while sent < count {
+        if write(fd, (&byte) as UnsafePointer<UInt8>, 1) == 1 {
+            sent = sent + 1
+        }
+    }
+}
+
+func main() unsafe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    if on_linux() {
+        var one = Limit(soft: 1, hard: 1)
+        let _ = setrlimit(LINUX_RLIMIT_NPROC, (&one) as UnsafePointer<Limit>)
+    }
+    let fd = ends.read
+    var started = Vector<Thread<Int>>()
+    var refused = false
+    var exhausted = false
+    while not refused && started.len() < MOST_THREADS {
+        match Thread.spawn({ [fd] in blocked(fd) }) {
+            case Ok(handle) -> try! started.push(move handle),
+            case Err(e) -> {
+                refused = true
+                exhausted = e.kind() == SystemErrorKind.ResourcesExhausted
+            }
+        }
+    }
+    print("a spawn was refused: {}", refused)
+    print("the refusal is resources exhausted: {}", exhausted)
+    let loud = Loud(id: 1)
+    match Thread.spawn({ [move loud] in
+        BODY_RAN.store(1)
+        loud.id
+    }) {
+        case Ok(handle) -> try! started.push(move handle),
+        case Err(e) -> print("{}", e)
+    }
+    print("the body never ran: {}", BODY_RAN.load() == 0)
+    print("captures dropped: {}", DROPPED.load())
+    release(ends.write, started.len())
+    // Joined oldest first: the C library looks a joined thread up from the
+    // oldest end of its list.
+    var oldest_last = Vector<Thread<Int>>()
+    while started.len() > 0 {
+        if let held = started.pop() {
+            try! oldest_last.push(move held)
+        }
+    }
+    var read_bytes = 0
+    var joined = 0
+    let count = oldest_last.len()
+    while oldest_last.len() > 0 {
+        if let held = oldest_last.pop() {
+            var t = move held
+            read_bytes = read_bytes + t.join()
+            joined = joined + 1
+        }
+    }
+    print("every started thread joined: {}", joined == count && read_bytes == count)
+}

@@ -1,43 +1,29 @@
-// The detach handshake over a hand-built control block, in both orders, with
-// the allocator's live-block count read around each side, so each free is
-// counted where it happens (runtime/ABI.md, `__saw_rt_thread_detach`):
-//   * detach then exit: the detach seam leaves the word 0 and frees nothing,
-//     and the thread's exit (`Thread.__saw_exit`) destroys the result nobody
-//     will read and frees the block;
-//   * exit then detach: the exit leaves the negated size and frees nothing,
-//     the seam reports that the caller owns the block, and `detach` destroys
-//     the result and frees it;
-//   * a join frees the block itself.
-// This program plays the thread's exit on the main thread, so the two orders
-// are deterministic; a real OS thread, started through an `@export`ed start
-// routine `dlsym` finds, supplies the handle the seam detaches. macOS only:
-// the count is `malloc_zone_statistics`, and `dlsym` finds a symbol the
-// executable exports with no extra link flag (Linux needs `-rdynamic`).
-import std.task.{Thread, ThreadControlBlock}
-import std.taskgroup.{__saw_exec_thread_started}
+// The detach handshake in both orders, on threads `Thread.spawn` starts, with
+// an owning result that says when it is destroyed (runtime/ABI.md,
+// `__saw_rt_thread_detach`):
+//   * detach then exit: the body returns only once its handle has detached,
+//     so the thread's exit (`Thread.__saw_exit`) reads the detacher's 0,
+//     destroys the result nobody will read and frees the block;
+//   * exit then detach: the body returns at once and the handle detaches well
+//     after, so the seam reports that the caller owns the block, and `detach`
+//     destroys the result and frees it;
+//   * a join takes the result and frees the block itself.
+// Each result is destroyed exactly once whichever side ends the handshake, so
+// the output holds in either order; the waits make the second order the one a
+// run takes.
+import std.task.{Thread}
 
 extern "C" {
-    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
-    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
-    func malloc_zone_statistics(zone: UnsafePointer<UInt8>, stats: UnsafePointer<MallocStatistics>)
-    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>,
-                               handle_out: UnsafePointer<Int>) -> Int
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
-// `malloc_statistics_t`, in its C field order.
-struct MallocStatistics {
-    blocks_in_use: UInt32
-    size_in_use: UInt
-    max_size_in_use: UInt
-    size_allocated: UInt
-}
-
-static RTLD_LAZY: Int32 = 1
 static NAP_NANOS: UInt64 = 1_000_000
+// Far longer than a body's return takes to reach its exit.
+static SETTLE_NANOS: UInt64 = 50_000_000
 
-// How many started threads have run their start routine.
-static STARTED: Atomic<Int> = Atomic(0)
+static DETACHED: Atomic<Int> = Atomic(0)
+static RETURNED: Atomic<Int> = Atomic(0)
+static DESTROYED: Atomic<Int> = Atomic(0)
 
 // A result that says when it is destroyed.
 struct Loud {
@@ -47,98 +33,53 @@ struct Loud {
 extension Loud: NoCopy {
     func deinit(&var self) {
         print("result {} destroyed", self.id)
+        let _ = DESTROYED.fetch_add(1)
     }
 }
 
-func live_blocks() unsafe -> Int {
-    var stats = MallocStatistics(blocks_in_use: 0, size_in_use: 0, max_size_in_use: 0,
-                                 size_allocated: 0)
-    malloc_zone_statistics(0 as UnsafePointer<UInt8>, (&stats) as UnsafePointer<MallocStatistics>)
-    stats.blocks_in_use as Int
-}
-
-func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
-    var text: [UInt8; 64] = [0; 64]
-    var i = 0
-    while i < name.len() {
-        text[i] = name.byte_at(i)
-        i = i + 1
-    }
-    let found = dlsym(dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY), (&text) as UnsafePointer<UInt8>)
-    if found as Int == 0 {
-        panic("dlsym found no `{}`", name)
-    }
-    found
-}
-
-@export("p765_idle_body")
-func idle_body(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
-    let _ = STARTED.fetch_add(1)
-    0 as UnsafePointer<UInt8>
-}
-
-// A handle over `block` whose OS thread has already run, counted as running
-// until this program plays its exit.
-func adopt_started<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thread<T> {
-    let before = STARTED.load()
-    __saw_exec_thread_started()
-    var b = block
-    if __saw_rt_thread_spawn(entry_point("p765_idle_body"), block as UnsafePointer<UInt8>,
-                             (&b[0].tid) as UnsafePointer<Int>) != 0 {
-        panic("the thread was refused")
-    }
-    while STARTED.load() == before {
+func wait_destroyed(count: Int) {
+    while DESTROYED.load() < count {
         __saw_rt_sleep_ns(NAP_NANOS)
     }
-    Thread<T>.__saw_adopt(block)
 }
 
-func detach_then_exit() unsafe {
-    let block = Thread<Loud>.__saw_control_block()
-    let at = (&block[0].result) as UnsafePointer<Loud>
-    at[0] = Loud(id: 1)
-    var t = adopt_started(block)
-    let b0 = live_blocks()
+func detach_then_exit() {
+    var t = try! Thread.spawn {
+        while DETACHED.load() == 0 {
+            __saw_rt_sleep_ns(NAP_NANOS)
+        }
+        Loud(id: 1)
+    }
     t.detach()
-    let b1 = live_blocks()
-    let word = block[0].state
-    let freed = Thread<Loud>.__saw_exit(block)
-    let b2 = live_blocks()
-    print("detach then exit: the detach freed {} and left the word at {}", b0 - b1, word)
-    print("detach then exit: the exit freed {} and says {}", b1 - b2, freed)
+    DETACHED.store(1)
+    wait_destroyed(1)
+    print("detach then exit: the result was destroyed once")
 }
 
-func exit_then_detach() unsafe {
-    let block = Thread<Loud>.__saw_control_block()
-    let at = (&block[0].result) as UnsafePointer<Loud>
-    at[0] = Loud(id: 2)
-    var t = adopt_started(block)
-    let b0 = live_blocks()
-    let freed = Thread<Loud>.__saw_exit(block)
-    let b1 = live_blocks()
-    let word = block[0].state
+func exit_then_detach() {
+    var t = try! Thread.spawn {
+        RETURNED.store(1)
+        Loud(id: 2)
+    }
+    while RETURNED.load() == 0 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    __saw_rt_sleep_ns(SETTLE_NANOS)
     t.detach()
-    let b2 = live_blocks()
-    print("exit then detach: the exit freed {} and says {}", b0 - b1, freed)
-    print("exit then detach: the word holds the negated size: {}",
-          word == 0 - sizeof<ThreadControlBlock<Loud>>())
-    print("exit then detach: the detach freed {}", b1 - b2)
+    wait_destroyed(2)
+    print("exit then detach: the result was destroyed once")
 }
 
-func exit_then_join() unsafe {
-    let block = Thread<Int>.__saw_control_block()
-    block[0].result = 9
-    var t = adopt_started(block)
-    let freed = Thread<Int>.__saw_exit(block)
-    let b0 = live_blocks()
+func join_takes_it() {
+    var t = try! Thread.spawn { Loud(id: 3) }
     let got = t.join()
-    let b1 = live_blocks()
-    print("exit then join: the exit says {}, the join took {} and freed {}", freed, got, b0 - b1)
+    print("joined result {}", got.id)
 }
 
-func main() unsafe {
+func main() {
     print("the detach handshake, both orders")
     detach_then_exit()
     exit_then_detach()
-    exit_then_join()
+    join_takes_it()
+    print("results destroyed: {}", DESTROYED.load())
 }

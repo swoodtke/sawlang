@@ -9,7 +9,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc, MirFuncKind,
                          MirLocal, MirOperand, MirOperandKind, MirPlace, MirProj, MirRvalue, MirRvalueKind, MirStmt,
-                         MirStmtKind, MirSwitchKind, MirTermKind, MirWindow}
+                         MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
@@ -17,8 +17,8 @@ import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
                             MONO_KEY_EXTERN, MONO_KEY_FUNCTION, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
-                            MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_VTABLE, MonoItem, MonoItemKind,
-                            MonoProgram, MonoVtable}
+                            MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_VTABLE, MonoItem,
+                            MonoItemKind, MonoProgram, MonoThreadSpawn, MonoVtable}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.candidates.{tc_contains}
@@ -31,7 +31,8 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
+import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.types.{TcKind}
@@ -52,7 +53,7 @@ public func mono_rules() -> Vector<String> {
 // ENTRY POINTS:
 //     resolve_call
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name)
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name) || name.equals("Thread.spawn")
 }
 
 // Whether a construction of kind `agg` is a collection literal: a fixed
@@ -204,14 +205,14 @@ extension MonoProgram {
     // THE ITEM FUNNEL for functions: the item of source function `source` at
     // owner arguments `args` (for `type_decl`'s parameters), its own type
     // arguments `inst` (for `func_decl`'s) and `self_type`, made when new.
-    // `key` is MONO_KEY_FUNCTION for the ordinary item and MONO_KEY_TASK_ROOT
-    // for a task root, so the two specializations of one function are two
-    // items.
+    // `key` is MONO_KEY_FUNCTION for the ordinary item, MONO_KEY_TASK_ROOT
+    // for a task root and MONO_KEY_THREAD for a thread-context item, so the
+    // specializations of one function are separate items.
     // ENTRY POINTS:
     //     root_item
     //     role_item
     //     call_item_of
-    //     resolve_closure
+    //     closure_body_item
     func function_item(&var self, source: Int, type_decl: Int, args: &Vector<Int>, func_decl: Int, inst: &Vector<Int>,
                        self_type: Int, origin: Int, node: Int, key: Int) -> Int {
         var at = self.by_key.first(source, key)
@@ -670,6 +671,25 @@ extension MonoProgram {
         at
     }
 
+    // Whether call `info`, copied into thread-context item `k`, is a plain
+    // call there though its source marks it a suspension point: one that
+    // suspends only by `blocking`, made in a helper whose MIR its cooperative
+    // callers share (`thread_plain_call`).
+    func thread_plain_copy(&var self, k: Int, info: &MirCall) -> Bool {
+        if info.suspend != MirSuspend.Always || info.node < 0 || self.dp.bc.mir.tc.call_at[info.node] < 0 {
+            return false
+        }
+        if not self.is_thread_item(k) {
+            return false
+        }
+        let source = self.items[k].source
+        let owner = self.dp.bc.mir.funcs[source].owner
+        var acc = TcAcc(owner: owner, unit: -1)
+        let node = info.node
+        self.dp.bc.mir.call_effect(node, &info, &var acc)
+        self.dp.bc.mir.thread_plain_call(true, &acc)
+    }
+
     func copy_rvalue(&var self, k: Int, r: Int) -> Int {
         let info = self.dp.bc.mir.rvalues[r]
         let first = self.copy_list(k, info.first, info.count)
@@ -685,6 +705,9 @@ extension MonoProgram {
 
     func copy_call(&var self, k: Int, c: Int) -> Int {
         var info = self.dp.bc.mir.calls[c]
+        if self.thread_plain_copy(k, &info) {
+            info.suspend = MirSuspend.Never
+        }
         let args = self.copy_list(k, info.arg_first, info.arg_count)
         let callee = self.copy_operand(k, info.callee)
         let dest = self.copy_place(k, info.dest)
@@ -810,10 +833,20 @@ extension MonoProgram {
     // frame that creates the closure, so an escaping closure that captures
     // anything is refused too: its environment would be read after that frame
     // is gone (SL-525).
+    // A `Thread.spawn` brace's environment is neither: its site moves it to
+    // the heap, and its body takes each capture as a parameter
+    // (`resolve_thread_spawn`).
     func resolve_closure(&var self, k: Int, r: Int, node: Int) {
         let rv = self.dp.bc.mir.rvalues[r]
+        let at = self.dp.bc.mir.func_of.first(rv.decl, 0)
+        if at < 0 {
+            try! self.problems.push("a closure construction names no lowered body")
+            return
+        }
+        let body = self.dp.bc.mir.func_of.value(at)
+        let threaded = self.dp.bc.mir.thread_body(body)
         var j = 0
-        while j < rv.count {
+        while j < rv.count && not threaded {
             let o = self.dp.bc.mir.lists[rv.first + j]
             let t = self.dp.bc.mir.operands[o].ty
             if self.dp.bc.mir.owns(t) {
@@ -822,19 +855,20 @@ extension MonoProgram {
             }
             j = j + 1
         }
-        if rv.count > 0 && self.closure_escapes(rv.decl) {
+        if rv.count > 0 && not threaded && self.closure_escapes(rv.decl) {
             self.refuse(node, "mono.not-yet", "an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)")
             return
         }
-        let at = self.dp.bc.mir.func_of.first(rv.decl, 0)
-        if at < 0 {
-            try! self.problems.push("a closure construction names no lowered body")
-            return
-        }
-        let body = self.dp.bc.mir.func_of.value(at)
+        let item = self.closure_body_item(k, body, node)
+        self.set_closure_item(r, item)
+    }
+
+    // The item of closure body `body`, written in item `k`'s function, under
+    // `k`'s arguments.
+    func closure_body_item(&var self, k: Int, body: Int, node: Int) -> Int {
         let it = self.items[k]
         var args = Vector<Int>()
-        j = 0
+        var j = 0
         while j < it.args_count {
             try! args.push(self.item_types[it.args_first + j])
             j = j + 1
@@ -845,9 +879,7 @@ extension MonoProgram {
             try! inst.push(self.item_types[it.inst_first + j])
             j = j + 1
         }
-        let item = self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node,
-                                      MONO_KEY_FUNCTION)
-        self.set_closure_item(r, item)
+        self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node, MONO_KEY_FUNCTION)
     }
 
     // Whether the closure written at node `e` escapes, as typecheck's
@@ -892,6 +924,10 @@ extension MonoProgram {
                     self.need_builtin_copy(k, &info)
                     return
                 }
+                if name.equals("Thread.spawn") {
+                    self.resolve_thread_spawn(k, c, &info)
+                    return
+                }
                 self.check_format_arguments(k, c, &name)
             },
             case Value -> self.need_operand(k, info.callee, info.node),
@@ -901,7 +937,10 @@ extension MonoProgram {
                 if decl.kind == ResDeclKind.Extern {
                     let item = self.extern_item(k, info.target)
                     self.set_call_item(c, item)
-                    self.resolve_offload(k, info.target, info.node)
+                    // A thread's `blocking` call is plain, and offloads nothing.
+                    if info.suspend != MirSuspend.Never {
+                        self.resolve_offload(k, info.target, info.node)
+                    }
                     return
                 }
                 if decl.kind == ResDeclKind.Requirement && self.dp.bc.mir.tc.kind_of(info.owner) == TcKind.Any {
@@ -923,7 +962,8 @@ extension MonoProgram {
                     }
                 }
                 let body = self.body_of[target.decl]
-                let item = self.call_item_of(k, body, target.decl, target.self_type, &info, MONO_KEY_FUNCTION)
+                let key = self.callee_key(k, &info, target.decl)
+                let item = self.call_item_of(k, body, target.decl, target.self_type, &info, key)
                 self.set_call_item(c, item)
                 self.resolve_park(k, target.decl, info.node)
             },
@@ -943,6 +983,88 @@ extension MonoProgram {
             case Spawn -> self.resolve_spawn(k, c, &info),
             case Drive -> self.resolve_drive(k, c, &info)
         }
+    }
+
+    // The key of the item call `info` in item `k` reaches, declaration `d`'s
+    // body: a thread-context item for a plain call from one to a function
+    // that suspends only by `blocking`, so its own `blocking` calls are plain
+    // there too; the ordinary item otherwise.
+    func callee_key(&self, k: Int, info: &MirCall, d: Int) -> Int {
+        if info.suspend != MirSuspend.Never || d < 0 || d >= self.dp.bc.mir.tc.summaries.len() {
+            return MONO_KEY_FUNCTION
+        }
+        let s = self.dp.bc.mir.tc.summaries[d]
+        if s.suspends && s.causes == TC_CAUSE_BLOCKING && self.is_thread_item(k) {
+            return MONO_KEY_THREAD
+        }
+        MONO_KEY_FUNCTION
+    }
+
+    // A `Thread.spawn` site (SL-765) reaches what its lowering calls: its
+    // brace's body, which the site's trampoline runs on the new thread;
+    // `Thread<T>`'s `__saw_control_block`, `__saw_started` and `__saw_exit` at
+    // the site's handle type; the live-thread count's raise; and the drop of
+    // the brace's environment, which a refused spawn runs, the body never
+    // having taken its captures.
+    func resolve_thread_spawn(&var self, k: Int, c: Int, info: &MirCall) {
+        let node = info.node
+        if info.dest < 0 || info.arg_count != 1 {
+            try! self.problems.push("a `Thread.spawn` site has no destination or not one brace")
+            return
+        }
+        let brace = self.thread_brace(node)
+        let at = if brace >= 0 { self.dp.bc.mir.func_of.first(brace, 0) } else { -1 }
+        if at < 0 {
+            try! self.problems.push("a `Thread.spawn` site names no lowered brace")
+            return
+        }
+        let source = self.dp.bc.mir.func_of.value(at)
+        let body = self.closure_body_item(k, source, node)
+        let result = self.dp.bc.mir.places[info.dest].ty
+        let handle = self.dp.bc.mir.tc.arg_of(result, 0)
+        let d = self.dp.bc.mir.tc.nominal_decl(handle)
+        let block = self.thread_member(k, d, handle, "__saw_control_block", node)
+        let started = self.thread_member(k, d, handle, "__saw_started", node)
+        let exit = self.thread_member(k, d, handle, "__saw_exit", node)
+        let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
+        if self.thread_started_item < 0 {
+            self.thread_started_item = self.exec_entry(k, m, "__saw_exec_thread_started", node, "a `Thread.spawn` site")
+        }
+        if body < 0 || block < 0 || started < 0 || exit < 0 {
+            return
+        }
+        let env_local = self.dp.bc.mir.funcs[source].local_first + 1
+        let written = self.dp.bc.mir.locals[env_local].ty
+        let env = self.concrete_type(k, written)
+        self.need_drop(k, env, node)
+        self.set_thread_spawn(c, MonoThreadSpawn(body: body, block: block, started: started, exit: exit))
+    }
+
+    // The brace of the `Thread.spawn` form at node `e`, or -1.
+    func thread_brace(&self, e: Int) -> Int {
+        var j = 0
+        while j < self.dp.bc.mir.tc.thread_forms.len() {
+            if self.dp.bc.mir.tc.thread_forms[j] == e {
+                return self.dp.bc.mir.tc.thread_braces[j]
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // The item of `Thread<T>`'s member `name` at concrete handle type
+    // `handle`, declaration `d`; refused when std declares none.
+    func thread_member(&var self, k: Int, d: Int, handle: Int, name: String, node: Int) -> Int {
+        let member = self.named_member(d, name)
+        if member < 0 {
+            var msg = StringBuilder()
+            try! msg.append("a `Thread.spawn` site whose handle type declares no `")
+            try! msg.append(name)
+            try! msg.append("`")
+            self.refuse(node, "mono.not-yet", msg.build())
+            return -1
+        }
+        self.member_item(k, member, handle, node)
     }
 
     // A window's open or close calls its accessor's half at the window's

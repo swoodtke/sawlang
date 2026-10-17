@@ -1,0 +1,18 @@
+// probe: stated
+// about: a `Thread.spawn` body's captured `Int` crosses in its heap environment, and `join` hands back what the body returned (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints this line under it (the corpus program `spawn_join`)
+// speeds: -O0 -O2
+// prints: 81
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    let base = 9
+    var t = try! Thread.spawn { [base] in
+        square(base)
+    }
+    let r = t.join()
+    print(r)
+}

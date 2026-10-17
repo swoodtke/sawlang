@@ -9364,6 +9364,7 @@ the handle they bind; the `Err` path owes nothing, since no thread exists
 there:
 
 ```saw-fragment
+// Parenthesised: in a `match` head a bare `{` begins the arms, never a trailing closure
 match Thread.spawn({ [job] in compress(job) }) {
     case Ok(worker) -> {
         var w = move worker

@@ -12,6 +12,7 @@
 //! destructor with neither panics. Nothing exposes the underlying OS thread.
 
 import std.mem.{drop_in_place}
+import std.systemerror.{SystemError}
 import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_finished}
 
@@ -29,24 +30,25 @@ extern "C" {
 // it is fixed rather than read off the result type.
 static THREAD_BLOCK_ALIGN: Int = 16
 
-/// The control block of one spawned thread: the record the compiler's
-/// `Thread.spawn` lowering builds, the thread writes its result into, and a
-/// `Thread<T>` handle owns.
-///
-/// The layout is the field order, which runtime/ABI.md freezes in one place:
-/// `state` sits two words in, at `2 * sizeof(UnsafePointer<UInt8>)`, because
-/// `tid` and `env` are each one pointer-sized word. Every size the detach
-/// handshake carries or a deallocation passes is `sizeof` of this type.
-public struct ThreadControlBlock<T> {
-    /// The OS thread's handle, as `__saw_rt_thread_spawn` stored it.
+// The control block of one spawned thread: the record the compiler's
+// `Thread.spawn` lowering builds, the thread writes its result into, and a
+// `Thread<T>` handle owns. Only that lowering builds one.
+//
+// The layout is the field order, which runtime/ABI.md freezes in one place:
+// `state` sits two words in, at `2 * sizeof(UnsafePointer<UInt8>)`, because
+// `tid` and `env` are each one pointer-sized word. Every size the detach
+// handshake carries or a deallocation passes is `sizeof` of this type.
+public(package) struct ThreadControlBlock<T> {
+    // The OS thread's handle, as `__saw_rt_thread_spawn` stored it.
     tid: Int
-    /// The body's captured environment, which the thread releases.
+    // The body's environment, which the thread frees once the body has
+    // taken its captures.
     env: UnsafePointer<UInt8>
-    /// The detach handshake word: the block's size while the thread and its
-    /// handle are both live, 0 once the handle detached, and the negated size
-    /// once the thread finished.
+    // The detach handshake word: the block's size while the thread and its
+    // handle are both live, 0 once the handle detached, and the negated size
+    // once the thread finished.
     state: Int
-    /// The body's result, written by the thread when the body returns.
+    // The body's result, written by the thread when the body returns.
     result: T
 }
 
@@ -135,12 +137,11 @@ extension Thread<T> {
         self.joined = true
     }
 
-    /// Allocates a control block for a thread whose result is a `T`, its
-    /// handshake word holding the block's size: the spawn lowering's first
-    /// step, before the thread exists.
-    ///
-    /// Panics if the allocation is refused, naming the request.
-    public static func __saw_control_block() unsafe -> UnsafePointer<ThreadControlBlock<T>> {
+    // Allocates a control block for a thread whose result is a `T`, its
+    // handshake word holding the block's size: the spawn lowering's first
+    // step, before the thread exists. Panics if the allocation is refused,
+    // naming the request.
+    public(package) static func __saw_control_block() unsafe -> UnsafePointer<ThreadControlBlock<T>> {
         let size = sizeof<ThreadControlBlock<T>>()
         guard let raw = GlobalAllocator().alloc(size, THREAD_BLOCK_ALIGN) else {
             panic("Thread.spawn: {}", AllocError(size: size, align: THREAD_BLOCK_ALIGN))
@@ -152,21 +153,35 @@ extension Thread<T> {
         block
     }
 
-    /// Returns the handle that owns the control block at `block`, whose
-    /// thread is running: the spawn lowering's last step.
-    public static func __saw_adopt(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thread<T> {
+    // Returns the handle that owns the control block at `block`, whose
+    // thread is running.
+    public(package) static func __saw_adopt(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thread<T> {
         Thread<T>(block: block, joined: false)
     }
 
-    /// The thread's own exit, after the body's result is stored and its
-    /// environment released: ends the detach handshake, then counts the thread
-    /// as finished (`__saw_exec_thread_finished`). Returns whether this side
-    /// freed the block.
-    ///
-    /// When the handle detached first, nothing will read the result, so it is
-    /// destroyed here and the block freed; otherwise the joiner or the
-    /// detacher frees it.
-    public static func __saw_exit(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Bool {
+    // The spawn lowering's last step: what the spawn seam's `status` makes of
+    // the block at `block`. 0 means the thread is running, and the handle
+    // adopts the block. A refusal is the seam's negated portable tag: no
+    // thread exists, so the block is freed, the count the lowering raised is
+    // lowered again, and the refusal is the `Err`. The lowering has already
+    // dropped the captures the body never took.
+    public(package) static func __saw_started(block: UnsafePointer<ThreadControlBlock<T>>,
+                                              status: Int) unsafe -> Result<Thread<T>, SystemError> {
+        if status != 0 {
+            free_thread_block(block)
+            __saw_exec_thread_finished()
+            return SystemError.of("pthread_create", 0 - status)
+        }
+        Thread<T>.__saw_adopt(block)
+    }
+
+    // The thread's own exit, after the body's result is stored and its
+    // environment freed: ends the detach handshake, then counts the thread as
+    // finished (`__saw_exec_thread_finished`). Returns whether this side
+    // freed the block. When the handle detached first, nothing will read the
+    // result, so it is destroyed here and the block freed; otherwise the
+    // joiner or the detacher frees it.
+    public(package) static func __saw_exit(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Bool {
         let size = sizeof<ThreadControlBlock<T>>()
         // Last: a detacher that frees the block on the other side of this
         // exchange must find the result stored and the environment released.
@@ -207,11 +222,13 @@ func exchange_state<T>(block: UnsafePointer<ThreadControlBlock<T>>, value: Int) 
     seen
 }
 
-// Frees the control block at `block`, whose result is moved out or destroyed.
+// Frees the control block at `block`, whose result is moved out, destroyed,
+// or never written.
 //
 // ENTRY POINTS:
 //   Thread.join
 //   Thread.detach
+//   Thread.__saw_started
 //   Thread.__saw_exit
 func free_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe {
     GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ThreadControlBlock<T>>(),

@@ -1,0 +1,67 @@
+// probe: stated
+// about: a detached thread's owning result is destroyed exactly once in both orders of the detach handshake: by the thread's exit when the detach came first, by `detach` when the thread finished first (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse (SL-765 Q1 (b)); with its infallible spawn its thread's exit frees a detached block without destroying the result, so the program waits forever for the first order's destruction (SL:hazards S37)
+// speeds: -O0 -O2
+// prints: detach then exit: result `first` destroyed
+// prints: exit then detach: result `first and then the second` destroyed
+// prints: results destroyed: 2
+// The first body returns only once its handle has detached; the second
+// returns at once, and its handle detaches well after. Each result owns a
+// heap String, so a result destroyed twice would release it twice.
+import std.task.{Thread}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 1_000_000
+// Far longer than a body's return takes to reach its exit.
+static SETTLE_NANOS: UInt64 = 50_000_000
+
+static DETACHED: Atomic<Int> = Atomic(0)
+static RETURNED: Atomic<Int> = Atomic(0)
+static DESTROYED: Atomic<Int> = Atomic(0)
+
+struct Report {
+    order: String
+    name: String
+}
+
+extension Report: NoCopy {
+    func deinit(&var self) {
+        print("{}: result `{}` destroyed", self.order, self.name)
+        let _ = DESTROYED.fetch_add(1)
+    }
+}
+
+func wait_destroyed(count: Int) {
+    while DESTROYED.load() < count {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+}
+
+func main() {
+    let stem = "fir"
+    let first = "{stem}st"
+    var early = try! Thread.spawn { [first] in
+        while DETACHED.load() == 0 {
+            __saw_rt_sleep_ns(NAP_NANOS)
+        }
+        Report(order: "detach then exit", name: first)
+    }
+    early.detach()
+    DETACHED.store(1)
+    wait_destroyed(1)
+    let second = "{stem}st and then the second"
+    var late = try! Thread.spawn { [second] in
+        RETURNED.store(1)
+        Report(order: "exit then detach", name: second)
+    }
+    while RETURNED.load() == 0 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    __saw_rt_sleep_ns(SETTLE_NANOS)
+    late.detach()
+    wait_destroyed(2)
+    print("results destroyed: {}", DESTROYED.load())
+}

@@ -63,6 +63,9 @@ extension MonoProgram {
                 if self.is_task_root(k) {
                     try! out.append(" task root")
                 }
+                if self.thread_keyed(k) {
+                    try! out.append(" thread")
+                }
             },
             case DropGlue -> {
                 try! out.append("drop glue ")

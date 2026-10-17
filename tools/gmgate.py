@@ -29,7 +29,7 @@ fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 19 of its 26
-Stage 0 programs build; concurrency runs a program in 6 of its 6 categories,
+Stage 0 programs build; concurrency runs a program in 7 of its 7 categories,
 and 19 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
@@ -317,6 +317,32 @@ CONCURRENCY = (
             Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "call.label", "SL-578",
                     "`TaskGroup.init()` has no `threads:` label"),
         )),
+    Category(
+        "OS threads", "a capture moved into a thread's heap environment and a result handed back, each dropped once",
+        # Stage 0 refuses `try! Thread.spawn` at parse (SL-765 Q1 (b)), so no
+        # program here is a twin.
+        twins=(),
+        stand_ins=(
+            # A captured Int crosses and a result comes back, from one thread
+            # and from four; a `Void` body.
+            CORPUS + "spawn_join.saw",
+            CORPUS + "spawn_multi.saw",
+            CORPUS + "spawn_void_body.saw",
+            # An `Arc` captured into a thread's environment and released there.
+            CORPUS + "closure_spawn_arc_balance.saw",
+            # A channel handle captured by a producer thread, feeding a
+            # cooperative `receive` and a blocking `recv`.
+            CORPUS + "conformance/K56_thread_engine_feeds_main_receive.saw",
+            CORPUS + "channel_pipeline.saw",
+            # Generic captures, an `Arc` and a `Vector` among them.
+            CORPUS + "conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw",
+            # Handles stored in an owner that joins them, and detached handles.
+            CORPUS + "conformance/K81_storage_owner_discharges_the_obligation.saw",
+            CORPUS + "conformance/K90_thread_detach_is_a_fate.saw",
+            # A `blocking` extern run directly on the thread.
+            CORPUS + "conformance/K84_thread_spawn_permits_a_blocking_extern.saw",
+        ),
+        blocked=()),
 )
 
 LANES = {

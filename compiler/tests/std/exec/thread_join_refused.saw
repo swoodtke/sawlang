@@ -2,66 +2,27 @@
 // A join the operating system refuses panics with the cause (SL-768): a
 // thread handed its own handle joins itself, which `pthread_join` refuses
 // with `EDEADLK`, and `Thread.join`, which has no error channel, panics
-// naming it rather than reading a result slot nothing wrote. The handle is
-// adopted over a hand-built control block, and the thread's start routine an
-// `@export`ed function whose address `dlsym` finds, since `Thread.spawn`
-// itself is lowered by SL-765 T3b. macOS only: there `dlsym` finds a symbol
-// the executable exports with no extra link flag, and `EDEADLK` is 11.
-import std.task.{Thread, ThreadControlBlock}
-import std.taskgroup.{__saw_exec_thread_started}
+// naming it rather than reading a result slot nothing wrote. The handle
+// reaches its own thread over a channel. macOS only: `EDEADLK` is 11 there.
+import std.channel.{Channel}
+import std.task.{Thread}
 
 extern "C" {
-    func dlopen(path: UnsafePointer<UInt8>, mode: Int32) -> UnsafePointer<UInt8>
-    func dlsym(handle: UnsafePointer<UInt8>, symbol: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>
-    func __saw_rt_thread_spawn(entry: UnsafePointer<UInt8>, env: UnsafePointer<UInt8>,
-                               handle_out: UnsafePointer<Int>) -> Int
     func __saw_rt_sleep_ns(ns: UInt64)
 }
 
-static RTLD_LAZY: Int32 = 1
 static NAP_NANOS: UInt64 = 10_000_000
 // Ten seconds of naps: far longer than the thread takes to reach its join.
 static MOST_NAPS: Int = 1000
 
-// Set once the thread holds its handle, so it joins only after the spawn has
-// stored the handle in the block.
-static STORED: Atomic<Int> = Atomic(0)
-
-func entry_point(name: String) unsafe -> UnsafePointer<UInt8> {
-    var text: [UInt8; 64] = [0; 64]
-    var i = 0
-    while i < name.len() {
-        text[i] = name.byte_at(i)
-        i = i + 1
+func main() {
+    let handles = try! Channel<Thread<Int>>()
+    var t = try! Thread.spawn { [handles] in
+        var own = handles.recv()
+        print("joining my own handle")
+        own.join()
     }
-    let found = dlsym(dlopen(0 as UnsafePointer<UInt8>, RTLD_LAZY), (&text) as UnsafePointer<UInt8>)
-    if found as Int == 0 {
-        panic("dlsym found no `{}`", name)
-    }
-    found
-}
-
-@export("p768_self_join")
-func self_join(raw: UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8> {
-    while STORED.load() == 0 {
-        __saw_rt_sleep_ns(NAP_NANOS)
-    }
-    let block = raw as UnsafePointer<ThreadControlBlock<Int>>
-    var own = Thread<Int>.__saw_adopt(block)
-    print("joining my own handle")
-    print("unreachable: {}", own.join())
-    0 as UnsafePointer<UInt8>
-}
-
-func main() unsafe {
-    let block = Thread<Int>.__saw_control_block()
-    __saw_exec_thread_started()
-    var b = block
-    if __saw_rt_thread_spawn(entry_point("p768_self_join"), block as UnsafePointer<UInt8>,
-                             (&b[0].tid) as UnsafePointer<Int>) != 0 {
-        panic("the thread was refused")
-    }
-    STORED.store(1)
+    try! handles.send(move t)
     var naps = 0
     while naps < MOST_NAPS {
         __saw_rt_sleep_ns(NAP_NANOS)

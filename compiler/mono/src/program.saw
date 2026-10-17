@@ -8,6 +8,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import saweval.program.{EvalKind, EvalValue}
+import sawmir.build.{mir_func_local}
 import sawmir.program.{MirProgram}
 import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
@@ -120,6 +121,12 @@ public struct MonoProgram {
     spawn_close_item: Int
     spawn_singleton: Int
     spawn_handle_items: Vector<Int>
+    // What a `Thread.spawn` site's lowering calls (SL-765): the live-thread
+    // count's raise, made at the first site, -1 until then; and by concrete
+    // call, an index of `thread_spawns`, or -1.
+    thread_started_item: Int
+    thread_spawns: Vector<MonoThreadSpawn>
+    thread_spawn_of: Vector<Int>
     // What a drive site's lowering calls (SL:coroutines A4b), made at the
     // first drive site of each form; -1 until then: std's driver that leaves
     // the root's result in its frame, and the one that counts its `Pending`s
@@ -184,6 +191,17 @@ public struct MonoProgram {
 
 extension MonoProgram: NoCopy {}
 
+// The items one concrete `Thread.spawn` call's lowering calls: the brace's
+// body, which the site's trampoline runs on the new thread, and `Thread<T>`'s
+// control-block allocation, settlement of the spawn seam's status into the
+// site's `Result`, and the thread's exit.
+public struct MonoThreadSpawn {
+    body: Int
+    block: Int
+    started: Int
+    exit: Int
+}
+
 // The key kinds of `by_key`. Beside those the comment on `by_key` names:
 // (concrete type, 8) -> its vtables; (trait, 9) -> each slot a dispatch
 // calls; (erased box type, 10) -> its allocator's `dealloc` item; (erased
@@ -200,6 +218,8 @@ public static MONO_KEY_VTABLE: Int = 8
 public static MONO_KEY_DISPATCHED: Int = 9
 public static MONO_KEY_DEALLOC: Int = 10
 public static MONO_KEY_RENDER_SLOT: Int = 11
+// (source function, 12) -> its thread-context items (`is_thread_item`).
+public static MONO_KEY_THREAD: Int = 12
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).
@@ -220,7 +240,9 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_values: move values,
                 static_parts: Vector<EvalValue>(), main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
                 length_item: -1, exec_item: -1, spawn_box_item: -1, spawn_background_item: -1,
-                spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(), drive_item: -1,
+                spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(),
+                thread_started_item: -1, thread_spawns: Vector<MonoThreadSpawn>(), thread_spawn_of: Vector<Int>(),
+                drive_item: -1,
                 drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,
                 equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
@@ -404,6 +426,53 @@ extension MonoProgram {
             try! self.spawn_handle_items.push(-1)
         }
         self.spawn_handle_items[c] = item
+    }
+
+    // The index in `thread_spawns` of what concrete `Thread.spawn` call `c`
+    // lowers through, or -1.
+    public func thread_spawn_at(&self, c: Int) -> Int {
+        if c < 0 || c >= self.thread_spawn_of.len() {
+            return -1
+        }
+        self.thread_spawn_of[c]
+    }
+
+    public func set_thread_spawn(&var self, c: Int, site: MonoThreadSpawn) {
+        while self.thread_spawn_of.len() <= c {
+            try! self.thread_spawn_of.push(-1)
+        }
+        let at = self.thread_spawns.len()
+        self.thread_spawn_of[c] = at
+        try! self.thread_spawns.push(site)
+    }
+
+    // Whether item `k` runs on a `Thread.spawn` thread with no executor: a
+    // brace's body, or a helper such a body reaches through a call that
+    // suspends only by `blocking`, specialized apart from its ordinary item.
+    // A `blocking` extern is a plain call in one (`thread_plain_call`).
+    public func is_thread_item(&self, k: Int) -> Bool {
+        if k < 0 || k >= self.items.len() || self.items[k].kind != MonoItemKind.Function {
+            return false
+        }
+        let source = self.items[k].source
+        self.dp.bc.mir.thread_body(source) || self.thread_keyed(k)
+    }
+
+    // Whether item `k` is a helper's thread-context item, a separate item from
+    // its ordinary one.
+    public func thread_keyed(&self, k: Int) -> Bool {
+        if k < 0 || k >= self.items.len() || self.items[k].kind != MonoItemKind.Function {
+            return false
+        }
+        let source = self.items[k].source
+        var at = self.by_key.first(source, MONO_KEY_THREAD)
+        while at >= 0 {
+            if self.by_key.value(at) == k {
+                return true
+            }
+            at = self.by_key.following(at)
+        }
+        false
     }
 
     public func set_call_item(&var self, c: Int, item: Int) {

@@ -20,7 +20,7 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
+import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram, MonoThreadSpawn}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout, TargetShape}
 import sawtypecheck.model.{TC_FLAG_VARIADIC}
@@ -136,7 +136,7 @@ extension LlEmitter {
     func call_term(&var self, mono: &var MonoProgram, target: &var Target, c: Int, info: &MirCall) {
         let node = info.node
         match info.kind {
-            case Builtin -> self.builtin(&var mono, &var target, &info),
+            case Builtin -> self.builtin(&var mono, &var target, c, &info),
             case Value -> self.value_call(&var mono, &var target, &info),
             case Lend -> self.refuse_here(&var mono, node, "a lend outside an accessor's split"),
             case _ -> {
@@ -787,13 +787,15 @@ func ll_offload_narrow_text(name: String, word: String, l: &TargetLayout) -> LlO
 // Builtins.
 extension LlEmitter {
     // THE BUILTIN FUNNEL's lowering: each builtin `mono_builtin_supported`
-    // admits, by its fixed lowering.
+    // admits, by its fixed lowering, `c` being the concrete call.
     // ENTRY POINTS:
     //     call_term
-    func builtin(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+    func builtin(&var self, mono: &var MonoProgram, target: &var Target, c: Int, info: &MirCall) {
         let node = info.node
         let name = mono.dp.bc.mir.tc.res.name_text(info.spelling)
-        if name.equals("print") {
+        if name.equals("Thread.spawn") {
+            self.thread_spawn(&var mono, &var target, c, &info)
+        } else if name.equals("print") {
             self.print_call(&var mono, &var target, &info)
         } else if name.equals("panic") {
             self.panic_call(&var mono, &var target, &info, 0, "")
@@ -1304,6 +1306,290 @@ extension LlEmitter {
         try! call.append(")")
         self.assign(call.build())
     }
+}
+
+// The OS-thread engine's spawn (runtime/ABI.md, "Threads"). A `Thread.spawn`
+// site starts its thread on a trampoline of its own, a C-ABI `ptr (ptr)` the
+// runtime calls with the site's control block.
+extension LlEmitter {
+    // THE THREAD SPAWN LOWERING: concrete `Thread.spawn` call `c` (SL-765).
+    // The brace's environment moves from the frame that built it to the
+    // heap, the form's one hidden allocation, a refused one panicking. The
+    // control block, its handshake word already holding its size, takes it,
+    // the live-thread count is raised, and the thread starts on the site's
+    // trampoline. A refused start drops every capture, since the body never
+    // ran to take them, and frees the environment. `Thread<T>.__saw_started`
+    // then settles the seam's status into the site's `Result`: for a refusal
+    // it frees the block, lowers the count and reports the `SystemError`, and
+    // otherwise adopts the handle.
+    // ENTRY POINTS:
+    //     builtin
+    func thread_spawn(&var self, mono: &var MonoProgram, target: &var Target, c: Int, info: &MirCall) {
+        let node = info.node
+        let at = mono.thread_spawn_at(c)
+        let count = mono.thread_started_item
+        if at < 0 || info.dest < 0 || count < 0 {
+            self.refuse_here(&var mono, node, "a `Thread.spawn` site mono did not resolve")
+            return
+        }
+        let site = mono.thread_spawns[at]
+        let env_type = ll_thread_environment(&mono, &site)
+        let el = self.lay_at(&var mono, &var target, env_type, node)
+        let block_pointer = self.item_result(&mono, site.block)
+        let block_type = mono.dp.bc.mir.tc.arg_of(block_pointer, 0)
+        let word = self.word_type(&var mono, &var target, node)
+        let o = mono.dp.bc.mir.lists[info.arg_first]
+        let closure_type = mono.dp.bc.mir.operands[o].ty
+        let closure = self.operand_addr(&var mono, &var target, o, closure_type, node)
+        let frame_env_at = self.offset_addr(closure, target.closure_env_offset())
+        let frame_env = self.load("ptr", frame_env_at)
+        var env = "null"
+        if el.size > 0 {
+            env = self.thread_environment(&var mono, word, &el, node)
+            self.memcpy(env, frame_env, el.size)
+        }
+        let none = Vector<String>()
+        let block = self.call_item_direct(&var mono, &var target, site.block, &none, "", node)
+        let env_slot = self.offset_addr(block, target.member_offset(&var mono.dp.bc.mir.tc, block_type, 1))
+        self.store("ptr", env, env_slot)
+        let _ = self.call_item_direct(&var mono, &var target, count, &none, "", node)
+        let trampoline = self.thread_trampoline(&var mono, &var target, &site, block_type, node)
+        let tid_slot = self.offset_addr(block, target.member_offset(&var mono.dp.bc.mir.tc, block_type, 0))
+        var seam = StringBuilder()
+        try! seam.append("declare ")
+        try! seam.append(word)
+        try! seam.append(" @__saw_rt_thread_spawn(ptr, ptr, ptr)")
+        self.declare("__saw_rt_thread_spawn", seam.build())
+        var call = StringBuilder()
+        try! call.append("call ")
+        try! call.append(word)
+        try! call.append(" @__saw_rt_thread_spawn(ptr ")
+        try! call.append(trampoline)
+        try! call.append(", ptr ")
+        try! call.append(block)
+        try! call.append(", ptr ")
+        try! call.append(tid_slot)
+        try! call.append(")")
+        let status = self.assign(call.build())
+        var test = StringBuilder()
+        try! test.append("icmp eq ")
+        try! test.append(word)
+        try! test.append(" ")
+        try! test.append(status)
+        try! test.append(", 0")
+        let started = self.assign(test.build())
+        let refused = self.new_label("thread.refused")
+        let settled = self.new_label("thread.settled")
+        self.branch(started, settled, refused)
+        self.put_label(refused)
+        if el.size > 0 {
+            self.drop_at(&var mono, env_type, env)
+            self.free_environment(word, &el, env)
+        }
+        self.jump(settled)
+        self.put_label(settled)
+        let dest = self.place_addr(&var mono, &var target, info.dest, node)
+        var args = Vector<String>()
+        try! args.push(ll_spelled("ptr", block))
+        try! args.push(ll_spelled(word, status))
+        let handed = self.call_item_direct(&var mono, &var target, site.started, &args, dest, node)
+        if handed.len() > 0 {
+            let result = self.item_result(&mono, site.started)
+            let rl = self.lay_at(&var mono, &var target, result, node)
+            self.store(ll_value_type(&rl), handed, dest)
+        }
+    }
+
+    // A heap environment of layout `el` for a thread body; returns its
+    // address. A refused allocation panics, an allocation the compiler
+    // inserts having no error channel; the site's `Result` is for the
+    // operating system's refusal of the thread.
+    func thread_environment(&var self, mono: &var MonoProgram, word: String, el: &TargetLayout, node: Int) -> String {
+        var seam = StringBuilder()
+        try! seam.append("declare ptr @__saw_rt_alloc(")
+        try! seam.append(word)
+        try! seam.append(", ")
+        try! seam.append(word)
+        try! seam.append(")")
+        self.declare("__saw_rt_alloc", seam.build())
+        let align = if el.align > 0 { el.align } else { 1 }
+        var call = StringBuilder()
+        try! call.append("call ptr @__saw_rt_alloc(")
+        try! call.append(word)
+        try! call.append(" ")
+        try! call.append(el.size)
+        try! call.append(", ")
+        try! call.append(word)
+        try! call.append(" ")
+        try! call.append(align)
+        try! call.append(")")
+        let env = self.assign(call.build())
+        var test = StringBuilder()
+        try! test.append("icmp ne ptr ")
+        try! test.append(env)
+        try! test.append(", null")
+        let made = self.assign(test.build())
+        let pass = self.new_label("thread.environment")
+        let fail = self.new_label("thread.environment.refused")
+        self.branch(made, pass, fail)
+        self.put_label(fail)
+        var text = StringBuilder()
+        try! text.append("Thread.spawn: allocation of ")
+        try! text.append(el.size)
+        try! text.append(" bytes (align ")
+        try! text.append(align)
+        try! text.append(") failed")
+        let message = self.text_bytes(text.build())
+        self.fail_message(&var mono, node, &message)
+        self.put_label(pass)
+        env
+    }
+
+    // Frees thread environment `env`, of layout `el`, whose captures were
+    // taken or dropped.
+    func free_environment(&var self, word: String, el: &TargetLayout, env: String) {
+        self.declare("__saw_rt_dealloc", ll_thread_dealloc_declaration(word))
+        let text = ll_thread_dealloc_call(word, env, &el)
+        self.put(text)
+    }
+
+    // THE THREAD TRAMPOLINE FUNNEL: the start routine of the threads the
+    // site `site` describes starts, `ptr (ptr %block)`, defined once per
+    // brace body item. It runs the body on the environment the block holds,
+    // the body taking every capture as a parameter, stores the result in the
+    // block, frees the environment, and ends in `Thread<T>.__saw_exit`: the
+    // detach handshake, which destroys the result when the handle detached
+    // first, and the live-thread count's decrement. Returns its symbol.
+    // ENTRY POINTS:
+    //     thread_spawn
+    func thread_trampoline(&var self, mono: &var MonoProgram, target: &var Target, site: &MonoThreadSpawn,
+                           block_type: Int, node: Int) -> String {
+        var symbol = StringBuilder()
+        try! symbol.append("@\"saw thread trampoline ")
+        try! symbol.append(ll_quoted(mono.item_name(site.body)))
+        try! symbol.append("\"")
+        let name = symbol.build()
+        var k = 0
+        while k < self.declared.len() {
+            let one = self.declared.get(k) ?? ""
+            if one.equals(name) {
+                return name
+            }
+            k = k + 1
+        }
+        try! self.declared.push(name)
+        let word = self.word_type(&var mono, &var target, node)
+        let env_type = ll_thread_environment(&mono, &site)
+        let el = self.lay_at(&var mono, &var target, env_type, node)
+        let result_type = self.item_result(&mono, site.body)
+        let rl = self.lay_at(&var mono, &var target, result_type, node)
+        let exit_type = self.item_result(&mono, site.exit)
+        let xl = self.lay_at(&var mono, &var target, exit_type, node)
+        let env_offset = target.member_offset(&var mono.dp.bc.mir.tc, block_type, 1)
+        // A zero-sized result has no slot to store into.
+        let result_offset = target.member_offset(&var mono.dp.bc.mir.tc, block_type, 3)
+        let result_at = if result_offset > 0 { result_offset } else { 0 }
+        var text = StringBuilder()
+        try! text.append("define internal ptr ")
+        try! text.append(name)
+        try! text.append("(ptr %block)")
+        try! text.append(ll_function_attributes(""))
+        try! text.append(" \{\nentry:\n  %env.at = getelementptr i8, ptr %block, i64 ")
+        try! text.append(env_offset)
+        try! text.append("\n  %env = load ptr, ptr %env.at\n  %result.at = getelementptr i8, ptr %block, i64 ")
+        try! text.append(result_at)
+        try! text.append("\n")
+        var args = StringBuilder()
+        let sret = rl.kind == TargetKind.Memory
+        if sret {
+            try! args.append("ptr %result.at")
+        }
+        if ll_is_scalar(&el) {
+            try! text.append("  %env.value = load ")
+            try! text.append(ll_value_type(&el))
+            try! text.append(", ptr %env\n")
+            if sret {
+                try! args.append(", ")
+            }
+            try! args.append(ll_value_type(&el))
+            try! args.append(" %env.value")
+        } else if el.kind == TargetKind.Memory {
+            if sret {
+                try! args.append(", ")
+            }
+            try! args.append("ptr %env")
+        }
+        try! text.append("  ")
+        if ll_is_scalar(&rl) {
+            try! text.append("%value = call ")
+            try! text.append(ll_value_type(&rl))
+        } else {
+            try! text.append("call void")
+        }
+        try! text.append(" ")
+        try! text.append(ll_symbol(&mono, site.body))
+        try! text.append("(")
+        try! text.append(args.build())
+        try! text.append(")\n")
+        if ll_is_scalar(&rl) {
+            try! text.append("  store ")
+            try! text.append(ll_value_type(&rl))
+            try! text.append(" %value, ptr %result.at\n")
+        }
+        if el.size > 0 {
+            self.declare("__saw_rt_dealloc", ll_thread_dealloc_declaration(word))
+            try! text.append("  ")
+            try! text.append(ll_thread_dealloc_call(word, "%env", &el))
+            try! text.append("\n")
+        }
+        try! text.append("  ")
+        if ll_is_scalar(&xl) {
+            try! text.append("%exited = call ")
+            try! text.append(ll_value_type(&xl))
+        } else {
+            try! text.append("call void")
+        }
+        try! text.append(" ")
+        try! text.append(ll_symbol(&mono, site.exit))
+        try! text.append("(ptr %block)\n  ret ptr null\n\}\n\n")
+        try! self.defs.append(text.build())
+        name
+    }
+}
+
+// The type of the environment a thread spawn's brace body takes by value.
+func ll_thread_environment(mono: &MonoProgram, site: &MonoThreadSpawn) -> Int {
+    let body = mono.items[site.body].body
+    let first = mono.dp.bc.mir.funcs[body].local_first
+    mono.dp.bc.mir.locals[first + 1].ty
+}
+
+// The runtime's deallocation seam, declared with `word` sizes.
+func ll_thread_dealloc_declaration(word: String) -> String {
+    var out = StringBuilder()
+    try! out.append("declare void @__saw_rt_dealloc(ptr, ")
+    try! out.append(word)
+    try! out.append(", ")
+    try! out.append(word)
+    try! out.append(")")
+    out.build()
+}
+
+// The instruction freeing thread environment `env` of layout `el`.
+func ll_thread_dealloc_call(word: String, env: String, el: &TargetLayout) -> String {
+    var out = StringBuilder()
+    try! out.append("call void @__saw_rt_dealloc(ptr ")
+    try! out.append(env)
+    try! out.append(", ")
+    try! out.append(word)
+    try! out.append(" ")
+    try! out.append(el.size)
+    try! out.append(", ")
+    try! out.append(word)
+    try! out.append(" ")
+    try! out.append(if el.align > 0 { el.align } else { 1 })
+    try! out.append(")")
+    out.build()
 }
 
 // MIR block `b`'s label.

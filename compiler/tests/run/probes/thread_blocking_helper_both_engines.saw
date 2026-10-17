@@ -1,0 +1,30 @@
+// probe: stated
+// about: one helper around a `blocking` extern serves both engines: a `Thread.spawn` body calls it plainly, and a suspending `main` offloads the same call (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse (SL-765 Q1 (b)); with its infallible spawn it refuses the helper's call in the brace, "a closure body is not driven", once `main` is driven
+// speeds: -O0 -O2
+// ll defines: saw thread_blocking_helper_both_engines.nap_helper(ms: Int) thread
+// ll defines: saw resume thread_blocking_helper_both_engines.nap_helper(ms: Int)
+// prints: thread napped 2
+// The helper has two items: the thread's, a plain function whose extern call
+// blocks the thread, and the ordinary one, a frame that parks on the
+// offload. `main` calls the ordinary one on a branch it never takes, since
+// an offload's completion is SL:coroutines A14b's.
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+static NEVER: Atomic<Int> = Atomic(0)
+
+func nap_helper(ms: Int) -> Int {
+    __saw_rt_blocking_sleep(ms)
+}
+
+func main() {
+    let two = 2
+    var worker = try! Thread.spawn { [two] in nap_helper(two) }
+    print("thread napped {}", worker.join())
+    if NEVER.load() != 0 {
+        print("main napped {}", nap_helper(3))
+    }
+}

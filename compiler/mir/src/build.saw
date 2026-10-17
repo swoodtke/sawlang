@@ -5,7 +5,7 @@
 // diverging expression leaves nothing behind.
 
 import sawmir.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag,
-                         MirDriveForm, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
+                         MirDriveForm, MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
                          MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind, MirSuspend,
                          MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirLoop, MirProgram, MirScopeEntry}
@@ -13,9 +13,10 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
+import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
-import sawtypecheck.model.{TcSource, TcUse}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TcSource, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -764,6 +765,40 @@ extension MirProgram {
         cap.use == TcUse.Move && self.owns(cap.ty)
     }
 
+    // Whether function `f`, a source function or a concrete copy of one, is
+    // a `Thread.spawn` brace's body. It runs once, on a thread of its own with
+    // no executor: it takes its environment by value, moving every capture
+    // out as a parameter, and a `blocking` extern is a plain call there.
+    //
+    // ENTRY POINTS (thread_body):
+    //     lower_closure
+    //     suspension
+    //     resolve_closure
+    public func thread_body(&self, f: Int) -> Bool {
+        if f < 0 || f >= self.funcs.len() {
+            return false
+        }
+        let info = self.funcs[f]
+        info.kind == MirFuncKind.Closure && tc_contains(&self.tc.thread_braces, info.root)
+    }
+
+    // THE THREAD PLAIN-CALL RULE: whether a call whose summary evaluates to
+    // `acc` is a plain call rather than a suspension point, where `threaded`
+    // says the code runs on a `Thread.spawn` thread. Such a thread blocks on
+    // a `blocking` extern, reached directly or through a helper, since it has
+    // no task to park (spec, The thread body); typecheck refuses every other
+    // cause there. The rule is keyed by function in a brace's own body
+    // (`thread_body`), whose MIR is only ever a thread's, and by item in a
+    // helper, whose MIR is shared with its cooperative callers
+    // (`is_thread_item`).
+    // ENTRY POINTS:
+    //     suspension
+    //     verify_suspension
+    //     copy_call
+    public func thread_plain_call(&self, threaded: Bool, acc: &TcAcc) -> Bool {
+        threaded && acc.suspends && acc.causes == TC_CAUSE_BLOCKING
+    }
+
     // Statements.
 
     public func assign(&var self, p: Int, rv: Int) {
@@ -1026,6 +1061,11 @@ extension MirProgram {
         let owner = self.funcs[self.cur].owner
         var acc = TcAcc(owner: owner, unit: -1)
         self.call_effect(e, &c, &var acc)
+        let f = self.cur
+        let threaded = self.thread_body(f)
+        if self.thread_plain_call(threaded, &acc) {
+            return
+        }
         if acc.suspends {
             c.suspend = MirSuspend.Always
             return

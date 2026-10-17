@@ -120,7 +120,10 @@ extension LlEmitter {
         let body = mono.items[item].body
         let env_local = mono.dp.bc.mir.funcs[body].local_first + 1
         let env_ref = mono.dp.bc.mir.locals[env_local].ty
-        let env_type = mono.dp.bc.mir.tc.referent(env_ref)
+        // A thread body takes its environment by value; its spawn site moves
+        // this one to the heap (`thread_spawn`).
+        let referent = mono.dp.bc.mir.tc.referent(env_ref)
+        let env_type = if referent >= 0 { referent } else { env_ref }
         let env_layout = self.lay_at(&var mono, &var target, env_type, node)
         let env = self.slot(env_layout.size, env_layout.align)
         var k = 0

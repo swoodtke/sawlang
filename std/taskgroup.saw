@@ -992,19 +992,18 @@ func poke_reactor() {
 // handshake with `idle` needs it (`poke_reactor`).
 static LIVE_THREADS: Atomic<Int> = Atomic(0)
 
-/// Counts one more running `Thread.spawn` body: the spawn lowering's call,
-/// made before the thread is started.
-///
-/// A spawn the operating system refuses takes it back with
-/// `__saw_exec_thread_finished`.
-public func __saw_exec_thread_started() {
+// Counts one more running `Thread.spawn` body: the spawn lowering's call,
+// made before the thread is started. Only that lowering moves the count. A
+// spawn the operating system refuses takes it back with
+// `__saw_exec_thread_finished`.
+public(package) func __saw_exec_thread_started() {
     let _ = LIVE_THREADS.fetch_add(1)
 }
 
-/// Counts one running `Thread.spawn` body fewer, then wakes an executor blocked
-/// in the reactor's poll so its deadlock walk looks again: the last call a
-/// spawned thread makes, after its body's effects.
-public func __saw_exec_thread_finished() {
+// Counts one running `Thread.spawn` body fewer, then wakes an executor blocked
+// in the reactor's poll so its deadlock walk looks again: the last call a
+// spawned thread makes, after its body's effects.
+public(package) func __saw_exec_thread_finished() {
     // Sequentially consistent, so at least a release of everything the body
     // did, and ordered ahead of the poke's read (`poke_reactor`).
     let _ = LIVE_THREADS.fetch_add(-1)

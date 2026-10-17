@@ -1,9 +1,8 @@
 the detach handshake, both orders
 result 1 destroyed
-detach then exit: the detach freed 0 and left the word at 0
-detach then exit: the exit freed 1 and says true
+detach then exit: the result was destroyed once
 result 2 destroyed
-exit then detach: the exit freed 0 and says false
-exit then detach: the word holds the negated size: true
-exit then detach: the detach freed 1
-exit then join: the exit says false, the join took 9 and freed 1
+exit then detach: the result was destroyed once
+joined result 3
+result 3 destroyed
+results destroyed: 3

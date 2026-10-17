@@ -613,7 +613,11 @@ extension MirProgram {
         }
         let none = Vector<Int>()
         let env_tuple = self.tc.mk_tuple(&elements, &none)
-        let env_type = self.tc.mk_ref(false, env_tuple)
+        // A thread body runs once and owns what it captured, so it takes its
+        // environment by value (`thread_body`).
+        let f = self.cur
+        let thread = self.thread_body(f)
+        let env_type = if thread { env_tuple } else { self.tc.mk_ref(false, env_tuple) }
         let env = self.new_local(env_type, MirLocalKind.Env, -1, -1)
         let n = self.tc.child_count(e)
         j = 0
@@ -633,11 +637,27 @@ extension MirProgram {
             let et = elements[j]
             let name = self.capture_name(m, cap.binding)
             let env_place = self.place_local(env)
-            let whole = self.project(env_place, MirProjKind.Deref, -1, -1, env_tuple)
+            var whole = env_place
+            if not thread {
+                whole = self.project(env_place, MirProjKind.Deref, -1, -1, env_tuple)
+            }
             let part = self.project(whole, MirProjKind.Tuple, -1, j, et)
             // A reborrowed reference is held as the reference parameter is,
             // its name the reference itself.
             let borrowed = (cap.use == TcUse.Borrow || cap.use == TcUse.BorrowVar) && not self.reborrow_capture(&cap)
+            // The capture list is the thread body's parameter list: each
+            // entry moves out of the environment into a local the body owns,
+            // which it may consume (spec, The spawn brace's capture list).
+            if thread && not borrowed {
+                let owned = self.new_local(et, MirLocalKind.User, name, cap.binding)
+                let value = self.op_move(part)
+                let taken = self.rv_use(value)
+                self.assign_local(owned, taken)
+                self.bind_leaf(cap.binding, owned)
+                self.scope_owned(owned)
+                j = j + 1
+                continue
+            }
             if takes[j] {
                 self.load_take_capture(&cap, part, name)
                 j = j + 1

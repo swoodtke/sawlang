@@ -27,7 +27,9 @@
 //!
 //! `receive` suspends the task, never the thread: a waiting receiver parks on
 //! the channel's readiness word and costs nothing until a `send` or a `close`
-//! on that channel sets it. Disconnection is explicit, since a handle carries
+//! on that channel sets it. `recv` is the thread engine's receive, for a
+//! `Thread.spawn` body or a `main` that runs no executor: it blocks the
+//! calling thread instead. Disconnection is explicit, since a handle carries
 //! no sender or receiver role and so no count of producers exists: a channel
 //! nobody closes and nobody sends to is a deadlock.
 
@@ -39,12 +41,28 @@ extern "C" {
     // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
     func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
     func __saw_rt_lock_release(state: UnsafePointer<Int>)
+    // 0, or the negated portable tag of a refused initialization
+    // (runtime/ABI.md).
+    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_last_raw_code() -> Int
+    func pthread_mutex_lock(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_mutex_unlock(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_mutex_destroy(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>) -> Int32
+    func pthread_cond_broadcast(c: UnsafePointer<UInt8>) -> Int32
+    func pthread_cond_destroy(c: UnsafePointer<UInt8>) -> Int32
 }
 
 // The block and every queue node are allocated at this alignment, which no
 // message type exceeds. A refused allocation reports the request as made:
 // the size is the node's or the block's own `sizeof`.
 static CHANNEL_ALIGN: Int = 16
+
+// A thread blocked in `recv` waits on a mutex and a condition variable, each
+// in a conservative slot of this many bytes: `pthread_mutex_t` is 64 bytes
+// at most on the hosted targets, and `pthread_cond_t` 48 (runtime/ABI.md).
+static CHANNEL_GATE_SLOT: Int = 64
 
 // The block every handle of one channel points at. Every field but
 // `refcount` is read and written under `lock`; `refcount` is atomic.
@@ -55,6 +73,10 @@ static CHANNEL_ALIGN: Int = 16
 // `ready != 0` exactly when `count > 0` or `closed` (design 230).
 //
 // `head` and `tail` are meaningful only while `count > 0`.
+//
+// `gate` is the mutex and condition variable a thread blocked in `recv`
+// waits on, made by the first `recv` that waits, or null; `waiters` counts
+// the threads waiting there, and is atomic (`wait_ready`).
 struct ChannelBlock<T> {
     lock: Int
     refcount: Int
@@ -63,6 +85,8 @@ struct ChannelBlock<T> {
     tail: UnsafePointer<ChannelNode<T>>
     ready: Int
     closed: Bool
+    gate: UnsafePointer<UInt8>
+    waiters: Int
 }
 
 // One queued message. `next` is meaningful only for a node that is not the
@@ -144,7 +168,7 @@ extension Channel<T: Send> {
         let block = raw as UnsafePointer<ChannelBlock<T>>
         let none = 0 as UnsafePointer<ChannelNode<T>>
         block[0] = ChannelBlock<T>(lock: 0, refcount: 1, count: 0, head: none, tail: none, ready: 0,
-                                   closed: false)
+                                   closed: false, gate: 0 as UnsafePointer<UInt8>, waiters: 0)
         Channel<T>(block: block)
     }
 
@@ -177,6 +201,7 @@ extension Channel<T: Send> {
         self.publish_ready()
         self.unlock_queue()
         __saw_exec_chan_wake()
+        self.wake_threads()
         return
     }
 
@@ -221,6 +246,102 @@ extension Channel<T: Send> {
             __saw_park_channel(self.park_word())
         }
         return ChannelError.Cancelled
+    }
+
+    /// Takes the next message, blocking the calling thread while the queue is
+    /// empty.
+    ///
+    /// This is the thread engine's receive, for a `Thread.spawn` body or a
+    /// `main` that runs no executor; `receive()` is the cooperative twin,
+    /// which suspends the task instead. Never call it from a cooperative
+    /// task: the thread it blocks is the executor's, so every sibling task
+    /// stops with it, the one that would have sent the message included.
+    /// Nothing in the type system prevents the call.
+    ///
+    /// Panics on a channel that is closed and drained, since this signature
+    /// has no error to report it with, and blocking forever on a channel that
+    /// has said it is finished is what the panic replaces. Panics, too, if
+    /// the operating system refuses the condition variable the first wait
+    /// needs, naming the cause.
+    public func recv(&self) unsafe -> T {
+        var drained = false
+        var got = self.take(&var drained)
+        while got.is_none() && not drained {
+            self.wait_ready()
+            got = self.take(&var drained)
+        }
+        guard let v = move got else {
+            panic("Channel.recv: channel is closed and drained")
+        }
+        move v
+    }
+
+    // Blocks this thread until the readiness word is set. The waiter counts
+    // itself and then reads the word, and a writer publishes the word and
+    // then reads the count (`wake_threads`), all sequentially consistent, so
+    // a writer that counts no waiter wrote a word the waiter's read sees. A
+    // writer that counts one broadcasts under the gate's mutex, which the
+    // waiter holds from its read until the wait releases it, so the
+    // broadcast cannot fall between the two.
+    func wait_ready(&self) unsafe {
+        let block = self.block
+        let gate = self.open_gate()
+        let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
+        let waiters = (&block[0].waiters) as UnsafePointer<Int>
+        let word = (&block[0].ready) as UnsafePointer<Int>
+        let _ = pthread_mutex_lock(gate)
+        let _ = __saw_atomic_add_i64_seq_cst(waiters, 1)
+        while __saw_atomic_load_i64_seq_cst(word) == 0 {
+            let _ = pthread_cond_wait(cond, gate)
+        }
+        let _ = __saw_atomic_add_i64_seq_cst(waiters, -1)
+        let _ = pthread_mutex_unlock(gate)
+    }
+
+    // The gate `recv` waits on, made under the queue's lock by the first
+    // wait. Its store happens before that waiter counts itself, so a writer
+    // that counts a waiter finds the gate made.
+    func open_gate(&self) unsafe -> UnsafePointer<UInt8> {
+        let block = self.block
+        self.lock_queue()
+        if (block[0].gate as Int) == 0 {
+            let size = 2 * CHANNEL_GATE_SLOT
+            guard let raw = GlobalAllocator().alloc(size, CHANNEL_ALIGN) else {
+                panic("Channel.recv: {}", AllocError(size: size, align: CHANNEL_ALIGN))
+            }
+            let gate = raw as UnsafePointer<UInt8>
+            if __saw_rt_pthread_mutex_init_default(gate) != 0 {
+                panic("Channel.recv: initializing its mutex failed (errno {})", __saw_rt_last_raw_code())
+            }
+            let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
+            if __saw_rt_pthread_cond_init_default(cond) != 0 {
+                panic("Channel.recv: initializing its condition variable failed (errno {})",
+                      __saw_rt_last_raw_code())
+            }
+            block[0].gate = gate
+        }
+        let made = block[0].gate
+        self.unlock_queue()
+        made
+    }
+
+    // Wakes every thread blocked in `recv` on this channel, after a change
+    // to the readiness word: nothing to do unless one waits (`wait_ready`).
+    //
+    // ENTRY POINTS:
+    //   close
+    //   enqueue
+    func wake_threads(&self) unsafe {
+        let block = self.block
+        let waiters = (&block[0].waiters) as UnsafePointer<Int>
+        if __saw_atomic_load_i64_seq_cst(waiters) == 0 {
+            return
+        }
+        let gate = block[0].gate
+        let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
+        let _ = pthread_mutex_lock(gate)
+        let _ = pthread_cond_broadcast(cond)
+        let _ = pthread_mutex_unlock(gate)
     }
 
     // The park word a receiver records: the readiness word's negated address.
@@ -284,6 +405,7 @@ extension Channel<T: Send> {
         // A receiver's executor may be blocked in the reactor's poll on
         // another thread, and sees the word only once that wait ends.
         __saw_exec_chan_wake()
+        self.wake_threads()
         return
     }
 
@@ -344,6 +466,13 @@ extension Channel<T: Send>: Copy {
                     block[0].head = node[0].next
                 }
                 free_node(node)
+            }
+            let gate = block[0].gate
+            if (gate as Int) != 0 {
+                let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
+                let _ = pthread_cond_destroy(cond)
+                let _ = pthread_mutex_destroy(gate)
+                GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, 2 * CHANNEL_GATE_SLOT, CHANNEL_ALIGN)
             }
             GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ChannelBlock<T>>(),
                                       CHANNEL_ALIGN)

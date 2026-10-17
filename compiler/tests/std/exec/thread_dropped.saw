@@ -2,16 +2,28 @@
 // A `Thread<T>` handle whose fate was never written panics when it is
 // destroyed, with the spec's text, rather than joining: dropping the handle
 // is not one of the fates (LANGUAGE_SPEC, "No implicit fates"). The handle
-// is adopted over a hand-built control block with no thread behind it, since
-// its destructor reads nothing but its own fate.
+// reaches its destructor through the one gap the static check leaves: an
+// owner that declares a `deinit` discharges the obligation, and this one
+// forgets the handle it holds.
 import std.task.{Thread}
 
-func abandon() unsafe {
-    let t = Thread<Int>.__saw_adopt(Thread<Int>.__saw_control_block())
+struct Keeper {
+    held: Thread<Int>?
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func abandon() {
+    var keeper = Keeper(held: None)
+    var t = try! Thread.spawn { 7 }
+    keeper.held = move t
     print("handle made")
 }
 
-func main() unsafe {
+func main() {
     abandon()
     print("never reached")
 }

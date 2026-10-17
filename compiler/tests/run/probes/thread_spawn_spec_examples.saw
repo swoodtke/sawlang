@@ -1,0 +1,89 @@
+// probe: stated
+// about: the spec's `Thread.spawn` examples run: a joined result, a channel fed by a thread, the `match` on the spawn's `Result`, a detached thread, a capture list and a `blocking` extern in the body (SL-765)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); written with its infallible spawn, the program prints these lines under it
+// speeds: -O0 -O2
+// prints: worker 6
+// prints: got 42
+// prints: crunched 9
+// prints: compressed 5 bytes
+// prints: detached
+// prints: counted 3
+// prints: slept 1
+// The examples of LANGUAGE_SPEC's "Tasks and Channels", "No implicit fates",
+// "`detach()`", "The spawn brace's capture list" and "The thread body", each
+// with the functions they call written out. The detached thread signals that
+// it ran, so the line after it does not race its body.
+import std.channel.{Channel}
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 1_000_000
+static DETACHED_RAN: Atomic<Int> = Atomic(0)
+
+func heavy_computation() -> Int {
+    var total = 0
+    var i = 1
+    while i <= 3 {
+        total = total + i
+        i = i + 1
+    }
+    total
+}
+
+func crunch(n: Int) -> Int {
+    n * n
+}
+
+func compress(job: String) -> Int {
+    job.len()
+}
+
+func main() {
+    var computing = try! Thread.spawn {
+        heavy_computation()
+    }
+    let result = computing.join()
+    print("worker {}", result)
+
+    let ch = try! Channel<Int>()
+    var producer = try! Thread.spawn { [ch] in
+        try! ch.send(42)
+        true
+    }
+    let got = ch.recv()
+    let _ = producer.join()
+    print("got {}", got)
+
+    let n = 3
+    var t = try! Thread.spawn { [n] in crunch(n) }
+    print("crunched {}", t.join())
+
+    let job = "bytes"
+    match Thread.spawn({ [job] in compress(job) }) {
+        case Ok(worker) -> {
+            var w = move worker
+            print("compressed {w.join()} bytes")
+        },
+        case Err(e) -> print("no thread: {e}")
+    }
+
+    var detached = try! Thread.spawn {
+        DETACHED_RAN.store(1)
+    }
+    detached.detach()
+    while DETACHED_RAN.load() == 0 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    print("detached")
+
+    let count = 3
+    var counted = try! Thread.spawn { [count] in count }
+    print("counted {}", counted.join())
+
+    let ms = 1
+    var sleeper = try! Thread.spawn { [ms] in __saw_rt_blocking_sleep(ms) }
+    print("slept {}", sleeper.join())
+}
