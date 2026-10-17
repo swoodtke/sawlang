@@ -1101,8 +1101,10 @@ depends on. The boundary (codex t19):
   lane fails when it grows without review.
 - **The new std's language is the subset plus a short, named list of low-level
   features:** raw memory and pointers for buffers, allocator parameters, the
-  runtime's extern seams, and `borrows` accessors with `lend`. The bootstrap
-  slice implements exactly that union.
+  runtime's extern seams, and `borrows` accessors with `lend`; and, for the
+  `threads: N` pool's workers, the `Thread.spawn` brace's capture list, which
+  is that brace's parameter list (an ordinary closure still captures nothing;
+  SL-578). The bootstrap slice implements exactly that union.
 - **The cone gets its own hazard review.** Once pointers and accessors enter
   through std, bans on the compiler's source alone no longer show that hazards
   such as S15 are unreachable in the bootstrap build. The `sawc/std` bodies
