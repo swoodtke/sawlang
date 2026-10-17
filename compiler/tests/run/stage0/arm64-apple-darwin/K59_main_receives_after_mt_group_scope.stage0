@@ -1,0 +1,7 @@
+program	compiler/tests/run/K59_main_receives_after_mt_group_scope.saw
+triple	arm64-apple-darwin
+source	ff0339363afd008f
+build	ok
+exit	0
+stdout	"main got 8"
+stdout	""

@@ -1,0 +1,9 @@
+program	compiler/tests/run/while_let_suspending_mt.saw
+triple	aarch64-unknown-linux-gnu
+source	afcb03402e0d0e76
+build	ok
+exit	0
+stdout	"6"
+stdout	"12"
+stdout	"18"
+stdout	""

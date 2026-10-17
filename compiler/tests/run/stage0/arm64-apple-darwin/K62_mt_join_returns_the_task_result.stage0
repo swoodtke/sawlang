@@ -1,0 +1,7 @@
+program	compiler/tests/run/K62_mt_join_returns_the_task_result.saw
+triple	arm64-apple-darwin
+source	2a4e618eaa8d3ecf
+build	ok
+exit	0
+stdout	"total 30"
+stdout	""

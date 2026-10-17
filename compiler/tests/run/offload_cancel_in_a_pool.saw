@@ -1,0 +1,67 @@
+// A task of a `threads: 2` pool cancelled while its offloaded C call is in
+// flight (SL:coroutines R6, under the pool): the worker that resumes the
+// cancelled task runs the take, which waits for the call to return, and only
+// then can the task finish; its frame is freed by that same worker's
+// completion, after `Ready`, so the storage the call writes through is
+// allocated until the call is done with it. No other worker can resume or
+// free the frame meanwhile, since its slot is claimed for the whole resume.
+//
+// `poll` on one entry with no descriptor (-1) waits out its whole timeout,
+// then writes the entry's `revents`, 0, into this task's frame: the write
+// lands at the end of the call, long after the cancel, so a frame released
+// early takes it in freed memory, which the gmgate lane faults on. The task
+// raises a flag just before the call and `main` cancels once it sees it, so
+// the cancel lands while the call is in flight. The `Held` oracle drops once,
+// when the task finishes, before `join()` returns.
+import std.task.{yield_now}
+
+struct PollEntry {
+    fd: Int32
+    events: Int16
+    revents: Int16
+}
+
+extern "C" {
+    blocking func poll(entries: UnsafePointer<Int8>, count: Int, timeout_ms: Int32) -> Int32
+}
+
+static NO_DESCRIPTOR: Int32 = -1
+static UNWRITTEN: Int16 = 99
+static NAP_MS: Int32 = 400
+
+static CALLING: Atomic<Int> = Atomic(0)
+
+struct Held {
+    name: String
+}
+
+extension Held: NoCopy {
+    func deinit(&var self) {
+        print("{} dropped", self.name)
+    }
+}
+
+func worker() unsafe -> Int {
+    let held = Held(name: "worker's value")
+    var entry = PollEntry(fd: NO_DESCRIPTOR, events: 0, revents: UNWRITTEN)
+    print("worker: calling poll")
+    CALLING.store(1)
+    let ready = poll((&entry) as UnsafePointer<Int8>, 1, NAP_MS)
+    print("worker: poll returned {}, revents {}", ready, entry.revents)
+    if cancelled() {
+        print("worker: cancelled")
+        return 1
+    }
+    0
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(worker())
+    while CALLING.load() == 0 {
+        yield_now()
+    }
+    print("main: cancelling the worker during its call")
+    h.cancel()
+    print("main: joined {}", h.join())
+}

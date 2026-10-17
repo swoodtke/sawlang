@@ -1,0 +1,7 @@
+program	compiler/tests/run/K55_mt_same_group_send_and_receive.saw
+triple	arm64-apple-darwin
+source	589ded4d4d4110dd
+build	ok
+exit	0
+stdout	"relayed 9"
+stdout	""

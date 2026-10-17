@@ -1,0 +1,7 @@
+program	compiler/tests/run/K52_mt_two_workers_deliver_before_join.saw
+triple	arm64-apple-darwin
+source	440b81b8a751af1f
+build	ok
+exit	0
+stdout	"main got 30"
+stdout	""

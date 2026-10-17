@@ -1,0 +1,7 @@
+program	compiler/tests/run/taskgroup_threads_send_accept.saw
+triple	arm64-apple-darwin
+source	138e15331adc90bb
+build	ok
+exit	0
+stdout	"60"
+stdout	""

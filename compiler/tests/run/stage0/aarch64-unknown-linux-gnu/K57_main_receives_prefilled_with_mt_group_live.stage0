@@ -1,0 +1,7 @@
+program	compiler/tests/run/K57_main_receives_prefilled_with_mt_group_live.saw
+triple	aarch64-unknown-linux-gnu
+source	df740661229643a5
+build	ok
+exit	0
+stdout	"main got 2"
+stdout	""

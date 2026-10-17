@@ -1,0 +1,7 @@
+program	compiler/tests/run/K48_mt_group_task_runs_before_join.saw
+triple	arm64-apple-darwin
+source	04f6d8ba306573a7
+build	ok
+exit	0
+stdout	"main got 3"
+stdout	""

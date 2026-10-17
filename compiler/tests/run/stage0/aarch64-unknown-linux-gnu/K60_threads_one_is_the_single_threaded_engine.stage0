@@ -1,0 +1,7 @@
+program	compiler/tests/run/K60_threads_one_is_the_single_threaded_engine.saw
+triple	aarch64-unknown-linux-gnu
+source	5f541d6e2e015539
+build	ok
+exit	0
+stdout	"main got 3"
+stdout	""

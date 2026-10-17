@@ -7,8 +7,31 @@
 //! frame's storage once its root returns `Poll.Ready`. The result and the
 //! cancel word live in the task's cell, which outlives the frame, so a handle
 //! never addresses the frame itself.
+//!
+//! A group made with `TaskGroup(threads: N)`, N of two or more, is a worker
+//! pool instead: N `Thread.spawn` workers serve its run queue from its first
+//! spawn until its teardown, and the shared sweep leaves its frames alone.
 
 import std.mem.{copy_bytes, drop_in_place}
+import std.task.{Thread}
+
+// A pool's run-queue lock and its idle workers' condition variable. Both live
+// in one block the group owns, each in a conservative slot: `pthread_mutex_t`
+// is 64 bytes at most on the hosted targets, and `pthread_cond_t` 48
+// (runtime/ABI.md).
+extern "C" {
+    func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_pthread_cond_init_default(c: UnsafePointer<UInt8>) -> Int
+    func pthread_mutex_lock(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_mutex_unlock(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_mutex_destroy(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>) -> Int32
+    func pthread_cond_broadcast(c: UnsafePointer<UInt8>) -> Int32
+    func pthread_cond_destroy(c: UnsafePointer<UInt8>) -> Int32
+}
+
+static QUEUE_GATE_SLOT: Int = 64
+static QUEUE_GATE_ALIGN: Int = 16
 
 extern "C" {
     func __saw_rt_clock_monotonic_nanos() -> Int64
@@ -133,8 +156,9 @@ struct TaskCell {
 
 // One run-queue entry. `generation` is half of the (slot, generation) pair a
 // handle records, so a handle to a task whose slot was reused is recognisably
-// stale. `active` marks a frame being resumed on this thread's stack: a
-// nested sweep skips it, since resuming it would re-enter a live coroutine.
+// stale. `active` marks a frame being resumed: on this thread's stack, where
+// a nested sweep skips it, since resuming it would re-enter a live coroutine;
+// or, in a pool, on a worker, which claimed it under the run-queue lock.
 struct TaskSlot {
     frame: UnsafePointer<UInt8>?
     cell: UnsafePointer<TaskCell>?
@@ -144,6 +168,10 @@ struct TaskSlot {
     // A frame the executor allocated and frees; `main`'s frame is the
     // entry's own.
     owned: Bool
+    // The address of the task's cancel word escaped through `cancel_addr`,
+    // as an `Int` that carries no generation, so the slot keeps its cell for
+    // the group's life and is never reused.
+    pinned: Bool
 }
 
 // The (slot, generation) pair an enqueue hands back.
@@ -155,12 +183,15 @@ struct TaskTicket {
 /// A scope for spawned tasks: every task spawned into a group finishes before
 /// the group is destroyed.
 ///
-/// The group's tasks run on the one cooperative scheduler, beside every other
-/// group's, whenever it runs: under a suspending `main`, at a `join`, at a
-/// group's teardown, and while a test driver waits for its frame's timer. A
-/// group may live in a suspending function's frame and stay there across its
-/// suspensions. It is `NoMove`, because its tasks reach it through its
-/// address.
+/// A group made with `TaskGroup()` runs its tasks on the one cooperative
+/// scheduler, beside every other such group's, whenever it runs: under a
+/// suspending `main`, at a `join`, at a group's teardown, and while a test
+/// driver waits for its frame's timer. A group made with
+/// `TaskGroup(threads: N)`, N of two or more, runs them on a pool of N worker
+/// threads, started at its first spawn, which run alongside the thread that
+/// owns the group until the group is destroyed. A group may live in a
+/// suspending function's frame and stay there across its suspensions. It is
+/// `NoMove`, because its tasks and its workers reach it through its address.
 public struct TaskGroup {
     private slots: Vector<TaskSlot>
     private free: Vector<Int>
@@ -172,9 +203,26 @@ public struct TaskGroup {
     // teardown requires to be none (`check_no_outstanding`). It goes down only
     // when a handle lets go of the result, at its join or its drop
     // (`Task.let_go`), never at `cancel`: a cancelled handle still reaches the
-    // group when it is joined or dropped. Under `threads: N`
-    // it becomes an atomic, read after the workers join (SL:coroutines A17a).
+    // group when it is joined or dropped. Read and written atomically, and
+    // read at the teardown after a pool's workers have joined.
     private outstanding: Int
+    // The pool's worker count; 1 for the cooperative engine.
+    private threads: Int
+    // The address of the pool's run-queue lock and condition variable, or 0
+    // for the cooperative engine, which takes no lock (`queue_mutex`).
+    private lock: Int
+    // Set under the lock: `started` by the first spawn, which then starts the
+    // workers, and `stopping` once, by the teardown, after which a worker
+    // leaves as soon as no task is live.
+    private started: Bool
+    private stopping: Bool
+    // The workers blocked in the reactor's poll rather than on the condition
+    // variable, under the lock: a spawn and a completion poke the reactor
+    // only while one is.
+    private pollers: Int
+    // The workers' handles, joined at the teardown. Only the owning thread
+    // touches them, so they need no lock.
+    private crew: Vector<Thread<Void>>
 }
 
 extension TaskGroup {
@@ -182,13 +230,95 @@ extension TaskGroup {
     /// scheduler.
     public init() -> TaskGroup {
         TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
-                  outstanding: 0)
+                  outstanding: 0, threads: 1, lock: 0, started: false, stopping: false, pollers: 0,
+                  crew: Vector<Thread<Void>>())
+    }
+
+    /// Creates an empty group whose tasks run on a pool of `threads` worker
+    /// threads.
+    ///
+    /// The pool starts at the group's first spawn, so a group that never
+    /// spawns starts no thread, and runs until the group is destroyed. Its
+    /// tasks run alongside the thread that owns the group, in parallel, so
+    /// every value a spawned frame carries must be `Send`. `threads: 1` or
+    /// less is the cooperative engine, exactly as `TaskGroup()` is. Returns
+    /// `Err(AllocError)` if the pool's lock cannot be allocated. A worker
+    /// thread the operating system refuses panics at the first spawn, naming
+    /// the error.
+    public init(threads: Int) unsafe -> Result<TaskGroup, AllocError> {
+        if threads <= 1 {
+            return TaskGroup()
+        }
+        let size = QUEUE_GATE_SLOT * 2
+        guard let raw = GlobalAllocator().alloc(size, QUEUE_GATE_ALIGN) else {
+            return AllocError(size: size, align: QUEUE_GATE_ALIGN)
+        }
+        let gate = raw as UnsafePointer<UInt8>
+        // A refused initialization is no allocation failure, and `AllocError`
+        // is all this constructor reports, so it panics with the cause.
+        if __saw_rt_pthread_mutex_init_default(gate) != 0 {
+            panic("TaskGroup(threads:): initializing its lock failed (errno {})", __saw_rt_last_raw_code())
+        }
+        if __saw_rt_pthread_cond_init_default(gate + QUEUE_GATE_SLOT) != 0 {
+            panic("TaskGroup(threads:): initializing its condition variable failed (errno {})",
+                  __saw_rt_last_raw_code())
+        }
+        return TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
+                         outstanding: 0, threads: threads, lock: raw as Int, started: false,
+                         stopping: false, pollers: 0, crew: Vector<Thread<Void>>())
     }
 
     /// Returns the number of task slots the group holds: its live tasks, plus
-    /// the finished ones whose handle is still waiting to join the result.
+    /// the finished ones whose handle is still waiting to join the result,
+    /// plus those whose cancel address `cancel_addr` handed out, which are
+    /// never reused.
     public func count(&self) -> Int {
-        self.slots.len() - self.free.len()
+        if self.lock == 0 {
+            return self.slots.len() - self.free.len()
+        }
+        queue_count(&self)
+    }
+}
+
+// A pool's `count`, read under its lock.
+func queue_count(group: &TaskGroup) unsafe -> Int {
+    // Through an address, since a worker writes the queue while this reads it.
+    let at = (&group) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
+    lock_queue(at)
+    let n = at[0].slots.len() - at[0].free.len()
+    unlock_queue(at)
+    n
+}
+
+// The run-queue lock and the condition variable beside it, of the pool at
+// `at`.
+func queue_mutex(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
+    at[0].lock as UnsafePointer<UInt8>
+}
+
+func queue_cond(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
+    (at[0].lock + QUEUE_GATE_SLOT) as UnsafePointer<UInt8>
+}
+
+// Takes the run-queue lock of the group at `at`; nothing on the cooperative
+// engine, which has no second thread to take it against. Every read and write
+// of a pool's slots, free list, `started`, `stopping` and `pollers` is made
+// with it held, except the deadlock walk's, which says so.
+//
+// A pool's state is reached through the group's address, never through a
+// `&TaskGroup` or `&var TaskGroup` parameter whose call spans a lock: such a
+// parameter promises that nothing else writes the group while the call runs,
+// and a worker does. A run-queue write that takes one (`place`, `complete`,
+// `recycle`) is called with the lock already held.
+func lock_queue(at: UnsafePointer<TaskGroup>) unsafe {
+    if at[0].lock != 0 {
+        let _ = pthread_mutex_lock(queue_mutex(at))
+    }
+}
+
+func unlock_queue(at: UnsafePointer<TaskGroup>) unsafe {
+    if at[0].lock != 0 {
+        let _ = pthread_mutex_unlock(queue_mutex(at))
     }
 }
 
@@ -200,9 +330,15 @@ extension TaskGroup {
 // instead (SL:coroutines §3.1). The outstanding-handle check sits between the
 // join and the release: a handle a task's own frame held was dropped by that
 // task's code during the join, and nothing a late handle reads is freed yet.
+//
+// A pool's teardown is the same join, made by its workers: it says no more
+// work is coming, the workers finish every live task and leave, and it joins
+// them (`shutdown_crew`). Only then is anything released.
 extension TaskGroup: NoCopy {
     public func deinit(&var self) unsafe {
-        if self.registered {
+        if self.lock != 0 {
+            shutdown_crew((&self) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>)
+        } else if self.registered {
             let me = (&self) as UnsafePointer<TaskGroup> as Int
             exec_run(me, -1, 0)
             if self.has_live() {
@@ -212,6 +348,13 @@ extension TaskGroup: NoCopy {
         check_no_outstanding(&self)
         unregister(&var self)
         release_slots(&var self)
+        if self.lock != 0 {
+            // Every worker has joined, so nothing waits on either.
+            let gate = self.lock as UnsafePointer<UInt8>
+            let _ = pthread_cond_destroy(gate + QUEUE_GATE_SLOT)
+            let _ = pthread_mutex_destroy(gate)
+            GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, QUEUE_GATE_SLOT * 2, QUEUE_GATE_ALIGN)
+        }
     }
 }
 
@@ -224,8 +367,8 @@ extension TaskGroup: NoCopy {
 //
 // ENTRY POINTS:
 //   TaskGroup.deinit
-func check_no_outstanding(group: &TaskGroup) {
-    let n = group.outstanding
+func check_no_outstanding(group: &TaskGroup) unsafe {
+    let n = __saw_atomic_load_i64_seq_cst((&group.outstanding) as UnsafePointer<Int>)
     if n < 0 {
         panic("TaskGroup: a task handle's fate was counted more than once")
     }
@@ -243,8 +386,7 @@ func check_no_outstanding(group: &TaskGroup) {
 // ENTRY POINTS:
 //   Task.__saw_spawn
 func handle_minted(group: UnsafePointer<TaskGroup>) unsafe {
-    var g = group
-    g[0].outstanding += 1
+    let _ = __saw_atomic_add_i64_seq_cst((&group[0].outstanding) as UnsafePointer<Int>, 1)
 }
 
 // A `group.spawn` handle to the group at `group` let go of its task's result.
@@ -254,8 +396,7 @@ func handle_minted(group: UnsafePointer<TaskGroup>) unsafe {
 // ENTRY POINTS:
 //   Task.let_go
 func handle_released(group: UnsafePointer<TaskGroup>) unsafe {
-    var g = group
-    g[0].outstanding -= 1
+    let _ = __saw_atomic_add_i64_seq_cst((&group[0].outstanding) as UnsafePointer<Int>, -1)
 }
 
 // A group is a scope whose tasks hold its address, so it lives where its
@@ -408,7 +549,43 @@ func enqueue(group: &var TaskGroup, descriptor: UnsafePointer<FrameDescriptor>,
              frame: UnsafePointer<UInt8>, owned: Bool) unsafe -> TaskTicket {
     register(&var group)
     let cell = new_cell(descriptor)
-    place(&var group, frame, cell, owned)
+    if group.lock == 0 {
+        return place(&var group, frame, cell, owned)
+    }
+    enqueue_pooled((&group) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>, frame, cell,
+                   owned)
+}
+
+// A pool's enqueue: the slot is placed under the lock, the workers are told,
+// and the first spawn starts them, outside the lock. Only the owning thread
+// spawns into a pool, since a handle or a reference to the group is not
+// `Send`, so `started` needs no compare-and-swap.
+func enqueue_pooled(at: UnsafePointer<TaskGroup>, frame: UnsafePointer<UInt8>, cell: UnsafePointer<TaskCell>,
+                    owned: Bool) unsafe -> TaskTicket {
+    var g = at
+    lock_queue(at)
+    // Stage 0 workaround (SL:hazards S15): canonical: g[0].place(frame, cell, owned)
+    let ticket = place(&var g[0], frame, cell, owned)
+    let start = not g[0].started
+    g[0].started = true
+    let poke = queue_changed(at)
+    unlock_queue(at)
+    if poke {
+        poke_reactor()
+    }
+    if start {
+        start_crew(&var g[0], at as Int)
+    }
+    ticket
+}
+
+// Wakes the pool's workers waiting on its condition variable, with its lock
+// held, after a change one of them may act on, and answers whether a worker
+// is blocked in the reactor's poll instead, which the caller then pokes once
+// the lock is released.
+func queue_changed(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
+    let _ = pthread_cond_broadcast(queue_cond(at))
+    at[0].pollers > 0
 }
 
 // Claims a reclaimed slot, or grows by one. A reused slot keeps the
@@ -425,24 +602,30 @@ func place(group: &var TaskGroup, frame: UnsafePointer<UInt8>, cell: UnsafePoint
         // keeps `recycle` from needing to allocate.
         alloc_or_fault(group.free.reserve(slot + 1), "Task.spawn")
         let fresh = TaskSlot(frame: None, cell: None, generation: 1, done: true, active: false,
-                             owned: false)
+                             owned: false, pinned: false)
         alloc_or_fault(group.slots.push(fresh), "Task.spawn")
     }
     let generation = group.slots[slot].generation
     let entry = TaskSlot(frame: frame, cell: cell, generation: generation, done: false,
-                         active: false, owned: owned)
+                         active: false, owned: owned, pinned: false)
     group.slots[slot] = entry
     TaskTicket(slot: slot, generation: generation)
 }
 
 // Retires `slot`: its generation advances, so every handle to the task that
-// left goes stale, and its cell is freed for the next spawn.
+// left goes stale, and its cell is freed for the next spawn. A pinned slot
+// keeps its cell, its result dropped, and is never reused: a peer may still
+// write the cancel word whose address it was handed (`Task.cancel_addr`).
 func recycle(group: &var TaskGroup, slot: Int) unsafe {
     let cell = group.cell_at(slot)
-    free_cell(cell)
     let next = group.slots[slot].generation + 1
-    group.slots[slot].cell = None
     group.slots[slot].generation = next
+    if group.slots[slot].pinned {
+        drop_held_result(cell)
+        return
+    }
+    free_cell(cell)
+    group.slots[slot].cell = None
     alloc_or_fault(group.free.push(slot), "Task.spawn")
 }
 
@@ -527,8 +710,9 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 // descriptor park whose deadline has passed; and when it is a channel's
 // readiness word that is set.
 //
-// The readiness word is read atomically: a `Thread.spawn` body may set it from
-// another thread, and this load pairs with `publish_ready`'s store, so a set
+// The readiness word is read atomically: a `Thread.spawn` body or a pool
+// worker may set it from another thread, and this load pairs with
+// `publish_ready`'s store, so a set
 // word brings the message's queue writes with it. Both are sequentially
 // consistent, which the poke handshake also needs (`poke_reactor`).
 //
@@ -548,7 +732,7 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 //   should_stop (a drive point's own park)
 //   idle
 func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
-    let park = cx[0].park[0]
+    let park = park_word(cx)
     if park == PARK_READY || cx[0].cancel[0] {
         return true
     }
@@ -561,6 +745,13 @@ func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
         return __saw_atomic_load_i64_seq_cst(word) != 0
     }
     park == PARK_TIMER && monotonic_now() >= cx[0].deadline
+}
+
+// The park word recorded through `cx`, read atomically: the reactor's poll
+// latches a descriptor park from whichever thread polls, a pool worker's
+// among them.
+func park_word(cx: UnsafePointer<TaskContext>) unsafe -> Int {
+    __saw_atomic_load_i64_seq_cst(cx[0].park)
 }
 
 func monotonic_now() -> UInt64 {
@@ -678,7 +869,7 @@ func should_stop(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) un
     var cur = EXEC_HEAD.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        if g[0].has_live() {
+        if g[0].lock == 0 && g[0].has_live() {
             return false
         }
         cur = g[0].next
@@ -692,22 +883,36 @@ func exec_run(term_group: Int, term_slot: Int, term_gen: Int) unsafe {
     sweep(term_group, term_slot, term_gen, 0)
 }
 
+// How many times a thread has handed itself to the executor and is waiting
+// there: in a sweep, in a pool's join, or in a pool's teardown. These nest, so
+// it is a depth. The deadlock walk run on a pool worker reads it, because
+// nothing in a run queue says whether the thread that owns the groups is
+// running code of its own, which could send, or waiting (`quiescent_now`).
+static IN_EXECUTOR: Atomic<Int> = Atomic(0)
+
 // The scheduler sweep, shared by every drive point: resumes woken frames
-// round-robin across every group in the ambient list until `should_stop` says
-// the sweep is finished, and when a pass wakes nothing, waits for the earliest
-// timer (`idle`).
+// round-robin across every cooperative group in the ambient list until
+// `should_stop` says the sweep is finished, and when a pass wakes nothing,
+// waits for the earliest timer (`idle`). A pool's frames are its workers', so
+// the sweep never resumes one.
 //
 // A nested sweep (a task joins a task) skips every frame active on this
 // thread's stack, and returns when every live frame is one of those and it
 // has no timer of its own to wait for, ceding to the sweep further up.
 func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
+    let _ = IN_EXECUTOR.fetch_add(1)
+    sweep_passes(term_group, term_slot, term_gen, waiter)
+    let _ = IN_EXECUTOR.fetch_add(-1)
+}
+
+func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
     while not should_stop(term_group, term_slot, term_gen, waiter) {
         var resumed = false
         var cur = EXEC_HEAD.load()
         while cur != 0 {
             let g = cur as UnsafePointer<TaskGroup>
             var i = 0
-            while i < g[0].slots.len() {
+            while g[0].lock == 0 && i < g[0].slots.len() {
                 if g[0].runnable(i) {
                     resume_slot(g, i)
                     resumed = true
@@ -739,9 +944,10 @@ func sweep(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) unsafe {
 // deadlock walk decides (`check_quiescent`): it reports when nothing in the
 // process can run, and otherwise this blocks in the reactor's poll and
 // answers true, since the word's writer is then code running on another
-// thread: a `Thread.spawn` body, which `send` and `close` poke the reactor
-// from and whose exit pokes it too (`poke_reactor`). While a `Thread.spawn`
-// body is running, the walk finds nothing to report, so this waits.
+// thread: a `Thread.spawn` body or a pool's task, whose `send` and `close`
+// poke the reactor and whose exit pokes it too (`poke_reactor`). While either
+// can run, the walk finds nothing to report, so this waits. A pool's frames
+// are its workers' to wait for, so they are not read here.
 func idle(waiter: Int) unsafe -> Bool {
     var waits = false
     var channel = false
@@ -751,7 +957,7 @@ func idle(waiter: Int) unsafe -> Bool {
         if park_wakes(w) {
             return true
         }
-        let park = w[0].park[0]
+        let park = park_word(w)
         if park == PARK_TIMER || park == PARK_FD {
             waits = true
             if bounded_by(park, w[0].deadline) {
@@ -767,7 +973,7 @@ func idle(waiter: Int) unsafe -> Bool {
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
         var i = 0
-        while i < g[0].slots.len() {
+        while g[0].lock == 0 && i < g[0].slots.len() {
             let s = g[0].slots[i]
             if not s.done && not s.active {
                 let cell = g[0].cell_at(i)
@@ -777,7 +983,7 @@ func idle(waiter: Int) unsafe -> Bool {
                 if park_wakes(cx) {
                     return true
                 }
-                let park = cell[0].park
+                let park = park_word(cx)
                 if not waits_on(park) {
                     refuse_park(&lead, "a task", park)
                 }
@@ -807,18 +1013,49 @@ func idle(waiter: Int) unsafe -> Bool {
         if earliest == UInt64.max {
             // Only unbounded descriptor parks wait, so nothing but a
             // descriptor becoming ready can wake one.
-            reactor_poll(-1)
+            idle_poll(-1)
         } else {
             wait_until(earliest)
         }
         return true
     }
     if channel {
-        check_quiescent(waiter)
-        reactor_poll(-1)
+        check_quiescent(waiter, false)
+        idle_poll(-1)
         return true
     }
     false
+}
+
+// How many pools have started their workers and not yet joined them.
+static LIVE_POOLS: Atomic<Int> = Atomic(0)
+
+// The longest an idle wait blocks in the reactor's poll while a pool's
+// workers are live, in milliseconds.
+//
+// Several threads then poll one reactor, and a wait need not end where it
+// should. The poll that receives a descriptor's event may be another
+// thread's, which latches the word and returns, while the thread that
+// schedules that frame stays blocked; and a poke is released only to the
+// pollers already blocked, so a waiter between its last look and its poll
+// can miss one. A `cancel_addr` write pokes nothing at all. Each costs this
+// long at most.
+static POOL_POLL_CAP_MILLIS: Int = 50
+
+// Blocks in the reactor's poll for up to `millis` milliseconds, forever when
+// negative, but never longer than `POOL_POLL_CAP_MILLIS` while a pool is
+// live.
+//
+// ENTRY POINTS:
+//   idle
+//   wait_until
+//   pool_wait
+func idle_poll(millis: Int) unsafe {
+    var bound = millis
+    if LIVE_POOLS.load() > 0 && (bound < 0 || bound > POOL_POLL_CAP_MILLIS) {
+        bound = POOL_POLL_CAP_MILLIS
+    }
+    reactor_poll(bound)
 }
 
 // The confirmation nap between the deadlock walk's two looks.
@@ -838,18 +1075,29 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 //     ready, latched, cancelled, a deadline passed, a set readiness word);
 //   * a frame parked on a timer or a descriptor, since its deadline or the
 //     reactor can wake it;
-//   * any other park that is not a channel's.
-// A frame active on this thread's stack counts as blocked: it is waiting in a
-// nested join or drive on the very sweep that asks, so it cannot run before
-// that sweep returns, and the spec reports this state rather than waiting
-// forever. A frame active on another thread's stack would count as running.
-// The drive point's own park at `waiter`, on no run queue, is classified as
-// any slot's is.
+//   * any other park that is not a channel's;
+//   * a frame a pool worker is resuming;
+//   * from a pool worker, a thread outside the executor (`IN_EXECUTOR`): a
+//     pool's workers are no `Thread.spawn` bodies to this count, so the walk
+//     has to learn some other way that the thread owning the groups is
+//     waiting rather than computing toward a send.
+// A cooperative frame active on the walking thread's stack counts as blocked:
+// it is waiting in a nested join or drive on the very sweep that asks, so it
+// cannot run before that sweep returns, and the spec reports this state
+// rather than waiting forever. Seen from a worker, every active frame is on
+// another thread's stack and counts as running. The drive point's own park at
+// `waiter`, on no run queue, is classified as any slot's is.
+//
+// A pool's slots are read without its lock, as every other group's are: the
+// walk is a report, read twice.
 //
 // ENTRY POINTS:
 //   check_quiescent
-func quiescent_now(waiter: Int) unsafe -> Bool {
+func quiescent_now(waiter: Int, on_worker: Bool) unsafe -> Bool {
     if LIVE_THREADS.load() != 0 {
+        return false
+    }
+    if on_worker && IN_EXECUTOR.load() == 0 {
         return false
     }
     var parked = false
@@ -863,15 +1111,21 @@ func quiescent_now(waiter: Int) unsafe -> Bool {
     var cur = EXEC_HEAD.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
+        let pooled = g[0].lock != 0
         var i = 0
         while i < g[0].slots.len() {
             let s = g[0].slots[i]
-            if not s.done && not s.active {
-                let cell = g[0].cell_at(i)
-                if not channel_parked((&cell[0].context) as UnsafePointer<TaskContext>) {
+            if not s.done {
+                if s.active && (pooled || on_worker) {
                     return false
                 }
-                parked = true
+                if not s.active {
+                    let cell = g[0].cell_at(i)
+                    if not channel_parked((&cell[0].context) as UnsafePointer<TaskContext>) {
+                        return false
+                    }
+                    parked = true
+                }
             }
             i = i + 1
         }
@@ -887,7 +1141,7 @@ func channel_parked(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
     if park_wakes(cx) {
         return false
     }
-    let park = cx[0].park[0]
+    let park = park_word(cx)
     park < PARK_FD && park != PARK_UNSET
 }
 
@@ -902,12 +1156,13 @@ static DEADLOCK_REPORTED: Atomic<Int> = Atomic(0)
 //
 // ENTRY POINTS:
 //   idle
-func check_quiescent(waiter: Int) unsafe {
-    if not quiescent_now(waiter) {
+//   pool_wait (`on_worker`)
+func check_quiescent(waiter: Int, on_worker: Bool) unsafe {
+    if not quiescent_now(waiter, on_worker) {
         return
     }
     __saw_rt_sleep_ns(QUIESCENT_NAP_NANOS)
-    if not quiescent_now(waiter) {
+    if not quiescent_now(waiter, on_worker) {
         return
     }
     if not DEADLOCK_REPORTED.compare_exchange(0, 1) {
@@ -974,6 +1229,9 @@ func host_reactor() unsafe -> Int {
 // ENTRY POINTS:
 //   __saw_exec_chan_wake
 //   __saw_exec_thread_finished
+//   enqueue_pooled
+//   worker_resume
+//   Task.cancel
 func poke_reactor() {
     let r = REACTOR.load()
     if r != 0 {
@@ -985,7 +1243,8 @@ func poke_reactor() {
 // one may send to a channel a task waits on, so the deadlock walk reports
 // nothing and `idle` waits while it is nonzero (design 230). Raised at the
 // spawn before the thread exists, and lowered by the thread's exit once its
-// body's effects are done, as the last thing the thread does.
+// body's effects are done, as the last thing the thread does. A pool's
+// workers are not counted while they serve it (`start_crew`).
 //
 // The lowering needs only a release and the walk's read only an acquire. Both
 // are sequentially consistent instead, as `Atomic` is: stronger, and the poke
@@ -1017,6 +1276,244 @@ public(package) func __saw_exec_chan_wake() {
     poke_reactor()
 }
 
+// The pool (SL:coroutines A17a). One mutex-protected run queue, the group's
+// own slots, served by the group's workers: a worker claims a runnable frame
+// under the lock by marking its slot active, resumes it with the lock
+// released, and takes the lock again to record what it reported. Every
+// address a resume needs is the frame's or its cell's, never one into
+// `slots`, so the owning thread may grow the queue while a frame runs. A
+// worker with nothing to run waits on the condition variable while nothing
+// outside the lock can make a frame runnable, and in the reactor's poll while
+// something can: a timer, a descriptor, a channel's readiness word, a cancel.
+
+// Starts the pool of `group`, whose address is `addr`: its first spawn's last
+// step, outside the lock, on the owning thread.
+//
+// A worker is a `Thread.spawn` body but no user thread: whatever it runs is a
+// frame in this group, which the deadlock walk reads directly. So it is taken
+// back out of `LIVE_THREADS` once started, where the count would keep every
+// program with a pool from reporting a deadlock; `shutdown_crew` puts it back
+// ahead of the join, whose thread exit takes it out again.
+//
+// The group has no error channel at a spawn, so a thread the operating
+// system refuses panics, naming the error.
+//
+// The workers it starts write the group while this runs, so it reads and
+// writes only `threads` and `crew`, which no worker touches.
+func start_crew(group: &var TaskGroup, addr: Int) unsafe {
+    let n = group.threads
+    alloc_or_fault(group.crew.reserve(n), "TaskGroup(threads:)")
+    let _ = LIVE_POOLS.fetch_add(1)
+    var i = 0
+    while i < n {
+        // Stage 0 workaround (SL:hazards S2): canonical: match Thread.spawn({ [addr] in exec_worker(addr) }) {
+        let spawned = Thread.spawn({ [addr] in exec_worker(addr) })
+        match spawned {
+            case Ok(worker) -> {
+                let _ = LIVE_THREADS.fetch_add(-1)
+                // The handle's fate is the teardown's join: the group
+                // declares a `deinit` (`shutdown_crew`).
+                alloc_or_fault(group.crew.push(move worker), "TaskGroup(threads:)")
+            },
+            case Err(e) -> {
+                panic("TaskGroup(threads: {}): starting worker thread {} failed (errno {}): {}", n, i + 1,
+                      __saw_rt_last_raw_code(), e)
+            }
+        }
+        i = i + 1
+    }
+}
+
+// Retires the pool of the group at `at`, from its teardown: no more work is
+// coming, every worker finishes the live tasks and leaves once none is left,
+// and each is joined, once. Nothing is cancelled. A pool that never started
+// has nothing to tell and nothing to join.
+//
+// The owning thread waits inside the executor meanwhile, so a worker whose
+// tasks are all parked on channels nothing can send to reports it.
+func shutdown_crew(at: UnsafePointer<TaskGroup>) unsafe {
+    var g = at
+    if not g[0].started {
+        return
+    }
+    let _ = IN_EXECUTOR.fetch_add(1)
+    lock_queue(at)
+    g[0].stopping = true
+    let poke = queue_changed(at)
+    unlock_queue(at)
+    if poke {
+        poke_reactor()
+    }
+    join_crew(&var g[0].crew)
+    g[0].started = false
+    let _ = LIVE_POOLS.fetch_add(-1)
+    let _ = IN_EXECUTOR.fetch_add(-1)
+}
+
+// Joins each of a stopping pool's workers, putting each back in
+// `LIVE_THREADS` first, since its thread's exit takes it out again.
+func join_crew(crew: &var Vector<Thread<Void>>) unsafe {
+    var joining = true
+    while joining {
+        // Stage 0 workaround (SL:hazards S2): canonical: while let worker = crew.pop() { var held = move worker; LIVE_THREADS.fetch_add(1); held.join() }
+        let next = crew.pop()
+        if let worker = move next {
+            var held = move worker
+            let _ = LIVE_THREADS.fetch_add(1)
+            held.join()
+        } else {
+            joining = false
+        }
+    }
+}
+
+// Waits for task (`slot`, `generation`) of the pool at `at` to finish, or its
+// slot to move on, on the condition variable every resume's outcome is
+// broadcast on. The waiter is the owning thread, since a handle is not
+// `Send`, so no worker is ever in here; it waits inside the executor.
+func await_task(at: UnsafePointer<TaskGroup>, slot: Int, generation: Int) unsafe {
+    let _ = IN_EXECUTOR.fetch_add(1)
+    lock_queue(at)
+    while not at[0].stale(slot, generation) && not at[0].is_done(slot) {
+        let _ = pthread_cond_wait(queue_cond(at), queue_mutex(at))
+    }
+    unlock_queue(at)
+    let _ = IN_EXECUTOR.fetch_add(-1)
+}
+
+// One worker's life: turns until the pool is stopping and nothing is live.
+// The lock is held throughout, except across a resume and a wait.
+func exec_worker(addr: Int) unsafe {
+    let at = addr as UnsafePointer<TaskGroup>
+    lock_queue(at)
+    while worker_turn(at) {}
+    unlock_queue(at)
+}
+
+// One look at the run queue, with the lock held: resumes the first frame
+// whose park wakes, or waits for one to, and answers false once the worker
+// is to leave.
+func worker_turn(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
+    var g = at
+    let lead = "TaskGroup(threads:)"
+    var live = false
+    var waits = false
+    var channel = false
+    var busy = false
+    var earliest = UInt64.max
+    var i = 0
+    while i < g[0].slots.len() {
+        let s = g[0].slots[i]
+        if not s.done {
+            live = true
+            if s.active {
+                busy = true
+            } else {
+                let cell = g[0].cell_at(i)
+                let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+                if park_wakes(cx) {
+                    worker_resume(at, i)
+                    return true
+                }
+                let park = park_word(cx)
+                if not waits_on(park) {
+                    refuse_park(&lead, "a task", park)
+                }
+                if park == PARK_TIMER || park == PARK_FD {
+                    waits = true
+                    let deadline = cell[0].context.deadline
+                    if bounded_by(park, deadline) && deadline < earliest {
+                        earliest = deadline
+                    }
+                } else {
+                    channel = true
+                }
+            }
+        }
+        i = i + 1
+    }
+    if not live && g[0].stopping {
+        return false
+    }
+    if not waits && not channel {
+        // Nothing live, or only frames a peer is resuming: a spawn, the
+        // teardown and every resume's outcome broadcast.
+        let _ = pthread_cond_wait(queue_cond(at), queue_mutex(at))
+        return true
+    }
+    // A writer pokes only a reactor that exists, so a channel wait publishes
+    // one and then looks again, as `idle` does.
+    if channel && REACTOR.load() == 0 {
+        unlock_queue(at)
+        let _ = host_reactor()
+        lock_queue(at)
+        return true
+    }
+    g[0].pollers += 1
+    unlock_queue(at)
+    pool_wait(waits, earliest, channel && not waits && not busy)
+    lock_queue(at)
+    g[0].pollers -= 1
+    true
+}
+
+// Resumes `slot` of the pool at `at`, claimed under the lock, which is
+// released for the resume and held again when this returns.
+func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int) unsafe {
+    var g = at
+    let s = g[0].slots[slot]
+    let cell = g[0].cell_at(slot)
+    if let frame = s.frame {
+        g[0].slots[slot].active = true
+        cell[0].park = PARK_UNSET
+        let context = (&cell[0].context) as UnsafePointer<TaskContext>
+        let descriptor = cell[0].descriptor
+        unlock_queue(at)
+        let poll = resume_frame(descriptor, frame, context)
+        lock_queue(at)
+        g[0].slots[slot].active = false
+        var finished = false
+        match poll {
+            case Ready -> {
+                // Stage 0 workaround (SL:hazards S15): canonical: g[0].complete(slot)
+                complete(&var g[0], slot)
+                finished = true
+            },
+            case Pending -> {
+                if cell[0].park == PARK_UNSET {
+                    panic("executor: a task reported Pending without recording a park")
+                }
+            }
+        }
+        // A join waits for a completion on the condition variable, and a
+        // peer that saw this frame active waits there for its outcome. A
+        // stopping pool's last completion is what its polling workers leave
+        // on, so they are poked out of the poll.
+        let polling = queue_changed(at)
+        if polling && finished && g[0].stopping {
+            unlock_queue(at)
+            poke_reactor()
+            lock_queue(at)
+        }
+    }
+}
+
+// An idle worker's wait, with the lock released: until the earliest deadline
+// among its group's parks, a descriptor's readiness, a poke, or the pool's
+// poll cap, whichever is first (`idle_poll`). When every live task of the
+// group is parked on a channel and no peer is resuming one, the deadlock walk
+// looks first.
+func pool_wait(waits: Bool, earliest: UInt64, walk: Bool) unsafe {
+    if walk {
+        check_quiescent(0, true)
+    }
+    if waits && earliest != UInt64.max {
+        wait_until(earliest)
+    } else {
+        idle_poll(-1)
+    }
+}
+
 // The unit of the reactor poll's timeout, a millisecond, in nanoseconds.
 static POLL_TICK_NANOS: UInt64 = 1_000_000
 // The longest single idle poll, in milliseconds. epoll takes its timeout as
@@ -1038,7 +1535,7 @@ func wait_until(deadline: UInt64) unsafe {
     if rest < (IDLE_POLL_CAP_MILLIS as UInt64) * POLL_TICK_NANOS {
         millis = ((rest + POLL_TICK_NANOS - 1) / POLL_TICK_NANOS) as Int
     }
-    reactor_poll(millis)
+    idle_poll(millis)
 }
 
 // The portable tag of a poll a signal cut short (runtime/ABI.md).
@@ -1348,8 +1845,10 @@ extension Task<T> {
     /// Waits for the task to finish and returns its result, moving it out of
     /// the task.
     ///
-    /// The scheduler runs on this thread meanwhile, so other tasks advance.
-    /// A task yields its result once, so joining a second time, or after
+    /// On a cooperative group the scheduler runs on this thread meanwhile, so
+    /// other tasks advance; on a pool, the pool is already running the task,
+    /// so this thread only waits, and the pool keeps running afterwards. A
+    /// task yields its result once, so joining a second time, or after
     /// `detach`, panics, a `Task<Void>` included.
     public func join(&self) unsafe -> T {
         self.consume()
@@ -1357,10 +1856,15 @@ extension Task<T> {
             panic("Task.join: this task's result was already joined")
         }
         var g = self.group
-        if g[0].stale(self.slot, self.generation) {
-            panic("Task.join: this task's result was already joined")
+        if g[0].lock == 0 {
+            if g[0].stale(self.slot, self.generation) {
+                panic("Task.join: this task's result was already joined")
+            }
+            exec_run(g as Int, self.slot, self.generation)
+        } else {
+            await_task(g, self.slot, self.generation)
         }
-        exec_run(g as Int, self.slot, self.generation)
+        lock_queue(g)
         if g[0].stale(self.slot, self.generation) {
             panic("Task.join: this task's result was already joined")
         }
@@ -1373,7 +1877,31 @@ extension Task<T> {
         let value = move at[0]
         // Stage 0 workaround (SL:hazards S15): canonical: g[0].recycle(self.slot)
         recycle(&var g[0], self.slot)
+        unlock_queue(g)
         move value
+    }
+
+    /// Returns the address of this task's cancel word, as an `Int`, which is
+    /// how another task cancels this one: a `Task` cannot cross a spawn, but
+    /// the address can. The receiver cancels by writing through it,
+    /// `(addr as UnsafePointer<Bool>)[0] = true`.
+    ///
+    /// The write wakes nothing: the task sees it at its next `cancelled()`
+    /// check or the next time the executor looks at its park, which on a pool
+    /// is within its poll cap. Use `cancel()` where the handle is at hand.
+    /// Taking the address keeps the task's slot for the group's life, so a
+    /// write landing after the task finished is defined and does nothing.
+    /// Panics once the task's result was joined.
+    public func cancel_addr(&self) unsafe -> Int {
+        var g = self.group
+        lock_queue(g)
+        if g[0].stale(self.slot, self.generation) {
+            panic("Task.cancel_addr: this task's result was already joined")
+        }
+        g[0].slots[self.slot].pinned = true
+        let cell = g[0].cell_at(self.slot)
+        unlock_queue(g)
+        (&cell[0].cancel) as UnsafePointer<Bool> as Int
     }
 
     /// Asks the task to stop.
@@ -1385,10 +1913,18 @@ extension Task<T> {
     public func cancel(&self) unsafe {
         self.consume()
         let g = self.group
+        lock_queue(g)
         if g[0].stale(self.slot, self.generation) {
+            unlock_queue(g)
             return
         }
         request_cancel(g[0].cell_at(self.slot))
+        unlock_queue(g)
+        // A pool's worker may be waiting in the reactor's poll for this very
+        // park; the cooperative engine reads the word at its next look.
+        if g[0].lock != 0 {
+            poke_reactor()
+        }
     }
 
     /// Hands the task to the process and gives up its result.
@@ -1404,8 +1940,10 @@ extension Task<T> {
             return
         }
         var g = self.group
+        lock_queue(g)
         // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
         unclaim_slot(&var g[0], self.slot, self.generation)
+        unlock_queue(g)
     }
 }
 
@@ -1423,7 +1961,9 @@ extension Task<T>: NoCopy {
             return
         }
         var g = self.group
+        lock_queue(g)
         // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
         unclaim_slot(&var g[0], self.slot, self.generation)
+        unlock_queue(g)
     }
 }

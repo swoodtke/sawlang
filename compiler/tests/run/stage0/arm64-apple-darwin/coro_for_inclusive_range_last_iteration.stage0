@@ -1,0 +1,16 @@
+program	compiler/tests/run/coro_for_inclusive_range_last_iteration.saw
+triple	arm64-apple-darwin
+source	843a3e2728eccf48
+build	ok
+exit	0
+stdout	"row1 15 15"
+stdout	"row2 15 15"
+stdout	"row3 15 15"
+stdout	"row4 15 15"
+stdout	"row5 15 15"
+stdout	"row6 3 3"
+stdout	"row7 0 0"
+stdout	"row8 4 4"
+stdout	"row9 15 15"
+stdout	"row10 10 10"
+stdout	""

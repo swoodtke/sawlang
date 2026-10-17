@@ -1,0 +1,13 @@
+program	compiler/tests/run/spawn_optional_result.saw
+triple	arm64-apple-darwin
+source	b3f6bdfada696346
+build	ok
+exit	0
+stdout	"st some 6"
+stdout	"st none absent"
+stdout	"mt sum 30"
+stdout	"mt absent 2"
+stdout	"text hello"
+stdout	"text absent"
+stdout	"-- done"
+stdout	""

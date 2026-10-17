@@ -1,0 +1,10 @@
+program	compiler/tests/run/taskgroup_mt_join_then_respawn.saw
+triple	arm64-apple-darwin
+source	5382dfd9ca7de293
+build	ok
+exit	0
+stdout	"round 1: 9"
+stdout	"round 2: 18"
+stdout	"round 3: 27"
+stdout	"slots held after three rounds: 0"
+stdout	""

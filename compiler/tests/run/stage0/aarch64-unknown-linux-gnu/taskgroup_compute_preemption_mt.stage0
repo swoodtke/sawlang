@@ -1,0 +1,7 @@
+program	compiler/tests/run/taskgroup_compute_preemption_mt.saw
+triple	aarch64-unknown-linux-gnu
+source	b55818a985787073
+build	ok
+exit	0
+stdout	"39999800000"
+stdout	""

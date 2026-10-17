@@ -1863,7 +1863,7 @@ class BodyChecker:
             if e.path is not None:
                 self.expr(e.path, e)
         elif isinstance(e, A.ClosureExpr):
-            self.closure(e)
+            self.closure(e, parent)
         elif isinstance(e, A.MatchExpr):
             self.match(e)
         elif isinstance(e, (A.IfExpr, A.IfLetExpr)):
@@ -1966,8 +1966,14 @@ class BodyChecker:
         self.block(block)
         self.pop()
 
-    def closure(self, e):
-        if e.capture_specs:
+    def closure(self, e, parent=None):
+        # A `Thread.spawn` brace captures nothing implicitly and takes no
+        # parameters, so its capture list is its parameter list and has no
+        # other spelling; the std profile admits it there alone, and the brace
+        # binds each entry as the `let` a capture is.
+        spawn_brace = (self.fc.std_profile and isinstance(parent, A.FunctionCall)
+                       and parent.name == "Thread.spawn")
+        if e.capture_specs and not spawn_brace:
             self.report(e.line, "closure-capture", "no capture lists in the subset")
         for p in e.parameters:
             if p.type_annotation is None:
@@ -1978,6 +1984,9 @@ class BodyChecker:
                         "a closure that returns a value must end in one on every path")
         self.closure_depth += 1
         self.push()
+        if spawn_brace:
+            for c in e.capture_specs:
+                self.bind(c.name, "let")
         for p in e.parameters:
             t = p.type_annotation
             written_ref = t is not None and t.kind == A.TypeKind.REFERENCE

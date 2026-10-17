@@ -1,0 +1,89 @@
+// probe: panics
+// about: a pool worker thread the operating system refuses panics at the group's first spawn, naming `TaskGroup(threads:)` and the errno (SL-578)
+// stage 0: its `Thread.spawn` has no `Result`, so it refuses the program's `match` on one
+// speeds: -O0 -O2
+// prints: a spawn was refused: true
+// prints: the group was made: true
+// panics: TaskGroup(threads: 2): starting worker thread 1 failed (errno
+// Threads that block on an empty pipe are started until the operating system
+// refuses one, as `thread_spawn_refused` does: on Linux the per-user process
+// limit, which counts threads, is lowered to one first, and on macOS the
+// per-process thread limit is met. The pool's constructor allocates only its
+// lock, so it succeeds; its first spawn starts the workers, and the refused
+// one panics there, since a spawn has no error channel.
+import std.task.{Thread}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func read(fd: Int32, buf: UnsafePointer<UInt8>, count: Int) -> Int
+    func access(path: UnsafePointer<UInt8>, mode: Int32) -> Int32
+    func setrlimit(resource: Int32, limit: UnsafePointer<Limit>) -> Int32
+}
+
+struct Ends {
+    read: Int32
+    write: Int32
+}
+
+struct Limit {
+    soft: UInt64
+    hard: UInt64
+}
+
+// Linux's `RLIMIT_NPROC`; the number is another limit on macOS, which this
+// program never sets there.
+static LINUX_RLIMIT_NPROC: Int32 = 6
+// Far past any per-process thread limit, so a run that never meets one ends.
+static MOST_THREADS: Int = 100_000
+
+func on_linux() unsafe -> Bool {
+    var path: [UInt8; 16] = [0; 16]
+    let text = "/proc/self/exe"
+    var i = 0
+    while i < text.len() {
+        path[i] = text.byte_at(i)
+        i = i + 1
+    }
+    access((&path) as UnsafePointer<UInt8>, 0 as Int32) == (0 as Int32)
+}
+
+// Reads one byte, blocking until it arrives; returns how many were read.
+func blocked(fd: Int32) unsafe -> Int {
+    var byte: UInt8 = 0
+    read(fd, (&byte) as UnsafePointer<UInt8>, 1)
+}
+
+func work(n: Int) -> Int {
+    n + 1
+}
+
+func main() unsafe {
+    var ends = Ends(read: 0 as Int32, write: 0 as Int32)
+    if pipe((&ends) as UnsafePointer<Int32>) != (0 as Int32) {
+        panic("pipe failed")
+    }
+    if on_linux() {
+        var one = Limit(soft: 1, hard: 1)
+        let _ = setrlimit(LINUX_RLIMIT_NPROC, (&one) as UnsafePointer<Limit>)
+    }
+    let fd = ends.read
+    var started = Vector<Thread<Int>>()
+    var refused = false
+    while not refused && started.len() < MOST_THREADS {
+        match Thread.spawn({ [fd] in blocked(fd) }) {
+            case Ok(handle) -> try! started.push(move handle),
+            case Err(_) -> refused = true
+        }
+    }
+    print("a spawn was refused: {}", refused)
+    var group = try! TaskGroup(threads: 2)
+    print("the group was made: true")
+    let h = group.spawn(work(1))
+    print("never reached: {}", h.join())
+    // The started threads are never released: the panic above ends the
+    // process with them blocked.
+    while let held = started.pop() {
+        var t = move held
+        t.detach()
+    }
+}

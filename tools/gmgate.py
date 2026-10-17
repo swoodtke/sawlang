@@ -29,8 +29,8 @@ fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 19 of its 26
-Stage 0 programs build; concurrency runs a program in 7 of its 7 categories,
-and 19 of its 25 Stage 0 programs build.
+Stage 0 programs build; concurrency runs a program in 8 of its 8 categories,
+and 22 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
 the lanes count, it must pass natively and fault under Guard Malloc; a lane
@@ -255,6 +255,7 @@ CONCURRENCY = (
             CORPUS + "taskgroup_eager_teardown.saw",
             CORPUS + "taskgroup_result_unjoined_once.saw",
             CORPUS + "taskgroup_slot_reuse_o_live.saw",
+            CORPUS + "taskgroup_threads_deinit_once.saw",
         ),
         stand_ins=(
             # At main's return the background group cancels and joins its
@@ -263,10 +264,7 @@ CONCURRENCY = (
             # A detached task's result drops when the task finishes.
             CORPUS + "conformance/K89_detach_gives_up_the_result.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "taskgroup_threads_deinit_once.saw", "call.label", "SL-578",
-                    "`TaskGroup(threads:)` is not in the new std"),
-        )),
+        blocked=()),
     Category(
         "the executor's drive paths", "main as a frame the executor drives, beside the tasks it spawns",
         twins=(
@@ -285,6 +283,7 @@ CONCURRENCY = (
         "values crossing a task boundary", "an owning value moved into a task, dropped by exactly one side",
         twins=(
             CORPUS + "channel_recv_producer_consumer.saw",
+            CORPUS + "taskgroup_send_containers.saw",
         ),
         stand_ins=(
             # Root arguments written into the task box's slots, a joined
@@ -292,10 +291,7 @@ CONCURRENCY = (
             # literal, so the box, not a heap payload, is what it polices.
             RUN_LANE + "task_spawn.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "taskgroup_send_containers.saw", "call.label", "SL-578",
-                    "`TaskGroup.init()` has no `threads:` label"),
-        )),
+        blocked=()),
     Category(
         "errors in a frame", "an error or Ok payload the frame owns across a suspension",
         twins=(
@@ -305,6 +301,7 @@ CONCURRENCY = (
             # after the suspension, and its box torn down once.
             CORPUS + "erased_error_across_suspension.saw",
             CORPUS + "coro_try_propagate_suspending.saw",
+            CORPUS + "conformance/K13_mt_sum_under_mutex.saw",
         ),
         stand_ins=(
             # An inline catch whose block suspends, over an error that owns a
@@ -314,8 +311,6 @@ CONCURRENCY = (
         blocked=(
             Blocked(CORPUS + "erased_error_spawned_container_result.saw", "slice.not-yet", "SL-745",
                     "downcasting an erased box with `is` or `take` is not in the slice"),
-            Blocked(CORPUS + "conformance/K13_mt_sum_under_mutex.saw", "call.label", "SL-578",
-                    "`TaskGroup.init()` has no `threads:` label"),
         )),
     Category(
         "OS threads", "a capture moved into a thread's heap environment and a result handed back, each dropped once",
@@ -341,6 +336,26 @@ CONCURRENCY = (
             CORPUS + "conformance/K90_thread_detach_is_a_fate.saw",
             # A `blocking` extern run directly on the thread.
             CORPUS + "conformance/K84_thread_spawn_permits_a_blocking_extern.saw",
+        ),
+        blocked=()),
+    Category(
+        "the worker pool", "a frame a pool worker resumes and frees, and a result handed back across threads",
+        # The Stage 0 lane ran its pool programs under other categories, so
+        # none here is a twin.
+        twins=(),
+        stand_ins=(
+            # Many small tasks summed.
+            CORPUS + "taskgroup_threads_parallel_sum.saw",
+            # Channels between pool tasks, another group and main, the pool live
+            # throughout.
+            CORPUS + "taskgroup_threads_producer_consumer.saw",
+            CORPUS + "conformance/K49_mt_worker_feeds_st_group_task.saw",
+            # A peer's cancel through the cancel word's address.
+            CORPUS + "taskgroup_threads_cancel.saw",
+            CORPUS + "net_cancel_parked_mt.saw",
+            # A task cancelled during its offloaded call keeps its frame until
+            # the call has written into it and the worker's take has returned.
+            RUN_LANE + "offload_cancel_in_a_pool.saw",
         ),
         blocked=()),
 )

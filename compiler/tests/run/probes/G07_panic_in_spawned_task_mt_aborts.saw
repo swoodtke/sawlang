@@ -1,0 +1,27 @@
+// probe: panics
+// about: a panic in a task a pool worker runs aborts the process, and `main`'s own return never overwrites it (SL-578)
+// stage 0: it prints the task dump after the panic line, which sawc2's panic path does not print yet (SL-577)
+// speeds: -O0 -O2
+// panics: task panicked
+// tests/corpus/conformance/G07_panic_in_spawned_task_mt_aborts less its
+// directives.
+//
+// Conformance row G07 — a panic in a spawned task under `threads: N` aborts the
+// process
+//
+// The other end of the panic path: the panic happens on a worker thread, and
+// main's own return value never gets to overwrite the abort.
+
+import std.task.{yield_now}
+
+func work() -> Int {
+    yield_now()
+    panic("task panicked")
+}
+
+func main() -> Int {
+    var g = try! TaskGroup(threads: 2)
+    let h = g.spawn(work())
+    print("joined {h.join()}")
+    7
+}

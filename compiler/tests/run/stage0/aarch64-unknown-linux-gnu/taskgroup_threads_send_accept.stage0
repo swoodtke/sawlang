@@ -1,0 +1,7 @@
+program	compiler/tests/run/taskgroup_threads_send_accept.saw
+triple	aarch64-unknown-linux-gnu
+source	138e15331adc90bb
+build	ok
+exit	0
+stdout	"60"
+stdout	""

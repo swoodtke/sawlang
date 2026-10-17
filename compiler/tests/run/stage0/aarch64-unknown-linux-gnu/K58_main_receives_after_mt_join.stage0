@@ -1,0 +1,7 @@
+program	compiler/tests/run/K58_main_receives_after_mt_join.saw
+triple	aarch64-unknown-linux-gnu
+source	b5b4c65bb7b7bccc
+build	ok
+exit	0
+stdout	"main got 6"
+stdout	""

@@ -4,7 +4,7 @@ aggregate_copy_is_one_memcpy.saw	pass	-	-
 align_attribute_survives_optimization.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
 align_nonresident_local_in_suspending_function.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 alloc_channel_send_reports_oom.saw	pass	-	-
-alloc_channel_taskgroup_reports_oom.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+alloc_channel_taskgroup_reports_oom.saw	refused	typecheck transfer.no-move	cannot `match` on `group_made`: `Result<std.taskgroup.TaskGroup, std.alloc.AllocError>` is `NoMove`, so it lives where its constructor built it and a `match` that consumes it would move it into the ma
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
 alloc_data_push_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
@@ -21,7 +21,7 @@ alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.path.Path`
 alloc_string_oom_panic.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
-alloc_taskgroup_threads_forced_panics_named.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+alloc_taskgroup_threads_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed", Stage 0 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (al
 alloc_vector_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	pass	-	-
@@ -145,7 +145,7 @@ cbor169_roundtrip.saw	refused	resolve import.unknown-module	no module `std.cbor`
 cbor169_vectors.saw	refused	resolve import.unknown-module	no module `std.cbor`
 chain_assign_exclusivity_in_literal.saw	wrong	accepts a refusal test	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
 channel_pipeline.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
-channel_receive_cancel_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+channel_receive_cancel_mt.saw	pass	-	-
 channel_receive_in_main.saw	pass	-	-
 channel_receive_through_helper.saw	pass	-	-
 channel_recv_buried_expr.saw	pass	-	-
@@ -293,10 +293,10 @@ conformance/E12_autowrap_at_the_argument_position.saw	pass	-	-
 conformance/G01_sync_main_int_exit_status.saw	pass	-	-
 conformance/G02_suspending_main_int_exit_status.saw	pass	-	-
 conformance/G03_ambient_main_int_exit_status.saw	pass	-	-
-conformance/G04_mt_main_int_exit_status.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/G04_mt_main_int_exit_status.saw	pass	-	-
 conformance/G05_suspending_main_void_exit_zero.saw	pass	-	-
 conformance/G06_panic_in_suspending_main_aborts.saw	pass	-	-
-conformance/G07_panic_in_spawned_task_mt_aborts.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/G07_panic_in_spawned_task_mt_aborts.saw	wrong	stdout differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
 conformance/G08_sync_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G09_sync_main_result_err_exits_one.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G10_suspending_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
@@ -308,7 +308,7 @@ conformance/G15_main_int_exit_status_truncates.saw	pass	-	-
 conformance/G16_try_propagates_out_of_main.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/K02_nonsend_across_suspend_local_mt.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+conformance/K02_nonsend_across_suspend_local_mt.saw	wrong	accepts a refusal test	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task fra
 conformance/K100_shutdown_rides_cancellation.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
@@ -326,7 +326,7 @@ conformance/K135_window_conflicts_that_compose.saw	pass	-	-
 conformance/K136_window_release_routes.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 conformance/K137_window_destruction_order.saw	pass	-	-
 conformance/K138_window_acquire_sequence.saw	pass	-	-
-conformance/K13_mt_sum_under_mutex.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K13_mt_sum_under_mutex.saw	pass	-	-
 conformance/K140_window_under_cancellation.saw	pass	-	-
 conformance/K141_mutex_guarded_for_is_sync.saw	stage0-wrong	XFAIL SL-340	sawc2 meets its directives
 conformance/K147_inline_catch_splits.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
@@ -336,7 +336,7 @@ conformance/K15_spawn_ref_param_exclusion_window.saw	pass	-	loan.read-while-excl
 conformance/K16_spawn_shared_ref_param_composes.saw	pass	-	-
 conformance/K17_spawn_ref_param_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root:
 conformance/K18_spawn_ref_param_after_group.saw	pass	-	loan.drop-while-borrowed: cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (at 30:9 against 29:9), and destruction is LIFO — `buf` is torn down BEFORE `
-conformance/K19_spawn_ref_param_mt_send.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+conformance/K19_spawn_ref_param_mt_send.saw	wrong	accepts a refusal test	cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`: parameter `n` of type `&var Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc
 conformance/K20_spawn_ref_param_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 33:30 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
@@ -347,7 +347,7 @@ conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.u
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
 conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
-conformance/K31_generic_arc_share_at_non_sync_refused.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+conformance/K31_generic_arc_share_at_non_sync_refused.saw	wrong	accepts a refusal test	cannot spawn `bump_many` into a multi-threaded `TaskGroup(threads: ...)`: parameter `a` of type `Arc<Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state vi
 conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	pass	-	-
@@ -364,28 +364,28 @@ conformance/K44_suspending_condition_shortcircuit_rhs.saw	pass	-	-
 conformance/K45_suspending_compound_assign_rhs.saw	pass	-	-
 conformance/K46_suspending_return_head.saw	pass	-	-
 conformance/K47_channel_receive_binding_and_try_heads.saw	pass	-	-
-conformance/K48_mt_group_task_runs_before_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K49_mt_worker_feeds_st_group_task.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K50_mt_group_progresses_while_main_sleeps.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K51_mt_group_progresses_while_main_yields.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K52_mt_two_workers_deliver_before_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K48_mt_group_task_runs_before_join.saw	pass	-	-
+conformance/K49_mt_worker_feeds_st_group_task.saw	pass	-	-
+conformance/K50_mt_group_progresses_while_main_sleeps.saw	pass	-	-
+conformance/K51_mt_group_progresses_while_main_yields.saw	pass	-	-
+conformance/K52_mt_two_workers_deliver_before_join.saw	pass	-	-
 conformance/K53_driven_for_range_iteration_count.saw	pass	-	-
-conformance/K53_mt_group_stays_live_across_spawns.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K54_mt_task_receives_what_main_sent.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K55_mt_same_group_send_and_receive.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K53_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
+conformance/K54_mt_task_receives_what_main_sent.saw	pass	-	-
+conformance/K55_mt_same_group_send_and_receive.saw	pass	-	-
 conformance/K56_thread_engine_feeds_main_receive.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
-conformance/K57_main_receives_prefilled_with_mt_group_live.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K58_main_receives_after_mt_join.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K59_main_receives_after_mt_group_scope.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-conformance/K60_threads_one_is_the_single_threaded_engine.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K57_main_receives_prefilled_with_mt_group_live.saw	pass	-	-
+conformance/K58_main_receives_after_mt_join.saw	pass	-	-
+conformance/K59_main_receives_after_mt_group_scope.saw	pass	-	-
+conformance/K60_threads_one_is_the_single_threaded_engine.saw	pass	-	-
 conformance/K61_st_group_task_feeds_main_receive.saw	pass	-	-
-conformance/K62_mt_join_returns_the_task_result.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K62_mt_join_returns_the_task_result.saw	pass	-	-
 conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 conformance/K64_close_drains_before_it_reports_closed.saw	pass	-	-
 conformance/K65_close_wakes_a_parked_receiver.saw	pass	-	-
 conformance/K66_send_and_close_after_close_report.saw	pass	-	-
 conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stdout differs	line 3: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
-conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-
 conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
@@ -691,7 +691,7 @@ coro_early_return_after_resume.saw	pass	-	-
 coro_entry_template_chain_names_a_suspending_callee.saw	pass	-	-
 coro_existential_only_body_is_not_framed.saw	pass	-	-
 coro_for_inclusive_range_int_max.saw	pass	-	-
-coro_for_inclusive_range_last_iteration.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+coro_for_inclusive_range_last_iteration.saw	pass	-	-
 coro_for_of_frames_stress.saw	pass	-	-
 coro_frame_byte_local_across_suspend.saw	pass	-	-
 coro_frame_local_released_at_scope_end.saw	pass	-	-
@@ -778,7 +778,7 @@ coro_same_scope_redefinition_owning_slots.saw	pass	-	-
 coro_spawn_and_embed.saw	pass	-	-
 coro_spawn_and_embed_cancel.saw	pass	-	-
 coro_spawn_and_embed_generic.saw	pass	-	-
-coro_spawn_and_embed_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+coro_spawn_and_embed_mt.saw	pass	-	-
 coro_spawn_and_embed_owning.saw	pass	-	-
 coro_spawn_nested_ref.saw	pass	-	-
 coro_spliced_helper_keeps_its_own_module.saw	pass	-	-
@@ -1295,7 +1295,7 @@ errors/shared_self_var_method_call.saw	pass	-	mutability.immutable: this exclusi
 errors/signal_is_hosted_only.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
 errors/sleep_bare_int.saw	pass	-	type.mismatch: expected `std.duration.Duration`, the type of the parameter, and found `Int`
 errors/spawn_capture_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` capture is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: t
-errors/spawn_capture_mt_send.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+errors/spawn_capture_mt_send.saw	wrong	accepts a refusal test	cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc
 errors/spawn_capture_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `UnsafePointer<Int8>` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-unsafe
 errors/spawn_capture_unjoined_handle.saw	pass	-	loan.read-while-exclusive: exclusive access violation: `n` cannot be read here — the task spawned at 31:29 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins i
 errors/spawn_handle_may_not_escape_the_function.saw	pass	-	drop.must-consume: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed: `t` leaves the function by a `return` without consuming it. `join()` waits for it and takes its result,
@@ -1353,7 +1353,7 @@ errors/synthesize_required_enum.saw	pass	-	synthesize.required: `Shape` conforms
 errors/synthesize_required_equatable.saw	pass	-	synthesize.required: `Named` conforms to `Equatable` with no `Equatable.equals` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_explicit_copy.saw	pass	-	synthesize.required: `Holder` conforms to `ExplicitCopy` with no `ExplicitCopy.copy` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_hashable.saw	pass	-	synthesize.required: `Keyed` conforms to `Hashable` with no `Hashable.hash` written: write it, or mark the extension `@synthesize` to derive it
-errors/taskgroup_threads_nonsend_reject.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+errors/taskgroup_threads_nonsend_reject.saw	wrong	accepts a refusal test	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is not `Send`, so the task frame cannot cross to a work
 errors/thread_body_reports_both_violations.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
 errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
@@ -1421,7 +1421,7 @@ errors/while_never_unreachable_after.saw	pass	-	type.mismatch: expected `Never`,
 errors/while_true_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/window_acquire_mutating_argument.saw	pass	-	loan.nested-call: `b` is borrowed by a nested call in this argument list while `b` is also the receiver of the call at 51:14, which borrows it for the whole call; bind the nested call's result in a st
 errors/window_conflicts.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `iter` opened at 39:14 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is
-errors/window_in_a_threaded_group.saw	wrong	refused by another rule	call.label, where the plan names coro.spawn-not-send
+errors/window_in_a_threaded_group.saw	wrong	accepts a refusal test	cannot spawn `sum_vector` into a multi-threaded `TaskGroup(threads: ...)`: local `__saw_iter0` of type `VectorIterator<Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task
 errors/window_static_root_write.saw	pass	-	loan.window-root: `ROOT.value` is written here while the window of `iter` opened at 38:14 holds `ROOT` shared until the window closes; a window charges its whole root until it closes, so the root is r
 errors/with_var_ref_invalidation.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 16:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root i
 errors/withcstring_escape.saw	pass	-	escaping.stored: `body` is a non-escaping function value, a parameter whose type does not say `escaping` or a binding of one, and a field holds it past the call: mark the parameter `escaping`, as `()
@@ -1933,10 +1933,10 @@ net_accept_loop_eager_fd_close.saw	stage0-wrong	annotated SL-768	sawc2 meets its
 net_accept_roundtrip.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_accumulate_across_reads.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_budget_fairness.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow stop.value().lock(…)`
-net_cancel_parked_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-net_cancel_parked_read.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Void>` has no method `cancel_addr` this module can see
-net_cancel_precise.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-net_cancel_unregisters_token.saw	refused	typecheck member.unknown	`std.taskgroup.Task<std.net.TcpStream>` has no method `cancel_addr` this module can see
+net_cancel_parked_mt.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_cancel_parked_read.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_cancel_precise.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+net_cancel_unregisters_token.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_connect_by_name.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_connect_dials_the_host_it_was_given.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_connect_unresolvable_host.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
@@ -2005,8 +2005,8 @@ nomove_placement_into_its_home.saw	refused	resolve slice.not-yet	the compiler in
 nomove_tier.saw	pass	-	-
 none_return_test.saw	pass	-	-
 number_literal_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5) (inside std/pr
-offload_cancel_multi_arg.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
-offload_cancel_parked.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
+offload_cancel_multi_arg.saw	pass	-	-
+offload_cancel_parked.saw	pass	-	-
 offload_multi_arg_pipe_read.saw	pass	-	-
 offload_pointer_heap_arg.saw	pass	-	-
 offload_seam_first_tick.saw	pass	-	-
@@ -2319,13 +2319,13 @@ spawn_capture_join_releases.saw	pass	-	-
 spawn_capture_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 27:29 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 spawn_join.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 spawn_multi.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
-spawn_optional_result.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+spawn_optional_result.saw	pass	-	-
 spawn_ref_param_dual_role_and_cancel.saw	pass	-	-
 spawn_ref_param_referent_deinit_once.saw	pass	-	-
 spawn_void_body.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 spawned_task_runs_before_reactor_park.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
-spinlock_contention_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+spinlock_contention_mt.saw	pass	-	-
 spinlock_import_gate.saw	pass	-	name.not-in-prelude: `SpinLock` is not in the prelude and must be imported: `import std.spinlock.{SpinLock}` selects it
 spinlock_no_hidden_alloc.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 static236_declared_static.saw	pass	-	-
@@ -2417,31 +2417,31 @@ task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is no
 task_backtrace_panic.saw	wrong	stdout differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
 taskgroup_budget_loop_semantics.saw	pass	-	-
 taskgroup_cancel_check.saw	pass	-	-
-taskgroup_cancel_during_sleep.saw	refused	typecheck member.unknown	`std.taskgroup.Task<Int>` has no method `cancel_addr` this module can see
+taskgroup_cancel_during_sleep.saw	pass	-	-
 taskgroup_cancel_receive.saw	pass	-	-
 taskgroup_compute_preemption.saw	pass	-	-
-taskgroup_compute_preemption_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_compute_preemption_mt.saw	pass	-	-
 taskgroup_compute_preemption_unbounded.saw	pass	-	-
 taskgroup_eager_teardown.saw	pass	-	-
 taskgroup_eager_teardown_live_count.saw	pass	-	-
-taskgroup_eager_teardown_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_eager_teardown_mt.saw	pass	-	-
 taskgroup_in_suspending_fn.saw	pass	-	-
 taskgroup_join_typed.saw	pass	-	-
 taskgroup_move_live.saw	pass	-	transfer.no-move: cannot `move` `group`: `std.taskgroup.TaskGroup` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the value where it
-taskgroup_mt_join_then_respawn.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_mt_live_pool_soak.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_mt_join_then_respawn.saw	pass	-	-
+taskgroup_mt_live_pool_soak.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 taskgroup_nested_ambient.saw	pass	-	-
 taskgroup_nested_groups.saw	pass	-	-
 taskgroup_producer_consumer.saw	pass	-	-
 taskgroup_result_joined_once.saw	pass	-	-
 taskgroup_result_unjoined_once.saw	pass	-	-
-taskgroup_send_containers.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_send_containers.saw	pass	-	-
 taskgroup_sleep_ordering.saw	pass	-	-
-taskgroup_slot_reuse_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_slot_reuse_mt.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 taskgroup_slot_reuse_o_live.saw	pass	-	-
 taskgroup_spawn_and_loop.saw	pass	-	-
 taskgroup_spawn_generic.saw	pass	-	-
-taskgroup_spawn_void.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_spawn_void.saw	pass	-	-
 taskgroup_stale_handle_cancel.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 taskgroup_stale_handle_join.saw	pass	-	-
 taskgroup_structured_join.saw	pass	-	-
@@ -2449,13 +2449,13 @@ taskgroup_suspending_cancel.saw	pass	-	-
 taskgroup_suspending_deinit_join.saw	pass	-	-
 taskgroup_suspending_main.saw	pass	-	-
 taskgroup_suspending_parent_sleep.saw	pass	-	-
-taskgroup_threads_cancel.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_deinit_once.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_parallel_sum.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_producer_consumer.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_send_accept.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_send_enum_field.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
-taskgroup_threads_sleep.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+taskgroup_threads_cancel.saw	pass	-	-
+taskgroup_threads_deinit_once.saw	pass	-	-
+taskgroup_threads_parallel_sum.saw	pass	-	-
+taskgroup_threads_producer_consumer.saw	pass	-	-
+taskgroup_threads_send_accept.saw	pass	-	-
+taskgroup_threads_send_enum_field.saw	pass	-	-
+taskgroup_threads_sleep.saw	pass	-	-
 taskgroup_two_task_yield.saw	pass	-	-
 taskgroup_unjoined_drop.saw	pass	-	-
 thread_assertion_survives_a_glob_import.saw	pass	-	-
@@ -2646,7 +2646,7 @@ while_let_non_optional_scrutinee.saw	pass	-	operator.undefined: an optional bind
 while_let_payload_read_tier.saw	pass	-	transfer.implicit-copy: this reads a place of type `while_let_payload_read_tier.Token`, which is NoCopy, by value: only a Copy type copies silently; match a `move` of the value when its binding owns i
 while_let_shadow_rules.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
 while_let_suspending.saw	pass	-	-
-while_let_suspending_mt.saw	refused	typecheck call.label	no parameter is labeled `threads` in TaskGroup.init() [std.taskgroup]
+while_let_suspending_mt.saw	pass	-	-
 while_let_suspending_try_catch.saw	pass	-	-
 while_let_tuple_over_suspension_refused.saw	stage0-wrong	annotated SL-566	sawc2 builds it, and its run exits 0
 while_let_value_position_refused.saw	pass	-	type.void-binding: cannot bind `r` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or ca

@@ -32,12 +32,13 @@ on; `compiler/typecheck/src/stdsuspension.saw` is the same rows compiled into
 sawc2, and the check holds the two equal.
 
 `--write` also derives, from the source alone, the std modules whose bodies
-spell a parking primitive, closed over the std modules that import them, and
-refuses to write unless that set equals the modules holding a `suspends` row.
-The new std in `std/` needs no table, since sawc2 checks its bodies, and the
-check gives it the same cross-check: the modules spelling one of its park
-points (`std.task`'s lang items), closed over their importers, against the
-modules holding a function sawc2's summaries say suspends.
+spell a parking primitive, closed over the std modules that import them (a
+selective import counting only when it brings a name that parks), and refuses
+to write unless that set equals the modules holding a `suspends` row. The new
+std in `std/` needs no table, since sawc2 checks its bodies, and the check
+gives it the same cross-check: the modules spelling one of its park points
+(`std.task`'s lang items), closed over their importers, against the modules
+holding a function sawc2's summaries say suspends.
 """
 import argparse
 import glob
@@ -76,6 +77,14 @@ PLACEHOLDER_LABEL = "<suspension source>"
 PARK_SPELLINGS = re.compile(
     r"\b(?:yield_now|io_wait|io_wait_until|__saw_io_park|__saw_chan_park)\b|\bsleep\(")
 _IMPORT = re.compile(r"^\s*import\s+std\.([a-z_][a-z0-9_.]*?)(?:\.\{|\.\*|\s|$)")
+# A selective import's brace list, `{a, b as c}`; each entry's first word is
+# the name it brings.
+_SELECTION = re.compile(r"\.\{([^}]*)\}")
+# A top-level declaration's head and the name it declares; an extension's is
+# its type's.
+_DECL_HEAD = re.compile(r"^(?:public(?:\([a-z]+\))?\s+)?(?:unsafe\s+)?"
+                        r"(?:(?:func|struct|enum|trait|extension|type)\s+|static\s+(?:var\s+)?)"
+                        r"([A-Za-z_]\w*)")
 _IDENTITY_SUFFIX = "$m$"
 # The new std's park points, the lang items `std/task.saw` declares; a
 # body parks by calling one.
@@ -318,10 +327,33 @@ def new_module_of(path):
     return "std." + rel[:-len(".saw")].replace("/", ".")
 
 
+def _declarations(lines):
+    """A module's top-level declarations as (name, code): each runs from its
+    head to the next head, comments stripped, and an extension is its type's."""
+    chunks = []
+    name = None
+    code = []
+    for line in lines:
+        m = _DECL_HEAD.match(line)
+        if m:
+            if name is not None or code:
+                chunks.append((name, "\n".join(code)))
+            name, code = m.group(1), []
+        code.append(line.split("//", 1)[0])
+    chunks.append((name, "\n".join(code)))
+    return chunks
+
+
 def parking_modules(std_dir=None, spellings=PARK_SPELLINGS, module_name=module_of):
     """The std modules under `std_dir`, Stage 0's by default, whose
     non-comment source spells a parking primitive, closed over the std
-    modules importing one of them."""
+    modules importing one of them.
+
+    A selective import, `import std.m.{a, b}`, brings only the names it lists,
+    so it makes its importer park only when one of them parks: a declaration of
+    `m` whose code spells a parking primitive or names a parking name, its own
+    module's or one it imports. A whole or glob import of a parking module
+    makes its importer park, whatever it uses."""
     sources = {}
     for root, dirs, files in os.walk(std_dir or os.path.join(SAWC, "std")):
         dirs.sort()
@@ -331,21 +363,52 @@ def parking_modules(std_dir=None, spellings=PARK_SPELLINGS, module_name=module_o
                 with open(path) as fh:
                     sources[module_name(path)] = fh.read().splitlines()
     parks = set()
-    imports = {}
+    # Per module: the whole or glob imports, and the names each selective
+    # import brings from its module.
+    wholes = {}
+    selections = {}
+    decls = {}
     for module, lines in sources.items():
-        imports[module] = set()
+        wholes[module] = set()
+        selections[module] = {}
+        decls[module] = _declarations(lines)
         for line in lines:
             code = line.split("//", 1)[0]
             if spellings.search(code):
                 parks.add(module)
             m = _IMPORT.match(code)
-            if m:
-                imports[module].add("std." + m.group(1))
+            if not m:
+                continue
+            target = "std." + m.group(1)
+            picked = _SELECTION.search(code)
+            if picked is None:
+                wholes[module].add(target)
+            else:
+                names = selections[module].setdefault(target, set())
+                for entry in picked.group(1).split(","):
+                    if entry.strip():
+                        names.add(entry.split()[0])
+    parking_names = {module: set() for module in sources}
     changed = True
     while changed:
         changed = False
-        for module, deps in imports.items():
-            if module not in parks and deps & parks:
+        for module in sources:
+            imported = set()
+            for target, names in selections[module].items():
+                imported |= names & parking_names.get(target, set())
+            reached = parking_names[module] | imported
+            for target in wholes[module]:
+                reached |= parking_names.get(target, set())
+            for name, code in decls[module]:
+                if name is None or name in parking_names[module]:
+                    continue
+                if spellings.search(code) or any(re.search(r"\b%s\b" % re.escape(r), code)
+                                                 for r in reached):
+                    parking_names[module].add(name)
+                    changed = True
+            if module in parks:
+                continue
+            if wholes[module] & parks or imported:
                 parks.add(module)
                 changed = True
     return parks

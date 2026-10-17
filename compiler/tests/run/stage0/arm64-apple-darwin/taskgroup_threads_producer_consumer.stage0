@@ -1,0 +1,8 @@
+program	compiler/tests/run/taskgroup_threads_producer_consumer.saw
+triple	arm64-apple-darwin
+source	98942992a002eb6a
+build	ok
+exit	0
+stdout	"10"
+stdout	"55"
+stdout	""

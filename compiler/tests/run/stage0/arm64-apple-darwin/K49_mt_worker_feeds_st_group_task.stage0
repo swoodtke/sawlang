@@ -1,0 +1,7 @@
+program	compiler/tests/run/K49_mt_worker_feeds_st_group_task.saw
+triple	arm64-apple-darwin
+source	223ce1510e6f39ff
+build	ok
+exit	0
+stdout	"consumer got 7"
+stdout	""

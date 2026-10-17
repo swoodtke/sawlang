@@ -1,0 +1,7 @@
+program	compiler/tests/run/coro_spawn_and_embed_mt.saw
+triple	aarch64-unknown-linux-gnu
+source	bb7c79ada2539d84
+build	ok
+exit	0
+stdout	"120"
+stdout	""

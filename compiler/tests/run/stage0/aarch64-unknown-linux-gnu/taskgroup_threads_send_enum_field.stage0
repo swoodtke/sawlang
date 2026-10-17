@@ -1,0 +1,8 @@
+program	compiler/tests/run/taskgroup_threads_send_enum_field.saw
+triple	aarch64-unknown-linux-gnu
+source	f2f6e2164899027b
+build	ok
+exit	0
+stdout	"ok: 3"
+stdout	"skip: 1"
+stdout	""

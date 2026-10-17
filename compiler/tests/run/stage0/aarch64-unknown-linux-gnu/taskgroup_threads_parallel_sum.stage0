@@ -1,0 +1,7 @@
+program	compiler/tests/run/taskgroup_threads_parallel_sum.saw
+triple	aarch64-unknown-linux-gnu
+source	be0a9317f23d63ce
+build	ok
+exit	0
+stdout	"4950"
+stdout	""

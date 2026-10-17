@@ -1,0 +1,7 @@
+program	compiler/tests/run/G04_mt_main_int_exit_status.saw
+triple	arm64-apple-darwin
+source	eae6f41362a542c0
+build	ok
+exit	7
+stdout	"joined 1"
+stdout	""

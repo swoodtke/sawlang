@@ -1,0 +1,8 @@
+program	compiler/tests/run/channel_receive_cancel_mt.saw
+triple	aarch64-unknown-linux-gnu
+source	2cd23a7879036d98
+build	ok
+exit	0
+stdout	"the receiving task was cancelled"
+stdout	"handled 30"
+stdout	""
