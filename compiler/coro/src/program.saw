@@ -59,6 +59,11 @@ public struct CoroProgram {
     // What the bodies the lowering rewrites were before it, which the
     // post-lowering verifier compares them with (`coro_verify_snapshot`).
     before: CoroBefore
+    // Whether the build is `--sanitize address`, so the verifier also writes
+    // each lowered frame's poison list (`coro_poison_lists`), and the runs of
+    // those lists, one per resume function.
+    sanitize: Bool
+    poisons: Vector<CoroPoison>
 }
 
 extension CoroProgram: NoCopy {}
@@ -71,7 +76,8 @@ public func coro_program(mono: MonoProgram) -> CoroProgram {
                 lowered: Vector<Bool>(), unlowered: Vector<CoroUnlowered>(), resume_of: Vector<Int>(),
                 resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(), resident: Vector<Bool>(),
                 spawns: Vector<CoroSpawn>(), drives: Vector<CoroDriveSite>(), diags: Vector<MirDiag>(),
-                problems: Vector<String>(), before: CoroBefore.empty())
+                problems: Vector<String>(), before: CoroBefore.empty(), sanitize: false,
+                poisons: Vector<CoroPoison>())
 }
 
 // The verifier's record of the bodies the lowering may rewrite, taken just
@@ -247,7 +253,8 @@ public struct CoroPoint {
 // the frame parks (else -1), its points, `points[point_first ..]`, and by
 // local of its body whether the frame holds it, `resident[resident_first
 // ..]`. The frame's size and alignment and the result's offset are the
-// layout's.
+// layout's. Its poison list is `poisons[poison_first ..]`, empty unless the
+// build sanitizes.
 public struct CoroResume {
     item: Int
     frame: Int
@@ -259,6 +266,31 @@ public struct CoroResume {
     size: Int
     align: Int
     result: Int
+    poison_first: Int
+    poison_count: Int
+}
+
+// Where in a resume function a poison-list step runs, as the backend emits a
+// block: before statement `ordinal`, before the terminator, on the path that
+// records the block's suspension state and returns `Pending`, or on the path
+// that leaves that state for the call's return block.
+public enum CoroPoisonAt {
+    case Statement,
+    case Terminator,
+    case State,
+    case Resume
+}
+
+// One step of a lowered frame's poison list (SL:coroutines B3): at `at` in
+// block `block`, the frame's bytes `[offset, offset + size)` are poisoned for
+// AddressSanitizer, or unpoisoned. `ordinal` is the statement's, else 0.
+public struct CoroPoison {
+    block: Int
+    at: CoroPoisonAt
+    ordinal: Int
+    offset: Int
+    size: Int
+    poison: Bool
 }
 
 // One lowered spawn site (compiler/tests/coro/README.md, "Spawn sites"): the

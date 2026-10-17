@@ -118,8 +118,14 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
         }
         coro_mark_live(&facts, &state, &var lt, p)
         coro_mark_records(&coro, f, &open, b * width, opening, -1, &var lt, p)
+        let suspends = coro_block_suspends(&coro, f, b)
+        if block.term == MirTermKind.Call && not suspends {
+            // Stage 0 workaround (SL:hazards S4): canonical: coro_mark_written(&coro, coro.mono.dp.bc.mir.calls[block.call].dest, &var lt, p)
+            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+            coro_mark_written(&coro, dest, &var lt, p)
+        }
         p = p + 1
-        if coro_block_suspends(&coro, f, b) {
+        if suspends {
             coro_mark_records(&coro, f, &open, b * width, opening, -1, &var lt, p)
             let accesses = coro.mono.dp.bc.mir.init_term_accesses(f, b, &facts)
             let dest = coro.mono.dp.bc.mir.calls[block.call].dest
@@ -297,10 +303,24 @@ func coro_mark_live(facts: &MirInit, state: &Vector<Int>, lt: &var CoroLifetimes
 // by member, reading each operand as it goes, so the destination and every
 // value the statement reads must not share bytes at that point.
 func coro_mark_destination(coro: &CoroProgram, stmt: &MirStmt, lt: &var CoroLifetimes, p: Int) {
-    if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+    if stmt.kind == MirStmtKind.Assign {
+        coro_mark_written(&coro, stmt.place, &var lt, p)
+    }
+}
+
+// Marks, at point `p`, the local place `dest` writes into, whole or in part,
+// when no dereference stands between it and its root. The definition: a
+// destination is live at the point that writes it, which is an assignment's
+// statement, and the terminator of a call that does not suspend, since that
+// call writes its destination (a return slot the callee fills, a lent
+// reference, a result) before control leaves the terminator. A suspending
+// call writes its destination at its return edge. Rule 5 recomputes the same
+// definition independently (`coro_verify_local_lifetimes`).
+func coro_mark_written(coro: &CoroProgram, dest: Int, lt: &var CoroLifetimes, p: Int) {
+    if dest < 0 {
         return
     }
-    let place = coro.mono.dp.bc.mir.places[stmt.place]
+    let place = coro.mono.dp.bc.mir.places[dest]
     if place.local < 0 {
         return
     }

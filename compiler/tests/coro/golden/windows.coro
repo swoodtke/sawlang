@@ -91,7 +91,7 @@ lifetimes #5: windows.held(n: Int) task root
     _0 result: bb3.2-t
     _1 param n: every point
     _2 g: bb0.1-t bb1.0-t s1 r1 bb2.0-t bb3.0-t
-    _4: bb1.0-t s1 r1 bb2.0-t bb3.0-t
+    _4: bb0.t bb1.0-t s1 r1 bb2.0-t bb3.0-t
     _6 record: bb0.t bb1.0-t s1 r1 bb2.0-t
     _8 ref c: bb1.0-t s1 r1 bb2.0-t bb3.0-t
     child std.task.yield_now(): bb1.t s1
@@ -110,7 +110,7 @@ lifetimes #8: windows.beside(n: Int) task root
     _0 result: bb4.0-t
     _1 param n: every point
     _2 g: bb0.1-t s1 r1 bb1.0-t bb2.0-t bb3.t s2 r2 bb4.0-t
-    _5: bb2.0-t bb3.t s2 r2 bb4.0-t
+    _5: bb1.t bb2.0-t bb3.t s2 r2 bb4.0-t
     _9 ref c: bb2.0-t bb3.t s2 r2 bb4.0-t
     child std.task.yield_now(): bb0.t s1
     child std.task.yield_now(): bb3.t s2

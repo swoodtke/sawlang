@@ -147,6 +147,32 @@ def build_program(entry, out):
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
+def link_module(ll, out, sanitize=False):
+    """Link the host `.ll` at `ll` into the executable `out` at -O0 as a
+    hosted `sawc2 build` links it (`driver_link` in
+    compiler/driver/src/main.saw, which the two must agree with): with the
+    clang and the runtime objects the manifest beside `SAWC2` names, and with
+    `-fsanitize=address` when `sanitize`. For a module no `sawc2 build` can
+    write, such as one a test hands the backend past a refusal. Returns (ok,
+    clang's output)."""
+    manifest = os.path.join(os.path.dirname(os.path.realpath(SAWC2)), "sawc2-runtime.txt")
+    triple, clang, objects = None, None, []
+    with open(manifest) as fh:
+        for line in fh.read().splitlines():
+            if line.startswith("target "):
+                triple = line[len("target "):]
+            elif line.startswith("clang "):
+                clang = line[len("clang "):]
+            elif line.startswith("object "):
+                objects.append(line[len("object "):])
+    if triple is None or clang is None:
+        return False, "%s names no target or no clang" % manifest
+    arguments = [clang, "-target", clang_triple(triple), "-O0"] + (["-fsanitize=address"] if sanitize else [])
+    arguments += ["-x", "ir", ll, "-x", "none"] + objects + link_libraries(triple) + ["-o", out]
+    r = subprocess.run(arguments, capture_output=True, text=True, timeout=LINK_TIMEOUT)
+    return r.returncode == 0, (r.stdout + r.stderr).strip()
+
+
 def link_driver(compiler, out):
     """The driver built and linked into `out` at -O2 by the sawc2 binary
     `compiler`, which reads the runtime manifest beside itself; the error
@@ -190,6 +216,7 @@ def link_libraries(triple):
 
     ENTRY POINTS:
       build_seed
+      link_module
     """
     return ["-lm"] if triple in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu") else []
 

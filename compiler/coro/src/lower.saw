@@ -889,7 +889,7 @@ func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
     try! coro.resumes.push(CoroResume(item: frame.item, frame: f, frame_local: frame_local,
                                       context_local: context_local, point_first: point_first,
                                       point_count: point_count, resident_first: resident_first, size: frame.size,
-                                      align: frame.align, result: result))
+                                      align: frame.align, result: result, poison_first: 0, poison_count: 0))
 }
 
 // The task context's shape, as std declares `TaskContext`: its type, the

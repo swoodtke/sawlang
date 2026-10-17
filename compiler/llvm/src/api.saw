@@ -22,6 +22,9 @@ public struct BuildOptions {
     // Whether the file is a runtime source: its exports may be the frozen
     // seams, they are its roots, and it has no `main` or entry point.
     runtime: Bool
+    // `--sanitize address`: every function instrumented by AddressSanitizer,
+    // and each lowered frame's values poisoned outside their lifetimes.
+    sanitize_address: Bool
 }
 
 // The `.ll` of the program whose entry file is `path` into `ir`, returning
@@ -49,6 +52,7 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
         return 1
     }
     var target = coro.mono.target_for(options.target)
+    coro.sanitize = options.sanitize_address
     coro_lower_for(&var coro, &var target)
     if coro.problems.len() > 0 {
         try! out.append(head)

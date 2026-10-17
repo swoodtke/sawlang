@@ -5,7 +5,7 @@
 // how a type is laid out) is already in the concrete MIR, in mono's side
 // tables, or in the target.
 
-import sawcoro.program.{CoroDriveSite, CoroPoint, CoroProgram, CoroResume}
+import sawcoro.program.{CoroDriveSite, CoroPoint, CoroPoison, CoroProgram, CoroResume}
 import sawllvm.text.{ll_c_string, ll_quoted}
 import sawmir.model.{MirDiag}
 import sawmono.dump.{mono_dump_layouts}
@@ -41,6 +41,10 @@ public struct LlEmitter {
     // written, an index of its resumes, or -1.
     lowering: LlLowering
     resume: Int
+    // The next step of the resume function's poison list to emit, and the
+    // end of its run (`put_poisons`).
+    poison_next: Int
+    poison_end: Int
 }
 
 extension LlEmitter: NoCopy {}
@@ -49,13 +53,17 @@ extension LlEmitter: NoCopy {}
 // §3.1): by item its resume function, an index of `resumes`, or -1; each
 // resume function, the points its frame parks or drives a child at, and by
 // local of its body whether the frame holds it; and the lowered drive sites,
-// each of whose root frames the backend reserves on its item's stack.
+// each of whose root frames the backend reserves on its item's stack. Under
+// `--sanitize address`, `sanitize` is true and every function carries
+// `sanitize_address`, and `poisons` holds the resume functions' poison lists.
 public struct LlLowering {
     resume_of: Vector<Int>
     resumes: Vector<CoroResume>
     points: Vector<CoroPoint>
     resident: Vector<Bool>
     drives: Vector<CoroDriveSite>
+    sanitize: Bool
+    poisons: Vector<CoroPoison>
 }
 
 extension LlLowering: NoCopy {}
@@ -63,8 +71,14 @@ extension LlLowering: NoCopy {}
 // The backend's copy of `coro`'s lowered frames.
 public func ll_lowering(coro: &CoroProgram) -> LlLowering {
     var out = LlLowering(resume_of: Vector<Int>(), resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(),
-                         resident: Vector<Bool>(), drives: Vector<CoroDriveSite>())
+                         resident: Vector<Bool>(), drives: Vector<CoroDriveSite>(), sanitize: coro.sanitize,
+                         poisons: Vector<CoroPoison>())
     var k = 0
+    while k < coro.poisons.len() {
+        try! out.poisons.push(coro.poisons[k])
+        k = k + 1
+    }
+    k = 0
     while k < coro.resume_of.len() {
         try! out.resume_of.push(coro.resume_of[k])
         k = k + 1
@@ -97,7 +111,7 @@ extension LlEmitter {
         LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
                   pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
                   body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
-                  lowering: move lowering, resume: -1)
+                  lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0)
     }
 }
 

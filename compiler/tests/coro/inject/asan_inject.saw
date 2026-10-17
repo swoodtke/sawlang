@@ -1,0 +1,156 @@
+// The run-time twin of rule 5's overlap injection: lowers
+// `asan_overlap.saw` for a sanitizing build, moves `late` onto `early`'s
+// offset (its value in the layout and every place naming it alike), and
+// requires the verifier's one report, under rule 5. Then it hands the
+// refused program to the backend anyway and writes its `.ll` to the path its
+// first argument names, for the target its second names. Calling the backend
+// past a refusal is this program's alone: `sawc2 build` stops at the report.
+// compiler/tests/run/sanitize_lane.py links the `.ll` under AddressSanitizer
+// and requires a report at the read of `late`. Paths are the repository
+// root's, where the lane runs it.
+import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.program.{CoroProgram, CoroValueKind}
+import sawcoro.verify.{coro_verify_lowering}
+import sawllvm.module.{ll_lowering}
+import sawllvm.program.{llvm_emit_program}
+import sawmir.model.{MirProjKind}
+import sawmono.dump.{mono_dump_layouts}
+import sawtarget.layout.{target_clang_triple}
+import std.data.{Data}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// The verified body whose item's name holds `name`, by its index in
+// `coro.before.bodies`, or -1.
+func body_of(coro: &CoroProgram, name: String) -> Int {
+    var k = 0
+    while k < coro.before.bodies.len() {
+        let b = coro.before.bodies[k]
+        let item = coro.mono.item_name(b.item)
+        if holds(&item, name) {
+            return k
+        }
+        k = k + 1
+    }
+    return -1
+}
+
+// The index in `item`'s frame of the value holding the local named `name`.
+func value_named(coro: &CoroProgram, item: Int, name: String) -> Int {
+    let frame = coro.frames[coro_frame_of(&coro, item)]
+    var k = 0
+    while k < frame.value_count {
+        let at = k
+        let v = coro.values[frame.value_first + at]
+        k = k + 1
+        if v.kind != CoroValueKind.Local || v.local < 0 {
+            continue
+        }
+        let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[frame.body].local_first + v.local]
+        if local.name >= 0 {
+            let text = coro.mono.dp.bc.mir.tc.name_text(local.name)
+            if text.equals(name) {
+                return at
+            }
+        }
+    }
+    return -1
+}
+
+func main() {
+    let args = try! Env.args()
+    let out = args.get(1) ?? ""
+    let triple = args.get(2) ?? ""
+    assert(out.len() > 0 && triple.len() > 0, "usage: asan_inject OUT.ll TRIPLE")
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/asan_overlap.saw",
+                               std_root: "std", notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
+    var target = coro.mono.target_for(triple)
+    coro.sanitize = true
+    coro_lower_for(&var coro, &var target)
+    let clean = coro.problems.get(0) ?? ""
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", clean)
+    let at = body_of(&coro, "keep")
+    assert(at >= 0, "the verifier records no body for `keep`")
+    let body = coro.before.bodies[at]
+    let frame = coro.frames[coro_frame_of(&coro, body.item)]
+    let early = value_named(&coro, body.item, "early")
+    let late = value_named(&coro, body.item, "late")
+    assert(early >= 0 && late >= 0, "`keep`'s frame holds no `early` or no `late`")
+    let into = coro.values[frame.value_first + early].offset
+    var moved = coro.values[frame.value_first + late]
+    let from = moved.offset
+    let local = moved.local
+    assert(from != into, "`early` and `late` already share an offset")
+    moved.offset = into
+    coro.values[frame.value_first + late] = moved
+    var rewritten = 0
+    var k = 0
+    while k < body.place_count {
+        let p = coro.before.place_ids[body.place_first + k]
+        let pre = coro.before.places[body.place_first + k]
+        k = k + 1
+        if pre.local != local {
+            continue
+        }
+        let post = coro.mono.dp.bc.mir.places[p]
+        var slot = coro.mono.dp.bc.mir.projs[post.first + 1]
+        assert(post.count >= 2 && slot.kind == MirProjKind.FrameSlot && slot.index == from,
+               "a place naming `late` is not its frame slot")
+        slot.index = into
+        coro.mono.dp.bc.mir.projs[post.first + 1] = slot
+        rewritten = rewritten + 1
+    }
+    assert(rewritten > 0, "`keep`'s body names `late` nowhere")
+    // `early`'s offset is also the result's and a child's, whose lifetimes
+    // meet `late`'s too, so rule 5 reports each pair; every report must be
+    // rule 5's on `late`, and one of them on `early`.
+    coro_verify_lowering(&var coro, &var target)
+    assert(coro.problems.len() > 0, "the verifier reports no problem")
+    var named = false
+    k = 0
+    while k < coro.problems.len() {
+        let report = coro.problems.get(k) ?? ""
+        k = k + 1
+        assert(holds(&report, "verify rule 5 (lifetimes disjoint)") && holds(&report, "`late`"),
+               "a report is not rule 5's on `late`: {}", report)
+        named = named || holds(&report, "`early`")
+    }
+    assert(named, "no report names `early`: {}", coro.problems.get(0) ?? "")
+    let lowering = ll_lowering(&coro)
+    let text = llvm_emit_program(&var coro.mono, &var target, move lowering, "-O0", target_clang_triple(triple))
+    assert(text.len() > 0, "the backend refuses the injected program")
+    let created = File.create(Path(s: out))
+    var file = match created {
+        case Ok(handle) -> move handle,
+        case Err(e) -> {
+            panic("cannot create {}: {}", out, e)
+        }
+    }
+    let written = try! file.write(try! text.to_data())
+    assert(written == text.len(), "wrote {} of {} bytes", written, text.len())
+    try! file.close()
+}

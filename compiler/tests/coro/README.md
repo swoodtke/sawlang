@@ -17,7 +17,10 @@ coro/
                           NAME.layouts, its frames' layouts; NAME.lowered, its
                           lowered frames' resume functions
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
-  inject/                 NAME.saw, a program a unit program lowers, then
+  inject/                 asan_inject.saw, the sanitizer lane's injector,
+                          which lowers asan_overlap.saw, edits it and hands
+                          it to the backend past the verifier; and
+                          NAME.saw, a program a unit program lowers, then
                           edits, to prove the verifier refuses a shape no
                           lowering emits
   modules/                packages a fixture imports, one directory each
@@ -140,15 +143,20 @@ layout's interference and the dump all read it from the one funnel,
 - **the state word and the op-budget counter:** every point;
 - **a local**, the result and the parameters included: the points just before
   which the initialisation analysis says it may be initialised, whole or in
-  part (`compiler/mir/src/initialisation.saw`), and the point of each
-  assignment that writes into it, whole or in part, other than through a
-  dereference. So it runs from the statement that initialises it through its
-  scope-end drop, and a local that is moved is dead until it is assigned
-  again. A local only ever copied never stops being initialised, so its
-  lifetime runs to the end. The assignment's own point is in it because the
-  backend writes an rvalue straight into its destination, a moved memory
-  value by one `memcpy` and an aggregate member by member, while it still
-  reads the values the statement moves out of (golden `pack_move`);
+  part (`compiler/mir/src/initialisation.saw`), and the point that writes
+  into it, whole or in part, other than through a dereference: each
+  assignment's statement, and the terminator of each call that does not
+  suspend and has it as its destination. So it runs from the statement or
+  call that initialises it through its scope-end drop, and a local that is
+  moved is dead until it is assigned again. A local only ever copied never
+  stops being initialised, so its lifetime runs to the end. The writing point
+  is in it because the backend writes an rvalue straight into its
+  destination, a moved memory value by one `memcpy` and an aggregate member
+  by member, while it still reads the values the statement moves out of
+  (golden `pack_move`), and a call writes its destination (a return slot the
+  callee fills, a window's lent reference, a result) before control leaves
+  its terminator (goldens `windows` and `chains`); a suspending call writes
+  its at its return edge, below;
 - **a window's state record**, a local whose accessor's halves write and read
   it through a reference the analysis never sees: also every point at which
   its window may be open, from its open's terminator through its close's
@@ -656,8 +664,9 @@ task's context, last in a block going where the call returned.
    it. The state word and the op-budget counter are live at every point. A
    local, the result and the parameters included, is live where the
    initialisation analysis, over the lowered body read with every place put
-   back as it was, says it may be initialised, and at each assignment that
-   writes into it other than through a dereference; a window's record also
+   back as it was, says it may be initialised, and at each assignment, and
+   each terminator of a call that does not park, that writes into it other
+   than through a dereference; a window's record also
    wherever its window may be open. A child slot is live from the first
    parameter write lowering added to its drive's block, through the drive and
    its state, and when the call had a destination, the resume transition and
@@ -669,7 +678,27 @@ task's context, last in a block going where the call returned.
    both values, the bytes they share, the first point at which both are live,
    `bbB.N`, `bbB.t`, `sK` or `rK`, and the state it runs in: for a statement
    or a terminator, the lowest state whose run reaches its block, 0 being the
-   start.
+   start. The lifetimes are computed once per body
+   (`coro_lowered_lifetimes`), and a `--sanitize address` build reads the
+   same computation for its poison lists (below).
+
+**The dynamic twin (risk R2).** Under `sawc2 build --sanitize address`,
+`coro_poison_lists` turns rule 5's lifetimes into AddressSanitizer poison
+lists, which the backend emits as `__asan_poison_memory_region` and
+`__asan_unpoison_memory_region` calls on the frame's bytes in each resume
+function. At creation, where state 0 enters `bb0`, the whole frame is
+poisoned and each value live there unpoisoned. At each point, each value dead
+there but live at a point that can run just before it is poisoned, then each
+value live there but dead at such a point unpoisoned; two values live at one
+point never share a byte, so no poisoning covers a value live on both sides
+of it. At each return, before `Ready`, the whole frame is unpoisoned, since
+the caller or the executor reads the result and frees the frame outside its
+code. The state word and the op-budget counter are live everywhere, so the
+executor's resume and a drive never meet poison there, and an offload's
+storage, which the job's thread reads, is live until the take joins it. So a
+frame access outside the lifetime the packer was given, on bytes no live
+value holds, reports at the access. An access to bytes a live value shares is
+invisible to it: that is rule 5's to refuse.
 
 Each rule has a unit program that lowers a fixture of `inject/`, finds it
 clean, edits the lowered MIR into a shape no lowering emits, and requires the
@@ -684,6 +713,7 @@ verifier's report naming the rule:
 | 4 | `parks/verify_records` | `records` | a descriptor park's record moves past its arm |
 | 1, 2 | `compiler/coro/tests/verify_zero_size` | `zero_size` | a drop's slot starts inside the frame and runs past its end; a statement copies a child's zero-size result slot, at that child's end and the frame's |
 | 5 | `compiler/coro/tests/verify_lifetimes` | `lifetimes` | a value live across both suspensions moves onto another's offset, its layout and its places alike; a temporary's drop moves, inside its block, past the initialisation of the value that shares its bytes |
+| 5, at run time | `inject/asan_inject` | `asan_overlap` | `late` moves onto the offset of `early`, which dies first; the refused program's `.ll` is written anyway, and linked under AddressSanitizer it must report the read of `late` (compiler/tests/run/README.md, "The sanitizer lane") |
 
 `records` parks on a descriptor, which no std module calls yet, so it is
 lowered under the lane's copy of std, as the park goldens are; its unit

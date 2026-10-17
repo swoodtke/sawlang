@@ -9,6 +9,7 @@ Stage 0's own std ("The oracle").
 run/
   README.md      this specification
   run_lane.py    the lane compiler/tests/run.py runs
+  sanitize_lane.py  the sanitizer lane, run.py's `sanitize` step ("The sanitizer lane")
   NAME.saw       a program
   stage0/TRIPLE/NAME.stage0  Stage 0's recorded run of NAME.saw on host TRIPLE
   hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
@@ -23,13 +24,13 @@ run/
 
 ```sh
 .build/sawc2 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
-                   [--module-path NAME=DIR]... FILE [-o OUT]
+                   [--sanitize address] [--module-path NAME=DIR]... FILE [-o OUT]
 .build/sawc2 build [...] --emit-ll FILE
 ```
 
 `sawc2 build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs
-`clang -target TRIPLE SPEED -x ir OUT.ll -x none RUNTIME... [-lm] -o OUT`,
+`clang -target TRIPLE SPEED [-fsanitize=address] -x ir OUT.ll -x none RUNTIME... [-lm] -o OUT`,
 blocking until clang exits. `-lm` is there for a Linux target only, since
 glibc keeps the math functions in libm, apart from libc, while macOS's
 libSystem carries them. A refusal prints its record (as `sawc2 coro
@@ -477,6 +478,32 @@ escaping closure that captures anything (`compiler/tests/mono/README.md`).
 
 Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
 (SL:architecture §5).
+
+## The sanitizer lane
+
+`--sanitize address` builds a program under AddressSanitizer: `address` is
+the one value the flag takes, and any other is a usage error naming it. The
+module's one attribute group gains `sanitize_address`, so every function the
+backend defines is instrumented, clang links with `-fsanitize=address`, and
+each lowered frame's resume function poisons and unpoisons the frame's bytes
+by rule 5's lifetimes (compiler/tests/coro/README.md, "The verifier"). Without
+the flag the `.ll` is byte for byte what it was.
+
+`sanitize_lane.py`, run.py's `sanitize` step, builds each of this directory's
+`coro_*` programs that is not due, the offload pins
+(`offload_cancel_waits_for_the_call`, `offload_start_refused`,
+`suspend_blocking_main`) and each `thread_*` probe that states its output, at
+-O0 plainly and under `--sanitize address`, into `.build/sanitize-lane/`. A
+case passes when the sanitized binary prints the same bytes and exits with the
+same status as the plain one, and AddressSanitizer reports nothing; leak
+detection is off, since the lane checks frame accesses. Then the injection:
+`compiler/tests/coro/inject/asan_inject.saw`, built by sawc2 and run, lowers
+`asan_overlap.saw` for a sanitizing build, moves `late` onto the offset of
+`early`, which dies first, requires the verifier's rule-5 reports, and writes
+the refused program's `.ll` anyway, which no `sawc2 build` can do.
+`build.link_module` links it as a hosted `sawc2 build` would, under
+AddressSanitizer, and it must abort with a `use-after-poison` read of 8 bytes
+in `keep`'s resume function before the print that read feeds.
 
 ## The oracle
 

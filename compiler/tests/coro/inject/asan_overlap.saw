@@ -1,0 +1,25 @@
+// The program `asan_inject.saw` lowers for a sanitizing build, then edits:
+// `late` lives from its first statement to its print, and `early` across the
+// first suspension only, so each has bytes of its own. The edit moves `late`
+// onto `early`'s offset, so `early`'s death, at the end of its `if`, poisons
+// bytes `late` still needs, and the print's read of `late` must be reported
+// by AddressSanitizer at that read.
+import std.task.{yield_now}
+
+func keep(n: Int) -> Int {
+    let late = n * 3
+    var total = n
+    if n > 0 {
+        let early = "early"
+        yield_now()
+        total = total + early.len()
+    }
+    yield_now()
+    print("late {}", late)
+    total
+}
+
+func main() {
+    let m = keep(4)
+    print("{}", m)
+}

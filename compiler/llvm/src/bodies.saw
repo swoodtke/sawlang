@@ -11,7 +11,7 @@ import sawllvm.attributes.{ll_function_attributes, ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
 import sawcoro.lower.{CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
-import sawcoro.program.{CoroPoint, CoroPointKind, CoroResume}
+import sawcoro.program.{CoroPoint, CoroPointKind, CoroPoisonAt, CoroResume}
 import sawllvm.module.{LlEmitter, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol,
                            ll_value_type}
 import sawllvm.ops.{ll_lossless}
@@ -203,6 +203,8 @@ extension LlEmitter {
         self.refused = false
         self.sret = false
         self.resume = r
+        self.poison_next = resume.poison_first
+        self.poison_end = resume.poison_first + resume.poison_count
         var j = 0
         while j < info.local_count {
             if self.lowering.resident[resume.resident_first + j] {
@@ -231,12 +233,16 @@ extension LlEmitter {
         while b < info.block_count {
             let block = mono.dp.bc.mir.blocks[info.block_first + b]
             self.put_label(ll_block(b))
+            var ordinal = 0
             var s = block.first
             while s >= 0 {
                 let stmt = mono.dp.bc.mir.stmts[s]
+                self.put_poisons(b, CoroPoisonAt.Statement, ordinal)
                 self.statement(&var mono, &var target, &stmt)
                 s = stmt.next
+                ordinal = ordinal + 1
             }
+            self.put_poisons(b, CoroPoisonAt.Terminator, 0)
             let p = self.point_at(&resume, b)
             if p >= 0 {
                 let point = self.lowering.points[p]
@@ -254,6 +260,14 @@ extension LlEmitter {
         self.put("call void @llvm.trap()")
         self.put("unreachable")
         if self.refused {
+            return
+        }
+        if self.poison_next != self.poison_end {
+            var problem = StringBuilder()
+            try! problem.append("the poison list of ")
+            try! problem.append(ll_resume_symbol(&mono, k))
+            try! problem.append(" names a position the function does not have")
+            try! mono.problems.push(problem.build())
             return
         }
         var entry = StringBuilder()
@@ -350,19 +364,29 @@ extension LlEmitter {
                 try! test.append(", ")
                 try! test.append(CORO_POLL_PENDING)
                 let pending = self.assign(test.build())
+                // A return edge with poison steps of its own leaves through a
+                // block that runs them, and only then.
+                let stepped = next.len() > 0 && self.poisons_ahead(point.block, CoroPoisonAt.Resume)
+                let ready = if stepped { ll_state_label("coro.ready", point.state) } else { next }
                 if next.len() == 0 {
                     next = self.new_label("coro.never")
                     self.branch(pending, pend, next)
                     self.put_label(next)
                     self.put("unreachable")
                 } else {
-                    self.branch(pending, pend, next)
+                    self.branch(pending, pend, ready)
                 }
                 self.put_label(pend)
+                self.put_poisons(point.block, CoroPoisonAt.State, 0)
                 self.put_state(point.state)
                 self.put_poll(CORO_POLL_PENDING)
                 self.put_label(state)
                 self.jump(drive)
+                if stepped {
+                    self.put_label(ready)
+                    self.put_poisons(point.block, CoroPoisonAt.Resume, 0)
+                    self.jump(next)
+                }
             },
             case OffloadStart -> {
                 self.offload_start(&var mono, &var target, &point, &info)
@@ -373,11 +397,64 @@ extension LlEmitter {
                 self.continue_to(next)
             },
             case _ -> {
+                self.put_poisons(point.block, CoroPoisonAt.State, 0)
                 self.put_state(point.state)
                 self.put_poll(CORO_POLL_PENDING)
                 self.put_label(state)
+                self.put_poisons(point.block, CoroPoisonAt.Resume, 0)
                 self.continue_to(next)
             }
+        }
+    }
+
+    // Whether the next step of the resume function's poison list runs at
+    // `at` in block `block`.
+    func poisons_at(&self, block: Int, at: CoroPoisonAt) -> Bool {
+        if self.poison_next >= self.poison_end {
+            return false
+        }
+        let step = self.lowering.poisons[self.poison_next]
+        step.block == block && step.at == at
+    }
+
+    // Whether a step of the poison list still to come runs at `at` in block
+    // `block`, the block being written.
+    func poisons_ahead(&self, block: Int, at: CoroPoisonAt) -> Bool {
+        var k = self.poison_next
+        while k < self.poison_end && self.lowering.poisons[k].block == block {
+            if self.lowering.poisons[k].at == at {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // The poison-list steps that run at `at` (statement `ordinal`) in block
+    // `block`, each a call of AddressSanitizer's interface on the frame's
+    // bytes (`coro_poison_lists`). The list is in the order the resume
+    // function is written, so its steps are emitted from a cursor, and one
+    // left over when the function is done is a broken invariant.
+    func put_poisons(&var self, block: Int, at: CoroPoisonAt, ordinal: Int) {
+        while self.poisons_at(block, at) && self.lowering.poisons[self.poison_next].ordinal == ordinal {
+            let step = self.lowering.poisons[self.poison_next]
+            self.poison_next = self.poison_next + 1
+            let name = if step.poison { "__asan_poison_memory_region" } else { "__asan_unpoison_memory_region" }
+            var declaration = StringBuilder()
+            try! declaration.append("declare void @")
+            try! declaration.append(name)
+            try! declaration.append("(ptr, i64)")
+            self.declare(name, declaration.build())
+            let addr = self.offset_addr("%frame", step.offset)
+            var call = StringBuilder()
+            try! call.append("call void @")
+            try! call.append(name)
+            try! call.append("(ptr ")
+            try! call.append(addr)
+            try! call.append(", i64 ")
+            try! call.append(step.size)
+            try! call.append(")")
+            self.put(call.build())
         }
     }
 

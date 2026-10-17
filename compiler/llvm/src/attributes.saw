@@ -40,8 +40,9 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
 
 // What closes the signature of every function the module defines: the
 // attributes `extra` names, then the module's one attribute group, which
-// carries the target's frame pointer policy. A define that bypasses it keeps
-// no frame pointer; the run lane checks that every define names the group.
+// carries the target's frame pointer policy and, in a sanitizing build,
+// `sanitize_address`. A define that bypasses it keeps no frame pointer and
+// goes uninstrumented; the run lane checks that every define names the group.
 //
 // ENTRY POINTS:
 //   LlEmitter.emit_function
@@ -64,8 +65,14 @@ public func ll_function_attributes(extra: String) -> String {
     out.build()
 }
 
-// The attribute group every define names, the module's last line.
-public func ll_function_attribute_group(target: &Target) -> String {
+// The attribute group every define names, the module's last line: under
+// `--sanitize address` (`sanitize`) it also carries `sanitize_address`, the
+// attribute clang's AddressSanitizer instruments a function by, so every
+// function the module defines is instrumented.
+//
+// ENTRY POINTS:
+//   llvm_emit_program
+public func ll_function_attribute_group(target: &Target, sanitize: Bool) -> String {
     let policy = match target.frame_pointer() {
         case Omitted -> "none",
         case NonLeaf -> "non-leaf",
@@ -76,7 +83,11 @@ public func ll_function_attribute_group(target: &Target) -> String {
     try! out.append(ll_function_group())
     try! out.append(" = \{ \"frame-pointer\"=\"")
     try! out.append(policy)
-    try! out.append("\" \}")
+    try! out.append("\"")
+    if sanitize {
+        try! out.append(" sanitize_address")
+    }
+    try! out.append(" \}")
     out.build()
 }
 

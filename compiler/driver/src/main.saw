@@ -93,7 +93,7 @@ func driver_usage() -> Int {
     print("       sawc2 coro (--dump | --layouts | --lowered | --check) [--notes] [--std-root DIR] [--target TRIPLE]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
-    print("                   [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("                   [--sanitize address] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc2 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                     (--out DIR | --emit-ll FILE)")
     DRIVER_EXIT_USAGE
@@ -111,7 +111,9 @@ func driver_speed_level(flag: String) -> String {
 // `sawc2 build FILE`: the program compiled to `OUT.ll` and linked by clang
 // into `OUT` against the runtime objects the manifest beside this binary
 // names; with `--emit-ll`, its `.ll` on standard output and nothing linked.
-// A refusal prints its record and exits 1, and a failing clang's exit status
+// `--sanitize address` builds it under AddressSanitizer, its frames poisoned
+// outside their values' lifetimes; it is the one value the flag takes. A
+// refusal prints its record and exits 1, and a failing clang's exit status
 // is the build's (compiler/tests/run/README.md).
 func driver_build(args: &Vector<String>) -> Int {
     var std_root = "sawc"
@@ -122,11 +124,13 @@ func driver_build(args: &Vector<String>) -> Int {
     var path = ""
     var out = ""
     var emit = false
+    var sanitize = false
     var i = 2
     while i < args.len() {
         let arg = args.get(i) ?? ""
         let level = driver_speed_level(arg)
-        let valued = arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
+        let valued = (arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
+                      || arg.equals("--sanitize"))
         if level.len() > 0 {
             speed = level
         } else if arg.equals("--emit-ll") {
@@ -140,6 +144,12 @@ func driver_build(args: &Vector<String>) -> Int {
                 std_root = value
             } else if arg.equals("--target") {
                 triple = value
+            } else if arg.equals("--sanitize") {
+                if not value.equals("address") {
+                    print("sawc2 build: --sanitize takes `address`, the one sanitizer sawc2 builds with, not `{}`", value)
+                    return DRIVER_EXIT_USAGE
+                }
+                sanitize = true
             } else if arg.equals("-o") {
                 out = value
             } else if not driver_add_mapping(&var names, &var dirs, value) {
@@ -171,7 +181,7 @@ func driver_build(args: &Vector<String>) -> Int {
                 return DRIVER_EXIT_USAGE
             }
         }
-        return driver_emit(path, std_root, triple, speed, &names, &dirs)
+        return driver_emit(path, std_root, triple, speed, sanitize, &names, &dirs)
     }
     let host = driver_read_runtime("sawc2 build", &var objects, &var clang)
     if host.len() == 0 {
@@ -198,7 +208,7 @@ func driver_build(args: &Vector<String>) -> Int {
     }
     let clang_triple = target_clang_triple(triple)
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple,
-                               runtime: false)
+                               runtime: false, sanitize_address: sanitize)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -214,17 +224,18 @@ func driver_build(args: &Vector<String>) -> Int {
         return 1
     }
     if cross {
-        return driver_link(foreign_clang.build(), ll_path, out, speed, clang_triple, &foreign)
+        return driver_link(foreign_clang.build(), ll_path, out, speed, sanitize, clang_triple, &foreign)
     }
-    driver_link(clang.build(), ll_path, out, speed, clang_triple, &objects)
+    driver_link(clang.build(), ll_path, out, speed, sanitize, clang_triple, &objects)
 }
 
 // `sawc2 build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
-func driver_emit(path: String, std_root: String, triple: String, speed: String, names: &Vector<String>,
-                 dirs: &Vector<String>) -> Int {
+func driver_emit(path: String, std_root: String, triple: String, speed: String, sanitize: Bool,
+                 names: &Vector<String>, dirs: &Vector<String>) -> Int {
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed,
-                               module_triple: target_clang_triple(triple), runtime: false)
+                               module_triple: target_clang_triple(triple), runtime: false,
+                               sanitize_address: sanitize)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -417,15 +428,20 @@ func driver_write_file(path: String, text: String) -> Bool {
     }
 }
 
-// Runs `CLANG -target TRIPLE SPEED -x ir LL -x none OBJECTS... LIBRARIES...
-// -o OUT` and returns its exit status, or 1 once the reason it could not run
-// is printed.
-func driver_link(clang: String, ll: String, out: String, speed: String, triple: String,
+// Runs `CLANG -target TRIPLE SPEED [-fsanitize=address] -x ir LL -x none
+// OBJECTS... LIBRARIES... -o OUT` and returns its exit status, or 1 once the
+// reason it could not run is printed. `sanitize` asks clang to instrument
+// the module's `sanitize_address` functions and link AddressSanitizer's
+// runtime.
+func driver_link(clang: String, ll: String, out: String, speed: String, sanitize: Bool, triple: String,
                  objects: &Vector<String>) -> Int {
     var arguments = Vector<String>()
     try! arguments.push("-target")
     try! arguments.push(triple)
     try! arguments.push(speed)
+    if sanitize {
+        try! arguments.push("-fsanitize=address")
+    }
     try! arguments.push("-x")
     try! arguments.push("ir")
     try! arguments.push(ll)
@@ -558,7 +574,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     }
     let speed = driver_runtime_speed()
     let options = BuildOptions(std_root: std_root, target: host, speed: speed,
-                               module_triple: target_clang_triple(host), runtime: true)
+                               module_triple: target_clang_triple(host), runtime: true, sanitize_address: false)
     let names = Vector<String>()
     let dirs = Vector<String>()
     if emit.len() > 0 {

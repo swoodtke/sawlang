@@ -38,7 +38,10 @@ whose layouts are compared with Stage 0's recorded ones; runs the coro lane
 over `coro/`, whose golden frame decisions and refusal fixtures hold `sawc2
 coro`, and whose decisions must agree with typecheck's summaries; runs the run
 lane over `run/`, which builds each program with `sawc2 build` and compares
-its binary's output with Stage 0's recorded run; and checks that the Stage 0
+its binary's output with Stage 0's recorded run; runs the sanitizer lane, which
+builds the coroutine programs with `sawc2 build --sanitize address`, holds
+each to its plain build and requires an overlap injected past the verifier
+to be reported at its access; and checks that the Stage 0
 snapshot in `coro/stage0/` is whole and prints the coroutine census, which
 gates nothing; and checks that a serial and a parallel run print the same
 (`parallel_order.py`). The lanes' oracles are Stage 0's recorded snapshots
@@ -124,6 +127,7 @@ import coro_lane  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "run"))
 import run_lane  # noqa: E402
+import sanitize_lane  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
@@ -628,6 +632,18 @@ def run_programs(run):
         run.count(key, n)
 
 
+def run_sanitize(run):
+    """The sanitizer lane (compiler/tests/run/sanitize_lane.py): the coroutine
+    programs, offload pins and thread probes built with `--sanitize address`
+    and held to their plain builds, and an overlap injected past the verifier
+    reported by AddressSanitizer at its access."""
+    failures, counts = sanitize_lane.run()
+    for failure in failures:
+        run.fail(failure)
+    for key, n in counts.items():
+        run.count(key, n)
+
+
 def run_census(run):
     """The coroutine census (compiler/tests/coro/census.py), as information:
     only a Stage 0 snapshot that is not whole fails, and the census's lines
@@ -691,6 +707,7 @@ STEPS = (
     Step("mono", "built"),
     Step("coro", "built"),
     Step("programs", "built", calls_overlap=True),
+    Step("sanitize", "built", calls_overlap=True),
     Step("census", "built", calls_overlap=True, width=2),
     Step("parallel_order", "built", calls_overlap=True),
 )

@@ -128,7 +128,7 @@ lifetimes #0: chains.main()
     _0 result: none
     _1 bed: bb0.1-t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
     _3 add: bb0.3-t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0
-    _5: bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
+    _5: bb0.t bb1.t bb2.0-t s1 r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
     _7: r1 bb3.t bb4.0-t s2 r2 bb5.0-t bb6.0-t
     child chains.rest(bed: &chains.Bed): bb2.t s1 r1
     child prologue chains.Bed.slot() receiver exclusive: bb4.t s2 r2

@@ -26,8 +26,8 @@ import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
                       coro_child_offset, coro_context_shape, coro_frame_lowered}
-import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroProgram, CoroValue,
-                        CoroValueKind}
+import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroPoison, CoroPoisonAt,
+                        CoroProgram, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_call_suspends}
 import sawdrops.program.{DropsProgram}
 import sawmir.dump.{mir_dump_module}
@@ -303,10 +303,12 @@ func coro_verify_find(values: &Vector<Int>, value: Int) -> Int {
 }
 
 // Checks every body the snapshot recorded, as the lowering left it, against
-// the four rules, sizing each slot's type for `target`, the target the frames
-// were laid out for; each broken one is a problem of `coro`.
+// the five rules, sizing each slot's type for `target`, the target the frames
+// were laid out for; each broken one is a problem of `coro`. A sanitizing
+// build also gets each lowered frame's poison list, written afresh.
 public func coro_verify_lowering(coro: &var CoroProgram, target: &var Target) {
     let context = coro_context_shape(&var coro)
+    coro.poisons = Vector<CoroPoison>()
     var k = 0
     while k < coro.before.bodies.len() {
         let body = coro.before.bodies[k]
@@ -328,7 +330,11 @@ func coro_verify_body(coro: &var CoroProgram, target: &var Target, cx: &CoroCont
     coro_verify_windows(&var coro, &b, &slots)
     if b.framed {
         coro_verify_records(&var coro, &cx, &b)
-        coro_verify_lifetimes(&var coro, &b, frame)
+        let lifetimes = coro_lowered_lifetimes(&var coro, &b, frame)
+        coro_verify_lifetimes(&var coro, &b, &lifetimes)
+        if coro.sanitize {
+            coro_poison_lists(&var coro, &b, &lifetimes)
+        }
     }
 }
 
@@ -2545,23 +2551,41 @@ struct CoroVerifyPoints {
 
 extension CoroVerifyPoints: NoCopy {}
 
-// Rule 5 over lowered frame `b`, whose frame pointer is local `frame`: each
-// frame value's storage lifetime is recomputed from the lowered body's own
-// accesses, and no two values that share a byte are live at one point
-// (SL:architecture §3.9). A lifetime is the one compiler/tests/coro/README.md,
-// "Storage lifetimes", defines, read off the body as lowering left it rather
-// than from the sets the layout packed by. Values that share an offset share
-// its spelling, so a place is attributed to a value by what the body named
-// before lowering, or, for a place lowering added, by the call it serves.
-func coro_verify_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int) {
+// A lowered frame's storage lifetimes as rule 5 recomputes them
+// (`coro_lowered_lifetimes`): its frame, an index of `coro.frames` or -1 when
+// there is nothing to check, its program points, and `live[v * points.count
+// + p]`, whether the frame's value `v` needs its bytes just before point `p`.
+struct CoroLoweredLifetimes {
+    frame: Int
+    points: CoroVerifyPoints
+    live: Vector<Bool>
+}
+
+extension CoroLoweredLifetimes: NoCopy {}
+
+// THE LOWERED-LIFETIME FUNNEL: each value's storage lifetime in lowered frame
+// `b`, whose frame pointer is local `frame`, recomputed from the lowered
+// body's own accesses (SL:architecture §3.9). A lifetime is the one
+// compiler/tests/coro/README.md, "Storage lifetimes", defines, read off the
+// body as lowering left it rather than from the sets the layout packed by.
+// Values that share an offset share its spelling, so a place is attributed to
+// a value by what the body named before lowering, or, for a place lowering
+// added, by the call it serves. Its two consumers read one computation: rule
+// 5 (`coro_verify_lifetimes`) and the sanitizer's poison lists
+// (`coro_poison_lists`), so the run-time check cross-checks the packer, not
+// a second analysis.
+//
+// ENTRY POINTS:
+//   coro_verify_body
+func coro_lowered_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, frame: Int) -> CoroLoweredLifetimes {
     let fr = coro_frame_of(&coro, b.item)
+    let pts = coro_verify_lowered_points(&coro, &b)
+    var live = Vector<Bool>()
     if fr < 0 || frame < 0 {
-        return
+        return CoroLoweredLifetimes(frame: -1, points: move pts, live: move live)
     }
     let fv = coro.frames[fr]
-    let pts = coro_verify_lowered_points(&coro, &b)
     let n = fv.value_count
-    var live = Vector<Bool>()
     var k = 0
     while k < n * pts.count {
         try! live.push(false)
@@ -2582,6 +2606,18 @@ func coro_verify_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
     coro_verify_local_lifetimes(&var coro, &b, &fv, &pts, &var live)
     coro_verify_record_lifetimes(&coro, &b, &fv, &pts, &var live)
     coro_verify_call_lifetimes(&coro, &b, &fv, frame, &pts, &var live)
+    CoroLoweredLifetimes(frame: fr, points: move pts, live: move live)
+}
+
+// Rule 5 over lowered frame `b`: no two values that share a byte are live at
+// one point, by the lifetimes `lt` the funnel recomputed.
+func coro_verify_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLoweredLifetimes) {
+    if lt.frame < 0 {
+        return
+    }
+    let fv = coro.frames[lt.frame]
+    let n = fv.value_count
+    let count = lt.points.count
     var i = 0
     while i < n {
         let a = coro.values[fv.value_first + i]
@@ -2595,10 +2631,10 @@ func coro_verify_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
                 continue
             }
             var p = 0
-            while p < pts.count && not (live[i * pts.count + p] && live[other * pts.count + p]) {
+            while p < count && not (lt.live[i * count + p] && lt.live[other * count + p]) {
                 p = p + 1
             }
-            if p < pts.count {
+            if p < count {
                 let lo = if a.offset > c.offset { a.offset } else { c.offset }
                 let hi = if a.offset + a.size < c.offset + c.size { a.offset + a.size } else { c.offset + c.size }
                 var what = StringBuilder()
@@ -2610,11 +2646,162 @@ func coro_verify_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, frame: In
                 try! what.append(", ")
                 try! what.append(hi)
                 try! what.append(") of the frame, and both are live at ")
-                coro_verify_append_point(&var what, &pts, p)
+                coro_verify_append_point(&var what, &lt.points, p)
                 coro_verify_problem(&var coro, 5, b.item, what.build())
             }
         }
         i = i + 1
+    }
+}
+
+// Lowered frame `b`'s poison list, from the lifetimes `lt` rule 5 checked, so
+// that a frame access outside its value's lifetime reports at the access
+// (risk R2). At creation, where state 0 enters `bb0`, the whole frame is
+// poisoned and each value live there unpoisoned; at each point, each value
+// dead there but live at a point that can run just before it is poisoned,
+// then each value live there but dead at such a point unpoisoned; at each
+// return, before `Ready`, the whole frame is unpoisoned, since the caller or
+// the executor reads the result and frees the frame outside its code. The
+// state word and the op-budget counter are live at every point, so the
+// executor's and a drive's reads and writes of them never meet poison, and
+// an offload's storage, which the job's thread reads, is live until the take
+// joins that thread.
+func coro_poison_lists(coro: &var CoroProgram, b: &CoroBeforeBody, lt: &CoroLoweredLifetimes) {
+    let r = if b.item < coro.resume_of.len() { coro.resume_of[b.item] } else { -1 }
+    if r < 0 || lt.frame < 0 {
+        return
+    }
+    let fv = coro.frames[lt.frame]
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    // Each control edge into a block, by the point that runs just before
+    // its first: a parking call's return edge leaves its resume transition,
+    // every other edge its block's terminator.
+    var into = Vector<Int>()
+    var from = Vector<Int>()
+    var q = 0
+    while q < info.block_count {
+        let here = q
+        q = q + 1
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
+        var resumed = -1
+        if lt.points.parked[here] > 0 {
+            resumed = coro.mono.dp.bc.mir.calls[block.call].next
+        }
+        let succ = coro.mono.dp.bc.mir.init_successors(b.body, here)
+        var j = 0
+        while j < succ.len() {
+            let target = succ[j]
+            j = j + 1
+            try! into.push(target)
+            if target == resumed && lt.points.resume[here] >= 0 {
+                try! from.push(lt.points.resume[here])
+            } else {
+                try! from.push(lt.points.term[here])
+            }
+        }
+    }
+    let first = coro.poisons.len()
+    var bb = 0
+    while bb < info.block_count {
+        let here = bb
+        bb = bb + 1
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + here]
+        var before = Vector<Int>()
+        var e = 0
+        while e < into.len() {
+            if into[e] == here {
+                try! before.push(from[e])
+            }
+            e = e + 1
+        }
+        var p = lt.points.first[here]
+        var ordinal = 0
+        var s = block.first
+        while s >= 0 {
+            if here == 0 && ordinal == 0 {
+                coro_poison_creation(&var coro, &fv, &lt, CoroPoisonAt.Statement)
+            }
+            coro_poison_step(&var coro, &fv, &lt, &before, p, here, CoroPoisonAt.Statement, ordinal)
+            before = Vector<Int>()
+            try! before.push(p)
+            p = p + 1
+            ordinal = ordinal + 1
+            s = coro.mono.dp.bc.mir.stmts[s].next
+        }
+        if here == 0 && ordinal == 0 {
+            coro_poison_creation(&var coro, &fv, &lt, CoroPoisonAt.Terminator)
+        }
+        let term = lt.points.term[here]
+        coro_poison_step(&var coro, &fv, &lt, &before, term, here, CoroPoisonAt.Terminator, 0)
+        if block.term == MirTermKind.Return {
+            try! coro.poisons.push(CoroPoison(block: here, at: CoroPoisonAt.Terminator, ordinal: 0, offset: 0,
+                                              size: fv.size, poison: false))
+        }
+        let state = lt.points.state[here]
+        let resumes = lt.points.resume[here]
+        if state >= 0 {
+            var parking = Vector<Int>()
+            try! parking.push(term)
+            coro_poison_step(&var coro, &fv, &lt, &parking, state, here, CoroPoisonAt.State, 0)
+            if resumes >= 0 {
+                // A drive's child may be `Ready` at once, so its return edge
+                // follows the terminator as well as the state.
+                try! parking.push(state)
+                coro_poison_step(&var coro, &fv, &lt, &parking, resumes, here, CoroPoisonAt.Resume, 0)
+            }
+        }
+    }
+    var resume = coro.resumes[r]
+    resume.poison_first = first
+    resume.poison_count = coro.poisons.len() - first
+    coro.resumes[r] = resume
+}
+
+// The frame's creation, in front of `bb0`'s first point (`coro_poison_lists`):
+// every byte poisoned, then each value live at point 0 unpoisoned.
+func coro_poison_creation(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLifetimes, at: CoroPoisonAt) {
+    try! coro.poisons.push(CoroPoison(block: 0, at: at, ordinal: 0, offset: 0, size: fv.size, poison: true))
+    var k = 0
+    while k < fv.value_count {
+        let v = coro.values[fv.value_first + k]
+        if v.size > 0 && v.offset >= 0 && lt.points.count > 0 && lt.live[k * lt.points.count] {
+            try! coro.poisons.push(CoroPoison(block: 0, at: at, ordinal: 0, offset: v.offset, size: v.size,
+                                              poison: false))
+        }
+        k = k + 1
+    }
+}
+
+// The steps at point `p`, which runs at `at` (statement `ordinal`) of block
+// `block`, after any one of the points `before`: first each value dead at
+// `p` and live at one of them is poisoned, then each value live at `p` and
+// dead at one of them unpoisoned. Two values live at one point never share
+// a byte, so a poisoning never covers a value live on both sides of it.
+func coro_poison_step(coro: &var CoroProgram, fv: &CoroFrame, lt: &CoroLoweredLifetimes, before: &Vector<Int>,
+                      p: Int, block: Int, at: CoroPoisonAt, ordinal: Int) {
+    let count = lt.points.count
+    var pass = 0
+    while pass < 2 {
+        let poison = pass == 0
+        pass = pass + 1
+        var k = 0
+        while k < fv.value_count {
+            let v = coro.values[fv.value_first + k]
+            let here = lt.live[k * count + p]
+            var changed = false
+            if v.size > 0 && v.offset >= 0 && here != poison {
+                var j = 0
+                while j < before.len() && not changed {
+                    changed = lt.live[k * count + before[j]] == poison
+                    j = j + 1
+                }
+            }
+            if changed {
+                try! coro.poisons.push(CoroPoison(block: block, at: at, ordinal: ordinal, offset: v.offset,
+                                                  size: v.size, poison: poison))
+            }
+            k = k + 1
+        }
     }
 }
 
@@ -2740,8 +2927,8 @@ func coro_verify_point_call(coro: &CoroProgram, b: &CoroBeforeBody, point: &Coro
 // Marks the lifetime of each local frame `fv` holds: the points just before
 // which the initialisation analysis, over the lowered body read with every
 // place put back as it was, says it may be initialised, whole or in part, and
-// the point of each assignment writing into it other than through a
-// dereference. The analysis then sees every access lowering moved or kept as
+// the point of each assignment, and of each call that does not park, writing
+// into it other than through a dereference. The analysis then sees every access lowering moved or kept as
 // an access of the local it was, and an access lowering added reads a slot,
 // which no move path holds.
 func coro_verify_local_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, fv: &CoroFrame,
@@ -2776,6 +2963,20 @@ func coro_verify_local_lifetimes(coro: &var CoroProgram, b: &CoroBeforeBody, fv:
             s = stmt.next
         }
         coro_verify_mark_initialised(&facts, &state, &values, pts.count, &var live, pts.term[here])
+        // The definition: a destination is live at the point that writes it,
+        // which is an assignment's statement, and the terminator of a call
+        // that does not park, since that call writes its destination before
+        // control leaves the terminator; a parking call writes its at the
+        // resume transition. lifetimes.saw computes the same definition for
+        // the packer, independently (`coro_mark_written`).
+        if pts.state[here] < 0 && block.term == MirTermKind.Call {
+            // Stage 0 workaround (SL:hazards S4): canonical: let l = coro_verify_written_local(&coro, coro.mono.dp.bc.mir.calls[block.call].dest)
+            let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+            let l = coro_verify_written_local(&coro, dest)
+            if l >= 0 && l < values.len() && values[l] >= 0 {
+                live[values[l] * pts.count + pts.term[here]] = true
+            }
+        }
         if pts.state[here] >= 0 {
             let accesses = coro.mono.dp.bc.mir.init_term_accesses(b.body, here, &facts)
             let dest = coro.mono.dp.bc.mir.calls[block.call].dest
