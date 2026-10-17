@@ -961,6 +961,9 @@ The plan holds except where an amendment below says otherwise. Each one is the l
   - **"Last use" is bounded by the spec's scope-end release:** an owning value is read by its own scope-end drop, so it's never dead before it. A later last-use unit can free only values with no drop, and only if B2's measured layouts show the residual matters.
   - B1's files lose `compiler/borrowck/src/{program,loans}.saw`, `compiler/drops/src/program.saw` and `compiler/mono/src/program.saw`.
 
+- **The storage-lifetime definition (SL-582 c3; SL-583 c8, landed with B3b):** a destination is live at the point that WRITES it. For an assignment that is its statement (B2). For a call that doesn't suspend, it is the call's terminator, since the callee fills a return slot, lends a reference or stores a result before control leaves it (B3b). A suspending call writes at its return edge. `lifetimes.saw` (the packer) and rule 5 (the verifier) compute this definition independently, and the sanitizer's poison lists come from rule 5's computation. B3b's ASan twin found the terminator case. Measured before the fix with rule 5 alone amended, no layout B2 had packed shared a destination's bytes with a value live at its terminator, so no miscompile had shipped.
+
+
 ## 5. Open questions for the user
 
 **RULED by the user (Oct 12):**
