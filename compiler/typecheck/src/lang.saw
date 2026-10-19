@@ -206,7 +206,8 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         case ZeroInitTrait -> try! out.push("trait"),
         case PrintFailureFunction -> {
             try! out.push("func (signature (params (status Int owned) (bytes UnsafePointer<Int8> owned) (capacity Int owned)) (effects unsafe) -> Int)")
-        }
+        },
+        case ParkThreadFunction -> try! out.push("func (signature (params (word Int owned)) -> Void)")
     }
     move out
 }

@@ -1,0 +1,65 @@
+// probe: stated
+// about: in thread context a value whose `deinit` is `blocking` drops: `Vector.set`, `Vector.clear`, a `Map.insert` whose displaced value is dropped, and `slot = None` in a `Thread.spawn` body, and a task that moves the value into a `Thread.spawn` body, which drops it there, conformance row K183 (SL-782)
+// stage 0: cannot parse `blocking` on a `deinit`, and refuses `try! Thread.spawn` at parse (SL-782, SL-765 Q1 (b))
+// speeds: -O0 -O2
+// prints: after set 1
+// prints: after clear 3
+// prints: after insert 4
+// prints: after the overwrite 5
+// prints: the thread body retired 5 before its end
+// prints: after the thread 6
+// prints: the task handed off a pool of 7
+// prints: after the hand-off 7
+// The four drops a task is refused for (`coro.task-drop-blocks`), here in a
+// thread body, counted as each `deinit` runs.
+import std.task.*
+
+static RETIRED: Atomic<Int> = Atomic(0)
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        let _ = RETIRED.fetch_add(1)
+    }
+}
+
+func four_drops() -> Int {
+    var pools = Vector<Pool>()
+    try! pools.push(Pool(size: 1))
+    try! pools.push(Pool(size: 2))
+    pools.set(0, Pool(size: 3))
+    print("after set {}", RETIRED.load())
+    pools.clear()
+    print("after clear {}", RETIRED.load())
+    var berths = Map<Int, Pool>()
+    let _ = try! berths.insert(1, Pool(size: 4))
+    if berths.len() == 1 {
+        let displaced = try! berths.insert(1, Pool(size: 5))
+        let _ = displaced.is_some()
+    }
+    print("after insert {}", RETIRED.load())
+    var slot: Pool? = Pool(size: 6)
+    slot = None
+    print("after the overwrite {}", RETIRED.load())
+    if slot.is_some() { -1 } else { RETIRED.load() }
+}
+
+func hand_off(pool: Pool) -> Int {
+    let size = pool.size
+    var t = try! Thread.spawn { [move pool] in let _ = move pool }
+    t.join()
+    size
+}
+
+func main() {
+    var drops = try! Thread.spawn { four_drops() }
+    print("the thread body retired {} before its end", drops.join())
+    print("after the thread {}", RETIRED.load())
+    var group = TaskGroup()
+    let handed = group.spawn(hand_off(Pool(size: 7)))
+    print("the task handed off a pool of {}", handed.join())
+    print("after the hand-off {}", RETIRED.load())
+}

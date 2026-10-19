@@ -1,0 +1,25 @@
+// refuses: coro.task-drop-blocks at 23:15
+// message: a task blocks its thread here: the task runs `rebuild` → drops `pool: coro.task-drop-blocks.Pool` (blocking deinit)
+// message: Move the value into a `Thread.spawn` body to drop it there, or drop it from a `main` that runs no executor
+// A local whose type declares a `blocking` deinit, dropped at its scope's
+// end in a task: refused at the `Task.spawn` root (conformance row K182).
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func rebuild(size: Int) -> Int {
+    let pool = Pool(size: size)
+    pool.size
+}
+
+func main() {
+    let job = Task.spawn(rebuild(4))
+    print(job.join())
+}

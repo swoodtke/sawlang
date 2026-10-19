@@ -1,0 +1,29 @@
+// refuses: coro.blocking-drop-position at 27:37
+// message: a `coro.blocking-drop-position.box-any.Pool` is erased to `std.box.Box<any coro.blocking-drop-position.box-any.Shape, std.alloc.GlobalAllocator>`, and its drop blocks its thread (blocking deinit)
+// An erasure into `Box<any Shape>` of a value whose drop blocks: the box
+// drops it through the vtable, wherever the box goes (conformance row K184).
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: Shape {
+    func area(&self) -> Int {
+        self.size
+    }
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func main() {
+    let boxed = Box<any Shape>.make(Pool(size: 2))
+    print(boxed.area())
+}

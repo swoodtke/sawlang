@@ -14,7 +14,8 @@
 // prints: thread drained 9
 // `drain` is reached from a `main` that runs no executor, so only its being
 // `blocking` makes its calls thread context; `wait_twice` is an ordinary
-// helper, keyed for thread context by the pair it reaches.
+// helper, keyed for thread context by the pair it reaches. The worker is
+// joined in a `blocking` helper: a `main` that joined it would suspend.
 
 import std.task.{yield_now}
 
@@ -41,8 +42,12 @@ func drain(ms: Int) blocking -> Int {
     wait_twice(ms) + napped
 }
 
+func drain_in_a_thread() blocking -> Int {
+    var worker = try! Thread.spawn { drain(3) }
+    worker.join()
+}
+
 func main() {
     print("main drained {}", drain(3))
-    var worker = try! Thread.spawn { drain(3) }
-    print("thread drained {}", worker.join())
+    print("thread drained {}", drain_in_a_thread())
 }

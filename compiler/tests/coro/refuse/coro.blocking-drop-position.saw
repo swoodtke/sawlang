@@ -1,0 +1,23 @@
+// refuses: coro.blocking-drop-position at 21:23
+// message: an `Arc` holds a `coro.blocking-drop-position.Pool`, whose drop blocks its thread (blocking deinit)
+// message: an `Arc`'s payload drops with whichever handle goes last
+// An `Arc` payload whose drop blocks, refused even from a `main` that runs
+// no executor: the payload drops with whichever handle goes last, which no
+// check can follow (conformance row K184).
+
+import std.arc.{Arc}
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func main() {
+    let shared = try! Arc(Pool(size: 2))
+    print(shared.value().size)
+}

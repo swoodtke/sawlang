@@ -1,0 +1,25 @@
+// refuses: coro.task-drop-blocks at 23:15
+// message: the task runs `cycle` → drops `slot: coro.task-drop-blocks.overwrite.Pool?` → `coro.task-drop-blocks.overwrite.Pool` (blocking deinit)
+// An overwrite: `slot = None` drops the `Pool` the optional held, in a task
+// (conformance row K182; the Air's SL-782 c24).
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func cycle(size: Int) -> Int {
+    var slot: Pool? = Pool(size: size)
+    slot = None
+    if slot.is_none() { 0 } else { 1 }
+}
+
+func main() {
+    let job = Task.spawn(cycle(4))
+    print(job.join())
+}

@@ -69,7 +69,8 @@ enum CoroVerifyPark {
     case Fd,
     case FdUntil,
     case Channel,
-    case Offload
+    case Offload,
+    case Thread
 }
 
 // Records, before the lowering runs, every body it may rewrite: each lowered
@@ -2137,6 +2138,9 @@ func coro_verify_park(coro: &CoroProgram, c: Int) -> CoroVerifyPark {
     if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkOffloadFunction) {
         return CoroVerifyPark.Offload
     }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkThreadFunction) {
+        return CoroVerifyPark.Thread
+    }
     CoroVerifyPark.NotAPark
 }
 
@@ -2148,6 +2152,7 @@ func coro_verify_park_name(park: CoroVerifyPark) -> String {
         case FdUntil -> "descriptor",
         case Channel -> "channel",
         case Offload -> "offload",
+        case Thread -> "thread",
         case NotAPark -> "no"
     }
 }
@@ -2371,7 +2376,7 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
             ok = coro_verify_const_is(&coro, value, CORO_PARK_READY)
         } else if park == CoroVerifyPark.Timer {
             ok = coro_verify_const_is(&coro, value, CORO_PARK_TIMER)
-        } else if park == CoroVerifyPark.Channel {
+        } else if park == CoroVerifyPark.Channel || park == CoroVerifyPark.Thread {
             ok = value >= 0 && value == coro_verify_pre_arg(&coro, &b, c, 0)
         } else {
             ok = coro_verify_const_is(&coro, value, CORO_PARK_FD)

@@ -304,7 +304,9 @@ extension TcProgram {
     }
 
     // Whether declaration `d`'s body is a `sync` context: declared `sync`, or
-    // a `deinit`, which runs where nothing may suspend.
+    // a `deinit`, which runs where nothing may suspend. A `deinit` declared
+    // `blocking` is thread context instead, which refuses a suspension too
+    // and runs a pair's twin.
     func is_sync_context(&self, d: Int) -> Bool {
         let info = self.res.decls[d]
         if info.kind != ResDeclKind.Func && info.kind != ResDeclKind.Method && info.kind != ResDeclKind.Init && info.kind != ResDeclKind.Requirement {
@@ -314,7 +316,7 @@ extension TcProgram {
             return true
         }
         let name = self.name_text(info.name)
-        info.kind == ResDeclKind.Method && name.equals("deinit")
+        info.kind == ResDeclKind.Method && name.equals("deinit") && not self.declares_blocking(d)
     }
 
     // Which parameter of declaration `d` body `root` is the default value of,

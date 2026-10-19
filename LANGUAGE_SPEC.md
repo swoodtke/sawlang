@@ -8479,8 +8479,9 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   body is checked once, abstractly, and a declared bound is a promise the caller
   is separately made to keep (it is checked at the call, against the concrete
   type argument). An unbounded `T` is refused, as it always was.
-  `Thread<T>` is `NoCopy + Deinit`. `join` blocks for the
-  result; the handle must reach one of the fates below on every path, and
+  `Thread<T>` is `NoCopy + Deinit`. `join` waits for the result, and is a
+  pair (see [Pairs](#pairs)): a task parks until the thread finishes, and
+  thread context blocks. The handle must reach one of the fates below on every path, and
   dropping it is not one of them (see [No implicit
   fates](#no-implicit-fates)).
   The body is a `sync` context that permits a `blocking` extern (see
@@ -8648,7 +8649,9 @@ Observable rules:
     `borrows(sync)` accessor, such as a lock's, cannot span one: a suspension
     inside it is a compile error that names the accessor.
 - **`deinit` may not suspend** — a `deinit` is always a `sync` context, so a
-  suspension inside one is a compile error (deterministic destruction).
+  suspension inside one is a compile error (deterministic destruction). A
+  `deinit` may block instead, declared `blocking` (see
+  [Blocking drops](#blocking-drops)).
 - **Effect polymorphism — generic suspending functions/methods** (design 70,
   A5). A generic function's suspend-bit is not fixed at its declaration: effect
   inference runs **per instantiation**, keyed by the mangled symbol. Each
@@ -9446,7 +9449,7 @@ import std.task.{Thread}
 struct Pool { workers: Vector<Thread<Void>> }
 
 extension Pool: NoCopy {
-    func deinit(&var self) {
+    func deinit(&var self) blocking {
         while self.workers.len() > 0 {
             if let held = self.workers.pop() { var h = move held; h.join() }
         }
@@ -9464,6 +9467,10 @@ extension Pool {
     }
 }
 ```
+
+This `deinit` joins, so it is declared `blocking`, and a `Pool` may then be
+dropped only in thread context: a `Thread.spawn` body, or a `main` that runs
+no executor (see [Blocking drops](#blocking-drops)).
 
 The other is `group.spawn`, whose handles carry no obligation at all — a group
 is a declared consumer and its `Deinit` is the join barrier, so the accept-loop
@@ -9657,8 +9664,8 @@ redundant, the way `constexpr sync` is, and a `sync` function may call a
 ##### Pairs
 
 One operation may need to suspend in a task and block in a thread;
-`Channel.receive` is std's. It is declared twice: the DEFAULT declaration, and
-a `blocking` TWIN with the same signature.
+`Channel.receive` and `Thread.join` are std's. It is declared twice: the
+DEFAULT declaration, and a `blocking` TWIN with the same signature.
 
 ```saw-fragment
 extension Mailbox {
@@ -9676,6 +9683,15 @@ takes the default too, and when the default suspends, that `main` suspends
 and runs the executor, like any other `main` that calls a suspending function.
 A pair is context selection rather than overloading by effect: there is one
 operation, and no call can name the twin.
+
+`Thread.join()` from a task parks the task until the thread finishes, while
+the executor runs the others. A join is no cancellation point: a cancel does
+not end the wait, as it does not end an offloaded call's (see [Blocking
+externs and the offload](#blocking-externs-and-the-offload)), since a thread
+cannot be asked to stop and its result has nowhere else to go. A `main` that joins a
+thread suspends there, so it runs the executor and is a task root, and a value
+whose drop blocks may not drop in it (see [Blocking drops](#blocking-drops)); a
+`main` declared `blocking` joins in thread context instead.
 
 The selection reaches through the calls between: a thread-context copy of a
 generic helper, two calls deep or inside a std generic such as `Map.insert`'s
@@ -9712,14 +9728,137 @@ accessor may be `blocking`, alone or as a twin.
 Nothing the compiler calls without a source call naming it may block, because
 no task root can see the call: a trait requirement and a trait default body
 may not be `blocking`, an implementation that meets a requirement may not
-block (a pair's default may meet one), and neither may a `deinit` or a
-copy-policy `copy()`. Those are refused at the declaration, with the path when
-the block is inferred. A closure body may not block, as it may not suspend; a
+block (a pair's default may meet one), and neither may a copy-policy
+`copy()`. Those are refused at the declaration, with the path when the block
+is inferred. A `deinit` blocks only when it is declared `blocking`, and then
+the values it drops follow the rules below. A closure body may not block, as it may not suspend; a
 `Thread.spawn` body is the exception, being thread context. A `blocking`
 function cannot be taken as a function value, and a function type takes no
 `blocking`; a pair taken as a value is its default. An `extern` declaration
 keeps its prefix spelling, `blocking func` inside the `extern` block (see
 [Blocking externs and the offload](#blocking-externs-and-the-offload)).
+
+##### Blocking drops
+
+A `deinit` that blocks is declared `blocking`, in the same effect slot, and
+its body is thread context: a pair it calls takes its twin, so the `Pool`
+above (see [No implicit fates](#no-implicit-fates)) blocks on each worker's
+`join()`. A `deinit` has no twin, and none suspends, so a value's drop either
+blocks or it does not.
+
+A value whose drop blocks may be dropped only in thread context. That is a
+value whose type declares a `blocking` `deinit`, or holds such a value in a
+field, a payload or an element: `Vector<Pool>`, `Pool?`, `(Pool, Int)` and a
+struct with a `Pool` field all block when they drop. A task, and a `main`
+that suspends, may hold one, pass it, return it from a call and move it into
+a `Thread.spawn` body (a task's own result is the exception, below). Dropping one there is refused, at the task root, with the
+path to the drop:
+
+```saw-fragment
+// fleet.saw
+func rebuild(size: Int) -> Int {
+    var pool = Pool(workers: [])
+    pool.start(size)
+    pool.workers.len()
+}                                     // `pool` drops here
+
+let job = Task.spawn(rebuild(4))
+// error: a task blocks its thread here: the task runs `rebuild` → drops
+//        `pool: fleet.Pool` (blocking deinit), which would stop the
+//        executor's thread and every task on it. Move the value into a
+//        `Thread.spawn` body to drop it there, or drop it from a `main` that
+//        runs no executor
+```
+
+A value inside another, such as a `Vector<Pool>` or a struct with a `Pool`
+field, is named by the path too, ending in the type whose `deinit` blocks:
+drops `fleet: Fleet` → `Pool` (blocking deinit).
+
+The check reads each compiled copy of the program, std's generic code
+included, so a drop no source line names is found too: `Vector.set`
+replacing an element, `clear()`, a `Map.insert` whose displaced value the
+caller drops, `slot = None` over a `Pool?`, and a `push` whose refused
+allocation drops the value it could not store are each refused in a task. A
+task hands the value to a thread to drop it:
+
+```saw-fragment
+func retire(pool: Pool) {
+    (try! Thread.spawn { [move pool] in let _ = move pool }).detach()
+}
+```
+
+If the operating system refuses that thread, the capture drops where the
+spawn is written. That is the one place a task may run a blocking drop: it is
+the failure path of the hand-off itself, and refusing it would forbid handing
+the value to a thread at all.
+
+A closure body may not block (see [Where `blocking` is
+written](#where-blocking-is-written)), and that covers a drop as it does a
+call: a closure whose body drops a value whose drop blocks is refused at the
+closure, wherever it is built, a `Thread.spawn` brace excepted. A closure's
+value can be called in a task through a function type, where no task root
+sees the call, so this is the rule that keeps that route closed. A closure
+that only moves the value out, into a `Thread.spawn` body, is accepted.
+
+Some positions hide where a value drops, and a value whose drop blocks is
+refused in them wherever they are written, thread context included: the
+payload of an `Arc`, which drops with whichever handle goes last; a `Channel`
+element, which drops wherever the queue is drained or its last handle goes;
+an erasure into a box, `Box<any Trait>` or the boxed error of a
+`Result<T, Box<any Error>>`, whose drop runs through the erased type; and a
+task's result, which drops on the executor when no join takes it. A borrow
+erased to `&any Trait` drops nothing, and is not refused.
+
+Within a module the compiler infers whether a type's drop blocks. **A public
+type says so**, because its declaration is what another module reads: when a
+field or a payload whose type names none of the type's own parameters blocks
+on its drop, the type declares a `blocking` `deinit`, and a type that blocks
+only by what it holds declares an empty one:
+
+```saw-fragment
+// harbor.saw
+public struct Fleet { pool: Pool }
+// error: `Fleet` is public and its drop blocks its thread (field `pool:
+//        harbor.Pool` reaches `Pool`'s `blocking` `deinit`), so its
+//        declaration must say so: declare `func deinit(&var self) blocking {}`
+//        in its copy-policy extension
+
+extension Fleet: NoCopy {
+    func deinit(&var self) blocking {}
+}
+```
+
+A type parameter's drop is the instance's, so `public struct Wrap<T> { inner:
+T }`, `Vector`, `Map` and `Optional` declare nothing: a `Wrap<Pool>` blocks
+when it drops, and a `Wrap<Int>` does not.
+
+The declaration rule is read from declarations alone, so it is strict: a
+generic type that writes a `deinit`, as `Vector` does, is taken to drop its
+type arguments, and a field of type `Vector<Pool>` makes its owner declare.
+It decides only what a public type must say. Whether a drop is refused is the
+check above's, which reads the compiled program.
+
+A `deinit` not declared `blocking` runs wherever its value drops, a task
+included, so it may not block. One that calls a `blocking` function, or a
+pair whose default suspends, such as `Thread.join()`, is refused at the
+declaration:
+
+```saw-fragment
+extension Pool: NoCopy {
+    func deinit(&var self) {
+        while self.workers.len() > 0 {
+            if let held = self.workers.pop() { var h = move held; h.join() }
+        }
+    }
+}
+// error: `Pool.deinit` is a `deinit`, which runs where nothing may suspend,
+//        and it calls `Thread.join`, which may suspend. In thread context the
+//        call blocks instead: declare it `func deinit(&var self) blocking`,
+//        so that a `Pool` drops only in thread context
+```
+
+A `deinit` that calls a `blocking` function is refused the same way, the
+message giving the path to the block.
 
 ### Cooperative tasks: TaskGroup
 
@@ -10551,8 +10690,9 @@ be released until that join, which is why the frame keeps its storage until then
 which one you are on.** `Thread.spawn`/`Thread<T>` run on the
 **OS-thread** engine: `Thread.spawn` starts an OS thread (or reports, in its
 `Result`, that the OS refused one), its body is a `sync`
-context that may block on FFI, and `Thread.join()` and, in that body,
-`Channel.receive()` block the calling thread. `Task.spawn`/`TaskGroup`/`Task<T>`
+context that may block on FFI, and in that body `Thread.join()` and
+`Channel.receive()` block the calling thread; a task that calls either parks
+instead (see [Pairs](#pairs)). `Task.spawn`/`TaskGroup`/`Task<T>`
 run on the **single-threaded cooperative executor** (above), where a body
 suspends, `Channel.receive()` among the calls that do, and a join drives the
 group; a suspending `main` runs there too. The call site's

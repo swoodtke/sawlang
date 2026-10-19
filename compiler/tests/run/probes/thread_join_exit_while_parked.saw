@@ -1,0 +1,57 @@
+// probe: stated
+// about: a task's `Thread.join()` whose thread exits while the joiner is parked, beside a sibling task parked on a channel the thread sends to before it exits, ROUNDS times in one run, never reports a deadlock: the exit publishes its handshake word before it lowers the live-thread count, and the deadlock walk counts a join park as code that can run, conformance row K187 (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse, and its join blocks a task's thread (SL-765 Q1 (b), SL-782)
+// speeds: -O0 -O2
+// prints: joined 200 threads, received 200 values
+// Each round, both tasks are parked before the thread wakes: the receiver on
+// the channel, the joiner on the thread. The thread sends, then exits, so
+// the executor's idle wait sees, in some order, a set readiness word, the
+// live-thread count dropping and the join word going negative. A walk that
+// read the count as zero before the word was set would report a deadlock.
+import std.channel.{Channel}
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static ROUNDS: Int = 200
+static NAP_NANOS: UInt64 = 1_000_000
+
+func feed(ch: Channel<Int>, value: Int) -> Int {
+    __saw_rt_sleep_ns(NAP_NANOS)
+    try! ch.send(value)
+    value
+}
+
+func join_feeder(ch: Channel<Int>, value: Int) -> Int {
+    var t = try! Thread.spawn { [ch, value] in feed(ch, value) }
+    t.join()
+}
+
+func receive_one(ch: Channel<Int>) -> Int {
+    match ch.receive() {
+        case Ok(v) -> v,
+        case Err(_) -> -1
+    }
+}
+
+func main() {
+    var joined = 0
+    var received = 0
+    var round = 0
+    while round < ROUNDS {
+        let ch = try! Channel<Int>()
+        var group = TaskGroup()
+        let receiver = group.spawn(receive_one(ch))
+        let joiner = group.spawn(join_feeder(ch, round))
+        if joiner.join() == round {
+            joined = joined + 1
+        }
+        if receiver.join() == round {
+            received = received + 1
+        }
+        round = round + 1
+    }
+    print("joined {} threads, received {} values", joined, received)
+}

@@ -1,0 +1,68 @@
+// probe: stated
+// about: containment's spellings compile and run: a public type that blocks only by what it holds declares an empty `blocking` deinit, a generic `Wrap<T>` declares nothing and blocks at `Pool` but not at `Int`, and a private container is inferred, each dropped from a `main` that runs no executor, conformance row K185 (SL-782)
+// stage 0: cannot parse `blocking` on a `deinit` (SL-782)
+// speeds: -O0 -O2
+// prints: fleet 7 dropped, retired 1
+// prints: wrapped pool dropped, retired 2
+// prints: wrapped count 3 dropped, retired 2
+// prints: hangar dropped, retired 3
+static RETIRED: Atomic<Int> = Atomic(0)
+
+public struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        let _ = RETIRED.fetch_add(1)
+    }
+}
+
+public struct Fleet {
+    pool: Pool
+    name: Int
+}
+
+extension Fleet: NoCopy {
+    func deinit(&var self) blocking {}
+}
+
+public struct Wrap<T> {
+    inner: T
+}
+
+struct Hangar {
+    pools: Vector<Pool>
+}
+
+extension Hangar: NoCopy {}
+
+func fleet() -> Int {
+    let f = Fleet(pool: Pool(size: 2), name: 7)
+    f.name
+}
+
+func wrapped_pool() -> Int {
+    let w = Wrap<Pool>(inner: Pool(size: 2))
+    w.inner.size
+}
+
+func wrapped_count() -> Int {
+    let w = Wrap<Int>(inner: 3)
+    w.inner
+}
+
+func hangar() -> Int {
+    var h = Hangar(pools: Vector<Pool>())
+    try! h.pools.push(Pool(size: 1))
+    h.pools.len()
+}
+
+func main() {
+    print("fleet {} dropped, retired {}", fleet(), RETIRED.load())
+    let _ = wrapped_pool()
+    print("wrapped pool dropped, retired {}", RETIRED.load())
+    print("wrapped count {} dropped, retired {}", wrapped_count(), RETIRED.load())
+    let _ = hangar()
+    print("hangar dropped, retired {}", RETIRED.load())
+}

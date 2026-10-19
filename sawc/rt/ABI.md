@@ -1033,8 +1033,11 @@ the side that frees is compiled code that knows `T`, so the result is
 destroyed exactly once whichever order the two take. The size still travels in
 the word, which is how the thread's exit marks that it finished.
 
-`join` never touches `state`: a joined thread was never detached, so the joiner
-is the block's only owner and frees it.
+`join` never exchanges `state`: a joined thread was never detached, so the
+joiner is the block's only owner and frees it. A task's join, `Thread.join`'s
+default, reads it: the task parks until the thread's exit has left it negative,
+then calls `__saw_rt_thread_join`, which waits only for the thread's own return
+(SL-782).
 
 **Why C.** DF-113b's reason (the block's first slot holds a `pthread_t`, which
 Saw has no type for) plus one of this seam's own: the handshake is an atomic

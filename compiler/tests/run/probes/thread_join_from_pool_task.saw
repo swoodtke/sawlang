@@ -1,0 +1,37 @@
+// probe: stated
+// about: a task in a `TaskGroup(threads: 2)` pool joins a thread: the join parks the task on its worker, the thread's exit wakes it, and the group's teardown then joins its workers through the raw seam, conformance row K187 (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse, and its join blocks a task's thread (SL-765 Q1 (b), SL-782)
+// speeds: -O0 -O2
+// prints: pool task joined 7
+// prints: pool task joined 8
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 20_000_000
+
+func napped(value: Int) -> Int {
+    __saw_rt_sleep_ns(NAP_NANOS)
+    value
+}
+
+func join_napper(value: Int) -> Int {
+    var t = try! Thread.spawn { [value] in napped(value) }
+    t.join()
+}
+
+func run(group: &TaskGroup) {
+    let first = group.spawn(join_napper(7))
+    let second = group.spawn(join_napper(8))
+    print("pool task joined {}", first.join())
+    print("pool task joined {}", second.join())
+}
+
+func main() {
+    match TaskGroup(threads: 2) {
+        case Ok(group) -> run(&group),
+        case Err(e) -> print("no group: {}", e)
+    }
+}

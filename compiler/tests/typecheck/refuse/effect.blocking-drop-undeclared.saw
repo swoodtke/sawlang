@@ -1,0 +1,27 @@
+// refuses: effect.blocking-drop-undeclared at 17:15
+// a public struct whose drop blocks by containment, through a field whose
+// type names none of its parameters, and that declares no `blocking`
+// `deinit`: its declaration is what another module reads, so the refusal's
+// fix-it writes the empty declaration (conformance row K185)
+
+public struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+public struct Fleet {
+    pool: Pool
+    name: Int
+}
+
+extension Fleet: NoCopy {}
+
+func main() {
+    let fleet = Fleet(pool: Pool(size: 2), name: 7)
+    print(fleet.name)
+}

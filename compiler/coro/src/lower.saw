@@ -202,6 +202,9 @@ func coro_park_kind(coro: &CoroProgram, c: Int) -> CoroPointKind? {
     if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkOffloadFunction) {
         return CoroPointKind.ParkOffload
     }
+    if d == coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkThreadFunction) {
+        return CoroPointKind.ParkThread
+    }
     None
 }
 
@@ -945,7 +948,8 @@ public func coro_context_shape(coro: &var CoroProgram) -> CoroContext {
 //
 //   ready     (*(*_C).park) = const 0
 //   channel   (*(*_C).park) = WORD
-//   timer     _d = __saw_exec_timer_deadline(NANOS)
+//   thread    (*(*_C).park) = WORD
+//   timer    _d = __saw_exec_timer_deadline(NANOS)
 //             (*_C).deadline = move _d; (*(*_C).park) = const 1
 //   fd        (*_C).deadline = DEADLINE, or const 0; (*(*_C).park) = const -1
 //             _t = copy (*_C).park as Int; __saw_exec_io_register(FD, WRITE, move _t)
@@ -981,6 +985,10 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
             b
         },
         case ParkChannel -> {
+            coro_record_word(&var coro, &cx, f, b, ctx, args[0], node)
+            b
+        },
+        case ParkThread -> {
             coro_record_word(&var coro, &cx, f, b, ctx, args[0], node)
             b
         },

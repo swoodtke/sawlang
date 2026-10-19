@@ -14,6 +14,10 @@
 // the two rules meet: one thread brace blocking on FFI, one driven root, in one
 // program.
 //
+// The thread is joined in a `blocking` helper: a `main` that joined it itself
+// would suspend there (SL-782), and a drive site may not stand in a body that
+// suspends.
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // napped
@@ -28,9 +32,13 @@ func marker() -> Int {
     7
 }
 
-func main() {
+func nap_in_a_thread() blocking {
     var direct = try! Thread.spawn { __saw_rt_blocking_sleep(1) }
     let _ = direct.join()
+}
+
+func main() {
+    nap_in_a_thread()
     print("napped")
     print(__saw_drive_steps(marker()))
 }

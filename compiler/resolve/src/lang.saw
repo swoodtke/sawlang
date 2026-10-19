@@ -83,7 +83,11 @@ public enum ResLang {
     // What a `print` whose line could not be written renders its panic's
     // cause with: the failing write's status as a `SystemError`'s text, so
     // that text has one source (SL-768). Stage 0's compiler writes its own.
-    case PrintFailureFunction
+    case PrintFailureFunction,
+    // The park point a task's `Thread.join` cedes at, until the thread's
+    // exit publishes its handshake word. Last in the table, since a role's
+    // index is its position (SL-782).
+    case ParkThreadFunction
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -142,6 +146,7 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.ExecRunMainFunction)
     try! out.push(ResLang.ZeroInitTrait)
     try! out.push(ResLang.PrintFailureFunction)
+    try! out.push(ResLang.ParkThreadFunction)
     move out
 }
 
@@ -155,6 +160,7 @@ public func res_lang_suspends(role: ResLang) -> Bool {
         case ParkFdUntilFunction -> true,
         case ParkChannelFunction -> true,
         case ParkOffloadFunction -> true,
+        case ParkThreadFunction -> true,
         case _ -> false
     }
 }
@@ -242,7 +248,8 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case ZeroInitTrait -> ResLangRow(index: 39, name: "ZeroInit", home: "std.prelude",
                                          builtin_home: "builtin", builtin_name: ""),
         case PrintFailureFunction -> ResLangRow(index: 40, name: "print_failure", home: "std.panic",
-                                                builtin_home: "builtin", builtin_name: "")
+                                                builtin_home: "builtin", builtin_name: ""),
+        case ParkThreadFunction -> ResLangRow.task_function(41, "__saw_park_thread")
     }
 }
 

@@ -16,10 +16,11 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_EFFECT_BLOCKING, TC_EFFECT_CONSTEXPR,
-                               TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
+import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_PAIRED, TC_EFFECT_BLOCKING,
+                               TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
                                TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TcReceiver,
                                TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
@@ -222,6 +223,7 @@ extension TcProgram {
             return
         }
         var msg = StringBuilder()
+        var hook = false
         if unit.node >= 0 {
             try! msg.append("this closure's type is `sync`, and it calls ")
         } else {
@@ -230,12 +232,20 @@ extension TcProgram {
             try! msg.append("`")
             try! msg.append(self.res.decl_path(owner))
             if name.equals("deinit") && not self.declares_sync(owner) {
+                hook = true
                 try! msg.append("` is a `deinit`, which runs where nothing may suspend, and it calls ")
             } else {
                 try! msg.append("` is declared `sync`, and it calls ")
             }
         }
         try! msg.append(self.blamed_call_text(e, owner, acc.suspends))
+        // A pair, `Thread.join` among them, blocks in thread context, which a
+        // `deinit` declared `blocking` is (spec, Blocking drops).
+        if hook && (acc.thread_causes & TC_CAUSE_PAIRED) != 0 && tc_thread_struck(acc.thread_causes) == 0 {
+            try! msg.append(". In thread context the call blocks instead: declare it `func deinit(&var self) blocking`, so that a `")
+            try! msg.append(self.deinit_owner_text(owner))
+            try! msg.append("` drops only in thread context")
+        }
         self.refuse_at(e, "effect.sync", msg.build())
     }
 
@@ -693,6 +703,229 @@ extension TcProgram {
             d = d + 1
         }
         self.check_blocking_conformances()
+        self.check_blocking_containment()
+    }
+
+    // A `deinit` not declared `blocking` whose body blocks: it runs wherever
+    // its value drops, a task included, where no task root sees the call.
+    func refuse_deinit_block(&var self, d: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` blocks its thread")
+        self.append_block_reason(&var msg, d)
+        try! msg.append(", and a `deinit` not declared `blocking` runs wherever its value drops, a task included. Declare it `func deinit(&var self) blocking`, so that a `")
+        try! msg.append(self.deinit_owner_text(d))
+        try! msg.append("` drops only in thread context, or keep the blocking work in a method called from thread context")
+        self.refuse_blocking_decl(d, "effect.blocking-hook", msg.build())
+    }
+
+    // The path of the type `deinit` `d` belongs to.
+    func deinit_owner_text(&self, d: Int) -> String {
+        let ext = self.enclosing_extension(d)
+        if ext < 0 {
+            let parent = self.res.decls[d].parent
+            return self.res.decl_path(parent)
+        }
+        let target = self.ext_target(ext)
+        self.res.decl_path(target)
+    }
+
+    // The `blocking` `deinit` some extension of type declaration `d` writes,
+    // or -1.
+    func blocking_deinit_of(&var self, d: Int) -> Int {
+        let name = self.res.intern("deinit")
+        var at = self.extensions_of.first(d, 0)
+        while at >= 0 {
+            let ext = self.extensions_of.value(at)
+            let listed = self.members_of(ext)
+            var k = 0
+            while k < listed.len() {
+                let m = listed[k]
+                k = k + 1
+                if self.res.decls[m].kind == ResDeclKind.Method && self.res.decls[m].name == name && self.declares_blocking(m) {
+                    return m
+                }
+            }
+            at = self.extensions_of.following(at)
+        }
+        return -1
+    }
+
+    // THE CONTAINMENT FUNNEL: the type declaration whose `blocking` `deinit`
+    // a drop of type `t` reaches, judged from the declarations alone, or -1
+    // (spec, Blocking drops). A generic type that writes a `deinit` is taken
+    // to drop its arguments, since it may hold them through raw storage. This
+    // answers only the public declaration's question; the post-mono drop
+    // check decides each real drop. `seen` holds the nominal types on the
+    // way, so a recursive type ends.
+    // ENTRY POINTS:
+    //     check_blocking_containment
+    func drop_blocks_through(&var self, t: Int, seen: &var Vector<Int>) -> Int {
+        if t < 0 {
+            return -1
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let element = self.types.arg(t, k)
+                let found = self.drop_blocks_through(element, &var seen)
+                if found >= 0 {
+                    return found
+                }
+                k = k + 1
+            }
+            return -1
+        }
+        if info.kind == TcKind.Array {
+            return self.drop_blocks_through(info.b, &var seen)
+        }
+        if info.kind != TcKind.Nominal {
+            return -1
+        }
+        var k = 0
+        while k < seen.len() {
+            if seen[k] == t {
+                return -1
+            }
+            k = k + 1
+        }
+        try! seen.push(t)
+        let d = info.decl
+        if self.blocking_deinit_of(d) >= 0 {
+            return d
+        }
+        let sub = TcSubst(owner: d, args: self.nominal_args(t))
+        let parts = self.owned_part_types(d)
+        k = 0
+        while k < parts.len() {
+            let part = self.subst(parts[k], &sub)
+            let found = self.drop_blocks_through(part, &var seen)
+            if found >= 0 {
+                return found
+            }
+            k = k + 1
+        }
+        let deinit_name = self.res.intern("deinit")
+        if not self.has_written_deinit(d, deinit_name) {
+            return -1
+        }
+        k = 0
+        while k < info.count {
+            let argument = self.types.arg(t, k)
+            let found = self.drop_blocks_through(argument, &var seen)
+            if found >= 0 {
+                return found
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // The written types of type declaration `d`'s owned parts: each field's,
+    // and each case's payload types.
+    func owned_part_types(&self, d: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let kind = self.res.decls[m].kind
+            if kind == ResDeclKind.Field {
+                try! out.push(self.sigs[m].result)
+            } else if kind == ResDeclKind.Case {
+                let s = self.sigs[m]
+                var p = 0
+                while p < s.param_count {
+                    try! out.push(self.params[s.param_first + p].ty)
+                    p = p + 1
+                }
+            }
+        }
+        move out
+    }
+
+    // A public struct or enum whose drop blocks at every instantiation, by a
+    // part whose type names none of its own parameters, must declare a
+    // `blocking` `deinit`, since its declaration is what another module
+    // reads (spec, Blocking drops). A part typed by a parameter is the
+    // instance's, decided post-mono.
+    func check_blocking_containment(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let kind = self.res.decls[d].kind
+            if (kind == ResDeclKind.Struct || kind == ResDeclKind.Enum) && self.publishes(d) && self.blocking_deinit_of(d) < 0 {
+                self.check_type_containment(d)
+            }
+            d = d + 1
+        }
+    }
+
+    func check_type_containment(&var self, d: Int) {
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let kind = self.res.decls[m].kind
+            var types = Vector<Int>()
+            if kind == ResDeclKind.Field {
+                try! types.push(self.sigs[m].result)
+            } else if kind == ResDeclKind.Case {
+                let s = self.sigs[m]
+                var p = 0
+                while p < s.param_count {
+                    try! types.push(self.params[s.param_first + p].ty)
+                    p = p + 1
+                }
+            }
+            var j = 0
+            while j < types.len() {
+                let written = types[j]
+                j = j + 1
+                if self.mentions_param(written) {
+                    continue
+                }
+                var seen = Vector<Int>()
+                let blocker = self.drop_blocks_through(written, &var seen)
+                if blocker >= 0 {
+                    self.refuse_undeclared_containment(d, m, written, blocker)
+                    return
+                }
+            }
+        }
+    }
+
+    func refuse_undeclared_containment(&var self, d: Int, part: Int, written: Int, blocker: Int) {
+        let name = self.res.decl_path(d)
+        let part_name = self.res.decls[part].name
+        let part_text = self.name_text(part_name)
+        let deinit_name = self.res.intern("deinit")
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(name)
+        try! msg.append("` is public and its drop blocks its thread (")
+        if self.res.decls[part].kind == ResDeclKind.Field {
+            try! msg.append("field `")
+            try! msg.append(part_text)
+            try! msg.append(": ")
+        } else {
+            try! msg.append("case `")
+            try! msg.append(part_text)
+            try! msg.append("` holding `")
+        }
+        try! msg.append(self.type_text(written))
+        try! msg.append("` reaches `")
+        try! msg.append(self.res.decl_path(blocker))
+        try! msg.append("`'s `blocking` `deinit`), so its declaration must say so: ")
+        if self.has_written_deinit(d, deinit_name) {
+            try! msg.append("declare its `deinit` `blocking`")
+        } else {
+            try! msg.append("declare `func deinit(&var self) blocking \{\}` in its copy-policy extension")
+        }
+        self.refuse_blocking_decl(d, "effect.blocking-drop-undeclared", msg.build())
     }
 
     // Whether function `d` blocks its thread: declared `blocking`, or its body
@@ -725,8 +958,13 @@ extension TcProgram {
             return
         }
         let name = self.name_text(info.name)
-        if info.kind == ResDeclKind.Method && name.equals("deinit") && self.blocks_thread(d) {
-            self.refuse_hook_block(d, "a `deinit` runs wherever its value dies, a task included")
+        if info.kind == ResDeclKind.Method && name.equals("deinit") {
+            // A declared `blocking` deinit makes its type's drop block, which
+            // the post-mono drop check holds to thread context (spec,
+            // Blocking drops).
+            if not declared && self.blocks_thread(d) {
+                self.refuse_deinit_block(d)
+            }
             return
         }
         if self.blocking_twin_of(d) >= 0 && (self.summaries[d].causes & TC_CAUSE_BLOCKS_THREAD) != 0 {

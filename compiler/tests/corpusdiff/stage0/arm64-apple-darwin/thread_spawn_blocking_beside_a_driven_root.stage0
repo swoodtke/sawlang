@@ -2,6 +2,6 @@ program	thread_spawn_blocking_beside_a_driven_root.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	refused	Parse error at 32:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+build	refused	Parse error at 35:24: Expected LBRACE, got IDENT
 meets_expect	no: Stage 0 does not build it
-log	"error: Parse error at 32:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet"
+log	"error: Parse error at 35:24: Expected LBRACE, got IDENT"

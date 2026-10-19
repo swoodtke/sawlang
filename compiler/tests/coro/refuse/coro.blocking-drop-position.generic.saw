@@ -1,0 +1,27 @@
+// refuses: coro.blocking-drop-position at 26:27
+// message: an `Arc` holds a `coro.blocking-drop-position.generic.Pool`, whose drop blocks its thread (blocking deinit)
+// An `Arc` made inside a generic function: the instance whose payload is a
+// `Pool` is refused, at the program's first use of it, and the one whose
+// payload is an `Int` is not (conformance row K184).
+
+import std.arc.{Arc}
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func share<T: Send + Sync>(value: T) -> Arc<T> {
+    try! Arc(move value)
+}
+
+func main() {
+    let count = share(3)
+    let pool = share(Pool(size: 2))
+    print(count.value() + pool.value().size)
+}

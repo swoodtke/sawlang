@@ -344,16 +344,53 @@ def _declarations(lines):
     return chunks
 
 
+# A top-level declaration that is a function, by its head.
+_FUNC_HEAD = re.compile(r"^(?:public(?:\([a-z]+\))?\s+)?(?:unsafe\s+)?func\b")
+# A member function's head inside a type declaration or an extension.
+_MEMBER_HEAD = re.compile(r"^\s+(?:public(?:\([a-z]+\))?\s+)?(?:static\s+)?func\s+([A-Za-z_]\w*)")
+
+
+def _members(code):
+    """A type declaration's or extension's member functions as (name, code)."""
+    out = []
+    name = None
+    body = []
+    for line in code.splitlines():
+        m = _MEMBER_HEAD.match(line)
+        if m:
+            if name is not None:
+                out.append((name, "\n".join(body)))
+            name, body = m.group(1), []
+        if name is not None:
+            body.append(line)
+    if name is not None:
+        out.append((name, "\n".join(body)))
+    return out
+
+
+def _calls_park(code, spellings, names, members):
+    """Whether `code` spells a parking primitive, names one of `names`, or
+    calls `.m(` for one of `members`."""
+    if spellings.search(code):
+        return True
+    if any(re.search(r"\b%s\b" % re.escape(n), code) for n in names):
+        return True
+    return any(re.search(r"\.%s\(" % re.escape(m), code) for m in members)
+
+
 def parking_modules(std_dir=None, spellings=PARK_SPELLINGS, module_name=module_of):
     """The std modules under `std_dir`, Stage 0's by default, whose
     non-comment source spells a parking primitive, closed over the std
     modules importing one of them.
 
+    A park belongs to the function that makes it: a free function, or a type's
+    member, whose code spells a parking primitive or calls a parking function.
     A selective import, `import std.m.{a, b}`, brings only the names it lists,
-    so it makes its importer park only when one of them parks: a declaration of
-    `m` whose code spells a parking primitive or names a parking name, its own
-    module's or one it imports. A whole or glob import of a parking module
-    makes its importer park, whatever it uses."""
+    so it makes its importer park only when a function of the importer calls
+    one it brings that parks: a free function by its name, and a listed type's
+    parking member as `.member(`; importing a type whose extension parks,
+    with no such call, parks nothing. A whole or glob import of a parking
+    module makes its importer park, whatever it uses."""
     sources = {}
     for root, dirs, files in os.walk(std_dir or os.path.join(SAWC, "std")):
         dirs.sort()
@@ -388,27 +425,42 @@ def parking_modules(std_dir=None, spellings=PARK_SPELLINGS, module_name=module_o
                 for entry in picked.group(1).split(","):
                     if entry.strip():
                         names.add(entry.split()[0])
+    # Per module: the top-level names that park (a free function, or a type
+    # with a parking member), and each type's parking members, as (type,
+    # member).
     parking_names = {module: set() for module in sources}
+    parking_functions = {module: set() for module in sources}
+    parking_members = {module: set() for module in sources}
     changed = True
     while changed:
         changed = False
         for module in sources:
-            imported = set()
-            for target, names in selections[module].items():
-                imported |= names & parking_names.get(target, set())
-            reached = parking_names[module] | imported
+            # A type's name is no call, so only functions are matched by name.
+            names = set(parking_functions[module])
+            members = {m for _, m in parking_members[module]}
+            for target, listed in selections[module].items():
+                names |= listed & parking_functions.get(target, set())
+                members |= {m for t, m in parking_members.get(target, set()) if t in listed}
             for target in wholes[module]:
-                reached |= parking_names.get(target, set())
+                names |= parking_names.get(target, set())
+                members |= {m for _, m in parking_members.get(target, set())}
             for name, code in decls[module]:
-                if name is None or name in parking_names[module]:
+                if name is None:
                     continue
-                if spellings.search(code) or any(re.search(r"\b%s\b" % re.escape(r), code)
-                                                 for r in reached):
-                    parking_names[module].add(name)
-                    changed = True
+                if _FUNC_HEAD.match(code.split("\n", 1)[0]):
+                    if name not in parking_functions[module] and _calls_park(code, spellings, names, members):
+                        parking_functions[module].add(name)
+                        parking_names[module].add(name)
+                        changed = True
+                    continue
+                for member, body in _members(code):
+                    if (name, member) not in parking_members[module] and _calls_park(body, spellings, names, members):
+                        parking_members[module].add((name, member))
+                        parking_names[module].add(name)
+                        changed = True
             if module in parks:
                 continue
-            if wholes[module] & parks or imported:
+            if wholes[module] & parks or parking_names[module]:
                 parks.add(module)
                 changed = True
     return parks

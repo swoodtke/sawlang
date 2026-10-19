@@ -1,0 +1,30 @@
+// refuses: coro.task-drop-blocks at 28:15
+// message: the task runs `plan` → `scratch` → drops `pool: coro.task-drop-blocks.group-spawn.Pool` (blocking deinit)
+// A `group.spawn` root, the path two calls deep (conformance row K182).
+
+import std.task.*
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func scratch(size: Int) -> Int {
+    let pool = Pool(size: size)
+    pool.size
+}
+
+func plan(size: Int) -> Int {
+    scratch(size) + 1
+}
+
+func main() {
+    var group = TaskGroup()
+    let job = group.spawn(plan(4))
+    print(job.join())
+}

@@ -1,6 +1,8 @@
-// refuses: effect.blocking-hook at 12:10
-// a `deinit` whose body blocks its thread: it runs wherever its value dies, a
-// task included, where no source call names it (conformance row K176)
+// refuses: effect.blocking-hook at 14:10
+// a `deinit` whose body blocks its thread and that is not declared
+// `blocking`: it runs wherever its value drops, a task included, where no
+// source call names it, and the message points at `blocking` on the
+// `deinit` (conformance rows K176 and K186)
 
 func settle(ms: Int) blocking -> Int {
     ms

@@ -1,0 +1,47 @@
+// probe: stated
+// about: the spec's `Pool` example: a `deinit` declared `blocking` joins each worker, taking `Thread.join`'s twin, and the pool drops from a `main` that runs no executor, conformance rows K183 and K186 (SL-782)
+// stage 0: cannot parse `blocking` on a `deinit`, and refuses `try! Thread.spawn` at parse (SL-782, SL-765 Q1 (b))
+// speeds: -O0 -O2
+// prints: pool of 3
+// prints: worked 3
+import std.task.{Thread}
+
+static WORKED: Atomic<Int> = Atomic(0)
+
+func serve() {
+    let _ = WORKED.fetch_add(1)
+}
+
+struct Pool {
+    workers: Vector<Thread<Void>>
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        while self.workers.len() > 0 {
+            if let held = self.workers.pop() { var h = move held; h.join() }
+        }
+    }
+}
+
+extension Pool {
+    func start(&var self, count: Int) {
+        var i = 0
+        while i < count {
+            var t = try! Thread.spawn { serve() }
+            try! self.workers.push(move t)
+            i = i + 1
+        }
+    }
+}
+
+func run() {
+    var pool = Pool(workers: [])
+    pool.start(3)
+    print("pool of {}", pool.workers.len())
+}
+
+func main() {
+    run()
+    print("worked {}", WORKED.load())
+}

@@ -1,0 +1,34 @@
+// probe: stated
+// about: a cancel does not end a task's `Thread.join()`: the cancelled task's join still waits for the thread and takes its result, since `join` is no cancellation point, conformance row K187 (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse, and its join blocks a task's thread (SL-765 Q1 (b), SL-782)
+// speeds: -O0 -O2
+// prints: cancel requested
+// prints: joined 7 after the cancel: true
+// The task is cancelled while its thread naps, and the background group's
+// close at `main`'s return cancels it again and waits for it, so the join is
+// parked through both.
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 50_000_000
+
+func napped() -> Int {
+    __saw_rt_sleep_ns(NAP_NANOS)
+    7
+}
+
+func join_napper() {
+    var t = try! Thread.spawn { napped() }
+    yield_now()
+    let got = t.join()
+    print("joined {} after the cancel: {}", got, cancelled())
+}
+
+func main() {
+    let job = Task.spawn(join_napper())
+    job.cancel()
+    print("cancel requested")
+}

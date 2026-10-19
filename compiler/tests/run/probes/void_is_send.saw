@@ -6,14 +6,15 @@
 // prints: retired
 // A worker pool outlives the function that starts it and is retired from
 // another thread: the `Pool` is captured by the spawned body and dropped
-// there, where its `deinit` joins the workers.
+// there, where its `deinit` joins the workers. The `deinit` joins, so it is
+// `blocking` (SL-782), and the spawned body is thread context.
 
 import std.task.{Thread}
 
 struct Pool { workers: Vector<Thread<Void>> }
 
 extension Pool: NoCopy {
-    func deinit(&var self) {
+    func deinit(&var self) blocking {
         while self.workers.len() > 0 {
             if let held = self.workers.pop() { var h = move held; h.join() }
         }

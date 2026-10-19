@@ -1,0 +1,26 @@
+// refuses: effect.blocking-drop-undeclared at 16:15
+// a public struct holding a `Vector<Pool>`, a field whose type names none of
+// the struct's parameters: `Vector` writes a `deinit`, so it is taken to drop
+// its elements, and the struct must declare (conformance row K185)
+
+public struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+public struct Yard<T> {
+    pools: Vector<Pool>
+    tag: T
+}
+
+extension Yard<T>: NoCopy {}
+
+func main() {
+    let yard = Yard<Int>(pools: Vector<Pool>(), tag: 3)
+    print(yard.tag)
+}

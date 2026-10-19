@@ -481,6 +481,7 @@ func coro_dump_resumes(coro: &CoroProgram, out: &var StringBuilder) {
                 case ParkFd -> try! out.append(" park fd\n"),
                 case ParkChannel -> try! out.append(" park channel\n"),
                 case ParkOffload -> try! out.append(" park offload\n"),
+                case ParkThread -> try! out.append(" park thread\n"),
                 case Drive -> {
                     try! out.append(" drive #")
                     try! out.append(point.child)

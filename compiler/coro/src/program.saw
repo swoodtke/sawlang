@@ -214,6 +214,8 @@ public enum CoroPointKind {
     case ParkChannel,
     // An offload job's completion, through its pipe.
     case ParkOffload,
+    // A thread's exit, through its control block's handshake word.
+    case ParkThread,
     // Drives an embedded child: starts it at state 0, then resumes it,
     // returning `Pending` while it pends and continuing once it is `Ready`.
     // The call's own block has already written the child's parameter slots,

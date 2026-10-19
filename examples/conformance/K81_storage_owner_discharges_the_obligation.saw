@@ -33,8 +33,10 @@ struct Pool {
 
 extension Pool: NoCopy {
     // The hand-written deinit that discharges the obligation — and, here, the
-    // one that actually keeps its side of the bargain.
-    func deinit(&var self) {
+    // one that actually keeps its side of the bargain. It joins, so it is
+    // declared `blocking`, and `run` drops the pool from a `main` that runs
+    // no executor.
+    func deinit(&var self) blocking {
         while self.workers.len() > 0 {
             if let held = self.workers.pop() {
                 var h = move held

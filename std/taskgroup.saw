@@ -56,19 +56,33 @@ extern "C" {
 //           and bounded by the context's `deadline` when that is nonzero;
 //           the reactor's poll latches the word to 0 when the descriptor is
 //           ready, so a latched park reads as a ready one
-//    < -1   a channel's readiness word, by its negated address
+//    < -1   even: a channel's readiness word, by its negated address
+//    < -1   odd: a thread control block's handshake word, by its negated
+//           address less one: a join, ready once the thread's exit leaves
+//           the word negative
 //
 // A value above 1 names no park, and a frame that records one is refused.
-// The executor waits on a ready park, a timer, a descriptor and a channel's
-// readiness word, and wakes a park of any reason whose task is cancelled
-// (`park_wakes`); each other reason has its own lowering and its own executor
-// half. `PARK_UNSET` is written before every resume, so a frame that reports
-// `Pending` without recording a park is caught rather than read as stale
-// (SL:coroutines §3.3).
+// The executor waits on a ready park, a timer, a descriptor, a channel's
+// readiness word and a thread's handshake word, and wakes a park of any
+// reason but a join whose task is cancelled (`park_wakes`); each other reason
+// has its own lowering and its own executor half. `PARK_UNSET` is written
+// before every resume, so a frame that reports `Pending` without recording a
+// park is caught rather than read as stale (SL:coroutines §3.3).
 static PARK_READY: Int = 0
 static PARK_TIMER: Int = 1
 static PARK_FD: Int = -1
 static PARK_UNSET: Int = Int.min
+
+// Whether park word `park` is a join's: below -1 and odd, where a channel's
+// negated word address is even, since every word is aligned.
+func joins_thread(park: Int) -> Bool {
+    park < PARK_FD && park != PARK_UNSET && park % 2 != 0
+}
+
+// The handshake word a join's park word `park` names.
+func joined_word(park: Int) unsafe -> UnsafePointer<Int> {
+    (0 - park - 1) as UnsafePointer<Int>
+}
 
 /// What one resume of a frame reports.
 public enum Poll {
@@ -707,8 +721,10 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 // reaches its cancel path at its next turn and each park it makes after that
 // resumes at once, a timer's long before its deadline (SL:coroutines §3.1);
 // when it is a timer whose deadline has passed; when it is a bounded
-// descriptor park whose deadline has passed; and when it is a channel's
-// readiness word that is set.
+// descriptor park whose deadline has passed; when it is a channel's
+// readiness word that is set; and when it is a join whose thread has exited,
+// which is the one park a cancel does not wake: a thread cannot be asked to
+// stop, so a woken join would only park again, at once, until it exits.
 //
 // The readiness word is read atomically: a `Thread.spawn` body or a pool
 // worker may set it from another thread, and this load pairs with
@@ -733,6 +749,9 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 //   idle
 func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
     let park = park_word(cx)
+    if joins_thread(park) {
+        return __saw_atomic_load_i64_seq_cst(joined_word(park)) < 0
+    }
     if park == PARK_READY || cx[0].cancel[0] {
         return true
     }
@@ -946,8 +965,9 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int) u
 // answers true, since the word's writer is then code running on another
 // thread: a `Thread.spawn` body or a pool's task, whose `send` and `close`
 // poke the reactor and whose exit pokes it too (`poke_reactor`). While either
-// can run, the walk finds nothing to report, so this waits. A pool's frames
-// are its workers' to wait for, so they are not read here.
+// can run, the walk finds nothing to report, so this waits. A join waits the
+// same way, for the poke its thread's exit makes after it sets the word. A
+// pool's frames are its workers' to wait for, so they are not read here.
 func idle(waiter: Int) unsafe -> Bool {
     var waits = false
     var channel = false
@@ -1075,7 +1095,9 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 //     ready, latched, cancelled, a deadline passed, a set readiness word);
 //   * a frame parked on a timer or a descriptor, since its deadline or the
 //     reactor can wake it;
-//   * any other park that is not a channel's;
+//   * any other park that is not a channel's, a join among them: its thread
+//     sets the word before it lowers `LIVE_THREADS`, so a join is either
+//     woken or waiting on a running thread, and never waits for good;
 //   * a frame a pool worker is resuming;
 //   * from a pool worker, a thread outside the executor (`IN_EXECUTOR`): a
 //     pool's workers are no `Thread.spawn` bodies to this count, so the walk
@@ -1142,7 +1164,7 @@ func channel_parked(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
         return false
     }
     let park = park_word(cx)
-    park < PARK_FD && park != PARK_UNSET
+    park < PARK_FD && park != PARK_UNSET && not joins_thread(park)
 }
 
 // Set by the first deadlock report, so a second engine reaching the same
@@ -1352,15 +1374,20 @@ func shutdown_crew(at: UnsafePointer<TaskGroup>) unsafe {
 
 // Joins each of a stopping pool's workers, putting each back in
 // `LIVE_THREADS` first, since its thread's exit takes it out again.
+//
+// This is the group's `Deinit` barrier, and it blocks even when a task drops
+// the group: the workers are threads the group itself started, each about to
+// leave since no work is coming, so the reap is a plain call rather than
+// `Thread.join`, whose default would park in a `deinit`.
 func join_crew(crew: &var Vector<Thread<Void>>) unsafe {
     var joining = true
     while joining {
-        // Stage 0 workaround (SL:hazards S2): canonical: while let worker = crew.pop() { var held = move worker; LIVE_THREADS.fetch_add(1); held.join() }
+        // Stage 0 workaround (SL:hazards S2): canonical: while let worker = crew.pop() { var held = move worker; LIVE_THREADS.fetch_add(1); held.__saw_reap() }
         let next = crew.pop()
         if let worker = move next {
             var held = move worker
             let _ = LIVE_THREADS.fetch_add(1)
-            held.join()
+            held.__saw_reap()
         } else {
             joining = false
         }

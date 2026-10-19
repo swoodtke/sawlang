@@ -1,0 +1,83 @@
+// probe: stated
+// about: `Thread.join()` is a pair: from a `Thread.spawn` body and a `blocking` function it blocks the thread, and from a task it parks while a sibling task keeps ticking every 5 ms, conformance row K187 (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse and cannot parse `blocking`, and its join blocks a task's thread (SL-765 Q1 (b), SL-782)
+// speeds: -O0 -O2
+// prints: thread joined 7
+// prints: blocking helper joined 7
+// prints: task joined 7
+// prints: the sibling ticked while the task waited: true
+// The task half: the joiner says it is about to wait by closing `started`,
+// and the thread it joins naps first, so the joiner waits for that long. The
+// ticker counts the ticks it makes after `started` closes and before `done`
+// does. A join that blocked the executor's thread would let no tick happen
+// in that window, so the count would be zero.
+import std.channel.{Channel}
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 100_000_000
+static TICK_MILLIS: UInt64 = 5
+
+func napped() -> Int {
+    __saw_rt_sleep_ns(NAP_NANOS)
+    7
+}
+
+func join_one() -> Int {
+    var t = try! Thread.spawn { napped() }
+    t.join()
+}
+
+func join_blocking() blocking -> Int {
+    join_one()
+}
+
+func is_closed(signal: Channel<Bool>) -> Bool {
+    match signal.try_receive() {
+        case Ok(_) -> false,
+        case Err(_) -> true
+    }
+}
+
+func joiner(started: Channel<Bool>, done: Channel<Bool>) -> Int {
+    var t = try! Thread.spawn { napped() }
+    let _ = started.close()
+    let got = t.join()
+    let _ = done.close()
+    got
+}
+
+func tick(started: Channel<Bool>, done: Channel<Bool>) -> Int {
+    var during = 0
+    var finished = false
+    while not finished {
+        let waiting = is_closed(started)
+        if is_closed(done) {
+            finished = true
+        } else {
+            if waiting {
+                during = during + 1
+            }
+            sleep(Duration.ms(TICK_MILLIS))
+        }
+    }
+    during
+}
+
+func main() {
+    var outer = try! Thread.spawn { join_one() }
+    print("thread joined {}", outer.join())
+    var helper = try! Thread.spawn { join_blocking() }
+    print("blocking helper joined {}", helper.join())
+
+    let started = try! Channel<Bool>()
+    let done = try! Channel<Bool>()
+    var group = TaskGroup()
+    let waiter = group.spawn(joiner(started, done))
+    let ticker = group.spawn(tick(started, done))
+    print("task joined {}", waiter.join())
+    print("the sibling ticked while the task waited: {}", ticker.join() > 0)
+}

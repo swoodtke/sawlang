@@ -1,0 +1,44 @@
+// probe: stated
+// about: control for `coro.closure-drop-blocks`: a closure a task calls through its function value, which makes a value whose `deinit` is `blocking` and only moves it into a `Thread.spawn` body, compiles and runs, the thread dropping it, conformance row K182 (SL-782)
+// stage 0: cannot parse `blocking` on a `deinit`, and refuses `try! Thread.spawn` at parse (SL-782, SL-765 Q1 (b))
+// speeds: -O0 -O2
+// prints: handed off
+// prints: retired 1
+// The closure detaches the thread, since a closure may not suspend in a join,
+// and `main` waits for the drop.
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static RETIRED: Atomic<Int> = Atomic(0)
+static NAP_NANOS: UInt64 = 1_000_000
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        let _ = RETIRED.fetch_add(1)
+    }
+}
+
+func run(body: () -> Void) {
+    body()
+}
+
+func main() blocking {
+    var group = TaskGroup()
+    let job = group.spawn(run({
+        let p = Pool(n: 1)
+        (try! Thread.spawn { [move p] in let _ = move p }).detach()
+    }))
+    job.join()
+    print("handed off")
+    while RETIRED.load() == 0 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    print("retired {}", RETIRED.load())
+}

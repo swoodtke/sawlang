@@ -1,0 +1,516 @@
+// The blocking-drop check (spec, Blocking drops): a value whose drop reaches
+// a `deinit` declared `blocking` may drop only in thread context. Drops are
+// inserted after typecheck and most of a container's happen inside std's
+// generic code, so the check reads mono's real instances: each item's
+// concrete MIR, the drop glue its drops reach, and the calls between.
+//
+// A task root that reaches such a drop is refused with the path to it
+// (`coro.task-drop-blocks`): a `Task.spawn` or `group.spawn` root, a drive,
+// and a `main` that suspends. A `Thread.spawn` site's body and exit run on
+// the new thread, so the walk stops at the site, and a refused spawn's drop
+// of the captures it never handed over is exempt: it is the one path a task
+// may drop such a value on, since forbidding it would forbid the hand-off.
+// A closure body that drops one is refused at the closure
+// (`coro.closure-drop-blocks`), since a call through its function value
+// reaches no edge of the walk. The positions that hide where a value drops
+// are refused in any context
+// (`coro.blocking-drop-position`): an `Arc` payload, a `Channel` element, an
+// owning erasure to `any`, and a task's result.
+//
+// ENTRY POINTS of the blocking-drop check:
+//   coro_check_blocking_drops
+
+import sawcoro.program.{CoroProgram}
+import sawmir.model.{MirAggregate, MirCallKind, MirRvalueKind, MirStmtKind, MirTermKind}
+import sawmono.program.{MONO_KEY_DROP, MonoItemKind}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// What one item's body reaches that may drop on its thread: a drop's glue,
+// a call's item, a dispatch's slot items, or a closure's body.
+struct CoroDropEdge {
+    target: Int
+    // The place a drop names, or -1 for a call.
+    place: Int
+    // The item whose body holds the edge.
+    item: Int
+}
+
+// The facts one run of the check builds, by item.
+struct CoroDropFacts {
+    // Each item's edges, a run of `edges`.
+    first: Vector<Int>
+    count: Vector<Int>
+    edges: Vector<CoroDropEdge>
+    // Whether an item's run reaches a `blocking` deinit, which is itself one.
+    blocks: Vector<Bool>
+    sink: Vector<Bool>
+    // Whether an item is a `Thread.spawn` brace's body, and whether it is
+    // any other closure's body.
+    thread_body: Vector<Bool>
+    closure_body: Vector<Bool>
+}
+
+extension CoroDropFacts: NoCopy {}
+
+// Refuses every task root that drops a value whose drop blocks, and every
+// position that hides where such a value drops.
+public func coro_check_blocking_drops(coro: &var CoroProgram) {
+    var facts = coro_drop_facts(&coro)
+    if not coro_any_sink(&facts) {
+        return
+    }
+    coro_solve_drop_blocks(&var facts)
+    coro_check_drop_closures(&var coro, &facts)
+    coro_check_drop_roots(&var coro, &facts)
+    coro_check_drop_positions(&var coro, &facts)
+}
+
+// Whether item `k` is a `deinit` declared `blocking`.
+func coro_blocking_deinit(coro: &CoroProgram, k: Int) -> Bool {
+    let d = coro.item_decl(k)
+    if d < 0 || coro.mono.items[k].kind != MonoItemKind.Function {
+        return false
+    }
+    let info = coro.mono.dp.bc.mir.tc.res.decls[d]
+    if info.kind != ResDeclKind.Method || not coro.mono.dp.bc.mir.tc.declares_blocking(d) {
+        return false
+    }
+    coro.mono.dp.bc.mir.tc.name_text(info.name).equals("deinit")
+}
+
+func coro_any_sink(facts: &CoroDropFacts) -> Bool {
+    var k = 0
+    while k < facts.sink.len() {
+        if facts.sink[k] {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// Each item's edges, in its body's block order: a block's drops, its
+// closure constructions, then its terminator's call. A `Thread.spawn`
+// brace is a closure construction too, and its body runs on the new
+// thread, so no edge reaches it.
+func coro_drop_facts(coro: &CoroProgram) -> CoroDropFacts {
+    var facts = CoroDropFacts(first: Vector<Int>(), count: Vector<Int>(), edges: Vector<CoroDropEdge>(),
+                              blocks: Vector<Bool>(), sink: Vector<Bool>(), thread_body: Vector<Bool>(),
+                              closure_body: Vector<Bool>())
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! facts.thread_body.push(false)
+        try! facts.closure_body.push(false)
+        k = k + 1
+    }
+    k = 0
+    while k < coro.mono.thread_spawns.len() {
+        let body = coro.mono.thread_spawns[k].body
+        if body >= 0 && body < facts.thread_body.len() {
+            facts.thread_body[body] = true
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < coro.mono.closure_items.len() {
+        let body = coro.mono.closure_items[k]
+        if body >= 0 && body < facts.closure_body.len() && not facts.thread_body[body] {
+            facts.closure_body[body] = true
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < coro.mono.items.len() {
+        let sink = coro_blocking_deinit(&coro, k)
+        try! facts.sink.push(sink)
+        try! facts.blocks.push(sink)
+        let start = facts.edges.len()
+        try! facts.first.push(start)
+        let f = coro.mono.items[k].body
+        if not sink && f >= 0 {
+            coro_item_edges(&coro, k, f, &var facts)
+        }
+        let made = facts.edges.len() - start
+        try! facts.count.push(made)
+        k = k + 1
+    }
+    move facts
+}
+
+func coro_item_edges(coro: &CoroProgram, k: Int, f: Int, facts: &var CoroDropFacts) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind == MirStmtKind.Drop {
+                let t = coro.mono.dp.bc.mir.places[stmt.place].ty
+                let glue = coro.mono.glue_item(t, MONO_KEY_DROP)
+                if glue >= 0 {
+                    try! facts.edges.push(CoroDropEdge(target: glue, place: stmt.place, item: k))
+                }
+            } else if stmt.kind == MirStmtKind.Assign {
+                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+                if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
+                    let body = coro.mono.closure_item(stmt.rvalue)
+                    if body >= 0 && not facts.thread_body[body] {
+                        try! facts.edges.push(CoroDropEdge(target: body, place: -1, item: k))
+                    }
+                }
+            }
+        }
+        if block.term == MirTermKind.Call {
+            coro_call_edges(&coro, k, block.call, &var facts)
+        }
+    }
+}
+
+// A call's edges: the item it runs on this thread. A spawn or drive site's
+// root is a root of its own, checked there, and a `Thread.spawn` site's body
+// runs on the new thread.
+func coro_call_edges(coro: &CoroProgram, k: Int, c: Int, facts: &var CoroDropFacts) {
+    let call = coro.mono.dp.bc.mir.calls[c]
+    let kind = call.kind
+    if kind == MirCallKind.Spawn || kind == MirCallKind.Drive || kind == MirCallKind.Builtin || kind == MirCallKind.Value {
+        return
+    }
+    let slot = coro.mono.dispatch_slot(c)
+    if slot >= 0 {
+        let trait_decl = coro.mono.dp.bc.mir.tc.types.ty(call.owner).decl
+        var v = 0
+        while v < coro.mono.vtables.len() {
+            let table = coro.mono.vtables[v]
+            v = v + 1
+            if table.trait_decl != trait_decl || slot >= table.slot_count {
+                continue
+            }
+            let target = coro.mono.vtable_slots[table.slot_first + slot]
+            if target >= 0 {
+                try! facts.edges.push(CoroDropEdge(target: target, place: -1, item: k))
+            }
+        }
+        return
+    }
+    let target = coro.mono.call_item(c)
+    if target >= 0 {
+        try! facts.edges.push(CoroDropEdge(target: target, place: -1, item: k))
+    }
+}
+
+// THE BLOCKING-DROP FUNNEL: marks every item whose body reaches a `blocking`
+// deinit through drops and calls, to a fixpoint.
+// ENTRY POINTS:
+//   coro_check_blocking_drops
+func coro_solve_drop_blocks(facts: &var CoroDropFacts) {
+    var changed = true
+    while changed {
+        changed = false
+        var k = 0
+        while k < facts.blocks.len() {
+            if not facts.blocks[k] && coro_first_blocking_edge(&facts, k) >= 0 {
+                facts.blocks[k] = true
+                changed = true
+            }
+            k = k + 1
+        }
+    }
+}
+
+// The first of item `k`'s edges whose target blocks, an index of `edges`,
+// or -1.
+func coro_first_blocking_edge(facts: &CoroDropFacts, k: Int) -> Int {
+    var e = facts.first[k]
+    while e < facts.first[k] + facts.count[k] {
+        if facts.blocks[facts.edges[e].target] {
+            return e
+        }
+        e = e + 1
+    }
+    return -1
+}
+
+// Whether a drop of type `t` blocks: its glue reaches a `blocking` deinit.
+func coro_type_blocks(coro: &CoroProgram, facts: &CoroDropFacts, t: Int) -> Bool {
+    let glue = coro.mono.glue_item(t, MONO_KEY_DROP)
+    glue >= 0 && facts.blocks[glue]
+}
+
+// A closure body may not block, by a drop as by a call: its function value
+// can be called in a task, which no task root sees, so each closure body
+// whose drops reach a `blocking` deinit is refused at the closure, once per
+// site. A `Thread.spawn` brace is no closure here.
+func coro_check_drop_closures(coro: &var CoroProgram, facts: &CoroDropFacts) {
+    var sites = Vector<Int>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        if not facts.closure_body[item] || not facts.blocks[item] {
+            continue
+        }
+        let site = coro.mono.items[item].origin_node
+        var j = 0
+        var seen = false
+        while j < sites.len() {
+            if sites[j] == site {
+                seen = true
+            }
+            j = j + 1
+        }
+        if seen {
+            continue
+        }
+        try! sites.push(site)
+        var msg = StringBuilder()
+        try! msg.append("a closure body may not block, and this one drops a value whose drop blocks: ")
+        coro_append_drop_path(&coro, &facts, item, &var msg)
+        try! msg.append(". A closure's value can be called in a task, where no task root sees the call. Drop the value in a `Thread.spawn` body, or move it out of the closure")
+        coro.refuse(item, site, "coro.closure-drop-blocks", msg.build())
+    }
+}
+
+func coro_check_drop_roots(coro: &var CoroProgram, facts: &CoroDropFacts) {
+    var k = 0
+    while k < coro.mono.items.len() {
+        let root = k
+        k = k + 1
+        if not coro.mono.is_task_root(root) || not facts.blocks[root] {
+            continue
+        }
+        var msg = StringBuilder()
+        try! msg.append("a task blocks its thread here: the task runs ")
+        coro_append_drop_path(&coro, &facts, root, &var msg)
+        try! msg.append(", which would stop the executor's thread and every task on it. Move the value into a `Thread.spawn` body to drop it there, or drop it from a `main` that runs no executor")
+        let site = coro.mono.items[root].origin_node
+        coro.refuse(root, site, "coro.task-drop-blocks", msg.build())
+    }
+    let main = coro.mono.main_item
+    if main < 0 || main >= coro.suspending.len() || not coro.suspending[main] || not facts.blocks[main] {
+        return
+    }
+    var msg = StringBuilder()
+    try! msg.append("`main` suspends, so it runs the executor, and it blocks its thread here: ")
+    coro_append_drop_path(&coro, &facts, main, &var msg)
+    try! msg.append(", which would stop the executor's thread and every task on it. Declare `func main() blocking` to run it in thread context, where a pair such as `Thread.join()` blocks instead of suspending, or move the value into a `Thread.spawn` body to drop it there")
+    let node = coro.item_node(main)
+    coro.refuse(main, node, "coro.task-drop-blocks", msg.build())
+}
+
+// `` `f` → `g` → drops `x: T` → `U` (blocking deinit) ``: the path from item
+// `from` to the first drop that blocks, then the type whose `deinit` blocks
+// when it is not the dropped value's own.
+func coro_append_drop_path(coro: &CoroProgram, facts: &CoroDropFacts, from: Int, msg: &var StringBuilder) {
+    try! msg.append("`")
+    try! msg.append(coro.item_label(from))
+    try! msg.append("`")
+    var at = from
+    var dropped = -1
+    var owner = -1
+    var steps = 0
+    while not facts.sink[at] && steps < coro.mono.items.len() {
+        steps = steps + 1
+        let e = coro_first_blocking_edge(&facts, at)
+        if e < 0 {
+            break
+        }
+        let edge = facts.edges[e]
+        if dropped < 0 {
+            if edge.place >= 0 {
+                dropped = coro.mono.dp.bc.mir.places[edge.place].ty
+                try! msg.append(" → drops ")
+                coro_append_place(&coro, edge.item, edge.place, &var msg)
+            } else if not facts.sink[edge.target] {
+                try! msg.append(" → `")
+                try! msg.append(coro.item_label(edge.target))
+                try! msg.append("`")
+            }
+        }
+        if coro.mono.items[at].kind == MonoItemKind.DropGlue {
+            owner = coro.mono.items[at].glue_type
+        }
+        at = edge.target
+    }
+    if owner >= 0 && owner != dropped {
+        try! msg.append(" → `")
+        try! msg.append(coro.mono.dp.bc.mir.tc.type_text(owner))
+        try! msg.append("`")
+    }
+    try! msg.append(" (blocking deinit)")
+}
+
+// `` `x: T` `` for a whole named local, `` a `T` in `x` `` for a part of one,
+// and `` a temporary `T` `` otherwise.
+func coro_append_place(coro: &CoroProgram, item: Int, p: Int, msg: &var StringBuilder) {
+    let place = coro.mono.dp.bc.mir.places[p]
+    let ty = coro.mono.dp.bc.mir.tc.type_text(place.ty)
+    var name = -1
+    if place.local >= 0 {
+        let f = coro.mono.items[item].body
+        let local = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first + place.local]
+        name = local.name
+    }
+    if name < 0 {
+        try! msg.append("a temporary `")
+        try! msg.append(ty)
+        try! msg.append("`")
+        return
+    }
+    let text = coro.mono.dp.bc.mir.tc.name_text(name)
+    if place.count == 0 {
+        try! msg.append("`")
+        try! msg.append(text)
+        try! msg.append(": ")
+        try! msg.append(ty)
+        try! msg.append("`")
+        return
+    }
+    try! msg.append("a `")
+    try! msg.append(ty)
+    try! msg.append("` in `")
+    try! msg.append(text)
+    try! msg.append("`")
+}
+
+// The positions refused in any context: an `Arc` or `Channel` whose payload's
+// drop blocks, an owning erasure of a value whose drop blocks, and a task
+// root whose result's does. Each once, at the first item that reaches it.
+func coro_check_drop_positions(coro: &var CoroProgram, facts: &CoroDropFacts) {
+    let arc = coro_std_type(&coro, "std.arc", "Arc")
+    let channel = coro_std_type(&coro, "std.channel", "Channel")
+    var refused = Vector<Int>()
+    // A method item's origin is the call the program wrote, so those are
+    // read first; a glue item's is the drop that needed it.
+    var k = 0
+    while k < coro.mono.items.len() {
+        let it = coro.mono.items[k]
+        if it.kind == MonoItemKind.Function && it.args_count > 0 && (it.type_decl == arc || it.type_decl == channel) {
+            let payload = coro.mono.item_types[it.args_first]
+            coro_check_shared_payload(&var coro, &facts, k, it.type_decl, payload, arc, &var refused)
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let it = coro.mono.items[item]
+        let glued = it.glue_type
+        if it.kind == MonoItemKind.DropGlue && coro.mono.dp.bc.mir.tc.kind_of(glued) == TcKind.Nominal {
+            let d = coro.mono.dp.bc.mir.tc.nominal_decl(glued)
+            if d >= 0 && (d == arc || d == channel) {
+                let payload = coro.mono.dp.bc.mir.tc.arg_of(glued, 0)
+                coro_check_shared_payload(&var coro, &facts, item, d, payload, arc, &var refused)
+            }
+        }
+        if it.body >= 0 {
+            coro_check_erasures(&var coro, &facts, item, it.body)
+        }
+        if coro.mono.is_task_root(item) && it.body >= 0 {
+            let f = it.body
+            let result = coro.mono.dp.bc.mir.locals[coro.mono.dp.bc.mir.funcs[f].local_first].ty
+            if coro_type_blocks(&coro, &facts, result) {
+                var msg = StringBuilder()
+                try! msg.append("the task `")
+                try! msg.append(coro.item_label(item))
+                try! msg.append("` hands back a `")
+                try! msg.append(coro.mono.dp.bc.mir.tc.type_text(result))
+                try! msg.append("`, whose drop blocks its thread (blocking deinit), and a task's result drops on the executor when no join takes it. Return something that does not block when it drops, or start the work with `Thread.spawn`")
+                coro.refuse(item, it.origin_node, "coro.blocking-drop-position", msg.build())
+            }
+        }
+    }
+}
+
+// The declaration of type `name` in std module `module`, or -1.
+func coro_std_type(coro: &CoroProgram, module: String, name: String) -> Int {
+    let m = coro.mono.dp.bc.mir.tc.module_named(module)
+    if m < 0 {
+        return -1
+    }
+    coro.mono.dp.bc.mir.tc.top_decl(m, name)
+}
+
+// An `Arc` (`d` is `arc`) or `Channel` holding a `payload`, met at `item`:
+// refused once per pair, which `refused` holds as declaration then payload.
+func coro_check_shared_payload(coro: &var CoroProgram, facts: &CoroDropFacts, item: Int, d: Int, payload: Int,
+                               arc: Int, refused: &var Vector<Int>) {
+    if not coro_type_blocks(&coro, &facts, payload) {
+        return
+    }
+    var j = 0
+    while j + 1 < refused.len() {
+        if refused[j] == d && refused[j + 1] == payload {
+            return
+        }
+        j = j + 2
+    }
+    try! refused.push(d)
+    try! refused.push(payload)
+    let shown = if d == arc { "an `Arc" } else { "a `Channel" }
+    var msg = StringBuilder()
+    try! msg.append(shown)
+    try! msg.append("` holds a `")
+    try! msg.append(coro.mono.dp.bc.mir.tc.type_text(payload))
+    try! msg.append("`, whose drop blocks its thread (blocking deinit), and ")
+    if d == arc {
+        try! msg.append("an `Arc`'s payload drops with whichever handle goes last, in whatever context that is")
+    } else {
+        try! msg.append("a `Channel`'s queued values drop wherever the queue is drained or its last handle goes")
+    }
+    try! msg.append(", which no check can follow. Keep the value with one owner, and hand it to a `Thread.spawn` body to drop it")
+    let site = coro.mono.items[item].origin_node
+    coro.refuse(item, site, "coro.blocking-drop-position", msg.build())
+}
+
+// An erasure into a box, whose drop runs through the erased type's vtable,
+// of a value whose drop blocks. A borrow erased to `&any` drops nothing.
+func coro_check_erasures(coro: &var CoroProgram, facts: &CoroDropFacts, item: Int, f: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign {
+                continue
+            }
+            let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+            if rv.kind != MirRvalueKind.Erase || rv.count < 1 || coro.mono.dp.bc.mir.tc.kind_of(rv.ty) == TcKind.Ref {
+                continue
+            }
+            let o = coro.mono.dp.bc.mir.lists[rv.first]
+            var concrete = coro.mono.dp.bc.mir.operands[o].ty
+            if coro.mono.dp.bc.mir.tc.is_result(rv.ty) && coro.mono.dp.bc.mir.tc.is_result(concrete) {
+                concrete = coro.mono.dp.bc.mir.tc.arg_of(concrete, 1)
+            }
+            if not coro_type_blocks(&coro, &facts, concrete) {
+                continue
+            }
+            let text = coro_erasure_text(&coro, concrete, rv.ty)
+            coro.refuse(item, stmt.node, "coro.blocking-drop-position", text)
+        }
+    }
+}
+
+func coro_erasure_text(coro: &CoroProgram, concrete: Int, erased: Int) -> String {
+    let what = coro.mono.dp.bc.mir.tc.type_text(concrete)
+    let into: String = coro.mono.dp.bc.mir.tc.type_text(erased)
+    var msg = StringBuilder()
+    try! msg.append("a `")
+    try! msg.append(what)
+    try! msg.append("` is erased to `")
+    try! msg.append(into)
+    try! msg.append("`, and its drop blocks its thread (blocking deinit): an erased value drops through its vtable, wherever the box goes, which no check can follow. Keep the concrete type, and hand the value to a `Thread.spawn` body to drop it")
+    msg.build()
+}

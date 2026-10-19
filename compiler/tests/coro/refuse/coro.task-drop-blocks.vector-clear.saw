@@ -1,0 +1,30 @@
+// refuses: coro.task-drop-blocks at 28:15
+// message: the task runs `refill` → `Vector.clear` → drops a temporary `coro.task-drop-blocks.vector-clear.Pool?` → `coro.task-drop-blocks.vector-clear.Pool` (blocking deinit)
+// `Vector.clear` destroys each element inside std's generic code, where no
+// source line names the drop; the check reads the instance
+// (conformance row K182; the Air's SL-782 c24).
+
+import std.task.*
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func refill(pools: &var Vector<Pool>, size: Int) {
+    let _ = size
+    pools.clear()
+}
+
+func main() {
+    var pools = Vector<Pool>()
+    try! pools.push(Pool(size: 1))
+    var group = TaskGroup()
+    let job = group.spawn(refill(&var pools, 2))
+    job.join()
+}

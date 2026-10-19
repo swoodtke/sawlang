@@ -6,8 +6,8 @@
     (func nap 15:6 private (signature (params) -> Int) (summary body (suspends yes) (sync-callable no)))
     (func work 19:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func bump 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
-    (func fan 27:6 private (signature (generics (T (bounds Send))) (params (v T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func main 32:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+    (func fan 27:6 private (signature (generics (T (bounds Send))) (params (v T owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (func main 32:6 private (signature (params) -> Void) (summary body (suspends yes) (sync-callable no))))
   (members
     (thread_spawn.Thread
       (field handle Int private declared)))

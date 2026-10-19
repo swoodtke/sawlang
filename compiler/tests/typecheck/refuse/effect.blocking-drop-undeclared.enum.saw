@@ -1,0 +1,28 @@
+// refuses: effect.blocking-drop-undeclared at 15:13
+// a public enum whose case payload's drop blocks, declaring no `blocking`
+// `deinit` (conformance row K185)
+
+public struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+public enum Berth {
+    case Empty,
+    case Moored(pool: Pool)
+}
+
+extension Berth: NoCopy {}
+
+func main() {
+    let berth = Berth.Moored(pool: Pool(size: 2))
+    match berth {
+        case Empty -> print("empty"),
+        case Moored(_) -> print("moored")
+    }
+}

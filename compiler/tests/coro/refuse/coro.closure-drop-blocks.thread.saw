@@ -1,0 +1,33 @@
+// refuses: coro.closure-drop-blocks at 26:31
+// message: `host` → drops `p: coro.closure-drop-blocks.thread.Pool` (blocking deinit)
+// The same closure built in a `Thread.spawn` body that hosts the group: the
+// brace is thread context, and the closure it builds is still refused, since
+// a task calls it (conformance row K182; the Air's SL-782 c37
+// `d1_value_call`).
+
+import std.task.*
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.n)
+    }
+}
+
+func run(body: () -> Void) {
+    body()
+}
+
+func host() {
+    var group = TaskGroup()
+    let job = group.spawn(run({ let p = Pool(n: 1); let _ = p.n }))
+    job.join()
+}
+
+func main() {
+    var t = try! Thread.spawn { host() }
+    t.join()
+}

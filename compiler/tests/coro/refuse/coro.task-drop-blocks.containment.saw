@@ -1,0 +1,32 @@
+// refuses: coro.task-drop-blocks at 30:15
+// message: the task runs `launch` → drops `fleet: coro.task-drop-blocks.containment.Fleet` → `coro.task-drop-blocks.containment.Pool` (blocking deinit)
+// A struct that holds a `Pool` blocks when it drops, by containment, which
+// is inferred inside its module; the message names the type whose `deinit`
+// blocks (conformance row K182).
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+struct Fleet {
+    pool: Pool
+    name: Int
+}
+
+extension Fleet: NoCopy {}
+
+func launch(size: Int) -> Int {
+    let fleet = Fleet(pool: Pool(size: size), name: 7)
+    fleet.name
+}
+
+func main() {
+    let job = Task.spawn(launch(4))
+    print(job.join())
+}

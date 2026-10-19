@@ -755,8 +755,8 @@ taskgroup_two_task_yield.saw	arm64-apple-darwin	same	89745547d467	success	ok	0	2
 taskgroup_two_task_yield.saw	x86_64-unknown-linux-gnu	same	89745547d467	success	not-run	-	-	-	-	1	48	48	1	3	254
 taskgroup_unjoined_drop.saw	arm64-apple-darwin	same	638735055b1f	success	ok	0	6:dfdb45aeea27	0:e3b0c44298fc	yes	1	48	48	1	2	237
 taskgroup_unjoined_drop.saw	x86_64-unknown-linux-gnu	same	638735055b1f	success	not-run	-	-	-	-	1	48	48	1	2	237
-thread_spawn_blocking_beside_a_driven_root.saw	arm64-apple-darwin	same	e0799ad43fc3	success	refused	-	-	-	-	0	0	0	0	0	-
-thread_spawn_blocking_beside_a_driven_root.saw	x86_64-unknown-linux-gnu	same	e0799ad43fc3	success	not-run	-	-	-	-	0	0	0	0	0	-
+thread_spawn_blocking_beside_a_driven_root.saw	arm64-apple-darwin	same	d467f8fd7076	success	refused	-	-	-	-	0	0	0	0	0	-
+thread_spawn_blocking_beside_a_driven_root.saw	x86_64-unknown-linux-gnu	same	d467f8fd7076	success	not-run	-	-	-	-	0	0	0	0	0	-
 try_catch_void_result_spawned.saw	arm64-apple-darwin	same	e04173bdbbce	success	ok	0	21:211aff351250	0:e3b0c44298fc	yes	1	48	48	1	2	245
 try_catch_void_result_spawned.saw	x86_64-unknown-linux-gnu	same	e04173bdbbce	success	not-run	-	-	-	-	1	48	48	1	2	245
 try_inline_catch_diverging_arm.saw	arm64-apple-darwin	same	4b91cf71c447	success	ok	0	44:8d979d4b5d9b	0:e3b0c44298fc	yes	4	864	440	4	13	568

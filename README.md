@@ -490,8 +490,14 @@ extension Mailbox {
 }
 ```
 
-`Channel.receive` is such a pair, so one name serves both engines: a task
-parks until a message arrives, and a `Thread.spawn` body blocks its thread.
+`Channel.receive` and `Thread.join` are such pairs, so one name serves both
+engines: a task parks until a message arrives or the thread finishes, and a
+`Thread.spawn` body blocks its thread.
+
+A `deinit` may be `blocking` too, as a worker pool's that joins its threads
+is. A value of that type, or one holding it, may then be dropped only in
+thread context: a task that drops one, even inside `Vector.clear`, is refused
+with the path to the drop, and hands the value to a thread instead.
 
 A unit of concurrent work has a written fate, never an inferred one. The
 handle must reach `join()` or `detach()` on every path, so neither a bare

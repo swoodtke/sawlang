@@ -1,0 +1,29 @@
+// refuses: coro.task-drop-blocks at 27:15
+// message: the task runs `refill` → `Vector.set` → drops a temporary `coro.task-drop-blocks.vector-set.Pool` (blocking deinit)
+// `Vector.set` destroys the element it replaces inside std's generic code,
+// where no source line names the drop; the check reads the instance
+// (conformance row K182; the Air's SL-782 c24).
+
+import std.task.*
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func refill(pools: &var Vector<Pool>, size: Int) {
+    pools.set(0, Pool(size: size))
+}
+
+func main() {
+    var pools = Vector<Pool>()
+    try! pools.push(Pool(size: 1))
+    var group = TaskGroup()
+    let job = group.spawn(refill(&var pools, 2))
+    job.join()
+}

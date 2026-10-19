@@ -291,7 +291,8 @@ lowers:
 - a park, of any reason: a call of one of `std.task`'s park points, by its
   lang role (`__saw_park_ready`, which `yield_now`'s body is;
   `__saw_park_timer`, which `sleep`'s is; `__saw_park_fd` and
-  `__saw_park_fd_until`; `__saw_park_channel`; `__saw_park_offload`), or of
+  `__saw_park_fd_until`; `__saw_park_channel`; `__saw_park_offload`;
+  `__saw_park_thread`, which a task's `Thread.join` parks at), or of
   the test intrinsic `__saw_suspend`, a ready park;
 - a call of a `blocking` extern, which is offloaded (below);
 - a call of the test intrinsic `__saw_test_suspend`, a suspension for the
@@ -336,14 +337,16 @@ context pointer `_C`, a `&var std.taskgroup.TaskContext` the resume function
 points at its `cx`; the park word is `(*(*_C).park)`, an `Int`, and the
 deadline `(*_C).deadline`, a `UInt64`, each reached by its field. The park
 word's values are std's vocabulary (`std/taskgroup.saw`): 0 ready, 1 a timer,
--1 a descriptor, below -1 a channel's readiness word by its negated address.
-Each argument moves or copies as the call passed it, and the call, its
+-1 a descriptor, below -1 a channel's readiness word by its negated address
+when even, and a thread control block's handshake word by its negated address
+less one when odd. Each argument moves or copies as the call passed it, and the call, its
 arguments taken, ends the last block the rewrite leaves: it is the park.
 
 | reason | the park's blocks |
 |---|---|
 | ready | `bbB` gains `(*(*_C).park) = const 0` |
 | channel | `bbB` gains `(*(*_C).park) = WORD` |
+| thread | `bbB` gains `(*(*_C).park) = WORD` |
 | timer | `bbB` ends in `_d = __saw_exec_timer_deadline(NANOS)`, then a new block records `(*_C).deadline = move _d` and `(*(*_C).park) = const 1` and parks |
 | fd | `bbB` gains `(*_C).deadline = DEADLINE`, or `const 0` for `__saw_park_fd`, `(*(*_C).park) = const -1` and the token `_t = cast(copy (*_C).park as Int)`, and ends in the arm `__saw_exec_io_register(FD, WRITE, move _t)`; a new block parks |
 | offload | `bbB` gains `(*_C).deadline = const 0`, `(*(*_C).park) = const -1` and the token, and ends in `_p = __saw_exec_offload_pipe(JOB)`; a new block ends in the arm `__saw_exec_io_register(move _p, const 0, move _t)`; another parks |
@@ -357,7 +360,10 @@ panics naming the unit that brings its executor half (SL:coroutines A14b). A
 descriptor park's arm is the reactor's (A12a): it panics when the arm fails,
 and the reactor's poll latches the park word once the descriptor is ready. A
 channel park arms nothing: it is resumed once the readiness word it names is
-nonzero, which a send or a close on that channel sets (A13a). A timer park,
+nonzero, which a send or a close on that channel sets (A13a). A thread park
+arms nothing either: it is resumed once the handshake word it names is
+negative, which the thread's exit sets before it lowers the live-thread
+count, and a cancel does not wake it (SL-782). A timer park,
 which arms nothing either, is resumed once its deadline passes, at a drive
 point (SL-645) and in the entry executor alike (the run lane's
 `drive_timer_park` and `main_timer_park`). Every park returns nothing: its
@@ -726,6 +732,9 @@ their lowering is verified with every build.
 
 | rule | refuses | fixture |
 |---|---|---|
+| `coro.blocking-drop-position` | a position that hides where a value drops, holding a value whose drop blocks (spec, Blocking drops), in any context: an `Arc` or a `Channel` instance whose payload's drop glue reaches a `blocking` `deinit`, at the first method item's origin, else its glue's; an erasure into a box, the boxed error of a `Result<_, Box<any Error>>` among them, at the erasure (a borrow erased to `&any` drops nothing); and a task root whose result's drop blocks, at its spawn site | `coro.blocking-drop-position`, an `Arc` payload; `channel`, a `Channel` element; `box-any`, a `Box<any Shape>`; `any`, a boxed error; `task-result`, a task's result; and `generic`, an `Arc` made inside a generic function at its `Pool` instantiation (K184) |
+| `coro.task-drop-blocks` | THE BLOCKING-DROP FUNNEL (`compiler/coro/src/dropblocks.saw`, `coro_solve_drop_blocks`): a task root, at its spawn or drive site, and a `main` that suspends, at its declaration, whose items reach a drop that blocks: a `Drop` in an item's concrete body whose type's drop glue reaches, through glue, calls, dispatch slots and closure bodies, a `deinit` declared `blocking`. A spawn or drive site's root is a root of its own, and a `Thread.spawn` site's body and exit are not followed, nor its refused spawn's drop of the captures. The message names the path to the first such drop, then the type whose `deinit` blocks; a `main`'s offers `func main() blocking` | `coro.task-drop-blocks`, a local at its scope's end; `overwrite`, `slot = None`; `parameter`, a by-value parameter; `containment`, a struct holding the value; `vector-set`, `vector-clear` and `map-insert`, std's generic drops; `group-spawn`, two calls deep; and `main`, a `main` that joins a thread (K182) |
+| `coro.closure-drop-blocks` | a closure body, a `Thread.spawn` brace excepted, whose drops reach a `blocking` `deinit` through the blocking-drop funnel, at the closure's construction, once per site, the message naming the path to the drop: a call through a closure's function value adds no edge to the walk, so a closure built in thread context and called in a task would otherwise drop the value unrefused (spec, "A closure body may not block") | `coro.closure-drop-blocks`, a closure built in a `main` declared `blocking` and called by a group task; `thread`, the same built in a `Thread.spawn` body that hosts the group (K182); the run probe `blocking_drop_closure_moves_it_out` is the accepted control |
 | `coro.drive-in-suspending` | a drive site (`__saw_drive` or `__saw_drive_steps`) in an item that has a frame: one that suspends, as Stage 0 refuses it (DF-218n), or a task root, which runs inside an executor too; at the site, with Stage 0's message naming the root to call directly, where it embeds | `coro.drive-in-suspending`, from `tests/corpus/drive_site_in_suspending_body`; `function`, from `drive_site_in_suspending_function`; and `task-root`, a spawned body that never suspends |
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
 | `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a conditional window among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the conditional window that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, a conditional window two calls down; `beside-a-lowered-park`, the drive of a child holding one beside a ready park; and `conditional-window`, a conditional window whose prologue suspends |

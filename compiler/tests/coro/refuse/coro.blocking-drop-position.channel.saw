@@ -1,0 +1,23 @@
+// refuses: coro.blocking-drop-position at 20:19
+// message: a `Channel` holds a `coro.blocking-drop-position.channel.Pool`, whose drop blocks its thread (blocking deinit)
+// message: a `Channel`'s queued values drop wherever the queue is drained
+// A `Channel` element whose drop blocks: a queued value drops wherever the
+// queue is drained or its last handle goes (conformance row K184).
+
+import std.channel.{Channel}
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func main() {
+    let ch = try! Channel<Pool>()
+    try! ch.send(Pool(size: 2))
+    try! ch.close()
+}

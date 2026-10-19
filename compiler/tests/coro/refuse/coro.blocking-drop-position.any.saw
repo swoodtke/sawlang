@@ -1,0 +1,37 @@
+// refuses: coro.blocking-drop-position at 27:16
+// message: a `coro.blocking-drop-position.any.Stuck` is erased to `std.box.Box<any Error, std.alloc.GlobalAllocator>`, and its drop blocks its thread (blocking deinit)
+// An erased error, `Result<Int, Box<any Error>>`, boxing a value whose drop
+// blocks at the `return` (conformance row K184).
+
+struct Stuck {
+    size: Int
+}
+
+extension Stuck: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("stuck at ")
+        try! into.append(self.size)
+    }
+}
+
+extension Stuck: Error {}
+
+extension Stuck: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a fault of {}", self.size)
+    }
+}
+
+func open(n: Int) -> Result<Int, Box<any Error>> {
+    if n == 0 {
+        return Stuck(size: 2)
+    }
+    return n
+}
+
+func main() {
+    match open(0) {
+        case Ok(v) -> print("ok {}", v),
+        case Err(e) -> print("{e}")
+    }
+}

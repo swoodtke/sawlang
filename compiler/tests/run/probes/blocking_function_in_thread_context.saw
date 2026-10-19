@@ -10,7 +10,9 @@
 // prints: main through a helper 6
 // prints: main through a sync helper 7
 // No caller writes the marker: `settled_plus_one` and `settled_twice`
-// block too, by inference, and nothing refuses a call in either.
+// block too, by inference, and nothing refuses a call in either. The threads
+// are joined in a `blocking` helper, where `Thread.join` blocks: a `main` that
+// joined them itself would suspend there, and run the executor.
 
 extern "C" {
     blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
@@ -28,11 +30,15 @@ func settled_twice(ms: Int) sync -> Int {
     settle(ms) + settle(ms) - ms
 }
 
-func main() {
+func in_threads() blocking {
     var direct = try! Thread.spawn { settle(3) }
     print("thread direct {}", direct.join())
     var through = try! Thread.spawn { settled_plus_one(3) }
     print("thread through a helper {}", through.join())
+}
+
+func main() {
+    in_threads()
     print("main direct {}", settle(5))
     print("main through a helper {}", settled_plus_one(5))
     print("main through a sync helper {}", settled_twice(7))

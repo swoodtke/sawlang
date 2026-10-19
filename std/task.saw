@@ -56,9 +56,10 @@ public(package) struct ThreadControlBlock<T> {
 // `__saw_rt_thread_spawn` call, since it passes a C function pointer, which a
 // Saw value cannot carry (DF-113b). Dispatch is static: the implementation is
 // chosen at build time, so an `any NativeThread` would cost an allocation for
-// nothing.
+// nothing. The member is not named `join`, which std's suspension census
+// would read as `Thread.join`'s parking default (compiler/tools/std_suspension.py).
 trait NativeThread {
-    func join(&self)
+    func wait_for_exit(&self)
 }
 
 struct PosixThread {
@@ -69,7 +70,7 @@ struct PosixThread {
 // result with no error channel. A join is refused only for a handle naming no
 // joinable thread, or a thread joining itself.
 extension PosixThread: NativeThread {
-    func join(&self) {
+    func wait_for_exit(&self) {
         if __saw_rt_thread_join(self.handle) != 0 {
             panic("Thread.join: joining the thread failed (errno {})", __saw_rt_last_raw_code())
         }
@@ -98,21 +99,54 @@ extension Thread<T: Send>: UnsafeSync {}
 extension Thread<T> {
     /// Waits for the thread to finish and returns its result.
     ///
-    /// Blocks the calling thread. A thread yields its result once, so joining
-    /// a second time, or after `detach`, panics. A join the operating system
-    /// refuses, as for a thread joining itself, panics with the cause.
+    /// A task parks until the thread finishes, and its executor's thread runs
+    /// the other tasks meanwhile. A cancel does not end the wait: a thread
+    /// cannot be asked to stop, and its result has nowhere else to go. In a
+    /// `Thread.spawn` body or a `blocking` function the call blocks the
+    /// calling thread instead. A `main` that calls it suspends, and so runs
+    /// the executor.
+    ///
+    /// A thread yields its result once, so joining a second time, or after
+    /// `detach`, panics. A join the operating system refuses, as for a
+    /// thread joining itself, panics with the cause.
     public func join(&var self) unsafe -> T {
-        if self.joined {
-            panic("Thread.join: this thread's fate was already written")
+        self.check_fate_open("Thread.join")
+        // The thread's exit leaves the block's negated size in its handshake
+        // word once the result is stored (runtime/ABI.md), and only the exit
+        // writes it while the handle is live. So once the word is negative
+        // the reap waits for nothing but the thread's own return.
+        let word = (&self.block[0].state) as UnsafePointer<Int>
+        while __saw_atomic_load_i64_seq_cst(word) >= 0 {
+            __saw_park_thread(0 - (word as Int) - 1)
         }
+        self.__saw_reap()
+    }
+
+    public func join(&var self) unsafe blocking -> T {
+        self.check_fate_open("Thread.join")
+        self.__saw_reap()
+    }
+
+    // Joins the OS thread and takes its result, the handle's fate still
+    // open: both joins, and a pool's teardown, which joins the workers it
+    // started without the pair (`join_crew` in std.taskgroup).
+    public(package) func __saw_reap(&var self) unsafe -> T {
         let block = self.block
-        PosixThread(handle: block[0].tid).join()
+        PosixThread(handle: block[0].tid).wait_for_exit()
         let at = (&block[0].result) as UnsafePointer<T>
         // The block is freed next, so the result is moved out of it first.
         let result = move at[0]
         free_thread_block(block)
         self.joined = true
         move result
+    }
+
+    // Panics, naming `what`, when the handle's fate is already written: its
+    // block is gone, so nothing may read it.
+    func check_fate_open(&self, what: String) {
+        if self.joined {
+            panic("{}: this thread's fate was already written", what)
+        }
     }
 
     /// Gives the thread to the process and gives up its result.
@@ -186,6 +220,9 @@ extension Thread<T> {
         let size = sizeof<ThreadControlBlock<T>>()
         // Last: a detacher that frees the block on the other side of this
         // exchange must find the result stored and the environment released.
+        // The exchange also comes before the live-thread count drops, so a
+        // deadlock walk that reads the count as zero finds a parked joiner's
+        // word set (the run probe `thread_join_exit_while_parked`).
         let previous = exchange_state(block, 0 - size)
         var freed = false
         if previous == 0 {
@@ -347,6 +384,13 @@ public(package) func __saw_park_channel(word: Int) {
 // Offload job `job`'s completion.
 public(package) func __saw_park_offload(job: Int) {
     panic("std.task: an offload park reached code generation unlowered")
+}
+
+// A thread's exit: `word` is the negated address of its control block's
+// handshake word, less one, which the exit leaves negative: odd, so apart
+// from a channel's word (std.taskgroup). A cancel does not wake it.
+public(package) func __saw_park_thread(word: Int) {
+    panic("std.task: a thread park reached code generation unlowered")
 }
 
 // Whether the running task's cancel word is set. It parks nothing; inside a

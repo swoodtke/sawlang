@@ -7,6 +7,7 @@ import sawcoro.frames.{coro_find_frames}
 import sawcoro.layout.{coro_lay_out_frames}
 import sawcoro.lower.{coro_decide_lowering, coro_frame_lowered, coro_lower_frames, coro_refuse_unlowered}
 import sawcoro.program.{CoroProgram, coro_program}
+import sawcoro.dropblocks.{coro_check_blocking_drops}
 import sawcoro.send.{coro_check_frame_send}
 import sawcoro.spawn.{coro_check_spawns, coro_lower_spawn_sites}
 import sawcoro.suspends.{coro_solve_suspension}
@@ -47,6 +48,7 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
         coro_refuse_drive_sites(&var coro)
         coro_find_frames(&var coro)
         coro_check_frame_send(&var coro)
+        coro_check_blocking_drops(&var coro)
         coro_decide_lowering(&var coro)
         coro_refuse_unlowered(&var coro)
         coro_root_entry_executor(&var coro)

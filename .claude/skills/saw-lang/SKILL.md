@@ -1196,7 +1196,9 @@ var u = w.copy()       // explicit duplicate
   payload — with no declaration needed. Hand-write `deinit(&var self)` only for
   a raw resource (an fd, a mapping); your body runs FIRST and the field drops
   are appended, and there is only ever one deinit per type. Corollary: an empty
-  `func deinit(&var self) {}` is dead code — delete it.
+  `func deinit(&var self) {}` is dead code — delete it. The one exception is
+  `func deinit(&var self) blocking {}` on a `public` type that blocks only by
+  what it holds: it says "my drop blocks" where a reader looks (SL-782).
   **REVERSE-DECLARATION IS THE RULE FOR EVERY TEARDOWN, DISCARDS INCLUDED**
   (DF-218y, ruled Aug 22). The fields a pattern throws away with `_` come apart
   in the same order the ones it names do: `case Trip(v, _, _)` releases `c` then
@@ -2393,7 +2395,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `Thread.spawn` body and parks in a task — so the call site's namespace is what
   says which one you are on:
   ```saw-fragment
-  var t = try! Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() BLOCKS this thread
+  var t = try! Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() blocks a thread, parks a task
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
   let b = Task.spawn(crunch(n))        // Task<Int>;   same engine, no group
   ```
@@ -2431,7 +2433,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   ```
   Two things discharge it besides a written consume. A move into STORAGE whose
   owner declares a hand-written `deinit` (`self.workers.push(move t)` inside a
-  `Pool` that joins them in its own deinit) — which is how a pool outlives the
+  `Pool` that joins them in its own `blocking` deinit) — which is how a pool outlives the
   function that starts it. And `group.spawn`, whose handles carry NO obligation
   at all: a group is a declared consumer, so the accept-loop idiom
   (`while true { group.spawn(handle(accept())) }`) is untouched, and a bound
@@ -2540,11 +2542,28 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   twin is reached through generic helpers and through implementations the
   program calls, directly or by a bound; through a `sync` requirement or a
   `sync` generic, at a render, and in a hook the compiler calls (`deinit`,
-  `copy()`, `any` dispatch) the default runs. std's pair is `Channel.receive`.
-  Never
+  `copy()`, `any` dispatch) the default runs. std's pairs are
+  `Channel.receive` and `Thread.join()` (a task's join PARKS, a cancel does not
+  end it). A `main` that joins a thread therefore suspends and is a task root;
+  `func main() blocking` joins in thread context instead. Never
   block from: a closure body, a trait requirement or default body, a
-  conformance's implementation, a `deinit`, a policy `copy()`; and a
-  `blocking` function is never a value.
+  conformance's implementation, an undeclared `deinit`, a policy `copy()`; and
+  a `blocking` function is never a value.
+- **A `deinit` MAY BE `blocking` (SL-782; spec, Blocking drops).**
+  `func deinit(&var self) blocking { ... }` is thread context (its `join()`
+  takes the twin), and the type, and anything holding it (`Vector<Pool>`,
+  `Pool?`, a struct with a `Pool` field), may then be DROPPED only in thread
+  context. A task that drops one is refused at its root with the path to the
+  drop, found post-mono, so `v.set(..)`, `v.clear()`, a `Map.insert`'s
+  displaced value, `slot = None` and even `push`'s refused-allocation path
+  count. Hand it off instead: `(try! Thread.spawn { [move pool] in let _ = move
+  pool }).detach()`. Never put one in an `Arc`, a `Channel`, a `Box<any ..>` or
+  a task's result (refused anywhere), and never drop one in a closure body
+  (refused at the closure, since a task may call it through its value). A non-blocking `deinit` that calls a
+  `blocking` function or `join()` is refused, pointing at `blocking`. A
+  `public` type that blocks only by what it holds declares
+  `func deinit(&var self) blocking {}` (an empty body, the one blessed one);
+  a generic `Wrap<T>` declares nothing, its instance decides.
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
   Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,

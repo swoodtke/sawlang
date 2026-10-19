@@ -1,0 +1,23 @@
+// refuses: coro.blocking-drop-position at 21:15
+// message: the task `make` hands back a `coro.blocking-drop-position.task-result.Pool`, whose drop blocks its thread (blocking deinit)
+// A task's result whose drop blocks: an unjoined result drops on the
+// executor, in task context (conformance row K184).
+
+struct Pool {
+    size: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.size)
+    }
+}
+
+func make(size: Int) -> Pool {
+    Pool(size: size)
+}
+
+func main() {
+    let job = Task.spawn(make(2))
+    job.detach()
+}
