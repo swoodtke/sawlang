@@ -733,8 +733,12 @@ See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
 - **Source locations are literals.** `#file`, `#line`, and `#function` are
   filled in at compile time, and panics and asserts already carry a
   `panic at FILE:LINE:` prefix. A panic's message goes to standard error,
-  apart from the program's `print` output on standard output. See
-  [Source-location literals](LANGUAGE_SPEC.md#source-location-literals).
+  apart from the program's `print` output on standard output. A `print` line
+  is never split by another thread's `print`, and a `print` whose write fails
+  (a closed standard output, a full disk) panics with the cause rather than
+  losing the line. See
+  [Source-location literals](LANGUAGE_SPEC.md#source-location-literals) and
+  [Built-in Functions](LANGUAGE_SPEC.md#built-in-functions).
 - **Doc comments are checked.** `///` documents the declaration that follows,
   `//!` the file; one that documents nothing is a compile error rather than a
   silent drop. `--emit-docs` writes the program's documentation as JSON,

@@ -877,11 +877,111 @@ def check_long_accessor(failures, counts):
         counts[key] = counts.get(key, 0) + n
 
 
+# A line of `print_lines_stay_whole.saw` or `print_beside_a_panic.saw`: the
+# thread's number, the line's, then 5000 bytes of `x`.
+_WHOLE_LINE = re.compile(rb"^([12]) (\d+) x{5000}$")
+# How often the stress probe runs at each level (SL-765's acceptance item).
+PRINT_STRESS_RUNS = 50
+PRINT_STRESS_LINES = 1000
+PRINT_STRESS_SPEEDS = ("-O0", "-O2")
+
+
+def check_print_lines(failures, counts):
+    """Two threads' `print` lines are never split by each other: each run of
+    `probes/print_lines_stay_whole.saw` writes, through a pipe, 1000 lines per
+    thread longer than a pipe's atomic write, and each must come back whole,
+    each thread's in its order. Interleaving is the operating system's, so no
+    header line can state the output."""
+    probe = os.path.join(PROBES, "print_lines_stay_whole.saw")
+    for speed in PRINT_STRESS_SPEEDS:
+        where = "run %s %s" % (rel(probe), speed)
+        ok, binary, log = build_new(probe, speed)
+        if not ok or log:
+            failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+                                                  log[:300]))
+            continue
+        for k in range(PRINT_STRESS_RUNS):
+            code, out, err = execute(binary)
+            problem = None
+            next_line = {b"1": 0, b"2": 0}
+            for line in lines_of(out.decode("latin-1")):
+                m = _WHOLE_LINE.match(line.encode("latin-1"))
+                if m is None:
+                    problem = "a split line %r" % line[:80]
+                    break
+                if int(m.group(2)) != next_line[m.group(1)]:
+                    problem = "thread %s's line %s out of order" % (m.group(1).decode(), m.group(2).decode())
+                    break
+                next_line[m.group(1)] += 1
+            if problem is None and (code != 0 or err or next_line != {b"1": PRINT_STRESS_LINES,
+                                                                       b"2": PRINT_STRESS_LINES}):
+                problem = "exit %s, %r on standard error, lines per thread %r" % (code, err[:200], next_line)
+            if problem:
+                failures.append("%s: run %d of %d: %s" % (where, k + 1, PRINT_STRESS_RUNS, problem))
+                break
+            counts["run print stress runs whole"] = counts.get("run print stress runs whole", 0) + 1
+
+
+def check_print_beside_a_panic(failures, counts):
+    """A thread printing in a loop never holds back another thread's panic:
+    `probes/print_beside_a_panic.saw` ends by SIGABRT with its panic, first
+    with both streams merged into a pipe the lane drains, where every printed
+    line is whole and the panic arrives between lines, then with standard
+    output a pipe nobody reads, where the printer blocks holding the output
+    lock and the sink's bounded wait lets the panic out. The printer's line
+    count is the scheduler's, so no header line can state the output."""
+    probe = os.path.join(PROBES, "print_beside_a_panic.saw")
+    panic = b"main gave up"
+    for speed in ("-O0", "-O2"):
+        where = "run %s %s" % (rel(probe), speed)
+        ok, binary, log = build_new(probe, speed)
+        if not ok or log:
+            failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+                                                  log[:300]))
+            continue
+        try:
+            r = subprocess.run([binary], cwd=OUT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               timeout=RUN_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            failures.append("%s: merged and drained, it did not end in %ds" % (where, RUN_TIMEOUT))
+            continue
+        lines = r.stdout.split(b"\n")
+        if lines and lines[-1] == b"":
+            lines.pop()
+        said = [line for line in lines if line.startswith(b"panic at ")]
+        split = [line[:80] for line in lines if not line.startswith(b"panic at ") and not _WHOLE_LINE.match(line)]
+        if r.returncode != -signal.SIGABRT or len(said) != 1 or panic not in said[0] or split:
+            failures.append("%s: merged and drained, exit %s, panic lines %r, split lines %r"
+                            % (where, r.returncode, said[:2], split[:2]))
+            continue
+        read_end, write_end = os.pipe()
+        try:
+            stalled = subprocess.Popen([binary], cwd=OUT, stdout=write_end, stderr=subprocess.PIPE)
+            os.close(write_end)
+            try:
+                err = stalled.communicate(timeout=RUN_TIMEOUT)[1]
+            except subprocess.TimeoutExpired:
+                stalled.kill()
+                stalled.communicate()
+                failures.append("%s: with standard output stalled, it did not end in %ds" % (where, RUN_TIMEOUT))
+                continue
+        finally:
+            os.close(read_end)
+        if stalled.returncode != -signal.SIGABRT or panic not in err:
+            failures.append("%s: with standard output stalled, exit %s, %r on standard error"
+                            % (where, stalled.returncode, err[:300]))
+            continue
+        counts["run panics beside a printer"] = counts.get("run panics beside a printer", 0) + 1
+
+
 # The custom probes, each checked by its own function. `executable_path.saw`
 # is run through a renamed link on `PATH` from another directory, and what it
-# must print is its binary's real path, which no header line can state.
+# must print is its binary's real path, which no header line can state. The
+# two `print` probes' output is interleaved by the operating system.
 CUSTOM_PROBES = {
     "executable_path.saw": check_executable_path,
+    "print_lines_stay_whole.saw": check_print_lines,
+    "print_beside_a_panic.saw": check_print_beside_a_panic,
 }
 
 

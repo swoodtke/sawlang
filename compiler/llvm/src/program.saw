@@ -141,6 +141,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         let sink = mono.panic_item
         let symbol = e.plain_symbol(&var mono, sink)
         try! out.append(ll_fail_helpers(symbol))
+        let renderer = mono.print_failure_item
+        if renderer >= 0 {
+            try! out.append(ll_print_failure_helper(e.plain_symbol(&var mono, renderer)))
+        }
     }
     try! out.append("\n\n")
     try! out.append(ll_function_attribute_group(&target, e.lowering.sanitize))
@@ -433,6 +437,26 @@ func ll_helpers() -> String {
     try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_uint(ptr %tmp, i64 %v)\n")
     // The last line has no line break of its own: print supplies it.
     try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}")
+    out.build()
+}
+
+// The failure funnel's helper for a `print` whose line could not be written
+// (prims.saw's `fail_print`): std's `print_failure`, the function `renderer`
+// names, writes the cause from the write's status into this frame's scratch,
+// and `__saw_fail` panics with it at the site, cut and marked as every
+// message is.
+func ll_print_failure_helper(renderer: String) -> String {
+    var out = StringBuilder()
+    try! out.append("\n\ndefine internal void @__saw_fail_print(ptr %file, i64 %file_len, i64 %line, i64 %status)")
+    try! out.append(ll_function_attributes("noinline noreturn"))
+    try! out.append(" \{\nentry:\n  %cause = alloca [")
+    try! out.append(LL_MESSAGE_LIMIT + 4)
+    try! out.append(" x i8], align 1\n  %n = call i64 ")
+    try! out.append(renderer)
+    try! out.append("(i64 %status, ptr %cause, i64 ")
+    try! out.append(LL_MESSAGE_LIMIT + 4)
+    try! out.append(")\n  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %cause, i64 %n)\n")
+    try! out.append("  unreachable\n\}")
     out.build()
 }
 

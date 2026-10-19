@@ -610,7 +610,7 @@ const_bitwise_fold.saw	arm64-apple-darwin	same	8c93fea685a2	success	ok	0	12:0433
 const_bitwise_negative_length_error.saw	arm64-apple-darwin	same	1bcca3f4b5fa	error	refused	-	-	-	427:83463bdcf81e	yes	repeat count is negative (`-9223372036854775808`)
 const_bitwise_shift_range_error.saw	arm64-apple-darwin	same	2c539206c0e8	error	refused	-	-	-	1542:9570021093aa	yes	repeat count is not a compile-time constant: shift count `64` out of range (0..<64) is not allowed here
 const_bitwise_static_assert_range_error.saw	arm64-apple-darwin	same	90fe6c258a2a	error	refused	-	-	-	121:389493d008e5	yes	static_assert condition is not a compile-time constant: shift count `64` out of range (0..<64) is not allowed here
-const_bitwise_width_riscv32.saw	arm64-apple-darwin	same	dcd46e9531bc	object	ok	-	-	-	-	yes	-
+const_bitwise_width_riscv32.saw	arm64-apple-darwin	same	7827a8f7063c	object	ok	-	-	-	-	yes	-
 const_builtin_leaf_every_position.saw	arm64-apple-darwin	same	4e0028c9e98d	success	ok	0	23:15c318158f62	0:e3b0c44298fc	-	yes	-
 const_expression_adopts_an_operand_width.saw	arm64-apple-darwin	same	445508d4e6ce	success	ok	0	40:b54e20b893c9	0:e3b0c44298fc	-	yes	-
 const_generic_arg_notations.saw	arm64-apple-darwin	same	184b857a2c33	success	ok	0	20:afdcf97c0d07	0:e3b0c44298fc	-	yes	-
@@ -630,7 +630,7 @@ const_static_generic_arg.saw	arm64-apple-darwin	same	891dd162bcfe	success	ok	0	1
 const_static_leaf_at_struct_type.saw	arm64-apple-darwin	same	6307a6ecf517	success	ok	0	15:4c0f0f9f1918	0:e3b0c44298fc	-	yes	-
 const_static_length.saw	arm64-apple-darwin	same	0eba27fa1f74	success	ok	0	21:a0d8b5985ffd	0:e3b0c44298fc	-	yes	-
 const_static_length_crossmodule.saw	arm64-apple-darwin	same	fb22acb79192	success	ok	0	12:443b042bb642	0:e3b0c44298fc	-	yes	-
-const_static_length_freestanding.saw	arm64-apple-darwin	same	b8825464d049	object	ok	-	-	-	-	yes	-
+const_static_length_freestanding.saw	arm64-apple-darwin	same	ae804d681946	object	ok	-	-	-	-	yes	-
 const_static_length_shadow.saw	arm64-apple-darwin	same	925ffac10955	error	refused	-	-	-	563:3164fb16246d	yes	array length is not a compile-time constant: `REGION_SIZE` is not allowed here
 const_static_static_assert_error.saw	arm64-apple-darwin	same	ad502b1a6f98	error	refused	-	-	-	63:2a2489bb4876	yes	static assertion failed: the region must be page-aligned
 constructor_infers_type_arguments.saw	arm64-apple-darwin	same	ab7c03b9e05b	success	ok	0	48:21511dd79d64	0:e3b0c44298fc	-	yes	-
@@ -869,7 +869,7 @@ dependency_error_names_its_own_file_error.saw	arm64-apple-darwin	same	ec14d2ed85
 dependency_named_main_keeps_the_entry_point.saw	arm64-apple-darwin	same	01f7966cdcc7	success	ok	0	20:fbba618db580	0:e3b0c44298fc	-	yes	-
 destructuring_wildcard_over_a_borrowed_projection.saw	arm64-apple-darwin	same	e99c18ee10a2	success	ok	0	40:c1384fbb56dd	0:e3b0c44298fc	-	yes	-
 df137d_literal_width_riscv32.saw	arm64-apple-darwin	same	2de6c5ccbc99	error	refused	-	-	-	969:9ff0796c35e1	yes	integer literal 2147483648 does not fit in `Int` (range -2147483648..=2147483647)
-df137d_literal_width_riscv32_ok.saw	arm64-apple-darwin	same	3297638b2692	object	ok	-	-	-	-	yes	-
+df137d_literal_width_riscv32_ok.saw	arm64-apple-darwin	same	399b59368206	object	ok	-	-	-	-	yes	-
 df139a_copy_then_overwrite.saw	arm64-apple-darwin	same	67cfbb535b2e	success	ok	0	220:70966af7f1c0	0:e3b0c44298fc	-	yes	-
 df140b_import_wrap.saw	arm64-apple-darwin	same	6629da97e916	success	ok	0	52:1d3632798f51	0:e3b0c44298fc	-	yes	-
 df140c_qualified_type_position.saw	arm64-apple-darwin	same	f80d2220aef4	success	ok	0	41:5c35fd06b161	0:e3b0c44298fc	-	yes	-
@@ -1266,7 +1266,7 @@ errors/ref_type_arg_generic_struct.saw	arm64-apple-darwin	same	4b908a3132e4	erro
 errors/resolve_seam_must_be_blocking.saw	arm64-apple-darwin	same	570e5fd34e66	error	refused	-	-	-	532:195e6cf699bf	yes	`__saw_rt_resolve_ipv4` is declared without `blocking` here, but another declaration of the same symbol says `blocking`
 errors/result_none_tail_needs_an_optional_ok.saw	arm64-apple-darwin	same	fa81bc08f32a	error	refused	-	-	-	790:111c5bba19e8	yes	cannot return `None` from function `poll` returning `Result<Int, Stop>`: its Ok type `Int` is not an optional
 errors/retired_task_handle_names.saw	arm64-apple-darwin	same	57046c40b20e	error	refused	-	-	-	1686:3fecfe73272d	yes	undefined type `TaskHandle`
-errors/runtime_provider_bad_signature.saw	arm64-apple-darwin	same	c70674c99d50	error	refused	-	-	-	2005:81be2120c446	yes	`@export` seam `__saw_rt_clock_monotonic_nanos` does not match the runtime ABI: it returns `word` where the ABI returns `i64`
+errors/runtime_provider_bad_signature.saw	arm64-apple-darwin	same	1f20628c0de8	error	refused	-	-	-	2005:9f6011436330	yes	`@export` seam `__saw_rt_clock_monotonic_nanos` does not match the runtime ABI: it returns `word` where the ABI returns `i64`
 errors/section_macho_specifier_error.saw	arm64-apple-darwin	same	732324df2ab9	error	refused	-	-	-	414:071572bde45e	yes	`@section(".vector_table")` is not a valid section on this target: mach-O names a section by SEGMENT and section, separated by a comma
 errors/semicolon_at_end_of_file.saw	arm64-apple-darwin	same	da1b9e131a23	error	refused	-	-	-	102:1adbfa725aca	yes	Parse error at 12:22: a `;` joins two statements on one line; it does not end one — remove it
 errors/semicolon_at_line_start.saw	arm64-apple-darwin	same	1f1bb6ddccc0	error	refused	-	-	-	101:e927537c125c	yes	Parse error at 13:5: a `;` joins two statements on one line; it does not end one — remove it
@@ -1589,7 +1589,7 @@ forwarding_nonescaping_ok.saw	arm64-apple-darwin	same	3f3ae5f73bb2	success	ok	0	
 forwarding_transfer_drops_once_driven.saw	arm64-apple-darwin	same	7e0ac1cdf758	success	ok	0	124:81c556663c27	0:e3b0c44298fc	-	yes	-
 free_function_never_shadows_a_runtime_symbol.saw	arm64-apple-darwin	same	c095d066efea	success	ok	0	21:e5bc60affe3f	0:e3b0c44298fc	-	yes	-
 freestanding_aarch64_no_simd.saw	arm64-apple-darwin	same	ed54a5373b09	object	ok	-	-	-	-	yes	-
-freestanding_seams_extern_no_runtime.saw	arm64-apple-darwin	same	193d06d86197	object	ok	-	-	-	-	yes	-
+freestanding_seams_extern_no_runtime.saw	arm64-apple-darwin	same	ce2ec966396b	object	ok	-	-	-	-	yes	-
 funcpointer226_call.saw	arm64-apple-darwin	same	cb7f2595be24	success	ok	0	108:55935aa4bcb2	0:e3b0c44298fc	-	yes	-
 funcpointer226_coercion_positions.saw	arm64-apple-darwin	same	bcc5f44a44ac	success	ok	0	70:fc143231db32	0:e3b0c44298fc	-	yes	-
 funcpointer226_composites.saw	arm64-apple-darwin	same	ae5d548451ff	success	ok	0	65:7f8c4852e553	0:e3b0c44298fc	-	yes	-
@@ -2251,7 +2251,7 @@ return_struct_from_branches.saw	arm64-apple-darwin	same	38310276a61b	success	ok	
 runtime_build_bad_abi_name_error.saw	arm64-apple-darwin	same	8a3959517ccd	error	refused	-	-	-	1851:7ba3ed8e9b67	yes	`@export` symbol `__saw_rt_allocate` is not part of the frozen `__saw_rt_*` runtime ABI
 runtime_build_reserved_without_mode_error.saw	arm64-apple-darwin	same	9c182f717e33	error	refused	-	-	-	433:93aee9605f0e	yes	`@export` symbol `__saw_rt_alloc` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`)
 runtime_build_suspending_body_error.saw	arm64-apple-darwin	same	eaa75b675d2c	error	refused	-	-	-	378:26c1b4d0772d	yes	cannot suspend in an `@export` function: `@export func rt_sleep` calls yield_now (`rt_sleep` suspends at line 11)
-runtime_provider_seams.saw	arm64-apple-darwin	same	a1273537ce6b	object	ok	-	-	-	-	yes	-
+runtime_provider_seams.saw	arm64-apple-darwin	same	0a8e5da1e10a	object	ok	-	-	-	-	yes	-
 scalar_removed_char_surface.saw	arm64-apple-darwin	same	26d989714b11	error	refused	-	-	-	1073:e08fe713dc85	yes	type `String` has no method `chars`
 scalar_type.saw	arm64-apple-darwin	same	4cefba35bf6d	success	ok	0	439:db47f75686a4	0:e3b0c44298fc	-	yes	-
 section_compose.saw	arm64-apple-darwin	same	59ddee6639d5	success	ok	0	6:ec11996089a7	0:e3b0c44298fc	-	yes	-
@@ -2654,7 +2654,7 @@ while_let_value_position_refused.saw	arm64-apple-darwin	same	db604a82ad91	error	
 while_nested.saw	arm64-apple-darwin	same	b84b8e39de0e	success	ok	0	16:93147ca76e36	0:e3b0c44298fc	-	yes	-
 while_never_break_forms.saw	arm64-apple-darwin	same	4f8de83bc26b	success	ok	0	9:fcc7a0c664ad	0:e3b0c44298fc	-	yes	-
 while_never_diverges.saw	arm64-apple-darwin	same	0aaba7adae7d	success	ok	0	24:f5f74bab1399	0:e3b0c44298fc	-	yes	-
-while_never_freestanding.saw	arm64-apple-darwin	same	6f47a16875c7	object	ok	-	-	-	-	yes	-
+while_never_freestanding.saw	arm64-apple-darwin	same	4241308108d5	object	ok	-	-	-	-	yes	-
 while_never_sync_context.saw	arm64-apple-darwin	same	2159e6de3255	success	ok	0	14:7be4d4af477f	0:e3b0c44298fc	-	yes	-
 while_simple.saw	arm64-apple-darwin	same	a3be48e449a0	success	ok	0	18:a4078c03ea19	0:e3b0c44298fc	-	yes	-
 wrapped_return_takes_the_transfer_checkpoint.saw	arm64-apple-darwin	same	2e434369fdb9	error	refused	-	-	-	328:c2b444e2d146	yes	cannot return NoCopy type `Res` without `move` in closure

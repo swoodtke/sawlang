@@ -34,6 +34,14 @@ provider must follow it):
   reported `errno`; `__saw_rt_tcp_local_port` and `__saw_rt_set_nonblocking`
   report failures they hid; `__saw_rt_thread_detach` returns who frees the
   control block. Each entry below carries its own amendment note.
+- sawc 0.16.0 (SL-768): standard output reports and serializes.
+  `__saw_rt_write` returns `0`/`-tag` where it returned `void`, and takes the
+  output lock; `__saw_rt_write_line` (the seam `print` calls) and the
+  `__saw_rt_output_lock`/`_unlock` pair are new; `__saw_rt_panic` takes the
+  output lock and writes standard error through the new
+  `__saw_rt_write_error`. `__saw_rt_executable_path` gains a `status_out`
+  parameter, and `__saw_rt_tcp_socketpair` is new. Each entry below carries
+  its own amendment note.
 
 Two symbol tiers exist (design 113); only the first is this ABI:
 
@@ -102,10 +110,72 @@ than allocated; one that wants to keep running afterward calls
 `deny_after(-1)`. Nothing in std calls it (a test declares the `extern`
 itself), so a freestanding runtime may omit the symbol.
 
-### `__saw_rt_write(ptr: i8*, len: word) -> void`
-The output primitive behind `print`. Writes `len` bytes from `ptr` to standard
-output. The hosted default writes through C stdio (`fwrite`, then `fflush`), so
-each call's bytes are flushed before it returns.
+**The output lock (SL-768, SL-775).** Standard output has one process-wide
+lock, and every write to it takes the lock, so a `print` line is never split by
+another `print`, at any length, and never separated from its newline. The lock
+is recursive: a thread that holds it may take it again, which is what lets the
+panic sink take it on a thread already inside a locked sequence (a task dump
+whose walk panics). The hosted lock is C stdio's own lock on `stdout`
+(`flockfile`), so a line is also whole against C code in the program that
+prints through stdio. It does not order against a raw `write(2)` to fd 1.
+
+**No caller panics while holding the lock.** A seam that writes under the lock
+returns its status after releasing it, and the caller raises the failure only
+then. `print`'s lowering keeps every argument read, every rendering, and every
+user `format` call before the seam call, so no compiled code runs inside the
+locked window at all.
+
+### `__saw_rt_write_line(parts: ptr, count: word) -> word  (0/-tag)`
+The output primitive behind `print`. `parts` addresses `count` part records,
+each `{ ptr: i8*, len: word }` (two words, in that order); `count` may be 0.
+Under the output lock it writes each part's `len` bytes in order, then one
+line break, and releases the lock. Returns `0` once every byte is out, or
+`-tag` for the first failure, with the raw code stamped; the bytes after a
+failure are not written. The caller turns a nonzero status into `print`'s
+panic, after this call has returned, reading `__saw_rt_last_raw_code` for the
+cause; a program that prints therefore references that seam too, and a
+freestanding runtime with no status of its own answers it with `0`.
+
+The hosted body takes `flockfile(stdout)`, flushes whatever C stdio holds for
+`stdout` (so a program's own `printf` output stays ahead of the line), then
+writes the parts and the line break to fd 1 with `writev(2)`, resuming a
+partial write and retrying `EINTR`. A descriptor in non-blocking mode (one a
+parent handed over with `O_NONBLOCK` set) answers `EAGAIN`, and the body waits
+for it to accept bytes rather than fail: a `print` blocks until its line is
+out. Every other failure is reported: a full disk (`Exhausted`), and a closed
+descriptor (`EBADF`) or a hung-up terminal (`EIO`) as `Other`, whose raw code
+std's text then names. A write to a pipe whose reader has gone raises
+`SIGPIPE` before it can answer `EPIPE`, and the default disposition ends the
+process; the runtime keeps that disposition (see the SIGPIPE helpers below), so
+`BrokenPipe` reaches the caller only when the process started with `SIGPIPE`
+ignored.
+
+### `__saw_rt_write(ptr: i8*, len: word) -> word  (0/-tag)`
+Writes `len` bytes from `ptr` to standard output under the output lock, with
+no line break: `__saw_rt_write_line` with one part and no newline, for output
+written in pieces (a task dump on standard output). Returns `0` or `-tag`, as
+`__saw_rt_write_line` does.
+
+> **Amended in sawc 0.16.0 (SL-768):** it returned `void`, took no lock, and
+> ignored `fwrite`'s and `fflush`'s results, so a closed standard output lost
+> every line without the program seeing it. `print` no longer calls it.
+
+### `__saw_rt_output_lock() -> void`
+### `__saw_rt_output_unlock() -> void`
+Take and give back the output lock around a sequence of writes that must not be
+split: a task dump, which is written in many pieces. Recursive, as above, so
+`__saw_rt_write` and the panic sink may be called inside the sequence. Every
+`lock` is matched by one `unlock` on the same thread, except on the way to the
+panic sink, which never returns. A freestanding runtime with one thread may
+implement both as no-ops.
+
+**A claim is served before plain writes.** `lock` and the panic sink claim
+the lock, and while any claim is outstanding a plain write on another thread
+waits before it takes the lock. Without that, a thread printing in a loop
+would take the lock back the moment it released it, and a claimer could wait
+behind it indefinitely. A claim waits for the lock at most one second (a
+holder blocked writing to a standard output nobody drains never releases
+it); past that the claimer proceeds without the lock.
 
 ### `__saw_rt_write_error(ptr: i8*, len: word) -> void`
 Writes `len` bytes from `ptr` to standard error, unbuffered: the hosted default
@@ -118,9 +188,20 @@ writes after it. A freestanding runtime must supply it when a program links
 the executor (`std.taskgroup`), whose panic sink calls it.
 
 ### `__saw_rt_panic(ptr: i8*, len: word) -> ! (noreturn)`
-The panic sink. Writes the message at `ptr` to standard error through
-`__saw_rt_write_error` and does not return. Hosted default aborts; a kernel
-decides policy. Marked `noreturn`.
+The panic sink. Takes the output lock, writes the message at `ptr` to standard
+error through `__saw_rt_write_error`, and does not return; the lock is never
+given back. Holding it keeps a panic's text out of the middle of another
+thread's line when a runner merges the two streams (`2>&1`). Hosted default
+aborts; a kernel decides policy. Marked `noreturn`.
+
+**The wait is bounded.** The sink's take is a claim (above). A holder blocked
+in a write to a standard output nobody drains (a full pipe) would otherwise
+hold the panic back with it, and its message would never appear. The hosted
+sink polls `ftrylockfile` for at most one second (`flockfile` has no timed
+form), then writes without the lock. A thread that already holds the lock
+takes it again at the first try.
+
+> **Amended in sawc 0.16.0 (SL-768):** it took no lock.
 
 ## Time
 
@@ -199,7 +280,9 @@ errno the way a nonblocking descriptor call means it. Where a call gives the
 number another meaning, the seam reports that meaning: `EAGAIN` from
 `pthread_create` or `fork` is a thread or process limit, so
 `__saw_rt_thread_spawn`, `__saw_rt_offload_start` and the process spawns
-report `Exhausted`. `WouldBlock` there would invite a retry loop that cannot
+report `Exhausted`, and `EAGAIN` from `pthread_mutex_init` or
+`pthread_cond_init` ("the system lacked the resources") is `Exhausted` too.
+`WouldBlock` there would invite a retry loop that cannot
 succeed. The raw code stays stamped either way. A call that returns its error
 number rather than setting errno (the pthread functions) is classified through
 the same table, which the hosted runtime reaches with `__saw_classify_code` in
@@ -211,7 +294,8 @@ out-parameter, as `__saw_rt_reactor_create`'s instance and
 `__saw_rt_reactor_poll`'s count do. A seam whose natural result is a
 non-negative number (a descriptor, a byte count, a port) returns it or
 `-tag`, and a seam that returns a pointer puts a positive tag in a
-`status_out` parameter (`__saw_rt_fs_opendir`). A runtime with no errno
+`status_out` parameter (`__saw_rt_fs_opendir`, `__saw_rt_fs_getcwd`,
+`__saw_rt_env_get`, `__saw_rt_executable_path`). A runtime with no errno
 implements every seam in the same shape, since the tag is its native status.
 
 **The status word carries no errno.** A single negated-word return cannot
@@ -525,6 +609,15 @@ Nonblocking read → byte count (0 = EOF) or `-tag` (`-WouldBlock` on would-bloc
 
 ### `__saw_rt_tcp_write(fd: word, buf: i8*, len: word) -> word`
 Nonblocking write → bytes written (may be `< len`) or `-tag`.
+
+### `__saw_rt_tcp_socketpair(fds_out: word*) -> word  (0/-tag)`
+A connected local stream pair (`socketpair(AF_UNIX, SOCK_STREAM, 0)`), the
+seam behind `TcpStream.pair()`. Both descriptors are made nonblocking and get
+the SIGPIPE suppression every runtime socket gets (above), then go to the two
+words at `fds_out` and the seam returns `0`; or it returns `-tag`, stores
+nothing, and has closed whatever it opened. A descriptor limit is `Exhausted`.
+std called `socketpair` itself and so could not read the cause: a refusal
+reported kind `Unknown`.
 
 ## Status-carrying filesystem / environment ops (design 117)
 
@@ -957,15 +1050,19 @@ be reached, which is that refusal.
 
 ### `__saw_rt_pthread_mutex_init_default(m: i8*) -> word  (0/-tag)`
 `pthread_mutex_init(m, NULL)`. Saw reserves a conservative slot (<= 64 bytes).
-Returns `0`, or `-tag` when the platform refuses (`ENOMEM` is `Exhausted`).
+Returns `0`, or `-tag` when the platform refuses (`ENOMEM` and `EAGAIN` are
+both `Exhausted`).
 
 ### `__saw_rt_pthread_cond_init_default(c: i8*) -> word  (0/-tag)`
 `pthread_cond_init(c, NULL)`. `pthread_cond_t` is 48 bytes on macOS/glibc; std
-reserves 64. Returns `0`, or `-tag` when the platform refuses (`ENOMEM`,
-`EAGAIN`).
+reserves 64. Returns `0`, or `-tag` when the platform refuses (`ENOMEM` and
+`EAGAIN` are both `Exhausted`).
 
 > **Amended in sawc 0.15.0 (SL-765 T3a, SL-768):** both returned `void` and
 > ignored the init's result.
+>
+> **Amended in sawc 0.16.0 (SL-783):** `EAGAIN` reported `WouldBlock`. Same
+> signature.
 
 ### `__saw_rt_lock_acquire(state: word*) -> void`
 ### `__saw_rt_lock_release(state: word*) -> void`
@@ -1058,22 +1155,28 @@ The `argv` main received.
 
 ## The executable's path (D44)
 
-### `__saw_rt_executable_path() -> i8*`
+### `__saw_rt_executable_path(status_out: word*) -> i8*`
 **OS-divergent**, and required of every runtime: std's `Env.executable_path`
 calls it, so a runtime without it fails to link any program that reaches
 `Env`. It returns the running executable's absolute path with every symbolic
 link resolved, as a NUL-terminated string in a `malloc`ed buffer the caller
-`free`s, or NULL. std turns NULL into `Err(SystemError)` of kind `Unknown` and
-reads no errno.
+`free`s, or NULL. On NULL the out-parameter holds the POSITIVE tag of the
+step that failed, as `__saw_rt_fs_getcwd`'s does (`0` on success): a binary
+removed while it runs is `NotFound`, and a refused buffer `Exhausted`. std
+turns NULL into `Err(SystemError)` of that kind.
 
 - host_macos: `_NSGetExecutablePath`, sized by a first call so a long path
   cannot be truncated, then `realpath`.
 - host_linux: `realpath("/proc/self/exe")`. For a binary deleted while it
-  runs, the link reads `… (deleted)`, `realpath` fails, and the result is
-  NULL, as on macOS.
-- A host with no executable file (sos-hosted, kernel/none): a one-line stub
-  returning NULL. The freestanding suite's runtime
-  (`tests/freestanding/rt/src/lib.saw`) is one.
+  runs, the link reads `… (deleted)`, `realpath` fails with `ENOENT`, and the
+  result is NULL with `NotFound`, as on macOS.
+- A host with no executable file (sos-hosted, kernel/none): a stub returning
+  NULL with `NotFound`, since there is no path to report.
+  The freestanding suite's runtime (`tests/freestanding/rt/src/lib.saw`) is
+  one.
+
+> **Amended in sawc 0.16.0 (SL-768):** it took no parameter, and std reported
+> every NULL as kind `Unknown`.
 
 ---
 
@@ -1130,6 +1233,7 @@ a flag bit.
 | SL-569 | `__saw_rt_reactor_register` **changed**: returns a status word, `0` armed or the platform's `errno`, where it returned `void`; `__saw_rt_reactor_poll` **changed** contract: its latch is a compare-and-swap from `-1` to `0` on an `Atomic<Int>` token word (sawc 0.14.0, SL-355's R5). Every runtime provider follows it |
 | SL-768 | sawc 0.15.0 (SL-765 T3a): the portable-tag convention for every seam that can fail. **Changed** signatures: `__saw_rt_thread_spawn` gains `handle_out` and returns `0`/`-tag`; `__saw_rt_thread_join`, `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` return `0`/`-tag` where they returned `void`; `__saw_rt_offload_start` gains `job_out`, `__saw_rt_reactor_create` takes `r_out` and `__saw_rt_reactor_poll` gains `count_out`, each returning `0`/`-tag`; `__saw_rt_thread_detach` returns `1` when the caller owns the control block and no longer frees it. **Changed** contracts with the same signature: `__saw_rt_reactor_register` reports `-tag` where it reported `errno`, `__saw_rt_tcp_local_port` reports `-tag` where it answered port 0, and `__saw_rt_set_nonblocking` reports `-tag` for both of its calls where it answered `-1` for one. Every runtime provider follows it |
 | SL-768 (c1) | for sawc 0.16.0: `__saw_rt_write_error`, one new symbol, standard error, unbuffered and best-effort. `__saw_rt_panic` **changed** contract with the same signature: it writes the message to standard error through `__saw_rt_write_error` where it wrote standard output through `__saw_rt_write`. A freestanding runtime supplies the new seam when a program links the executor |
+| SL-768 (c2) | sawc 0.16.0: standard output reports and serializes. **Changed** signatures: `__saw_rt_write` returns `0`/`-tag` where it returned `void`, and `__saw_rt_executable_path` takes `status_out` and reports a positive tag with its NULL. **New:** `__saw_rt_write_line` (the line `print` writes, its parts and line break under the output lock), `__saw_rt_output_lock`/`_unlock` (the recursive output lock, around a dump) and `__saw_rt_tcp_socketpair`. **Changed** contracts with the same signature: `__saw_rt_write` and `__saw_rt_panic` take the output lock; `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` report `EAGAIN` as `Exhausted` (SL-783). Every runtime provider follows it |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1280,11 +1384,13 @@ freestanding profile links no runtime (verified by
 **The C floor: `shim.c`.** Each body there is C because of a named Saw FFI gap,
 and moves to Saw when its gap closes:
 
-- `__saw_rt_write`: no extern C global (DF-113a). It writes through libc's
-  `stdout` `FILE*` (`fwrite`, then `fflush`), which Saw cannot name.
-- `__saw_rt_write_error` / `__saw_rt_panic`: no gap of their own. They call
-  only `write` and `abort`, which Saw can declare, and are C beside
-  `__saw_rt_write` until they move.
+- `__saw_rt_write_line`, `__saw_rt_write` and `__saw_rt_output_lock` /
+  `_unlock`: no extern C global (DF-113a). The output lock is libc's lock on
+  the `stdout` `FILE*` (`flockfile`), and each write first flushes that
+  stream; Saw cannot name it.
+- `__saw_rt_write_error` / `__saw_rt_panic`: `__saw_rt_write_error` has no gap
+  of its own: it calls only `write`, which Saw can declare, and is C beside
+  the sink. The sink takes the output lock, so it is C for DF-113a's reason.
 - `__saw_rt_thread_spawn` and the offload thread body: no C function-pointer
   type (DF-113b). Both pass or call a raw C function pointer.
 - `__saw_rt_thread_detach`: DF-113b's reason plus an atomic exchange over raw

@@ -76,6 +76,10 @@ func coro_root_entry_executor(coro: &var CoroProgram) {
 // records every body the lowering rewrites before it starts, and checks them
 // once it is done.
 public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
+    // The backend lowers a failed `print`, so the renderer of its cause is
+    // rooted for every program that is lowered, after the decisions the
+    // dumps print and before the lowering that emits its calls.
+    let _ = coro.mono.root_print_failure()
     coro_lay_out_frames(&var coro, &var target)
     coro_verify_snapshot(&var coro)
     coro_lower_spawn_sites(&var coro)

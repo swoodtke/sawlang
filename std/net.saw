@@ -24,7 +24,6 @@ import std.task.{IoWaitOutcome, io_wait, yield_now}
 
 extern "C" {
     func close(fd: Int32) -> Int32
-    func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
 
     // The status-carrying socket seams: each returns a count or a descriptor,
     // `>= 0`, or the negated portable tag of the failure (runtime/ABI.md).
@@ -35,7 +34,9 @@ extern "C" {
     func __saw_rt_tcp_connect_check(fd: Int, addr_be: Int, port: Int) -> Int
     func __saw_rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
     func __saw_rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
-    func __saw_rt_set_nonblocking(fd: Int) -> Int
+    // A connected nonblocking local pair, its two descriptors stored as words
+    // through `fds_out`: 0, or the negated tag.
+    func __saw_rt_tcp_socketpair(fds_out: UnsafePointer<Int>) -> Int
 
     // The raw platform code behind the tag a failing seam just returned, on
     // this thread; anything that runs in between may replace it.
@@ -56,10 +57,6 @@ enum Interest: UInt8 {
 // An unbounded park: `io_wait` takes 0 as "no deadline".
 static NO_DEADLINE: UInt64 = 0
 
-static AF_UNIX: Int32 = 1
-static SOCK_STREAM: Int32 = 1
-static PROTO_DEFAULT: Int32 = 0
-
 // The most one `read` takes in one system call.
 static READ_CHUNK: Int = 4096
 
@@ -73,32 +70,19 @@ static NO_SCRATCH: Int = -1000
 // The descriptor of a socket that is not open, which the deinit skips.
 static INVALID_FD: Int = -1
 
-// The two descriptors `socketpair` writes.
+// The two descriptors the pair seam stores, one word each.
 struct FdPair {
-    a: Int32
-    b: Int32
+    a: Int
+    b: Int
 }
 
-// A connected, nonblocking local stream pair's descriptors.
-//
-// `socketpair` is a bare libc call, whose errno std cannot read, so its
-// refusal reports kind `Unknown`. The `O_NONBLOCK` seam cannot refuse
-// descriptors `socketpair` just made; its status is still read, since a
-// blocking end would block the executor's thread in its first read.
+// A connected, nonblocking local stream pair's descriptors, or the cause the
+// runtime gave for refusing one.
 func socket_pair() unsafe -> Result<FdPair, IoError> {
     var fds = FdPair(a: 0, b: 0)
-    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, (&fds) as UnsafePointer<Int32>) != 0 {
-        return IoError.of(syscall: "socketpair", kind: IoErrorKind.Unknown)
-    }
-    var status = __saw_rt_set_nonblocking(fds.a as Int)
-    if status == 0 {
-        status = __saw_rt_set_nonblocking(fds.b as Int)
-    }
+    let status = __saw_rt_tcp_socketpair((&fds) as UnsafePointer<Int>)
     if status != 0 {
-        let failure = IoError.of(syscall: "fcntl", tag: 0 - status)
-        close_fd(fds.a as Int)
-        close_fd(fds.b as Int)
-        return failure
+        return IoError.of(syscall: "socketpair", tag: 0 - status)
     }
     fds
 }
@@ -577,7 +561,7 @@ extension TcpStream {
     /// when the process has run out of descriptors.
     public static func pair() -> Result<(TcpStream, TcpStream), IoError> {
         let fds = try socket_pair()
-        (TcpStream(fd: fds.a as Int), TcpStream(fd: fds.b as Int))
+        (TcpStream(fd: fds.a), TcpStream(fd: fds.b))
     }
 
     /// Connects to `host`:`port`, suspending until the connection is made.

@@ -668,7 +668,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         The allocator, deallocator, output, panic, sleep and clock seams
         (`__saw_rt_alloc`, `__saw_rt_dealloc`, `__saw_rt_write`,
-        `__saw_rt_panic` (noreturn), `__saw_rt_sleep_ns`,
+        `__saw_rt_write_line`, `__saw_rt_panic` (noreturn), `__saw_rt_sleep_ns`,
         `__saw_rt_clock_monotonic_nanos`, `__saw_rt_unix_timestamp_secs`).
         Every profile gets DECLARATIONS only: hosted builds link the Saw
         runtime under `sawc/rt/`, and a freestanding environment supplies its
@@ -691,8 +691,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                 name="__saw_rt_alloc")
         saw_dealloc = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64, i64]),
                                   name="__saw_rt_dealloc")
-        saw_write = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
+        # Both output seams return 0 or the negated tag (SL-768). `print` writes
+        # its whole line, parts and line break, through `__saw_rt_write_line`
+        # under the runtime's output lock.
+        saw_write = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i64]),
                                 name="__saw_rt_write")
+        saw_write_line = ir.Function(self.module, ir.FunctionType(i64, [i8ptr, i64]),
+                                     name="__saw_rt_write_line")
         saw_panic = ir.Function(self.module, ir.FunctionType(void, [i8ptr, i64]),
                                 name="__saw_rt_panic")
         saw_panic.attributes.add("noreturn")
@@ -729,6 +734,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.functions["__saw_rt_alloc"] = saw_alloc
         self.functions["__saw_rt_dealloc"] = saw_dealloc
         self.functions["__saw_rt_write"] = saw_write
+        self.functions["__saw_rt_write_line"] = saw_write_line
         self.functions["__saw_rt_panic"] = saw_panic
         self.functions["__saw_rt_sleep_ns"] = saw_sleep_ns
         self.functions["__saw_rt_clock_monotonic_nanos"] = saw_clock_monotonic_nanos
@@ -736,7 +742,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.saw_write = saw_write
         self.saw_panic = saw_panic
 
-        _seams = (saw_alloc, saw_dealloc, saw_write, saw_panic, saw_sleep_ns,
+        _seams = (saw_alloc, saw_dealloc, saw_write, saw_write_line, saw_panic, saw_sleep_ns,
                   saw_clock_monotonic_nanos, saw_unix_timestamp_secs)
         # The seam BODIES are authored in Saw + shim.c under `sawc/rt/`
         # (common/mem.saw, common/sleep.saw, host_*/clock.saw, shim.c) and
@@ -795,7 +801,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         `__saw_fmt_int`/`__saw_fmt_uint` render into a CALLER-PROVIDED buffer,
         which the alloc-free `{}` path also uses, so `print(n)` and
         `print("{}", n)` are byte-identical by construction. `__saw_print_*` is
-        that call plus a newline plus one write.
+        that call plus one line write, returning the write's status.
         """
         self._emit_fmt_int_fn("__saw_fmt_int", signed=True)
         self._emit_fmt_int_fn("__saw_fmt_uint", signed=False)
@@ -929,25 +935,30 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.ret(length)
 
     def _emit_print_int_fn(self, name: str, fmt_name: str):
-        """Emit `void f(word n)`: itoa into a stack buffer, newline, one write."""
+        """Emit `word f(word n)`: itoa into a stack buffer, written as one line.
+
+        Returns the line seam's status, which the `print` site checks once the
+        seam has given the output lock back (SL-768)."""
         i8 = ir.IntType(8)
         i64 = ir.IntType(64)        # pointer arithmetic offsets (structural)
         iw = self.int_type
-        void = ir.VoidType()
+        i8ptr = i8.as_pointer()
 
-        fn = ir.Function(self.module, ir.FunctionType(void, [iw]), name=name)
+        fn = ir.Function(self.module, ir.FunctionType(iw, [iw]), name=name)
         self.functions[name] = fn
         n = fn.args[0]; n.name = "n"
 
         b = ir.IRBuilder(fn.append_basic_block("entry"))
         buf = b.alloca(ir.ArrayType(i8, 24), name="buf")
+        part = b.alloca(ir.LiteralStructType([i8ptr, iw]), name="part")
         bufp = b.gep(buf, [ir.Constant(i64, 0), ir.Constant(i64, 0)], inbounds=True)
         length = b.call(self.functions[fmt_name], [n, bufp], name="len")
-        nlpos = b.gep(bufp, [length], inbounds=True, name="nlpos")
-        b.store(ir.Constant(i8, ord('\n')), nlpos)
-        total = b.add(length, ir.Constant(iw, 1), name="total")
-        b.call(self.functions["__saw_rt_write"], [bufp, total])
-        b.ret_void()
+        zero = ir.Constant(ir.IntType(32), 0)
+        b.store(bufp, b.gep(part, [zero, zero], inbounds=True))
+        b.store(length, b.gep(part, [zero, ir.Constant(ir.IntType(32), 1)], inbounds=True))
+        status = b.call(self.functions["__saw_rt_write_line"],
+                        [b.bitcast(part, i8ptr), ir.Constant(iw, 1)], name="status")
+        b.ret(status)
 
     def _declare_string_runtime(self):
         """Emit the refcounted-String runtime helpers and the compiler-known

@@ -2,9 +2,16 @@
 //!
 //! A runtime seam reports a failure as the negated portable tag of
 //! `runtime/ABI.md`'s error table, and this module reads that tag as a
-//! `SystemErrorKind`. It reads nothing else from the runtime: the error
-//! carries the operation's name and the kind, and no platform error number,
-//! so it renders the same on every host.
+//! `SystemErrorKind`. The error carries the operation's name, the kind, and
+//! the platform's own error number behind it. It renders the same on every
+//! host except where the kind is `Unknown`: there the number is the only
+//! account of the cause, so the text names it.
+
+extern "C" {
+    // The raw platform code behind the tag the last failing seam call on this
+    // thread returned (runtime/ABI.md, `__saw_rt_last_raw_code`).
+    func __saw_rt_last_raw_code() -> Int
+}
 
 /// What kind of failure an operating-system operation reported.
 ///
@@ -168,37 +175,78 @@ extension SystemErrorKind {
 /// An operating-system operation that failed: which one, and its kind.
 ///
 /// It renders as `open failed (not found)`: the operation, then the kind's
-/// description. The text names no platform error number, so it reads the
-/// same on every host.
+/// description. A failure of kind `Unknown` also names the platform's error
+/// number, `write failed (other error, errno 9)`, since no portable word says
+/// what happened.
 public struct SystemError {
     private operation: String
     private kind: SystemErrorKind
+    private code: Int
 }
 
 extension SystemError {
-    // The error a failing seam reported for `operation` as the negated
-    // portable `tag`.
+    // THE CODE FUNNEL: the error a failing seam reported for `operation` as
+    // the portable `tag`, with the raw code the runtime stamped beside it. The
+    // stamp is per thread and any later classifying seam call replaces it, so
+    // every caller builds the error immediately after the failing call, as a
+    // local, before any cleanup, and returns or uses that local afterwards.
+    // ENTRY POINTS:
+    //     Channel.open_gate
+    //     Directory.list
+    //     Directory.create
+    //     Directory.remove
+    //     Env.get
+    //     Env.set
+    //     Env.unset
+    //     Env.cwd
+    //     Env.set_cwd
+    //     Env.executable_path
+    //     File.opened
+    //     File.read
+    //     File.write
+    //     File.sought
+    //     File.remove
+    //     File.rename
+    //     Command.wait
+    //     Thread.__saw_started
+    //     print_failed
     public(package) static func of(operation: String, tag: Int) -> SystemError {
-        SystemError(operation: operation, kind: system_error_kind(tag))
+        SystemError(operation: operation, kind: system_error_kind(tag), code: __saw_rt_last_raw_code())
     }
 
     // An error the standard library raises itself, with no tag behind it.
     public(package) static func raised(operation: String, kind: SystemErrorKind) -> SystemError {
-        SystemError(operation: operation, kind: kind)
+        SystemError(operation: operation, kind: kind, code: 0)
     }
 
     /// Returns the kind of the failure.
     public func kind(&self) -> SystemErrorKind {
         self.kind
     }
+
+    /// Returns the platform's error number behind the failure, for a log:
+    /// `0` when there is none, as for a failure the standard library raised
+    /// itself. Branch on `kind`, which reads the same on every host.
+    public func code(&self) -> Int {
+        self.code
+    }
 }
 
 extension SystemError: Error {
-    /// Writes the operation and the kind's description.
+    /// Writes the operation and the kind's description, and for an `Unknown`
+    /// failure the platform's error number when there is one.
     public func format(&self, into: &var StringBuilder) {
         try! into.append(self.operation)
         try! into.append(" failed (")
         try! into.append(self.kind.describe())
+        let unnamed = match self.kind {
+            case Unknown -> true,
+            case _ -> false
+        }
+        if unnamed && self.code != 0 {
+            try! into.append(", errno ")
+            try! into.append(self.code)
+        }
         try! into.append(")")
     }
 }

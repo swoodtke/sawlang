@@ -11,6 +11,7 @@
 
 extern "C" {
     func socket(domain: Int32, ty: Int32, protocol: Int32) -> Int32
+    func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
     func bind(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
     func listen(fd: Int32, backlog: Int32) -> Int32
     func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
@@ -88,6 +89,7 @@ enum SysError: UInt8 {
 }
 
 static AF_INET: Int32 = 2
+static AF_UNIX: Int32 = 1
 static SOCK_STREAM: Int32 = 1
 static PROTO_DEFAULT: Int32 = 0
 static LISTEN_BACKLOG: Int32 = 16
@@ -351,6 +353,37 @@ func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
         return n
     }
     return 0 - __saw_rt_last_syserror()
+}
+
+// The two descriptors `socketpair` writes.
+struct SocketPairFds {
+    a: Int32
+    b: Int32
+}
+
+// A connected, nonblocking local stream pair: both descriptors stored through
+// `fds_out` (two words) and 0, or -tag with nothing stored and nothing left
+// open.
+@export("__saw_rt_tcp_socketpair")
+func rt_tcp_socketpair(fds_out: UnsafePointer<Int>) unsafe -> Int {
+    var fds = SocketPairFds(a: 0, b: 0)
+    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, (&fds) as UnsafePointer<Int32>) != (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
+    var status = __saw_rt_set_nonblocking(fds.a as Int)
+    if status == 0 {
+        status = __saw_rt_set_nonblocking(fds.b as Int)
+    }
+    if status < 0 {
+        let _ = close(fds.a)
+        let _ = close(fds.b)
+        return status
+    }
+    __saw_socket_suppress_sigpipe(fds.a as Int)
+    __saw_socket_suppress_sigpipe(fds.b as Int)
+    fds_out[0] = fds.a as Int
+    fds_out[1] = fds.b as Int
+    0
 }
 
 // Resolve `host` to IPv4 addresses, writing up to `max` of them (in network

@@ -10524,7 +10524,7 @@ extension TcProgram {
                 self.check_condition(args.values[0])
             }
             start = 1
-        } else if args.values.len() == 0 {
+        } else if args.values.len() == 0 && not name.equals("print") {
             var msg = StringBuilder()
             try! msg.append("`")
             try! msg.append(name)

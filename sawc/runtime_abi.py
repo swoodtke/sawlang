@@ -23,6 +23,12 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # OOM path can be driven deterministically. std never calls it.
     "__saw_rt_alloc_deny_after",
     "__saw_rt_write",
+    # SL-768 c2: the line `print` writes, its parts and line break under the
+    # recursive output lock, and that lock itself for output written in pieces
+    # (a task dump). The lock is what keeps one thread's line whole.
+    "__saw_rt_write_line",
+    "__saw_rt_output_lock",
+    "__saw_rt_output_unlock",
     "__saw_rt_write_error",
     "__saw_rt_panic",
     # Time (design 180 replaced the millisecond seam with this one: a u64
@@ -61,6 +67,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_tcp_connect_check",
     "__saw_rt_tcp_read",
     "__saw_rt_tcp_write",
+    # The local stream pair behind `TcpStream.pair()`, status-carrying so its
+    # refusal reports a cause (SL-768)
+    "__saw_rt_tcp_socketpair",
     # Hostname resolution (design 184). The ONE seam whose ABI.md entry states a
     # blocking contract: it is unbounded by nature, so std declares it
     # `extern blocking` and every call is offloaded to a worker thread.

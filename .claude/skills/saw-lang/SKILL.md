@@ -1750,6 +1750,12 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   transfer at an argument, a return, a field, an element or a `static`. See the
   ownership section's transfer bullet; the platform `Int`/`UInt` pair was the
   last position that converted silently.
+- `print(x)` writes one whole line under a process-wide output lock (never
+  split by another thread's `print`, at any length); `print()` is a bare
+  newline. A failed write PANICS: `failed printing to stdout: write failed
+  (other error, errno 9)` for a closed stdout. A closed PIPE (`| head`) ends
+  the process by SIGPIPE first (the default is kept). A program that must
+  survive a lost stdout writes through a `Result`-returning std handle.
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`; an out-of-range
   integer CAST panics too — see above). EVERY panic —

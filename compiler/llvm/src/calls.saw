@@ -1038,33 +1038,57 @@ extension LlEmitter {
     }
 
     // `print`: a literal message's bytes, a String's, or a format string's
-    // pieces with each argument rendered between them; then a line break.
-    // Every argument is read before anything is written, so a check that
-    // fails while one is read panics before any of the line is out. A String
-    // the call was handed by `move` is the call's to drop.
+    // pieces with each argument rendered between them, as one line the line
+    // seam writes whole, its line break included. Every argument is read and
+    // every integer rendered before the seam is called, so no code of the
+    // program runs while the seam holds the output lock, and a check that
+    // fails while an argument is read panics before any of the line is out.
+    // A failed write panics only after the seam returned, the lock given back
+    // (runtime/ABI.md, "The output lock"). A String the call was handed by
+    // `move` is the call's to drop.
     func print_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
         let node = info.node
         var parts = LlParts()
         self.message_parts(&var mono, &var target, &info, 0, &var parts)
+        let count = parts.kinds.len()
+        // A part record is a pointer and a word-wide length (runtime/ABI.md).
+        let record = 2 * target.word
+        var table = "null"
+        if count > 0 {
+            table = self.slot(count * record, target.word)
+        }
         var k = 0
-        while k < parts.kinds.len() {
+        while k < count {
             let kind = parts.kinds[k]
             let first = parts.firsts.get(k) ?? ""
             let second = parts.seconds.get(k) ?? ""
+            var run = ""
+            var length = ""
             if kind == LL_PART_RUN || kind == LL_PART_BOOL {
-                let run = self.part_run(kind, first, second)
-                let length = self.part_run_length(kind, first, second)
-                self.write_out(run, length)
+                run = self.part_run(kind, first, second)
+                length = self.part_run_length(kind, first, second)
             } else {
-                let buf = self.slot(24, 1)
-                let n = self.render_integer(buf, first, kind == LL_PART_SIGNED)
-                self.write_out(buf, n)
+                run = self.slot(24, 1)
+                length = self.render_integer(run, first, kind == LL_PART_SIGNED)
             }
+            let at = self.offset_addr(table, k * record)
+            self.store("ptr", run, at)
+            let length_at = self.offset_addr(table, k * record + target.word)
+            self.store("i64", length, length_at)
             k = k + 1
         }
-        var newline = Vector<Int>()
-        try! newline.push(10)
-        self.write_bytes(&newline)
+        let status = self.write_line(table, count)
+        var failed = StringBuilder()
+        try! failed.append("icmp ne i64 ")
+        try! failed.append(status)
+        try! failed.append(", 0")
+        let bit = self.assign(failed.build())
+        let fail = self.new_label("print.failed")
+        let written = self.new_label("print.written")
+        self.branch(bit, fail, written)
+        self.put_label(fail)
+        self.fail_print(&var mono, node, status)
+        self.put_label(written)
         k = 0
         while k < info.arg_count {
             let o = mono.dp.bc.mir.lists[info.arg_first + k]

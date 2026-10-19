@@ -7,7 +7,7 @@
 // of the same constant is what the sibling test rejects.
 // COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
 // EXPECT: object
-// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write_line
 
 static RAM_BASE: UInt = 0x80000000      // fits a 32-bit UInt
 static INT_MAX_32: Int = 2147483647     // the exact upper bound

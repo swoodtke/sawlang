@@ -111,6 +111,11 @@ public struct MonoProgram {
     // only once coroutine lowering lowers that frame (`root_entry_executor`);
     // -1 until then.
     exec_item: Int
+    // Whether the program calls `print`, and the item its failed write
+    // renders its cause through, rooted after the worklist for a program
+    // that prints (`root_print_failure`); -1 until then.
+    prints: Bool
+    print_failure_item: Int
     // What a spawn site's lowering calls (SL:coroutines A7a), made at the
     // first spawn site; -1 until then: std's task box, the background group,
     // and its close, which the C entry runs at a plain `main`'s return; and
@@ -239,7 +244,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_values: move values,
                 static_parts: Vector<EvalValue>(), main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
-                length_item: -1, exec_item: -1, spawn_box_item: -1, spawn_background_item: -1,
+                length_item: -1, exec_item: -1, prints: false, print_failure_item: -1,
+                spawn_box_item: -1, spawn_background_item: -1,
                 spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(),
                 thread_started_item: -1, thread_spawns: Vector<MonoThreadSpawn>(), thread_spawn_of: Vector<Int>(),
                 drive_item: -1,

@@ -1,5 +1,7 @@
 //! The panic sink: where every panic ends, through no task machinery.
 
+import std.systemerror.{SystemError}
+
 extern "C" {
     func __saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) -> Never
 }
@@ -12,4 +14,19 @@ extern "C" {
 /// an overflow, or `try!` on an `Err`.
 public func panic_sink(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
     __saw_rt_panic(message, length)
+}
+
+/// Writes the cause of a `print` whose line could not be written into the
+/// `capacity` bytes at `bytes`, and returns its length.
+///
+/// The text is `failed printing to stdout: ` and the `SystemError` the
+/// negated tag `status` names. The compiler calls it on a failed write, right
+/// after the output seam returned, and panics with the text at the `print`'s
+/// site. `capacity` is at least 5; text past it is cut and marked `…`.
+public func print_failure(status: Int, bytes: UnsafePointer<Int8>, capacity: Int) unsafe -> Int {
+    let failure = SystemError.of("write", 0 - status)
+    var text = StringBuilder(bytes: bytes, capacity: capacity)
+    try! text.append("failed printing to stdout: ")
+    failure.format(&var text)
+    text.len()
 }

@@ -5,6 +5,7 @@
 
 extern "C" {
     func realpath(path: UnsafePointer<Int8>, resolved: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+    func __saw_rt_last_syserror() -> Int
 }
 
 // `/proc/self/exe` and its NUL as two little-endian words, which every Linux
@@ -22,13 +23,17 @@ static PROC_SELF_EXE_HEAD: Int = 7310238724270485551
 static PROC_SELF_EXE_TAIL: Int = 111567768086124
 
 // The executable's absolute path with every symbolic link resolved, in a
-// buffer the caller frees, or NULL.
+// buffer the caller frees, or NULL with the positive tag in `status_out`. A
+// binary removed while it runs has a link reading `… (deleted)`, which
+// `realpath` refuses with `ENOENT`.
 @export("__saw_rt_executable_path")
-func rt_executable_path() unsafe -> UnsafePointer<Int8> {
+func rt_executable_path(status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> {
     let none = 0 as UnsafePointer<Int8>
     var link = ProcSelfExe(head: PROC_SELF_EXE_HEAD, tail: PROC_SELF_EXE_TAIL)
     guard let resolved = realpath((&link) as UnsafePointer<Int8>, none) else {
+        status_out[0] = __saw_rt_last_syserror()
         return none
     }
+    status_out[0] = 0
     resolved
 }

@@ -168,9 +168,10 @@ extension Thread<T> {
     public(package) static func __saw_started(block: UnsafePointer<ThreadControlBlock<T>>,
                                               status: Int) unsafe -> Result<Thread<T>, SystemError> {
         if status != 0 {
+            let failure = SystemError.of("pthread_create", 0 - status)
             free_thread_block(block)
             __saw_exec_thread_finished()
-            return SystemError.of("pthread_create", 0 - status)
+            return move failure
         }
         Thread<T>.__saw_adopt(block)
     }

@@ -660,6 +660,25 @@ A handful of functions are compiler-known (no import needed):
 - `print(value?)` — write a value plus a newline; no argument prints a bare
   newline. The value may be any `Printable`: the Int family, `Bool`, `String`,
   `Float` and the user types that conform, or a string interpolation.
+
+  A `print` line is never split by another `print`, at any length: the
+  runtime writes all of a line's parts and its newline under one
+  process-wide output lock. The guarantee covers Saw's own output and C code
+  in the program that writes through stdio's `stdout`; it does not cover a
+  raw `write` to file descriptor 1.
+
+  `print` stays infallible in type, and a write that fails panics:
+  `panic at FILE:LINE: failed printing to stdout: write failed (KIND)`, where
+  `KIND` is the `SystemError` description, with the platform's error number
+  for a failure no kind names (`write failed (other error, errno 9)` for a
+  closed standard output). A full disk and an I/O error panic the same way. A
+  program that must survive a lost standard output writes through a std handle
+  that returns a `Result`. Standard output in non-blocking mode is waited on,
+  not reported. A pipe whose reader has gone is different: the write raises
+  `SIGPIPE`, whose default action ends the process before `print` sees the
+  error, and the runtime keeps that default, so `prog | head -1` ends quietly.
+  `BrokenPipe` reaches `print` only when the process started with `SIGPIPE`
+  ignored.
 - `panic(message) -> Never` — abort with `message` (design 49). It
   routes through the freestanding-safe `__saw_rt_panic` runtime seam and **diverges**:
   its type is `Never`, so a function ending in `panic(...)` needs no return
@@ -10229,7 +10248,8 @@ func main() {
     // ... spawn workers over accept()/read()/write() in a TaskGroup ...
 }
 // TcpStream.pair() gives a connected pair for tests/IPC with no bound port:
-// Result<(TcpStream, TcpStream), IoError>, Err when the system refuses it.
+// Result<(TcpStream, TcpStream), IoError>, Err with the reason the system
+// refused it (`ResourcesExhausted` at the descriptor limit).
 ```
 
 The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, a
@@ -13371,7 +13391,8 @@ The default **hosted** profile links libc and provides everything above. The
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
 unlinked object file. In this profile the runtime rests on the `__saw_rt_*` seam
 symbols the environment must supply at link time — `__saw_rt_alloc(size, align)`,
-`__saw_rt_dealloc(ptr, size, align)`, `__saw_rt_write(ptr, len)`, the noreturn
+`__saw_rt_dealloc(ptr, size, align)`, `__saw_rt_write_line(parts, count)` (the
+line `print` writes), the noreturn
 `__saw_rt_panic(msg, len)` and the rest of the frozen set — which the hosted
 profile satisfies by linking a runtime built from `sawc/rt/`. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,

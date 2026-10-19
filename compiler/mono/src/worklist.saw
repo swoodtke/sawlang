@@ -179,6 +179,32 @@ extension MonoProgram {
         self.exec_item
     }
 
+    // The item a failed `print` renders its cause through, rooted after the
+    // worklist ran and run to its end like any root, for a program that
+    // prints; -1 for one that does not, or when std declares none. Rooted
+    // late, as the entry executor is, so a program's item list before the
+    // backend is what its source reaches.
+    public func root_print_failure(&var self) -> Int {
+        if self.print_failure_item >= 0 || self.blocked || not self.prints {
+            return self.print_failure_item
+        }
+        let none = Vector<Int>()
+        let d = self.dp.bc.mir.tc.res.lang_item(ResLang.PrintFailureFunction)
+        let reported = self.depth_call >= 0 || self.depth_glue >= 0
+        var k = self.items.len()
+        self.print_failure_item = self.root_item(d, &none)
+        while k < self.items.len() {
+            self.current = k
+            self.instantiate(k)
+            k = k + 1
+        }
+        self.current = -1
+        if not reported {
+            self.report_depth()
+        }
+        self.print_failure_item
+    }
+
     // The module of the file the program was named by.
     public func entry_module(&self) -> Int {
         var m = 0
@@ -1576,6 +1602,9 @@ extension MonoProgram {
         let printing = name.equals("print") || name.equals("panic") || name.equals("assert")
         if not printing {
             return
+        }
+        if name.equals("print") {
+            self.prints = true
         }
         var a = 0
         while a < info.arg_count {

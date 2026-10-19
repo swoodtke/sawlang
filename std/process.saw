@@ -93,10 +93,12 @@ extension Command {
             k = k + 1
         }
         let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, NO_REDIRECTION)
-        GlobalAllocator().dealloc(block, size, align)
         if job < 0 {
-            return SystemError.of("spawn", 0 - job)
+            let failure = SystemError.of("spawn", 0 - job)
+            GlobalAllocator().dealloc(block, size, align)
+            return move failure
         }
+        GlobalAllocator().dealloc(block, size, align)
         let status = process_reaped(job)
         if status < 0 {
             return SystemError.of("wait", 0 - status)

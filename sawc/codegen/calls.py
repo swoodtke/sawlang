@@ -547,7 +547,7 @@ class CallsMixin:
 
         # Handle built-in print function
         if expr.name == "print":
-            return self._generate_print(expr.arguments)
+            return self._generate_print(expr.arguments, expr.line)
 
         # design 49: panic(message) / assert(cond, message) — route through the
         # saw_panic seam. Both terminate their block (panic unconditionally;
@@ -1325,15 +1325,16 @@ class CallsMixin:
         length = self.builder.load(field("length"), name="fmt_sb_len")
         return (scratch_ptr, length)
 
-    def _generate_print(self, arguments: List[Argument]):
+    def _generate_print(self, arguments: List[Argument], line: int = 0):
         """Generate code for the print built-in function.
 
-        Every arm — Int family, Bool, String, Float, interpolation — lowers to
-        saw_write (the output seam). Float was the last one to join, in design
-        253: it was `printf` until std grew a float formatter, which is why the
-        seam's hosted default had to stay on C stdio's buffer.
+        Every arm — Int family, Bool, String, Float, interpolation — gathers
+        its line's byte ranges and writes them with ONE `__saw_rt_write_line`
+        call, which adds the line break and holds the output lock across the
+        whole line, so no other `print` splits it (SL-768). Every argument is
+        rendered before that call. A failed write panics after it returns
+        (`_check_print_status`).
         """
-        saw_write = self.functions["__saw_rt_write"]
         # print() is a Void builtin, but it is frequently the tail expression of
         # an if/match branch; the conditional lowering unifies branch values with
         # a phi. The old printf path yielded an i32, so keep returning an i32 (a
@@ -1342,21 +1343,17 @@ class CallsMixin:
         dummy = ir.Constant(ir.IntType(32), 0)
 
         if not arguments:
-            # Print a bare newline.
-            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
-            self.builder.call(saw_write, [nl_ptr, nl_len])
+            # A bare line break.
+            self._emit_print_line([], line)
             return dummy
 
         if len(arguments) > 1:
-            # design 137: `print("x = {}", x)`. Each segment goes straight to
-            # the output seam at its own length, so a long String argument is
-            # written WHOLE — the line has no capacity limit, and the only
-            # bounded piece is a single user `Printable` rendering.
-            for seg_ptr, seg_len in self._format_segments(arguments[0].value,
-                                                          arguments[1:]):
-                self.builder.call(saw_write, [seg_ptr, seg_len])
-            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
-            self.builder.call(saw_write, [nl_ptr, nl_len])
+            # design 137: `print("x = {}", x)`. Each segment goes to the seam at
+            # its own length, so a long String argument is written WHOLE — the
+            # line has no capacity limit, and the only bounded piece is a
+            # single user `Printable` rendering.
+            segments = list(self._format_segments(arguments[0].value, arguments[1:]))
+            self._emit_print_line(segments, line)
             return dummy
 
         # Arguments are Argument objects with .value
@@ -1389,12 +1386,11 @@ class CallsMixin:
 
         if isinstance(value.type, ir.IntType):
             if value.type.width == 1:
-                # Bool -> "true\n" / "false\n" via one saw_write.
-                true_ptr, true_len = self._raw_bytes_ptr("true\n")
-                false_ptr, false_len = self._raw_bytes_ptr("false\n")
+                true_ptr, true_len = self._raw_bytes_ptr("true")
+                false_ptr, false_len = self._raw_bytes_ptr("false")
                 str_ptr = self.builder.select(value, true_ptr, false_ptr)
                 str_len = self.builder.select(value, true_len, false_len)
-                self.builder.call(saw_write, [str_ptr, str_len])
+                self._emit_print_line([(str_ptr, str_len)], line)
             else:
                 # Integer family: bring the value to the platform Int width
                 # (design 47) with exactly the sign-/zero-extension the old printf
@@ -1426,10 +1422,8 @@ class CallsMixin:
                     # wide formatter plus a write — so the two spellings stay
                     # byte-identical at every width, which is the property the
                     # narrow path was built for. Dead on a 64-bit target.
-                    seg_ptr, seg_len = self._render_int_value(value, is_unsigned)
-                    self.builder.call(saw_write, [seg_ptr, seg_len])
-                    nl_ptr, nl_len = self._raw_bytes_ptr("\n")
-                    self.builder.call(saw_write, [nl_ptr, nl_len])
+                    seg = self._render_int_value(value, is_unsigned)
+                    self._emit_print_line([seg], line)
                 else:
                     if value.type.width < iw:
                         if is_unsigned:
@@ -1437,7 +1431,8 @@ class CallsMixin:
                         else:
                             value = self.builder.sext(value, self.int_type, name="print_ext")
                     fmt_fn = "__saw_print_uint" if is_unsigned else "__saw_print_int"
-                    self.builder.call(self.functions[fmt_fn], [value])
+                    status = self.builder.call(self.functions[fmt_fn], [value])
+                    self._check_print_status(status, line)
 
         elif isinstance(value.type, ir.DoubleType):
             # Design 253: the same rendering `print("{}", f)` and `"{f}"` use,
@@ -1446,22 +1441,141 @@ class CallsMixin:
             # stdio rather than the seam — so `print(1.0)` said `1.000000`
             # while `print("{}", 1.0)` said `1`, and `print(1e21)` wrote 29
             # characters that no reader could turn back into the value.
-            seg_ptr, seg_len = self._render_float_value(value)
-            self.builder.call(saw_write, [seg_ptr, seg_len])
-            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
-            self.builder.call(saw_write, [nl_ptr, nl_len])
+            self._emit_print_line([self._render_float_value(value)], line)
 
         elif isinstance(value.type, ir.PointerType):
-            # String: write the exact byte range (ptr + header len), then newline.
+            # String: the exact byte range (ptr + header len).
             str_len = self.builder.call(self.functions["__saw_string_len"], [value])
-            self.builder.call(saw_write, [value, str_len])
-            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
-            self.builder.call(saw_write, [nl_ptr, nl_len])
+            self._emit_print_line([(value, str_len)], line)
 
         else:
             raise ValueError(f"Cannot print type: {value.type}")
 
         return dummy
+
+    def _emit_print_line(self, segments, line: int):
+        """One `print` line: `segments`' `(i8* ptr, word len)` ranges as the
+        part table `__saw_rt_write_line` reads, one call, then its status
+        checked. The seam adds the line break (rt/ABI.md)."""
+        word = self.int_type
+        i8ptr = ir.IntType(8).as_pointer()
+        i32 = ir.IntType(32)
+        count = len(segments)
+        if count == 0:
+            table = ir.Constant(i8ptr, None)
+        else:
+            record = ir.LiteralStructType([i8ptr, word])
+            slot = self._entry_alloca(ir.ArrayType(record, count), name="print_parts")
+            for k, (seg_ptr, seg_len) in enumerate(segments):
+                at = self.builder.gep(slot, [ir.Constant(i32, 0), ir.Constant(i32, k)],
+                                      inbounds=True)
+                if seg_ptr.type != i8ptr:
+                    seg_ptr = self.builder.bitcast(seg_ptr, i8ptr)
+                self.builder.store(seg_ptr, self.builder.gep(
+                    at, [ir.Constant(i32, 0), ir.Constant(i32, 0)], inbounds=True))
+                self.builder.store(seg_len, self.builder.gep(
+                    at, [ir.Constant(i32, 0), ir.Constant(i32, 1)], inbounds=True))
+            table = self.builder.bitcast(slot, i8ptr)
+        status = self.builder.call(self.functions["__saw_rt_write_line"],
+                                   [table, ir.Constant(word, count)], name="print_status")
+        self._check_print_status(status, line)
+
+    def _check_print_status(self, status, line: int):
+        """Panic at the `print` site when its line seam failed. The seam has
+        already given the output lock back, so the panic sink can take it."""
+        func = self.builder.function
+        fail_bb = func.append_basic_block("print_failed")
+        cont_bb = func.append_basic_block("print_written")
+        failed = self.builder.icmp_signed('!=', status, ir.Constant(self.int_type, 0),
+                                          name="print_failed")
+        self.builder.cbranch(failed, fail_bb, cont_bb)
+        self.builder.position_at_end(fail_bb)
+        prefix_ptr, prefix_len = self._raw_bytes_ptr(self._panic_location_prefix(line))
+        self.builder.call(self._print_failed_helper(), [prefix_ptr, prefix_len, status])
+        self.builder.unreachable()
+        self.builder.position_at_end(cont_bb)
+
+    # sawc2's `SystemErrorKind.describe()` text for each portable tag
+    # (std/systemerror.saw), so a failed `print` panics with the same bytes
+    # under both compilers. Tag 16 and any tag this table lacks are `Unknown`.
+    PRINT_FAILURE_KINDS = {
+        1: "would block", 2: "in progress", 3: "already connected",
+        4: "interrupted", 5: "connection reset", 6: "connection refused",
+        7: "connection aborted", 8: "broken pipe", 9: "not connected",
+        10: "not found", 11: "permission denied", 12: "already exists",
+        13: "address in use", 14: "invalid argument",
+        15: "resources exhausted", 17: "host unreachable",
+        18: "network unreachable", 19: "timed out", 20: "host is down",
+        21: "network is down",
+    }
+    PRINT_FAILURE_UNKNOWN = "other error"
+
+    def _print_failed_helper(self):
+        """The outlined panic for a failed `print`, emitted once per sink.
+
+        `void (i8* prefix, word prefix_len, word status)`: the site's
+        `panic at FILE:LINE: `, then `failed printing to stdout: write failed
+        (KIND)`, with `, errno N` before the `)` when the kind is unknown and
+        the runtime stamped a code, as sawc2's `SystemError` renders it. The
+        raw code is read first, before anything else can replace it.
+        """
+        cache = getattr(self, "_print_failed_helpers", None)
+        if cache is None:
+            cache = {}
+            self._print_failed_helpers = cache
+        sink_tag = "bt" if self._panic_sink_is_bt() else "rt"
+        helper = cache.get(sink_tag)
+        if helper is not None:
+            return helper
+
+        word = self.int_type
+        i8ptr = ir.IntType(8).as_pointer()
+        fn = ir.Function(self.module, ir.FunctionType(ir.VoidType(), [i8ptr, word, word]),
+                         name=f"__saw_print_failed${sink_tag}")
+        fn.linkage = "internal"
+        for attr in ("noreturn", "noinline", "cold", "minsize"):
+            fn.attributes.add(attr)
+        cache[sink_tag] = fn
+
+        raw_code = self.functions.get("__saw_rt_last_raw_code")
+        if raw_code is None:
+            raw_code = self.module.globals.get("__saw_rt_last_raw_code")
+        if raw_code is None:
+            raw_code = ir.Function(self.module, ir.FunctionType(word, []),
+                                   name="__saw_rt_last_raw_code")
+            self.functions["__saw_rt_last_raw_code"] = raw_code
+
+        prefix, prefix_len, status = fn.args
+        saved = self.builder
+        self.builder = ir.IRBuilder(fn.append_basic_block("entry"))
+        try:
+            code = self.builder.call(raw_code, [], name="code")
+            tag = self.builder.sub(ir.Constant(word, 0), status, name="tag")
+            kind_ptr, kind_len = self._raw_bytes_ptr(self.PRINT_FAILURE_UNKNOWN)
+            named = ir.Constant(ir.IntType(1), 0)
+            for number, text in self.PRINT_FAILURE_KINDS.items():
+                is_it = self.builder.icmp_signed('==', tag, ir.Constant(word, number))
+                text_ptr, text_len = self._raw_bytes_ptr(text)
+                kind_ptr = self.builder.select(is_it, text_ptr, kind_ptr)
+                kind_len = self.builder.select(is_it, text_len, kind_len)
+                named = self.builder.or_(named, is_it)
+            coded = self.builder.icmp_signed('!=', code, ir.Constant(word, 0))
+            show = self.builder.and_(self.builder.not_(named), coded, name="show_code")
+            with_code = fn.append_basic_block("with_code")
+            without_code = fn.append_basic_block("without_code")
+            self.builder.cbranch(show, with_code, without_code)
+            self.builder.position_at_end(with_code)
+            self._emit_runtime_panic([
+                (prefix, prefix_len), self._raw_bytes_ptr("failed printing to stdout: write failed ("),
+                (kind_ptr, kind_len), self._raw_bytes_ptr(", errno "),
+                self._render_int_value(code, False, in_entry=False), self._raw_bytes_ptr(")")])
+            self.builder.position_at_end(without_code)
+            self._emit_runtime_panic([
+                (prefix, prefix_len), self._raw_bytes_ptr("failed printing to stdout: write failed ("),
+                (kind_ptr, kind_len), self._raw_bytes_ptr(")")])
+        finally:
+            self.builder = saved
+        return fn
 
     # A panic message is assembled in this many bytes of stack (design 137).
     # Four are reserved — three for the truncation marker, one for the trailing

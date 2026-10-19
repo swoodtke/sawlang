@@ -332,17 +332,19 @@ extension Channel<T: Send> {
             let gate = raw as UnsafePointer<UInt8>
             let mutex_status = __saw_rt_pthread_mutex_init_default(gate)
             if mutex_status != 0 {
+                let failure = SystemError.of("pthread_mutex_init", 0 - mutex_status)
                 GlobalAllocator().dealloc(raw as UnsafePointer<Int8>, size, CHANNEL_ALIGN)
                 self.unlock_queue()
-                return ChannelError.System(e: SystemError.of("pthread_mutex_init", 0 - mutex_status))
+                return ChannelError.System(e: move failure)
             }
             let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
             let cond_status = __saw_rt_pthread_cond_init_default(cond)
             if cond_status != 0 {
+                let failure = SystemError.of("pthread_cond_init", 0 - cond_status)
                 let _ = pthread_mutex_destroy(gate)
                 GlobalAllocator().dealloc(raw as UnsafePointer<Int8>, size, CHANNEL_ALIGN)
                 self.unlock_queue()
-                return ChannelError.System(e: SystemError.of("pthread_cond_init", 0 - cond_status))
+                return ChannelError.System(e: move failure)
             }
             block[0].gate = gate
         }

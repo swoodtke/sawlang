@@ -25,18 +25,33 @@ func pthread_status(code: Int32) -> Int {
     0 - __saw_classify_code(code as Int)
 }
 
+// The portable tags an init's `EAGAIN` is classified as and reported as.
+static TAG_WOULD_BLOCK: Int = 1
+static TAG_EXHAUSTED: Int = 15
+
+// An init's result as a seam status. `EAGAIN` from an init means the system
+// lacked the resources, which a retry does not fix, so it is `Exhausted`
+// rather than the classifier's `WouldBlock`; the raw code stays stamped.
+func init_status(code: Int32) -> Int {
+    let status = pthread_status(code)
+    if status == 0 - TAG_WOULD_BLOCK {
+        return 0 - TAG_EXHAUSTED
+    }
+    status
+}
+
 // pthread_mutex_init(m, NULL). The Saw side reserves a conservative slot
 // (pthread_mutex_t <= 64 bytes on the hosted targets) and inits within it.
 @export("__saw_rt_pthread_mutex_init_default")
 func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) unsafe -> Int {
-    pthread_status(pthread_mutex_init(m, 0 as UnsafePointer<Int8>))
+    init_status(pthread_mutex_init(m, 0 as UnsafePointer<Int8>))
 }
 
 // pthread_cond_init(c, NULL). pthread_cond_t is 48 bytes on macOS and glibc;
 // std reserves 64.
 @export("__saw_rt_pthread_cond_init_default")
 func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) unsafe -> Int {
-    pthread_status(pthread_cond_init(c, 0 as UnsafePointer<Int8>))
+    init_status(pthread_cond_init(c, 0 as UnsafePointer<Int8>))
 }
 
 // Join an OS thread by the handle value `__saw_rt_thread_spawn` stored.

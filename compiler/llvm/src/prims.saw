@@ -1,7 +1,7 @@
 // The emitter's primitives: SSA names, labels, entry-block slots, loads,
 // stores, address arithmetic, the layout questions put to the target, and
-// the two seams every function may reach: `__saw_rt_write` for output and,
-// through the failure funnel, the panic sink.
+// the two seams every function may reach: `__saw_rt_write_line` for output
+// and, through the failure funnel, the panic sink.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
@@ -220,28 +220,19 @@ extension LlEmitter {
         self.assign(cmp.build())
     }
 
-    // `len` bytes at `ptr` to standard output, through the runtime's write
-    // seam.
-    public func write_out(&var self, ptr: String, len: String) {
-        self.declare("__saw_rt_write", "declare void @__saw_rt_write(ptr, i64)")
-        var line = StringBuilder()
-        try! line.append("call void @__saw_rt_write(ptr ")
-        try! line.append(ptr)
-        try! line.append(", i64 ")
-        try! line.append(len)
-        try! line.append(")")
-        self.put(line.build())
-    }
-
-    // Constant bytes `bytes` to standard output.
-    public func write_bytes(&var self, bytes: &Vector<Int>) {
-        if bytes.len() == 0 {
-            return
-        }
-        let g = self.pooled(&bytes, false, 0)
-        var len = StringBuilder()
-        try! len.append(bytes.len())
-        self.write_out(g, len.build())
+    // One line to standard output through the runtime's line seam: the
+    // `count` part records at `table`, then a line break, under the output
+    // lock. Returns the seam's status, `0` or the negated tag, which the
+    // caller checks once the seam has given the lock back.
+    public func write_line(&var self, table: String, count: Int) -> String {
+        self.declare("__saw_rt_write_line", "declare i64 @__saw_rt_write_line(ptr, i64)")
+        var call = StringBuilder()
+        try! call.append("call i64 @__saw_rt_write_line(ptr ")
+        try! call.append(table)
+        try! call.append(", i64 ")
+        try! call.append(count)
+        try! call.append(")")
+        self.assign(call.build())
     }
 
     // `text`'s bytes.
@@ -272,7 +263,25 @@ extension LlEmitter {
 //   fail_message
 //   fail_value
 //   fail_parts
+//   fail_print
 extension LlEmitter {
+    // A `print` whose line could not be written: the cause std's
+    // `print_failure` renders from the write's `status`, after the site.
+    public func fail_print(&var self, mono: &var MonoProgram, node: Int, status: String) {
+        if mono.print_failure_item < 0 {
+            self.refuse_here(&var mono, node, "a print with no print-failure role bound")
+            return
+        }
+        let site = self.fail_site(&mono, node)
+        var call = StringBuilder()
+        try! call.append("call void @__saw_fail_print(")
+        try! call.append(site)
+        try! call.append(", i64 ")
+        try! call.append(status)
+        try! call.append(")")
+        self.fail_call(&var mono, node, call.build())
+    }
+
     // A check whose message is its kind's reason alone: an overflow, a zero
     // divisor, a shift count, a forced payload.
     public func fail_check(&var self, mono: &var MonoProgram, node: Int, kind: Int) {

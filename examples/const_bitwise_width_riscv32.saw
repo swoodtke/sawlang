@@ -5,7 +5,7 @@
 // arithmetic are exactly the code that is cross-compiled.
 // COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
 // EXPECT: object
-// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write_line
 
 static_assert((1 << 31) == Int.min, "the sign bit of a 32-bit word")
 static_assert((1 << 30) == 1073741824, "one below it still fits")

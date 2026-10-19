@@ -79,7 +79,11 @@ public enum ResLang {
     // The marker a type's author declares when its all-zero value is valid,
     // which entitles any module to a bare static of it. Stage 0's vocabulary
     // has none, so the role is unbound under its root (SL-660).
-    case ZeroInitTrait
+    case ZeroInitTrait,
+    // What a `print` whose line could not be written renders its panic's
+    // cause with: the failing write's status as a `SystemError`'s text, so
+    // that text has one source (SL-768). Stage 0's compiler writes its own.
+    case PrintFailureFunction
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -137,6 +141,7 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.CancelRequestedFunction)
     try! out.push(ResLang.ExecRunMainFunction)
     try! out.push(ResLang.ZeroInitTrait)
+    try! out.push(ResLang.PrintFailureFunction)
     move out
 }
 
@@ -235,7 +240,9 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
         case CancelRequestedFunction -> ResLangRow.task_function(37, "__saw_cancel_requested"),
         case ExecRunMainFunction -> ResLangRow.task_function(38, "__saw_exec_run_main"),
         case ZeroInitTrait -> ResLangRow(index: 39, name: "ZeroInit", home: "std.prelude",
-                                         builtin_home: "builtin", builtin_name: "")
+                                         builtin_home: "builtin", builtin_name: ""),
+        case PrintFailureFunction -> ResLangRow(index: 40, name: "print_failure", home: "std.panic",
+                                                builtin_home: "builtin", builtin_name: "")
     }
 }
 

@@ -1,0 +1,12 @@
+// probe: stated
+// about: `print()` with no argument prints a bare line break (SL-768)
+// stage 0: prints the same lines
+// speeds: -O0 -O2
+// prints: before
+// prints:
+// prints: after
+func main() {
+    print("before")
+    print()
+    print("after")
+}

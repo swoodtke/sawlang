@@ -101,10 +101,12 @@ extension File {
         }
         name[length] = NUL_BYTE
         let fd = __saw_rt_fs_open(name, (mode as UInt8) as Int, permission)
-        GlobalAllocator().dealloc(name, size, 1)
         if fd < 0 {
-            return SystemError.of("open", 0 - fd)
+            let failure = SystemError.of("open", 0 - fd)
+            GlobalAllocator().dealloc(name, size, 1)
+            return move failure
         }
+        GlobalAllocator().dealloc(name, size, 1)
         File(descriptor: fd)
     }
 

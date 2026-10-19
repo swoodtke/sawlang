@@ -2790,9 +2790,11 @@ extern "C" {
     // line is written in pieces (a file, a colon, a number) and `print` ends
     // every call with a newline. `__saw_rt_panic` is the abort policy (hosted
     // it aborts, a kernel decides for itself) and is called last, once the
-    // message and the dump are already out on standard error.
-    func __saw_rt_write(ptr: UnsafePointer<Int8>, len: Int)
+    // message and the dump are already out on standard error. The output lock
+    // is recursive, so the sink takes it again on the thread that holds it.
+    func __saw_rt_write(ptr: UnsafePointer<Int8>, len: Int) -> Int
     func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
+    func __saw_rt_output_lock()
     func __saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) -> Never
 }
 
@@ -2838,7 +2840,7 @@ func __bt_write(ptr: UnsafePointer<Int8>, len: Int) unsafe {
     if __saw_bt_dumping.load() != 0 {
         __saw_rt_write_error(ptr, len)
     } else {
-        __saw_rt_write(ptr, len)
+        let _ = __saw_rt_write(ptr, len)
     }
 }
 
@@ -3135,6 +3137,10 @@ public func __saw_bt_dump() unsafe {
 /// One flag guards re-entry: a panic raised by the walk (a bounds check, a
 /// half-written frame) reports itself through the plain seam instead of
 /// re-entering the walk that raised it.
+///
+/// The output lock is held across the message and the dump, so neither lands
+/// inside another thread's `print` line when the two streams are merged. It
+/// is never given back: the sink that ends the panic takes it again.
 func __saw_bt_panic(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
     if __saw_bt_dumping.load() != 0 {
         __saw_rt_panic(message, length)
@@ -3143,6 +3149,7 @@ func __saw_bt_panic(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
     if __saw_bt_live_count() == 0 {
         __saw_rt_panic(message, length)
     }
+    __saw_rt_output_lock()
     __saw_rt_write_error(message, length)
     __saw_bt_dump()
     __saw_rt_panic(message, 0)

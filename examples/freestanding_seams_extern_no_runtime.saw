@@ -10,11 +10,11 @@
 // COMPILE-FLAGS: --freestanding --target x86_64-unknown-linux-gnu
 // EXPECT: object
 // EXPECT-SYMBOL-UNDEFINED: __saw_rt_alloc
-// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write_line
 
 @export("kmain")
 func kmain() {
-    // print(...) routes through __saw_rt_write; the Vector allocation routes
+    // print(...) routes through __saw_rt_write_line; the Vector allocation routes
     // through __saw_rt_alloc — so both seams are referenced (and, freestanding,
     // left as undefined externals for the kernel to supply).
     let v: Vector<Int> = [1, 2, 3]

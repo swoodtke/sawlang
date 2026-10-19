@@ -14,7 +14,7 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_get", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_set", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_env_unset", "word", "word", "runtime")
-    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_executable_path", "", "word", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_executable_path", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_chdir", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_dirent_name", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_getcwd", "word", "word", "runtime")
@@ -39,6 +39,8 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_offload_take", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_op_budget_reset", "", "void", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_op_budget_tick", "", "word", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_output_lock", "", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_output_unlock", "", "void", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_panic", "word, word", "noreturn", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_proc_exit_fd", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_proc_read_stdout", "word, word, word", "word", "runtime")
@@ -68,13 +70,15 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_tcp_listen_with", "word, word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_tcp_local_port", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_tcp_read", "word, word, word", "word", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_tcp_socketpair", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_tcp_write", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_thread_detach", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_thread_join", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_thread_spawn", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_unix_timestamp_secs", "", "i64", "runtime")
-    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_write", "word, word", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_write", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_write_error", "word, word", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_write_line", "word, word", "word", "runtime")
 }
 
 // A host's runtime sources, relative to the runtime root, in build order.
@@ -133,32 +137,41 @@ public func tc_runtime_sources(host: String) -> Vector<String> {
 public func tc_runtime_shim_seams(host: String) -> Vector<String> {
     var out = Vector<String>()
     if host.equals("arm64-apple-darwin") {
+        try! out.push("__saw_rt_output_lock")
+        try! out.push("__saw_rt_output_unlock")
         try! out.push("__saw_rt_panic")
         try! out.push("__saw_rt_set_nonblocking")
         try! out.push("__saw_rt_thread_detach")
         try! out.push("__saw_rt_thread_spawn")
         try! out.push("__saw_rt_write")
         try! out.push("__saw_rt_write_error")
+        try! out.push("__saw_rt_write_line")
     }
     if host.equals("x86_64-unknown-linux-gnu") {
         try! out.push("__saw_rt_lock_acquire")
         try! out.push("__saw_rt_lock_release")
+        try! out.push("__saw_rt_output_lock")
+        try! out.push("__saw_rt_output_unlock")
         try! out.push("__saw_rt_panic")
         try! out.push("__saw_rt_set_nonblocking")
         try! out.push("__saw_rt_thread_detach")
         try! out.push("__saw_rt_thread_spawn")
         try! out.push("__saw_rt_write")
         try! out.push("__saw_rt_write_error")
+        try! out.push("__saw_rt_write_line")
     }
     if host.equals("aarch64-unknown-linux-gnu") {
         try! out.push("__saw_rt_lock_acquire")
         try! out.push("__saw_rt_lock_release")
+        try! out.push("__saw_rt_output_lock")
+        try! out.push("__saw_rt_output_unlock")
         try! out.push("__saw_rt_panic")
         try! out.push("__saw_rt_set_nonblocking")
         try! out.push("__saw_rt_thread_detach")
         try! out.push("__saw_rt_thread_spawn")
         try! out.push("__saw_rt_write")
         try! out.push("__saw_rt_write_error")
+        try! out.push("__saw_rt_write_line")
     }
     move out
 }

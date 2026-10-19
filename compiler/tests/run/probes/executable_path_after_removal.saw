@@ -1,0 +1,21 @@
+// probe: stated
+// about: `Env.executable_path` after the running binary is removed reports `NotFound`, the cause the runtime gave, not `Unknown` (SL-768)
+// stage 0: its `Path` is built with a named argument, so it refuses the program's `Path(first)`
+// speeds: -O0 -O2
+// prints: removed the running binary
+// prints: after removal: executable_path failed (not found)
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func main() unsafe {
+    let first = try! Env.executable_path()
+    match File.remove(Path(first)) {
+        case Ok(_) -> print("removed the running binary"),
+        case Err(e) -> print("remove failed: {}", e)
+    }
+    match Env.executable_path() {
+        case Ok(path) -> print("after removal: still {}", path),
+        case Err(e) -> print("after removal: {}", e)
+    }
+}

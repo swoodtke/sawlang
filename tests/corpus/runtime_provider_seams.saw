@@ -11,14 +11,25 @@
 // EXPECT: object
 // EXPECT-SYMBOL-UNDEFINED: __saw_rt_alloc
 
+// The line `print` writes: `count` `{pointer, length}` part records, then a
+// line break. A real one drives a UART under the console's lock. The
+// signature is the contract; the body is the provider's business.
+@export("__saw_rt_write_line")
+func k_write_line(parts: UnsafePointer<Int8>, count: Int) unsafe -> Int {
+    var i = 0
+    while i < count {
+        i = i + 1
+    }
+    0
+}
+
 @export("__saw_rt_write")
-func k_write(ptr: UnsafePointer<Int8>, len: Int) unsafe {
-    // A real one drives a UART. The signature is the contract; the body is the
-    // provider's business.
+func k_write(ptr: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     var i = 0
     while i < len {
         i = i + 1
     }
+    0
 }
 
 @export("__saw_rt_sleep_ns")

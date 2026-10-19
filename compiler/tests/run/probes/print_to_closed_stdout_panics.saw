@@ -1,0 +1,21 @@
+// probe: panics
+// about: a `print` whose standard output is closed panics at that first `print`, naming the cause, before the program reaches its own panic (SL-768)
+// stage 0: its `print` panics the same way, with the same text, from its own table of the kinds' descriptions
+// speeds: -O0 -O2
+// panics: failed printing to stdout: write failed (other error, errno 9)
+// The program closes its own standard output, as `prog >&-` would start it,
+// then prints twice and panics. The first `print` fails with `EBADF` (9 on
+// every hosted target), which no portable kind names, so the cause carries
+// its number.
+extern "C" {
+    func close(fd: Int32) -> Int32
+}
+
+static STANDARD_OUTPUT: Int32 = 1
+
+func main() unsafe {
+    let _ = close(STANDARD_OUTPUT)
+    print("one")
+    print("two")
+    panic("reached the end")
+}

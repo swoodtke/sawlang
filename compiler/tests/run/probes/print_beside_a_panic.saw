@@ -1,0 +1,47 @@
+// probe: custom
+// about: a thread printing long lines in a loop never holds back another thread's panic: the run ends with the panic on standard error, with standard output drained or stalled (SL-768)
+// A spawned thread prints lines past a pipe's atomic write until the process
+// ends; `main` lets it run, then panics. The lane runs it with both streams
+// merged into one pipe it drains, where every line must be whole and the
+// panic must arrive between lines, and with standard output a pipe nobody
+// reads, where the printer blocks inside a write holding the output lock and
+// the panic sink's bounded wait must still let the panic out
+// (`check_print_beside_a_panic`).
+import std.task.{Thread}
+
+extern "C" {
+    func usleep(microseconds: UInt32) -> Int32
+}
+
+static LINE_WIDTH: Int = 5000
+// Long enough for the printer to fill a pipe nobody reads.
+static PRINTER_HEAD_START_US: UInt32 = 200000
+
+func filler() unsafe -> String {
+    var text = StringBuilder()
+    var i = 0
+    while i < LINE_WIDTH {
+        try! text.append("x")
+        i = i + 1
+    }
+    text.build()
+}
+
+// Prints numbered lines until the process ends.
+func print_forever(thread: Int) unsafe -> Int {
+    let text = filler()
+    var n = 0
+    while true {
+        print("{} {} {}", thread, n, text)
+        n = n + 1
+    }
+    n
+}
+
+func main() unsafe {
+    let one = 1
+    var printer = try! Thread.spawn { [one] in print_forever(one) }
+    printer.detach()
+    let _ = usleep(PRINTER_HEAD_START_US)
+    panic("main gave up")
+}

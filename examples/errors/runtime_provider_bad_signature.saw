@@ -22,7 +22,7 @@ func k_clock() -> Int {
     0
 }
 
-// ABI.md: `__saw_rt_write(ptr: i8*, len: word) -> void`.
+// ABI.md: `__saw_rt_write(ptr: i8*, len: word) -> word`.
 @export("__saw_rt_write")
 func k_write(ptr: UnsafePointer<Int8>) unsafe {
 }

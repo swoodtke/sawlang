@@ -199,9 +199,14 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   the object with a `.cold.N` function per failing block and measured no
   faster (SL-528). The funnel's entry points are named in
   `compiler/llvm/src/prims.saw`.
-- **Builtins.** `print` reads every argument first, then writes each piece of
-  its format string and each rendered argument through `__saw_rt_write`, then
-  a line break; a String argument's bytes and length are read in place
+- **Builtins.** `print` reads and renders every argument first, then hands
+  each piece of its format string and each rendered argument, as a table of
+  pointer and length records in its frame, to one `__saw_rt_write_line` call,
+  which adds the line break and writes the line under the runtime's output
+  lock. A nonzero status branches to `__saw_fail_print` after that call
+  returns: std's `print_failure` role renders `failed printing to stdout: `
+  and the `SystemError`, and `__saw_fail` panics with it at the site. `print()`
+  is an empty table. A String argument's bytes and length are read in place
   through the `string_bytes` and `string_length` roles, and a String handed
   over by `move` is dropped after. `panic` and a failed `assert` render the
   same parts after their `panic at` prefix, through the failure funnel: a
@@ -525,7 +530,7 @@ Stage 0 and runs it as the lane runs sawc2's, and writes its record for this
 host; over every program it also removes a record that names none. That and
 `--bench` are the lane's only runs of Stage 0, and both take the v0 compiler
 from `oracle.v0_compiler`, which names its checkout in one place: this tree
-until `sawc/` is deleted, then a checkout of the v0.15.0 tag (SL-668). The
+until `sawc/` is deleted, then a checkout of the v0.16.0 tag (SL-668). The
 Linux records are written in the VM: `tools/linux.py stage0 [NAME...]` runs
 `--stage0` in its clone of HEAD and copies `aarch64-unknown-linux-gnu/` back,
 as `tools/linux.py seed` copies the seed.
@@ -571,11 +576,17 @@ omits` lines. A probe states one kind, and a line
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. The one custom probe,
-`executable_path.saw`, is built by sawc2 and run by a bare name that a
+says why the check cannot be header lines. There are three.
+`executable_path.saw` is built by sawc2 and run by a bare name that a
 renamed relative symbolic link on `PATH` resolves, from another working
 directory, and must print its binary's real path, which no header can state:
-what the manifest lookup rests on.
+what the manifest lookup rests on. `print_lines_stay_whole.saw` is run 50
+times at -O0 and at -O2; its two threads' lines, each longer than a pipe's
+atomic write, must all come back whole and in each thread's order, an
+interleaving no header can state. `print_beside_a_panic.saw` must end by
+SIGABRT with its panic beside a thread printing in a loop, once with both
+streams merged and drained (every line whole, the panic between lines) and
+once with standard output a pipe nobody reads.
 
 `run_lane.py NAME` runs the programs and probes named `NAME`.
 

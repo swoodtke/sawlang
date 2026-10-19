@@ -4,6 +4,7 @@
 // speeds: -O0 -O2
 // prints: a spawn was refused: true
 // prints: the refusal is resources exhausted: true
+// prints: the refusal's code is its own EAGAIN: true
 // prints: capture 1 dropped
 // prints: pthread_create failed (resources exhausted)
 // prints: the body never ran: true
@@ -14,8 +15,10 @@
 // lowered to one first, so the first spawn is refused; macOS has no such
 // limit for threads, so its per-process thread limit is met instead. The
 // refused spawn's capture is dropped by the spawn, before its `Err` is
-// matched. Then one byte per started thread releases them all, and each is
-// joined.
+// matched. The refusal's code is the `EAGAIN` `pthread_create` returned,
+// read before the refusal path wakes the reactor, a seam call that would
+// replace it with a failure of its own. Then one byte per started thread releases them all,
+// and each is joined.
 import std.systemerror.{SystemError, SystemErrorKind}
 import std.task.{Thread}
 
@@ -42,6 +45,9 @@ struct Limit {
 static LINUX_RLIMIT_NPROC: Int32 = 6
 // Far past any per-process thread limit, so a run that never meets one ends.
 static MOST_THREADS: Int = 100_000
+// `EAGAIN` on each host.
+static LINUX_EAGAIN: Int = 11
+static MACOS_EAGAIN: Int = 35
 
 static BODY_RAN: Atomic<Int> = Atomic(0)
 static DROPPED: Atomic<Int> = Atomic(0)
@@ -98,17 +104,21 @@ func main() unsafe {
     var started = Vector<Thread<Int>>()
     var refused = false
     var exhausted = false
+    var code = 0
     while not refused && started.len() < MOST_THREADS {
         match Thread.spawn({ [fd] in blocked(fd) }) {
             case Ok(handle) -> try! started.push(move handle),
             case Err(e) -> {
                 refused = true
                 exhausted = e.kind() == SystemErrorKind.ResourcesExhausted
+                code = e.code()
             }
         }
     }
+    let eagain = if on_linux() { LINUX_EAGAIN } else { MACOS_EAGAIN }
     print("a spawn was refused: {}", refused)
     print("the refusal is resources exhausted: {}", exhausted)
+    print("the refusal's code is its own EAGAIN: {}", code == eagain)
     let loud = Loud(id: 1)
     match Thread.spawn({ [move loud] in
         BODY_RAN.store(1)

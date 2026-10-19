@@ -12,7 +12,7 @@
 // sections for `--gc-sections`, which the mach-O host rejects.)
 // COMPILE-FLAGS: --freestanding --target x86_64-unknown-linux-gnu
 // EXPECT: object
-// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write_line
 
 @export("kmain")
 func kmain() -> Never {

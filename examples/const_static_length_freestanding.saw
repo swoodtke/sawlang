@@ -6,7 +6,7 @@
 // all-zero arena still costs no image bytes (design 149).
 // COMPILE-FLAGS: --freestanding --target riscv32-unknown-none-elf
 // EXPECT: object
-// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write
+// EXPECT-SYMBOL-UNDEFINED: __saw_rt_write_line
 
 static REGION_SIZE: Int = 65536
 static PAGE_SIZE: UInt = 4096

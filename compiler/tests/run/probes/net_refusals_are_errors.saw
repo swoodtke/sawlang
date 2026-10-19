@@ -5,15 +5,15 @@
 // prints: port while listening: true
 // prints: port once closed: io error: getsockname failed (other error)
 // prints: descriptors exhausted: true
-// prints: pair with no descriptors: io error: socketpair failed (other error)
+// prints: pair with no descriptors: io error: socketpair failed (resources exhausted)
 // The two std.net members that once hid a failure report it (SL-768). A
 // listener whose socket is closed under it cannot say its port, where it once
 // answered 0; and a pair the system refuses, here for want of descriptors, is
 // an `Err`, where it once handed back two streams with no descriptor.
 //
 // The listener's descriptor is found by asking for the lowest free one just
-// before the listen, which takes it. `socketpair` is a bare libc call, so its
-// refusal carries no portable kind. The descriptor limit is lowered first so
+// before the listen, which takes it. The pair's refusal carries the kind the
+// runtime's pair seam classified. The descriptor limit is lowered first so
 // the exhaustion is quick; its resource number is per host (`RLIMIT_NOFILE`
 // is 8 on macOS and 7 on Linux), so both are capped, the other being a limit
 // this program never meets.

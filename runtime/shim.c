@@ -27,13 +27,171 @@
 #include <netinet/tcp.h>
 
 /* ---- DF-113a: no extern C global ---------------------------------------
- * Saw cannot name `stdout`. Output goes through stdio's `stdout`, flushed on
- * every write, so it stays in order with other writes to that same stream
- * (for example C code the program links that prints to stdout).
+ * Saw cannot name `stdout`. The output lock is stdio's own recursive lock on
+ * it (`flockfile`), so a line is whole against every other Saw write and
+ * against C code that prints through stdio. Each write flushes what stdio
+ * holds for `stdout` first, then writes fd 1 itself, so a program's own
+ * `printf` output stays ahead of the line and the status is exact.
+ *
+ * No path here can panic, and every one gives the lock back before it
+ * returns its status: the caller raises a failure only after that (rt/ABI.md,
+ * "The output lock").
  */
-void __saw_rt_write(const char *ptr, size_t len) {
-    fwrite(ptr, 1, len, stdout);
-    fflush(stdout);
+#include <limits.h>
+#include <poll.h>
+#include <stdatomic.h>
+#include <sys/uio.h>
+#include <time.h>
+
+long __saw_rt_last_syserror(void);
+
+/* How long a claim waits for the output lock, in milliseconds. */
+#define SAW_OUTPUT_CLAIM_WAIT_MS 1000
+
+/* The threads that claimed the output lock for a sequence or a panic and
+ * have not given it back. While one exists, a plain write waits before it
+ * takes the lock, so the holder's next line cannot win the lock back from
+ * the claimer the moment it is released. A claim is per thread and nests;
+ * `saw_output_got` keeps, one bit per level, whether that level holds the
+ * lock or gave up waiting for it. */
+static atomic_long saw_output_claims;
+static _Thread_local long saw_output_depth;
+static _Thread_local unsigned long saw_output_got;
+
+static const struct timespec saw_output_tick = { 0, 1000000 };
+
+/* Takes the output lock, waiting at most SAW_OUTPUT_CLAIM_WAIT_MS: a holder
+ * blocked writing to a standard output nobody drains never gives it up, and
+ * a panic held back with it would never be seen. Past the bound the level
+ * proceeds without the lock. A thread that already holds it takes it again
+ * at the first try. */
+static void saw_output_claim(void) {
+    if (saw_output_depth == 0)
+        atomic_fetch_add(&saw_output_claims, 1);
+    saw_output_depth++;
+    unsigned long got = 0;
+    for (int waited = 0; waited < SAW_OUTPUT_CLAIM_WAIT_MS; waited++) {
+        if (ftrylockfile(stdout) == 0) {
+            got = 1;
+            break;
+        }
+        nanosleep(&saw_output_tick, NULL);
+    }
+    saw_output_got = (saw_output_got << 1) | got;
+}
+
+static void saw_output_unclaim(void) {
+    if (saw_output_depth == 0)
+        return;
+    if (saw_output_got & 1)
+        funlockfile(stdout);
+    saw_output_got >>= 1;
+    saw_output_depth--;
+    if (saw_output_depth == 0)
+        atomic_fetch_sub(&saw_output_claims, 1);
+}
+
+/* One part of a line, as `print`'s lowering lays it out (rt/ABI.md). */
+typedef struct {
+    const char *ptr;
+    long len;
+} saw_part;
+
+/* How many parts one `writev` carries, the line break included. */
+#define SAW_IOV_BATCH 64
+
+/* Waits until fd 1 accepts bytes again. An inherited descriptor in
+ * non-blocking mode answers EAGAIN, which is not a failure of the write. */
+static long saw_wait_writable(void) {
+    struct pollfd out = { .fd = 1, .events = POLLOUT, .revents = 0 };
+    for (;;) {
+        int ready = poll(&out, 1, -1);
+        if (ready > 0)
+            return 0;
+        if (ready < 0 && errno != EINTR)
+            return -__saw_rt_last_syserror();
+    }
+}
+
+/* Writes all of `iov[0..n)` to fd 1, resuming a partial write. */
+static long saw_writev_all(struct iovec *iov, int n) {
+    while (n > 0) {
+        ssize_t wrote = writev(1, iov, n);
+        if (wrote < 0) {
+            if (errno == EINTR)
+                continue;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                long status = saw_wait_writable();
+                if (status != 0)
+                    return status;
+                continue;
+            }
+            return -__saw_rt_last_syserror();
+        }
+        size_t left = (size_t)wrote;
+        while (n > 0 && left >= iov->iov_len) {
+            left -= iov->iov_len;
+            iov++;
+            n--;
+        }
+        if (n > 0) {
+            iov->iov_base = (char *)iov->iov_base + left;
+            iov->iov_len -= left;
+        }
+    }
+    return 0;
+}
+
+/* Writes `count` parts, then a line break when `newline` is set, under the
+ * output lock. Returns 0, or the negated tag of the first failure. */
+static long saw_write_parts(const saw_part *parts, long count, int newline) {
+    static const char line_break = '\n';
+    struct iovec iov[SAW_IOV_BATCH];
+    long status = 0;
+    long k = 0;
+    if (saw_output_depth == 0)
+        while (atomic_load(&saw_output_claims) > 0)
+            nanosleep(&saw_output_tick, NULL);
+    flockfile(stdout);
+    if (fflush(stdout) != 0)
+        status = -__saw_rt_last_syserror();
+    while (status == 0) {
+        int n = 0;
+        while (k < count && n < SAW_IOV_BATCH - 1) {
+            iov[n].iov_base = (void *)parts[k].ptr;
+            iov[n].iov_len = (size_t)parts[k].len;
+            n++;
+            k++;
+        }
+        int last = k == count;
+        if (last && newline) {
+            iov[n].iov_base = (void *)&line_break;
+            iov[n].iov_len = 1;
+            n++;
+        }
+        status = saw_writev_all(iov, n);
+        if (last)
+            break;
+    }
+    funlockfile(stdout);
+    return status;
+}
+
+long __saw_rt_write_line(const saw_part *parts, long count) {
+    return saw_write_parts(parts, count, 1);
+}
+
+long __saw_rt_write(const char *ptr, size_t len) {
+    saw_part part = { ptr, (long)len };
+    return saw_write_parts(&part, 1, 0);
+}
+
+void __saw_rt_output_lock(void) {
+    saw_output_claim();
+}
+
+void __saw_rt_output_unlock(void) {
+    saw_output_unclaim();
 }
 
 /* Standard error, unbuffered: `write(2)` on fd 2, so nothing a panic says
@@ -53,9 +211,13 @@ void __saw_rt_write_error(const char *ptr, size_t len) {
     }
 }
 
-/* The panic sink: write the message to standard error, then abort. */
+/* The panic sink: claim the output lock, write the message to standard
+ * error, then abort, never giving the claim back, so the message does not
+ * land inside another thread's line when a runner merges the two streams.
+ * The claim's wait is bounded (`saw_output_claim`). */
 __attribute__((noreturn))
 void __saw_rt_panic(const char *msg, size_t len) {
+    saw_output_claim();
     __saw_rt_write_error(msg, len);
     abort();
 }
@@ -144,7 +306,6 @@ void __saw_environ_set(char **env) {
  * and the one classifier, `__saw_rt_last_syserror` (net_os.saw), reads errno.
  * Handing it the number through errno keeps one errno-to-tag table and stamps
  * the raw code `__saw_rt_last_raw_code` answers. Returns the positive tag. */
-long __saw_rt_last_syserror(void);
 
 long __saw_classify_code(long code) {
     errno = (int)code;

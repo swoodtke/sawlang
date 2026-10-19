@@ -1,0 +1,40 @@
+// probe: custom
+// about: two threads each print 1000 numbered lines longer than a pipe's atomic write, and every line arrives whole, in each thread's order (SL-765)
+// Each line is the thread's number, the line's number, then `LINE_WIDTH`
+// bytes of `x`: past 4096, so a pipe's own atomicity would split it. The
+// lane runs the program many times at each level and reads every line back
+// (`check_print_lines`).
+import std.task.{Thread}
+
+static LINES: Int = 1000
+static LINE_WIDTH: Int = 5000
+
+// `LINE_WIDTH` bytes of `x`.
+func filler() unsafe -> String {
+    var text = StringBuilder()
+    var i = 0
+    while i < LINE_WIDTH {
+        try! text.append("x")
+        i = i + 1
+    }
+    text.build()
+}
+
+// Prints this thread's lines; returns how many.
+func print_lines(thread: Int) unsafe -> Int {
+    let text = filler()
+    var n = 0
+    while n < LINES {
+        print("{} {} {}", thread, n, text)
+        n = n + 1
+    }
+    n
+}
+
+func main() unsafe {
+    let one = 1
+    let two = 2
+    var first = try! Thread.spawn { [one] in print_lines(one) }
+    var second = try! Thread.spawn { [two] in print_lines(two) }
+    let _ = first.join() + second.join()
+}
