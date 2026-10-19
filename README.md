@@ -229,11 +229,12 @@ An operation with one failure mode returns that failure. One whose sources
 genuinely mix returns an enum with a case per source, each carrying the
 underlying error rather than restating it:
 
-```saw
+```saw-fragment
 public enum ChannelError {
     case Closed,
     case Cancelled,
-    case Alloc(e: AllocError)
+    case Alloc(e: AllocError),
+    case System(e: SystemError)
 }
 ```
 

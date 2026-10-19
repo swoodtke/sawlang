@@ -6,8 +6,7 @@
 // prints: drained after the close: true
 // The sum of 1..100 is 5050 whatever the interleaving. The producer closes
 // the channel once it has sent, and a second channel's `recv` waits for that
-// close's wake; `try_receive` then reports it, since `recv` panics on a
-// closed, drained channel.
+// close's wake; `try_receive` then reports it.
 import std.channel.{Channel}
 
 func main() {
@@ -26,10 +25,11 @@ func main() {
     var sum = 0
     var n = 0
     while n < 100 {
-        sum = sum + ch.recv()
+        let v = try! ch.recv()
+        sum = sum + v
         n = n + 1
     }
-    let finished = done.recv()
+    let finished = try! done.recv()
     let _p = producer.join()
     print(sum)
     var closed = false

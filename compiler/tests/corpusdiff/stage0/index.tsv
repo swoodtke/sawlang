@@ -3,7 +3,7 @@ D21_substituted_never_is_a_value.saw	arm64-apple-darwin	same	ab742aa1cd04	succes
 aggregate_copy_is_one_memcpy.saw	arm64-apple-darwin	same	9b27e39612bc	success	ok	0	202:0ba2e5154fe3	0:e3b0c44298fc	-	yes	-
 align_attribute_survives_optimization.saw	arm64-apple-darwin	same	4deaf61e8c36	success	ok	0	6:f456c1ffc6a3	0:e3b0c44298fc	-	yes	-
 align_nonresident_local_in_suspending_function.saw	arm64-apple-darwin	same	d4f6092ec7ee	success	ok	0	29:b0cac6ebd7a9	0:e3b0c44298fc	-	yes	-
-alloc_channel_send_reports_oom.saw	arm64-apple-darwin	same	b56f3b75433f	success	ok	0	131:dfd02335d0c8	0:e3b0c44298fc	-	yes	-
+alloc_channel_send_reports_oom.saw	arm64-apple-darwin	same	afc7af4959bd	success	ok	0	131:dfd02335d0c8	0:e3b0c44298fc	-	no: output line 2 is 'refused: the channel could not allocate a queue node: allocation of 16 bytes (align 16) failed', expected 'refused: the channel could not allocate memory: allocation of 16 bytes (align 16) failed'	-
 alloc_channel_taskgroup_reports_oom.saw	arm64-apple-darwin	differs	268c42897b60	success	ok	0	56:0811f2705bc4	0:e3b0c44298fc	-	yes	-
 alloc_collection_literal_panics_named.saw	arm64-apple-darwin	same	a83f11457e78	panic	ok	-6	115:d0bd97684cd6	0:e3b0c44298fc	-	yes	-
 alloc_custom_allocator.saw	arm64-apple-darwin	same	64b8b1d78dde	success	ok	0	24:45c550ce76d1	0:e3b0c44298fc	-	yes	-
@@ -144,7 +144,7 @@ cbor169_limits.saw	arm64-apple-darwin	same	905c1f02b26f	success	ok	0	624:375d45b
 cbor169_roundtrip.saw	arm64-apple-darwin	differs	6001929c71ba	success	ok	0	352:45f3a2406b8a	0:e3b0c44298fc	-	yes	-
 cbor169_vectors.saw	arm64-apple-darwin	differs	881ec15152c9	success	ok	0	70:6d81cc79e18e	0:e3b0c44298fc	-	yes	-
 chain_assign_exclusivity_in_literal.saw	arm64-apple-darwin	same	5c9c0f0cf6a9	error	refused	-	-	-	458:94c1cd5e1d99	yes	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
-channel_pipeline.saw	arm64-apple-darwin	same	c80d42cd7db3	success	refused	-	-	-	159:ce816748ba81	no: Stage 0 does not build it	Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+channel_pipeline.saw	arm64-apple-darwin	same	36d3b72bf664	success	refused	-	-	-	159:ce816748ba81	no: Stage 0 does not build it	Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 channel_receive_cancel_mt.saw	arm64-apple-darwin	same	f88deed20b85	success	ok	0	44:4d1a0f0e24f7	0:e3b0c44298fc	-	yes	-
 channel_receive_in_main.saw	arm64-apple-darwin	same	5af71c466c5b	success	ok	0	73:99cdee829195	0:e3b0c44298fc	-	yes	-
 channel_receive_through_helper.saw	arm64-apple-darwin	same	2a26ed217105	success	ok	0	22:3da13fc52aa9	0:e3b0c44298fc	-	yes	-
@@ -1722,7 +1722,7 @@ interp_escapes_scope.saw	arm64-apple-darwin	same	e2c07de8389f	success	ok	0	16:61
 interp_hot_loop.saw	arm64-apple-darwin	same	297d053a6f78	success	ok	0	7:14d01c6abd3f	0:e3b0c44298fc	-	yes	-
 interp_large_string.saw	arm64-apple-darwin	same	aa076b00d5de	success	ok	0	9:a5c4718a1195	0:e3b0c44298fc	-	yes	-
 interp_string_escaped_braces_and_control_bytes.saw	arm64-apple-darwin	same	f3cea296c531	success	ok	0	195:f6c21839b4d0	0:e3b0c44298fc	-	yes	-
-io_error_kind_and_raw_code.saw	arm64-apple-darwin	same	0348ded978ae	success	ok	0	358:1cf85a752412	0:e3b0c44298fc	-	yes	-
+io_error_kind_and_raw_code.saw	arm64-apple-darwin	same	ebd114509189	success	ok	0	358:1cf85a752412	0:e3b0c44298fc	-	no: output line 8 is 'channel alloc: the channel could not allocate a queue node: allocation of 64 bytes (align 8) failed', expected 'channel alloc: the channel could not allocate memory: allocation of 64 bytes (align 8) failed'	-
 iterator_custom.saw	arm64-apple-darwin	same	996da774c57c	success	ok	0	9:a1852ec81c3b	0:e3b0c44298fc	-	yes	-
 iterator_for_loop.saw	arm64-apple-darwin	same	ad2af0384d0e	success	ok	0	10:09bf9f1926b1	0:e3b0c44298fc	-	yes	-
 iterator_generic.saw	arm64-apple-darwin	same	b9a31e18254d	success	ok	0	5:ec6c7c68f7fe	0:e3b0c44298fc	-	yes	-

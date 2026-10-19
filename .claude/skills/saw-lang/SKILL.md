@@ -2266,7 +2266,8 @@ func main() {
 }
 sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
 try! ch.receive()           // cooperative receive -> Result<T, ChannelError>
-try! ch.send(1)             // ...and so do send/close (blocking twin: recv)
+try! ch.send(1)             // ...and so do send/close (blocking twin: recv, also
+                            //    Result<T, ChannelError>; Err(Closed) once drained)
 let _ = ch.close()          // the producer says it is finished; idempotent
 handle.cancel()             // cooperative cancellation; the task checks
 if cancelled() { ... }      //   `cancelled()` where it chooses to
@@ -2517,10 +2518,11 @@ dump_tasks()                // every live task's logical backtrace (std.task)
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
   Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,
-  case Alloc(e: AllocError) }` (a receive TIMEOUT is the reserved next case).
+  case Alloc(e: AllocError), case System(e: SystemError) }` (`System` is a
+  blocking `recv`'s refused lock; a receive TIMEOUT is the reserved next case).
   `Alloc` arrived with design 234 §1 and CARRIES the leaf error rather than
   restating its vocabulary — it renders through it (`the channel could not
-  allocate a queue node: allocation of 64 bytes (align 8) failed`), and adding a
+  allocate memory: allocation of 64 bytes (align 8) failed`), and adding a
   case makes an exhaustive `match` on a `ChannelError` a compile error until you
   handle it. The park is the mechanical half:
   a waiting receiver costs 0% CPU and is woken by a send or a close ON ITS OWN

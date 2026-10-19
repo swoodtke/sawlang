@@ -8462,8 +8462,10 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   (conservative 64-byte condvar slot; real `pthread_cond_t` is ≤48 bytes),
   initialized via `pthread_cond_init` — never a hardcoded struct.
   `send(v) -> Result<Void, ChannelError>` enqueues under the lock and wakes the
-  receivers parked on that channel; `recv() -> T` blocks the calling thread while
-  empty. `close() -> Result<Void, ChannelError>` is how a producer says it is
+  receivers parked on that channel; `recv() -> Result<T, ChannelError>` blocks the
+  calling thread while empty, and answers `Err(Closed)` once the channel is closed
+  and drained (a refused wait gate is `Err(Alloc(e))` or `Err(System(e))`, never
+  a panic). `close() -> Result<Void, ChannelError>` is how a producer says it is
   finished (design 230, below): there is no sender count to derive it from.
   `T: Send` is enforced on the type at construction.
 
@@ -9116,9 +9118,9 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   a sole waiter cost 100% of a core, two multi-threaded workers 143%. Treat a
   0%-CPU channel wait as working now and SUSPECT in older builds.
   NAMING: the cooperative method is `receive`;
-  the 21b thread engine's blocking `recv` keeps its name and is untouched (same
-  signature `(&self) -> T`, so overloading — which cannot differ by effect —
-  cannot distinguish the two). A `receive()` buried in an expression position is
+  the 21b thread engine's blocking `recv` keeps its name (same receiver and the
+  same `Result<T, ChannelError>`, so overloading — which cannot differ by
+  effect — cannot distinguish the two). A `receive()` buried in an expression position is
   hoisted to its own statement first (design 120), so `inc(ch.receive()) +
   ch.receive()` takes the two values left to right. **Never call `recv` from a
   cooperative task.** Its block is unbounded, and the thread it stops is the
@@ -9138,7 +9140,8 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   public enum ChannelError {
       case Closed,
       case Cancelled,
-      case Alloc(e: AllocError)      // design 234 §1: carry the leaf
+      case Alloc(e: AllocError),     // design 234 §1: carry the leaf
+      case System(e: SystemError)    // a blocking recv's refused lock
   }
   ```
 
@@ -9154,7 +9157,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   `Err(Alloc(e))` is the third: the allocator refused the queue node a `send`
   needed, and the case CARRIES the `AllocError` rather than restating its
   vocabulary, which is design 234 §1's rule for a compound domain enum. It
-  renders through the leaf — `the channel could not allocate a queue node:
+  renders through the leaf — `the channel could not allocate memory:
   allocation of 64 bytes (align 8) failed`.
   `ChannelError` is an enum because a receive TIMEOUT is the other legitimate way
   one of these calls can fail to deliver; that case is reserved, not yet built.
@@ -9328,9 +9331,11 @@ var producer = try! Thread.spawn { [ch] in
     try! ch.send(42)             // send/receive/close report through Result
     true
 }
-let got = ch.recv()              // blocks the calling thread (the thread
-                                 // engine's receive); the cooperative twin is
-                                 // the suspending receive() (below)
+let got = try! ch.recv()         // blocks the calling thread (the thread
+                                 // engine's receive); Err(Closed) once the
+                                 // channel is closed and drained. The
+                                 // cooperative twin is the suspending
+                                 // receive() (below)
 let _ = producer.join()
 ```
 

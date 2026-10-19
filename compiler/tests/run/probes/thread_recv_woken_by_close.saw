@@ -1,9 +1,9 @@
-// probe: panics
-// about: a `close` from a `Thread.spawn` body wakes a thread blocked in `Channel.recv`, which panics on the closed, drained channel rather than waiting on (SL-765)
-// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); with its infallible spawn the program prints these lines and panics with this text under it
+// probe: stated
+// about: a `close` from a `Thread.spawn` body wakes a thread blocked in `Channel.recv`, which returns `Err(Closed)` rather than waiting on or panicking (SL-777)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); its `recv` panics on the closed, drained channel where sawc2's returns `Err`
 // speeds: -O0 -O2
 // prints: waiting
-// panics: Channel.recv: channel is closed and drained
+// prints: woken: channel is closed
 // `main` blocks in `recv` before the thread closes, since the thread sleeps
 // first; the close must reach the blocked wait, or the program hangs.
 import std.channel.{Channel}
@@ -22,5 +22,8 @@ func main() {
     }
     closer.detach()
     print("waiting")
-    print("never reached {}", ch.recv())
+    match ch.recv() {
+        case Ok(v) -> print("woken: a value {}", v),
+        case Err(e) -> print("woken: {e}")
+    }
 }

@@ -15,7 +15,7 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 1
-// refused: the channel could not allocate a queue node: allocation of 16 bytes (align 16) failed
+// refused: the channel could not allocate memory: allocation of 16 bytes (align 16) failed
 // nothing was queued: true
 // after: 3
 

@@ -53,7 +53,7 @@ func main() {
         try! ch.send(42)
         true
     }
-    let got = ch.recv()
+    let got = try! ch.recv()
     let _ = producer.join()
     print("got {}", got)
 

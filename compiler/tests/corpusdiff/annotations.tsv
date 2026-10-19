@@ -1,4 +1,5 @@
 path	kind	reason
+alloc_channel_send_reports_oom.saw	stage0-wrong	SL-777: sawc2's `ChannelError.Alloc` describes itself as "the channel could not allocate memory"; Stage 0's frozen std keeps "a queue node". The program's own directives are the oracle
 alloc_data_reports_oom.saw	stage0-wrong	SL-735 ruling: a refused Data allocation reports the block's true size (header plus bytes, align 16); Stage 0 reports the bytes alone at align 1. This file's EXPECT-OUTPUT states the ruled size
 channel_pipeline.saw	stage0-wrong	SL-765 Q1 (b): `Thread.spawn` returns `Result<Thread<T>, SystemError>`, and the program writes `try!` on it; Stage 0's spawn is infallible, and it refuses `try! Thread.spawn` at parse (a `;` between two statements). The program's own directives are the oracle
 closure_spawn_arc_balance.saw	stage0-wrong	SL-765 Q1 (b): `Thread.spawn` returns `Result<Thread<T>, SystemError>`, and the program writes `try!` on it; Stage 0's spawn is infallible, and it refuses `try! Thread.spawn` at parse (a `;` between two statements). The program's own directives are the oracle

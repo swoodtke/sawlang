@@ -9,4 +9,4 @@ stdout	"refused: the channel could not allocate a queue node: allocation of 16 b
 stdout	"nothing was queued: true"
 stdout	"after: 3"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 2 is 'refused: the channel could not allocate a queue node: allocation of 16 bytes (align 16) failed', expected 'refused: the channel could not allocate memory: allocation of 16 bytes (align 16) failed'

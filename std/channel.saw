@@ -34,6 +34,7 @@
 //! nobody closes and nobody sends to is a deadlock.
 
 import std.mem.{drop_in_place}
+import std.systemerror.{SystemError}
 import std.task.{__saw_park_channel}
 import std.taskgroup.{__saw_exec_chan_wake}
 
@@ -45,7 +46,6 @@ extern "C" {
     // (runtime/ABI.md).
     func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<UInt8>) -> Int
     func __saw_rt_pthread_cond_init_default(c: UnsafePointer<UInt8>) -> Int
-    func __saw_rt_last_raw_code() -> Int
     func pthread_mutex_lock(m: UnsafePointer<UInt8>) -> Int32
     func pthread_mutex_unlock(m: UnsafePointer<UInt8>) -> Int32
     func pthread_mutex_destroy(m: UnsafePointer<UInt8>) -> Int32
@@ -101,7 +101,9 @@ struct ChannelNode<T> {
 /// `Closed` is reported by `receive` once a closed channel has been drained,
 /// and by `send` and `close` on a channel that is already closed. `Cancelled`
 /// is reported by `receive` when the waiting task was cancelled. `Alloc`
-/// carries the allocator's own refusal when a queue node cannot be made.
+/// carries the allocator's own refusal when a queue node or a blocked
+/// receiver's gate cannot be made. `System` carries the operating system's
+/// refusal of that gate's lock.
 public enum ChannelError {
     /// The channel was closed with `close()` and, for `receive`, drained.
     case Closed,
@@ -109,9 +111,14 @@ public enum ChannelError {
     /// the queue, so a cancelled consumer stops rather than taking one more
     /// message; nothing is dequeued and the channel is untouched.
     case Cancelled,
-    /// The allocator refused the queue node a `send` needed, with the size and
-    /// alignment it was asked for.
-    case Alloc(e: AllocError)
+    /// The allocator refused memory the channel needed, with the size and
+    /// alignment it was asked for: a queue node for `send`, or the gate a
+    /// blocking `recv` waits on.
+    case Alloc(e: AllocError),
+    /// The operating system refused the mutex or condition variable that a
+    /// blocking `recv` waits on, naming the operation and why. Nothing is
+    /// dequeued, and a later `recv` tries again.
+    case System(e: SystemError)
 }
 
 extension ChannelError {
@@ -120,17 +127,23 @@ extension ChannelError {
         match self {
             case Closed -> "channel is closed",
             case Cancelled -> "the receiving task was cancelled",
-            case Alloc(_) -> "the channel could not allocate a queue node"
+            case Alloc(_) -> "the channel could not allocate memory",
+            case System(_) -> "the operating system refused the channel's lock"
         }
     }
 }
 
 extension ChannelError: Printable {
     /// Writes the description, followed by the allocator's refusal for
-    /// `Alloc`.
+    /// `Alloc` and the operating system's for `System`.
     public func format(&self, into: &var StringBuilder) {
         match self {
             case Alloc(e) -> {
+                try! into.append(self.describe())
+                try! into.append(": ")
+                e.format(into: &var into)
+            },
+            case System(e) -> {
                 try! into.append(self.describe())
                 try! into.append(": ")
                 e.format(into: &var into)
@@ -258,20 +271,24 @@ extension Channel<T: Send> {
     /// stops with it, the one that would have sent the message included.
     /// Nothing in the type system prevents the call.
     ///
-    /// Panics on a channel that is closed and drained, since this signature
-    /// has no error to report it with, and blocking forever on a channel that
-    /// has said it is finished is what the panic replaces. Panics, too, if
-    /// the operating system refuses the condition variable the first wait
-    /// needs, naming the cause.
-    public func recv(&self) unsafe -> T {
+    /// - `Ok(v)`: a message, dequeued.
+    /// - `Err(Closed)`: the channel is closed and every message queued before
+    ///   the close has been handed out, so none will ever arrive.
+    /// - `Err(Alloc(e))`: the allocator refused the gate the first wait needs.
+    /// - `Err(System(e))`: the operating system refused that gate's mutex or
+    ///   condition variable.
+    ///
+    /// The two refusals leave the queue as it was, and the next `recv` tries
+    /// the gate again.
+    public func recv(&self) unsafe -> Result<T, ChannelError> {
         var drained = false
         var got = self.take(&var drained)
         while got.is_none() && not drained {
-            self.wait_ready()
+            try self.wait_ready()
             got = self.take(&var drained)
         }
         guard let v = move got else {
-            panic("Channel.recv: channel is closed and drained")
+            return ChannelError.Closed
         }
         move v
     }
@@ -283,9 +300,9 @@ extension Channel<T: Send> {
     // writer that counts one broadcasts under the gate's mutex, which the
     // waiter holds from its read until the wait releases it, so the
     // broadcast cannot fall between the two.
-    func wait_ready(&self) unsafe {
+    func wait_ready(&self) unsafe -> Result<Void, ChannelError> {
         let block = self.block
-        let gate = self.open_gate()
+        let gate = try self.open_gate()
         let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
         let waiters = (&block[0].waiters) as UnsafePointer<Int>
         let word = (&block[0].ready) as UnsafePointer<Int>
@@ -296,27 +313,36 @@ extension Channel<T: Send> {
         }
         let _ = __saw_atomic_add_i64_seq_cst(waiters, -1)
         let _ = pthread_mutex_unlock(gate)
+        return
     }
 
     // The gate `recv` waits on, made under the queue's lock by the first
     // wait. Its store happens before that waiter counts itself, so a writer
-    // that counts a waiter finds the gate made.
-    func open_gate(&self) unsafe -> UnsafePointer<UInt8> {
+    // that counts a waiter finds the gate made. A refusal releases the lock
+    // and frees what was made, leaving no gate, so the next wait tries again.
+    func open_gate(&self) unsafe -> Result<UnsafePointer<UInt8>, ChannelError> {
         let block = self.block
         self.lock_queue()
         if (block[0].gate as Int) == 0 {
             let size = 2 * CHANNEL_GATE_SLOT
             guard let raw = GlobalAllocator().alloc(size, CHANNEL_ALIGN) else {
-                panic("Channel.recv: {}", AllocError(size: size, align: CHANNEL_ALIGN))
+                self.unlock_queue()
+                return ChannelError.Alloc(e: AllocError(size: size, align: CHANNEL_ALIGN))
             }
             let gate = raw as UnsafePointer<UInt8>
-            if __saw_rt_pthread_mutex_init_default(gate) != 0 {
-                panic("Channel.recv: initializing its mutex failed (errno {})", __saw_rt_last_raw_code())
+            let mutex_status = __saw_rt_pthread_mutex_init_default(gate)
+            if mutex_status != 0 {
+                GlobalAllocator().dealloc(raw as UnsafePointer<Int8>, size, CHANNEL_ALIGN)
+                self.unlock_queue()
+                return ChannelError.System(e: SystemError.of("pthread_mutex_init", 0 - mutex_status))
             }
             let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
-            if __saw_rt_pthread_cond_init_default(cond) != 0 {
-                panic("Channel.recv: initializing its condition variable failed (errno {})",
-                      __saw_rt_last_raw_code())
+            let cond_status = __saw_rt_pthread_cond_init_default(cond)
+            if cond_status != 0 {
+                let _ = pthread_mutex_destroy(gate)
+                GlobalAllocator().dealloc(raw as UnsafePointer<Int8>, size, CHANNEL_ALIGN)
+                self.unlock_queue()
+                return ChannelError.System(e: SystemError.of("pthread_cond_init", 0 - cond_status))
             }
             block[0].gate = gate
         }

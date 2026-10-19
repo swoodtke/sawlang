@@ -18,7 +18,7 @@ static MOST_NAPS: Int = 1000
 func main() {
     let handles = try! Channel<Thread<Int>>()
     var t = try! Thread.spawn { [handles] in
-        var own = handles.recv()
+        var own = try! handles.recv()
         print("joining my own handle")
         own.join()
     }

@@ -23,7 +23,7 @@
 // a std-raised failure carries none: true
 // an unmapped tag is Unknown: true
 // Unknown renders as: other error
-// channel alloc: the channel could not allocate a queue node: allocation of 64 bytes (align 8) failed
+// channel alloc: the channel could not allocate memory: allocation of 64 bytes (align 8) failed
 // channel closed: channel is closed
 
 import std.file.*
