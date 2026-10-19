@@ -541,20 +541,41 @@ extension LlEmitter {
         // with the cause, as Stage 0's offload does, rather than park on a job
         // that does not exist (runtime/ABI.md).
         let job_at = self.offset_addr("%frame", point.slot)
-        self.declare("__saw_rt_offload_start", "declare i64 @__saw_rt_offload_start(i64, i64, i64, ptr)")
+        let word = self.word
+        var declaration = StringBuilder()
+        try! declaration.append("declare ")
+        try! declaration.append(word)
+        try! declaration.append(" @__saw_rt_offload_start(")
+        try! declaration.append(word)
+        try! declaration.append(", ")
+        try! declaration.append(word)
+        try! declaration.append(", ")
+        try! declaration.append(word)
+        try! declaration.append(", ptr)")
+        self.declare("__saw_rt_offload_start", declaration.build())
         var call = StringBuilder()
-        try! call.append("call i64 @__saw_rt_offload_start(i64 ")
+        try! call.append("call ")
+        try! call.append(word)
+        try! call.append(" @__saw_rt_offload_start(")
+        try! call.append(word)
+        try! call.append(" ")
         try! call.append(fn)
-        try! call.append(", i64 ")
+        try! call.append(", ")
+        try! call.append(word)
+        try! call.append(" ")
         try! call.append(argp)
-        try! call.append(", i64 ")
+        try! call.append(", ")
+        try! call.append(word)
+        try! call.append(" ")
         try! call.append(sig.params.len())
         try! call.append(", ptr ")
         try! call.append(job_at)
         try! call.append(")")
         let status = self.assign(call.build())
         var test = StringBuilder()
-        try! test.append("icmp eq i64 ")
+        try! test.append("icmp eq ")
+        try! test.append(word)
+        try! test.append(" ")
         try! test.append(status)
         try! test.append(", 0")
         let started = self.assign(test.build())
@@ -562,8 +583,18 @@ extension LlEmitter {
         let fail = self.new_label("offload.refused")
         self.branch(started, pass, fail)
         self.put_label(fail)
-        self.declare("__saw_rt_last_raw_code", "declare i64 @__saw_rt_last_raw_code()")
-        let raw = self.assign("call i64 @__saw_rt_last_raw_code()")
+        var raw_declaration = StringBuilder()
+        try! raw_declaration.append("declare ")
+        try! raw_declaration.append(word)
+        try! raw_declaration.append(" @__saw_rt_last_raw_code()")
+        self.declare("__saw_rt_last_raw_code", raw_declaration.build())
+        var raw_call = StringBuilder()
+        try! raw_call.append("call ")
+        try! raw_call.append(word)
+        try! raw_call.append(" @__saw_rt_last_raw_code()")
+        let raw_word = self.assign(raw_call.build())
+        let bits = self.word_bits
+        let raw = self.int_convert(raw_word, bits, 64, true)
         var parts = LlParts()
         ll_parts_push(&var parts, LL_PART_SIGNED, raw, "")
         let close = self.text_bytes(")")
@@ -584,10 +615,21 @@ extension LlEmitter {
             return
         }
         let job_at = self.offset_addr("%frame", point.slot)
-        let job = self.load("i64", job_at)
-        self.declare("__saw_rt_offload_take", "declare i64 @__saw_rt_offload_take(i64)")
+        let wt = self.word
+        let job = self.load(wt, job_at)
+        var declaration = StringBuilder()
+        try! declaration.append("declare ")
+        try! declaration.append(wt)
+        try! declaration.append(" @__saw_rt_offload_take(")
+        try! declaration.append(wt)
+        try! declaration.append(")")
+        self.declare("__saw_rt_offload_take", declaration.build())
         var call = StringBuilder()
-        try! call.append("call i64 @__saw_rt_offload_take(i64 ")
+        try! call.append("call ")
+        try! call.append(wt)
+        try! call.append(" @__saw_rt_offload_take(")
+        try! call.append(wt)
+        try! call.append(" ")
         try! call.append(job)
         try! call.append(")")
         let word = self.assign(call.build())
@@ -826,7 +868,8 @@ extension LlEmitter {
                 } else {
                     try! v.append(l.align)
                 }
-                self.store("i64", v.build(), dest)
+                let word = self.word
+                self.store(word, v.build(), dest)
             }
         } else if name.equals("init") {
             return
@@ -863,7 +906,8 @@ extension LlEmitter {
             let dest = self.place_addr(&var mono, &var target, info.dest, info.node)
             var v = StringBuilder()
             try! v.append(l.length)
-            self.store("i64", v.build(), dest)
+            let word = self.word
+            self.store(word, v.build(), dest)
         }
     }
 
@@ -1074,12 +1118,17 @@ extension LlEmitter {
             let at = self.offset_addr(table, k * record)
             self.store("ptr", run, at)
             let length_at = self.offset_addr(table, k * record + target.word)
-            self.store("i64", length, length_at)
+            let word = self.word
+            let bits = self.word_bits
+            let narrow = self.int_convert(length, 64, bits, false)
+            self.store(word, narrow, length_at)
             k = k + 1
         }
         let status = self.write_line(table, count)
         var failed = StringBuilder()
-        try! failed.append("icmp ne i64 ")
+        try! failed.append("icmp ne ")
+        try! failed.append(self.word)
+        try! failed.append(" ")
         try! failed.append(status)
         try! failed.append(", 0")
         let bit = self.assign(failed.build())
@@ -1198,7 +1247,9 @@ extension LlEmitter {
         if mono.dp.bc.mir.tc.is_string(t) {
             let text = self.string_addr(&var mono, &var target, o, node)
             let bytes = self.string_bytes_of(&var mono, text, node)
-            let len = self.string_length(&var mono, text, node)
+            let len_word = self.string_length(&var mono, text, node)
+            let bits = self.word_bits
+            let len = self.int_convert(len_word, bits, 64, false)
             ll_parts_push(&var parts, LL_PART_RUN, bytes, len)
             return
         }
@@ -1322,7 +1373,9 @@ extension LlEmitter {
             return "0"
         }
         var call = StringBuilder()
-        try! call.append("call i64 ")
+        try! call.append("call ")
+        try! call.append(self.word)
+        try! call.append(" ")
         let role = mono.length_item
         try! call.append(self.plain_symbol(&var mono, role))
         try! call.append("(ptr ")

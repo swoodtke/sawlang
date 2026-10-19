@@ -45,6 +45,10 @@ public struct LlEmitter {
     // end of its run (`put_poisons`).
     poison_next: Int
     poison_end: Int
+    // The integer type a word spells, the target's `Int`, and its width in
+    // bits: set once per program (`llvm_emit_program`).
+    word: String
+    word_bits: Int
 }
 
 extension LlEmitter: NoCopy {}
@@ -111,7 +115,8 @@ extension LlEmitter {
         LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
                   pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
                   body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
-                  lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0)
+                  lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0,
+                  word: "", word_bits: 0)
     }
 }
 

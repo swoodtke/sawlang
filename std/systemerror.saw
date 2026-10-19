@@ -209,7 +209,7 @@ extension SystemError {
     //     File.rename
     //     Command.wait
     //     Thread.__saw_started
-    //     print_failed
+    //     std.panic.print_failure
     public(package) static func of(operation: String, tag: Int) -> SystemError {
         SystemError(operation: operation, kind: system_error_kind(tag), code: __saw_rt_last_raw_code())
     }

@@ -101,7 +101,8 @@ extension LlEmitter {
                     if not array {
                         base = self.load("ptr", addr)
                     }
-                    let i = self.load("i64", index.build())
+                    let word = self.word
+                    let i = self.load(word, index.build())
                     if array {
                         self.check_index(&var mono, i, base_layout.length, node)
                     }
@@ -144,11 +145,13 @@ extension LlEmitter {
         self.assign(widen.build())
     }
 
-    // The address of element `i`, an i64, of the elements at `base`, which
+    // The address of element `i`, a word, of the elements at `base`, which
     // lie `size` bytes apart.
     public func element_addr(&var self, base: String, i: String, size: Int) -> String {
         var mul = StringBuilder()
-        try! mul.append("mul i64 ")
+        try! mul.append("mul ")
+        try! mul.append(self.word)
+        try! mul.append(" ")
         try! mul.append(i)
         try! mul.append(", ")
         try! mul.append(size)
@@ -156,16 +159,20 @@ extension LlEmitter {
         var gep = StringBuilder()
         try! gep.append("getelementptr i8, ptr ")
         try! gep.append(base)
-        try! gep.append(", i64 ")
+        try! gep.append(", ")
+        try! gep.append(self.word)
+        try! gep.append(" ")
         try! gep.append(scaled)
         self.assign(gep.build())
     }
 
-    // A fixed array's bounds check: index `i`, an i64, is in `0 ..< length`,
+    // A fixed array's bounds check: index `i`, a word, is in `0 ..< length`,
     // or the program panics as Stage 0's does, naming both (DF-249a).
     public func check_index(&var self, mono: &var MonoProgram, i: String, length: Int, node: Int) {
         var test = StringBuilder()
-        try! test.append("icmp ult i64 ")
+        try! test.append("icmp ult ")
+        try! test.append(self.word)
+        try! test.append(" ")
         try! test.append(i)
         try! test.append(", ")
         try! test.append(length)
@@ -175,7 +182,17 @@ extension LlEmitter {
         self.branch(within, pass, fail)
         self.put_label(fail)
         var parts = LlParts()
-        ll_parts_push(&var parts, LL_PART_SIGNED, i, "")
+        var wide = i
+        if self.word_bits != 64 {
+            var extend = StringBuilder()
+            try! extend.append("sext ")
+            try! extend.append(self.word)
+            try! extend.append(" ")
+            try! extend.append(i)
+            try! extend.append(" to i64")
+            wide = self.assign(extend.build())
+        }
+        ll_parts_push(&var parts, LL_PART_SIGNED, wide, "")
         var tail = StringBuilder()
         try! tail.append(" (len ")
         try! tail.append(length)

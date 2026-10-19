@@ -277,7 +277,14 @@ extension LlEmitter {
             try! entry.append("\n  store ptr %cx, ptr ")
             try! entry.append(ll_local_slot(resume.context_local))
         }
-        try! entry.append("\n  %state = load i64, ptr %frame\n  switch i64 %state, label %coro.done [ i64 ")
+        let word = self.word
+        try! entry.append("\n  %state = load ")
+        try! entry.append(word)
+        try! entry.append(", ptr %frame\n  switch ")
+        try! entry.append(word)
+        try! entry.append(" %state, label %coro.done [ ")
+        try! entry.append(word)
+        try! entry.append(" ")
         try! entry.append(CORO_STATE_START)
         try! entry.append(", label %bb0")
         j = 0
@@ -288,7 +295,9 @@ extension LlEmitter {
             if point.state < 0 {
                 continue
             }
-            try! entry.append(" i64 ")
+            try! entry.append(" ")
+            try! entry.append(word)
+            try! entry.append(" ")
             try! entry.append(point.state)
             try! entry.append(", label %")
             try! entry.append(ll_state_label("coro.state", point.state))
@@ -347,7 +356,8 @@ extension LlEmitter {
                 let start = self.offset_addr("%frame", point.slot)
                 var zero = StringBuilder()
                 try! zero.append(CORO_STATE_START)
-                self.store("i64", zero.build(), start)
+                let word = self.word
+                self.store(word, zero.build(), start)
                 self.jump(drive)
                 self.put_label(drive)
                 let child = self.offset_addr("%frame", point.slot)
@@ -443,7 +453,9 @@ extension LlEmitter {
             var declaration = StringBuilder()
             try! declaration.append("declare void @")
             try! declaration.append(name)
-            try! declaration.append("(ptr, i64)")
+            try! declaration.append("(ptr, ")
+            try! declaration.append(self.word)
+            try! declaration.append(")")
             self.declare(name, declaration.build())
             let addr = self.offset_addr("%frame", step.offset)
             var call = StringBuilder()
@@ -451,7 +463,9 @@ extension LlEmitter {
             try! call.append(name)
             try! call.append("(ptr ")
             try! call.append(addr)
-            try! call.append(", i64 ")
+            try! call.append(", ")
+            try! call.append(self.word)
+            try! call.append(" ")
             try! call.append(step.size)
             try! call.append(")")
             self.put(call.build())
@@ -532,7 +546,8 @@ extension LlEmitter {
     func put_state(&var self, state: Int) {
         var v = StringBuilder()
         try! v.append(state)
-        self.store("i64", v.build(), "%frame")
+        let word = self.word
+        self.store(word, v.build(), "%frame")
     }
 
     // Returns `poll` from the resume function.

@@ -30,6 +30,12 @@ import sawtypecheck.typeops.{TcClient}
 public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lowering: LlLowering, speed: String,
                               module_triple: String) -> String {
     var e = LlEmitter(lowering: move lowering)
+    // The integer type of a word, as `word_type` spells it for `Int`.
+    var word = StringBuilder()
+    try! word.append("i")
+    try! word.append(target.word * 8)
+    e.word = word.build()
+    e.word_bits = target.word * 8
     // The helpers copy with it whether or not any function does.
     e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
     // A program's entry point defines the argument accessors (runtime/ABI.md,
@@ -143,7 +149,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         try! out.append(ll_fail_helpers(symbol))
         let renderer = mono.print_failure_item
         if renderer >= 0 {
-            try! out.append(ll_print_failure_helper(e.plain_symbol(&var mono, renderer)))
+            let renderer_symbol = e.plain_symbol(&var mono, renderer)
+            try! out.append(ll_print_failure_helper(renderer_symbol, e.word, e.word_bits))
         }
     }
     try! out.append("\n\n")
@@ -199,7 +206,9 @@ extension LlEmitter {
             mono.refuse(-1, "backend.not-yet", "a `main` returning anything but Void or Int is not in the backend slice yet")
         } else if r >= 0 {
             let resume = self.lowering.resumes[r]
-            try! out.append("  store i64 ")
+            try! out.append("  store ")
+            try! out.append(self.word)
+            try! out.append(" ")
             try! out.append(CORO_STATE_START)
             try! out.append(", ptr %frame\n  call void ")
             // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(self.plain_symbol(&var mono, mono.exec_item))
@@ -285,21 +294,46 @@ extension LlEmitter {
         }
         try! out.append("  ret void\n\}\n\n")
         try! out.append(ll_descriptor_symbol(&mono, k))
-        try! out.append(" = private unnamed_addr constant \{ ptr, ptr, i64, i64, i64, i64, i64, ptr, ptr, i64 \} \{ ptr ")
+        let w = self.word
+        try! out.append(" = private unnamed_addr constant \{ ptr, ptr, ")
+        try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(", ptr, ptr, ")
+        try! out.append(w)
+        try! out.append(" \} \{ ptr ")
         try! out.append(ll_resume_value_symbol(&mono, k))
-        try! out.append(", ptr null, i64 ")
+        try! out.append(", ptr null, ")
+        try! out.append(w)
+        try! out.append(" ")
         try! out.append(resume.size)
-        try! out.append(", i64 ")
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
         try! out.append(resume.align)
-        try! out.append(", i64 ")
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
         try! out.append(resume.result)
-        try! out.append(", i64 ")
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
         try! out.append(l.size)
-        try! out.append(", i64 ")
+        try! out.append(", ")
+        try! out.append(w)
+        try! out.append(" ")
         try! out.append(if l.align > 0 { l.align } else { 1 })
         try! out.append(", ptr ")
         try! out.append(ll_result_drop_symbol(&mono, k))
-        try! out.append(", ptr null, i64 -1 \}\n\n")
+        try! out.append(", ptr null, ")
+        try! out.append(w)
+        try! out.append(" -1 \}\n\n")
         out.build()
     }
 }
@@ -445,17 +479,35 @@ func ll_helpers() -> String {
 // names, writes the cause from the write's status into this frame's scratch,
 // and `__saw_fail` panics with it at the site, cut and marked as every
 // message is.
-func ll_print_failure_helper(renderer: String) -> String {
+func ll_print_failure_helper(renderer: String, word: String, bits: Int) -> String {
     var out = StringBuilder()
-    try! out.append("\n\ndefine internal void @__saw_fail_print(ptr %file, i64 %file_len, i64 %line, i64 %status)")
+    try! out.append("\n\ndefine internal void @__saw_fail_print(ptr %file, i64 %file_len, i64 %line, ")
+    try! out.append(word)
+    try! out.append(" %status)")
     try! out.append(ll_function_attributes("noinline noreturn"))
     try! out.append(" \{\nentry:\n  %cause = alloca [")
     try! out.append(LL_MESSAGE_LIMIT + 4)
-    try! out.append(" x i8], align 1\n  %n = call i64 ")
+    try! out.append(" x i8], align 1\n  %n = call ")
+    try! out.append(word)
+    try! out.append(" ")
     try! out.append(renderer)
-    try! out.append("(i64 %status, ptr %cause, i64 ")
+    try! out.append("(")
+    try! out.append(word)
+    try! out.append(" %status, ptr %cause, ")
+    try! out.append(word)
+    try! out.append(" ")
     try! out.append(LL_MESSAGE_LIMIT + 4)
-    try! out.append(")\n  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %cause, i64 %n)\n")
+    try! out.append(")\n")
+    var wide = "%n"
+    if bits != 64 {
+        try! out.append("  %n.wide = zext ")
+        try! out.append(word)
+        try! out.append(" %n to i64\n")
+        wide = "%n.wide"
+    }
+    try! out.append("  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %cause, i64 ")
+    try! out.append(wide)
+    try! out.append(")\n")
     try! out.append("  unreachable\n\}")
     out.build()
 }
