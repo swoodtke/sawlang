@@ -35,7 +35,7 @@ extension LlEmitter {
             try! call.append("void")
         }
         try! call.append(" ")
-        try! call.append(ll_symbol(&mono, item))
+        try! call.append(self.plain_symbol(&var mono, item))
         try! call.append("(")
         var first = true
         if ret.kind == TargetKind.Memory {

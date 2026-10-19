@@ -31,7 +31,7 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
+import sawtypecheck.model.{TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
 import sawtypecheck.summaries.{TcAcc}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -320,6 +320,14 @@ extension MonoProgram {
 
     // Type `t` with item `k`'s concrete arguments in place of its parameters.
     public func concrete_type(&var self, k: Int, t: Int) -> Int {
+        let out = self.substituted(k, t)
+        self.refuse_narrow_atomics(k, out)
+        out
+    }
+
+    // `concrete_type` without its refusal, for a type that only answers a
+    // question about item `k` and is no position of its body.
+    func substituted(&var self, k: Int, t: Int) -> Int {
         if t < 0 || not self.dp.bc.mir.tc.mentions_param(t) {
             return t
         }
@@ -346,7 +354,6 @@ extension MonoProgram {
             let s = TcSubst(owner: it.func_decl, args: move inst)
             out = self.dp.bc.mir.tc.subst(out, &s)
         }
-        self.refuse_narrow_atomics(k, out)
         out
     }
 
@@ -673,21 +680,44 @@ extension MonoProgram {
 
     // Whether call `info`, copied into thread-context item `k`, is a plain
     // call there though its source marks it a suspension point: one that
-    // suspends only by `blocking`, made in a helper whose MIR its cooperative
-    // callers share (`thread_plain_call`).
+    // suspends only by `blocking` at `k`'s arguments, made in a helper whose
+    // MIR its cooperative callers share (`thread_plain_call`). A call through
+    // a bound is `When` in that MIR, and its instance answers it.
     func thread_plain_copy(&var self, k: Int, info: &MirCall) -> Bool {
-        if info.suspend != MirSuspend.Always || info.node < 0 || self.dp.bc.mir.tc.call_at[info.node] < 0 {
+        if info.suspend == MirSuspend.Never || not self.is_thread_item(k) {
             return false
         }
-        if not self.is_thread_item(k) {
-            return false
-        }
+        var acc = self.instance_effect(k, &info)
+        self.dp.bc.mir.thread_plain_call(true, &acc)
+    }
+
+    // What call `info`, in item `k`'s body, adds at `k`'s arguments:
+    // typecheck's evaluation at the call's source, each condition it keeps
+    // over the source's own type parameters answered at the type `k` puts
+    // there. A generic's summary before instantiation says only "when the
+    // bound's method does", which no key may be chosen from (SL-776).
+    func instance_effect(&var self, k: Int, info: &MirCall) -> TcAcc {
         let source = self.items[k].source
         let owner = self.dp.bc.mir.funcs[source].owner
         var acc = TcAcc(owner: owner, unit: -1)
         let node = info.node
+        if node < 0 || self.dp.bc.mir.tc.call_at[node] < 0 {
+            return move acc
+        }
         self.dp.bc.mir.call_effect(node, &info, &var acc)
-        self.dp.bc.mir.thread_plain_call(true, &acc)
+        var j = 0
+        while j < acc.suspend_atoms.len() {
+            let a = acc.suspend_atoms[j]
+            j = j + 1
+            let t = self.substituted(k, a.ty)
+            var at = TcAcc(owner: -1, unit: -1)
+            self.dp.bc.mir.tc.eval_condition(t, a.req, node, true, &var at)
+            if at.suspends {
+                acc.suspends = true
+            }
+            acc.causes = acc.causes | at.causes
+        }
+        move acc
     }
 
     func copy_rvalue(&var self, k: Int, r: Int) -> Int {
@@ -962,7 +992,7 @@ extension MonoProgram {
                     }
                 }
                 let body = self.body_of[target.decl]
-                let key = self.callee_key(k, &info, target.decl)
+                let key = self.callee_key(k, &info)
                 let item = self.call_item_of(k, body, target.decl, target.self_type, &info, key)
                 self.set_call_item(c, item)
                 self.resolve_park(k, target.decl, info.node)
@@ -975,7 +1005,8 @@ extension MonoProgram {
                 }
                 let body = self.defaults.value(at)
                 let decl = info.target
-                let item = self.call_item_of(k, body, decl, -1, &info, MONO_KEY_FUNCTION)
+                let key = self.callee_key(k, &info)
+                let item = self.call_item_of(k, body, decl, -1, &info, key)
                 self.set_call_item(c, item)
             },
             case WindowOpen -> self.resolve_window(k, c, &info),
@@ -985,16 +1016,21 @@ extension MonoProgram {
         }
     }
 
-    // The key of the item call `info` in item `k` reaches, declaration `d`'s
-    // body: a thread-context item for a plain call from one to a function
-    // that suspends only by `blocking`, so its own `blocking` calls are plain
-    // there too; the ordinary item otherwise.
-    func callee_key(&self, k: Int, info: &MirCall, d: Int) -> Int {
-        if info.suspend != MirSuspend.Never || d < 0 || d >= self.dp.bc.mir.tc.summaries.len() {
+    // THE THREAD KEY FUNNEL: the key of the item call `info` in item `k`
+    // reaches. A plain call from a thread-context item to a body that, at
+    // the call's instance, suspends only by `blocking` reaches that body's
+    // thread-context item, where its own `blocking` calls are plain too; the
+    // ordinary item is a frame there, which a plain call cannot run. Every
+    // other call reaches the ordinary item.
+    // ENTRY POINTS:
+    //     resolve_call
+    //     resolve_window
+    func callee_key(&var self, k: Int, info: &MirCall) -> Int {
+        if info.suspend != MirSuspend.Never || not self.is_thread_item(k) {
             return MONO_KEY_FUNCTION
         }
-        let s = self.dp.bc.mir.tc.summaries[d]
-        if s.suspends && s.causes == TC_CAUSE_BLOCKING && self.is_thread_item(k) {
+        var acc = self.instance_effect(k, &info)
+        if self.dp.bc.mir.thread_plain_call(true, &acc) {
             return MONO_KEY_THREAD
         }
         MONO_KEY_FUNCTION
@@ -1080,7 +1116,8 @@ extension MonoProgram {
         }
         let half = info.half
         let decl = info.target
-        let item = self.call_item_of(k, half, decl, -1, &info, MONO_KEY_FUNCTION)
+        let key = self.callee_key(k, &info)
+        let item = self.call_item_of(k, half, decl, -1, &info, key)
         self.set_call_item(c, item)
     }
 

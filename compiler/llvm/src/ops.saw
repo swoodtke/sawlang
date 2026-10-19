@@ -11,7 +11,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_DIVIDE, LL_FAIL_OVERFLOW, LL_FAIL_SHIFT, LL_MESSAGE_LIMIT}
 import sawllvm.erased.{ll_vtable_symbol}
-import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_is_scalar, ll_value_type}
 import sawllvm.places.{ll_local_slot, ll_tag_type}
 import sawllvm.literals.{ll_zero_constant}
 import sawllvm.render.{ll_spelled}
@@ -135,7 +135,8 @@ extension LlEmitter {
             self.operand_into(&var mono, &var target, o, at, t, node)
             k = k + 1
         }
-        self.store("ptr", ll_symbol(&mono, item), dest)
+        let code = self.plain_symbol(&var mono, item)
+        self.store("ptr", code, dest)
         let env_at = self.offset_addr(dest, target.closure_env_offset())
         self.store("ptr", env, env_at)
     }
@@ -428,7 +429,7 @@ extension LlEmitter {
         if equality {
             var call = StringBuilder()
             try! call.append("call i8 ")
-            try! call.append(ll_symbol(&mono, item))
+            try! call.append(self.plain_symbol(&var mono, item))
             try! call.append("(ptr ")
             try! call.append(x)
             try! call.append(", ptr ")
@@ -451,7 +452,7 @@ extension LlEmitter {
         let result = self.slot(ol.size, ol.align)
         var call = StringBuilder()
         try! call.append("call void ")
-        try! call.append(ll_symbol(&mono, item))
+        try! call.append(self.plain_symbol(&var mono, item))
         try! call.append("(ptr ")
         try! call.append(result)
         try! call.append(", ptr ")

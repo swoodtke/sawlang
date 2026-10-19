@@ -124,6 +124,31 @@ extension LlEmitter {
         }
         self.lowering.resume_of[k]
     }
+
+    // THE PLAIN-CALL FUNNEL: the symbol a plain call, or a code address,
+    // names for function item `k`. An item with a lowered frame is emitted as
+    // its resume function and nothing else, so naming its plain symbol is a
+    // compiler problem, recorded here instead of reaching clang as an
+    // undefined value (SL-776).
+    // ENTRY POINTS:
+    //     call_term
+    //     call_item_direct
+    //     closure_into
+    //     string_comparison
+    //     string_bytes_of
+    //     string_length
+    //     thread_trampoline
+    //     vtable
+    public func plain_symbol(&self, mono: &var MonoProgram, k: Int) -> String {
+        if self.resume_of(k) >= 0 {
+            var msg = StringBuilder()
+            try! msg.append("a plain call names `")
+            try! msg.append(mono.item_name(k))
+            try! msg.append("`, which has a lowered frame and no plain function")
+            try! mono.problems.push(msg.build())
+        }
+        ll_symbol(&mono, k)
+    }
 }
 
 // The symbol of item `k`'s resume function.

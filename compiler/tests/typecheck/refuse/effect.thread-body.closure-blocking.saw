@@ -1,0 +1,32 @@
+// refuses: effect.thread-body at 30:33
+// flags: --std-root std
+// a closure in a `Thread.spawn` body whose call reaches a `blocking` extern
+// through a bound, passed to a parameter not declared `sync`: the call through
+// the function value is refused, the closure body's suspension with it (SL-776)
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+trait Napper {
+    func nap(&self, ms: Int) -> Int
+}
+
+struct Sleeper { id: Int }
+
+extension Sleeper: Napper {
+    func nap(&self, ms: Int) -> Int { __saw_rt_blocking_sleep(ms) + self.id }
+}
+
+func nap_through<T: Napper>(who: T, ms: Int) -> Int {
+    who.nap(ms)
+}
+
+func run_int(body: () -> Int) -> Int {
+    body()
+}
+
+func main() {
+    var t = try! Thread.spawn { run_int({ nap_through(Sleeper(id: 1), 2) }) }
+    print(t.join())
+}

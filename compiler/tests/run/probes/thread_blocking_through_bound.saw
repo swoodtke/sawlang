@@ -1,0 +1,102 @@
+// probe: stated
+// about: a `blocking` extern reached through a generic bound or a trait's default body is a plain call from a `Thread.spawn` body and offloaded from a task body (SL-776)
+// stage 0: refuses `try! Thread.spawn` at parse (SL-765 Q1 (b))
+// speeds: -O0 -O2
+// ll defines: saw thread_blocking_through_bound.nap_through(who: T, ms: Int) inst thread_blocking_through_bound.Sleeper thread
+// ll defines: saw thread_blocking_through_bound.Sleeper.nap(ms: Int) thread
+// ll defines: saw thread_blocking_through_bound.Napper.nap_twice(ms: Int) self thread_blocking_through_bound.Sleeper thread
+// ll defines: saw resume thread_blocking_through_bound.nap_through(who: T, ms: Int) inst thread_blocking_through_bound.Sleeper
+// prints: through a bound 3
+// prints: through a helper 12
+// prints: two bounds deep 22
+// prints: a generic struct's method 32
+// prints: a generic struct's init 42
+// prints: a default body 104
+// prints: a default body through a bound 124
+// prints: a nested thread 72
+// prints: a bound that never blocks 82
+// prints: offloaded from a task 12
+// Each call's key is decided at its instance: before instantiation a generic
+// suspends only "when the bound's method does", and the thread's item of the
+// instance, with the bound method's, is what a plain call there reaches. The
+// task calls the same helper and reaches the ordinary items, which are frames.
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+trait Napper {
+    func nap(&self, ms: Int) -> Int
+    func nap_twice(&self, ms: Int) -> Int { self.nap(ms) + self.nap(ms) }
+}
+
+struct Sleeper { id: Int }
+
+extension Sleeper: Napper {
+    func nap(&self, ms: Int) -> Int { __saw_rt_blocking_sleep(ms) + self.id }
+}
+
+struct Quiet { id: Int }
+
+extension Quiet: Napper {
+    func nap(&self, ms: Int) -> Int { ms + self.id }
+}
+
+func nap_through<T: Napper>(who: T, ms: Int) -> Int {
+    who.nap(ms)
+}
+
+func napped(ms: Int) -> Int {
+    nap_through(Sleeper(id: 10), ms)
+}
+
+func outer<U: Napper>(who: U, ms: Int) -> Int {
+    nap_through(who, ms)
+}
+
+func twice_through<T: Napper>(who: T, ms: Int) -> Int {
+    who.nap_twice(ms)
+}
+
+struct Holder<T: Napper> { who: T }
+
+extension Holder<T: Napper> {
+    func go(&self, ms: Int) -> Int { self.who.nap(ms) }
+}
+
+struct Measured<T: Napper> { who: T, n: Int }
+
+extension Measured<T: Napper> {
+    init(who: T, ms: Int) -> Measured<T> {
+        let n = who.nap(ms)
+        Measured<T>(who: who, n: n)
+    }
+}
+
+func main() {
+    let two = 2
+    var direct = try! Thread.spawn { [two] in nap_through(Sleeper(id: 1), two) }
+    print("through a bound {}", direct.join())
+    var helper = try! Thread.spawn { [two] in napped(two) }
+    print("through a helper {}", helper.join())
+    var deep = try! Thread.spawn { [two] in outer(Sleeper(id: 20), two) }
+    print("two bounds deep {}", deep.join())
+    var method = try! Thread.spawn { [two] in Holder(who: Sleeper(id: 30)).go(two) }
+    print("a generic struct's method {}", method.join())
+    var built = try! Thread.spawn { [two] in Measured(who: Sleeper(id: 40), ms: two).n }
+    print("a generic struct's init {}", built.join())
+    var twice = try! Thread.spawn { [two] in Sleeper(id: 50).nap_twice(two) }
+    print("a default body {}", twice.join())
+    var bounded = try! Thread.spawn { [two] in twice_through(Sleeper(id: 60), two) }
+    print("a default body through a bound {}", bounded.join())
+    var nested = try! Thread.spawn { [two] in
+        var inner = try! Thread.spawn { [two] in nap_through(Sleeper(id: 70), two) }
+        inner.join()
+    }
+    print("a nested thread {}", nested.join())
+    var quiet = try! Thread.spawn { [two] in nap_through(Quiet(id: 80), two) }
+    print("a bound that never blocks {}", quiet.join())
+    var group = TaskGroup()
+    let task = group.spawn(napped(two))
+    print("offloaded from a task {}", task.join())
+}

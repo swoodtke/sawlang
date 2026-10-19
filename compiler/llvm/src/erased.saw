@@ -242,11 +242,8 @@ extension LlEmitter {
                 try! out.append("ptr null")
                 continue
             }
-            if self.resume_of(item) >= 0 {
-                try! mono.problems.push("a vtable slot names an implementation with a lowered frame")
-            }
             try! out.append("ptr ")
-            try! out.append(ll_symbol(&mono, item))
+            try! out.append(self.plain_symbol(&var mono, item))
         }
         try! out.append("] \}\n")
         out.build()

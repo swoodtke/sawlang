@@ -1,0 +1,72 @@
+// probe: stated
+// about: a defaulted argument and a `borrows` accessor whose bodies reach a `blocking` extern, directly or through a bound, are plain calls from a `Thread.spawn` body (SL-776)
+// stage 0: refuses `try! Thread.spawn` at parse (SL-765 Q1 (b))
+// speeds: -O0 -O2
+// ll defines: saw default thread_blocking_default_and_window.with_default(ms: Int).ms thread
+// ll defines: saw prologue thread_blocking_default_and_window.Cell.at(ms: Int) receiver shared thread
+// ll defines: saw prologue thread_blocking_default_and_window.Gate.at(ms: Int) receiver shared args thread_blocking_default_and_window.Sleeper thread
+// prints: a default in the body 3
+// prints: a default in a helper 13
+// prints: an accessor 5
+// prints: an accessor through a bound 7
+// A default's body and an accessor's halves are items of their own, so a
+// call of one from a thread's item is keyed for the thread as a function's
+// call is.
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+trait Napper {
+    func nap(&self, ms: Int) -> Int
+}
+
+struct Sleeper { id: Int }
+
+extension Sleeper: Napper {
+    func nap(&self, ms: Int) -> Int { __saw_rt_blocking_sleep(ms) + self.id }
+}
+
+func with_default(ms: Int = __saw_rt_blocking_sleep(2)) -> Int {
+    ms + 1
+}
+
+func defaulted_helper() -> Int {
+    with_default() + 10
+}
+
+struct Cell { n: Int }
+
+extension Cell {
+    func at(&self, ms: Int) borrows -> &Int {
+        let _ = __saw_rt_blocking_sleep(ms)
+        lend self.n
+    }
+}
+
+struct Gate<T: Napper> { who: T, n: Int }
+
+extension Gate<T: Napper> {
+    func at(&self, ms: Int) borrows -> &Int {
+        let _ = self.who.nap(ms)
+        lend self.n
+    }
+}
+
+func main() {
+    let two = 2
+    var body = try! Thread.spawn { with_default() }
+    print("a default in the body {}", body.join())
+    var helper = try! Thread.spawn { defaulted_helper() }
+    print("a default in a helper {}", helper.join())
+    var cell = try! Thread.spawn { [two] in
+        let c = Cell(n: 5)
+        borrow let x = c.at(two) { x + 0 }
+    }
+    print("an accessor {}", cell.join())
+    var gate = try! Thread.spawn { [two] in
+        let g = Gate(who: Sleeper(id: 1), n: 7)
+        borrow let x = g.at(two) { x + 0 }
+    }
+    print("an accessor through a bound {}", gate.join())
+}

@@ -1,0 +1,32 @@
+// refuses: effect.thread-body at 29:9
+// flags: --std-root std
+// a `Thread.spawn` body calling a helper that dispatches through `any` to an
+// implementation that blocks on a `blocking` extern: the dispatch is the
+// cause refused, though the thread may call that implementation directly
+// (SL-776)
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+trait Napper {
+    func nap(&self, ms: Int) -> Int
+}
+
+struct Sleeper { id: Int }
+
+extension Sleeper: Napper {
+    func nap(&self, ms: Int) -> Int { __saw_rt_blocking_sleep(ms) + self.id }
+}
+
+func via(who: &any Napper, ms: Int) -> Int {
+    who.nap(ms)
+}
+
+func main() {
+    var t = try! Thread.spawn {
+        let s = Sleeper(id: 1)
+        via(&s, 2)
+    }
+    print(t.join())
+}

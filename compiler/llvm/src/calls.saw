@@ -172,7 +172,7 @@ extension LlEmitter {
                 }
                 let result = mono.dp.bc.mir.locals[info_f.local_first].ty
                 let none = Vector<String>()
-                let symbol = ll_symbol(&mono, item)
+                let symbol = self.plain_symbol(&var mono, item)
                 self.call_with(&var mono, &var target, symbol, result, &params, &none, &info)
             }
         }
@@ -1285,7 +1285,7 @@ extension LlEmitter {
         var call = StringBuilder()
         try! call.append("call ptr ")
         let role = mono.bytes_item
-        try! call.append(ll_symbol(&mono, role))
+        try! call.append(self.plain_symbol(&var mono, role))
         try! call.append("(ptr ")
         try! call.append(text)
         try! call.append(")")
@@ -1300,7 +1300,7 @@ extension LlEmitter {
         var call = StringBuilder()
         try! call.append("call i64 ")
         let role = mono.length_item
-        try! call.append(ll_symbol(&mono, role))
+        try! call.append(self.plain_symbol(&var mono, role))
         try! call.append("(ptr ")
         try! call.append(text)
         try! call.append(")")
@@ -1527,7 +1527,7 @@ extension LlEmitter {
             try! text.append("call void")
         }
         try! text.append(" ")
-        try! text.append(ll_symbol(&mono, site.body))
+        try! text.append(self.plain_symbol(&var mono, site.body))
         try! text.append("(")
         try! text.append(args.build())
         try! text.append(")\n")

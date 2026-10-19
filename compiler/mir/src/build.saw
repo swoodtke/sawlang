@@ -795,6 +795,7 @@ extension MirProgram {
     //     suspension
     //     verify_suspension
     //     copy_call
+    //     callee_key
     public func thread_plain_call(&self, threaded: Bool, acc: &TcAcc) -> Bool {
         threaded && acc.suspends && acc.causes == TC_CAUSE_BLOCKING
     }

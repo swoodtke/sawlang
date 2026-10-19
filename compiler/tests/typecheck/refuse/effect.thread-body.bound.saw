@@ -1,0 +1,29 @@
+// refuses: effect.thread-body at 27:33
+// flags: --std-root std
+// a `Thread.spawn` body calling a generic whose bound's implementation, at the
+// call's type argument, reaches a cooperative park: refused at the call, as a
+// direct call of that implementation is (SL-776)
+
+import std.task.{yield_now}
+
+trait Napper {
+    func nap(&self, ms: Int) -> Int
+}
+
+struct Yielder { id: Int }
+
+extension Yielder: Napper {
+    func nap(&self, ms: Int) -> Int {
+        yield_now()
+        ms + self.id
+    }
+}
+
+func nap_through<T: Napper>(who: T, ms: Int) -> Int {
+    who.nap(ms)
+}
+
+func main() {
+    var t = try! Thread.spawn { nap_through(Yielder(id: 1), 2) }
+    print(t.join())
+}
