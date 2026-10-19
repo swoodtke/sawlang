@@ -110,6 +110,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         }
         k = k + 1
     }
+    if not mono.runtime {
+        let table = e.bt_table_global(target.triple)
+        try! e.globals.append(table)
+    }
     mono.current = -1
     var entry = ""
     if not mono.runtime {
@@ -260,8 +264,9 @@ extension LlEmitter {
     // its frame through, laid out as std's `FrameDescriptor` (runtime/ABI.md,
     // "The compiler → executor boundary"): its resume function, the frame's
     // size and alignment, the result's offset, size and alignment, a drop of
-    // a result in place, and the backtrace index, -1 while there is no
-    // backtrace table. The two functions are function values, a code
+    // a result in place, and the backtrace index, the root's frame in the
+    // program's backtrace table (`bt_index_of`), where a task dump's walk of
+    // the task starts. The two functions are function values, a code
     // pointer and a null environment, so each code pointer is a thunk that
     // takes the environment first, as a function value's call passes it: the
     // resume's calls the resume function, and the drop's runs the result
@@ -333,7 +338,9 @@ extension LlEmitter {
         try! out.append(ll_result_drop_symbol(&mono, k))
         try! out.append(", ptr null, ")
         try! out.append(w)
-        try! out.append(" -1 \}\n\n")
+        try! out.append(" ")
+        try! out.append(self.bt_index_of(k))
+        try! out.append(" \}\n\n")
         out.build()
     }
 }

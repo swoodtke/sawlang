@@ -1,0 +1,223 @@
+resume #6: bt_table_nested_drives.worker(seed: Int) task root  (frame size 64 align 8, pointer _4)
+    state 0: bb0
+    state 1: bb0 drive #20 bt_table_nested_drives.middle(n: Int) at (*frame).[8]
+fn bt_table_nested_drives.worker(seed: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param seed
+    let _2: Int;  // n
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        (*_4).[48: Int] = copy (*_4).[56: Int];
+        call bt_table_nested_drives.middle(n: Int) [] -> [return: bb2] suspends;
+    }
+
+    bb1: {
+        _2 = move _3;
+        (*_4).[8: Int] = copy _2;
+        return;
+    }
+
+    bb2: {
+        _3 = move (*_4).[16: Int];
+        goto -> bb1;
+    }
+}
+resume #11: bt_table_nested_drives.watcher() task root  (frame size 24 align 8, pointer _2)
+    state 0: bb0
+    state 1: bb1 drive #33 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
+fn bt_table_nested_drives.watcher() -> Int {
+    let _0: Int;  // return
+    let _1: std.duration.Duration;
+    let _2: &var Int;
+
+    bb0: {
+        _1 = call std.duration.Duration.ms(n: UInt64) (owner std.duration.Duration) [const 10: UInt64] -> [return: bb1];
+    }
+
+    bb1: {
+        (*_2).[16: std.duration.Duration] = move _1;
+        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        (*_2).[8: Int] = const 0: Int;
+        return;
+    }
+}
+resume #20: bt_table_nested_drives.middle(n: Int)  (frame size 48 align 8, pointer _5)
+    state 0: bb0
+    state 1: bb0 drive #49 bt_table_nested_drives.leaf(n: Int) at (*frame).[8]
+fn bt_table_nested_drives.middle(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // r
+    let _3: Int;
+    let _4: Int;
+    let _5: &var Int;
+
+    bb0: {
+        (*_5).[32: Int] = copy (*_5).[40: Int];
+        call bt_table_nested_drives.leaf(n: Int) [] -> [return: bb2] suspends;
+    }
+
+    bb1: {
+        _2 = move _3;
+        _4 = Add(copy _2, const 1: Int);
+        (*_5).[8: Int] = move _4;
+        return;
+    }
+
+    bb2: {
+        _3 = move (*_5).[16: Int];
+        goto -> bb1;
+    }
+}
+resume #33: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
+    state 0: bb0
+    state 1: bb3 park timer
+fn std.task.sleep(duration: std.duration.Duration) -> Void {
+    let _0: Void;  // return
+    let _1: std.duration.Duration;  // param duration
+    let _2: &std.duration.Duration;
+    let _3: UInt64;
+    let _4: &var Int;
+    let _5: &var std.taskgroup.TaskContext;
+    let _6: UInt64;
+
+    bb0: {
+        _2 = ref(shared, (*_4).[8: std.duration.Duration]);
+        _3 = call std.duration.Duration.as_nanos() (owner std.duration.Duration) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _6 = call std.taskgroup.__saw_exec_timer_deadline(nanos: UInt64) [move _3] -> [return: bb3];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        (*_5).deadline = move _6;
+        (*(*_5).park) = const 1: Int;
+        call std.task.__saw_park_timer(nanos: UInt64) [] -> [return: bb2] suspends;
+    }
+}
+resume #49: bt_table_nested_drives.leaf(n: Int)  (frame size 32 align 8, pointer _4)
+    state 0: bb0
+    state 1: bb1 drive #33 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
+fn bt_table_nested_drives.leaf(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: std.duration.Duration;
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        _2 = call std.duration.Duration.secs(n: UInt64) (owner std.duration.Duration) [const 2: UInt64] -> [return: bb1];
+    }
+
+    bb1: {
+        (*_4).[16: std.duration.Duration] = move _2;
+        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb2] suspends;
+    }
+
+    bb2: {
+        _3 = Mul(copy (*_4).[24: Int], const 2: Int);
+        (*_4).[8: Int] = move _3;
+        return;
+    }
+}
+spawner #0: bt_table_nested_drives.main()
+    spawn bb1 task root #6 bt_table_nested_drives.worker(seed: Int) task root, descriptor _13, box _14
+    spawn bb2 task root #11 bt_table_nested_drives.watcher() task root, descriptor _17, box _18
+fn bt_table_nested_drives.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.TaskGroup;  // g
+    let _2: std.taskgroup.TaskGroup;
+    let _3: std.taskgroup.Task<Int>;  // a
+    let _4: &std.taskgroup.TaskGroup;
+    let _5: std.taskgroup.Task<Int>;
+    let _6: std.taskgroup.Task<Int>;  // b
+    let _7: &std.taskgroup.TaskGroup;
+    let _8: std.taskgroup.Task<Int>;
+    let _9: &std.taskgroup.Task<Int>;
+    let _10: Int;
+    let _11: &std.taskgroup.Task<Int>;
+    let _12: Int;
+    let _13: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _14: UnsafePointer<UInt8>;
+    let _15: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _16: std.taskgroup.TaskProvenance;
+    let _17: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _18: UnsafePointer<UInt8>;
+    let _19: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _20: std.taskgroup.TaskProvenance;
+
+    bb0: {
+        _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _4 = ref(shared, _1);
+        _13 = spawn group bt_table_nested_drives.worker(seed: Int) [] -> [return: bb8];
+    }
+
+    bb2: {
+        _3 = move _5;
+        _7 = ref(shared, _1);
+        _17 = spawn group bt_table_nested_drives.watcher() [] -> [return: bb10];
+    }
+
+    bb3: {
+        _6 = move _8;
+        _9 = ref(shared, _6);
+        _10 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _9] -> [return: bb4];
+    }
+
+    bb4: {
+        call builtin print [format "watcher {}", copy _10] -> [return: bb5];
+    }
+
+    bb5: {
+        _11 = ref(shared, _3);
+        _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb6];
+    }
+
+    bb6: {
+        call builtin print [format "worker {}", copy _12] -> [return: bb7];
+    }
+
+    bb7: {
+        drop(_6);
+        drop(_3);
+        drop(_1);
+        return;
+    }
+
+    bb8: {
+        _14 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _13] -> [return: bb9];
+    }
+
+    bb9: {
+        (*_14).[0: Int] = const 0: Int;
+        (*_14).[56: Int] = const 4: Int;
+        _15 = cast(move _4 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _16 = std.taskgroup.TaskProvenance::Group;
+        _5 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _15, copy _13, copy _14, move _16] -> [return: bb2];
+    }
+
+    bb10: {
+        _18 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _17] -> [return: bb11];
+    }
+
+    bb11: {
+        (*_18).[0: Int] = const 0: Int;
+        _19 = cast(move _7 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _20 = std.taskgroup.TaskProvenance::Group;
+        _8 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _19, copy _17, copy _18, move _20] -> [return: bb3];
+    }
+}

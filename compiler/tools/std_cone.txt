@@ -458,7 +458,9 @@ std.vector: 10
     instance T=(owning), A=GlobalAllocator, __R=(owning)?
     instance T=(plain), A=GlobalAllocator, __R=(plain)?
     instance T=Bool, A=GlobalAllocator, __R=Bool
+    instance T=Bool, A=GlobalAllocator, __R=Bool?
     instance T=Int, A=GlobalAllocator, __R=Int
+    instance T=Int, A=GlobalAllocator, __R=Int?
     instance T=String, A=GlobalAllocator, __R=String?
   init Vector.init()
     instance T=(owning), A=GlobalAllocator

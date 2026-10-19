@@ -5,6 +5,7 @@
 // how a type is laid out) is already in the concrete MIR, in mono's side
 // tables, or in the target.
 
+import sawcoro.bttable.{coro_bt_frame_index, coro_bt_table, coro_bt_with_word_bits}
 import sawcoro.program.{CoroDriveSite, CoroPoint, CoroPoison, CoroProgram, CoroResume}
 import sawllvm.text.{ll_c_string, ll_quoted}
 import sawmir.model.{MirDiag}
@@ -60,6 +61,10 @@ extension LlEmitter: NoCopy {}
 // each of whose root frames the backend reserves on its item's stack. Under
 // `--sanitize address`, `sanitize` is true and every function carries
 // `sanitize_address`, and `poisons` holds the resume functions' poison lists.
+// `bt_table` is the program's backtrace table, its header's word width left
+// for the emitter to write (`bt_table_global`), and `bt_index` by item its
+// frame's index in the table, or -1; both are empty for a runtime, which has
+// no table.
 public struct LlLowering {
     resume_of: Vector<Int>
     resumes: Vector<CoroResume>
@@ -68,6 +73,8 @@ public struct LlLowering {
     drives: Vector<CoroDriveSite>
     sanitize: Bool
     poisons: Vector<CoroPoison>
+    bt_table: Vector<Int>
+    bt_index: Vector<Int>
 }
 
 extension LlLowering: NoCopy {}
@@ -76,7 +83,11 @@ extension LlLowering: NoCopy {}
 public func ll_lowering(coro: &CoroProgram) -> LlLowering {
     var out = LlLowering(resume_of: Vector<Int>(), resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(),
                          resident: Vector<Bool>(), drives: Vector<CoroDriveSite>(), sanitize: coro.sanitize,
-                         poisons: Vector<CoroPoison>())
+                         poisons: Vector<CoroPoison>(), bt_table: Vector<Int>(), bt_index: Vector<Int>())
+    if not coro.mono.runtime {
+        out.bt_table = coro_bt_table(&coro, 0)
+        out.bt_index = coro_bt_frame_index(&coro)
+    }
     var k = 0
     while k < coro.poisons.len() {
         try! out.poisons.push(coro.poisons[k])
@@ -168,6 +179,49 @@ extension LlEmitter {
         }
         ll_symbol(&mono, k)
     }
+}
+
+extension LlEmitter {
+    // Item `k`'s frame's index in the backtrace table, or -1.
+    public func bt_index_of(&self, k: Int) -> Int {
+        self.lowering.bt_index.get(k) ?? -1
+    }
+
+    // The backtrace table as the read-only global `__saw_bt_table`, with the
+    // target's word width in its header, or "" for a runtime. It is external
+    // and kept by `@llvm.used`, since nothing in the program names it and a
+    // debugger finds it by its symbol; it is 8-aligned, so a walker reads its
+    // words in place; and it sits in a section of its own, Mach-O's needing
+    // a segment, as Stage 0 places it.
+    public func bt_table_global(&self, triple: String) -> String {
+        if self.lowering.bt_table.len() == 0 {
+            return ""
+        }
+        let bits = self.word_bits
+        let bytes = coro_bt_with_word_bits(&self.lowering.bt_table, bits)
+        var out = StringBuilder()
+        try! out.append("@__saw_bt_table = constant [")
+        try! out.append(bytes.len())
+        try! out.append(" x i8] ")
+        try! out.append(ll_c_string(&bytes))
+        if ll_mach_o(triple) {
+            try! out.append(", section \"__TEXT,__sawbt\"")
+        } else {
+            try! out.append(", section \".saw_bt\"")
+        }
+        try! out.append(", align 8\n")
+        try! out.append("@llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section \"llvm.metadata\"\n")
+        out.build()
+    }
+}
+
+// Whether `triple`'s objects are Mach-O, which names a section with its
+// segment.
+func ll_mach_o(triple: String) -> Bool {
+    let tail = "-darwin"
+    let size = triple.len()
+    let n = tail.len()
+    size >= n && triple.substring(size - n, size).equals(tail)
 }
 
 // The symbol of item `k`'s resume function.

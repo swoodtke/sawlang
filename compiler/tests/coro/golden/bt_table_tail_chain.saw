@@ -1,0 +1,40 @@
+// stage0: coro_tail_nested_suspend.saw
+// The corpus program coro_tail_nested_suspend.saw, line for line below this
+// header: a task root, `worker`, that parks itself at its loop's op-budget
+// point (29) and drives `handle` (30) and `step` (33); a chain three frames
+// deep, `worker` -> `handle` -> `serve`; and `handle` and `step`, each with
+// two states on two lines, a park of its own (`yield_now`, folded into the
+// caller's line) and a drive. sawc2 numbers a frame's states in block order,
+// which is not Stage 0's, so the lane compares the sets of states.
+
+import std.task.*
+func serve(n: Int) -> Int {
+    yield_now()
+    n + 1              // tail expression is the result
+}
+
+func step(n: Int) -> Int {
+    yield_now()
+    serve(n)           // nested suspending call in TAIL position
+}
+
+func handle(n: Int) {
+    yield_now()
+    let r = serve(n)   // Void body making a suspending call as a statement
+    print(r)
+}
+
+func worker() -> Int {
+    var i = 0
+    while i < 1 {
+        handle(6)      // Void suspending call as a bare statement
+        i = i + 1
+    }
+    step(2)            // tail nested suspending call, value result
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())
+    print(h.join())    // handle prints 7, worker returns step(2)=3
+}

@@ -1,0 +1,432 @@
+// The logical-backtrace table, `__saw_bt_table` (SL:coroutines A16a). A
+// parked task is one allocation, its root's frame, with every child it drives
+// embedded at a fixed offset and every frame's state word naming where it
+// stopped; so its logical stack is a walk of a static table: read the root's
+// state word, print that state's line, and when the state drives a child,
+// descend to the child's frame at its offset. The table is built from the
+// final layouts and points, after packing, and keeps Stage 0's blob format
+// (`sawc/backtrace_table.py`) byte for byte, so `tools/lldb_saw.py` and the
+// in-process walker read one encoding.
+//
+// All integers little-endian, offsets from the blob's start:
+//     header (32 bytes): magic 'SAWB', u16 version 1, u16 word bits, then u32s:
+//         frame count, frames offset, states offset, string table offset,
+//         string table length, runtime descriptor offset (0: absent)
+//     frame (24 bytes, all u32): symbol, name, file (string table offsets),
+//         first state, state count, the state word's offset in the frame
+//     state (12 bytes, all u32): line (0 unknown), the child's frame index
+//         plus one (0: this state parks the frame itself), the child's offset
+//     string table: NUL-terminated, each string once, offset 0 the empty one
+// The runtime descriptor, which tells a debugger where the live tasks are, is
+// absent until the new std's executor layout has one (SL-577).
+
+import sawcoro.api.{CoroOptions, coro_append_findings, coro_lower_file, coro_lower_for}
+import sawcoro.program.{CoroPointKind, CoroProgram, CoroValueKind}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoProgram}
+
+static CORO_BT_MAGIC: Int = 0x4257_4153
+static CORO_BT_VERSION: Int = 1
+static CORO_BT_HEADER: Int = 32
+// The header's u16 word width.
+static CORO_BT_WORD_AT: Int = 6
+static CORO_BT_FRAME: Int = 24
+static CORO_BT_STATE: Int = 12
+static CORO_BT_COLON: Int = 58
+static CORO_BT_ZERO: Int = 48
+
+// THE FOLD FUNNEL: by item, whether its frame is a park-only std frame, which
+// the table leaves out. A caller's state that drives one is recorded as a
+// park of the caller itself, on the caller's line, which is how Stage 0
+// records the same state, since it inlines those parks; so a dump names the
+// program's line, not std's. A frame folds when its item is std's, is not a
+// task root (a task's outermost frame is always in the table), and parks only
+// on park intrinsics: a ready yield, a timer, a descriptor or a channel. A std
+// frame that drives any frame, a folded one included, keeps its place, as
+// Stage 0 keeps `TcpStream.read` around the `io_wait` it inlines; and so does
+// one that offloads a `blocking` call, since that park is the frame's own C
+// call, which Stage 0 runs in the frame that makes it.
+// ENTRY POINTS:
+//     coro_bt_frame_index
+//     coro_bt_table
+public func coro_bt_folds(coro: &CoroProgram) -> Vector<Bool> {
+    var folds = Vector<Bool>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        let r = coro.resume_of.get(k) ?? -1
+        try! folds.push(r >= 0 && not coro.mono.is_task_root(k) && coro.std_item(k) && coro_bt_parks_only(&coro, r))
+        k = k + 1
+    }
+    move folds
+}
+
+// Whether resume function `r` drives no child and offloads no call.
+func coro_bt_parks_only(coro: &CoroProgram, r: Int) -> Bool {
+    let resume = coro.resumes[r]
+    var p = 0
+    while p < resume.point_count {
+        let point = coro.points[resume.point_first + p]
+        p = p + 1
+        if point.kind == CoroPointKind.Drive || point.kind == CoroPointKind.ParkOffload {
+            return false
+        }
+    }
+    true
+}
+
+// By item, its frame's index in the table, or -1: every lowered frame that
+// does not fold, in resume-function order.
+public func coro_bt_frame_index(coro: &CoroProgram) -> Vector<Int> {
+    let folds = coro_bt_folds(&coro)
+    var index = Vector<Int>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! index.push(-1)
+        k = k + 1
+    }
+    var next = 0
+    var r = 0
+    while r < coro.resumes.len() {
+        let item = coro.resumes[r].item
+        if not folds[item] {
+            index[item] = next
+            next = next + 1
+        }
+        r = r + 1
+    }
+    move index
+}
+
+// The table's bytes, each 0 to 255, for a target whose word is `word_bits`
+// wide; a program with no lowered frame gets a header with no frame.
+public func coro_bt_table(coro: &CoroProgram, word_bits: Int) -> Vector<Int> {
+    let folds = coro_bt_folds(&coro)
+    let index = coro_bt_frame_index(&coro)
+    var strings = CoroBtStrings(texts: Vector<String>(), offsets: Vector<Int>(), bytes: Vector<Int>())
+    try! strings.bytes.push(0)
+    var frames = Vector<Int>()
+    var states = Vector<Int>()
+    var count = 0
+    var r = 0
+    while r < coro.resumes.len() {
+        let resume = coro.resumes[r]
+        r = r + 1
+        if folds[resume.item] {
+            continue
+        }
+        count = count + 1
+        let frame = coro.frames[resume.frame]
+        let first = states.len() / CORO_BT_STATE
+        // State 0 is the entry, before the first resume; state `s` the `s`th
+        // suspension, in block order. A suspension lowered to no point, an
+        // effect-only call, keeps its number and no line.
+        var s = 0
+        while s <= frame.suspend_count {
+            coro_bt_state(&coro, &folds, &index, r - 1, s, &var states)
+            s = s + 1
+        }
+        let node = coro.item_node(resume.item)
+        let site = coro_bt_site(&coro, node)
+        coro_bt_u32(&var frames, strings.add(coro.mono.item_name(resume.item)))
+        coro_bt_u32(&var frames, strings.add(coro.item_label(resume.item)))
+        coro_bt_u32(&var frames, strings.add(site.file))
+        coro_bt_u32(&var frames, first)
+        coro_bt_u32(&var frames, frame.suspend_count + 1)
+        coro_bt_u32(&var frames, coro_bt_state_offset(&coro, frame.value_first, frame.value_count))
+    }
+    let frames_at = CORO_BT_HEADER
+    let states_at = frames_at + frames.len()
+    let strings_at = states_at + states.len()
+    var out = Vector<Int>()
+    coro_bt_u32(&var out, CORO_BT_MAGIC)
+    coro_bt_u16(&var out, CORO_BT_VERSION)
+    coro_bt_u16(&var out, word_bits)
+    coro_bt_u32(&var out, count)
+    coro_bt_u32(&var out, frames_at)
+    coro_bt_u32(&var out, states_at)
+    coro_bt_u32(&var out, strings_at)
+    coro_bt_u32(&var out, strings.bytes.len())
+    coro_bt_u32(&var out, 0)
+    coro_bt_append(&var out, &frames)
+    coro_bt_append(&var out, &states)
+    coro_bt_append(&var out, &strings.bytes)
+    move out
+}
+
+// Table `bytes` with its header naming a `word_bits`-wide word: how the
+// backend writes the width it emits for into a table built before it knew it.
+public func coro_bt_with_word_bits(bytes: &Vector<Int>, word_bits: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    coro_bt_append(&var out, &bytes)
+    if out.len() >= CORO_BT_HEADER {
+        out[CORO_BT_WORD_AT] = word_bits & 0xFF
+        out[CORO_BT_WORD_AT + 1] = (word_bits >> 8) & 0xFF
+    }
+    move out
+}
+
+// State `s` of resume function `r`'s frame into `states`: its line, then the
+// child it drives, unless that child folds, and the child's offset.
+func coro_bt_state(coro: &CoroProgram, folds: &Vector<Bool>, index: &Vector<Int>, r: Int, s: Int,
+                   states: &var Vector<Int>) {
+    let resume = coro.resumes[r]
+    var line = 0
+    var child = 0
+    var offset = 0
+    var p = 0
+    while s > 0 && p < resume.point_count {
+        let point = coro.points[resume.point_first + p]
+        p = p + 1
+        if point.state != s {
+            continue
+        }
+        if point.call >= 0 {
+            let node = coro.mono.dp.bc.mir.calls[point.call].node
+            line = coro_bt_site(&coro, node).line
+        }
+        if point.kind == CoroPointKind.Drive && not (folds.get(point.child) ?? true) {
+            child = (index.get(point.child) ?? -1) + 1
+            offset = point.slot
+        }
+    }
+    coro_bt_u32(&var states, line)
+    coro_bt_u32(&var states, child)
+    coro_bt_u32(&var states, offset)
+}
+
+// The offset of the state word among a frame's values.
+func coro_bt_state_offset(coro: &CoroProgram, first: Int, count: Int) -> Int {
+    var v = 0
+    while v < count {
+        let value = coro.values[first + v]
+        if value.kind == CoroValueKind.State {
+            return value.offset
+        }
+        v = v + 1
+    }
+    0
+}
+
+// Where source node `node` is, as a panic message names it: its file's base
+// name and its 1-based line; "" and 0 for no node.
+struct CoroBtSite {
+    file: String
+    line: Int
+}
+
+func coro_bt_site(coro: &CoroProgram, node: Int) -> CoroBtSite {
+    let text = coro.mono.site_text(node)
+    var colon = -1
+    var i = 0
+    while i < text.len() {
+        if (text.byte_at(i) as Int) == CORO_BT_COLON {
+            colon = i
+        }
+        i = i + 1
+    }
+    if colon < 0 {
+        return CoroBtSite(file: "", line: 0)
+    }
+    var line = 0
+    i = colon + 1
+    while i < text.len() {
+        line = line * 10 + (text.byte_at(i) as Int) - CORO_BT_ZERO
+        i = i + 1
+    }
+    CoroBtSite(file: text.substring(0, colon), line: line)
+}
+
+// The string table being built: each text once, by its offset.
+struct CoroBtStrings {
+    texts: Vector<String>
+    offsets: Vector<Int>
+    bytes: Vector<Int>
+}
+
+extension CoroBtStrings: NoCopy {}
+
+extension CoroBtStrings {
+    // The offset of `text`, added when it is new; the empty text is 0.
+    func add(&var self, text: String) -> Int {
+        if text.len() == 0 {
+            return 0
+        }
+        var k = 0
+        while k < self.texts.len() {
+            let one = self.texts.get(k) ?? ""
+            if one.equals(text) {
+                return self.offsets[k]
+            }
+            k = k + 1
+        }
+        let at = self.bytes.len()
+        try! self.texts.push(text)
+        try! self.offsets.push(at)
+        var i = 0
+        while i < text.len() {
+            try! self.bytes.push(text.byte_at(i) as Int)
+            i = i + 1
+        }
+        try! self.bytes.push(0)
+        at
+    }
+}
+
+func coro_bt_u16(out: &var Vector<Int>, n: Int) {
+    try! out.push(n & 0xFF)
+    try! out.push((n >> 8) & 0xFF)
+}
+
+func coro_bt_u32(out: &var Vector<Int>, n: Int) {
+    coro_bt_u16(&var out, n & 0xFFFF)
+    coro_bt_u16(&var out, (n >> 16) & 0xFFFF)
+}
+
+func coro_bt_append(out: &var Vector<Int>, more: &Vector<Int>) {
+    var k = 0
+    while k < more.len() {
+        try! out.push(more[k])
+        k = k + 1
+    }
+}
+
+// The table `bytes` decoded into `out`, as A0b's Stage 0 snapshot prints
+// one: `bt BYTES strtab=N version=V word_bits=W exec=absent`, then a
+// `btframe SYMBOL NAME FILE STATE_WORD STATES` line per frame, each state its
+// line, or `LINE>CHILD@OFFSET` for one that drives a child, fields split by
+// tabs. Returns whether the bytes were a well-formed table; when not, `out`
+// gets the reason, since a wrong answer about where a task is parked is worse
+// than none.
+public func coro_bt_render(bytes: &Vector<Int>, out: &var StringBuilder) -> Bool {
+    if bytes.len() < CORO_BT_HEADER {
+        try! out.append("the table is shorter than its header")
+        return false
+    }
+    if coro_bt_read32(&bytes, 0) != CORO_BT_MAGIC || coro_bt_read16(&bytes, 4) != CORO_BT_VERSION {
+        try! out.append("the table's magic or version is not this compiler's")
+        return false
+    }
+    let count = coro_bt_read32(&bytes, 8)
+    let frames_at = coro_bt_read32(&bytes, 12)
+    let states_at = coro_bt_read32(&bytes, 16)
+    let strings_at = coro_bt_read32(&bytes, 20)
+    let strings_len = coro_bt_read32(&bytes, 24)
+    let exec_at = coro_bt_read32(&bytes, 28)
+    if frames_at + count * CORO_BT_FRAME > states_at || strings_at + strings_len != bytes.len() {
+        try! out.append("the table's sections do not fit its bytes")
+        return false
+    }
+    try! out.append("bt\t")
+    try! out.append(bytes.len())
+    try! out.append("\tstrtab=")
+    try! out.append(strings_len)
+    try! out.append("\tversion=")
+    try! out.append(coro_bt_read16(&bytes, 4))
+    try! out.append("\tword_bits=")
+    try! out.append(coro_bt_read16(&bytes, CORO_BT_WORD_AT))
+    if exec_at == 0 {
+        try! out.append("\texec=absent\n")
+    } else {
+        try! out.append("\texec=")
+        try! out.append(exec_at)
+        try! out.append("\n")
+    }
+    var f = 0
+    while f < count {
+        let at = frames_at + f * CORO_BT_FRAME
+        f = f + 1
+        let first = coro_bt_read32(&bytes, at + 12)
+        let n = coro_bt_read32(&bytes, at + 16)
+        if states_at + (first + n) * CORO_BT_STATE > strings_at {
+            try! out.append("a frame's states run past the state section")
+            return false
+        }
+        let symbol = coro_bt_read32(&bytes, at)
+        let name = coro_bt_read32(&bytes, at + 4)
+        let file = coro_bt_read32(&bytes, at + 8)
+        try! out.append("btframe\t")
+        try! out.append(coro_bt_string(&bytes, strings_at, symbol))
+        try! out.append("\t")
+        try! out.append(coro_bt_string(&bytes, strings_at, name))
+        try! out.append("\t")
+        try! out.append(coro_bt_string(&bytes, strings_at, file))
+        try! out.append("\t")
+        try! out.append(coro_bt_read32(&bytes, at + 20))
+        var s = 0
+        while s < n {
+            let st = states_at + (first + s) * CORO_BT_STATE
+            try! out.append(if s == 0 { "\t" } else { " " })
+            try! out.append(coro_bt_read32(&bytes, st))
+            let child = coro_bt_read32(&bytes, st + 4)
+            if child > count {
+                try! out.append("\na state names a frame the table does not hold")
+                return false
+            }
+            if child > 0 {
+                try! out.append(">")
+                try! out.append(child - 1)
+                try! out.append("@")
+                try! out.append(coro_bt_read32(&bytes, st + 8))
+            }
+            s = s + 1
+        }
+        try! out.append("\n")
+    }
+    true
+}
+
+func coro_bt_read16(bytes: &Vector<Int>, at: Int) -> Int {
+    bytes[at] | (bytes[at + 1] << 8)
+}
+
+func coro_bt_read32(bytes: &Vector<Int>, at: Int) -> Int {
+    coro_bt_read16(&bytes, at) | (coro_bt_read16(&bytes, at + 2) << 16)
+}
+
+// The NUL-terminated string at offset `off` of the string table at `at`.
+func coro_bt_string(bytes: &Vector<Int>, at: Int, off: Int) -> String {
+    var text = StringBuilder()
+    var i = at + off
+    while off > 0 && i < bytes.len() && bytes[i] != 0 {
+        try! text.append(Byte(UInt8.from(truncating: bytes[i])))
+        i = i + 1
+    }
+    text.build()
+}
+
+// `sawc2 coro --bt-table`'s record of one program, after its `FILE` line:
+// what `--check` prints, then, once the program is lowered for the options'
+// target, an `INVARIANT` line per problem the lowering meets, and the table
+// it gives, decoded. Returns 0 when nothing was refused or broken and 1
+// otherwise.
+public func coro_bt_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
+                           dirs: &Vector<String>) -> Int {
+    var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
+                               names: &names, dirs: &dirs)
+    coro_append_findings(out: &var out, coro: &coro)
+    if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
+        return 1
+    }
+    var target = coro.mono.target_for(options.target)
+    coro_lower_for(&var coro, &var target)
+    if coro.problems.len() > 0 {
+        var k = 0
+        while k < coro.problems.len() {
+            try! out.append("INVARIANT\tcoro\t")
+            try! out.append(coro.problems.get(k) ?? "")
+            try! out.append("\n")
+            k = k + 1
+        }
+        return 1
+    }
+    let bytes = coro_bt_table(&coro, target.word * 8)
+    var text = StringBuilder()
+    if not coro_bt_render(&bytes, &var text) {
+        try! out.append("INVARIANT\tcoro\tthe backtrace table does not decode: ")
+        try! out.append(text.build())
+        try! out.append("\n")
+        return 1
+    }
+    try! out.append(text.build())
+    0
+}

@@ -1,0 +1,216 @@
+resume #6: bt_table_tail_chain.worker() task root  (frame size 64 align 8, pointer _5, context _6)
+    state 0: bb0
+    state 1: bb2 drive #19 bt_table_tail_chain.step(n: Int) at (*frame).[8]
+    state 2: bb8 park ready
+    state 3: bb4 drive #20 bt_table_tail_chain.handle(n: Int) at (*frame).[8]
+fn bt_table_tail_chain.worker() -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // i
+    let _2: Bool;
+    let _3: Int;
+    let _4: Int;
+    let _5: &var Int;
+    let _6: &var std.taskgroup.TaskContext;
+    let _7: Bool;
+
+    bb0: {
+        (*_5).[48: Int] = const 128: Int;
+        (*_5).[56: Int] = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _2 = Lt(copy (*_5).[56: Int], const 1: Int);
+        switch move _2 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        (*_5).[40: Int] = const 2: Int;
+        call bt_table_tail_chain.step(n: Int) [] -> [return: bb7] suspends;
+    }
+
+    bb3: {
+        (*_5).[48: Int] = SubWrapping(copy (*_5).[48: Int], const 1: Int);
+        _7 = Le(copy (*_5).[48: Int], const 0: Int);
+        switch move _7 -> [true: bb8, false: bb4];
+    }
+
+    bb4: {
+        (*_5).[40: Int] = const 6: Int;
+        call bt_table_tail_chain.handle(n: Int) [] -> [return: bb5] suspends;
+    }
+
+    bb5: {
+        _3 = Add(copy (*_5).[56: Int], const 1: Int);
+        (*_5).[56: Int] = move _3;
+        goto -> bb1;
+    }
+
+    bb6: {
+        (*_5).[8: Int] = move _4;
+        return;
+    }
+
+    bb7: {
+        _4 = move (*_5).[16: Int];
+        goto -> bb6;
+    }
+
+    bb8: {
+        (*_5).[48: Int] = const 128: Int;
+        (*(*_6).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+}
+resume #19: bt_table_tail_chain.step(n: Int)  (frame size 40 align 8, pointer _3)
+    state 0: bb0
+    state 1: bb0 drive #47 std.task.yield_now() at (*frame).[8]
+    state 2: bb1 drive #48 bt_table_tail_chain.serve(n: Int) at (*frame).[8]
+fn bt_table_tail_chain.step(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+    let _3: &var Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        (*_3).[24: Int] = copy (*_3).[32: Int];
+        call bt_table_tail_chain.serve(n: Int) [] -> [return: bb3] suspends;
+    }
+
+    bb2: {
+        (*_3).[8: Int] = move _2;
+        return;
+    }
+
+    bb3: {
+        _2 = move (*_3).[16: Int];
+        goto -> bb2;
+    }
+}
+resume #20: bt_table_tail_chain.handle(n: Int)  (frame size 40 align 8, pointer _4)
+    state 0: bb0
+    state 1: bb0 drive #47 std.task.yield_now() at (*frame).[8]
+    state 2: bb1 drive #48 bt_table_tail_chain.serve(n: Int) at (*frame).[8]
+fn bt_table_tail_chain.handle(n: Int) -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // param n
+    let _2: Int;  // r
+    let _3: Int;
+    let _4: &var Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        (*_4).[24: Int] = copy (*_4).[32: Int];
+        call bt_table_tail_chain.serve(n: Int) [] -> [return: bb4] suspends;
+    }
+
+    bb2: {
+        _2 = move _3;
+        call builtin print [copy _2] -> [return: bb3];
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        _3 = move (*_4).[16: Int];
+        goto -> bb2;
+    }
+}
+resume #47: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+    state 0: bb0
+    state 1: bb0 park ready
+fn std.task.yield_now() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+    let _2: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_2).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
+resume #48: bt_table_tail_chain.serve(n: Int)  (frame size 24 align 8, pointer _3)
+    state 0: bb0
+    state 1: bb0 drive #47 std.task.yield_now() at (*frame).[8]
+fn bt_table_tail_chain.serve(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: Int;
+    let _3: &var Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _2 = Add(copy (*_3).[16: Int], const 1: Int);
+        (*_3).[8: Int] = move _2;
+        return;
+    }
+}
+spawner #0: bt_table_tail_chain.main()
+    spawn bb1 task root #6 bt_table_tail_chain.worker() task root, descriptor _8, box _9
+fn bt_table_tail_chain.main() -> Void {
+    let _0: Void;  // return
+    let _1: std.taskgroup.TaskGroup;  // group
+    let _2: std.taskgroup.TaskGroup;
+    let _3: std.taskgroup.Task<Int>;  // h
+    let _4: &std.taskgroup.TaskGroup;
+    let _5: std.taskgroup.Task<Int>;
+    let _6: &std.taskgroup.Task<Int>;
+    let _7: Int;
+    let _8: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _9: UnsafePointer<UInt8>;
+    let _10: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _11: std.taskgroup.TaskProvenance;
+
+    bb0: {
+        _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        _1 = move _2;
+        _4 = ref(shared, _1);
+        _8 = spawn group bt_table_tail_chain.worker() [] -> [return: bb5];
+    }
+
+    bb2: {
+        _3 = move _5;
+        _6 = ref(shared, _3);
+        _7 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb3];
+    }
+
+    bb3: {
+        call builtin print [copy _7] -> [return: bb4];
+    }
+
+    bb4: {
+        drop(_3);
+        drop(_1);
+        return;
+    }
+
+    bb5: {
+        _9 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _8] -> [return: bb6];
+    }
+
+    bb6: {
+        (*_9).[0: Int] = const 0: Int;
+        _10 = cast(move _4 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _11 = std.taskgroup.TaskProvenance::Group;
+        _5 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _10, copy _8, copy _9, move _11] -> [return: bb2];
+    }
+}

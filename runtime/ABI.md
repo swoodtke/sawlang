@@ -1321,7 +1321,7 @@ on one side alone.
   `Poll` is returned through `sret` ahead of the environment and the code
   writes its `i32` tag there, and `drop_result` as `void (ptr env, ptr
   result)`, which drops a result in place. The other six are words;
-  `backtrace` is -1 until there is a backtrace table.
+  `backtrace` is the root frame's index in `__saw_bt_table`.
 - **The context record** `cx`, which the executor owns: three words, the
   address of the task's park word (the root token), the address of its
   cancel word, and the task's identity, as std's `TaskContext`. A park

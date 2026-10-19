@@ -81,6 +81,8 @@ target triple = "arm64-apple-macosx11.0.0"
 @"static std.stringbuilder.MARKER_BYTE_2" = internal global i64 166
 @"static std.stringbuilder.CONTINUATION_FIRST" = internal global i64 128
 @"static std.stringbuilder.CONTINUATION_END" = internal global i64 192
+@__saw_bt_table = constant [33 x i8] c"SAWB\01\00@\00\00\00\00\00 \00\00\00 \00\00\00 \00\00\00\01\00\00\00\00\00\00\00\00", section "__TEXT,__sawbt", align 8
+@llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section "llvm.metadata"
 
 declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)
 declare i64 @__saw_rt_write_line(ptr, i64)

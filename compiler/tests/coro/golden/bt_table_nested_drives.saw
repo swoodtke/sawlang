@@ -1,0 +1,52 @@
+// stage0: task_backtrace_nest.saw
+// The corpus program task_backtrace_nest.saw without `dump_tasks`, its import
+// and its call, which SL-577 brings to the new std; each is a comment line
+// here, so every other line is where the corpus program has it and the
+// backtrace table's lines are the ones Stage 0's snapshot records.
+//
+// Two task roots: `worker` drives `middle`, which drives `leaf`, which sleeps;
+// `watcher` sleeps itself. `sleep` is a park-only std frame, so the table
+// leaves it out and records each of its callers' states as a park on the
+// caller's own line (`leaf` at 24, `watcher` at 41), as Stage 0 does, which
+// inlines the park; `middle` and `worker` drive their children at 29 and 34.
+// Stage 0 counts one more state in each of those two, the block that follows
+// the drive, which never parks and has no counterpart here.
+//
+// The lane compares the decoded table with the snapshot's, state by state:
+// each state this table parks in has a Stage 0 state with its line and the
+// same child, named by frame, and no other Stage 0 state parks. Offsets are
+// not compared, since sawc2 packs frames and Stage 0 does not. The runtime
+// descriptor a debugger finds the tasks by is SL-577's, so none is here.
+
+// (the `dump_tasks` import)
+
+func leaf(n: Int) -> Int {
+    sleep(Duration.secs(2))
+    n * 2
+}
+
+func middle(n: Int) -> Int {
+    let r = leaf(n)
+    r + 1
+}
+
+func worker(seed: Int) -> Int {
+    let n = middle(seed)
+    n
+}
+
+// Runs while `worker` is still parked at the bottom of its nest, so the dump
+// catches a genuinely suspended task rather than one between resumes.
+func watcher() -> Int {
+    sleep(Duration.ms(10))
+    // (the `dump_tasks()` call)
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(worker(4))
+    let b = g.spawn(watcher())
+    print("watcher {}", b.join())
+    print("worker {}", a.join())
+}

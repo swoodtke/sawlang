@@ -15,7 +15,9 @@ coro/
   golden/                 NAME.saw, a program; NAME.coro, its frame decisions
                           and lifetimes;
                           NAME.layouts, its frames' layouts; NAME.lowered, its
-                          lowered frames' resume functions
+                          lowered frames' resume functions; and for a
+                          bt_table_NAME.saw, bt_table_NAME.bttable, its
+                          backtrace table, decoded
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
   inject/                 asan_inject.saw, the sanitizer lane's injector,
                           which lowers asan_overlap.saw, edits it and hands
@@ -36,7 +38,7 @@ coro/
 ## `sawc2 coro`
 
 ```sh
-.build/sawc2 coro (--dump | --layouts | --lowered | --check) [--notes] [--std-root DIR]
+.build/sawc2 coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]
                   [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -67,7 +69,10 @@ holds instead each frame laid out for `--target` (`arm64-apple-darwin` by
 default), in item order (see "Frames", below), or the line `no frame` when
 the program has none; with `--lowered`, each lowered frame's resume function
 for `--target`, in item order (see "Lowering"), or the line `no lowered
-frame`. The exit code is 1 when any program has a refusal or an
+frame`; with `--bt-table`, the program lowered for `--target`, an
+`INVARIANT` line per problem the lowering meets, and when it meets none, its
+backtrace table, encoded and then decoded (see "The backtrace table"). The
+exit code is 1 when any program has a refusal or an
 invariant, 2 on a usage failure, and 0 otherwise. `sawc2 build` runs this
 stage, and prints its record when it refuses (`compiler/tests/run/README.md`).
 
@@ -583,6 +588,57 @@ drive site, in item order: a `spawner #K: NAME` line for one that spawns, a
 `driver #K: NAME` line otherwise, its `spawn` lines, its `drive bbB task root
 #J ROOT, descriptor _D, frame _R` lines, and its body.
 
+### The backtrace table
+
+A parked task is its root's frame, every child it drives embedded at a fixed
+offset, and each frame's state word says where it stopped; so its logical
+stack is a walk of a static table, `__saw_bt_table` (SL:coroutines A16a,
+`compiler/coro/src/bttable.saw`), built from the lowered frames once they
+are packed. Its bytes are Stage 0's format (`sawc/backtrace_table.py`), so
+`tools/lldb_saw.py` and the in-process walker read one encoding: a 32-byte
+header, a 24-byte record per frame (its symbol, the dump name of its item;
+its name, the declaration's path in its module, as a cause chain names it;
+its file's base name; its first state, its state count and its state word's
+offset), a 12-byte record per state (its line, the child's frame index plus
+one or 0, the child's offset) and the string table. The runtime descriptor,
+which tells a debugger where the live tasks are, is absent (offset 0) until
+the new std's executor has a layout to describe (SL-577).
+
+The backend emits it into every program but a runtime as one constant,
+`@__saw_bt_table`, external, 8-aligned, in section `__TEXT,__sawbt` on Mach-O
+and `.saw_bt` on ELF, and kept by `@llvm.used`, as Stage 0 emits it; the
+header's word width is the emitter's. Each task root's frame descriptor
+names its frame's index in the table, which is where a dump's walk of the
+task starts.
+
+The frames are every lowered frame but the park-only std frames, in
+resume-function order. A frame's state 0 is its entry; state N is its Nth
+suspension, in block order, as the state word numbers it, so a suspension
+lowered to nothing (an effect-only call) keeps a state with no line. A
+state's line is the line of the call that suspends there; a drive names its
+child's frame and offset. **A park-only std frame** is a std item, not a task
+root, whose every suspension is a park of its own on a park intrinsic (a
+ready yield, a timer, a descriptor, a channel); on today's std, `yield_now`,
+`sleep`, `io_wait` and `Channel.receive`'s default. The table leaves it out
+and records a state that drives one as a park of the caller on the caller's
+line, which is how Stage 0 records it, since it inlines those parks. A std
+frame that drives any frame, or offloads a `blocking` call, keeps its place
+(`TcpStream.read`, around its `io_wait`).
+
+The `--bt-table` record, after the `FILE` line, prints the decoded table as
+the Stage 0 snapshot does (see "The Stage 0 snapshot and the census"):
+
+```
+bt	BYTES	strtab=N	version=1	word_bits=W	exec=absent
+btframe	SYMBOL	NAME	FILE	STATE_WORD	STATES
+```
+
+one `btframe` line per frame, its STATES space-separated in state order, each
+its line, or `LINE>CHILD@OFFSET` for one that drives frame CHILD at OFFSET.
+Stage 0 numbers more states than sawc2: every block of its state machine is
+one, so the block after a drive is a state with no line and no child, which
+never parks and has no counterpart here.
+
 ## The verifier
 
 The borrow check runs before this stage, so it never sees the paths lowering
@@ -756,9 +812,20 @@ which form it stands in for.
 
 `coro_lane.py` checks that each golden program's `--dump` record equals its
 `.coro` file, its `--layouts` record its `.layouts` file and its `--lowered`
-record its `.lowered` file, byte for byte (`--write` rewrites them, for
+record its `.lowered` file, and a `bt_table_` program's `--bt-table` record
+its `.bttable` file, byte for byte (`--write` rewrites them, for
 review), with no `INVARIANT` line and no
-refusal but this stage's; that each fixture in `refuse/` is refused first at
+refusal but this stage's; that each `bt_table_` program's table agrees with
+the Stage 0 snapshot's for the corpus program its first line names
+(`// stage0: PATH.saw`, laid out for `arm64-apple-darwin`, the default
+target), the same frames by name, and in each frame the same states it can be
+parked in, by line and by the child's frame name, Stage 0's states with no
+line and no child left out; state numbers and offsets are each compiler's
+own, so neither is compared; that each `bt_table_` program's `sawc2 build
+--emit-ll`, for `arm64-apple-darwin` and `x86_64-unknown-linux-gnu`, holds one
+`@__saw_bt_table` of its record's size in that format's section, kept by
+`@llvm.used`, and gives each task root's descriptor its frame's index in the
+table; that each fixture in `refuse/` is refused first at
 its header's position by the rule its name starts with, the refusal's
 message holding each `// message:` line of its header, and every rule has a
 fixture; and that `sawc2 coro --layouts` reports no `INVARIANT` line over the

@@ -15,6 +15,12 @@ directory specifies:
   `INVARIANT` line and no refusal but coroutine lowering's own; a
   `golden/park_NAME.saw` program is brought under a copy of std whose
   `task.saw` ends in `parks/task_tail.saw`;
+- each `golden/bt_table_NAME.saw` program also gives exactly the record in
+  `golden/bt_table_NAME.bttable` (`--bt-table`), and that table agrees, state
+  by parked state, with the Stage 0 snapshot's table of the corpus program
+  its first line names (`// stage0: PATH`); and its `.ll`, for each object
+  format, holds that table in its section, kept by `@llvm.used`, with each
+  task root's frame descriptor naming its frame's index in it;
 - each fixture in `refuse/` is refused first at its header's position by the
   rule its name starts with, that refusal's message holds each of its
   `// message:` lines, and every rule coroutine lowering refuses by
@@ -55,9 +61,14 @@ PARKS_TAIL = os.path.join(PARKS, "task_tail.saw")
 PARK_ROOT = os.path.join(REPO, ".build", "coro-lane")
 RULES_SOURCE = os.path.join(COMPILER, "coro", "src", "suspends.saw")
 AGREEMENT = (os.path.join(TESTS, "mono", "golden"), os.path.join(TESTS, "run"))
+BT_PREFIX = "bt_table_"
+# The snapshot's records for `sawc2 coro`'s default target, which the
+# `--bt-table` goldens are laid out for.
+SNAPSHOT = os.path.join(HERE, "stage0", "arm64-apple-darwin")
 TIMEOUT = 600
 
 _HEADER = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
+_STAGE0 = re.compile(r"^// stage0: (\S+)\.saw$")
 _MESSAGE = re.compile(r"^// message: (.+)$")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 
@@ -163,10 +174,11 @@ def _point_link(final):
     os.replace(staged, link)
 
 
-def check_golden(failures, counts, write, rules, mode, suffix, park_root):
+def check_golden(failures, counts, write, rules, mode, suffix, park_root, prefix=""):
     """Each golden program's `mode` record against its `suffix` file: a
-    `park_` program's under the park std (`park_std`), the rest under std."""
-    cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))
+    `park_` program's under the park std (`park_std`), the rest under std;
+    with `prefix`, only the programs whose names start with it."""
+    cases = sorted(glob.glob(os.path.join(GOLDEN, prefix + "*.saw")))
     parks = [s for s in cases if os.path.basename(s).startswith("park_")]
     plain = [s for s in cases if s not in parks]
     code, out = sawc2([mode, "--std-root", "std"] + module_args() + [rel(s) for s in plain])
@@ -196,8 +208,117 @@ def check_golden(failures, counts, write, rules, mode, suffix, park_root):
                 failures.append("coro golden %s: refused by %s at %s, before coroutine lowering"
                                 % (rel(src), rule, where))
         check_invariants(failures, "golden", src, record)
-        key = {"--dump": "coro golden records", "--layouts": "coro layout records"}.get(mode, "coro lowered records")
+        key = {"--dump": "coro golden records", "--layouts": "coro layout records",
+               "--bt-table": "coro backtrace tables"}.get(mode, "coro lowered records")
         counts[key] = counts.get(key, 0) + 1
+
+
+def bt_frames(lines):
+    """The `btframe` lines of a decoded table, sawc2's or the snapshot's, as
+    (name, states) in table order, each state (line, child index or -1)."""
+    frames = []
+    for line in lines:
+        fields = line.split("\t")
+        if fields[0] != "btframe":
+            continue
+        states = []
+        for state in (fields[5].split(" ") if len(fields) > 5 else []):
+            if ">" in state:
+                at, rest = state.split(">")
+                states.append((int(at), int(rest.split("@")[0])))
+            else:
+                states.append((int(state), -1))
+        frames.append((fields[2], states))
+    return frames
+
+
+def bt_parked(frames):
+    """By frame name, the sorted states it can be parked in, each (line, the
+    child's frame name or None): every state past the entry but one with no
+    line and no child, which Stage 0 numbers for the block after a drive and
+    sawc2 for a suspension lowered to nothing, and neither ever parks in."""
+    out = {}
+    for name, states in frames:
+        parked = [(line, frames[child][0] if 0 <= child < len(frames) else None)
+                  for line, child in states[1:] if line != 0 or child >= 0]
+        out[name] = sorted(parked, key=lambda s: (s[0], s[1] or ""))
+    return out
+
+
+def check_bt_stage0(failures, counts):
+    """Each `bt_table_` golden's table against Stage 0's for the corpus
+    program its first line names (SL:coroutines A16a): the same frames, by
+    name, and in each the same parked states, by line and child. State
+    numbers and offsets are each compiler's own, so neither is compared."""
+    for src in sorted(glob.glob(os.path.join(GOLDEN, BT_PREFIX + "*.saw"))):
+        with open(src) as fh:
+            header = _STAGE0.match(fh.readline().rstrip("\n"))
+        if header is None:
+            failures.append("coro backtrace table %s: no `// stage0: PATH.saw` first line" % rel(src))
+            continue
+        snapshot = os.path.join(SNAPSHOT, header.group(1) + ".stage0")
+        expectation = os.path.splitext(src)[0] + ".bttable"
+        if not os.path.exists(snapshot) or not os.path.exists(expectation):
+            failures.append("coro backtrace table %s: no %s" % (rel(src), rel(snapshot if not os.path.exists(snapshot)
+                                                                              else expectation)))
+            continue
+        with open(snapshot) as fh:
+            theirs = bt_parked(bt_frames(fh.read().split("\n")))
+        with open(expectation) as fh:
+            ours = bt_parked(bt_frames(fh.read().split("\n")))
+        if sorted(theirs) != sorted(ours):
+            failures.append("coro backtrace table %s: frames %s, Stage 0's are %s"
+                            % (rel(src), sorted(ours), sorted(theirs)))
+            continue
+        for name in sorted(ours):
+            if ours[name] != theirs[name]:
+                failures.append("coro backtrace table %s: `%s` parks at %s, in Stage 0 at %s"
+                                % (rel(src), name, ours[name], theirs[name]))
+        counts["coro backtrace tables against Stage 0"] = counts.get("coro backtrace tables against Stage 0", 0) + 1
+
+
+_BT_GLOBAL = re.compile(r'^@__saw_bt_table = constant \[(\d+) x i8\] c".*", section "([^"]+)", align 8$')
+_BT_USED = "@llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section \"llvm.metadata\""
+_DESCRIPTOR = re.compile(r'^@"saw frame (.+)" = private unnamed_addr constant \{.*\} \{.* i64 (-?\d+) \}$')
+# Each object format's section for the table, as Stage 0 places it.
+BT_SECTIONS = (("arm64-apple-darwin", "__TEXT,__sawbt"), ("x86_64-unknown-linux-gnu", ".saw_bt"))
+
+
+def check_bt_ir(failures, counts):
+    """Each `bt_table_` golden's `.ll`, for each object format: the table is
+    one 8-aligned constant `__saw_bt_table` in its section, as many bytes as
+    its `.bttable` record says, kept by `@llvm.used`; and each task root's
+    frame descriptor names its frame's index in that table."""
+    for src in sorted(glob.glob(os.path.join(GOLDEN, BT_PREFIX + "*.saw"))):
+        expectation = os.path.splitext(src)[0] + ".bttable"
+        if not os.path.exists(expectation):
+            continue
+        with open(expectation) as fh:
+            lines = fh.read().split("\n")
+        size = next((line.split("\t")[1] for line in lines if line.startswith("bt\t")), None)
+        index = {line.split("\t")[1]: k for k, line in enumerate(l for l in lines if l.startswith("btframe\t"))}
+        for triple, section in BT_SECTIONS:
+            where = "coro backtrace table %s %s" % (rel(src), triple)
+            r = subprocess.run([build.SAWC2, "build", "--std-root", "std", "--target", triple, "--emit-ll", rel(src)],
+                               cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+            if r.returncode != 0:
+                failures.append("%s: does not build: %s" % (where, first_line(r.stdout)))
+                continue
+            ll = r.stdout.split("\n")
+            tables = [m for m in (_BT_GLOBAL.match(line) for line in ll) if m]
+            if len(tables) != 1 or tables[0].group(1) != size or tables[0].group(2) != section:
+                failures.append("%s: wants one %s-byte `__saw_bt_table` in section %s, got %s"
+                                % (where, size, section, [(m.group(1), m.group(2)) for m in tables]))
+            if _BT_USED not in ll:
+                failures.append("%s: `@llvm.used` does not keep `__saw_bt_table`" % where)
+            roots = [m for m in (_DESCRIPTOR.match(line) for line in ll) if m]
+            if not roots:
+                failures.append("%s: no task root's frame descriptor" % where)
+            for m in roots:
+                if index.get(m.group(1)) != int(m.group(2)):
+                    failures.append("%s: the descriptor of `%s` names backtrace index %s, the table %s"
+                                    % (where, m.group(1), m.group(2), index.get(m.group(1))))
+            counts["coro backtrace tables in the IR"] = counts.get("coro backtrace tables in the IR", 0) + 1
 
 
 def check_refusals(failures, counts, rules):
@@ -306,6 +427,9 @@ def run(write=False):
     check_golden(failures, counts, write, rules, "--dump", ".coro", park_root)
     check_golden(failures, counts, write, rules, "--layouts", ".layouts", park_root)
     check_golden(failures, counts, write, rules, "--lowered", ".lowered", park_root)
+    check_golden(failures, counts, write, rules, "--bt-table", ".bttable", park_root, prefix=BT_PREFIX)
+    check_bt_stage0(failures, counts)
+    check_bt_ir(failures, counts)
     check_refusals(failures, counts, rules)
     check_agreement(failures, counts)
     check_park_injections(failures, counts)
