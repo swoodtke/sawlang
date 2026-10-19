@@ -1207,8 +1207,11 @@ extension TcProgram {
             acc.nonsync = true
             acc.add_causes_of(&s)
         }
-        // Neither is a suspension, so neither word above carries it.
-        acc.causes = acc.causes | (s.causes & TC_CAUSE_BLOCKS_THREAD)
+        // Neither is a suspension, so neither word above carries it. An
+        // implementation that blocks is refused at its declaration
+        // (`check_blocking_conformances`), so its block reaches no caller's
+        // `causes`, where a task root would refuse it again with a path that
+        // ends at the requirement.
         acc.thread_causes = acc.thread_causes | (s.thread_causes & (TC_CAUSE_BLOCKS_THREAD | TC_CAUSE_PAIRED))
         let first = if suspension { s.suspend_first } else { s.nonsync_first }
         let count = if suspension { s.suspend_count } else { s.nonsync_count }

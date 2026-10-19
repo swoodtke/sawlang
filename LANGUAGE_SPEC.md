@@ -8216,7 +8216,7 @@ suspend, and the marked side is the rare negative effect `sync` (a checked
 suspension-free context). The model is task-only: no user-facing thread API, no
 thread identity ever exposed — the engine is a swappable implementation detail.
 Two engines ship and coexist (they are not unified): the design-21b
-OS-thread engine (`Thread.spawn`/`Thread<T>`/`Channel.recv`, below) and the cooperative
+OS-thread engine (`Thread.spawn`/`Thread<T>`, below) and the cooperative
 executor — single-threaded by default, with `TaskGroup(threads: N)` opting into
 multiple threads (design 75) — carrying the coroutine transform, suspending
 `main`, and the multi-task `TaskGroup` (designs 44/45/52/52b, below).
@@ -8483,10 +8483,11 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   (conservative 64-byte condvar slot; real `pthread_cond_t` is ≤48 bytes),
   initialized via `pthread_cond_init` — never a hardcoded struct.
   `send(v) -> Result<Void, ChannelError>` enqueues under the lock and wakes the
-  receivers parked on that channel; `recv() -> Result<T, ChannelError>` blocks the
-  calling thread while empty, and answers `Err(Closed)` once the channel is closed
-  and drained (a refused wait gate is `Err(Alloc(e))` or `Err(System(e))`, never
-  a panic). `close() -> Result<Void, ChannelError>` is how a producer says it is
+  receivers parked on that channel; `receive() -> Result<T, ChannelError>` is a
+  pair (see [Pairs](#pairs)): a task suspends while the queue is empty, a
+  `Thread.spawn` body blocks its thread, and both answer `Err(Closed)` once the
+  channel is closed and drained (a blocked thread's refused wait gate is
+  `Err(Alloc(e))` or `Err(System(e))`, never a panic). `close() -> Result<Void, ChannelError>` is how a producer says it is
   finished (design 230, below): there is no sender count to derive it from.
   `T: Send` is enforced on the type at construction.
 
@@ -8494,8 +8495,7 @@ The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
 shared by `Arc` and `Channel`; the thread-spawn/join (`__saw_rt_thread_spawn`/
 `_join`, design 117) and condvar wrappers back `Thread.spawn`/`Thread<T>` and
 `Channel`. Under the cooperative engine the channel wait
-is the suspending `receive()` twin — `recv()` remains the blocking
-thread-engine call; `lock`'s
+is `receive()`'s suspending default, and in a thread its `blocking` twin; `lock`'s
 critical section stays synchronous (a `sync` closure cannot suspend), which is
 how the never-block invariant makes holding a lock across a suspension point a
 compile error.
@@ -9165,16 +9165,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   wait suspended READY and the scheduler re-queued it as fast as it could spin:
   a sole waiter cost 100% of a core, two multi-threaded workers 143%. Treat a
   0%-CPU channel wait as working now and SUSPECT in older builds.
-  NAMING: the cooperative method is `receive`;
-  the 21b thread engine's blocking `recv` keeps its name (same receiver and the
-  same `Result<T, ChannelError>`, so overloading — which cannot differ by
-  effect — cannot distinguish the two). A `receive()` buried in an expression position is
+  One name serves both engines: `receive` is a pair, so a task's copy parks
+  and a `Thread.spawn` body's copy blocks its thread, and no spelling blocks a
+  task on a channel. A `receive()` buried in an expression position is
   hoisted to its own statement first (design 120), so `inc(ch.receive()) +
-  ch.receive()` takes the two values left to right. **Never call `recv` from a
-  cooperative task.** Its block is unbounded, and the thread it stops is the
-  executor's — so every sibling task stops with it, including the one that would
-  have sent the value. `receive` is the replacement. Nothing rejects the
-  call today.
+  ch.receive()` takes the two values left to right.
 - **Disconnection is EXPLICIT: `close()` (design 230).** A channel handle is a
   unified `Copy` handle with no sender/receiver role split, so "the last sender
   went away" is not something the type can count — a waiting receiver's own
@@ -9189,7 +9184,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
       case Closed,
       case Cancelled,
       case Alloc(e: AllocError),     // design 234 §1: carry the leaf
-      case System(e: SystemError)    // a blocking recv's refused lock
+      case System(e: SystemError)    // a blocked thread's refused lock
   }
   ```
 
@@ -9311,7 +9306,7 @@ threads, no lock).
   eventually consistent, cooperative). The word is in the task's cell, which the
   group keeps alive, so a write that lands after the task finished is inert rather
   than undefined; taking the address pins the slot (design 134, above). The 21b
-  OS-thread `Thread.spawn`/`Thread<T>`/`Channel.recv` engine is separate and
+  OS-thread `Thread.spawn`/`Thread<T>` engine is separate and
   untouched — the two engines coexist.
 
 Now-closed gaps (design 62), each landed with tests:
@@ -9379,11 +9374,11 @@ var producer = try! Thread.spawn { [ch] in
     try! ch.send(42)             // send/receive/close report through Result
     true
 }
-let got = try! ch.recv()         // blocks the calling thread (the thread
-                                 // engine's receive); Err(Closed) once the
-                                 // channel is closed and drained. The
-                                 // cooperative twin is the suspending
-                                 // receive() (below)
+let got = try! ch.receive()      // suspends `main`, which then runs the
+                                 // executor; in a Thread.spawn body the same
+                                 // call blocks the thread (Pairs, below).
+                                 // Err(Closed) once the channel is closed
+                                 // and drained
 let _ = producer.join()
 ```
 
@@ -9557,7 +9552,7 @@ executor, so there is nothing on it to resume a suspension.
 ```saw-fragment
 var t = try! Thread.spawn { yield_now(); 7 }
 // error: cannot suspend in a `Thread.spawn { ... }` body: closure calls
-//        yield_now
+//        `yield_now` (parks the task)
 ```
 
 Suspending work on a dedicated thread is `TaskGroup(threads: 1)`, which brings
@@ -9618,12 +9613,12 @@ let job = Task.spawn(refresh())
 //        `Thread.spawn` body, or from a `main` that runs no executor
 ```
 
-The task roots are a `Task.spawn` or `group.spawn` site, a drive
-(`__saw_drive`), and a `main` that suspends; an `@test` case is judged as
-`main` is. The same `refresh()` called from a `main` that never suspends, or
-from a `Thread.spawn` body, compiles and blocks the calling thread. There is
-no call-site marker and no way to block from a task anyway. A `main` declared
-`blocking` is thread context by its signature, and may not suspend.
+The task roots are a `Task.spawn` or `group.spawn` site and a `main` that
+suspends, and the transform's test-only drive entry is one too; an `@test`
+case is judged as `main` is. The same `refresh()` called from a `main` that
+never suspends, or from a `Thread.spawn` body, compiles and blocks the calling
+thread. A call site carries no marker, and nothing lets a task block. A `main`
+declared `blocking` is thread context by its signature, and may not suspend.
 
 A `main` that never suspends may still drive a group by joining it, and its
 tasks are paused whenever `main` is blocked, so a block that waits on
@@ -9653,9 +9648,9 @@ redundant, the way `constexpr sync` is, and a `sync` function may call a
 
 ##### Pairs
 
-One operation may need to suspend in a task and block in a thread, a channel's
-receive being the standard case. It is declared twice: the DEFAULT
-declaration, and a `blocking` TWIN with the same signature.
+One operation may need to suspend in a task and block in a thread;
+`Channel.receive` is std's. It is declared twice: the DEFAULT declaration, and
+a `blocking` TWIN with the same signature.
 
 ```saw-fragment
 extension Mailbox {
@@ -9673,6 +9668,14 @@ takes the default too, and when the default suspends, that `main` suspends
 and runs the executor, like any other `main` that calls a suspending function.
 A pair is context selection rather than overloading by effect: there is one
 operation, and no call can name the twin.
+
+The selection reaches through the calls between: a thread-context copy of a
+generic helper, two calls deep or inside a std generic such as `Map.insert`'s
+hash, takes the twin, and so does an implementation the program calls,
+directly or through a bound. Through a `sync` requirement or a `sync` generic
+function, and at a render site (`print("{x}")`), the default runs. So does a
+hook the compiler calls rather than the program, even in thread context: a
+`deinit`, a `copy()`, a render, and a dispatch through `any`.
 
 The twin repeats the default's signature exactly: the name, the labels, the
 parameter and return types, the receiver, `static`, the generic parameters and
@@ -10537,13 +10540,14 @@ for its C call to finish before it can return, and nothing the call points at ma
 be released until that join, which is why the frame keeps its storage until then.
 
 **Two engines coexist today, deliberately not unified, and the NAMESPACE is
-which one you are on.** `Thread.spawn`/`Thread<T>`/`Channel.recv` run on the
+which one you are on.** `Thread.spawn`/`Thread<T>` run on the
 **OS-thread** engine: `Thread.spawn` starts an OS thread (or reports, in its
 `Result`, that the OS refused one), its body is a `sync`
-context that may block on FFI, and `Thread.join()`/`Channel.recv()` block the
-calling thread. `Task.spawn`/`TaskGroup`/`Task<T>`/`Channel.receive` run on the
-**single-threaded cooperative executor** (above), where a body suspends and a
-join drives the group; a suspending `main` runs there too. The call site's
+context that may block on FFI, and `Thread.join()` and, in that body,
+`Channel.receive()` block the calling thread. `Task.spawn`/`TaskGroup`/`Task<T>`
+run on the **single-threaded cooperative executor** (above), where a body
+suspends, `Channel.receive()` among the calls that do, and a join drives the
+group; a suspending `main` runs there too. The call site's
 namespace says which machine it is on, and the two behave differently enough
 that reading it matters: one blocks and one suspends, and a handle's obligations
 differ (a `Thread<T>` and a `Task.spawn` `Task<T>` must be consumed; a group's
@@ -10557,10 +10561,11 @@ frame is `Send`. `Thread.spawn` when one thread must BLOCK — a long or
 thread-phobic C call — which is the one thing the cooperative engine has no
 answer for.
 
-Do not mix the two engines for one task. `Channel.recv` from a cooperative task
-is the worst version of it: the block is unbounded and the thread it stops is
-the executor's, so every sibling stops with it — including the task that would
-have sent the value. Use `receive`. Nothing rejects that call today (DF-181c).
+Do not mix the two engines for one task. A task that blocks its thread stops
+the executor and every sibling on it, the one that would wake the block
+included. The compiler refuses a task root that reaches a `blocking` function
+(see [Blocking functions](#blocking-functions)), and a channel needs no second
+name: `Channel.receive` suspends a task and blocks only in thread context.
 
 ### Shared State
 

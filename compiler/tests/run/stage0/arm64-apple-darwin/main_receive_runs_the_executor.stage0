@@ -1,0 +1,7 @@
+program	compiler/tests/run/main_receive_runs_the_executor.saw
+triple	arm64-apple-darwin
+source	f962eb397387fb6a
+build	ok
+exit	0
+stdout	"main received 11 from a task"
+stdout	""

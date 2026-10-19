@@ -706,16 +706,18 @@ extension MonoProgram {
 
     // Whether call `info`, copied into thread-context item `k`, is a plain
     // call there though its source marks it a suspension point: one that
-    // suspends at `k`'s arguments only by what thread context runs plainly, a
-    // `blocking` extern or a pair's default, made in a helper whose
-    // MIR its cooperative callers share (`thread_plain_call`). A call through
-    // a bound is `When` in that MIR, and its instance answers it.
+    // does not suspend at `k`'s arguments, or suspends there only by what
+    // thread context runs plainly, a `blocking` extern or a pair's default,
+    // made in a helper whose MIR its cooperative callers share
+    // (`thread_plain_call`). A call through a bound is `When` in that MIR,
+    // and its instance answers it. A plain call is one `callee_key` keys, so
+    // a pair it reaches runs its twin even when the default never suspends.
     func thread_plain_copy(&var self, k: Int, info: &MirCall) -> Bool {
         if info.suspend == MirSuspend.Never || not self.is_thread_item(k) {
             return false
         }
         var acc = self.instance_effect(k, &info)
-        self.dp.bc.mir.thread_plain_call(true, &acc)
+        not acc.suspends || self.dp.bc.mir.thread_plain_call(true, &acc)
     }
 
     // What call `info`, in item `k`'s body, adds at `k`'s arguments:

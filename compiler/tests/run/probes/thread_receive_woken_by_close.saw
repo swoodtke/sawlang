@@ -1,0 +1,30 @@
+// probe: stated
+// about: a `close` from one `Thread.spawn` body wakes another blocked in `Channel.receive`'s twin, which returns `Err(Closed)` rather than waiting on or panicking (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); its thread engine's receive is `recv`, which panics on the closed, drained channel where sawc2's returns `Err`
+// speeds: -O0 -O2
+// prints: woken: channel is closed
+// The waiter blocks in `receive` before the closer closes, since the closer
+// sleeps first; the close must reach the blocked wait, or the program hangs.
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 50_000_000
+
+func main() {
+    let ch = try! Channel<Int>()
+    var waiter = try! Thread.spawn { [ch] in
+        match ch.receive() {
+            case Ok(v) -> "a value {v}",
+            case Err(e) -> "{e}"
+        }
+    }
+    var closer = try! Thread.spawn { [ch] in
+        __saw_rt_sleep_ns(NAP_NANOS)
+        let _ = ch.close()
+    }
+    closer.detach()
+    print("woken: {}", waiter.join())
+}

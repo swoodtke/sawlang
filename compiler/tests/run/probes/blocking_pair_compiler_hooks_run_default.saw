@@ -1,0 +1,93 @@
+// probe: stated
+// about: from a `Thread.spawn` body, a hook the compiler calls runs a pair's default: a `deinit` and a `copy()` that call one, a render (an interpolation and a `{}` argument), and a dispatch through `any`; the call the program writes runs the twin, conformance row K181 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// prints: direct: twin
+// prints: copy: default
+// prints: copied 2 and 2
+// prints: interpolated default
+// prints: argument default
+// prints: written to_string twin
+// prints: any: default
+// prints: deinit: default
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func note(what: String) {
+    print("{what}: default")
+}
+
+func note(what: String) blocking {
+    let _ = __saw_rt_blocking_sleep(0)
+    print("{what}: twin")
+}
+
+struct Guarded { id: Int }
+
+extension Guarded: NoCopy {
+    func deinit(&var self) {
+        note("deinit")
+    }
+}
+
+struct Tally { id: Int }
+
+extension Tally: Copy {
+    func copy(&self) -> Tally {
+        note("copy")
+        Tally(id: self.id)
+    }
+}
+
+struct Shown { id: Int }
+
+extension Shown: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("default")
+    }
+    func format(&self, into: &var StringBuilder) blocking {
+        let _ = __saw_rt_blocking_sleep(0)
+        try! into.append("twin")
+    }
+}
+
+trait Runs {
+    func run(&self) sync -> Int
+}
+
+struct Runner { id: Int }
+
+extension Runner: Runs {
+    func run(&self) sync -> Int {
+        print("any: default")
+        self.id
+    }
+    func run(&self) blocking -> Int {
+        let _ = __saw_rt_blocking_sleep(0)
+        print("any: twin")
+        self.id
+    }
+}
+
+func dispatch(x: &any Runs) -> Int {
+    x.run()
+}
+
+func main() {
+    var t = try! Thread.spawn {
+        note("direct")
+        let guarded = Guarded(id: 1)
+        let a = Tally(id: 2)
+        let b = a
+        print("copied {} and {}", a.id, b.id)
+        let shown = Shown(id: 3)
+        print("interpolated {shown}")
+        print("argument {}", shown)
+        print("written to_string {}", shown.to_string())
+        let r = Runner(id: 4)
+        let _ = dispatch(&r)
+        0
+    }
+    let _ = t.join()
+}

@@ -177,6 +177,7 @@ _REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _PIN_FUNCTION = re.compile(r"^// function: (.+)$")
 _DECLARATION = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
 _CONFORMANCE = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
+_BLOCKING_EFFECT = re.compile(r"\(effects [^()]*\bblocking\b")
 
 
 def rel(path):
@@ -435,7 +436,13 @@ def params_of(rest):
 
 def signature_records(output):
     """{declaration key: record}: each declaration and conformance of every
-    module, its position and summary left out."""
+    module, its position and summary left out.
+
+    A pair is one entry, its default's: a `blocking` twin shares its default's
+    key, and its record never replaces the default's, in either order. The
+    twin's identity with its default is the compiler's `effect.blocking-twin`
+    check, so the lane compares only the default. A lone `blocking` function,
+    with no default under its key, keeps its own record."""
     out = {}
     module = part = None
     for line in output.split("\n"):
@@ -450,6 +457,8 @@ def signature_records(output):
             if m and m.group(1) != "extension":
                 rest = balanced(m.group(3)).split(" (summary ")[0]
                 key = "%s %s %s %s" % (module, m.group(1), m.group(2), params_of(rest))
+                if key in out and _BLOCKING_EFFECT.search(rest) and not _BLOCKING_EFFECT.search(out[key]):
+                    continue
                 out[key] = rest
         elif part == "conformances":
             m = _CONFORMANCE.match(line)
@@ -457,6 +466,27 @@ def signature_records(output):
                 owner, trait = m.group(1).split(".")[-1], m.group(2).split(".")[-1]
                 out["%s conformance %s %s" % (module, owner, trait)] = balanced(m.group(3))
     return out
+
+
+def check_pair_records(failures, counts):
+    """`signature_records` over a dump holding a pair, in each order, and a
+    lone `blocking` function: the pair's record is its default's, and the lone
+    function's is its own."""
+    default = "    (method Inbox.take 3:17 public (signature (receiver shared) (params) -> Int) (summary body))"
+    twin = "    (method Inbox.take 4:17 public (signature (receiver shared) (params) (effects blocking) -> Int) (summary body))"
+    lone = "    (func settle 6:6 public (signature (params) (effects blocking) -> Int) (summary body))"
+    want_default = " public (signature (receiver shared) (params) -> Int)"
+    want_lone = " public (signature (params) (effects blocking) -> Int)"
+    for order in ((default, twin), (twin, default)):
+        dump = "\n".join(["(Module probe", "  (declarations"] + list(order) + [lone])
+        got = signature_records(dump)
+        if got.get("probe method Inbox.take -") != want_default:
+            failures.append("std equivalence: a pair's record is not its default's: %r"
+                            % got.get("probe method Inbox.take -"))
+        if got.get("probe func settle -") != want_lone:
+            failures.append("std equivalence: a lone `blocking` function's record is not its own: %r"
+                            % got.get("probe func settle -"))
+    counts["pair record checks"] = 2
 
 
 def read_rows(path, width):
@@ -1092,6 +1122,7 @@ def run(write=False):
     check_profile(failures, counts)
     check_lang(failures, counts, write)
     check_shapes(failures, counts)
+    check_pair_records(failures, counts)
     check_equivalence(failures, counts)
     check_pairs(failures, counts)
     check_calls(failures, counts)

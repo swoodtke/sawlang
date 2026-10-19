@@ -1,0 +1,36 @@
+// refuses: effect.thread-body at 30:48
+// flags: --std-root std
+// a `Thread.spawn` body reaching `Channel.receive` through `any`: a dispatch
+// runs a pair's default, which suspends, so the thread is refused, though it
+// may call the implementation directly and take `receive`'s twin (SL-782)
+
+import std.channel.{Channel, ChannelError}
+
+trait Inbox {
+    func next(&self) -> Result<Int, ChannelError>
+}
+
+struct Mail { ch: Channel<Int> }
+
+extension Mail: NoCopy {}
+
+extension Mail: Inbox {
+    func next(&self) -> Result<Int, ChannelError> {
+        self.ch.receive()
+    }
+}
+
+func pull(box: &any Inbox) -> Result<Int, ChannelError> {
+    box.next()
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    let mail = Mail(ch: ch)
+    var t = try! Thread.spawn { [move mail] in pull(&mail) }
+    try! ch.close()
+    match t.join() {
+        case Ok(v) -> print("a value {}", v),
+        case Err(e) -> print("{e}")
+    }
+}

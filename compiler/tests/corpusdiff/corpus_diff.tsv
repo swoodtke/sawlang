@@ -394,7 +394,7 @@ conformance/K79_unconsumed_thread_handle_is_refused.saw	pass	-	drop.must-consume
 conformance/K80_group_spawn_handle_may_be_dropped.saw	pass	-	-
 conformance/K81_storage_owner_discharges_the_obligation.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
-conformance/K83_thread_spawn_body_is_sync_enforced.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → `yield_now` → __saw_park_ready: a spawned thread runs no executor, so there is nothing there to resume a su
+conformance/K83_thread_spawn_body_is_sync_enforced.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a susp
 conformance/K84_thread_spawn_permits_a_blocking_extern.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K85_background_spawn_handle_must_be_consumed.saw	pass	-	drop.must-consume: `Task.spawn` hands back a `std.taskgroup.Task<Int>` that must be consumed, and this one is discarded. Bind it and consume it on every path: `join()` waits for it and takes its resul
 conformance/K86_background_task_handle_panics_in_deinit.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"

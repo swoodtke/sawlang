@@ -2273,9 +2273,10 @@ func main() {
     print(a.join())        // structured join; group Deinit drains children
 }
 sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
-try! ch.receive()           // cooperative receive -> Result<T, ChannelError>
-try! ch.send(1)             // ...and so do send/close (blocking twin: recv, also
-                            //    Result<T, ChannelError>; Err(Closed) once drained)
+try! ch.receive()           // -> Result<T, ChannelError>; a task parks, a
+                            //    Thread.spawn body blocks (one pair); Err(Closed)
+                            //    once drained
+try! ch.send(1)             // ...and so do send/close
 let _ = ch.close()          // the producer says it is finished; idempotent
 handle.cancel()             // cooperative cancellation; the task checks
 if cancelled() { ... }      //   `cancelled()` where it chooses to
@@ -2388,9 +2389,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   bound (`` `Arc` is `Send` only when its payload is `Sync` ``).
 - **THE NAMESPACE IS THE ENGINE (design 242).** `Thread.*` is OS threads and
   blocking; `TaskGroup` and `Task<T>` are cooperative and suspending. The two are
-  different machines — one blocks, one suspends; `Channel.recv` blocks and
-  `receive` parks — so the call site's namespace is what says which one you are
-  on:
+  different machines — one blocks, one suspends; `Channel.receive` blocks in a
+  `Thread.spawn` body and parks in a task — so the call site's namespace is what
+  says which one you are on:
   ```saw-fragment
   var t = try! Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() BLOCKS this thread
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
@@ -2405,11 +2406,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   frame is `Send`; `Thread.spawn` only when one thread must BLOCK — a long or
   thread-phobic C call — which is the one thing the cooperative engine has no
   answer for.
-  Don't mix engines per task. `Channel.recv` from a task is the worst version
-  of mixing them: the block is unbounded and the thread it stops
-  is the EXECUTOR's, so every sibling stops too — including the task that would
-  have sent the value, which turns the wait into a group deadlock. Use `receive`.
-  Nothing rejects the call today (DF-181c).
+  Don't mix engines per task: a task that blocks stops the EXECUTOR's thread
+  and every sibling on it. A task root that reaches a `blocking` function is
+  refused (below), and `Channel.receive` is one name for both engines (a pair),
+  so a task's receive always parks; there is no `recv`.
   The bare `spawn { … }` is GONE: it named neither engine, read like the
   cooperative one and started an OS thread. Writing one is a clean error naming
   both spellings, so code that still has it predates Aug 22.
@@ -2536,7 +2536,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   a `blocking` twin with the identical signature, DIRECTLY after it in the
   same block, no `///` and no parameter defaults on the twin; a
   thread-context copy runs the twin, every other copy the default (a
-  non-suspending `main` too, which then suspends if the default does). Never
+  non-suspending `main` too, which then suspends if the default does). The
+  twin is reached through generic helpers and through implementations the
+  program calls, directly or by a bound; through a `sync` requirement or a
+  `sync` generic, at a render, and in a hook the compiler calls (`deinit`,
+  `copy()`, `any` dispatch) the default runs. std's pair is `Channel.receive`.
+  Never
   block from: a closure body, a trait requirement or default body, a
   conformance's implementation, a `deinit`, a policy `copy()`; and a
   `blocking` function is never a value.
@@ -2544,7 +2549,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
   Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,
   case Alloc(e: AllocError), case System(e: SystemError) }` (`System` is a
-  blocking `recv`'s refused lock; a receive TIMEOUT is the reserved next case).
+  blocked thread's refused lock; a receive TIMEOUT is the reserved next case).
   `Alloc` arrived with design 234 §1 and CARRIES the leaf error rather than
   restating its vocabulary — it renders through it (`the channel could not
   allocate memory: allocation of 64 bytes (align 8) failed`), and adding a
@@ -3089,7 +3094,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   SUBJECT, and an `&&`/`||` RHS inside any of them. A `while` condition suspends
   once per ITERATION, where it is written, so `while (try! ch.receive()) > 0 { … }`
   drains a channel and a `continue` re-evaluates it. PARENTHESIZE it: `try!`
-  binds looser than a comparison, so the bare spelling is `try! (recv() > 0)`
+  binds looser than a comparison, so the bare spelling is `try! (ch.receive() > 0)`
   and the clean error is ``cannot compare `Result<Int, ChannelError>` with
   `Int` ``. A compound assignment's RHS
   (`n += slow()`, and its chained spelling `x?.n += slow()`) and a

@@ -144,7 +144,7 @@ cbor169_limits.saw	arm64-apple-darwin	same	905c1f02b26f	success	ok	0	624:375d45b
 cbor169_roundtrip.saw	arm64-apple-darwin	differs	6001929c71ba	success	ok	0	352:45f3a2406b8a	0:e3b0c44298fc	-	yes	-
 cbor169_vectors.saw	arm64-apple-darwin	differs	881ec15152c9	success	ok	0	70:6d81cc79e18e	0:e3b0c44298fc	-	yes	-
 chain_assign_exclusivity_in_literal.saw	arm64-apple-darwin	same	5c9c0f0cf6a9	error	refused	-	-	-	458:94c1cd5e1d99	yes	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
-channel_pipeline.saw	arm64-apple-darwin	same	36d3b72bf664	success	refused	-	-	-	159:ce816748ba81	no: Stage 0 does not build it	Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+channel_pipeline.saw	arm64-apple-darwin	same	58fa1681352c	success	refused	-	-	-	159:ce816748ba81	no: Stage 0 does not build it	Parse error at 15:38: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 channel_receive_cancel_mt.saw	arm64-apple-darwin	same	f88deed20b85	success	ok	0	44:4d1a0f0e24f7	0:e3b0c44298fc	-	yes	-
 channel_receive_in_main.saw	arm64-apple-darwin	same	5af71c466c5b	success	ok	0	73:99cdee829195	0:e3b0c44298fc	-	yes	-
 channel_receive_through_helper.saw	arm64-apple-darwin	same	2a26ed217105	success	ok	0	22:3da13fc52aa9	0:e3b0c44298fc	-	yes	-

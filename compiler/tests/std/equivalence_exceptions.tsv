@@ -43,4 +43,3 @@ std.net enum IoErrorKind -	-	Not raw-backed (the lead's ruling on SL-570): the s
 std.task struct VoidThread -	-	Retired (SL-765 c10): a `Void` body's handle is `Thread<Void>`, whose result slot is zero-sized and whose `join()` is a statement. Stage 0 cannot store a `Void` field, which is why it declares the distinct type, and it is frozen
 std.net method TcpListener.local_port -	-	Returns `Result<Int, IoError>` (SL-768): a refused `getsockname` is an `Err`, where Stage 0 answers an `Int` and its frozen std panics on the refusal
 std.net method TcpStream.pair -	-	Returns `Result<(TcpStream, TcpStream), IoError>` (SL-768): a refused `socketpair` is an `Err`, never two streams with no descriptor, which is what Stage 0's frozen bare pair still hands back
-std.channel method Channel.recv -	-	SL-777: sawc2's `recv` returns `Result<T, ChannelError>`; Stage 0's frozen std returns `T`

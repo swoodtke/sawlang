@@ -325,8 +325,8 @@ CONCURRENCY = (
             CORPUS + "spawn_void_body.saw",
             # An `Arc` captured into a thread's environment and released there.
             CORPUS + "closure_spawn_arc_balance.saw",
-            # A channel handle captured by a producer thread, feeding a
-            # cooperative `receive` and a blocking `recv`.
+            # A channel handle captured by a producer thread, feeding the
+            # cooperative `receive` of a `main`.
             CORPUS + "conformance/K56_thread_engine_feeds_main_receive.saw",
             CORPUS + "channel_pipeline.saw",
             # Generic captures, an `Arc` and a `Vector` among them.

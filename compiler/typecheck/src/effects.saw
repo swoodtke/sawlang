@@ -338,8 +338,10 @@ extension TcProgram {
 
     // The path from the call at `e` to the first suspension source a
     // `Thread.spawn` body refuses: each function it passes, `` `f` → ``, then
-    // the source, `yield_now`, `__saw_suspend` or a call through a function
-    // value; a std function the table answers for ends in its row's label.
+    // the source, `__saw_suspend` or a call through a function value; a std
+    // function the table answers for ends in its row's label. A park point is
+    // std's internal, so the path ends at the function that calls it, `` `f`
+    // (parks the task) ``.
     func thread_chain(&var self, e: Int) -> String {
         var out = StringBuilder()
         var visited = Vector<Int>()
@@ -358,8 +360,13 @@ extension TcProgram {
             }
             let info = self.res.decls[d]
             let name = self.name_text(info.name)
-            if self.is_park_point(d) || info.kind == ResDeclKind.Extern {
-                try! out.append(name)
+            if self.is_park_point(d) {
+                try! out.append(self.callee_text(at))
+                try! out.append(" (parks the task)")
+                return out.build()
+            }
+            if info.kind == ResDeclKind.Extern {
+                try! out.append(self.callee_text(at))
                 return out.build()
             }
             let s = self.summaries[d]
@@ -383,11 +390,25 @@ extension TcProgram {
             }
             try! visited.push(d)
             at = self.struck_call_in(d)
+            if at >= 0 && self.parks_at(at) {
+                try! out.append(" (parks the task)")
+                return out.build()
+            }
             if at >= 0 {
                 try! out.append(" → ")
             }
         }
         out.build()
+    }
+
+    // Whether the call at `e` is a park point's.
+    func parks_at(&self, e: Int) -> Bool {
+        let ci = self.call_at[e]
+        if ci < 0 {
+            return false
+        }
+        let c = self.calls[ci]
+        c.target >= 0 && c.role != TcRole.Builtin && c.role != TcRole.Value && self.is_park_point(c.target)
     }
 
     // The first call in function `d`'s own body that may suspend by a cause a

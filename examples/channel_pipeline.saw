@@ -24,7 +24,7 @@ func main() {
     var sum = 0
     var n = 0
     while n < 100 {
-        let v = try! ch.recv()   // blocks until a value is available
+        let v = try! ch.receive()   // waits until a value is available
         sum = sum + v
         n = n + 1
     }

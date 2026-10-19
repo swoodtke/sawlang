@@ -1,0 +1,57 @@
+// flags: --std-root std
+// an implementation that blocks is refused at its declaration, and only
+// there: the tasks that reach it through `Map.insert`'s hash or a user bound
+// get no second refusal, while a task calling it directly is refused with the
+// whole path (SL-782).
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func nap() blocking {
+    let _ = __saw_rt_blocking_sleep(0)
+}
+
+struct Key { id: Int }
+
+extension Key: Equatable {
+    func equals(&self, other: &Key) -> Bool {
+        self.id == other.id
+    }
+}
+
+extension Key: Hashable {
+    func hash(&self, h: &var Hasher) {
+        nap()
+        h.write_int(self.id)
+    }
+}
+
+func via_bound<K: Hashable>(k: &K) -> Int {
+    var h = Hasher()
+    k.hash(&var h)
+    h.finish()
+}
+
+func fill() -> Int {
+    var m = Map<Key, Int>()
+    let _ = try! m.insert(Key(id: 1), 1)
+    m.len()
+}
+
+func work() -> Int {
+    via_bound(&Key(id: 2))
+}
+
+func direct() -> Int {
+    var h = Hasher()
+    Key(id: 3).hash(&var h)
+    h.finish()
+}
+
+func main() {
+    let a = Task.spawn(fill())
+    let b = Task.spawn(work())
+    let c = Task.spawn(direct())
+    print("{} {} {}", a.join(), b.join(), c.join())
+}

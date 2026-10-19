@@ -1,0 +1,102 @@
+ERROR	effect.task-blocks	compiler/tests/typecheck/golden/blocking_conformance_cascade.saw:55:24	a task blocks its thread here: the task runs `direct` → `Key.hash` → `nap` (blocking), which would stop the executor's thread and every task on it. Call it from a `Thread.spawn` body, or from a `main` that runs no executor
+ERROR	effect.blocking-conformance	compiler/tests/typecheck/golden/blocking_conformance_cascade.saw:24:10	`Key.hash` meets `Hashable.hash`, and it blocks its thread (`Key.hash` → `nap` (blocking)): an implementation is called through its requirement, by a dispatch or a bound, where no task root sees the call, so it may not block. Keep the blocking work in a function of its own, called from thread context; a pair's default, which does not block, may meet a requirement
+(Module blocking_conformance_cascade
+  (declarations
+    (extern __saw_rt_blocking_sleep 8:19 private (signature (params (ms Int owned)) -> Int blocking) (summary declared (suspends yes) (sync-callable no)))
+    (func nap 11:6 private (signature (params) (effects blocking) -> Void) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (struct Key 15:8 private)
+    (field Key.id 15:14 private Int)
+    (extension 17:1 (target blocking_conformance_cascade.Key) (conforms Equatable))
+    (method Key.equals 18:10 private (signature (receiver shared) (params (other &blocking_conformance_cascade.Key shared)) -> Bool) (summary body (suspends no) (sync-callable yes)))
+    (extension 23:1 (target blocking_conformance_cascade.Key) (conforms Hashable))
+    (method Key.hash 24:10 private (signature (receiver shared) (params (h &var Hasher exclusive)) -> Void) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (func via_bound 30:6 private (signature (generics (K (bounds Hashable))) (params (k &K shared)) -> Int) (summary body (suspends when K.Hashable.hash) (sync-callable unless K.Hashable.hash)))
+    (func fill 36:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func work 42:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func direct 46:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (func main 52:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (blocking_conformance_cascade.Key
+      (field id Int private declared)
+      (method equals private (extension blocking_conformance_cascade))
+      (method hash private (extension blocking_conformance_cascade))))
+  (views
+    (blocking_conformance_cascade.Key id equals hash))
+  (conformances
+    (blocking_conformance_cascade.Key Equatable 17:16 (equals written))
+    (blocking_conformance_cascade.Key Hashable 23:16 (hash written)))
+  (copy-tier
+    (blocking_conformance_cascade.Key Copy))
+  (bodies
+    (nap 11:6
+      (12:9-12:10 BindingName Int place temp)
+      (12:13-12:39 Call.paren Int value temp (call blocking_conformance_cascade.__saw_rt_blocking_sleep(ms: Int)))
+      (12:37-12:38 IntLit Int value temp))
+    (Key.equals 18:10
+      (19:9-19:28 Binary.pair Bool value temp (op ==))
+      (19:9-19:16 Member Int place borrow)
+      (19:9-19:13 SelfExpr blocking_conformance_cascade.Key place project)
+      (19:20-19:28 Member Int place borrow)
+      (19:20-19:25 Name &blocking_conformance_cascade.Key (deref blocking_conformance_cascade.Key) place project))
+    (Key.hash 24:10
+      (25:9-25:14 Call.paren Void value temp (call blocking_conformance_cascade.nap() blocking))
+      (26:9-26:29 Call.paren Void value temp (call Hasher.write_int(n: Int) (owner Hasher)))
+      (26:9-26:10 Name &var Hasher (deref Hasher) (borrow-var &var Hasher) place borrow-var)
+      (26:21-26:28 Member Int place copy)
+      (26:21-26:25 SelfExpr blocking_conformance_cascade.Key place project))
+    (via_bound 30:6
+      (31:9-31:10 BindingName Hasher place temp)
+      (31:13-31:21 Call.paren Hasher value temp (call Hasher.init() (owner Hasher)))
+      (32:5-32:19 Call.paren Void value temp (call Hashable.hash(h: &var Hasher) (owner K)))
+      (32:5-32:6 Name &K (deref K) (borrow &K) place borrow)
+      (32:12-32:18 Ref.exclusive &var Hasher value temp)
+      (32:17-32:18 Name Hasher place borrow-var)
+      (33:5-33:15 Call.paren Int value temp (call Hasher.finish() (owner Hasher)))
+      (33:5-33:6 Name Hasher (borrow &Hasher) place borrow))
+    (fill 36:6
+      (37:9-37:10 BindingName std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator> place temp)
+      (37:13-37:28 Call.paren std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator> value temp (call std.map.Map.init() (owner std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator>)))
+      (38:9-38:10 BindingName Int? place temp)
+      (38:13-38:41 Try.force Int? value temp)
+      (38:18-38:41 Call.paren Result<Int?, std.alloc.AllocError> value temp (call std.map.Map.insert(key: K, value: V) (owner std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator>)))
+      (38:18-38:19 Name std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator> (borrow-var &var std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator>) place borrow-var)
+      (38:27-38:37 Call.paren blocking_conformance_cascade.Key value temp (memberwise blocking_conformance_cascade.Key (owner blocking_conformance_cascade.Key)))
+      (38:35-38:36 IntLit Int value temp)
+      (38:39-38:40 IntLit Int value temp)
+      (39:5-39:12 Call.paren Int value temp (call std.map.Map.len() (owner std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator>)))
+      (39:5-39:6 Name std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator> (borrow &std.map.Map<blocking_conformance_cascade.Key, Int, std.alloc.GlobalAllocator>) place borrow))
+    (work 42:6
+      (43:5-43:27 Call.paren Int value temp (call blocking_conformance_cascade.via_bound(k: &K) (inst blocking_conformance_cascade.Key)))
+      (43:15-43:26 Ref.shared &blocking_conformance_cascade.Key value temp)
+      (43:16-43:26 Call.paren blocking_conformance_cascade.Key value borrow (memberwise blocking_conformance_cascade.Key (owner blocking_conformance_cascade.Key)))
+      (43:24-43:25 IntLit Int value temp))
+    (direct 46:6
+      (47:9-47:10 BindingName Hasher place temp)
+      (47:13-47:21 Call.paren Hasher value temp (call Hasher.init() (owner Hasher)))
+      (48:5-48:28 Call.paren Void value temp (call blocking_conformance_cascade.Key.hash(h: &var Hasher) (owner blocking_conformance_cascade.Key)))
+      (48:5-48:15 Call.paren blocking_conformance_cascade.Key (borrow &blocking_conformance_cascade.Key) value borrow (memberwise blocking_conformance_cascade.Key (owner blocking_conformance_cascade.Key)))
+      (48:13-48:14 IntLit Int value temp)
+      (48:21-48:27 Ref.exclusive &var Hasher value temp)
+      (48:26-48:27 Name Hasher place borrow-var)
+      (49:5-49:15 Call.paren Int value temp (call Hasher.finish() (owner Hasher)))
+      (49:5-49:6 Name Hasher (borrow &Hasher) place borrow))
+    (main 52:6
+      (53:9-53:10 BindingName std.taskgroup.Task<Int> place temp)
+      (53:13-53:31 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (53:24-53:30 Call.paren Int value temp (call blocking_conformance_cascade.fill()))
+      (54:9-54:10 BindingName std.taskgroup.Task<Int> place temp)
+      (54:13-54:31 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (54:24-54:30 Call.paren Int value temp (call blocking_conformance_cascade.work()))
+      (55:9-55:10 BindingName std.taskgroup.Task<Int> place temp)
+      (55:13-55:33 Call.paren std.taskgroup.Task<Int> value temp (spawn Task.spawn))
+      (55:24-55:32 Call.paren Int value temp (call blocking_conformance_cascade.direct()))
+      (56:5-56:52 Call.paren Void value temp (builtin print))
+      (56:11-56:21 Interp String value temp)
+      (56:23-56:31 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (56:23-56:24 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (56:33-56:41 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (56:33-56:34 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)
+      (56:43-56:51 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
+      (56:43-56:44 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)))
+  (string-positions
+    (56:11 format std.stringbuilder.StringBuilder)))

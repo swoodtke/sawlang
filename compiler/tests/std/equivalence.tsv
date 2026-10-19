@@ -183,7 +183,6 @@ Command	std.process init Command.init program:String	SL-522
 (api)	std.channel method Channel.close -	SL-571
 (api)	std.channel method Channel.try_receive -	SL-571
 (api)	std.channel method Channel.receive -	SL-571
-(api)	std.channel method Channel.recv -	SL-765
 (api)	std.channel method Channel.deinit -	SL-571
 (api)	std.channel method Channel.copy -	SL-571
 (api)	std.channel conformance Channel Copy	SL-571

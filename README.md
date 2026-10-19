@@ -490,6 +490,9 @@ extension Mailbox {
 }
 ```
 
+`Channel.receive` is such a pair, so one name serves both engines: a task
+parks until a message arrives, and a `Thread.spawn` body blocks its thread.
+
 A unit of concurrent work has a written fate, never an inferred one. The
 handle must reach `join()` or `detach()` on every path, so neither a bare
 `Thread.spawn { ... }` statement nor a `let _ =` of one compiles. `detach()` gives

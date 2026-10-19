@@ -1,0 +1,20 @@
+// A `main` with no other suspension calls `Channel.receive()`: the call takes
+// the default, so `main` suspends and runs the executor, and the background
+// task it spawned and detached is what feeds the receive (conformance row K180,
+// SL-782). A receive that blocked `main`'s thread would wait for good, the
+// task never running.
+import std.channel.{Channel}
+import std.task.{yield_now}
+
+func feed(ch: Channel<Int>) {
+    yield_now()
+    try! ch.send(11)
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    let job = Task.spawn(feed(ch))
+    job.detach()
+    let got = try! ch.receive()
+    print("main received {} from a task", got)
+}

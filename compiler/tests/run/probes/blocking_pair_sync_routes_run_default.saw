@@ -1,0 +1,62 @@
+// probe: stated
+// about: from a `Thread.spawn` body, a pair reached through a `sync` requirement or through a `sync` generic function runs its default, since no condition carries the pair up through either; a direct call runs the twin, conformance row K181 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// prints: direct: twin
+// prints: through a sync requirement: default
+// prints: through a sync generic: default
+// The two default lines are the follow-up's to flip: the summary of a call
+// through a `sync` requirement records no condition, and a `sync` function's
+// summary keeps none.
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+trait Quick {
+    func which(&self) sync -> String
+}
+
+trait Plain {
+    func label(&self) -> String
+}
+
+struct Probe { id: Int }
+
+extension Probe: Quick {
+    func which(&self) sync -> String {
+        "default"
+    }
+    func which(&self) blocking -> String {
+        let _ = __saw_rt_blocking_sleep(0)
+        "twin"
+    }
+}
+
+extension Probe: Plain {
+    func label(&self) -> String {
+        "default"
+    }
+    func label(&self) blocking -> String {
+        let _ = __saw_rt_blocking_sleep(0)
+        "twin"
+    }
+}
+
+func by_sync_requirement<T: Quick>(x: &T) -> String {
+    x.which()
+}
+
+func in_sync_generic<T: Plain>(x: &T) sync -> String {
+    x.label()
+}
+
+func main() {
+    let p = Probe(id: 1)
+    var t = try! Thread.spawn { [p] in
+        print("direct: {}", p.label())
+        print("through a sync requirement: {}", by_sync_requirement(&p))
+        print("through a sync generic: {}", in_sync_generic(&p))
+        0
+    }
+    let _ = t.join()
+}

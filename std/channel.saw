@@ -25,13 +25,14 @@
 //! }
 //! ```
 //!
-//! `receive` suspends the task, never the thread: a waiting receiver parks on
-//! the channel's readiness word and costs nothing until a `send` or a `close`
-//! on that channel sets it. `recv` is the thread engine's receive, for a
-//! `Thread.spawn` body or a `main` that runs no executor: it blocks the
-//! calling thread instead. Disconnection is explicit, since a handle carries
-//! no sender or receiver role and so no count of producers exists: a channel
-//! nobody closes and nobody sends to is a deadlock.
+//! In a task, `receive` suspends the task, never the thread: a waiting
+//! receiver parks on the channel's readiness word and costs nothing until a
+//! `send` or a `close` on that channel sets it. In thread context, a
+//! `Thread.spawn` body or a `blocking` function, the same call blocks the
+//! calling thread instead (a pair: spec, Blocking functions). Disconnection is
+//! explicit, since a handle carries no sender or receiver role and so no count
+//! of producers exists: a channel nobody closes and nobody sends to is a
+//! deadlock.
 
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
@@ -59,7 +60,7 @@ extern "C" {
 // the size is the node's or the block's own `sizeof`.
 static CHANNEL_ALIGN: Int = 16
 
-// A thread blocked in `recv` waits on a mutex and a condition variable, each
+// A thread blocked in `receive` waits on a mutex and a condition variable, each
 // in a conservative slot of this many bytes: `pthread_mutex_t` is 64 bytes
 // at most on the hosted targets, and `pthread_cond_t` 48 (runtime/ABI.md).
 static CHANNEL_GATE_SLOT: Int = 64
@@ -74,8 +75,8 @@ static CHANNEL_GATE_SLOT: Int = 64
 //
 // `head` and `tail` are meaningful only while `count > 0`.
 //
-// `gate` is the mutex and condition variable a thread blocked in `recv`
-// waits on, made by the first `recv` that waits, or null; `waiters` counts
+// `gate` is the mutex and condition variable a thread blocked in `receive`
+// waits on, made by the first such wait, or null; `waiters` counts
 // the threads waiting there, and is atomic (`wait_ready`).
 struct ChannelBlock<T> {
     lock: Int
@@ -113,11 +114,11 @@ public enum ChannelError {
     case Cancelled,
     /// The allocator refused memory the channel needed, with the size and
     /// alignment it was asked for: a queue node for `send`, or the gate a
-    /// blocking `recv` waits on.
+    /// thread blocked in `receive` waits on.
     case Alloc(e: AllocError),
     /// The operating system refused the mutex or condition variable that a
-    /// blocking `recv` waits on, naming the operation and why. Nothing is
-    /// dequeued, and a later `recv` tries again.
+    /// thread blocked in `receive` waits on, naming the operation and why.
+    /// Nothing is dequeued, and a later `receive` tries again.
     case System(e: SystemError)
 }
 
@@ -236,13 +237,26 @@ extension Channel<T: Send> {
         return move got
     }
 
-    /// Waits for the next message, suspending the task rather than the thread.
+    /// Waits for the next message.
     ///
-    /// Returns `Err(Closed)` once the channel has been closed and everything
-    /// queued before the close has been handed out, and `Err(Cancelled)` when
-    /// the waiting task is cancelled; a cancelled receive dequeues nothing.
+    /// A task suspends while the queue is empty, and its executor's thread
+    /// runs the other tasks meanwhile. In a `Thread.spawn` body or a
+    /// `blocking` function the call blocks the calling thread instead. A
+    /// `main` that calls it suspends, and so runs the executor.
     ///
-    /// A channel nobody closes and nobody sends to never wakes its receiver.
+    /// - `Ok(v)`: a message, dequeued.
+    /// - `Err(Closed)`: the channel has been closed and everything queued
+    ///   before the close has been handed out, so no message will arrive.
+    /// - `Err(Cancelled)`: the waiting task was cancelled. A cancelled receive
+    ///   dequeues nothing.
+    /// - `Err(Alloc(e))`: the allocator refused the gate a blocked thread
+    ///   waits on.
+    /// - `Err(System(e))`: the operating system refused that gate's mutex or
+    ///   condition variable.
+    ///
+    /// The two refusals leave the queue as it was, and the next receive tries
+    /// the gate again. A channel nobody closes and nobody sends to never wakes
+    /// its receiver.
     public func receive(&self) -> Result<T, ChannelError> {
         // The cancel check comes first on every pass, ahead of the queue
         // read, so a consumer that is stopping takes no further message.
@@ -261,26 +275,7 @@ extension Channel<T: Send> {
         return ChannelError.Cancelled
     }
 
-    /// Takes the next message, blocking the calling thread while the queue is
-    /// empty.
-    ///
-    /// This is the thread engine's receive, for a `Thread.spawn` body or a
-    /// `main` that runs no executor; `receive()` is the cooperative twin,
-    /// which suspends the task instead. Never call it from a cooperative
-    /// task: the thread it blocks is the executor's, so every sibling task
-    /// stops with it, the one that would have sent the message included.
-    /// Nothing in the type system prevents the call.
-    ///
-    /// - `Ok(v)`: a message, dequeued.
-    /// - `Err(Closed)`: the channel is closed and every message queued before
-    ///   the close has been handed out, so none will ever arrive.
-    /// - `Err(Alloc(e))`: the allocator refused the gate the first wait needs.
-    /// - `Err(System(e))`: the operating system refused that gate's mutex or
-    ///   condition variable.
-    ///
-    /// The two refusals leave the queue as it was, and the next `recv` tries
-    /// the gate again.
-    public func recv(&self) unsafe -> Result<T, ChannelError> {
+    public func receive(&self) blocking -> Result<T, ChannelError> {
         var drained = false
         var got = self.take(&var drained)
         while got.is_none() && not drained {
@@ -316,10 +311,11 @@ extension Channel<T: Send> {
         return
     }
 
-    // The gate `recv` waits on, made under the queue's lock by the first
-    // wait. Its store happens before that waiter counts itself, so a writer
-    // that counts a waiter finds the gate made. A refusal releases the lock
-    // and frees what was made, leaving no gate, so the next wait tries again.
+    // The gate a blocked `receive` waits on, made under the queue's lock by
+    // the first wait. Its store happens before that waiter counts itself, so
+    // a writer that counts a waiter finds the gate made. A refusal releases
+    // the lock and frees what was made, leaving no gate, so the next wait
+    // tries again.
     func open_gate(&self) unsafe -> Result<UnsafePointer<UInt8>, ChannelError> {
         let block = self.block
         self.lock_queue()
@@ -353,7 +349,7 @@ extension Channel<T: Send> {
         made
     }
 
-    // Wakes every thread blocked in `recv` on this channel, after a change
+    // Wakes every thread blocked in `receive` on this channel, after a change
     // to the readiness word: nothing to do unless one waits (`wait_ready`).
     //
     // ENTRY POINTS:

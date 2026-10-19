@@ -1,0 +1,89 @@
+// probe: stated
+// about: one helper calling `Channel.receive()` is two copies: from a `Thread.spawn` body it blocks the thread and drains until `Closed`, and from a task it suspends while a sibling task keeps ticking every 5 ms, conformance row K180 (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse, and its thread engine's receive is `recv`, a second name (SL-765 Q1 (b), SL-782)
+// speeds: -O0 -O2
+// prints: thread drained 6
+// prints: task drained 9
+// prints: the sibling ticked while the task waited: true
+// The task half: the consumer says it is about to wait by closing `started`,
+// and its producer is a thread that sends only after a nap, so the consumer
+// waits for that long. The ticker counts the ticks it makes after `started`
+// closes and before `done` does. A receive that blocked the executor's thread
+// would let no tick happen in that window, so the count would be zero.
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static PRODUCER_NAP_NANOS: UInt64 = 100_000_000
+static TICK_MILLIS: UInt64 = 5
+
+func drain(ch: Channel<Int>) -> Int {
+    var total = 0
+    var going = true
+    while going {
+        match ch.receive() {
+            case Ok(v) -> { total = total + v },
+            case Err(_) -> { going = false }
+        }
+    }
+    total
+}
+
+func is_closed(signal: Channel<Bool>) -> Bool {
+    match signal.try_receive() {
+        case Ok(_) -> false,
+        case Err(_) -> true
+    }
+}
+
+func consume(ch: Channel<Int>, started: Channel<Bool>, done: Channel<Bool>) -> Int {
+    let _ = started.close()
+    let total = drain(ch)
+    let _ = done.close()
+    total
+}
+
+func tick(started: Channel<Bool>, done: Channel<Bool>) -> Int {
+    var during = 0
+    var finished = false
+    while not finished {
+        let waiting = is_closed(started)
+        if is_closed(done) {
+            finished = true
+        } else {
+            if waiting {
+                during = during + 1
+            }
+            sleep(Duration.ms(TICK_MILLIS))
+        }
+    }
+    during
+}
+
+func main() {
+    let threaded = try! Channel<Int>()
+    var consumer = try! Thread.spawn { [threaded] in drain(threaded) }
+    try! threaded.send(1)
+    try! threaded.send(2)
+    try! threaded.send(3)
+    try! threaded.close()
+    print("thread drained {}", consumer.join())
+
+    let tasked = try! Channel<Int>()
+    let started = try! Channel<Bool>()
+    let done = try! Channel<Bool>()
+    var producer = try! Thread.spawn { [tasked] in
+        __saw_rt_sleep_ns(PRODUCER_NAP_NANOS)
+        try! tasked.send(4)
+        try! tasked.send(5)
+        let _ = tasked.close()
+    }
+    var group = TaskGroup()
+    let waiter = group.spawn(consume(tasked, started, done))
+    let ticker = group.spawn(tick(started, done))
+    print("task drained {}", waiter.join())
+    print("the sibling ticked while the task waited: {}", ticker.join() > 0)
+    producer.join()
+}

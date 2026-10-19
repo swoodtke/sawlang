@@ -1,0 +1,70 @@
+// probe: stated
+// about: a thread's `Channel.receive` whose wait gate the allocator refuses returns `Err(Alloc(...))` instead of panicking, leaves the channel working, tries the gate again on the next `receive`, and makes it once the allocator allows (SL-782)
+// stage 0: its thread engine's receive is `recv`, which returns the message itself and panics on a refused gate, so there is no `Result` to match (SL-777, SL-782)
+// speeds: -O0 -O2
+// prints: refused: the channel could not allocate memory: allocation of 128 bytes (align 16) failed
+// prints: refused again: the channel could not allocate memory: allocation of 128 bytes (align 16) failed
+// prints: the queue is untouched: true
+// prints: after the refusals: 7
+// prints: the retry was woken: channel is closed
+// prints: the retry made its gate: true
+// The thread's channel is empty and open, so its `receive` must wait, and the
+// wait's first step is allocating its gate. The runtime's deny mode refuses
+// every allocation while it is armed, and nothing else allocates in between,
+// so the second refusal shows the next receive went back to the gate. Denial
+// is a mode, so it is turned off before anything renders (an interpolation
+// allocates). The last wait runs with exactly one allocation allowed: it
+// takes it for its gate, so the allocation after it is refused, and a wait
+// that returned without making a gate would leave it allowed. The closer's
+// nap is still what orders its close after that wait begins, since no seam
+// shows when the gate exists; a close that came first fails the last line
+// rather than passing it unchecked.
+import std.channel.{Channel, ChannelError}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 50_000_000
+
+func shown(got: &Result<Int, ChannelError>) -> String {
+    match got {
+        case Ok(_) -> "unexpected: a value",
+        case Err(e) -> "{e}"
+    }
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var receiver = try! Thread.spawn { [ch] in
+        __saw_rt_alloc_deny_after(0)
+        let first = ch.receive()
+        let second = ch.receive()
+        __saw_rt_alloc_deny_after(-1)
+        print("refused: {shown(&first)}")
+        print("refused again: {shown(&second)}")
+        print("the queue is untouched: {(try! ch.try_receive()).is_none()}")
+
+        try! ch.send(7)
+        print("after the refusals: {try! ch.receive()}")
+
+        var closer = try! Thread.spawn { [ch] in
+            __saw_rt_sleep_ns(NAP_NANOS)
+            let _ = ch.close()
+        }
+        closer.detach()
+        __saw_rt_alloc_deny_after(1)
+        let last = ch.receive()
+        let spare = Channel<Int>()
+        __saw_rt_alloc_deny_after(-1)
+        let made = match spare {
+            case Ok(_) -> false,
+            case Err(_) -> true
+        }
+        print("the retry was woken: {shown(&last)}")
+        print("the retry made its gate: {made}")
+        0
+    }
+    let _ = receiver.join()
+}

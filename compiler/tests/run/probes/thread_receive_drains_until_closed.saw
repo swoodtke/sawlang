@@ -1,0 +1,44 @@
+// probe: stated
+// about: a `Thread.spawn` consumer drains a channel with a `while` over `Channel.receive()`, blocking in its twin, until `Err(Closed)` once the producer has closed it, and a `receive` after that reports `Closed` at once (SL-782)
+// stage 0: refuses `try! Thread.spawn` at parse, and its thread engine's receive is `recv`, returning the message itself, so the `Result` the loop matches on is not there (SL-765 Q1 (b), SL-782)
+// speeds: -O0 -O2
+// prints: drained 100 values, sum 5050
+// prints: receive after the drain: channel is closed
+// The consumer thread takes values until `receive` says the channel is closed
+// and drained; the main thread produces 1..100 and closes. The sum of 1..100
+// is 5050 whatever the interleaving. `main`'s own receive takes the default,
+// which answers a closed, drained channel without suspending.
+import std.channel.{Channel}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var consumer = try! Thread.spawn { [ch] in
+        var count = 0
+        var sum = 0
+        var going = true
+        while going {
+            match ch.receive() {
+                case Ok(v) -> {
+                    count = count + 1
+                    sum = sum + v
+                },
+                case Err(_) -> {
+                    going = false
+                }
+            }
+        }
+        (count, sum)
+    }
+    var i = 1
+    while i <= 100 {
+        try! ch.send(i)
+        i = i + 1
+    }
+    try! ch.close()
+    let totals = consumer.join()
+    print("drained {} values, sum {}", totals.0, totals.1)
+    match ch.receive() {
+        case Ok(_) -> print("receive after the drain: a value"),
+        case Err(e) -> print("receive after the drain: {e}")
+    }
+}

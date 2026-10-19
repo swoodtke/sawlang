@@ -1,0 +1,119 @@
+// probe: stated
+// about: a pair whose default never suspends runs its twin from a `Thread.spawn` body through generic helpers: one and two generic calls deep, a generic type's methods, `Map.insert`'s hash, and an implementation called directly or through a bound, conformance row K181 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// prints: one hop:
+// prints: hash twin
+// prints: two hops:
+// prints: hash twin
+// prints: method:
+// prints: hash twin
+// prints: method two hops:
+// prints: hash twin
+// prints: map insert:
+// prints: hash twin
+// prints: implementation:
+// prints: take twin
+// prints: implementation through a bound:
+// prints: take twin
+// Each body prints which one ran. Neither default suspends, so a copy is
+// keyed for the thread only by the pair it reaches.
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+struct Key { id: Int }
+
+extension Key: Equatable {
+    func equals(&self, other: &Key) -> Bool {
+        self.id == other.id
+    }
+}
+
+extension Key: Hashable {
+    func hash(&self, h: &var Hasher) {
+        print("hash default")
+        h.write_int(self.id)
+    }
+    func hash(&self, h: &var Hasher) blocking {
+        let _ = __saw_rt_blocking_sleep(0)
+        print("hash twin")
+        h.write_int(self.id)
+    }
+}
+
+func one_hop<K: Hashable>(key: &K) -> Int {
+    var h = Hasher()
+    key.hash(&var h)
+    h.finish()
+}
+
+func two_hops<K: Hashable>(key: &K) -> Int {
+    one_hop(&key) + 1
+}
+
+struct Table<K: Hashable> { base: Int }
+
+extension Table<K: Hashable> {
+    func hash_of(&self, key: &K) -> Int {
+        var h = Hasher()
+        key.hash(&var h)
+        h.finish()
+    }
+    func slot_of(&self, key: &K) -> Int {
+        self.hash_of(&key) + self.base
+    }
+}
+
+struct Mailbox { id: Int }
+
+extension Mailbox {
+    func take(&self) -> Int {
+        print("take default")
+        self.id
+    }
+    func take(&self) blocking -> Int {
+        let _ = __saw_rt_blocking_sleep(0)
+        print("take twin")
+        self.id
+    }
+}
+
+trait Collects {
+    func collect(&self) -> Int
+}
+
+extension Mailbox: Collects {
+    func collect(&self) -> Int {
+        self.take() + 1
+    }
+}
+
+func through<C: Collects>(c: &C) -> Int {
+    c.collect()
+}
+
+func main() {
+    var t = try! Thread.spawn {
+        let k = Key(id: 1)
+        print("one hop:")
+        let _ = one_hop(&k)
+        print("two hops:")
+        let _ = two_hops(&k)
+        let table = Table<Key>(base: 0)
+        print("method:")
+        let _ = table.hash_of(&k)
+        print("method two hops:")
+        let _ = table.slot_of(&k)
+        print("map insert:")
+        var m = Map<Key, Int>()
+        let _ = try! m.insert(Key(id: 2), 2)
+        let box = Mailbox(id: 3)
+        print("implementation:")
+        let _ = box.collect()
+        print("implementation through a bound:")
+        let _ = through(&box)
+        0
+    }
+    let _ = t.join()
+}
