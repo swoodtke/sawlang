@@ -74,12 +74,19 @@ func main() {
     // A multi-threaded group needs one 128-byte block for its run-queue lock
     // and condition variable, and that is the allocation this refuses. Nothing
     // is half-built on the `Err` path: the vectors above it own no storage yet.
+    // The `Result` is matched where it is made, never bound: a `NoMove` payload
+    // cannot be relocated into a binding's `match`. Denial is switched off in
+    // each arm, since the scrutinee is the only call that needs it.
     __saw_rt_alloc_deny_after(0)
-    let group_made = TaskGroup(threads: 2)
-    __saw_rt_alloc_deny_after(-1)
-    match group_made {
-        case Ok(_) -> print("group ok"),
-        case Err(_) -> print("group denied")
+    match TaskGroup(threads: 2) {
+        case Ok(_) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("group ok")
+        },
+        case Err(_) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("group denied")
+        }
     }
 
     // `send` reports a refused queue node rather than eating the message, and

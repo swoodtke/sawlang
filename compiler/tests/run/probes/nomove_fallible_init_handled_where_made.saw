@@ -1,0 +1,59 @@
+// probe: stated
+// about: a fallible `NoMove` init's `Result` is handled where it is made, by a `match` on the call or an inline catch, and the payload lives and dies where it was built (SL-778)
+// stage 0: accepts the bound `Result` this program never writes (`transfer.no-move` refuses it in sawc2)
+// speeds: -O0 -O2
+// The two legal spellings, each on the success and the refused path. The
+// bound form is the typecheck fixture `transfer.no-move.result-binding`.
+// prints: match Ok: 1
+// prints: deinit 1
+// prints: match Err: -2
+// prints: catch Ok: 3
+// prints: deinit 3
+// prints: catch Err: -4
+
+struct Refused {
+    code: Int
+}
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+extension Pinned: NoMove {}
+
+extension Pinned {
+    init(id: Int) -> Result<Pinned, Refused> {
+        if id < 0 {
+            return Refused(code: id)
+        }
+        return Pinned(id: id)
+    }
+}
+
+func by_match(id: Int) {
+    match Pinned(id: id) {
+        case Ok(pinned) -> print("match Ok: {}", pinned.id),
+        case Err(refused) -> print("match Err: {}", refused.code)
+    }
+}
+
+func by_catch(id: Int) {
+    let pinned = try Pinned(id: id) catch {
+        print("catch Err: {}", error.code)
+        return
+    }
+    print("catch Ok: {}", pinned.id)
+}
+
+func main() {
+    by_match(1)
+    by_match(-2)
+    by_catch(3)
+    by_catch(-4)
+}

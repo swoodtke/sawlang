@@ -4,7 +4,7 @@ aggregate_copy_is_one_memcpy.saw	pass	-	-
 align_attribute_survives_optimization.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
 align_nonresident_local_in_suspending_function.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 alloc_channel_send_reports_oom.saw	stage0-wrong	annotated SL-777	sawc2 meets its directives
-alloc_channel_taskgroup_reports_oom.saw	refused	typecheck transfer.no-move	cannot `match` on `group_made`: `Result<std.taskgroup.TaskGroup, std.alloc.AllocError>` is `NoMove`, so it lives where its constructor built it and a `match` that consumes it would move it into the ma
+alloc_channel_taskgroup_reports_oom.saw	pass	-	-
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
 alloc_data_push_forced_panics_named.saw	wrong	stderr differs	line 1: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"

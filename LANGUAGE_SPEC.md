@@ -8979,6 +8979,33 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   never completes blocks that join wherever it is — the same property a
   stack-local group's scope-end join already has; `Task.cancel()` is the
   tool for ending one early.
+
+  A fallible `NoMove` init, `TaskGroup(threads: N)` among them, hands back its
+  `Result` with the value inside, and binding that `Result` and then matching
+  it would relocate the payload out of the binding, so it is refused with
+  `transfer.no-move`. The `Result` is handled where it is made instead: matched
+  directly, or unwrapped by an inline catch whose body leaves.
+
+  ```saw-fragment
+  // func run(group: &TaskGroup)
+  // Legal: the Result is never bound.
+  match TaskGroup(threads: 2) {
+      case Ok(group) -> run(&group),
+      case Err(e) -> print("no group: {}", e)
+  }
+
+  let group = try TaskGroup(threads: 2) catch {
+      print("no group: {error}")
+      return
+  }
+
+  // Refused, transfer.no-move: cannot `match` on `made`, a `NoMove` Result.
+  let made = TaskGroup(threads: 2)
+  match made {
+      case Ok(group) -> run(&group),
+      case Err(e) -> print("no group: {}", e)
+  }
+  ```
 - **One function, several roles.** A function may be spawned, `__saw_drive`n and
   embedded as another frame's sub-frame in the same program. The spawn role
   reaches its result and cancel word through the group-owned cell (`__cellp`)

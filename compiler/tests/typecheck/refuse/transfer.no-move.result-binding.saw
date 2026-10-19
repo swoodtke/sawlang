@@ -1,0 +1,34 @@
+// refuses: transfer.no-move at 30:11
+// flags: --std-root std
+// A fallible `NoMove` init's `Result` is matched where it is made. Binding it
+// first and matching the binding would relocate the payload into the arm, so
+// it is refused; the legal forms are a `match` on the call and an inline catch
+// (spec, TaskGroup; SL-778).
+
+struct Refused {
+    code: Int
+}
+
+struct Pinned {
+    id: Int
+}
+
+extension Pinned: NoCopy {}
+extension Pinned: NoMove {}
+
+extension Pinned {
+    init(id: Int) -> Result<Pinned, Refused> {
+        if id < 0 {
+            return Refused(code: id)
+        }
+        return Pinned(id: id)
+    }
+}
+
+func main() {
+    let made = Pinned(id: 1)
+    match made {
+        case Ok(pinned) -> print("{}", pinned.id),
+        case Err(refused) -> print("{}", refused.code)
+    }
+}

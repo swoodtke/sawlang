@@ -4,7 +4,7 @@ aggregate_copy_is_one_memcpy.saw	arm64-apple-darwin	same	9b27e39612bc	success	ok
 align_attribute_survives_optimization.saw	arm64-apple-darwin	same	4deaf61e8c36	success	ok	0	6:f456c1ffc6a3	0:e3b0c44298fc	-	yes	-
 align_nonresident_local_in_suspending_function.saw	arm64-apple-darwin	same	d4f6092ec7ee	success	ok	0	29:b0cac6ebd7a9	0:e3b0c44298fc	-	yes	-
 alloc_channel_send_reports_oom.saw	arm64-apple-darwin	same	afc7af4959bd	success	ok	0	131:dfd02335d0c8	0:e3b0c44298fc	-	no: output line 2 is 'refused: the channel could not allocate a queue node: allocation of 16 bytes (align 16) failed', expected 'refused: the channel could not allocate memory: allocation of 16 bytes (align 16) failed'	-
-alloc_channel_taskgroup_reports_oom.saw	arm64-apple-darwin	differs	268c42897b60	success	ok	0	56:0811f2705bc4	0:e3b0c44298fc	-	yes	-
+alloc_channel_taskgroup_reports_oom.saw	arm64-apple-darwin	differs	e8a5a3d9b66b	success	ok	0	56:0811f2705bc4	0:e3b0c44298fc	-	yes	-
 alloc_collection_literal_panics_named.saw	arm64-apple-darwin	same	a83f11457e78	panic	ok	-6	0:e3b0c44298fc	115:d0bd97684cd6	-	yes	-
 alloc_custom_allocator.saw	arm64-apple-darwin	same	64b8b1d78dde	success	ok	0	24:45c550ce76d1	0:e3b0c44298fc	-	yes	-
 alloc_data_push_forced_panics_named.saw	arm64-apple-darwin	same	267422188659	panic	ok	-6	3:e6c21e8d260f	106:84ea170e2d66	-	yes	-
