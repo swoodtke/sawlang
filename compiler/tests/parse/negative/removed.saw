@@ -50,6 +50,9 @@ x
 // case: syntax.type.type.refused-func-consumes
 type a = () consumes -> b
 
+// case: syntax.type.type.refused-func-blocking
+type a = () blocking -> b
+
 // case: syntax.type.atom.refused-partial-named
 type a = (b: c, d)
 
@@ -204,6 +207,9 @@ func a() escaping { }
 
 // case: syntax.type.refused-func-consumes
 type a = () consumes -> b
+
+// case: syntax.type.refused-func-blocking
+type a = () blocking -> b
 
 // case: syntax.type.refused-partial-named-tuple.named-first
 type a = (b: c, d)

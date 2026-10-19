@@ -1,0 +1,11 @@
+// refuses: effect.blocking-slot at 5:6
+// `constexpr blocking`: compile-time evaluation runs on no thread a function
+// could block (conformance row K178)
+
+func settle(ms: Int) constexpr blocking -> Int {
+    ms
+}
+
+func main() {
+    print(settle(1))
+}

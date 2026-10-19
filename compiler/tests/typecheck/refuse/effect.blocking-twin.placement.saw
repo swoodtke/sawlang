@@ -1,0 +1,19 @@
+// refuses: effect.blocking-twin at 13:6
+// a twin that does not directly follow its default: another declaration
+// stands between them (conformance row K178)
+
+func fetch(n: Int) -> Int {
+    n
+}
+
+func other() -> Int {
+    3
+}
+
+func fetch(n: Int) blocking -> Int {
+    n
+}
+
+func main() {
+    print("compiled")
+}

@@ -921,7 +921,7 @@ extension LlEmitter {
         }
         var line = StringBuilder()
         try! line.append("call void ")
-        try! line.append(ll_symbol(&mono, glue))
+        try! line.append(self.plain_symbol(&var mono, glue))
         try! line.append("(ptr ")
         try! line.append(dest)
         try! line.append(", ptr ")
@@ -1268,7 +1268,7 @@ extension LlEmitter {
         let addr = self.place_addr(&var mono, &var target, op.place, node)
         var line = StringBuilder()
         try! line.append("call void ")
-        try! line.append(ll_symbol(&mono, glue))
+        try! line.append(self.plain_symbol(&var mono, glue))
         try! line.append("(ptr ")
         try! line.append(addr)
         try! line.append(")")
@@ -1550,7 +1550,8 @@ extension LlEmitter {
             try! text.append("call void")
         }
         try! text.append(" ")
-        try! text.append(ll_symbol(&mono, site.exit))
+        let exit = site.exit
+        try! text.append(self.plain_symbol(&var mono, exit))
         try! text.append("(ptr %block)\n  ret ptr null\n\}\n\n")
         try! self.defs.append(text.build())
         name

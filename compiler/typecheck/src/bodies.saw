@@ -3281,6 +3281,16 @@ extension TcProgram {
         self.build_decl(d)
         let s = self.sigs[d]
         let info = self.res.decls[d]
+        if self.declares_blocking(d) {
+            let m = self.current
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.text(m, leaf))
+            try! msg.append("` is `blocking`, and a `blocking` function is never a value: a call through a function value has no context to choose a body by, and is made wherever the value goes, a task included. Call it by name")
+            self.refuse(e, "effect.blocking-value", msg.build())
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         if s.generic_count > 0 || info.kind == ResDeclKind.BuiltinFunc {
             self.not_in_slice(e, Alt.Expr_Name)
             let poisoned = self.error_type

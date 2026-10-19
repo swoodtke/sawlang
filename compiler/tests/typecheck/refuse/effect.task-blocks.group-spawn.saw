@@ -1,0 +1,18 @@
+// refuses: effect.task-blocks at 16:27
+// flags: --std-root std
+// a `blocking` function reached from a `group.spawn` root: refused at the
+// root, naming the path (conformance row K172)
+
+func wait_for_signal(ms: Int) blocking -> Int {
+    ms
+}
+
+func refresh(ms: Int) -> Int {
+    wait_for_signal(ms) + 1
+}
+
+func main() {
+    var group = TaskGroup()
+    let job = group.spawn(refresh(3))
+    print(job.join())
+}

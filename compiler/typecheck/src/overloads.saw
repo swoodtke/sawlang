@@ -5,6 +5,8 @@
 // A struct's memberwise construction is a member of its `init` set that no
 // declaration writes, so the `init`s that meet it are judged here too.
 
+// For the extension writing `is_doc`.
+import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.model.{ResDeclKind}
@@ -13,7 +15,8 @@ import sawtypecheck.checks.{tc_check_inits}
 import sawtypecheck.conform.{tc_check_copy_policies}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TcSig}
+import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR, TC_EFFECT_CONSUMES,
+                               TC_EFFECT_UNSAFE, TC_FLAG_STATIC, TcSig}
 import sawtypecheck.program.{TcProgram}
 // For the extension writing `ext_self_type` and `extensions_disjoint`.
 import sawtypecheck.signatures.{TcContext}
@@ -384,7 +387,9 @@ extension TcProgram {
     // THE REDECLARATION FUNNEL: overload set `set`, in declaration order,
     // each declaration after the first refused, once, when it is
     // indistinguishable from an earlier one. A `copy()` or a `deinit` that
-    // its placement rule refuses on its own is left to that rule.
+    // its placement rule refuses on its own is left to that rule. A default
+    // and a `blocking` declaration that no call tells apart are a pair
+    // instead, matched by `match_blocking_twin` (spec, Pairs).
     //
     // ENTRY POINTS:
     //     check_function_sets
@@ -402,11 +407,252 @@ extension TcProgram {
                 let earlier = set[i]
                 i = i + 1
                 if not self.placed_elsewhere(earlier) && self.indistinguishable(earlier, later) {
-                    self.refuse_redeclaration(later, earlier)
+                    if self.pairs_with(earlier, later) {
+                        self.match_blocking_twin(earlier, later)
+                    } else {
+                        self.refuse_redeclaration(later, earlier)
+                    }
                     break
                 }
             }
         }
+    }
+
+    // Whether indistinguishable declarations `a` and `b` are a pair's default
+    // and twin: exactly one is `blocking`, neither is a trait requirement,
+    // which takes no `blocking` at all, and neither is paired already, so a
+    // second twin is a redeclaration.
+    func pairs_with(&var self, a: Int, b: Int) -> Bool {
+        let blocking_a = self.declares_blocking(a)
+        let blocking_b = self.declares_blocking(b)
+        if blocking_a == blocking_b {
+            return false
+        }
+        let req = ResDeclKind.Requirement
+        if self.res.decls[a].kind == req || self.res.decls[b].kind == req {
+            return false
+        }
+        let free = self.blocking_twins[a] < 0 && self.pair_defaults[a] < 0
+        free && self.blocking_twins[b] < 0 && self.pair_defaults[b] < 0
+    }
+
+    // THE PAIR FUNNEL: indistinguishable declarations `a` and `b`, one of them
+    // `blocking`, recorded as a default and its twin (spec, Pairs). The twin
+    // directly follows its default in one scope and repeats its signature,
+    // or it is refused, once, naming the first difference. The pair is kept
+    // either way, so no call sees the twin as a candidate.
+    func match_blocking_twin(&var self, a: Int, b: Int) {
+        let twin = if self.declares_blocking(a) { a } else { b }
+        let def = if twin == a { b } else { a }
+        self.blocking_twins[def] = twin
+        self.pair_defaults[twin] = def
+        if not self.twin_follows(def, twin) {
+            self.refuse_twin(def, twin, "must be the declaration directly after it, in the same extension block, struct body or top level, with nothing between them but blank lines and comments: move it to directly follow `")
+            return
+        }
+        let what = self.twin_difference(def, twin)
+        if what.len() > 0 {
+            self.refuse_twin(def, twin, what)
+            return
+        }
+        if self.carries_doc(twin) {
+            self.refuse_twin(def, twin, "carries a `///` comment, and a pair has one, on its default, describing both bodies: move the comment to `")
+        }
+    }
+
+    // What `twin`'s signature does not repeat of `def`'s, as the refusal
+    // words it, or "" when it repeats all of it.
+    func twin_difference(&var self, def: Int, twin: Int) -> String {
+        let sd = self.sigs[def]
+        let st = self.sigs[twin]
+        if (sd.flags & TC_FLAG_STATIC) != (st.flags & TC_FLAG_STATIC) {
+            return "differs in `static`; a twin repeats its default's signature exactly: make it agree with `"
+        }
+        if sd.receiver != st.receiver {
+            return "takes another receiver; a twin repeats its default's signature exactly: give it the receiver of `"
+        }
+        if self.res.decls[def].vis != self.res.decls[twin].vis {
+            return "has another visibility; a twin repeats its default's signature exactly: give it the visibility of `"
+        }
+        if (sd.effects & TC_EFFECT_UNSAFE) != (st.effects & TC_EFFECT_UNSAFE) {
+            return "differs in `unsafe`; a twin repeats its default's signature exactly: give it the effects of `"
+        }
+        let rest = TC_EFFECT_CONSUMES | TC_EFFECT_BORROWS | TC_EFFECT_BORROWS_SYNC | TC_EFFECT_CONSTEXPR
+        if (sd.effects & rest) != (st.effects & rest) {
+            return "has other effects; a twin repeats its default's signature exactly: give it the effects of `"
+        }
+        if not self.same_twin_generics(def, twin) {
+            return "has other generic parameters or bounds; a twin repeats its default's signature exactly: give it the generic parameters and bounds of `"
+        }
+        if sd.param_count != st.param_count {
+            return "takes other parameters; a twin repeats its default's signature exactly: give it the parameters of `"
+        }
+        var k = 0
+        while k < st.param_count {
+            let pd = self.params[sd.param_first + k]
+            let pt = self.params[st.param_first + k]
+            k = k + 1
+            if pt.has_default {
+                return "gives a parameter a default value, which a call evaluates from the default's declaration, so a twin writes none: delete it, and keep the one on `"
+            }
+            if pd.name != pt.name || not self.same_twin_type(pd.ty, pt.ty, def, twin) {
+                return "takes other parameters; a twin repeats its default's signature exactly: give it the parameters of `"
+            }
+        }
+        if not self.same_twin_type(sd.result, st.result, def, twin) {
+            return "returns another type; a twin repeats its default's signature exactly: give it the return type of `"
+        }
+        ""
+    }
+
+    // Whether `def` and `twin` declare the same generic parameters, by name,
+    // kind and bounds, in order.
+    func same_twin_generics(&var self, def: Int, twin: Int) -> Bool {
+        self.ensure_generics(def)
+        self.ensure_generics(twin)
+        let sd = self.sigs[def]
+        let st = self.sigs[twin]
+        if sd.generic_count != st.generic_count {
+            return false
+        }
+        var k = 0
+        while k < sd.generic_count {
+            let gd = self.generics[sd.generic_first + k]
+            let gt = self.generics[st.generic_first + k]
+            k = k + 1
+            if gd.name != gt.name || gd.is_const != gt.is_const || gd.bound_count != gt.bound_count {
+                return false
+            }
+            var j = 0
+            while j < gd.bound_count {
+                if self.traits[gd.bound_first + j] != self.traits[gt.bound_first + j] {
+                    return false
+                }
+                j = j + 1
+            }
+        }
+        true
+    }
+
+    // Whether types `x` of `def`'s signature and `y` of `twin`'s are one
+    // type, each function's own type parameter read as the other's of its
+    // index.
+    func same_twin_type(&self, x: Int, y: Int, def: Int, twin: Int) -> Bool {
+        if x == y {
+            return true
+        }
+        if x < 0 || y < 0 {
+            return false
+        }
+        let a = self.types.ty(x)
+        let b = self.types.ty(y)
+        if a.kind == TcKind.Param && b.kind == TcKind.Param {
+            return a.a == b.a && a.decl == def && b.decl == twin
+        }
+        if a.kind != b.kind || a.decl != b.decl || a.a != b.a || a.count != b.count || a.labeled != b.labeled {
+            return false
+        }
+        if a.b != b.b && not self.same_twin_type(a.b, b.b, def, twin) {
+            return false
+        }
+        var k = 0
+        while k < a.count {
+            if a.labeled && self.types.label(x, k) != self.types.label(y, k) {
+                return false
+            }
+            let part_x = self.types.arg(x, k)
+            let part_y = self.types.arg(y, k)
+            if not self.same_twin_type(part_x, part_y, def, twin) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Whether `twin` is the declaration directly after `def` in their scope:
+    // the two are neighbouring items of one extension block, or of the top
+    // level of one module.
+    func twin_follows(&self, def: Int, twin: Int) -> Bool {
+        let di = self.res.decls[def]
+        let ti = self.res.decls[twin]
+        if di.parent != ti.parent || di.module != ti.module {
+            return false
+        }
+        let scope = if di.parent >= 0 { self.res.decls[di.parent].node } else { self.res.modules[di.module].root }
+        if scope < 0 {
+            return false
+        }
+        let at_def = self.scope_item_holding(scope, di.outer)
+        let at_twin = self.scope_item_holding(scope, ti.outer)
+        at_def >= 0 && at_twin == at_def + 1
+    }
+
+    // The index, among the node children of `scope`, of the one whose span
+    // holds node `id`, or -1.
+    func scope_item_holding(&self, scope: Int, id: Int) -> Int {
+        let target = self.res.nodes[id]
+        var index = 0
+        let n = self.child_count(scope)
+        var k = 0
+        while k < n {
+            let c = self.child(scope, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            let item = self.res.nodes[c]
+            if item.start <= target.start && target.end <= item.end {
+                return index
+            }
+            index = index + 1
+        }
+        return -1
+    }
+
+    // Whether declaration `d` carries a `///` comment.
+    func carries_doc(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        self.holds_doc(info.outer) || self.holds_doc(info.node)
+    }
+
+    func holds_doc(&self, id: Int) -> Bool {
+        if id < 0 {
+            return false
+        }
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            if self.res.is_doc(c) {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // `twin` refused as `def`'s twin: `what`, which ends opening a quote,
+    // then `def`'s name.
+    func refuse_twin(&var self, def: Int, twin: Int, what: String) {
+        let first = self.res.decls[def]
+        let site = self.decl_site(def)
+        let node = self.res.nodes[site]
+        let position = self.res.position_text(first.module, node.start)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.overload_text(twin))
+        try! msg.append(" blocking` is the `blocking` twin of `")
+        try! msg.append(self.overload_text(def))
+        try! msg.append("` at ")
+        try! msg.append(position)
+        try! msg.append(", and ")
+        try! msg.append(what)
+        try! msg.append(self.res.decl_path(def))
+        try! msg.append("`")
+        let info = self.res.decls[twin]
+        let leaf = self.decl_site(twin)
+        self.refuse_in(info.module, leaf, "effect.blocking-twin", msg.build())
     }
 
     // Whether member `d` is a `copy()` or a `deinit` written outside its

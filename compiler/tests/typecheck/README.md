@@ -103,8 +103,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
 - A function's declaration (`func`, `method`, `init`, `extern`, and a
   `requirement` with a default body) ends with its **summary** (phase 2,
   `compiler/typecheck/README.md`, "The summaries"): `(summary SOURCE
-  (suspends WHEN) (sync-callable UNLESS) [(copy PARAM...)] [(refuses-when
-  CONDITION...)])`. SOURCE is `body`, `declared` (an extern, or a `sync`
+  (suspends WHEN) (sync-callable UNLESS) [(blocks-thread)] [(copy PARAM...)]
+  [(refuses-when CONDITION...)])`, `blocks-thread` when it reaches a
+  `blocking` function or is one. SOURCE is `body`, `declared` (an extern, or a `sync`
   function whose body is not checked), `table` (a std function's row) or
   `untabled`. WHEN is `yes`, `no` or `when CONDITION...`; UNLESS is `yes`,
   `no` or `unless CONDITION...`. A CONDITION is `PARAM.Trait.requirement`, a
@@ -112,8 +113,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
   `Self` in a trait's default body; a PARAM of `copy` is a type parameter the
   body copies; a `refuses-when` entry is `(KIND CONDITION)`, KIND `closure` (a
   closure's call would suspend), `any` (a coercion would dispatch to a
-  suspending implementation) or `sync` (a `sync` body's call would not be
-  sync-callable). Each list is sorted.
+  suspending implementation), `sync` (a `sync` body's call would not be
+  sync-callable) or `thread` (a `blocking` body's call would suspend). Each
+  list is sorted.
 - **lend** is the accessor-signature reader's classification of a `borrows`
   result (SL:architecture §3.4): `place` (`&T`, `&var T`),
   `conditional-place` (`&T?`), `slice` (`&[T]`), `conditional-slice`
@@ -926,6 +928,9 @@ fixture (`refuse/RULE.VARIANT`) that covers it.
 | a hand-written `copy()` of a `Copy` or `ExplicitCopy` conformance | refused at the conformance when it suspends | effect.sync.copy-hook |
 | a call in a closure body | refused when it may suspend, at once or at the instantiation | effect.closure-suspends, effect.closure-suspends.instantiation |
 | a call in a `Thread.spawn` body | refused when it may suspend by any cause but `blocking`: each summary carries its causes (park point, `blocking` extern, test intrinsic, `any` dispatch, function value, unclassified), a std row's from the table; a call through a bound answers by its implementation at the call's type argument | effect.thread-body, effect.thread-body.test-suspend, effect.thread-body.closure-call, effect.thread-body.bound, effect.thread-body.dispatch, effect.thread-body.closure-blocking, effect.sync.thread-closure (a closure in the body is no thread body); thread_spawn (`nap`, a direct `blocking` call); thread_body_std_table; the run probes `thread_blocking_through_bound` and `thread_blocking_default_and_window` hold the `blocking`-only calls through a bound, a default body, a default value and an accessor (SL-776) |
+| a call in a `blocking` body, which is thread context | refused when it may suspend by a cause thread context refuses: each summary carries a second cause set, `thread_causes`, what a thread-context copy has, where a pair runs its twin (`paired`) and a `blocking` function blocks (`blocks thread`) | effect.blocking-body, effect.blocking-body.instantiation; golden blocking_functions |
+| a task root, and a `main` that suspends, that reaches a `blocking` function | refused at the root, the cause `blocks thread` riding every caller's summary whatever its suspension words say; a call in an ordinary function is never refused for it | effect.task-blocks and its variants; the run probes `blocking_function_in_thread_context` and `blocking_body_is_thread_context` |
+| a call of a pair's default | the default's summary, whose thread word is its twin's and `paired`; the twin is no call candidate | golden blocking_functions; the run probes `blocking_pair_selects_per_context`, `blocking_pair_from_plain_main`, `blocking_pair_positions` |
 | a coercion to `any Trait` | refused when an implementation it dispatches to may suspend | effect.any-suspends, effect.any-suspends.instantiation |
 | a call in a `borrows(sync)` window, `borrow` block or `for` | refused when it may suspend | borrows.sync-window; body_rules |
 | a call site of a body that copies its `T` | the Copy tier of the site's argument | summaries; copy.requirement; path_uses |
@@ -1649,6 +1654,17 @@ says what the fixture shows.
 | `spawn.implicit-capture` | a `Thread.spawn` brace naming an enclosing binding its capture list does not: the list is the body's parameter list (design 242; conformance row K91) |
 | `spawn.send` | a `Thread.spawn` capture whose type is not `Send`, a generic body's declared bounds answering for its parameters (`.generic`, conformance row K74); a body whose value is not `Send`, which `join()` hands back across the threads (`.result`) |
 | `effect.thread-body` | a call in a `Thread.spawn` body that may suspend by any cause but a `blocking` extern, named by its path to the first source it strikes on: a park point (conformance row K83), the test intrinsic (`.test-suspend`, K114), a call through a function value not declared `sync` (`.closure-call`, K114; a closure reaching a `blocking` extern through a bound, `.closure-blocking`), a std function's table row (golden `thread_body_std_table`, K112), a bound's implementation that reaches a park point (`.bound`), a dispatch through `any` to an implementation that blocks (`.dispatch`) (SL-776) |
+| `effect.task-blocks` | THE TASK-ROOT FUNNEL (`check_task_root`): a task root that reaches a `blocking` function, refused at the root with the path to it: a `Task.spawn` root, a `group.spawn` root (`.group-spawn`), a drive's (`.drive`), two helpers deep (`.deep`), and a `main` that suspends, at its first call that blocks (`.main`) (conformance row K172; SL-782) |
+| `effect.blocking-body` | a call in a `blocking` body that may suspend by a cause thread context refuses, named by its path; a generic one's call through a bound whose implementation suspends at the instantiation, refused at the instantiating call (`.instantiation`) (K175; SL-782) |
+| `effect.blocking-twin` | THE PAIR FUNNEL (`match_blocking_twin`): a `blocking` declaration that no call tells from a default one is its twin, refused when it does not directly follow it in one scope (`.placement`), differs in `static` (`.static`), the receiver (`.receiver`), visibility (`.visibility`), `unsafe` (`.unsafe`), generic parameters or bounds (`.generics`, `.bounds`), parameters or result (`.return`), writes a parameter's default (`.default-value`) or carries a `///` comment (`.doc`) (K178; SL-782) |
+| `effect.blocking-slot` | `blocking sync` (`.sync`) and `constexpr blocking` (`.constexpr`) (K178; SL-782) |
+| `effect.blocking-default` | a pair's default that blocks its thread, with the path (K177; SL-782) |
+| `effect.blocking-undeclared` | a published function, `public` by `publishes`, or `@export`ed (`.export`), whose body blocks its thread and does not declare `blocking`; the fix-it writes the declaration, pinned in golden `blocking_functions` (K177; SL-782) |
+| `effect.blocking-position` | a trait requirement declared `blocking` (`.requirement`), and a trait default body declared `blocking` or blocking by inference (`.default-body`) (K176; SL-782) |
+| `effect.blocking-conformance` | an implementation of a requirement that blocks its thread, by inference or declared (`.declared`); a pair's default may meet a requirement (K176; SL-782) |
+| `effect.blocking-hook` | a `deinit` (`.deinit`) and a copy policy's `copy()` (`.copy`) that block their thread, which the compiler calls where no source call names them (K176; SL-782) |
+| `effect.closure-blocks` | a call in a closure body that blocks its thread; a `Thread.spawn` brace is no closure here (K176; SL-782) |
+| `effect.blocking-value` | a `blocking` function taken as a function value (K176; SL-782) |
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
 | `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`), the two test drivers (`.drive`, `.drive-steps`) and the `Thread.spawn` brace (`.thread`, conformance row D11) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |

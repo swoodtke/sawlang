@@ -1,0 +1,13 @@
+// refuses: effect.blocking-twin at 7:6
+// a twin with another visibility than its default (conformance row K178)
+
+public func fetch(n: Int) -> Int {
+    n
+}
+func fetch(n: Int) blocking -> Int {
+    n
+}
+
+func main() {
+    print("compiled")
+}

@@ -1,0 +1,48 @@
+// probe: stated
+// about: a `blocking` body is thread context wherever it is reached: its `blocking` extern is a plain call with no offload, and a pair it calls, directly or through a helper, runs its `blocking` twin, from a `main` that never suspends and from a `Thread.spawn` body alike, conformance rows K175 and K179 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// ll omits: __saw_rt_offload_start
+// ll omits: __saw_rt_offload_take
+// ll omits: saw resume blocking_body_is_thread_context.wait(ms: Int)
+// ll defines: saw blocking_body_is_thread_context.wait_twice(ms: Int) thread
+// prints: wait: the blocking body
+// prints: wait: the blocking body
+// prints: main drained 9
+// prints: wait: the blocking body
+// prints: wait: the blocking body
+// prints: thread drained 9
+// `drain` is reached from a `main` that runs no executor, so only its being
+// `blocking` makes its calls thread context; `wait_twice` is an ordinary
+// helper, keyed for thread context by the pair it reaches.
+
+import std.task.{yield_now}
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func wait(ms: Int) -> Int {
+    yield_now()
+    print("wait: the default body")
+    ms
+}
+func wait(ms: Int) blocking -> Int {
+    print("wait: the blocking body")
+    __saw_rt_blocking_sleep(ms)
+}
+
+func wait_twice(ms: Int) -> Int {
+    wait(ms) + wait(ms)
+}
+
+func drain(ms: Int) blocking -> Int {
+    let napped = __saw_rt_blocking_sleep(ms)
+    wait_twice(ms) + napped
+}
+
+func main() {
+    print("main drained {}", drain(3))
+    var worker = try! Thread.spawn { drain(3) }
+    print("thread drained {}", worker.join())
+}

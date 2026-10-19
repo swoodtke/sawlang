@@ -1,0 +1,12 @@
+// refuses: effect.blocking-value at 10:13
+// a `blocking` function taken as a function value: a call through the value
+// has no context to choose a body by (conformance row K176)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+func main() {
+    let f = settle
+    print(f(1))
+}

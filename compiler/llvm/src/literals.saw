@@ -114,7 +114,7 @@ extension LlEmitter {
         if glue >= 0 {
             var line = StringBuilder()
             try! line.append("call void ")
-            try! line.append(ll_symbol(&mono, glue))
+            try! line.append(self.plain_symbol(&var mono, glue))
             try! line.append("(ptr ")
             try! line.append(at)
             try! line.append(", ptr ")

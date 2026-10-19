@@ -1,0 +1,17 @@
+// refuses: effect.task-blocks at 15:26
+// flags: --std-root std
+// a `blocking` function reached from a `Task.spawn` root: refused at the root,
+// naming the path, and never at the call in `refresh` (conformance row K172)
+
+func wait_for_signal(ms: Int) blocking -> Int {
+    ms
+}
+
+func refresh(ms: Int) -> Int {
+    wait_for_signal(ms) + 1
+}
+
+func main() {
+    let job = Task.spawn(refresh(3))
+    print(job.join())
+}

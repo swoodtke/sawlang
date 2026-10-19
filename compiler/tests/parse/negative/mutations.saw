@@ -358,6 +358,15 @@ func a() constexpr constexpr { }
 // case: syntax.decl.constexpr/alt/close:7
 func a() constexpr {
 
+// case: syntax.decl.blocking-effect/alt/drop:7
+func a() blocking {
+
+// case: syntax.decl.blocking-effect/alt/dup:2
+func a a() blocking { }
+
+// case: syntax.decl.blocking-effect/alt/swap:4
+func a( blocking   )  { }
+
 // case: syntax.decl.borrows-effect.plain/alt/drop:1
   a() borrows { }
 

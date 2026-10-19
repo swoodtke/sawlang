@@ -571,7 +571,7 @@ extension LlEmitter {
                 let addr = self.place_addr(&var mono, &var target, stmt.place, stmt.node)
                 var line = StringBuilder()
                 try! line.append("call void ")
-                try! line.append(ll_symbol(&mono, glue))
+                try! line.append(self.plain_symbol(&var mono, glue))
                 try! line.append("(ptr ")
                 try! line.append(addr)
                 try! line.append(")")

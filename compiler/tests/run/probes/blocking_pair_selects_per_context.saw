@@ -1,0 +1,52 @@
+// probe: stated
+// about: a pair runs its `blocking` twin in a thread-context copy and its default in every other: a `Thread.spawn` body takes the twin, a task the default, and one helper reached from both is two copies, one per body, conformance row K174 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// ll defines: saw blocking_pair_selects_per_context.Mailbox.take() blocking
+// ll defines: saw resume blocking_pair_selects_per_context.Mailbox.take()
+// ll defines: saw blocking_pair_selects_per_context.collect(box: blocking_pair_selects_per_context.Mailbox) thread
+// prints: take: the blocking body
+// prints: thread took 7
+// prints: take: the blocking body
+// prints: thread collected 8
+// prints: take: the default body
+// prints: task collected 8
+// Each body prints which one ran. The default cedes before it reads, which
+// only a task can do; the twin blocks its thread instead.
+
+import std.task.{yield_now}
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+struct Mailbox { id: Int }
+
+extension Mailbox {
+    /// Takes the next letter: a task cedes until it is there, and a thread
+    /// blocks.
+    func take(&self) -> Int {
+        yield_now()
+        print("take: the default body")
+        self.id
+    }
+    func take(&self) blocking -> Int {
+        let slept = __saw_rt_blocking_sleep(0)
+        print("take: the blocking body")
+        self.id + slept
+    }
+}
+
+func collect(box: Mailbox) -> Int {
+    box.take() + 1
+}
+
+func main() {
+    let box = Mailbox(id: 7)
+    var direct = try! Thread.spawn { [box] in box.take() }
+    print("thread took {}", direct.join())
+    var helped = try! Thread.spawn { [box] in collect(box) }
+    print("thread collected {}", helped.join())
+    let job = Task.spawn(collect(box))
+    print("task collected {}", job.join())
+}

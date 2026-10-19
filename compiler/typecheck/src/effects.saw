@@ -7,9 +7,10 @@
 // may suspend. The last two are what make a call through a function value or
 // an existential sound to treat as never suspending.
 
+import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
-import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResVis}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResModuleKind, ResVis}
 import sawtypecheck.candidates.{tc_contains}
 // For the extension writing `generic_grants`.
 import sawtypecheck.tier.{tc_max}
@@ -17,8 +18,9 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
-import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FORBID_CLOSURE,
-                               TC_FORBID_ERASE, TC_FORBID_SYNC,
+import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_EFFECT_BLOCKING, TC_EFFECT_CONSTEXPR,
+                               TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
+                               TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TcReceiver,
                                TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
@@ -45,6 +47,8 @@ extension TcProgram {
         self.check_sync_requirements()
         self.check_copy_hooks()
         self.check_declared_requirements()
+        self.check_entry_root()
+        self.check_blocking_declarations()
     }
 
     // A hand-written `copy()` of a copy-policy conformance must not suspend
@@ -194,9 +198,12 @@ extension TcProgram {
                     self.check_sync_call(item.node, unit, owner)
                 }
                 if unit.thread {
-                    self.check_thread_call(item.node, owner)
+                    self.check_thread_call(item.node, owner, unit.node < 0)
                 } else if unit.node >= 0 {
                     self.check_closure_call(item.node, owner)
+                }
+                if self.spawn_roots[item.node] || self.drive_roots[item.node] {
+                    self.check_task_root(item.node, owner)
                 }
                 self.check_call_site(item.node, owner)
             } else if item.kind == TC_ITEM_ERASE {
@@ -277,6 +284,9 @@ extension TcProgram {
         var acc = TcAcc(owner: owner, unit: -1)
         self.eval_call(e, &var acc)
         if not acc.suspends {
+            if (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0 {
+                self.refuse_closure_block(e)
+            }
             return
         }
         var msg = StringBuilder()
@@ -286,17 +296,40 @@ extension TcProgram {
         self.refuse_at(e, "effect.closure-suspends", msg.build())
     }
 
-    // A call in a `Thread.spawn` body must not suspend, except by a `blocking`
-    // extern, which blocks the spawned thread on purpose (spec, The thread
-    // body): the thread runs no executor to resume any other suspension. The
+    // A call in a closure body that blocks the thread (spec, Where
+    // `blocking` is written): a closure is called wherever its value goes,
+    // where no task root sees the call, so it may not block, as it may not
+    // suspend. A `Thread.spawn` brace is thread context, and no closure here.
+    func refuse_closure_block(&var self, e: Int) {
+        var msg = StringBuilder()
+        try! msg.append("a closure body cannot block its thread, and this calls ")
+        try! msg.append(self.block_chain(e))
+        try! msg.append(": a closure runs wherever its value is called, a task included, where nothing sees the call; call it outside the closure")
+        self.refuse_at(e, "effect.closure-blocks", msg.build())
+    }
+
+    // A call in a thread-context body, a `Thread.spawn` brace's or a
+    // `blocking` function's (`own`), must not suspend: a `blocking` extern
+    // blocks the thread on purpose, a `blocking` function blocks it too, and
+    // a pair runs its twin (spec, The thread body; Blocking functions), but
+    // the thread runs no executor to resume any other suspension. The
     // refusal names the path to the first source it strikes on.
-    func check_thread_call(&var self, e: Int, owner: Int) {
+    func check_thread_call(&var self, e: Int, owner: Int, own: Bool) {
         var acc = TcAcc(owner: owner, unit: -1)
         self.eval_call(e, &var acc)
-        if tc_thread_struck(acc.causes) == 0 {
+        if tc_thread_struck(acc.thread_causes) == 0 {
             return
         }
         var msg = StringBuilder()
+        if own {
+            try! msg.append("cannot suspend in `")
+            try! msg.append(self.res.decl_path(owner))
+            try! msg.append("`, which is `blocking`: it calls ")
+            try! msg.append(self.thread_chain(e))
+            try! msg.append(": a `blocking` body is thread context, where no executor runs to resume a suspension. A `blocking` extern, another `blocking` function and a pair, which runs its `blocking` twin there, are what it may call")
+            self.refuse_at(e, "effect.blocking-body", msg.build())
+            return
+        }
         try! msg.append("cannot suspend in a `Thread.spawn \{ ... \}` body: closure calls ")
         try! msg.append(self.thread_chain(e))
         try! msg.append(": a spawned thread runs no executor, so there is nothing there to resume a suspension, and it would simply not cede. For suspending work on a dedicated thread write `TaskGroup(threads: 1)`, which brings an executor with it; a `blocking` extern is the one thing this body may do, and it blocks the spawned thread on purpose")
@@ -374,9 +407,130 @@ extension TcProgram {
             }
             var acc = TcAcc(owner: d, unit: -1)
             self.eval_call(item.node, &var acc)
-            if tc_thread_struck(acc.causes) != 0 {
+            if tc_thread_struck(acc.thread_causes) != 0 {
                 return item.node
             }
+        }
+        return -1
+    }
+
+    // The path from the call at `e` to the `blocking` function it blocks the
+    // thread through: each function it passes, `` `f` → ``, then the
+    // `blocking` one, `` `g` (blocking) ``.
+    func block_chain(&var self, e: Int) -> String {
+        var out = StringBuilder()
+        var visited = Vector<Int>()
+        var at = e
+        while at >= 0 {
+            let ci = self.call_at[at]
+            if ci < 0 {
+                break
+            }
+            let d = self.calls[ci].target
+            try! out.append(self.callee_text(at))
+            if d < 0 || self.declares_blocking(d) {
+                try! out.append(" (blocking)")
+                return out.build()
+            }
+            if tc_contains(&visited, d) {
+                return out.build()
+            }
+            try! visited.push(d)
+            at = self.blocking_call_in(d)
+            if at >= 0 {
+                try! out.append(" → ")
+            }
+        }
+        out.build()
+    }
+
+    // The first call in function `d`'s own body that blocks the thread, or
+    // -1.
+    func blocking_call_in(&var self, d: Int) -> Int {
+        let u = self.decl_unit[d]
+        if u < 0 {
+            return -1
+        }
+        let unit = self.units[u]
+        var k = unit.item_first
+        while k < unit.item_end {
+            let item = self.items[k]
+            k = k + 1
+            if item.kind != TC_ITEM_CALL || item.unit != u {
+                continue
+            }
+            var acc = TcAcc(owner: d, unit: -1)
+            self.eval_call(item.node, &var acc)
+            if (acc.causes & TC_CAUSE_BLOCKS_THREAD) != 0 {
+                return item.node
+            }
+        }
+        return -1
+    }
+
+    // THE TASK-ROOT FUNNEL: a task root that reaches a `blocking` function,
+    // refused at the root with the path (spec, Blocking functions): a task
+    // runs on the executor's thread, so blocking it stops every task there,
+    // the one that would wake the block included. A call in an ordinary
+    // function is never refused for it. The roots are a `Task.spawn` or
+    // `group.spawn` root and a drive's, and a `main` that suspends.
+    //
+    // ENTRY POINTS:
+    //     check_unit_items
+    //     check_entry_root
+    func check_task_root(&var self, e: Int, owner: Int) {
+        var acc = TcAcc(owner: owner, unit: -1)
+        self.eval_made_call(e, &var acc)
+        if (acc.causes & TC_CAUSE_BLOCKS_THREAD) == 0 {
+            return
+        }
+        var msg = StringBuilder()
+        if self.drive_roots[e] {
+            try! msg.append("a driven root blocks its thread here: the drive runs ")
+        } else {
+            try! msg.append("a task blocks its thread here: the task runs ")
+        }
+        try! msg.append(self.block_chain(e))
+        try! msg.append(", which would stop the executor's thread and every task on it. Call it from a `Thread.spawn` body, or from a `main` that runs no executor")
+        self.refuse_at(e, "effect.task-blocks", msg.build())
+    }
+
+    // The entry module's `main` when it suspends, which makes it run the
+    // executor, and blocks: `check_task_root`'s refusal, at `main`'s first
+    // call that blocks.
+    func check_entry_root(&var self) {
+        let m = self.entry_module_index()
+        if m < 0 {
+            return
+        }
+        let d = self.top_decl(m, "main")
+        if d < 0 || not self.is_function_decl(d) || self.declares_blocking(d) {
+            return
+        }
+        let s = self.summaries[d]
+        if not s.suspends || (s.causes & TC_CAUSE_BLOCKS_THREAD) == 0 {
+            return
+        }
+        let at = self.blocking_call_in(d)
+        if at < 0 {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`main` suspends, so it runs the executor, and it blocks its thread here: it calls ")
+        try! msg.append(self.block_chain(at))
+        try! msg.append(", which would stop the executor's thread and every task on it. Call it from a `Thread.spawn` body, or from a `main` that never suspends")
+        self.refuse_at(at, "effect.task-blocks", msg.build())
+    }
+
+    // The entry module's index, or -1.
+    func entry_module_index(&self) -> Int {
+        var m = 0
+        while m < self.res.module_count() {
+            let info = self.res.module(m)
+            if info.kind == ResModuleKind.Entry && info.available {
+                return m
+            }
+            m = m + 1
         }
         return -1
     }
@@ -436,7 +590,11 @@ extension TcProgram {
             var acc = TcAcc(owner: owner, unit: -1)
             let sync_kind = a.kind == TC_FORBID_SYNC
             self.eval_condition(recv, a.req, e, not sync_kind, &var acc)
-            if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
+            if a.kind == TC_FORBID_THREAD {
+                if acc.suspends && tc_thread_struck(acc.thread_causes) != 0 {
+                    self.refuse_forbidden(e, d, &a, recv)
+                }
+            } else if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
                 self.refuse_forbidden(e, d, &a, recv)
             }
         }
@@ -499,6 +657,229 @@ extension TcProgram {
                 self.refuse_in(info.module, site, "effect.sync", msg.build())
             }
         }
+    }
+
+    // The declaration-site rules of blocking functions (spec, Blocking
+    // functions): where `blocking` may stand, what may not block because no
+    // task root sees its call, a pair's default, and the public boundary.
+    func check_blocking_declarations(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let kind = self.res.decls[d].kind
+            if kind == ResDeclKind.Func || kind == ResDeclKind.Method || kind == ResDeclKind.Init || kind == ResDeclKind.Requirement {
+                self.check_blocking_declaration(d)
+            }
+            d = d + 1
+        }
+        self.check_blocking_conformances()
+    }
+
+    // Whether function `d` blocks its thread: declared `blocking`, or its body
+    // reaches a function that is.
+    func blocks_thread(&self, d: Int) -> Bool {
+        self.declares_blocking(d) || (self.summaries[d].causes & TC_CAUSE_BLOCKS_THREAD) != 0
+    }
+
+    func check_blocking_declaration(&var self, d: Int) {
+        let info = self.res.decls[d]
+        let s = self.sigs[d]
+        let declared = self.declares_blocking(d)
+        if info.kind == ResDeclKind.Requirement {
+            let default_body = (s.flags & TC_FLAG_DEFAULT_BODY) != 0
+            if declared && default_body {
+                self.refuse_blocking_decl(d, "effect.blocking-position", "a trait's default body is never `blocking`: it is an implementation, called through the requirement by a dispatch or a bound, where no task root sees the call. Write the blocking operation as a function of its own, and call it from thread context")
+            } else if declared {
+                self.refuse_blocking_decl(d, "effect.blocking-position", "a trait requirement is never `blocking`: its implementations are called through it, by a dispatch or a bound, where no task root sees the call. Write the blocking operation as a function of its own, and call it from thread context")
+            } else if default_body && self.is_function_decl(d) && self.blocks_thread(d) {
+                self.refuse_inferred_block(d, "effect.blocking-position", "is a trait's default body, an implementation called through the requirement where no task root sees the call, and it blocks its thread")
+            }
+            return
+        }
+        if declared && (s.effects & TC_EFFECT_SYNC) != 0 {
+            self.refuse_blocking_decl(d, "effect.blocking-slot", "`blocking sync`: a `blocking` body never suspends, so `sync` adds nothing. Delete `sync`")
+            return
+        }
+        if declared && (s.effects & TC_EFFECT_CONSTEXPR) != 0 {
+            self.refuse_blocking_decl(d, "effect.blocking-slot", "`constexpr blocking`: compile-time evaluation runs on no thread a function could block. Delete one of the two")
+            return
+        }
+        let name = self.name_text(info.name)
+        if info.kind == ResDeclKind.Method && name.equals("deinit") && self.blocks_thread(d) {
+            self.refuse_hook_block(d, "a `deinit` runs wherever its value dies, a task included")
+            return
+        }
+        if self.blocking_twin_of(d) >= 0 && (self.summaries[d].causes & TC_CAUSE_BLOCKS_THREAD) != 0 {
+            self.refuse_inferred_block(d, "effect.blocking-default", "is a pair's default, the body every task runs, and it blocks its thread")
+            return
+        }
+        if declared || (self.summaries[d].causes & TC_CAUSE_BLOCKS_THREAD) == 0 {
+            return
+        }
+        let exported = self.res.decl_attribute(d, Alt.Attr_Attribute_Export) >= 0 || self.res.decl_attribute(d, Alt.Attr_Attribute_ExportSymbol) >= 0
+        if self.publishes(d) || exported {
+            self.refuse_undeclared_block(d, exported)
+        }
+    }
+
+    // An implementation of a requirement that blocks its thread, declared or
+    // inferred: refused at the implementation, since a call through the
+    // requirement, by a dispatch or a bound, reaches it where no task root
+    // sees the call. A copy policy's `copy()` is the compiler's own call.
+    func check_blocking_conformances(&var self) {
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.kind != TcStatusKind.Written || st.member < 0 || not self.is_function_decl(st.member) {
+                    continue
+                }
+                let member_name = self.res.decls[st.member].name
+                let name = self.name_text(member_name)
+                if name.equals("deinit") || not self.blocks_thread(st.member) {
+                    continue
+                }
+                if c.trait_decl == self.known.copy || c.trait_decl == self.known.explicit_copy {
+                    self.refuse_hook_block(st.member, "a copy policy's `copy()` runs where the compiler copies the value, a task included")
+                    continue
+                }
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(st.member))
+                try! msg.append("` meets `")
+                try! msg.append(self.res.decl_path(st.requirement))
+                try! msg.append("`, and it blocks its thread")
+                self.append_block_reason(&var msg, st.member)
+                try! msg.append(": an implementation is called through its requirement, by a dispatch or a bound, where no task root sees the call, so it may not block. Keep the blocking work in a function of its own, called from thread context; a pair's default, which does not block, may meet a requirement")
+                let info = self.res.decls[st.member]
+                let site = self.decl_site(st.member)
+                self.refuse_in(info.module, site, "effect.blocking-conformance", msg.build())
+            }
+        }
+    }
+
+    // ` (`f` → `g` (blocking))` for function `d` whose body blocks, or ""
+    // for one declared `blocking`.
+    func append_block_reason(&var self, msg: &var StringBuilder, d: Int) {
+        if self.declares_blocking(d) {
+            try! msg.append(", declared `blocking`")
+            return
+        }
+        let at = self.blocking_call_in(d)
+        if at < 0 {
+            return
+        }
+        try! msg.append(" (`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` → ")
+        try! msg.append(self.block_chain(at))
+        try! msg.append(")")
+    }
+
+    func refuse_blocking_decl(&var self, d: Int, rule: String, message: String) {
+        let info = self.res.decls[d]
+        let site = self.decl_site(d)
+        self.refuse_in(info.module, site, rule, message)
+    }
+
+    // Function `d`, `what` (the refusal's middle), refused with the path.
+    func refuse_inferred_block(&var self, d: Int, rule: String, what: String) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` ")
+        try! msg.append(what)
+        self.append_block_reason(&var msg, d)
+        try! msg.append(": a task that runs it would stop the executor's thread and every task on it")
+        self.refuse_blocking_decl(d, rule, msg.build())
+    }
+
+    // A body the compiler calls with no source call naming it, `what`, that
+    // blocks its thread.
+    func refuse_hook_block(&var self, d: Int, what: String) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        try! msg.append("` blocks its thread")
+        self.append_block_reason(&var msg, d)
+        try! msg.append(", and ")
+        try! msg.append(what)
+        try! msg.append(", where no source call names it and no task root sees it, so it may not block. Keep the blocking work in a method called from thread context")
+        self.refuse_blocking_decl(d, "effect.blocking-hook", msg.build())
+    }
+
+    // A published function whose body blocks its thread, not declared
+    // `blocking`: its signature is what a caller in another module reads,
+    // and C's callers read nothing else.
+    func refuse_undeclared_block(&var self, d: Int, exported: Bool) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.res.decl_path(d))
+        if exported {
+            try! msg.append("` is `@export`ed and its body blocks the thread")
+        } else {
+            try! msg.append("` is public and its body blocks the thread")
+        }
+        self.append_block_reason(&var msg, d)
+        try! msg.append(", so its signature must say so: declare it `")
+        try! msg.append(self.blocking_fixit(d))
+        try! msg.append("`")
+        self.refuse_blocking_decl(d, "effect.blocking-undeclared", msg.build())
+    }
+
+    // Function `d`'s head with `blocking` in its effect slot, as the fix-it
+    // writes it: `public func load(path: String) blocking -> Config`.
+    func blocking_fixit(&var self, d: Int) -> String {
+        let info = self.res.decls[d]
+        let s = self.sigs[d]
+        var out = StringBuilder()
+        if info.vis == ResVis.Public {
+            try! out.append("public ")
+        }
+        if (s.flags & TC_FLAG_STATIC) != 0 {
+            try! out.append("static ")
+        }
+        if info.kind == ResDeclKind.Init {
+            try! out.append("init(")
+        } else {
+            try! out.append("func ")
+            try! out.append(self.name_text(info.name))
+            try! out.append("(")
+        }
+        var k = 0
+        var first = true
+        match s.receiver {
+            case Shared -> {
+                try! out.append("&self")
+                first = false
+            },
+            case Exclusive -> {
+                try! out.append("&var self")
+                first = false
+            },
+            case Absent -> {}
+        }
+        while k < s.param_count {
+            if not first {
+                try! out.append(", ")
+            }
+            first = false
+            let p = self.params[s.param_first + k]
+            try! out.append(self.name_text(p.name))
+            try! out.append(": ")
+            try! out.append(self.type_text(p.ty))
+            k = k + 1
+        }
+        try! out.append(")")
+        try! out.append(tc_effects_text(s.effects | TC_EFFECT_BLOCKING))
+        if (s.flags & TC_FLAG_WRITTEN_RETURN) != 0 {
+            try! out.append(" -> ")
+            try! out.append(self.type_text(s.result))
+        }
+        out.build()
     }
 
     // A NOTE, once per function, for a std function the suspension table has
@@ -677,6 +1058,17 @@ extension TcProgram {
             return
         }
         try! msg.append("` may suspend, and ")
+        if a.kind == TC_FORBID_THREAD {
+            try! msg.append("`")
+            try! msg.append(self.res.decl_path(d))
+            try! msg.append("` is `blocking`, whose body calls it at ")
+            try! msg.append(self.res.module_file(m))
+            try! msg.append(":")
+            try! msg.append(self.res.node_position(m, a.origin))
+            try! msg.append(": a `blocking` body is thread context, where no executor runs to resume a suspension")
+            self.refuse_at(e, "effect.blocking-body", msg.build())
+            return
+        }
         if a.kind == TC_FORBID_ERASE {
             try! msg.append("its body makes it `any` at ")
             try! msg.append(self.res.module_file(m))

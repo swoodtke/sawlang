@@ -1,0 +1,15 @@
+// refuses: effect.task-blocks at 14:11
+// flags: --std-root std
+// a `main` that suspends runs the executor, so a `blocking` call in it is
+// refused, at the call, naming the path (conformance row K172)
+
+import std.task.{yield_now}
+
+func wait_for_signal(ms: Int) blocking -> Int {
+    ms
+}
+
+func main() {
+    yield_now()
+    print(wait_for_signal(3))
+}

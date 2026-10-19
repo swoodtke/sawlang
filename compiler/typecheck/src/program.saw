@@ -7,7 +7,7 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
-import sawtypecheck.model.{TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
+import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig, TcStatus,
                                TcSummary, TcRelocation, TcTier, TcUnit, TcUse}
 import sawtypecheck.stdsuspension.{TcStdRows}
@@ -341,6 +341,10 @@ public struct TcProgram {
     // Every written `any Trait` node, in the order `mk_any` formed it, which
     // the object-safety funnel judges once requirements are known.
     erased_nodes: Vector<Int>
+    // By declaration: a pair's `blocking` twin of a default, and the default
+    // of a twin, or -1 (`match_blocking_twin`).
+    blocking_twins: Vector<Int>
+    pair_defaults: Vector<Int>
 }
 
 extension TcProgram: NoCopy {}
@@ -353,6 +357,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
     var counts = Vector<Int>()
     var symbols = Vector<String>()
     var export_nodes = Vector<Int>()
+    var twins = Vector<Int>()
+    var defaults = Vector<Int>()
     var k = 0
     while k < decl_total {
         try! sigs.push(TcSig.blank())
@@ -360,6 +366,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
         try! counts.push(0)
         try! symbols.push("")
         try! export_nodes.push(-1)
+        try! twins.push(-1)
+        try! defaults.push(-1)
         k = k + 1
     }
     var node_types = Vector<Int>()
@@ -429,7 +437,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
                       runtime_build: false,
                       export_symbols: move symbols, export_nodes: move export_nodes,
-                      erased_nodes: Vector<Int>())
+                      erased_nodes: Vector<Int>(), blocking_twins: move twins, pair_defaults: move defaults)
     let empty = Vector<Int>()
     let unlabeled = Vector<Int>()
     p.error_type = p.types.intern(TcKind.Error, -1, 0, 0, &empty, &unlabeled)
@@ -442,6 +450,26 @@ extension TcProgram {
     public func sig(&self, d: Int) -> TcSig { self.sigs[d] }
 
     public func ty(&self, t: Int) -> TcType { self.types.ty(t) }
+
+    // Whether declaration `d` is a Saw function declared `blocking`, alone
+    // or as a pair's twin (spec, Blocking functions).
+    public func declares_blocking(&self, d: Int) -> Bool {
+        d >= 0 && d < self.sigs.len() && (self.sigs[d].effects & TC_EFFECT_BLOCKING) != 0
+    }
+
+    // Whether declaration `d` is a pair's `blocking` twin, which no call
+    // names: the default is the operation's one declaration.
+    public func is_blocking_twin(&self, d: Int) -> Bool {
+        d >= 0 && d < self.pair_defaults.len() && self.pair_defaults[d] >= 0
+    }
+
+    // The `blocking` twin of pair default `d`, or -1.
+    public func blocking_twin_of(&self, d: Int) -> Int {
+        if d < 0 || d >= self.blocking_twins.len() {
+            return -1
+        }
+        self.blocking_twins[d]
+    }
 
     // Per node, whether it lies under a construct refused as outside the
     // slice, whose uses no check after the walk may read.

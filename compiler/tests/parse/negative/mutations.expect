@@ -358,6 +358,15 @@ refuses syntax.rule.effect-slot at 1:20
 // case: syntax.decl.constexpr/alt/close:7
 refuses syntax.lex.unclosed-bracket at 1:20
 
+// case: syntax.decl.blocking-effect/alt/drop:7
+refuses syntax.lex.unclosed-bracket at 1:19
+
+// case: syntax.decl.blocking-effect/alt/dup:2
+refuses parse-error at 1:8
+
+// case: syntax.decl.blocking-effect/alt/swap:4
+refuses parse-error at 1:20
+
 // case: syntax.decl.borrows-effect.plain/alt/drop:1
 refuses parse-error at 1:3
 

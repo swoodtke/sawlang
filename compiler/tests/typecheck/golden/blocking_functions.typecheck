@@ -1,0 +1,59 @@
+ERROR	effect.blocking-undeclared	compiler/tests/typecheck/golden/blocking_functions.saw:21:13	`load_config` is public and its body blocks the thread (`load_config` → `settle` (blocking)), so its signature must say so: declare it `public func load_config(path: String) blocking -> Int`
+(Module blocking_functions
+  (declarations
+    (func settle 9:6 private (signature (params (ms Int owned)) (effects blocking) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (func settled_plus_one 13:6 private (signature (params (ms Int owned)) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (func load_settled 17:13 public (signature (params (ms Int owned)) (effects blocking) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (func load_config 21:13 public (signature (params (path String owned)) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (struct Mailbox 25:8 private)
+    (field Mailbox.id 25:18 private Int)
+    (extension 27:1 (target blocking_functions.Mailbox))
+    (method Mailbox.take 30:17 public (signature (receiver shared) (params) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (method Mailbox.take 34:17 public (signature (receiver shared) (params) (effects blocking) -> Int) (summary body (suspends no) (sync-callable yes) (blocks-thread)))
+    (func collect 39:6 private (signature (params (box blocking_functions.Mailbox owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (func main 43:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes) (blocks-thread))))
+  (members
+    (blocking_functions.Mailbox
+      (field id Int private declared)
+      (method take public (extension blocking_functions))
+      (method take public (extension blocking_functions))))
+  (views
+    (blocking_functions.Mailbox id take take))
+  (conformances)
+  (copy-tier
+    (blocking_functions.Mailbox Copy))
+  (bodies
+    (settle 9:6
+      (10:5-10:7 Name Int place copy))
+    (settled_plus_one 13:6
+      (14:5-14:19 Binary Int value temp (op +))
+      (14:5-14:15 Call.paren Int value temp (call blocking_functions.settle(ms: Int) blocking))
+      (14:12-14:14 Name Int place copy)
+      (14:18-14:19 IntLit Int value temp))
+    (load_settled 17:13
+      (18:5-18:15 Call.paren Int value temp (call blocking_functions.settle(ms: Int) blocking))
+      (18:12-18:14 Name Int place copy))
+    (load_config 21:13
+      (22:5-22:23 Call.paren Int value temp (call blocking_functions.settle(ms: Int) blocking))
+      (22:12-22:22 Call.paren Int value temp (call std.string.String.len() (owner String)))
+      (22:12-22:16 Name String (borrow &String) place borrow))
+    (Mailbox.take 30:17
+      (31:9-31:20 Call.paren Void value temp (call std.task.yield_now()))
+      (32:9-32:16 Member Int place copy)
+      (32:9-32:13 SelfExpr blocking_functions.Mailbox place project))
+    (Mailbox.take 34:17
+      (35:9-35:24 Call.paren Int value temp (call blocking_functions.settle(ms: Int) blocking))
+      (35:16-35:23 Member Int place copy)
+      (35:16-35:20 SelfExpr blocking_functions.Mailbox place project))
+    (collect 39:6
+      (40:5-40:19 Binary Int value temp (op +))
+      (40:5-40:15 Call.paren Int value temp (call blocking_functions.Mailbox.take() (owner blocking_functions.Mailbox)))
+      (40:5-40:8 Name blocking_functions.Mailbox (borrow &blocking_functions.Mailbox) place borrow)
+      (40:18-40:19 IntLit Int value temp))
+    (main 43:6
+      (44:5-44:31 Call.paren Void value temp (builtin print))
+      (44:11-44:30 Call.paren Int value borrow (call blocking_functions.settled_plus_one(ms: Int)))
+      (44:28-44:29 IntLit Int value temp)
+      (45:5-45:27 Call.paren Void value temp (builtin print))
+      (45:11-45:26 Call.paren Int value borrow (call blocking_functions.load_settled(ms: Int) blocking))
+      (45:24-45:25 IntLit Int value temp))))

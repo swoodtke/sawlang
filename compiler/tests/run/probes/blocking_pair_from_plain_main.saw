@@ -1,0 +1,35 @@
+// probe: stated
+// about: a `main` that otherwise never suspends takes a pair's default, and suspends because the default does, so it runs the executor; only a `Thread.spawn`-reached copy takes the twin, conformance row K174 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// ll defines: saw resume blocking_pair_from_plain_main.main()
+// prints: take: the default body
+// prints: main took 4
+
+import std.task.{yield_now}
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+struct Mailbox { id: Int }
+
+extension Mailbox {
+    /// Takes the next letter: a task cedes until it is there, and a thread
+    /// blocks.
+    func take(&self) -> Int {
+        yield_now()
+        print("take: the default body")
+        self.id
+    }
+    func take(&self) blocking -> Int {
+        let slept = __saw_rt_blocking_sleep(0)
+        print("take: the blocking body")
+        self.id + slept
+    }
+}
+
+func main() {
+    let box = Mailbox(id: 4)
+    print("main took {}", box.take())
+}

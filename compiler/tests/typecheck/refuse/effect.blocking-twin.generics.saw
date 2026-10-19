@@ -1,0 +1,14 @@
+// refuses: effect.blocking-twin at 8:6
+// a twin whose generic parameter is named apart from its default's
+// (conformance row K178)
+
+func pick<T>(x: T) -> Int {
+    1
+}
+func pick<U>(x: U) blocking -> Int {
+    2
+}
+
+func main() {
+    print("compiled")
+}

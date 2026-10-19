@@ -9533,6 +9533,137 @@ var t = try! Thread.spawn { [buf, len] in compress(buf, len) }   // blocks on pu
 let bytes = t.join()
 ```
 
+A `blocking` function, below, may be called there too.
+
+#### Blocking functions
+
+`blocking` in a function's effect slot marks a body that blocks its OS thread
+in a way the compiler cannot offload: a wait on a condition variable, a
+`pthread_join`, a sleep that polls. A `blocking` extern can be moved to a
+worker thread while the task parks, because its arguments are C values. A Saw
+function's arguments may be borrows of the caller's frame, so its call stays
+on the calling thread.
+
+```saw-fragment
+func wait_for_signal(flag: &Flag) blocking -> Int { ... }
+```
+
+Such a function runs only in THREAD CONTEXT: a `Thread.spawn` body, a `main`
+that runs no executor, and whatever either one calls. A cooperative task, and
+a `main` that suspends (it runs the executor), are not thread context, since
+blocking there stops the executor's thread and every task on it, the one that
+would wake the blocked call included.
+
+Callers do not write the marker. A function that calls a `blocking` function,
+directly or through helpers, blocks too, and the compiler carries that fact up
+the call graph. The refusal comes at the TASK ROOT that reaches the block, with
+the path to it, and never at a call inside an ordinary function:
+
+```saw-fragment
+func load_config(path: String) -> Config { parse(read_settled(path)) }
+func read_settled(path: String) blocking -> Data { ... }
+
+func refresh() -> Int { load_config("app.toml").version }
+
+let job = Task.spawn(refresh())
+// error: a task blocks its thread here: the task runs `refresh` →
+//        `load_config` → `read_settled` (blocking), which would stop the
+//        executor's thread and every task on it. Call it from a
+//        `Thread.spawn` body, or from a `main` that runs no executor
+```
+
+The task roots are a `Task.spawn` or `group.spawn` site, a drive
+(`__saw_drive`), and a `main` that suspends; an `@test` case is judged as
+`main` is. The same `refresh()` called from a `main` that never suspends, or
+from a `Thread.spawn` body, compiles and blocks the calling thread. There is
+no call-site marker and no way to block from a task anyway. A `main` declared
+`blocking` is thread context by its signature, and may not suspend.
+
+A `main` that never suspends may still drive a group by joining it, and its
+tasks are paused whenever `main` is blocked, so a block that waits on
+something one of those tasks would produce, before the join, never returns.
+
+**A public function says so.** A `public` function whose body blocks must
+declare `blocking`, because its signature is what a caller in another module
+reads, and so must an `@export` function, whose callers are C code. Inference
+covers the others:
+
+```saw-fragment
+public func load_config(path: String) -> Config { parse(read_settled(path)) }
+// error: `load_config` is public and its body blocks the thread
+//        (`load_config` → `read_settled` (blocking)), so its signature must
+//        say so: declare it `public func load_config(path: String) blocking -> Config`
+```
+
+**Inside a `blocking` body** the code is in thread context. A `blocking`
+extern is a plain call there, another `blocking` function may be called, a
+pair (below) takes its `blocking` body, and a suspension is refused, as in a
+`Thread.spawn` body.
+
+`blocking` takes `sync`'s place in the effect slot, `consumes unsafe blocking
+borrows`. A `blocking` body never suspends, so `blocking sync` is refused as
+redundant, the way `constexpr sync` is, and a `sync` function may call a
+`blocking` one: it then blocks, and carries that to its own callers.
+
+##### Pairs
+
+One operation may need to suspend in a task and block in a thread, a channel's
+receive being the standard case. It is declared twice: the DEFAULT
+declaration, and a `blocking` TWIN with the same signature.
+
+```saw-fragment
+extension Mailbox {
+    /// Takes the next letter, waiting while the box is empty: a task parks
+    /// until a letter arrives, and a thread blocks.
+    public func take(&self) -> Result<Letter, MailboxError> { ... }
+    public func take(&self) blocking -> Result<Letter, MailboxError> { ... }
+}
+```
+
+A call names the operation once, and the compiler picks the body for each
+compiled copy of the caller: a copy in thread context takes the `blocking`
+body, and every other copy takes the default. A `main` that never suspends
+takes the default too, and when the default suspends, that `main` suspends
+and runs the executor, like any other `main` that calls a suspending function.
+A pair is context selection rather than overloading by effect: there is one
+operation, and no call can name the twin.
+
+The twin repeats the default's signature exactly: the name, the labels, the
+parameter and return types, the receiver, `static`, the generic parameters and
+their bounds, the visibility, and `unsafe`. Its parameters take no default
+values, which a call evaluates from the default's declaration. It is the
+declaration directly after its default, in the same struct body, extension
+block or top level, with nothing between the two but blank lines and
+comments, so a reader who finds the default sees the twin at once. A twin
+that differs in any of these, or stands anywhere else, is refused at its
+declaration, naming what differs. A `blocking` declaration twins the default
+it could not otherwise be told apart from at a call; one that differs in a
+label, a parameter type or the number of arguments is an ordinary overload,
+and a lone `blocking` function. Declarations in two modules never pair.
+
+The pair has one doc comment, on the default, and it describes both contexts.
+A `///` on the twin is refused. The default may not block: it is the body
+every task runs, so a default whose body blocks is refused at its declaration
+with the path, as a task root would refuse it.
+
+##### Where `blocking` is written
+
+A free function, a method (`static` or not, on a struct, an enum or a generic
+type, in any extension of the declaring module), an `init`, and a `borrows`
+accessor may be `blocking`, alone or as a twin.
+
+Nothing the compiler calls without a source call naming it may block, because
+no task root can see the call: a trait requirement and a trait default body
+may not be `blocking`, an implementation that meets a requirement may not
+block (a pair's default may meet one), and neither may a `deinit` or a
+copy-policy `copy()`. Those are refused at the declaration, with the path when
+the block is inferred. A closure body may not block, as it may not suspend; a
+`Thread.spawn` body is the exception, being thread context. A `blocking`
+function cannot be taken as a function value, and a function type takes no
+`blocking`; a pair taken as a value is its default. An `extern` declaration
+keeps its prefix spelling, `blocking func` inside the `extern` block (see
+[Blocking externs and the offload](#blocking-externs-and-the-offload)).
+
 ### Cooperative tasks: TaskGroup
 
 ```saw
@@ -13897,7 +14028,8 @@ init(at: Int) unsafe -> UnsafeMmioReg { ... }
 ```
 
 `borrows` follows `sync` in the same slot, `unsafe sync borrows` (see
-[Places](#places-borrows-and-lend)).
+[Places](#places-borrows-and-lend)). `blocking` stands in `sync`'s place,
+`unsafe blocking borrows` (see [Blocking functions](#blocking-functions)).
 
 A function **type** uses the same slot, with `escaping` completing the order
 `unsafe sync escaping`:
@@ -13952,6 +14084,10 @@ A declaration is judged the other way round, and a redundant `unsafe` on one
 stays legal (above): a declaration's marker is a promise about its **body**.
 Taking such a function as a value yields the plain type, because the value's
 type is read off the signature like any other.
+
+A function type takes no `blocking`. A call through a function value carries
+no context to choose a body by, so a `blocking` function cannot be taken as a
+value at all (see [Blocking functions](#blocking-functions)).
 
 #### Closures
 

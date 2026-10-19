@@ -1,0 +1,28 @@
+// refuses: effect.blocking-body at 27:11
+// flags: --std-root std
+// a generic `blocking` function whose bound's implementation, at the call's
+// type argument, suspends: refused at the call that instantiates it, as a
+// direct call in its body would be (conformance row K175)
+
+import std.task.{yield_now}
+
+trait Stepper {
+    func step(&self) -> Int
+}
+
+struct Yielder { id: Int }
+
+extension Yielder: Stepper {
+    func step(&self) -> Int {
+        yield_now()
+        self.id
+    }
+}
+
+func drain<T: Stepper>(who: T) blocking -> Int {
+    who.step()
+}
+
+func main() {
+    print(drain(Yielder(id: 1)))
+}

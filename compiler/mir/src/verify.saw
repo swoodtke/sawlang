@@ -1459,7 +1459,7 @@ extension MirProgram {
         let node = c.node
         self.call_effect(node, &c, &var acc)
         var want = MirSuspend.Never
-        let threaded = self.thread_body(f)
+        let threaded = self.thread_context(f)
         if self.thread_plain_call(threaded, &acc) {
             want = MirSuspend.Never
         } else if acc.suspends {

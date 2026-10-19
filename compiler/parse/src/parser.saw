@@ -2178,7 +2178,7 @@ extension Parser {
         if kind == TokenKind.Unsafe_ || kind == TokenKind.Borrows {
             return true
         }
-        let word = self.word_at(ahead, "sync") || self.word_at(ahead, "constexpr")
+        let word = self.word_at(ahead, "sync") || self.word_at(ahead, "constexpr") || self.word_at(ahead, "blocking")
         word || self.word_at(ahead, "consumes") || self.word_at(ahead, "const")
     }
 
@@ -2216,7 +2216,7 @@ extension Parser {
     func refuse_effect_prefix(&var self, at: Int) -> Bool {
         self.refuse(Rule.Decl_RefusedEffectPrefix, at,
                     "a function's effects are written after its parameters",
-                    "move the word into the effect slot: `func f(…) unsafe -> T`, or `constexpr` for `const`")
+                    "move the word into the effect slot: `func f(…) unsafe -> T`, `func f(…) blocking -> T`, or `constexpr` for `const`")
     }
 
     // ---- attributes -----------------------------------------------------------
@@ -3716,7 +3716,7 @@ extension Parser {
         self.refuse(Rule.Decl_RefusedReceiver, at, message, hint)
     }
 
-    // `effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? 'sync'? borrows-effect? refused-escaping?`,
+    // `effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? blocking-effect? 'sync'? borrows-effect? refused-escaping?`,
     // each word a leaf of the declaration. `consumes` stands only on a method
     // whose first parameter is `&var self` (`exclusive`), and `borrows` on
     // anything but an `init` (syntax.rule.effect-slot); a requirement is
@@ -3734,6 +3734,10 @@ extension Parser {
         }
         if self.word_at(0, "constexpr") {
             self.see(Alt.Decl_Constexpr)
+            self.take_leaf()
+        }
+        if self.word_at(0, "blocking") {
+            self.see(Alt.Decl_BlockingEffect)
             self.take_leaf()
         }
         if self.word_at(0, "sync") {
@@ -5918,7 +5922,8 @@ extension Parser {
             return true
         }
         (self.word_at(ahead, "sync") || self.word_at(ahead, "escaping")
-         || self.word_at(ahead, "consumes") || self.word_at(ahead, "constexpr"))
+         || self.word_at(ahead, "consumes") || self.word_at(ahead, "constexpr")
+         || self.word_at(ahead, "blocking"))
     }
 
     // An effect word after an effect slot ended: out of the slot's one
@@ -5926,7 +5931,7 @@ extension Parser {
     // (syntax.rule.effect-slot).
     func refuse_effect_order(&var self) -> Bool {
         self.error_by(Rule.Rule_EffectSlot, "effect words stand once each, in one order",
-                      "write `consumes unsafe sync borrows` after a declaration's parameters, or `unsafe sync escaping borrows` in a function type, each at most once")
+                      "write `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` or `blocking` in `sync`'s place, or `unsafe sync escaping borrows` in a function type, each at most once")
     }
 
     // `func-type ::= "(" func-type-params? ")" func-type-effects "->" type`,
@@ -5975,6 +5980,12 @@ extension Parser {
             return self.refuse(Rule.Type_RefusedFuncConsumes, at,
                                "`consumes` ends a method's receiver, and a function type has none",
                                "call the method")
+        }
+        if self.word_at(0, "blocking") {
+            let at = self.pos
+            return self.refuse(Rule.Type_RefusedFuncBlocking, at,
+                               "a function type takes no `blocking`: a call through a function value has no context to choose a body by, so a `blocking` function is never a value",
+                               "call the function by name")
         }
         if self.effect_word_at(0) {
             return self.refuse_effect_order()

@@ -49,6 +49,9 @@ refuses syntax.test.refused-stray-end
 // case: syntax.type.type.refused-func-consumes
 refuses syntax.type.refused-func-consumes
 
+// case: syntax.type.type.refused-func-blocking
+refuses syntax.type.refused-func-blocking
+
 // case: syntax.type.atom.refused-partial-named
 refuses syntax.type.refused-partial-named-tuple
 
@@ -201,6 +204,9 @@ refuses syntax.decl.refused-escaping
 
 // case: syntax.type.refused-func-consumes
 refuses syntax.type.refused-func-consumes
+
+// case: syntax.type.refused-func-blocking
+refuses syntax.type.refused-func-blocking
 
 // case: syntax.type.refused-partial-named-tuple.named-first
 refuses syntax.type.refused-partial-named-tuple

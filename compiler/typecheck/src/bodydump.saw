@@ -342,6 +342,10 @@ extension TcProgram {
                 k = k + 1
             }
             try! out.append(")")
+            // A pair's twin is told from its default by the word alone.
+            if self.declares_blocking(d) {
+                try! out.append(" blocking")
+            }
         }
         out.build()
     }

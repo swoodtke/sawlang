@@ -139,7 +139,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     try! out.append(ll_helpers())
     if mono.panic_item >= 0 {
         let sink = mono.panic_item
-        let symbol = ll_symbol(&mono, sink)
+        let symbol = e.plain_symbol(&var mono, sink)
         try! out.append(ll_fail_helpers(symbol))
     }
     try! out.append("\n\n")
@@ -198,9 +198,9 @@ extension LlEmitter {
             try! out.append("  store i64 ")
             try! out.append(CORO_STATE_START)
             try! out.append(", ptr %frame\n  call void ")
-            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(ll_symbol(&mono, mono.exec_item))
+            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(self.plain_symbol(&var mono, mono.exec_item))
             let executor = mono.exec_item
-            try! out.append(ll_symbol(&mono, executor))
+            try! out.append(self.plain_symbol(&var mono, executor))
             try! out.append("(ptr ")
             try! out.append(ll_descriptor_symbol(&mono, main_item))
             try! out.append(", ptr %frame)\n")
@@ -212,7 +212,7 @@ extension LlEmitter {
                 try! out.append(", ptr %result\n")
             }
         } else {
-            let symbol = ll_symbol(&mono, main_item)
+            let symbol = self.plain_symbol(&var mono, main_item)
             if returns_int {
                 try! out.append("  %status = call ")
                 try! out.append(ll_value_type(&l))
@@ -223,10 +223,10 @@ extension LlEmitter {
             try! out.append(symbol)
             try! out.append("()\n")
             if mono.spawn_close_item >= 0 {
-                // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(ll_symbol(&mono, mono.spawn_close_item))
+                // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(self.plain_symbol(&var mono, mono.spawn_close_item))
                 let close = mono.spawn_close_item
                 try! out.append("  call void ")
-                try! out.append(ll_symbol(&mono, close))
+                try! out.append(self.plain_symbol(&var mono, close))
                 try! out.append("()\n")
             }
         }
@@ -276,7 +276,7 @@ extension LlEmitter {
         try! out.append(" \{\nentry:\n")
         if glue >= 0 {
             try! out.append("  call void ")
-            try! out.append(ll_symbol(&mono, glue))
+            try! out.append(self.plain_symbol(&var mono, glue))
             try! out.append("(ptr %result)\n")
         }
         try! out.append("  ret void\n\}\n\n")

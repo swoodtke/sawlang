@@ -1,0 +1,17 @@
+// refuses: effect.blocking-undeclared at 11:6
+// an `@export`ed function whose body blocks its thread and does not declare
+// `blocking`: its C callers read nothing but its signature (conformance row
+// K177)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+@export
+func settled_now(ms: Int) -> Int {
+    settle(ms)
+}
+
+func main() {
+    print(settled_now(1))
+}

@@ -192,7 +192,7 @@ everywhere else:
 | `any` | followed by a name, in a type | syntax.type.any |
 | `sync` `consumes` `escaping` | after a parameter list; `sync` and `consumes` also in a declaration head before `func` or `init`, only to be refused | syntax.decl.effects, syntax.type.func-effects, syntax.decl.refused-effect-prefix |
 | `constexpr` | after a parameter list; in a declaration head before `func` or `init`, only to be refused | syntax.decl.constexpr, syntax.decl.refused-effect-prefix |
-| `blocking` | before `func` in an extern block | syntax.decl.extern-func |
+| `blocking` | before `func` in an extern block; after a parameter list; in a declaration head before `func` or `init`, and in a function type, only to be refused | syntax.decl.extern-func, syntax.decl.blocking-effect, syntax.decl.refused-effect-prefix, syntax.type.refused-func-blocking |
 | `copy` | a capture-list mode | syntax.expr.capture |
 | `lends` | followed by `self` or a name | syntax.expr.lends |
 | `static_assert` | followed by `(` | syntax.decl.static-assert |
@@ -437,12 +437,25 @@ function type does not take it. An effect word written in a declaration head,
 before `func` or `init`, is refused wherever it stands there
 (syntax.decl.refused-effect-prefix).
 
+`blocking` declares a body that blocks its thread, and also takes `sync`'s
+place in the order. `blocking sync` and `constexpr blocking` parse, with
+`blocking` written after `constexpr` and before `sync`, and a later stage
+refuses each. The slot takes `blocking` wherever it stands, a trait
+requirement's included, where a later stage refuses it; a function type
+refuses it (syntax.type.refused-func-blocking). A `blocking` declaration that
+twins a default declaration (LANGUAGE_SPEC, "Pairs") takes no `///` comment,
+since the pair's comment is the default's; the grammar attaches one as to any
+declaration, and a later stage refuses it.
+
 ```ebnf
 # syntax.decl.effects  status=current  spec="Consuming method receivers (`consumes`)"  node=-
-effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? 'sync'? borrows-effect? refused-escaping?
+effect-slot ::= 'consumes'? "unsafe"? constexpr-effect? blocking-effect? 'sync'? borrows-effect? refused-escaping?
 
 # syntax.decl.constexpr  status=lockdown  spec="Compile-Time Evaluation"  node=-  ref="SL:architecture §3.10"
 constexpr-effect ::= 'constexpr'
+
+# syntax.decl.blocking-effect  status=current  spec="Blocking functions"  node=-  ref="SL-782"
+blocking-effect ::= 'blocking'
 
 # syntax.decl.borrows-effect  status=current  spec="Places (`borrows` and `lend`)"  node=-
 borrows-effect ::= "borrows"  @syntax.decl.borrows-effect.plain
@@ -717,6 +730,7 @@ type ::= ref-type  @syntax.type.type.ref
     | func-type  @syntax.type.type.func
     | type-atom type-suffix*  @syntax.type.type.suffixed
     | refused-func-consumes  @syntax.type.type.refused-func-consumes
+    | refused-func-blocking  @syntax.type.type.refused-func-blocking
 
 # syntax.type.suffix  status=current  spec="Optionals"  node=OptionalType
 type-suffix ::= "?"  @syntax.type.suffix.optional
@@ -1690,8 +1704,8 @@ that names the valid form. Each is `removed`.
 
 ```ebnf
 # syntax.decl.refused-effect-prefix  status=removed  spec="Spelling"  node=Error
-refused-effect-prefix ::= attribute-list? ( visibility | "static" )* ( "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' ) ( visibility | "static" | "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' )* "func" method-name generic-params? "(" param-list? ")" effect-slot return-clause? default-body?  @syntax.decl.refused-effect-prefix.func
-    | attribute-list? ( visibility | "static" )* ( "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' ) ( visibility | "static" | "unsafe" | 'sync' | 'constexpr' | "borrows" | 'consumes' | 'const' )* "init" "(" param-list? ")" effect-slot return-clause? default-body?  @syntax.decl.refused-effect-prefix.init
+refused-effect-prefix ::= attribute-list? ( visibility | "static" )* ( "unsafe" | 'sync' | 'constexpr' | 'blocking' | "borrows" | 'consumes' | 'const' ) ( visibility | "static" | "unsafe" | 'sync' | 'constexpr' | 'blocking' | "borrows" | 'consumes' | 'const' )* "func" method-name generic-params? "(" param-list? ")" effect-slot return-clause? default-body?  @syntax.decl.refused-effect-prefix.func
+    | attribute-list? ( visibility | "static" )* ( "unsafe" | 'sync' | 'constexpr' | 'blocking' | "borrows" | 'consumes' | 'const' ) ( visibility | "static" | "unsafe" | 'sync' | 'constexpr' | 'blocking' | "borrows" | 'consumes' | 'const' )* "init" "(" param-list? ")" effect-slot return-clause? default-body?  @syntax.decl.refused-effect-prefix.init
 
 # syntax.decl.refused-unsafe-prefix  status=removed  spec="Spelling"  node=Error
 refused-unsafe-prefix ::= "unsafe" enum-decl  @syntax.decl.refused-unsafe-prefix.enum
@@ -1740,6 +1754,9 @@ refused-escaping ::= 'escaping'
 
 # syntax.type.refused-func-consumes  status=removed  spec="v1 boundaries"  node=Error
 refused-func-consumes ::= "(" func-type-params? ")" func-type-effects 'consumes' "->" type
+
+# syntax.type.refused-func-blocking  status=removed  spec="The effect on a function type"  node=Error  ref="SL-782"
+refused-func-blocking ::= "(" func-type-params? ")" func-type-effects 'blocking' "->" type
 
 # syntax.type.refused-partial-named-tuple  status=removed  spec="Composite Types"  node=Error
 refused-partial-named-tuple-type ::= "(" tuple-type-field "," type ( "," ( type | tuple-type-field ) )* ")"  @syntax.type.refused-partial-named-tuple.named-first
@@ -1852,6 +1869,7 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 | syntax.decl.refused-receiver | A receiver is a reference, `&self` or `&var self`, and a reference parameter carries `&` on its type. | `&self`, `&var self`, or `x: &T` |
 | syntax.decl.refused-escaping | `escaping` describes a closure's environment, and a named function has none. | `escaping` on the function type |
 | syntax.type.refused-func-consumes | `consumes` describes a method's receiver, and a function type has none. | call the method |
+| syntax.type.refused-func-blocking | A call through a function value has no context to choose a body by, so a `blocking` function is never a value. | call the function by name |
 | syntax.type.refused-partial-named-tuple | A named tuple labels every element or none. | label every element, or none |
 | syntax.type.refused-cast-question | A `??` after a cast target reads both as an optional layer and as coalescing (SL-309). | `(n ?? 9) as Int` |
 | syntax.generic.refused-param-comma | A trailing comma is allowed only in `(…)` and `[…]` lists. | drop the comma |
@@ -2164,8 +2182,8 @@ decides. The constructs column names the productions a rule governs.
 | syntax.rule.deref-or-multiply | syntax.expr.deref, syntax.expr.multiplicative | `*` before an operand is a dereference, and `*` between operands is a multiplication, so `a * *p` multiplies by the pointee. | Prefix `*` — the pointer place, spelled | current |
 | syntax.rule.tuple-index-dot | syntax.expr.tuple-index, syntax.expr.member | A tuple index never takes a following `.` as a decimal point, so `t.0.1` is two hops and `t.0.name` a member of element 0. | Composite Types | current |
 | syntax.rule.name-pattern | syntax.pat.name, syntax.pat.wildcard, syntax.pat.variant | `_` is the wildcard. Any other lone name is a name pattern, and resolution decides whether it names a payload-free variant or binds. A name followed by `(` is a variant pattern. | Enums (Algebraic Data Types) | current |
-| syntax.rule.contextual-words | syntax.decl.field-visibility, syntax.decl.type-alias, syntax.decl.assoc-type, syntax.generic.param, syntax.type.any, syntax.expr.lends, syntax.decl.static-assert, syntax.decl.effects, syntax.decl.constexpr, syntax.decl.refused-effect-prefix, syntax.decl.refused-const, syntax.stmt.refused-local-const | A contextual word is recognized only in its position and by one token of lookahead: `private` before a field name, `type` followed by a name at a declaration head, `const` followed by a name in a generic list, `any` followed by a name in a type, `lends` followed by `self` or a name, `static_assert` followed by `(`, and the effect words (`consumes`, `constexpr`, `sync`, `escaping`) after a parameter list. In a declaration head, `const`, `consumes`, `constexpr` and `sync` are recognized when the token after the word is `func`, `init`, a visibility, `static` or another effect word, and only to be refused (syntax.decl.refused-effect-prefix). At a top-level item's head or a statement's, `const` followed by a name is recognized only to be refused (syntax.decl.refused-const, syntax.stmt.refused-local-const). Elsewhere each is an identifier. | Appendix A: Keywords | current |
-| syntax.rule.effect-slot | syntax.decl.effects, syntax.decl.constexpr, syntax.decl.borrows-effect, syntax.type.func-effects, syntax.decl.refused-effect-prefix | Effect words appear in one order, each at most once: `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` in `sync`'s place, and `unsafe sync escaping borrows` in a function type. Another order is refused naming the canonical one. `consumes` is legal only on a method with a `&var self` receiver, and `borrows` is not legal on `init`. The pairs `consumes borrows`, `constexpr sync`, `unsafe constexpr` and `constexpr borrows` parse, with `constexpr` written before `sync`; a later stage refuses each. An effect word in a declaration head, before `func` or `init`, is refused with a fixit that moves it into the slot (syntax.decl.refused-effect-prefix). | Spelling; Consuming method receivers (`consumes`); SL:architecture §3.10 | lockdown |
+| syntax.rule.contextual-words | syntax.decl.field-visibility, syntax.decl.type-alias, syntax.decl.assoc-type, syntax.generic.param, syntax.type.any, syntax.expr.lends, syntax.decl.static-assert, syntax.decl.effects, syntax.decl.constexpr, syntax.decl.blocking-effect, syntax.decl.refused-effect-prefix, syntax.decl.refused-const, syntax.stmt.refused-local-const | A contextual word is recognized only in its position and by one token of lookahead: `private` before a field name, `type` followed by a name at a declaration head, `const` followed by a name in a generic list, `any` followed by a name in a type, `lends` followed by `self` or a name, `static_assert` followed by `(`, and the effect words (`consumes`, `constexpr`, `blocking`, `sync`, `escaping`) after a parameter list. In a declaration head outside an `extern` block, `const`, `consumes`, `constexpr`, `blocking` and `sync` are recognized when the token after the word is `func`, `init`, a visibility, `static` or another effect word, and only to be refused (syntax.decl.refused-effect-prefix); inside one, `blocking` before `func` is the extern's own (syntax.decl.extern-func). At a top-level item's head or a statement's, `const` followed by a name is recognized only to be refused (syntax.decl.refused-const, syntax.stmt.refused-local-const). Elsewhere each is an identifier. | Appendix A: Keywords | current |
+| syntax.rule.effect-slot | syntax.decl.effects, syntax.decl.constexpr, syntax.decl.blocking-effect, syntax.decl.borrows-effect, syntax.type.func-effects, syntax.decl.refused-effect-prefix | Effect words appear in one order, each at most once: `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` or `blocking` in `sync`'s place, and `unsafe sync escaping borrows` in a function type. Another order is refused naming the canonical one. `consumes` is legal only on a method with a `&var self` receiver, and `borrows` is not legal on `init`. The pairs `consumes borrows`, `constexpr sync`, `unsafe constexpr`, `constexpr borrows`, `blocking sync` and `constexpr blocking` parse, written in the order `constexpr blocking sync`; a later stage refuses each. An effect word in a declaration head, before `func` or `init`, is refused with a fixit that moves it into the slot (syntax.decl.refused-effect-prefix). | Spelling; Consuming method receivers (`consumes`); Blocking functions; SL:architecture §3.10; SL-782 | lockdown |
 | syntax.rule.subscript-declaration | syntax.decl.method-name, syntax.decl.setitem-name | A method named `[]` with a `borrows` effect is a place accessor; without one it is a getitem. A method named `[]=` is a setitem, and its last parameter is the value. | Places (`borrows` and `lend`); SL:borrowing §5 | lockdown |
 | syntax.rule.subscript-arguments | syntax.expr.subscript, syntax.expr.multi-subscript | A subscript with one unlabelled argument is a single subscript; one with a label or a second argument follows the call-argument rules, so `m[r, c]`, `m[(r, c)]` and `m[k, default: 0]` are three different forms. `default:` is an ordinary label here. | Composite Types; SL:borrowing §5.3 | lockdown |
 | syntax.rule.range-open-end | syntax.expr.range-from, syntax.expr.range-upto, syntax.expr.range | A range's upper bound is omitted, as in `buf[4..]` and `buf[..]`, only when the token after `..` is `]`, `)`, `,`, `;`, a line break, `}` or the end of input. A line break after `..` or `..=` always ends the range, as an exception to syntax.rule.operator-continuation: `let v = a..` followed by another line is an open range and then a new statement, and a line ending in `..=` is an error, since `..=` takes an upper bound. Inside `(` and `[` the line break is insignificant (§2.4), so there `a..` at a line end takes the next line's operand as its upper bound. | Composite Types; SL:borrowing §6; SL-406 c11 | lockdown |
@@ -2311,6 +2329,10 @@ the two disagree, a row below says which way and why. Where a grammar rule
 | syntax.expr.move-base.self | parses `move self` in every body, as a move of the whole receiver; a later stage refuses it outside a `consumes` method | refuses `move self` in every body with a dedicated error ("`move self` is not a receiver spelling"), consuming ones included | ruled | Moving a field out; SL-414 c1 |
 | syntax.type.ref | parses `&T` wherever a type goes | refuses a reference type outside a parameter, whatever the declaration | later | Reference passing; SL:borrowing §2.6; SL-400 c6 |
 | syntax.rule.effect-slot | parses `consumes` beside `borrows` | refuses the pair | later | Consuming method receivers (`consumes`) |
+| syntax.decl.blocking-effect | parses `blocking` in a declaration's effect slot | refuses it ("Expected LBRACE, got IDENT") | ruled | Blocking functions; SL-782 |
+| syntax.rule.effect-slot | parses `blocking sync` and `constexpr blocking` | refuses each, since it takes no `blocking` | later | Blocking functions; SL-782 |
+| syntax.decl.refused-effect-prefix | refuses `blocking` before `func` or `init` outside an `extern` block, with the effect-slot fixit | gives the generic "Expected import, export, module, …" error | ruled | Blocking functions; SL-782 |
+| syntax.type.refused-func-blocking | refuses `blocking` in a function type, with a hint | gives a generic parse error | ruled | The effect on a function type; SL-782 |
 | syntax.stmt.lend, syntax.expr.closure | parses `lend` as a closure-body statement | refuses it | later | `lend` suspends the accessor; it does not return |
 | syntax.decl.requirement | parses generic parameters on a trait requirement | refuses them | later | Traits; SL-400 c6 |
 | syntax.expr.refused-try-route | refuses a routing clause on `try!` or `try?`, and beside `catch` | parses them, and the type checker refuses them | earlier | Error routing at `try` |

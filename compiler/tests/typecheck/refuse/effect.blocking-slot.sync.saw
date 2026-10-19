@@ -1,0 +1,11 @@
+// refuses: effect.blocking-slot at 5:6
+// `blocking sync`: a `blocking` body never suspends, so `sync` adds nothing,
+// and the pair is refused as `constexpr sync` is (conformance row K178)
+
+func settle(ms: Int) blocking sync -> Int {
+    ms
+}
+
+func main() {
+    print(settle(1))
+}

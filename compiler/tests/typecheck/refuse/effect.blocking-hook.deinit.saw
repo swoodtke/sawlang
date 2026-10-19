@@ -1,0 +1,20 @@
+// refuses: effect.blocking-hook at 12:10
+// a `deinit` whose body blocks its thread: it runs wherever its value dies, a
+// task included, where no source call names it (conformance row K176)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+struct Pool { ms: Int }
+
+extension Pool: NoCopy {
+    func deinit(&var self) {
+        let _ = settle(self.ms)
+    }
+}
+
+func main() {
+    let pool = Pool(ms: 1)
+    print(pool.ms)
+}

@@ -1,0 +1,16 @@
+// refuses: effect.blocking-twin at 10:6
+// a twin that carries a `///` comment, which a pair has only on its default
+// (conformance row K178)
+
+/// Fetches `n`.
+func fetch(n: Int) -> Int {
+    n
+}
+/// Fetches `n`, blocking.
+func fetch(n: Int) blocking -> Int {
+    n
+}
+
+func main() {
+    print("compiled")
+}

@@ -1,0 +1,25 @@
+// refuses: effect.task-blocks at 23:26
+// flags: --std-root std
+// a `blocking` function two calls below a `Task.spawn` root: the refusal at
+// the root names every function on the path (conformance row K172)
+
+func wait_for_signal(ms: Int) blocking -> Int {
+    ms
+}
+
+func read_settled(ms: Int) -> Int {
+    wait_for_signal(ms)
+}
+
+func load_config(ms: Int) -> Int {
+    read_settled(ms) * 2
+}
+
+func refresh(ms: Int) -> Int {
+    load_config(ms) + 1
+}
+
+func main() {
+    let job = Task.spawn(refresh(3))
+    print(job.join())
+}

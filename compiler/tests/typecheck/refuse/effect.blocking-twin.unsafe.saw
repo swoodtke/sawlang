@@ -1,0 +1,13 @@
+// refuses: effect.blocking-twin at 7:6
+// a twin that is `unsafe` where its default is not (conformance row K178)
+
+func fetch(n: Int) -> Int {
+    n
+}
+func fetch(n: Int) unsafe blocking -> Int {
+    n
+}
+
+func main() {
+    print("compiled")
+}

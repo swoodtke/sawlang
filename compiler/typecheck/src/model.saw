@@ -14,6 +14,9 @@ public static TC_EFFECT_BORROWS: Int = 8
 public static TC_EFFECT_BORROWS_SYNC: Int = 16
 public static TC_EFFECT_ESCAPING: Int = 32
 public static TC_EFFECT_CONSTEXPR: Int = 64
+// A Saw function whose body blocks its thread (spec, Blocking functions); an
+// extern's `blocking` prefix is `TC_FLAG_BLOCKING`.
+public static TC_EFFECT_BLOCKING: Int = 128
 
 // What else a declaration's head says, as bits.
 public static TC_FLAG_STATIC: Int = 1
@@ -430,6 +433,8 @@ public static TC_COPY_COVERED: Int = -2
 public static TC_FORBID_CLOSURE: Int = 1
 public static TC_FORBID_ERASE: Int = 2
 public static TC_FORBID_SYNC: Int = 3
+// A `blocking` body that suspends, which no thread can resume.
+public static TC_FORBID_THREAD: Int = 4
 
 // One condition of a summary: requirement `req` called through `ty`, a type
 // parameter or a trait's `Self`. `site` is the node in the summarized body
@@ -449,8 +454,13 @@ public struct TcAtom {
 public struct TcSummary {
     state: Int
     // The kinds of suspension source behind `suspends` and `nonsync`, a set
-    // of `TC_CAUSE_*` bits; 0 when neither holds outright.
+    // of `TC_CAUSE_*` bits; 0 when neither holds outright. `blocks thread`
+    // is kept whatever the two words say, since it is no suspension.
     causes: Int
+    // The causes the body has in a thread-context copy, where a pair runs
+    // its `blocking` twin (spec, Pairs): `causes` but for each pair it
+    // reaches, which adds its twin's and `paired`.
+    thread_causes: Int
     suspends: Bool
     suspend_first: Int
     suspend_count: Int
@@ -465,7 +475,7 @@ public struct TcSummary {
 
 extension TcSummary {
     public static func blank() -> TcSummary {
-        TcSummary(state: TC_SUMMARY_NONE, causes: 0, suspends: false, suspend_first: 0, suspend_count: 0,
+        TcSummary(state: TC_SUMMARY_NONE, causes: 0, thread_causes: 0, suspends: false, suspend_first: 0, suspend_count: 0,
                   nonsync: false, nonsync_first: 0, nonsync_count: 0, copy_first: 0, copy_count: 0,
                   forbid_first: 0, forbid_count: 0)
     }
@@ -475,18 +485,26 @@ extension TcSummary {
 // the std suspension table records them: a park point, a `blocking` extern, a
 // test intrinsic, a call through `any`, a call through a function value not
 // declared `sync`, and a call no rule classifies. A `Thread.spawn` body
-// permits the `blocking` cause alone (`check_thread_call`).
+// permits the `blocking` cause alone of these (`check_thread_call`).
 public static TC_CAUSE_COOPERATIVE: Int = 1
 public static TC_CAUSE_BLOCKING: Int = 2
 public static TC_CAUSE_TEST_SUSPEND: Int = 4
 public static TC_CAUSE_DISPATCH: Int = 8
 public static TC_CAUSE_CLOSURE_CALL: Int = 16
 public static TC_CAUSE_UNCLASSIFIED: Int = 32
+// Two causes no std table row records, both of thread context (spec,
+// Blocking functions): a call reaching a `blocking` Saw function, which
+// blocks the thread and is refused at a task root (`check_task_root`), and,
+// in `thread_causes` alone, a call reaching a pair, whose thread copy runs
+// another body, so mono keys that copy apart (`callee_key`).
+public static TC_CAUSE_BLOCKS_THREAD: Int = 64
+public static TC_CAUSE_PAIRED: Int = 128
 
 // A body's unit: a declaration's body, or a closure in it. `top` is the unit
 // whose summary a closure's conditions join; a top unit's run of items covers
-// its closures' too. `thread` marks a `Thread.spawn` brace's unit, a `sync`
-// context that permits a `blocking` extern.
+// its closures' too. `thread` marks a unit in thread context: a
+// `Thread.spawn` brace's, or a `blocking` declaration's own, which may not
+// suspend and may call a `blocking` extern.
 public struct TcUnit {
     decl: Int
     node: Int

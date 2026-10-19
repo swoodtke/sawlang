@@ -2517,6 +2517,23 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   compile as ORDINARY SYNC CODE with no frame at all, so a `yield_now()` inside
   one was a silent no-op and a corpus test claiming to check frame residency
   across a suspension was passing while checking nothing.
+- **`blocking` FUNCTIONS AND PAIRS (SL-782; spec, Blocking functions).**
+  `func wait(&self) blocking -> T` (the word stands in `sync`'s place, `unsafe
+  blocking borrows`; `blocking sync` is refused) marks a body that blocks its
+  OS thread un-offloadably. It runs in THREAD CONTEXT only (a `Thread.spawn`
+  body, a `main` that never suspends, what they call); callers write nothing,
+  and the refusal comes at the TASK ROOT (`Task.spawn`/`group.spawn`/drive, a
+  suspending `main`) with the path, never at a call in an ordinary function. A
+  `public` (or `@export`) function that blocks by inference must declare it,
+  and the fix-it writes the head. Inside, the body is thread context: a
+  `blocking` extern is plain, a suspension is refused. A PAIR is a default plus
+  a `blocking` twin with the identical signature, DIRECTLY after it in the
+  same block, no `///` and no parameter defaults on the twin; a
+  thread-context copy runs the twin, every other copy the default (a
+  non-suspending `main` too, which then suspends if the default does). Never
+  block from: a closure body, a trait requirement or default body, a
+  conformance's implementation, a `deinit`, a policy `copy()`; and a
+  `blocking` function is never a value.
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
   Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,

@@ -1,0 +1,17 @@
+// refuses: effect.task-blocks at 16:23
+// a `blocking` function reached from a drive's root: the driver runs the
+// root over a frame of its own, as a task, so it is refused at the root
+// (conformance row K172)
+
+func wait_for_signal(ms: Int) blocking -> Int {
+    ms
+}
+
+func refresh(ms: Int) -> Int {
+    __saw_suspend()
+    wait_for_signal(ms) + 1
+}
+
+func main() {
+    print(__saw_drive(refresh(3)))
+}

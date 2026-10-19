@@ -1,0 +1,18 @@
+// refuses: effect.blocking-default at 9:6
+// a pair's default that blocks its thread, through a helper: the default is
+// the body every task runs (conformance row K177)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+func fetch(n: Int) -> Int {
+    settle(n)
+}
+func fetch(n: Int) blocking -> Int {
+    settle(n) + 1
+}
+
+func main() {
+    print(fetch(1))
+}

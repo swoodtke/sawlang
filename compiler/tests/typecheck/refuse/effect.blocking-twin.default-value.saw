@@ -1,0 +1,14 @@
+// refuses: effect.blocking-twin at 8:6
+// a twin that writes a parameter's default value, which a call evaluates from
+// the default's declaration (conformance row K178)
+
+func fetch(n: Int = 1) -> Int {
+    n
+}
+func fetch(n: Int = 1) blocking -> Int {
+    n
+}
+
+func main() {
+    print("compiled")
+}

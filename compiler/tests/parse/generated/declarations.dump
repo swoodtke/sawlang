@@ -694,22 +694,32 @@
   (Declaration.func
     (Func a constexpr (Block))))
 
-// case: syntax.decl.effects/opt:3:'sync'?=absent
+// case: syntax.decl.effects/opt:3:blocking-effect?=absent
 (File
   (Declaration.func
     (Func a (Block))))
 
-// case: syntax.decl.effects/opt:3:'sync'?=present
+// case: syntax.decl.effects/opt:3:blocking-effect?=present
+(File
+  (Declaration.func
+    (Func a blocking (Block))))
+
+// case: syntax.decl.effects/opt:4:'sync'?=absent
+(File
+  (Declaration.func
+    (Func a (Block))))
+
+// case: syntax.decl.effects/opt:4:'sync'?=present
 (File
   (Declaration.func
     (Func a sync (Block))))
 
-// case: syntax.decl.effects/opt:4:borrows-effect?=absent
+// case: syntax.decl.effects/opt:5:borrows-effect?=absent
 (File
   (Declaration.func
     (Func a (Block))))
 
-// case: syntax.decl.effects/opt:4:borrows-effect?=present
+// case: syntax.decl.effects/opt:5:borrows-effect?=present
 (File
   (Declaration.func
     (Func a borrows (Block))))
@@ -738,7 +748,19 @@
           constexpr
           (Block))))))
 
-// case: syntax.decl.effects/pair:0:'consumes'?=present,3:'sync'?=present
+// case: syntax.decl.effects/pair:0:'consumes'?=present,3:blocking-effect?=present
+(File
+  (Declaration.extension
+    (Extension
+      (Path a)
+      (ExtensionMember.method
+        (Method b
+          (Param.receiver (Receiver.exclusive))
+          consumes
+          blocking
+          (Block))))))
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,4:'sync'?=present
 (File
   (Declaration.extension
     (Extension
@@ -750,7 +772,7 @@
           sync
           (Block))))))
 
-// case: syntax.decl.effects/pair:0:'consumes'?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:0:'consumes'?=present,5:borrows-effect?=present
 (File
   (Declaration.extension
     (Extension
@@ -767,27 +789,47 @@
   (Declaration.func
     (Func a unsafe constexpr (Block))))
 
-// case: syntax.decl.effects/pair:1:"unsafe"?=present,3:'sync'?=present
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,3:blocking-effect?=present
+(File
+  (Declaration.func
+    (Func a unsafe blocking (Block))))
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,4:'sync'?=present
 (File
   (Declaration.func
     (Func a unsafe sync (Block))))
 
-// case: syntax.decl.effects/pair:1:"unsafe"?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,5:borrows-effect?=present
 (File
   (Declaration.func
     (Func a unsafe borrows (Block))))
 
-// case: syntax.decl.effects/pair:2:constexpr-effect?=present,3:'sync'?=present
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,3:blocking-effect?=present
+(File
+  (Declaration.func
+    (Func a constexpr blocking (Block))))
+
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,4:'sync'?=present
 (File
   (Declaration.func
     (Func a constexpr sync (Block))))
 
-// case: syntax.decl.effects/pair:2:constexpr-effect?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,5:borrows-effect?=present
 (File
   (Declaration.func
     (Func a constexpr borrows (Block))))
 
-// case: syntax.decl.effects/pair:3:'sync'?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:3:blocking-effect?=present,4:'sync'?=present
+(File
+  (Declaration.func
+    (Func a blocking sync (Block))))
+
+// case: syntax.decl.effects/pair:3:blocking-effect?=present,5:borrows-effect?=present
+(File
+  (Declaration.func
+    (Func a blocking borrows (Block))))
+
+// case: syntax.decl.effects/pair:4:'sync'?=present,5:borrows-effect?=present
 (File
   (Declaration.func
     (Func a sync borrows (Block))))
@@ -796,6 +838,11 @@
 (File
   (Declaration.func
     (Func a constexpr (Block))))
+
+// case: syntax.decl.blocking-effect/alt
+(File
+  (Declaration.func
+    (Func a blocking (Block))))
 
 // case: syntax.decl.borrows-effect.plain/alt
 (File

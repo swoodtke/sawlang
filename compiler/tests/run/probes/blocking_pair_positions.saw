@@ -1,0 +1,115 @@
+// probe: stated
+// about: a pair selects its body per copy at every position a pair may stand: a free function, a `static` method, an `init`, a generic type's method, an enum's method and a `borrows` accessor, each from a `Thread.spawn` body and from a task, conformance row K174 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// prints: free: blocking
+// prints: static: blocking
+// prints: init: blocking
+// prints: generic: blocking
+// prints: enum: blocking
+// prints: accessor: blocking
+// prints: thread 21
+// prints: free: default
+// prints: static: default
+// prints: init: default
+// prints: generic: default
+// prints: enum: default
+// prints: accessor: default
+// prints: task 21
+// Each default here is prompt, which no task needs from a pair, so the
+// selection rests on the pair alone and not on any suspension.
+
+struct Counter { n: Int }
+
+struct Holder<T> { value: T }
+
+enum Lamp {
+    case On,
+    case Off
+}
+
+struct Shelf { item: Int }
+
+func fetch(n: Int) -> Int {
+    print("free: default")
+    n
+}
+func fetch(n: Int) blocking -> Int {
+    print("free: blocking")
+    n
+}
+
+extension Counter {
+    static func start(n: Int) -> Int {
+        print("static: default")
+        n
+    }
+    static func start(n: Int) blocking -> Int {
+        print("static: blocking")
+        n
+    }
+
+    init(seed: Int) -> Counter {
+        print("init: default")
+        Counter(n: seed)
+    }
+    init(seed: Int) blocking -> Counter {
+        print("init: blocking")
+        Counter(n: seed)
+    }
+}
+
+extension Holder<T> {
+    func get(&self) -> Int {
+        print("generic: default")
+        1
+    }
+    func get(&self) blocking -> Int {
+        print("generic: blocking")
+        1
+    }
+}
+
+extension Lamp {
+    func glow(&self) -> Int {
+        print("enum: default")
+        1
+    }
+    func glow(&self) blocking -> Int {
+        print("enum: blocking")
+        1
+    }
+}
+
+extension Shelf {
+    func peek(&self) borrows -> &Int {
+        print("accessor: default")
+        lend self.item
+    }
+    func peek(&self) blocking borrows -> &Int {
+        print("accessor: blocking")
+        lend self.item
+    }
+}
+
+func every_position() -> Int {
+    let a = fetch(n: 1)
+    let b = Counter.start(n: 2)
+    let c = Counter(seed: 3).n
+    let holder = Holder<Int>(value: 4)
+    let d = holder.get()
+    let e = Lamp.On.glow()
+    let shelf = Shelf(item: 10)
+    var f = 0
+    borrow let item = shelf.peek() {
+        f = item
+    }
+    a + b + c + d + e + f + 3
+}
+
+func main() {
+    var worker = try! Thread.spawn { every_position() }
+    print("thread {}", worker.join())
+    let job = Task.spawn(every_position())
+    print("task {}", job.join())
+}

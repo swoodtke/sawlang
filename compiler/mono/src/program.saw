@@ -446,16 +446,18 @@ extension MonoProgram {
         try! self.thread_spawns.push(site)
     }
 
-    // Whether item `k` runs on a `Thread.spawn` thread with no executor: a
-    // brace's body, or a helper such a body reaches through a call that
-    // suspends only by `blocking`, specialized apart from its ordinary item.
-    // A `blocking` extern is a plain call in one (`thread_plain_call`).
+    // Whether item `k` runs in thread context, with no executor: a brace's
+    // body or a `blocking` declaration's (`thread_context`), or a helper such
+    // a body reaches through a call that suspends only by `blocking` or
+    // reaches a pair, specialized apart from its ordinary item. A `blocking`
+    // extern is a plain call in one (`thread_plain_call`), and a pair runs
+    // its twin there (`selected_callee`).
     public func is_thread_item(&self, k: Int) -> Bool {
         if k < 0 || k >= self.items.len() || self.items[k].kind != MonoItemKind.Function {
             return false
         }
         let source = self.items[k].source
-        self.dp.bc.mir.thread_body(source) || self.thread_keyed(k)
+        self.dp.bc.mir.thread_context(source) || self.thread_keyed(k)
     }
 
     // Whether item `k` is a helper's thread-context item, a separate item from

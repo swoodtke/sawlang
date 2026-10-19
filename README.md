@@ -474,6 +474,22 @@ reason to spawn one. And a spawned brace captures nothing implicitly: the
 capture list is the body's parameter list, so everything crossing to the
 thread is written at the crossing (`Thread.spawn { [job] in compress(job) }`).
 
+A Saw function whose body blocks its thread in a way the compiler cannot
+offload, such as a wait on a condition variable, says `blocking` in its effect
+slot. It runs in thread context only: a `Thread.spawn` body, a `main` that
+never suspends, and what they call. Callers write nothing, and a task that
+reaches one is refused where it is spawned, with the path to the block. One
+operation can also have two bodies, a default for tasks and a `blocking` twin
+for threads, and each compiled copy of a caller gets the one its context needs:
+
+```saw-fragment
+extension Mailbox {
+    /// Takes the next letter: a task parks until one arrives, a thread blocks.
+    public func take(&self) -> Letter { ... }
+    public func take(&self) blocking -> Letter { ... }
+}
+```
+
 A unit of concurrent work has a written fate, never an inferred one. The
 handle must reach `join()` or `detach()` on every path, so neither a bare
 `Thread.spawn { ... }` statement nor a `let _ =` of one compiles. `detach()` gives

@@ -4,7 +4,7 @@
 
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.lang.{ResLang}
-import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
+import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
                                TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE}
 import sawtypecheck.program.{TcProgram}
@@ -21,6 +21,9 @@ public func tc_effects_text(effects: Int) -> String {
     }
     if (effects & TC_EFFECT_CONSTEXPR) != 0 {
         try! out.append(" constexpr")
+    }
+    if (effects & TC_EFFECT_BLOCKING) != 0 {
+        try! out.append(" blocking")
     }
     if (effects & TC_EFFECT_SYNC) != 0 {
         try! out.append(" sync")

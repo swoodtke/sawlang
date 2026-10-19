@@ -1,0 +1,19 @@
+// refuses: effect.blocking-body at 14:5
+// flags: --std-root std
+// a `blocking` body that suspends through a helper: it is thread context,
+// where no executor runs to resume it (conformance row K175)
+
+import std.task.{yield_now}
+
+func cede() -> Int {
+    yield_now()
+    1
+}
+
+func drain(ms: Int) blocking -> Int {
+    cede() + ms
+}
+
+func main() {
+    print(drain(2))
+}

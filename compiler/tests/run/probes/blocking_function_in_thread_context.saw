@@ -1,0 +1,39 @@
+// probe: stated
+// about: a `blocking` function runs in thread context, from a `Thread.spawn` body and from a `main` that never suspends, called directly or through helpers, a `sync` one among them, and its `blocking` extern is a plain call with no offload, conformance rows K173 and K179 (SL-782)
+// stage 0: cannot parse `blocking` in a declaration's effect slot ("Expected LBRACE, got IDENT")
+// speeds: -O0 -O2
+// ll omits: __saw_rt_offload_start
+// ll omits: __saw_rt_offload_take
+// prints: thread direct 3
+// prints: thread through a helper 4
+// prints: main direct 5
+// prints: main through a helper 6
+// prints: main through a sync helper 7
+// No caller writes the marker: `settled_plus_one` and `settled_twice`
+// block too, by inference, and nothing refuses a call in either.
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func settle(ms: Int) blocking -> Int {
+    __saw_rt_blocking_sleep(ms)
+}
+
+func settled_plus_one(ms: Int) -> Int {
+    settle(ms) + 1
+}
+
+func settled_twice(ms: Int) sync -> Int {
+    settle(ms) + settle(ms) - ms
+}
+
+func main() {
+    var direct = try! Thread.spawn { settle(3) }
+    print("thread direct {}", direct.join())
+    var through = try! Thread.spawn { settled_plus_one(3) }
+    print("thread through a helper {}", through.join())
+    print("main direct {}", settle(5))
+    print("main through a helper {}", settled_plus_one(5))
+    print("main through a sync helper {}", settled_twice(7))
+}

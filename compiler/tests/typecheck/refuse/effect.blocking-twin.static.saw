@@ -1,0 +1,17 @@
+// refuses: effect.blocking-twin at 10:17
+// a twin that is `static` where its default is not (conformance row K178)
+
+struct Mailbox { id: Int }
+
+extension Mailbox {
+    func start(&self, n: Int) -> Int {
+        self.id + n
+    }
+    static func start(n: Int) blocking -> Int {
+        n
+    }
+}
+
+func main() {
+    print("compiled")
+}

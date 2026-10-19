@@ -1,0 +1,17 @@
+// refuses: effect.blocking-undeclared at 11:13
+// a public function whose body blocks its thread, by inference, and does not
+// declare `blocking`: its signature is what another module reads, so the
+// refusal's fix-it writes the declaration, whose text golden
+// `blocking_functions` pins (conformance row K177)
+
+func read_settled(path: String) blocking -> Int {
+    path.len()
+}
+
+public func load_config(path: String) -> Int {
+    read_settled(path) + 1
+}
+
+func main() {
+    print(load_config("app.toml"))
+}

@@ -212,7 +212,8 @@ extension LlEmitter {
         try! out.append(vt.slot_count)
         try! out.append(" x ptr] \} \{ ptr ")
         if vt.drop >= 0 {
-            try! out.append(ll_symbol(&mono, vt.drop))
+            let drop = vt.drop
+            try! out.append(self.plain_symbol(&var mono, drop))
         } else {
             try! out.append(ll_drop_nothing_symbol())
         }
@@ -281,7 +282,7 @@ extension LlEmitter {
         try! out.append("\n  %align = load ")
         try! out.append(w)
         try! out.append(", ptr %align.at\n  call void ")
-        try! out.append(ll_symbol(&mono, dealloc))
+        try! out.append(self.plain_symbol(&var mono, dealloc))
         try! out.append("(ptr %allocator, ptr %data, ")
         try! out.append(w)
         try! out.append(" %size, ")

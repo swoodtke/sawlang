@@ -1,0 +1,19 @@
+// refuses: effect.blocking-conformance at 12:10
+// an implementation of a requirement declared `blocking` (conformance row
+// K176)
+
+trait Waiter {
+    func wait(&self) -> Int
+}
+
+struct Gate { ms: Int }
+
+extension Gate: Waiter {
+    func wait(&self) blocking -> Int {
+        self.ms
+    }
+}
+
+func main() {
+    print("compiled")
+}

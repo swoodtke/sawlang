@@ -1,0 +1,24 @@
+// refuses: effect.blocking-conformance at 17:10
+// an implementation of a requirement whose body blocks its thread, by
+// inference: a dispatch or a bound reaches it where no task root sees the
+// call (conformance row K176)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+trait Waiter {
+    func wait(&self) -> Int
+}
+
+struct Gate { ms: Int }
+
+extension Gate: Waiter {
+    func wait(&self) -> Int {
+        settle(self.ms)
+    }
+}
+
+func main() {
+    print("compiled")
+}

@@ -485,16 +485,22 @@ func a() { }
 // case: syntax.decl.effects/opt:2:constexpr-effect?=present
 func a() constexpr { }
 
-// case: syntax.decl.effects/opt:3:'sync'?=absent
+// case: syntax.decl.effects/opt:3:blocking-effect?=absent
 func a() { }
 
-// case: syntax.decl.effects/opt:3:'sync'?=present
+// case: syntax.decl.effects/opt:3:blocking-effect?=present
+func a() blocking { }
+
+// case: syntax.decl.effects/opt:4:'sync'?=absent
+func a() { }
+
+// case: syntax.decl.effects/opt:4:'sync'?=present
 func a() sync { }
 
-// case: syntax.decl.effects/opt:4:borrows-effect?=absent
+// case: syntax.decl.effects/opt:5:borrows-effect?=absent
 func a() { }
 
-// case: syntax.decl.effects/opt:4:borrows-effect?=present
+// case: syntax.decl.effects/opt:5:borrows-effect?=present
 func a() borrows { }
 
 // case: syntax.decl.effects/pair:0:'consumes'?=present,1:"unsafe"?=present
@@ -503,32 +509,50 @@ extension a { func b(& var self) consumes unsafe { } }
 // case: syntax.decl.effects/pair:0:'consumes'?=present,2:constexpr-effect?=present
 extension a { func b(& var self) consumes constexpr { } }
 
-// case: syntax.decl.effects/pair:0:'consumes'?=present,3:'sync'?=present
+// case: syntax.decl.effects/pair:0:'consumes'?=present,3:blocking-effect?=present
+extension a { func b(& var self) consumes blocking { } }
+
+// case: syntax.decl.effects/pair:0:'consumes'?=present,4:'sync'?=present
 extension a { func b(& var self) consumes sync { } }
 
-// case: syntax.decl.effects/pair:0:'consumes'?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:0:'consumes'?=present,5:borrows-effect?=present
 extension a { func b(& var self) consumes borrows { } }
 
 // case: syntax.decl.effects/pair:1:"unsafe"?=present,2:constexpr-effect?=present
 func a() unsafe constexpr { }
 
-// case: syntax.decl.effects/pair:1:"unsafe"?=present,3:'sync'?=present
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,3:blocking-effect?=present
+func a() unsafe blocking { }
+
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,4:'sync'?=present
 func a() unsafe sync { }
 
-// case: syntax.decl.effects/pair:1:"unsafe"?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:1:"unsafe"?=present,5:borrows-effect?=present
 func a() unsafe borrows { }
 
-// case: syntax.decl.effects/pair:2:constexpr-effect?=present,3:'sync'?=present
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,3:blocking-effect?=present
+func a() constexpr blocking { }
+
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,4:'sync'?=present
 func a() constexpr sync { }
 
-// case: syntax.decl.effects/pair:2:constexpr-effect?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:2:constexpr-effect?=present,5:borrows-effect?=present
 func a() constexpr borrows { }
 
-// case: syntax.decl.effects/pair:3:'sync'?=present,4:borrows-effect?=present
+// case: syntax.decl.effects/pair:3:blocking-effect?=present,4:'sync'?=present
+func a() blocking sync { }
+
+// case: syntax.decl.effects/pair:3:blocking-effect?=present,5:borrows-effect?=present
+func a() blocking borrows { }
+
+// case: syntax.decl.effects/pair:4:'sync'?=present,5:borrows-effect?=present
 func a() sync borrows { }
 
 // case: syntax.decl.constexpr/alt
 func a() constexpr { }
+
+// case: syntax.decl.blocking-effect/alt
+func a() blocking { }
 
 // case: syntax.decl.borrows-effect.plain/alt
 func a() borrows { }

@@ -31,8 +31,8 @@ import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.model.{TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
-import sawtypecheck.summaries.{TcAcc}
+import sawtypecheck.model.{TC_CAUSE_BLOCKING, TC_CAUSE_PAIRED, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TcStatusKind}
+import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.types.{TcKind}
@@ -680,7 +680,8 @@ extension MonoProgram {
 
     // Whether call `info`, copied into thread-context item `k`, is a plain
     // call there though its source marks it a suspension point: one that
-    // suspends only by `blocking` at `k`'s arguments, made in a helper whose
+    // suspends at `k`'s arguments only by what thread context runs plainly, a
+    // `blocking` extern or a pair's default, made in a helper whose
     // MIR its cooperative callers share (`thread_plain_call`). A call through
     // a bound is `When` in that MIR, and its instance answers it.
     func thread_plain_copy(&var self, k: Int, info: &MirCall) -> Bool {
@@ -716,6 +717,7 @@ extension MonoProgram {
                 acc.suspends = true
             }
             acc.causes = acc.causes | at.causes
+            acc.thread_causes = acc.thread_causes | at.thread_causes
         }
         move acc
     }
@@ -991,9 +993,10 @@ extension MonoProgram {
                         return
                     }
                 }
-                let body = self.body_of[target.decl]
-                let key = self.callee_key(k, &info)
-                let item = self.call_item_of(k, body, target.decl, target.self_type, &info, key)
+                let chosen = self.selected_callee(k, target.decl)
+                let body = self.body_of[chosen]
+                let key = if chosen != target.decl { MONO_KEY_FUNCTION } else { self.callee_key(k, &info) }
+                let item = self.call_item_of(k, body, chosen, target.self_type, &info, key)
                 self.set_call_item(c, item)
                 self.resolve_park(k, target.decl, info.node)
             },
@@ -1018,10 +1021,11 @@ extension MonoProgram {
 
     // THE THREAD KEY FUNNEL: the key of the item call `info` in item `k`
     // reaches. A plain call from a thread-context item to a body that, at
-    // the call's instance, suspends only by `blocking` reaches that body's
-    // thread-context item, where its own `blocking` calls are plain too; the
-    // ordinary item is a frame there, which a plain call cannot run. Every
-    // other call reaches the ordinary item.
+    // the call's instance, suspends only by `blocking`, or reaches a pair,
+    // reaches that body's thread-context item, where its own `blocking`
+    // calls are plain too and its pairs run their twins; the ordinary item
+    // is a frame there, which a plain call cannot run, or runs the pairs'
+    // defaults. Every other call reaches the ordinary item.
     // ENTRY POINTS:
     //     resolve_call
     //     resolve_window
@@ -1030,10 +1034,41 @@ extension MonoProgram {
             return MONO_KEY_FUNCTION
         }
         var acc = self.instance_effect(k, &info)
-        if self.dp.bc.mir.thread_plain_call(true, &acc) {
+        let reached = acc.thread_causes & (TC_CAUSE_BLOCKING | TC_CAUSE_PAIRED)
+        if reached != 0 && tc_thread_struck(acc.thread_causes) == 0 {
             return MONO_KEY_THREAD
         }
         MONO_KEY_FUNCTION
+    }
+
+    // THE PAIR SELECTION: the declaration whose body a call of `decl` in
+    // item `k` runs: a pair's `blocking` twin in a thread-context item, and
+    // `decl` itself in every other (spec, Pairs). A twin's own body is thread
+    // context wherever it is reached, so its item is the ordinary one.
+    // ENTRY POINTS:
+    //     resolve_call
+    //     resolve_window
+    func selected_callee(&self, k: Int, decl: Int) -> Int {
+        let twin = self.dp.bc.mir.tc.blocking_twin_of(decl)
+        if twin >= 0 && self.is_thread_item(k) {
+            return twin
+        }
+        decl
+    }
+
+    // The half of accessor `twin` that does what `half`, one of its pair's
+    // default's halves, does; -1 when it has none.
+    func twin_half(&self, half: Int, twin: Int) -> Int {
+        let kind = self.dp.bc.mir.funcs[half].kind
+        var f = 0
+        while f < self.dp.bc.mir.funcs.len() {
+            let info = self.dp.bc.mir.funcs[f]
+            if info.decl == twin && info.kind == kind {
+                return f
+            }
+            f = f + 1
+        }
+        return -1
     }
 
     // A `Thread.spawn` site (SL-765) reaches what its lowering calls: its
@@ -1112,6 +1147,17 @@ extension MonoProgram {
         }
         if info.half < 0 {
             self.refuse(info.node, "mono.not-yet", "a borrow of an accessor whose body is not lowered")
+            return
+        }
+        let chosen = self.selected_callee(k, info.target)
+        if chosen != info.target {
+            let twin = self.twin_half(info.half, chosen)
+            if twin < 0 {
+                self.refuse(info.node, "mono.not-yet", "a borrow of a pair's `blocking` accessor whose body is not lowered")
+                return
+            }
+            let item = self.call_item_of(k, twin, chosen, -1, &info, MONO_KEY_FUNCTION)
+            self.set_call_item(c, item)
             return
         }
         let half = info.half

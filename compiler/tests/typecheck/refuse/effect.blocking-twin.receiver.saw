@@ -1,0 +1,17 @@
+// refuses: effect.blocking-twin at 10:10
+// a twin that takes another receiver than its default (conformance row K178)
+
+struct Mailbox { id: Int }
+
+extension Mailbox {
+    func take(&self) -> Int {
+        self.id
+    }
+    func take(&var self) blocking -> Int {
+        self.id
+    }
+}
+
+func main() {
+    print("compiled")
+}

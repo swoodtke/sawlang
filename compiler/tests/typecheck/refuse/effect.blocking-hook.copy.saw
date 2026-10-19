@@ -1,0 +1,20 @@
+// refuses: effect.blocking-hook at 12:10
+// a copy policy's `copy()` whose body blocks its thread: the compiler calls
+// it wherever it copies the value, a task included (conformance row K176)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+struct Ticket { ms: Int }
+
+extension Ticket: ExplicitCopy {
+    func copy(&self) -> Ticket {
+        Ticket(ms: settle(self.ms))
+    }
+}
+
+func main() {
+    let ticket = Ticket(ms: 1)
+    print(ticket.copy().ms)
+}

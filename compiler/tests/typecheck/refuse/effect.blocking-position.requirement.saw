@@ -1,0 +1,12 @@
+// refuses: effect.blocking-position at 7:10
+// a trait requirement declared `blocking`: its implementations are called
+// through it, by a dispatch or a bound, where no task root sees the call
+// (conformance row K176)
+
+trait Waiter {
+    func wait(&self) blocking -> Int
+}
+
+func main() {
+    print("compiled")
+}

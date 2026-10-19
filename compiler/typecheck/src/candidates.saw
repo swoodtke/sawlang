@@ -70,7 +70,8 @@ extension TcProgram {
     }
 
     // The member-table entries of nominal `d` named `name` that code in
-    // module `viewer`, test code when `in_test`, sees.
+    // module `viewer`, test code when `in_test`, sees. A pair's `blocking`
+    // twin is none: a call names the default, and mono picks the body.
     public func visible_members(&self, d: Int, name: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
         var out = Vector<Int>()
         if d < 0 || d >= self.member_first.len() {
@@ -84,7 +85,7 @@ extension TcProgram {
         var k = first
         while k < first + count {
             let member = self.members[k]
-            if member.name == name && self.member_seen(k, viewer, in_test) {
+            if member.name == name && not self.is_blocking_twin(member.decl) && self.member_seen(k, viewer, in_test) {
                 try! out.push(k)
             }
             k = k + 1
@@ -202,7 +203,7 @@ extension TcProgram {
         while k < first + count {
             let member = self.members[k]
             let info = self.res.decls[member.decl]
-            if info.kind == ResDeclKind.Init && self.member_seen(k, viewer, in_test) {
+            if info.kind == ResDeclKind.Init && not self.is_blocking_twin(member.decl) && self.member_seen(k, viewer, in_test) {
                 try! out.push(k)
             }
             k = k + 1
@@ -363,7 +364,9 @@ extension TcProgram {
         let found = self.res.overload_decls(m, name, viewer, in_test)
         var k = 0
         while k < found.len() {
-            try! out.push(found[k])
+            if not self.is_blocking_twin(found[k]) {
+                try! out.push(found[k])
+            }
             k = k + 1
         }
     }

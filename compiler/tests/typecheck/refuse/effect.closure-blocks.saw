@@ -1,0 +1,16 @@
+// refuses: effect.closure-blocks at 15:25
+// a closure body that blocks its thread: a closure runs wherever its value is
+// called, a task included, where no task root sees the call (conformance row
+// K176)
+
+func settle(ms: Int) blocking -> Int {
+    ms
+}
+
+func apply(body: (Int) -> Int) -> Int {
+    body(2)
+}
+
+func main() {
+    print(apply({ ms in settle(ms) }))
+}
