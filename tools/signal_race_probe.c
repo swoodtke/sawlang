@@ -37,6 +37,14 @@ void __saw_rt_dealloc(void *ptr, size_t size, size_t align) {
     (void)ptr; (void)size; (void)align;
 }
 
+/* The shim's descriptor ops classify a failed syscall through the Saw
+ * runtime's errno mapper. The signal surface under test never reaches those
+ * ops, so a stub keeps the probe a shim-only link. */
+long __saw_rt_last_syserror(void);
+long __saw_rt_last_syserror(void) {
+    return 0;
+}
+
 /* The shim's signal surface. */
 long __saw_signal_number(long tag);
 long __saw_signal_watch(long signo);

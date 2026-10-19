@@ -49,6 +49,13 @@ void __saw_rt_dealloc(void *ptr, size_t size, size_t align) {
     (void)ptr; (void)size; (void)align;
 }
 
+/* Stub: the shim's descriptor ops classify a failed syscall through the Saw
+ * runtime's errno mapper, which this probe never reaches. */
+long __saw_rt_last_syserror(void);
+long __saw_rt_last_syserror(void) {
+    return 0;
+}
+
 long __saw_signal_number(long tag);
 long __saw_signal_watch(long signo);
 void __saw_signal_unwatch(long signo);

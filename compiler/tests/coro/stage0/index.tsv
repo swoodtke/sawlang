@@ -633,7 +633,7 @@ result_optional_none_survives_the_transform.saw	arm64-apple-darwin	same	6a76d8f5
 result_optional_none_survives_the_transform.saw	x86_64-unknown-linux-gnu	same	6a76d8f52df0	success	not-run	-	-	-	-	2	88	48	2	4	350
 result_optional_none_tail_types_itself.saw	arm64-apple-darwin	same	dcf0694e8f17	success	ok	0	103:bb7c96ae670b	0:e3b0c44298fc	yes	1	40	40	1	2	270
 result_optional_none_tail_types_itself.saw	x86_64-unknown-linux-gnu	same	dcf0694e8f17	success	not-run	-	-	-	-	1	40	40	1	2	270
-signal_concurrency_pins.saw	arm64-apple-darwin	same	12ae26a52ff5	success	ok	0	varies	0:e3b0c44298fc	no: the output does not contain 'signal race probe: all cells hold'	4	12600	9216	4	47	967
+signal_concurrency_pins.saw	arm64-apple-darwin	same	12ae26a52ff5	success	ok	0	888:de1f0b69b46b	0:e3b0c44298fc	yes	4	12600	9216	4	47	967
 signal_concurrency_pins.saw	x86_64-unknown-linux-gnu	same	12ae26a52ff5	success	not-run	-	-	-	-	4	12600	9216	4	47	967
 sleep_seam_multi_chunk.saw	arm64-apple-darwin	same	b140553add12	success	ok	0	50:74517f1787d4	0:e3b0c44298fc	yes	1	72	72	1	2	231
 sleep_seam_multi_chunk.saw	x86_64-unknown-linux-gnu	same	b140553add12	success	not-run	-	-	-	-	1	72	72	1	2	231
