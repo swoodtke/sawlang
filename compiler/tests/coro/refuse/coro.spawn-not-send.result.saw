@@ -1,0 +1,24 @@
+// refuses: coro.spawn-not-send at 14:1
+// message: cannot spawn `make` into a multi-threaded `TaskGroup(threads: ...)`: its result type `coro.spawn-not-send.result.Holder` is not `Send`
+// message: so the value cannot travel back from the worker thread to `join()`
+// A root's result: every value the frame carries crosses, but the closure
+// the result holds is made after the suspension, so the result is the
+// first value refused, and `join()` would take it on the spawner's thread.
+
+import std.task.*
+
+struct Holder {
+    work: () -> Int
+}
+
+func make(n: Int) -> Holder {
+    yield_now()
+    Holder(work: { 1 })
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(make(1))
+    let held = h.join()
+    print(held.work())
+}

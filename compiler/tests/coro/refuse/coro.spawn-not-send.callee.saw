@@ -1,0 +1,27 @@
+// refuses: coro.spawn-not-send at 10:1
+// message: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: local `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` in `gather` is held across a suspension but is not `Send`
+// A resident local of a child the root embeds: the child's frame travels in
+// the task's, so it crosses with it. It is reported at the child's
+// declaration. The child's reference parameter crosses: it points into the
+// task's own frame, and `Int` is `Sync`.
+
+import std.task.*
+
+func gather(total: &var Int) -> Int {
+    var jobs = Vector<() sync -> Int>()
+    try! jobs.push({ 1 })
+    yield_now()
+    total = total + jobs.len()
+    total
+}
+
+func run(n: Int) -> Int {
+    var total = n
+    gather(&var total)
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(run(1))
+    print(h.join())
+}

@@ -1,0 +1,30 @@
+// due: the Send-on-frames gate refuses it, as Stage 0 does (SL-579)
+// refuses: coro.spawn-not-send at 15:1
+// A part a consumed `match` discards with `_` is held until the arm
+// completes, so it lives across the arm's suspension: in a task spawned into
+// a `threads:` group, that makes it a value the frame carries between
+// workers, which must be `Send`. A closure is not, so the program is refused
+// at `step` for the discarded payload's `job`, as Stage 0 refuses it.
+import std.task.{yield_now}
+
+enum Job {
+    case Run(work: () -> Int),
+    case Idle
+}
+
+func step(n: Int) -> Int {
+    let job = if n > 0 { Job.Run(work: { 10 }) } else { Job.Idle }
+    match job {
+        case Run(_) -> {
+            yield_now()
+            n
+        },
+        case Idle -> 0
+    }
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(step(1))
+    print(h.join())
+}

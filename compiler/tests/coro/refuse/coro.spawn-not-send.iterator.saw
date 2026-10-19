@@ -1,0 +1,23 @@
+// refuses: coro.spawn-not-send at 11:1
+// message: a temporary of type `std.vector.VectorIterator<Int, std.alloc.GlobalAllocator>` is held across a suspension but is not `Send`
+// message: A borrowing struct holds a loan, which never crosses to another thread.
+// A borrowing struct, from `tests/corpus/errors/window_in_a_threaded_group`:
+// a collection `for` holds its iterator across the loop's op-budget point,
+// which a task root's frame keeps live, and the iterator holds a
+// reference. The multi-threaded spelling is an index loop.
+
+import std.task.{yield_now}
+
+func sum_vector(v: Vector<Int>) -> Int {
+    yield_now()
+    var total = 0
+    for x in v.iter() { total = total + x }
+    total
+}
+
+func main() {
+    var g = try! TaskGroup(threads: 2)
+    var v: Vector<Int> = [1, 2, 3]
+    let h = g.spawn(sum_vector(move v))
+    print("{h.join()}")
+}

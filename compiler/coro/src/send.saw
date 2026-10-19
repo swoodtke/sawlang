@@ -1,0 +1,358 @@
+// The Send-on-frames gate (spec, Multi-threaded execution): a task spawned
+// into a `TaskGroup(threads: N)` group is handed between worker threads at
+// its suspensions, so every value its frame carries must be able to cross to
+// another thread. That is the root's parameters, its resident locals, the
+// by-value parameters and resident locals of every child it embeds, and the
+// root's result, which `join()` takes on the spawner's thread. A value
+// crosses when it is `Send` and holds no borrowing struct; a root's
+// parameter must also hold no reference, since it would point into the
+// spawner, so a `threads: N` group refuses one outright.
+//
+// A group is multi-threaded when the spawn's group traces back, through the
+// spawner's own MIR, to a `TaskGroup.init(threads:)` call: `threads:` is
+// tracked on the group's binding, not through a helper it is passed to.
+//
+// ENTRY POINTS of the Send-on-frames gate:
+//   coro_check_frame_send
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.frames.{coro_frame_of}
+import sawcoro.program.{CoroProgram, CoroValueKind}
+import sawdrops.program.{DropsProgram}
+import sawmir.model.{MirCall, MirCallKind, MirProjKind, MirRvalueKind, MirSpawnForm, MirStmtKind, MirTermKind}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram}
+import sawresolve.program.{ResProgram}
+import sawtypecheck.bodychecks.{tc_check_body_rules}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.tier.{tc_compute_tiers}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// Refuses, once per task root, the first value that cannot cross to a
+// worker thread in a root some group spawn site sends to a multi-threaded
+// group (`coro.spawn-not-send`), at the declaration holding the value.
+public func coro_check_frame_send(coro: &var CoroProgram) {
+    var checked = Vector<Bool>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! checked.push(false)
+        k = k + 1
+    }
+    k = 0
+    while k < coro.mono.items.len() {
+        let item = k
+        k = k + 1
+        let f = coro.mono.items[item].body
+        if f < 0 {
+            continue
+        }
+        let info = coro.mono.dp.bc.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let site = coro.mono.dp.bc.mir.calls[block.call]
+            if site.kind != MirCallKind.Spawn || site.spawn != MirSpawnForm.Group || site.arg_count < 1 {
+                continue
+            }
+            let root = coro.mono.call_item(block.call)
+            if root < 0 || checked[root] || not coro_group_threaded(&coro, f, &site) {
+                continue
+            }
+            checked[root] = true
+            coro_check_root(&var coro, root, info.module)
+        }
+    }
+}
+
+// Whether the group spawn site `site` in function `f` spawns into a group
+// made by `TaskGroup.init(threads:)`: its group operand traces back to that
+// call's result.
+func coro_group_threaded(coro: &CoroProgram, f: Int, site: &MirCall) -> Bool {
+    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[site.arg_first]]
+    if o.place < 0 {
+        return false
+    }
+    var seen = Vector<Bool>()
+    var l = 0
+    while l < coro.mono.dp.bc.mir.funcs[f].local_count {
+        try! seen.push(false)
+        l = l + 1
+    }
+    coro_place_threaded(&coro, f, o.place, &var seen)
+}
+
+// Whether place `p` of function `f` holds what a `TaskGroup.init(threads:)`
+// call made: its local does, read whole or through the payload of the
+// `Result` the call returns. Any other projection reads something else.
+func coro_place_threaded(coro: &CoroProgram, f: Int, p: Int, seen: &var Vector<Bool>) -> Bool {
+    let place = coro.mono.dp.bc.mir.places[p]
+    if place.local < 0 {
+        return false
+    }
+    var k = 0
+    while k < place.count {
+        let proj = coro.mono.dp.bc.mir.projs[place.first + k]
+        k = k + 1
+        if proj.kind != MirProjKind.Payload && proj.kind != MirProjKind.Force {
+            return false
+        }
+    }
+    coro_local_threaded(&coro, f, place.local, &var seen)
+}
+
+// Whether some definition of local `l` of function `f` traces back to a
+// `TaskGroup.init(threads:)` call: a reference to, a use of, or a cast of a
+// place that does, or that call's result itself. A parameter has no
+// definition here, which is the helper the gate does not see through.
+func coro_local_threaded(coro: &CoroProgram, f: Int, l: Int, seen: &var Vector<Bool>) -> Bool {
+    if seen[l] {
+        return false
+    }
+    seen[l] = true
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    if l <= info.param_count {
+        return false
+    }
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign || not coro_whole_local(&coro, stmt.place, l) {
+                continue
+            }
+            let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+            if rv.kind == MirRvalueKind.Ref && rv.place >= 0 {
+                if coro_place_threaded(&coro, f, rv.place, &var seen) {
+                    return true
+                }
+            } else if (rv.kind == MirRvalueKind.Use || rv.kind == MirRvalueKind.Cast) && rv.count == 1 {
+                let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
+                if o.place >= 0 && coro_place_threaded(&coro, f, o.place, &var seen) {
+                    return true
+                }
+            }
+        }
+        if block.term == MirTermKind.Call {
+            let call = coro.mono.dp.bc.mir.calls[block.call]
+            if call.dest >= 0 && coro_whole_local(&coro, call.dest, l) && coro_threaded_init(&coro, &call) {
+                return true
+            }
+        }
+    }
+    false
+}
+
+// Whether place `p` is local `l` whole.
+func coro_whole_local(coro: &CoroProgram, p: Int, l: Int) -> Bool {
+    let place = coro.mono.dp.bc.mir.places[p]
+    place.local == l && place.count == 0
+}
+
+// Whether `call` is `TaskGroup.init(threads:)`.
+func coro_threaded_init(coro: &CoroProgram, call: &MirCall) -> Bool {
+    let group = coro.mono.dp.bc.mir.tc.known.task_group
+    if call.kind != MirCallKind.Function || call.target < 0 || call.owner < 0 || group < 0 {
+        return false
+    }
+    let owner = coro.mono.dp.bc.mir.tc.types.ty(call.owner)
+    if owner.kind != TcKind.Nominal || owner.decl != group || call.target >= coro.mono.dp.bc.mir.tc.sigs.len() {
+        return false
+    }
+    let s = coro.mono.dp.bc.mir.tc.sigs[call.target]
+    if s.param_count != 1 {
+        return false
+    }
+    let name = coro.mono.dp.bc.mir.tc.params[s.param_first].name
+    coro.mono.dp.bc.mir.tc.name_text(name).equals("threads")
+}
+
+// Checks task root `root`'s frame, its children's, and its result, judging
+// conformances as module `viewer`, where the spawn is written, sees them.
+func coro_check_root(coro: &var CoroProgram, root: Int, viewer: Int) {
+    let rf = coro_frame_of(&coro, root)
+    if rf < 0 {
+        return
+    }
+    var seen = Vector<Bool>()
+    var k = 0
+    while k < coro.mono.items.len() {
+        try! seen.push(false)
+        k = k + 1
+    }
+    if coro_check_frame(&var coro, root, root, viewer, &var seen) {
+        return
+    }
+    let frame = coro.frames[rf]
+    let info = coro.mono.dp.bc.mir.funcs[frame.body]
+    let result = coro.mono.dp.bc.mir.locals[info.local_first].ty
+    if coro_unsent(&var coro, result, viewer, false) == CoroUnsent.Crosses {
+        return
+    }
+    var msg = coro_send_lead(&coro, root)
+    try! msg.append("its result type `")
+    try! msg.append(coro.mono.dp.bc.mir.tc.type_text(result))
+    try! msg.append("` is not `Send`, so the value cannot travel back from the worker thread to `join()`.")
+    let node = coro.item_node(root)
+    coro.refuse(root, node, "coro.spawn-not-send", msg.build())
+}
+
+// Refuses the first value of item `item`'s frame that cannot cross, or of
+// a child's it embeds, in the order Stage 0 names them: parameters, then
+// resident locals, then each child's. Returns whether it refused one.
+func coro_check_frame(coro: &var CoroProgram, root: Int, item: Int, viewer: Int, seen: &var Vector<Bool>) -> Bool {
+    if seen[item] {
+        return false
+    }
+    seen[item] = true
+    let rf = coro_frame_of(&coro, item)
+    if rf < 0 {
+        return false
+    }
+    let frame = coro.frames[rf]
+    let info = coro.mono.dp.bc.mir.funcs[frame.body]
+    var pass = 0
+    while pass < 3 {
+        var v = 0
+        while v < frame.value_count {
+            let value = coro.values[frame.value_first + v]
+            v = v + 1
+            if pass == 2 {
+                if value.kind == CoroValueKind.Child && coro_check_frame(&var coro, root, value.child, viewer, &var seen) {
+                    return true
+                }
+                continue
+            }
+            let wanted = if pass == 0 { CoroValueKind.Param } else { CoroValueKind.Local }
+            if value.kind != wanted || value.ty < 0 {
+                continue
+            }
+            let why = coro_unsent(&var coro, value.ty, viewer, pass == 0 && item == root)
+            if why == CoroUnsent.Crosses {
+                continue
+            }
+            let local = coro.mono.dp.bc.mir.locals[info.local_first + value.local]
+            coro_refuse_value(&var coro, root, item, pass == 0, local.name, value.ty, why)
+            return true
+        }
+        pass = pass + 1
+    }
+    false
+}
+
+func coro_refuse_value(coro: &var CoroProgram, root: Int, item: Int, param: Bool, name: Int, ty: Int, why: CoroUnsent) {
+    var msg = coro_send_lead(&coro, root)
+    if param {
+        try! msg.append("parameter `")
+    } else if name >= 0 {
+        try! msg.append("local `")
+    } else {
+        try! msg.append("a temporary")
+    }
+    if name >= 0 {
+        try! msg.append(coro.mono.dp.bc.mir.tc.name_text(name))
+        try! msg.append("`")
+    }
+    try! msg.append(" of type `")
+    try! msg.append(coro.mono.dp.bc.mir.tc.type_text(ty))
+    try! msg.append("`")
+    if item != root {
+        try! msg.append(" in `")
+        try! msg.append(coro.item_label(item))
+        try! msg.append("`")
+    }
+    if param {
+        try! msg.append(" is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.")
+    } else {
+        try! msg.append(" is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread.")
+    }
+    if why == CoroUnsent.Reference {
+        try! msg.append(" A reference into the spawner never crosses to another thread, and this parameter holds one.")
+    } else if why == CoroUnsent.Borrowing {
+        try! msg.append(" A borrowing struct holds a loan, which never crosses to another thread.")
+    }
+    let node = coro.item_node(item)
+    coro.refuse(item, node, "coro.spawn-not-send", msg.build())
+}
+
+// The sentence every refusal of the gate starts with, naming root `root`.
+func coro_send_lead(coro: &CoroProgram, root: Int) -> StringBuilder {
+    var msg = StringBuilder()
+    try! msg.append("cannot spawn `")
+    try! msg.append(coro.item_label(root))
+    try! msg.append("` into a multi-threaded `TaskGroup(threads: ...)`: ")
+    move msg
+}
+
+// Why a frame value cannot cross to a worker thread, or that it can.
+enum CoroUnsent {
+    case Crosses,
+    // It is not `Send`.
+    case NotSend,
+    // A root's parameter holding a reference, which points into the spawner.
+    case Reference,
+    // It holds a borrowing struct, whose loan never crosses a spawn.
+    case Borrowing
+}
+
+// Why a value of type `t` cannot cross, judging `Send` as module `viewer`
+// sees the conformances; `root_param` for a root's parameter. Any other
+// reference crosses when its referent is `Sync`, which `Send` already
+// requires of `&T`: it points into storage the task carries or shares.
+// `Void` and `Never` hold no bytes to carry, though neither derives `Send`.
+func coro_unsent(coro: &var CoroProgram, t: Int, viewer: Int, root_param: Bool) -> CoroUnsent {
+    let send = coro.mono.dp.bc.mir.tc.known.send
+    if send < 0 || coro.mono.dp.bc.mir.tc.is_void(t) || coro.mono.dp.bc.mir.tc.is_never(t) {
+        return CoroUnsent.Crosses
+    }
+    if root_param && coro_holds_reference(&coro, t) {
+        return CoroUnsent.Reference
+    }
+    if coro.mono.dp.bc.mir.tc.borrowing_named(t) >= 0 {
+        return CoroUnsent.Borrowing
+    }
+    if not coro.mono.dp.bc.mir.tc.satisfies(t, send, -1, -1, viewer, false) {
+        return CoroUnsent.NotSend
+    }
+    CoroUnsent.Crosses
+}
+
+// Whether type `t` holds a reference by value: it is one, or a borrowing
+// struct, or an argument or element of it does.
+func coro_holds_reference(coro: &CoroProgram, t: Int) -> Bool {
+    if t < 0 {
+        return false
+    }
+    let info = coro.mono.dp.bc.mir.tc.types.ty(t)
+    if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
+        return true
+    }
+    if info.kind == TcKind.Array {
+        return coro_holds_reference(&coro, info.b)
+    }
+    if info.kind == TcKind.Nominal && coro.mono.dp.bc.mir.tc.is_borrowing_struct(info.decl) {
+        return true
+    }
+    if info.kind != TcKind.Nominal && info.kind != TcKind.Tuple {
+        return false
+    }
+    var k = 0
+    while k < info.count {
+        let arg = coro.mono.dp.bc.mir.tc.types.arg(t, k)
+        if coro_holds_reference(&coro, arg) {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
