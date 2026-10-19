@@ -2,7 +2,7 @@
 // and the count through out-parameters (SL-768). A poll that delivers nothing
 // stores 0, a woken poll counts its wake, and a poll on an instance whose
 // kqueue or epoll descriptor is gone answers the negated tag (`EBADF` is
-// `Other`, 16), stamps the raw code and leaves the count unwritten, where it
+// `InvalidDescriptor`, 22), stamps the raw code and leaves the count unwritten, where it
 // once answered -1 with no cause.
 //
 // The instance's first word is its kqueue or epoll descriptor on both hosts

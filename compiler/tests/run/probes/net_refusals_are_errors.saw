@@ -3,7 +3,7 @@
 // stage 0: its frozen std.net answers `local_port()` with an `Int` and `TcpStream.pair()` with a bare pair, so it refuses the `try!` and the `match` on each
 // speeds: -O0 -O2
 // prints: port while listening: true
-// prints: port once closed: io error: getsockname failed (other error)
+// prints: port once closed: io error: getsockname failed (invalid descriptor)
 // prints: descriptors exhausted: true
 // prints: pair with no descriptors: io error: socketpair failed (resources exhausted)
 // The two std.net members that once hid a failure report it (SL-768). A

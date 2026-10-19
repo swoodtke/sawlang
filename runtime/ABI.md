@@ -270,6 +270,8 @@ error vocabulary.
 | 19  | TimedOut            | ETIMEDOUT                                  |
 | 20  | HostDown            | EHOSTDOWN                                  |
 | 21  | NetDown             | ENETDOWN                                   |
+| 22  | InvalidDescriptor   | EBADF                                      |
+| 23  | InputOutputFailed   | EIO                                        |
 
 `IsConnected` (3) and `InProgress` (2) exist so a re-issued nonblocking
 `connect()` can be classified (done / still connecting / failed) without an
@@ -307,7 +309,7 @@ into `IoError` (`IoError.of(syscall:tag:)`), whose text names the kind
 (`"io error: mkdir failed (not found)"`).
 
 **Adding tags.** Tags 17-21 are the failures that can only happen off loopback
-(DF-215a). Widening this table is additive, not an ABI change: no existing tag
+(DF-215a); 22-23 name a bad descriptor and a failed device (SL-785). Widening this table is additive, not an ABI change: no existing tag
 is renumbered (`Other` keeps 16, which is why 17-21 sit after it rather than
 beside their neighbours), and no seam signature moves, so `runtime_abi.py`'s
 arity/width check and `make abidoc`'s symbol-set check are unaffected. A
@@ -1225,6 +1227,7 @@ a flag bit.
 | 186    | `__saw_rt_lock_{acquire,release}`                              |
 | 187    | `__saw_rt_proc_wait` **removed**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none, and a runtime need not provide it |
 | DF-215a | SysError tags 17-21 (`HostUnreachable`/`NetUnreachable`/`TimedOut`/`HostDown`/`NetDown`), the five off-loopback errnos the map omitted. No symbol, no signature, no renumbering; see the tag table above |
+| SL-785 | SysError tags 22-23 (`InvalidDescriptor`/`InputOutputFailed`), the `EBADF` and `EIO` the map left to `Other`. No symbol, no signature, no renumbering; see the tag table above |
 | 225    | `__saw_rt_reactor_wake` **changed** contract: it rouses every blocked poller, not one. No signature change; see the reactor section |
 | 234    | `__saw_rt_last_raw_code`: the raw platform code beside the tag, stamped by `__saw_rt_last_syserror` and read by std's `IoError`. One new symbol, no existing signature moved; the status word still carries only the tag (see that seam's entry) |
 | 242    | `__saw_rt_thread_detach`: `pthread_detach` plus the control block's ownership handshake with the thread's own exit path. One new symbol, no existing signature moved. It takes the control block rather than a handle, and it freezes exactly one word of that block's layout (`state`, at `2 * sizeof(void*)`); see its entry |

@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 363 declarations in 27 modules
+# 365 declarations in 27 modules
 
 builtin: 13
   struct Atomic
@@ -132,11 +132,12 @@ rt.host_macos.lock: 4
   func rt_lock_acquire  via runtime
   func rt_lock_release  via runtime
 
-rt.host_macos.net_os: 37
+rt.host_macos.net_os: 39
   static EACCES  via runtime
   static EADDRINUSE  via runtime
   static EAGAIN  via runtime
   static EALREADY  via runtime
+  static EBADF  via runtime
   static ECONNABORTED  via runtime
   static ECONNREFUSED  via runtime
   static ECONNRESET  via runtime
@@ -146,6 +147,7 @@ rt.host_macos.net_os: 37
   static EINPROGRESS  via runtime
   static EINTR  via runtime
   static EINVAL  via runtime
+  static EIO  via runtime
   static EISCONN  via runtime
   static EMFILE  via runtime
   static ENETDOWN  via runtime

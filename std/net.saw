@@ -139,7 +139,11 @@ public enum IoErrorKind {
     /// The host is down.
     case HostDown,
     /// The network is down.
-    case NetworkDown
+    case NetworkDown,
+    /// The descriptor is closed or was never open.
+    case InvalidDescriptor,
+    /// The device or disk failed the transfer.
+    case InputOutputFailed
 }
 
 extension IoErrorKind {
@@ -171,6 +175,8 @@ extension IoErrorKind {
             case TimedOut -> IoErrorKind.TimedOut,
             case HostDown -> IoErrorKind.HostDown,
             case NetworkDown -> IoErrorKind.NetworkDown,
+            case InvalidDescriptor -> IoErrorKind.InvalidDescriptor,
+            case InputOutputFailed -> IoErrorKind.InputOutputFailed,
             case UnexpectedEnd -> IoErrorKind.Unknown,
             case LaunchFailed -> IoErrorKind.Unknown
         }
@@ -199,7 +205,9 @@ extension IoErrorKind {
             case NetworkUnreachable -> "network unreachable",
             case TimedOut -> "timed out",
             case HostDown -> "host is down",
-            case NetworkDown -> "network is down"
+            case NetworkDown -> "network is down",
+            case InvalidDescriptor -> "invalid descriptor",
+            case InputOutputFailed -> "input/output failed"
         }
     }
 }
@@ -215,7 +223,9 @@ extension IoErrorKind: Printable {
 /// the failure, and the platform's own code for it.
 ///
 /// It renders as `io error: connect failed (connection refused)`, the kind
-/// only, so the text reads the same on every host.
+/// only, so the text reads the same on every host. A failure of kind
+/// `Unknown` also names the platform's code, `(other error, errno 18)`, since
+/// no portable word says what happened.
 public struct IoError {
     private syscall: String
     private kind: IoErrorKind
@@ -256,12 +266,21 @@ extension IoError {
 }
 
 extension IoError: Error {
-    /// Writes `io error: `, the operation and the kind's description.
+    /// Writes `io error: `, the operation and the kind's description, and for
+    /// an `Unknown` failure the platform's code when there is one.
     public func format(&self, into: &var StringBuilder) {
         try! into.append("io error: ")
         try! into.append(self.syscall)
         try! into.append(" failed (")
         try! into.append(self.kind.describe())
+        let unnamed = match self.kind {
+            case Unknown -> true,
+            case _ -> false
+        }
+        if unnamed && self.code != 0 {
+            try! into.append(", errno ")
+            try! into.append(self.code)
+        }
         try! into.append(")")
     }
 }

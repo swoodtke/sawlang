@@ -85,7 +85,10 @@ enum SysError: UInt8 {
     case NetUnreachable = 18,
     case TimedOut = 19,
     case HostDown = 20,
-    case NetDown = 21
+    case NetDown = 21,
+    // Descriptor and device failures, appended for the same reason (SL-785).
+    case InvalidDescriptor = 22,
+    case InputOutputFailed = 23
 }
 
 static AF_INET: Int32 = 2

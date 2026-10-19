@@ -62,6 +62,10 @@ public enum SystemErrorKind {
     case HostDown,
     /// The network is down.
     case NetworkDown,
+    /// The descriptor is closed or was never open.
+    case InvalidDescriptor,
+    /// The device or disk failed the transfer.
+    case InputOutputFailed,
     /// The data ended before the length the operation was promised, as when a
     /// file shrinks while it is read.
     case UnexpectedEnd,
@@ -92,6 +96,8 @@ static TAG_NETWORK_UNREACHABLE: Int = 18
 static TAG_TIMED_OUT: Int = 19
 static TAG_HOST_DOWN: Int = 20
 static TAG_NETWORK_DOWN: Int = 21
+static TAG_INVALID_DESCRIPTOR: Int = 22
+static TAG_INPUT_OUTPUT_FAILED: Int = 23
 
 /// Returns the kind a portable tag names: `Unknown` for the catch-all tag,
 /// and for a tag a newer runtime reports that this table does not know.
@@ -136,6 +142,10 @@ public(package) func system_error_kind(tag: Int) -> SystemErrorKind {
         SystemErrorKind.HostDown
     } else if tag == TAG_NETWORK_DOWN {
         SystemErrorKind.NetworkDown
+    } else if tag == TAG_INVALID_DESCRIPTOR {
+        SystemErrorKind.InvalidDescriptor
+    } else if tag == TAG_INPUT_OUTPUT_FAILED {
+        SystemErrorKind.InputOutputFailed
     } else {
         SystemErrorKind.Unknown
     }
@@ -166,6 +176,8 @@ extension SystemErrorKind {
             case TimedOut -> "timed out",
             case HostDown -> "host is down",
             case NetworkDown -> "network is down",
+            case InvalidDescriptor -> "invalid descriptor",
+            case InputOutputFailed -> "input/output failed",
             case UnexpectedEnd -> "unexpected end of data",
             case LaunchFailed -> "the program could not be launched"
         }
@@ -176,7 +188,7 @@ extension SystemErrorKind {
 ///
 /// It renders as `open failed (not found)`: the operation, then the kind's
 /// description. A failure of kind `Unknown` also names the platform's error
-/// number, `write failed (other error, errno 9)`, since no portable word says
+/// number, `rename failed (other error, errno 18)`, since no portable word says
 /// what happened.
 public struct SystemError {
     private operation: String

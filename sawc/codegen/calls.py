@@ -1506,7 +1506,8 @@ class CallsMixin:
         13: "address in use", 14: "invalid argument",
         15: "resources exhausted", 17: "host unreachable",
         18: "network unreachable", 19: "timed out", 20: "host is down",
-        21: "network is down",
+        21: "network is down", 22: "invalid descriptor",
+        23: "input/output failed",
     }
     PRINT_FAILURE_UNKNOWN = "other error"
 

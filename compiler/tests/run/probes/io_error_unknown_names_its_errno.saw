@@ -1,0 +1,32 @@
+// probe: stated
+// about: an IoError of kind Unknown renders the platform's errno, and the EBADF and EIO tags have their own kinds (SL-785)
+// stage 0: its IoError renders the kind only, and decodes tags 22 and 23 as Unknown
+// speeds: -O0 -O2
+// prints: unclassified: io error: probe failed (other error, errno 2)
+// prints: bad descriptor: io error: probe failed (invalid descriptor)
+// prints: device failure: io error: probe failed (input/output failed)
+// prints: std-raised: io error: probe failed (other error)
+// A failing open stamps ENOENT (2 on every hosted target) as the thread's raw
+// code, and `IoError.of(syscall:tag:)` reads that stamp. A tag outside the
+// table is Unknown, so its text names the stamped number; tags 22 and 23 are
+// named kinds and render without one. A failure std raised itself has no
+// number to name.
+import std.file.*
+import std.path.*
+import std.net.{IoError, IoErrorKind}
+
+func main() {
+    match File.open(Path(s: "/definitely/not/here/sl785.txt")) {
+        case Ok(_) -> print("unexpected: the file opened"),
+        case Err(_) -> {
+            let unclassified = IoError.of(syscall: "probe", tag: 9999)
+            print("unclassified: {unclassified}")
+            let bad = IoError.of(syscall: "probe", tag: 22)
+            print("bad descriptor: {bad}")
+            let device = IoError.of(syscall: "probe", tag: 23)
+            print("device failure: {device}")
+        }
+    }
+    let mine = IoError.of(syscall: "probe", kind: IoErrorKind.Unknown)
+    print("std-raised: {mine}")
+}

@@ -44,7 +44,10 @@ enum SysError: UInt8 {
     case NetUnreachable = 18,
     case TimedOut = 19,
     case HostDown = 20,
-    case NetDown = 21
+    case NetDown = 21,
+    // Descriptor and device failures, appended for the same reason (SL-785).
+    case InvalidDescriptor = 22,
+    case InputOutputFailed = 23
 }
 
 // Linux errno numbers.
@@ -54,6 +57,8 @@ static EINTR: Int = 4
 static ENOMEM: Int = 12
 static EACCES: Int = 13
 static EEXIST: Int = 17
+static EIO: Int = 5
+static EBADF: Int = 9
 static EINVAL: Int = 22
 static ENFILE: Int = 23
 static EMFILE: Int = 24
@@ -182,6 +187,10 @@ func rt_last_syserror() -> Int {
         SysError.HostDown
     } else if e == ENETDOWN {
         SysError.NetDown
+    } else if e == EBADF {
+        SysError.InvalidDescriptor
+    } else if e == EIO {
+        SysError.InputOutputFailed
     } else {
         SysError.Other
     }
