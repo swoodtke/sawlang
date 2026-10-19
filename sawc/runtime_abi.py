@@ -23,6 +23,7 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # OOM path can be driven deterministically. std never calls it.
     "__saw_rt_alloc_deny_after",
     "__saw_rt_write",
+    "__saw_rt_write_error",
     "__saw_rt_panic",
     # Time (design 180 replaced the millisecond seam with this one: a u64
     # nanosecond request, chunked to libc's 32-bit microsecond bound inside the

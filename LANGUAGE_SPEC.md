@@ -665,7 +665,9 @@ A handful of functions are compiler-known (no import needed):
   its type is `Never`, so a function ending in `panic(...)` needs no return
   value, and `guard let x = … else { panic(…) }` is a valid diverging exit. The
   abort message carries the source location — `panic at FILE:LINE: {message}`
-  (design 69). A conditionless `while { }` with no `break` diverges on the same
+  (design 69). Every panic writes its message to standard error, and a
+  program's own `print` output stays on standard output, so the two can be
+  redirected apart. A conditionless `while { }` with no `break` diverges on the same
   terms and needs no abort ([Diverging loops](#diverging-loops)).
 - `assert(cond: Bool, message)` — a no-op when `cond` is true; when
   false it panics with the same unified location format,
@@ -9994,7 +9996,9 @@ advancing across dumps is a slot that has been reused. The last word says why th
 task is not running: `ready`, `sleeping`, `io-parked`, or `running`.
 
 **The panic path prints one for you.** A program that dies with tasks in flight
-writes its dump after the panic line. Nothing is appended when no task is live,
+writes its dump after the panic line, on standard error with it. A
+`dump_tasks()` call is the program's own output and writes standard output, as
+`print` does. Nothing is appended when no task is live,
 so a panic in a program that is not running tasks reads exactly as it did
 before.
 

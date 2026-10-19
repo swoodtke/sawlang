@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"200"
-stdout	"panic at cast170_narrowing_panics.saw:19: cast to UInt8 out of range: 1000"
 stdout	""
+stderr	"panic at cast170_narrowing_panics.saw:19: cast to UInt8 out of range: 1000"
+stderr	""
 meets_expect	yes

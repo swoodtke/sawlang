@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at G06_panic_in_suspending_main_aborts.saw:13: main panicked"
-stdout	""
+stderr	"panic at G06_panic_in_suspending_main_aborts.saw:13: main panicked"
+stderr	""
 meets_expect	yes

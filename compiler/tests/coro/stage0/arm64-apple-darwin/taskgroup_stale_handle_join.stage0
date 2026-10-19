@@ -5,8 +5,9 @@ expect	panic
 build	ok
 exit	-6
 stdout	"42"
-stdout	"panic at taskgroup.saw:1788: Task.join: this task's result was already joined"
 stdout	""
+stderr	"panic at taskgroup.saw:1861: Task.join: this task's result was already joined"
+stderr	""
 meets_expect	yes
 frame	__Frame_work$m$	work	48	8	states=2	own=48	sub=0	bt=0	root=1	method=0	agrees=1
 field	n	own	0	8	8

@@ -3,5 +3,5 @@ triple	arm64-apple-darwin
 source	dd08deaf9a379f65
 build	ok
 exit	-6
-stdout	"panic at data.saw:187: Data.[]: index out of range: 9 (len 1)"
-stdout	""
+stderr	"panic at data.saw:187: Data.[]: index out of range: 9 (len 1)"
+stderr	""

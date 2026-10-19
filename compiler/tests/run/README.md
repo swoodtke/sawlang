@@ -550,8 +550,8 @@ among its prose:
   here;
 - `// speeds: -O0 -O2`, the levels sawc2 builds it at, each a build held whole
   (a read of an uninitialised local can pass at one level and not another);
-- `// prints: LINE`, a line of its output, in order;
-- `// panics: TEXT`, text its final panic line holds;
+- `// prints: LINE`, a line of its standard output, in order;
+- `// panics: TEXT`, text its panic line on standard error holds;
 - `// undefined: SYMBOL`, a symbol its link must leave undefined;
 - `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, under
   its plain or quoted name;
@@ -560,7 +560,7 @@ among its prose:
 | kind | sawc2 at each speed | its lines |
 |---|---|---|
 | `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0 | `prints`, at least one |
-| `panics` | builds it with nothing printed; the binary prints its `// prints:` lines, then a `panic at` line holding the `// panics:` text, and aborts | `prints`, any number; one `panics` |
+| `panics` | builds it with nothing printed; the binary prints exactly its `// prints:` lines on standard output and one `panic at` line holding the `// panics:` text on standard error, and aborts | `prints`, any number; one `panics` |
 | `link-fails` | does not link it: the build prints no refusal, and the linker names every `// undefined:` symbol undefined | `undefined`, at least one |
 | `custom` | whatever its function in `run_lane.py`'s `CUSTOM_PROBES` checks | `probe` and `about` alone |
 | `module` | never builds it alone: it is a module another probe imports, as `import NAME`, and one that no probe imports fails | `probe` and `about` alone |

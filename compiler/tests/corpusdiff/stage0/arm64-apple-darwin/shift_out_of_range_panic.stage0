@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at shift_out_of_range_panic.saw:8: shift out of range"
-stdout	""
+stderr	"panic at shift_out_of_range_panic.saw:8: shift out of range"
+stderr	""
 meets_expect	yes

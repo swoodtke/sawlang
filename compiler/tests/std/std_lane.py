@@ -37,8 +37,9 @@ profile, the lang-item table, and the API equivalence of the two stds.
   L:C`, is refused first there by that rule;
 - each `exec/` program, which builds coroutine frames by hand with their
   descriptors and drives them through the executor's entries, builds with
-  sawc2 against `std/` at -O0 and -O2 and prints exactly its `NAME.out`,
-  exiting 0, or, headed `// expect-panic: TEXT`, panicking with that text;
+  sawc2 against `std/` at -O0 and -O2 and prints exactly its `NAME.out` on
+  standard output, exiting 0, or, headed `// expect-panic: TEXT`, panicking
+  with that text, its standard error exactly its `NAME.err`;
   a `park_NAME.saw` program builds instead against a copy of std whose
   `task.saw` ends in `parks/task_tail.saw`, which re-exposes the std-internal
   descriptor wait to those programs alone;
@@ -160,8 +161,8 @@ ACQUIRE_FENCE = "call builtin __saw_atomic_fence_acquire"
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
 _EXPECT_PANIC = re.compile(r"^//\s*expect-panic:\s*(.+)$")
 _ARGUMENTS = re.compile(r"^//\s*arguments:\s*(.+)$")
-# A panic's location, which an executor program's expected output leaves out:
-# it names a line of std, which moves with every edit there.
+# A panic's location, which an executor program's panic check leaves out: it
+# names a line of std, which moves with every edit there.
 _PANIC_AT = re.compile(r"panic at [^ ]+:\d+: ")
 # The files a pair's `{files}` argument names the directory of, written fresh
 # before the pairs run: the bytes are exact here, where a committed fixture
@@ -1011,8 +1012,9 @@ def exec_std_root(path):
 
 def build_and_run_exec(path, speed):
     """sawc2's build of executor program `path` against its std root at
-    `speed`, run: None when it prints its `NAME.out`, each panic's location
-    masked, and exits as its header says, or the failure. The output file is
+    `speed`, run: None when it prints its `NAME.out` on standard output and
+    exits as its header says, a panic writing its `NAME.err`, each location
+    masked, on standard error, or the failure. The output files are
     the oracle because no Stage 0 build can run these: they drive frames the
     new std's executor defines."""
     name = module_name(path)
@@ -1033,15 +1035,20 @@ def build_and_run_exec(path, speed):
         return "std exec %s: no %s" % (rel(path), rel(expected_out))
     with open(expected_out, encoding="utf-8") as fh:
         want = fh.read()
-    got = _PANIC_AT.sub("panic at ?: ", ran.stdout)
-    if got != want:
+    if ran.stdout != want:
         return "std exec %s (%s): its output differs from %s:\n%s" \
-            % (rel(path), speed, rel(expected_out), got)
+            % (rel(path), speed, rel(expected_out), ran.stdout)
     panic = expected_panic(path)
     if panic is not None:
-        if ran.returncode == 0 or panic not in ran.stdout + ran.stderr:
-            return "std exec %s (%s): expected a panic saying `%s`, got exit %d: %s" \
-                % (rel(path), speed, panic, ran.returncode, ran.stderr.strip())
+        expected_err = os.path.splitext(path)[0] + ".err"
+        if not os.path.exists(expected_err):
+            return "std exec %s: no %s" % (rel(path), rel(expected_err))
+        with open(expected_err, encoding="utf-8") as fh:
+            want_err = fh.read()
+        said = _PANIC_AT.sub("panic at ?: ", ran.stderr)
+        if ran.returncode == 0 or said != want_err or panic not in said:
+            return "std exec %s (%s): expected %s on standard error, a panic saying `%s`, got exit %d: %s" \
+                % (rel(path), speed, rel(expected_err), panic, ran.returncode, ran.stderr.strip())
     elif ran.returncode != 0:
         return "std exec %s (%s): exit %d: %s" % (rel(path), speed, ran.returncode,
                                                   ran.stderr.strip())

@@ -6,6 +6,7 @@ build	ok
 exit	-6
 stdout	"before"
 stdout	"stopping: 7"
-stdout	"panic at D13_no_fallthrough_past_diverging_call.saw:33: deliberate"
 stdout	""
+stderr	"panic at D13_no_fallthrough_past_diverging_call.saw:33: deliberate"
+stderr	""
 meets_expect	yes

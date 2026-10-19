@@ -4,5 +4,6 @@ source	e1e35423987ce1bb
 build	ok
 exit	-6
 stdout	"passed"
-stdout	"panic at assert_fail.saw:6: assertion failed: want more than 5 got 3"
 stdout	""
+stderr	"panic at assert_fail.saw:6: assertion failed: want more than 5 got 3"
+stderr	""

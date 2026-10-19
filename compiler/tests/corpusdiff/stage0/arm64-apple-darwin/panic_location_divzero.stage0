@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at panic_location_divzero.saw:13: division by zero"
-stdout	""
+stderr	"panic at panic_location_divzero.saw:13: division by zero"
+stderr	""
 meets_expect	yes

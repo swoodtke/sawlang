@@ -74,6 +74,7 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_thread_spawn", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_unix_timestamp_secs", "", "i64", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_write", "word, word", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_write_error", "word, word", "void", "runtime")
 }
 
 // A host's runtime sources, relative to the runtime root, in build order.
@@ -137,6 +138,7 @@ public func tc_runtime_shim_seams(host: String) -> Vector<String> {
         try! out.push("__saw_rt_thread_detach")
         try! out.push("__saw_rt_thread_spawn")
         try! out.push("__saw_rt_write")
+        try! out.push("__saw_rt_write_error")
     }
     if host.equals("x86_64-unknown-linux-gnu") {
         try! out.push("__saw_rt_lock_acquire")
@@ -146,6 +148,7 @@ public func tc_runtime_shim_seams(host: String) -> Vector<String> {
         try! out.push("__saw_rt_thread_detach")
         try! out.push("__saw_rt_thread_spawn")
         try! out.push("__saw_rt_write")
+        try! out.push("__saw_rt_write_error")
     }
     if host.equals("aarch64-unknown-linux-gnu") {
         try! out.push("__saw_rt_lock_acquire")
@@ -155,6 +158,7 @@ public func tc_runtime_shim_seams(host: String) -> Vector<String> {
         try! out.push("__saw_rt_thread_detach")
         try! out.push("__saw_rt_thread_spawn")
         try! out.push("__saw_rt_write")
+        try! out.push("__saw_rt_write_error")
     }
     move out
 }

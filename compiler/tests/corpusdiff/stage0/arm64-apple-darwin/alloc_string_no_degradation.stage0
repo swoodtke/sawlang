@@ -10,6 +10,7 @@ stdout	"saw"
 stdout	"a+b+c"
 stdout	"usr/local"
 stdout	"/tmp/data.db"
-stdout	"panic: string allocation failed"
 stdout	""
+stderr	"panic: string allocation failed"
+stderr	""
 meets_expect	yes

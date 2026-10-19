@@ -4,5 +4,6 @@ source	5315c370ae301687
 build	ok
 exit	-6
 stdout	"in range 2"
-stdout	"panic at vector.saw:90: Vector.[]: index out of range: 5 (len 2)"
 stdout	""
+stderr	"panic at vector.saw:90: Vector.[]: index out of range: 5 (len 2)"
+stderr	""

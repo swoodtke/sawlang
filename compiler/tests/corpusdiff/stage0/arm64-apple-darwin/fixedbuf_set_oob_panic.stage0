@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at fixedbuf.saw:66: FixedBuf.set: index out of range: 11 (len 8)"
-stdout	""
+stderr	"panic at fixedbuf.saw:66: FixedBuf.set: index out of range: 11 (len 8)"
+stderr	""
 meets_expect	yes

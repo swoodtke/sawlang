@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at alloc_collection_literal_panics_named.saw:37: collection literal: allocation of 64 bytes (align 8) failed"
-stdout	""
+stderr	"panic at alloc_collection_literal_panics_named.saw:37: collection literal: allocation of 64 bytes (align 8) failed"
+stderr	""
 meets_expect	yes

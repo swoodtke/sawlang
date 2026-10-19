@@ -5,24 +5,24 @@ align_attribute_survives_optimization.saw	arm64-apple-darwin	same	4deaf61e8c36	s
 align_nonresident_local_in_suspending_function.saw	arm64-apple-darwin	same	d4f6092ec7ee	success	ok	0	29:b0cac6ebd7a9	0:e3b0c44298fc	-	yes	-
 alloc_channel_send_reports_oom.saw	arm64-apple-darwin	same	afc7af4959bd	success	ok	0	131:dfd02335d0c8	0:e3b0c44298fc	-	no: output line 2 is 'refused: the channel could not allocate a queue node: allocation of 16 bytes (align 16) failed', expected 'refused: the channel could not allocate memory: allocation of 16 bytes (align 16) failed'	-
 alloc_channel_taskgroup_reports_oom.saw	arm64-apple-darwin	differs	268c42897b60	success	ok	0	56:0811f2705bc4	0:e3b0c44298fc	-	yes	-
-alloc_collection_literal_panics_named.saw	arm64-apple-darwin	same	a83f11457e78	panic	ok	-6	115:d0bd97684cd6	0:e3b0c44298fc	-	yes	-
+alloc_collection_literal_panics_named.saw	arm64-apple-darwin	same	a83f11457e78	panic	ok	-6	0:e3b0c44298fc	115:d0bd97684cd6	-	yes	-
 alloc_custom_allocator.saw	arm64-apple-darwin	same	64b8b1d78dde	success	ok	0	24:45c550ce76d1	0:e3b0c44298fc	-	yes	-
-alloc_data_push_forced_panics_named.saw	arm64-apple-darwin	same	267422188659	panic	ok	-6	109:42d3aab075a5	0:e3b0c44298fc	-	yes	-
+alloc_data_push_forced_panics_named.saw	arm64-apple-darwin	same	267422188659	panic	ok	-6	3:e6c21e8d260f	106:84ea170e2d66	-	yes	-
 alloc_data_reports_oom.saw	arm64-apple-darwin	differs	cffa74c61b48	success	ok	0	141:eb88db73ee63	0:e3b0c44298fc	-	yes	-
 alloc_default_equals_global.saw	arm64-apple-darwin	same	02bf615934ea	success	ok	0	6:14c5e74c4b96	0:e3b0c44298fc	-	yes	-
 alloc_deny_after_seam.saw	arm64-apple-darwin	same	7818b635f7e6	success	ok	0	31:43f612e65036	0:e3b0c44298fc	-	yes	-
 alloc_hosted_no_degradation.saw	arm64-apple-darwin	same	b6d9a95d5d36	success	ok	0	26:663d134f110f	0:e3b0c44298fc	-	yes	-
-alloc_map_copy_panics.saw	arm64-apple-darwin	same	89bc111a11fb	panic	ok	-6	75:4f8441eceb60	0:e3b0c44298fc	-	yes	-
-alloc_map_insert_forced_panics_named.saw	arm64-apple-darwin	same	539dda4d3b28	panic	ok	-6	110:0bfaaaa65747	0:e3b0c44298fc	-	yes	-
+alloc_map_copy_panics.saw	arm64-apple-darwin	same	89bc111a11fb	panic	ok	-6	2:4355a46b19d3	73:5e9a7dd9c293	-	yes	-
+alloc_map_insert_forced_panics_named.saw	arm64-apple-darwin	same	539dda4d3b28	panic	ok	-6	2:06e9d52c1720	108:e2682fa8402d	-	yes	-
 alloc_map_set_reports_oom.saw	arm64-apple-darwin	same	16da551a2605	success	ok	0	96:2540b9cc410f	0:e3b0c44298fc	-	yes	-
-alloc_panic_under_full_denial.saw	arm64-apple-darwin	same	39171457693f	panic	ok	-6	74:e9a60ff45ef1	0:e3b0c44298fc	-	yes	-
-alloc_set_copy_panics.saw	arm64-apple-darwin	same	ad2156cadd76	panic	ok	-6	75:6fd41b4f819a	0:e3b0c44298fc	-	yes	-
-alloc_string_no_degradation.saw	arm64-apple-darwin	same	71ed5d4aa842	panic	ok	-6	73:6e406e3d8726	0:e3b0c44298fc	-	yes	-
-alloc_string_oom_panic.saw	arm64-apple-darwin	same	aaeafc082a51	panic	ok	-6	32:9e3375d5d4ed	0:e3b0c44298fc	-	yes	-
-alloc_stringbuilder_append_forced_panics_named.saw	arm64-apple-darwin	same	9d106464da2f	panic	ok	-6	119:55a587ae386d	0:e3b0c44298fc	-	yes	-
+alloc_panic_under_full_denial.saw	arm64-apple-darwin	same	39171457693f	panic	ok	-6	13:75e2ce41ac2d	61:521dee7ce815	-	yes	-
+alloc_set_copy_panics.saw	arm64-apple-darwin	same	ad2156cadd76	panic	ok	-6	2:4355a46b19d3	73:f8016602979e	-	yes	-
+alloc_string_no_degradation.saw	arm64-apple-darwin	same	71ed5d4aa842	panic	ok	-6	41:7851338d10ee	32:9e3375d5d4ed	-	yes	-
+alloc_string_oom_panic.saw	arm64-apple-darwin	same	aaeafc082a51	panic	ok	-6	0:e3b0c44298fc	32:9e3375d5d4ed	-	yes	-
+alloc_stringbuilder_append_forced_panics_named.saw	arm64-apple-darwin	same	9d106464da2f	panic	ok	-6	2:1121cfccd591	117:d89eb95277d8	-	yes	-
 alloc_stringbuilder_reports_oom.saw	arm64-apple-darwin	same	ed2212f7fd6e	success	ok	0	108:4c151f8bd612	0:e3b0c44298fc	-	yes	-
-alloc_taskgroup_threads_forced_panics_named.saw	arm64-apple-darwin	same	b255dedfb8ed	panic	ok	-6	118:cda285fd275e	0:e3b0c44298fc	-	yes	-
-alloc_vector_copy_panics.saw	arm64-apple-darwin	same	273ed1db23eb	panic	ok	-6	80:409bf3d9a19a	0:e3b0c44298fc	-	yes	-
+alloc_taskgroup_threads_forced_panics_named.saw	arm64-apple-darwin	same	b255dedfb8ed	panic	ok	-6	2:06e9d52c1720	116:d69788a19545	-	yes	-
+alloc_vector_copy_panics.saw	arm64-apple-darwin	same	273ed1db23eb	panic	ok	-6	2:53c234e5e847	78:66957c605353	-	yes	-
 alloc_vector_push_reports_oom.saw	arm64-apple-darwin	same	a6ed60eeb656	success	ok	0	55:ddefc159203f	0:e3b0c44298fc	-	yes	-
 alloc_vector_reports_oom.saw	arm64-apple-darwin	same	b5e2aa3aea0b	success	ok	0	106:0228ff09f67a	0:e3b0c44298fc	-	yes	-
 any_box_deinit.saw	arm64-apple-darwin	same	61419e0d44f2	success	ok	0	15:99333850195a	0:e3b0c44298fc	-	yes	-
@@ -39,12 +39,12 @@ arc_forward_generic_method.saw	arm64-apple-darwin	differs	9c07c3591243	success	o
 arc_with_unique.saw	arm64-apple-darwin	differs	c61b3da1561c	success	ok	0	139:6a8ca23dbf79	0:e3b0c44298fc	-	yes	-
 arithmetic_no_false_overflow.saw	arm64-apple-darwin	same	c5a0bed6f3d7	success	ok	0	33:da8d5835ae9b	0:e3b0c44298fc	-	yes	-
 array_const_index_out_of_bounds.saw	arm64-apple-darwin	same	beb2eed8bf05	error	refused	-	-	-	245:4ad3ccb7fa54	yes	array index 5 out of range for array with 3 elements
-array_dynamic_compound_oob_panic.saw	arm64-apple-darwin	same	60833be10186	panic	ok	-6	86:76a541156104	0:e3b0c44298fc	-	yes	-
+array_dynamic_compound_oob_panic.saw	arm64-apple-darwin	same	60833be10186	panic	ok	-6	0:e3b0c44298fc	86:76a541156104	-	yes	-
 array_dynamic_index_in_range.saw	arm64-apple-darwin	same	d619488e71cc	success	ok	0	15:2b9068ad7c25	0:e3b0c44298fc	-	yes	-
-array_dynamic_index_negative_panic.saw	arm64-apple-darwin	same	ed503366abc4	panic	ok	-6	90:5ff6062c1e13	0:e3b0c44298fc	-	yes	-
-array_dynamic_index_oob_panic.saw	arm64-apple-darwin	same	ef342b95da70	panic	ok	-6	84:88ee7f3dd31d	0:e3b0c44298fc	-	yes	-
+array_dynamic_index_negative_panic.saw	arm64-apple-darwin	same	ed503366abc4	panic	ok	-6	0:e3b0c44298fc	90:5ff6062c1e13	-	yes	-
+array_dynamic_index_oob_panic.saw	arm64-apple-darwin	same	ef342b95da70	panic	ok	-6	0:e3b0c44298fc	84:88ee7f3dd31d	-	yes	-
 array_dynamic_index_write_sum.saw	arm64-apple-darwin	same	797e2f2d88b8	success	ok	0	4:9a7f91a861f5	0:e3b0c44298fc	-	yes	-
-array_dynamic_write_oob_panic.saw	arm64-apple-darwin	same	7fbc8fe1b154	panic	ok	-6	83:f70bdbbbd810	0:e3b0c44298fc	-	yes	-
+array_dynamic_write_oob_panic.saw	arm64-apple-darwin	same	7fbc8fe1b154	panic	ok	-6	0:e3b0c44298fc	83:f70bdbbbd810	-	yes	-
 array_elem_deinit_order.saw	arm64-apple-darwin	same	76fbaede9f4d	success	ok	0	14:6462ad810fea	0:e3b0c44298fc	-	yes	-
 array_elem_field_assign.saw	arm64-apple-darwin	same	8bfba1875dcc	success	ok	0	3:7e332bcee418	0:e3b0c44298fc	-	yes	-
 array_elem_field_nested.saw	arm64-apple-darwin	same	cde2b1bf2f55	success	ok	0	5:d69559c5499d	0:e3b0c44298fc	-	yes	-
@@ -71,12 +71,12 @@ array_string_field.saw	arm64-apple-darwin	same	f3f2f7fd03c1	success	ok	0	6:c9cec
 array_struct_containment.saw	arm64-apple-darwin	same	02c882e417c6	error	refused	-	-	-	328:73e8305b66cf	yes	struct `Holder` contains NoCopy field `files` of type `[F; 2]` but does not implement NoCopy
 array_swap_builtin.saw	arm64-apple-darwin	same	ea3146b29a7c	success	ok	0	12:3cd3a4a73d09	0:e3b0c44298fc	-	yes	-
 array_swap_const_oob_error.saw	arm64-apple-darwin	same	0345f43ec850	error	refused	-	-	-	173:ed239bcf0729	yes	`swap` index 5 out of range for array with 3 elements
-array_swap_dynamic_oob_panic.saw	arm64-apple-darwin	same	8e894df55cc7	panic	ok	-6	82:8c71647ac32c	0:e3b0c44298fc	-	yes	-
+array_swap_dynamic_oob_panic.saw	arm64-apple-darwin	same	8e894df55cc7	panic	ok	-6	0:e3b0c44298fc	82:8c71647ac32c	-	yes	-
 array_swap_immutable_error.saw	arm64-apple-darwin	same	82636b92e8cd	error	refused	-	-	-	227:db535da284bc	yes	cannot call `swap` on immutable array `a`
 array_trivial_copy.saw	arm64-apple-darwin	same	f8bd73769a17	success	ok	0	8:a21b6b8c372b	0:e3b0c44298fc	-	yes	-
 array_unknown_method_error.saw	arm64-apple-darwin	same	f6abb8f9de75	error	refused	-	-	-	275:d75083431325	yes	fixed array `[Int; 3]` has no method `push`
 arrays.saw	arm64-apple-darwin	same	65295bc4a6b3	success	ok	0	194:4dcf74de683e	0:e3b0c44298fc	-	yes	-
-assert_fail.saw	arm64-apple-darwin	same	77731d78958c	panic	ok	-6	71:058ad7e9b759	0:e3b0c44298fc	-	yes	-
+assert_fail.saw	arm64-apple-darwin	same	77731d78958c	panic	ok	-6	9:8fb06ba3d556	62:3c3c58654bde	-	yes	-
 assert_non_bool_error.saw	arm64-apple-darwin	same	ee7782bf0f7c	error	refused	-	-	-	188:def314b05e71	yes	`assert` expects a Bool condition, got `String`
 assert_pass.saw	arm64-apple-darwin	same	a5f192b3fad7	success	ok	0	3:dc51b8c96c2d	0:e3b0c44298fc	-	yes	-
 assignment_target_adopts_fixed_width.saw	arm64-apple-darwin	same	087899d650db	success	ok	0	211:23e08858de85	0:e3b0c44298fc	-	yes	-
@@ -131,8 +131,8 @@ capture_exclusivity_disjoint.saw	arm64-apple-darwin	same	530a27d04784	success	ok
 capture_write_allowed_forms.saw	arm64-apple-darwin	differs	1600bbf2518d	success	ok	0	11:7f6820917ca2	0:e3b0c44298fc	-	yes	-
 cast170_checked_as.saw	arm64-apple-darwin	same	afa87cb7d847	success	ok	0	58:6fc478539b3c	0:e3b0c44298fc	-	yes	-
 cast170_from_family.saw	arm64-apple-darwin	same	94ebd208bee7	success	ok	0	65:8e4b4d24ed73	0:e3b0c44298fc	-	yes	-
-cast170_narrowing_panics.saw	arm64-apple-darwin	same	e824974184b7	panic	ok	-6	79:b95954cd88e4	0:e3b0c44298fc	-	yes	-
-cast170_sign_change_panics.saw	arm64-apple-darwin	same	cf4bed3e3437	panic	ok	-6	77:7e1abc0a1170	0:e3b0c44298fc	-	yes	-
+cast170_narrowing_panics.saw	arm64-apple-darwin	same	e824974184b7	panic	ok	-6	4:c11e3f4837ef	75:cccf6382dc38	-	yes	-
+cast170_sign_change_panics.saw	arm64-apple-darwin	same	cf4bed3e3437	panic	ok	-6	3:084c799cd551	74:e2a2bb4710d1	-	yes	-
 cast_distinct_chained_and_partial.saw	arm64-apple-darwin	same	6d9dee90da4b	success	ok	0	9:9ecfe41de950	0:e3b0c44298fc	-	yes	-
 cast_distinct_nonint_underlying.saw	arm64-apple-darwin	same	687e8a26e7f5	success	ok	0	11:acb2b288b9f0	0:e3b0c44298fc	-	yes	-
 cast_distinct_string_underlying.saw	arm64-apple-darwin	same	4b104884e5c4	success	ok	0	3:98ea6e4f216f	0:e3b0c44298fc	-	yes	-
@@ -287,7 +287,7 @@ conformance/D09_diverging_positions_freestanding.saw	arm64-apple-darwin	same	361
 conformance/D10_spawn_never_body_refused.saw	arm64-apple-darwin	same	2297f177e106	error	refused	-	-	-	532:9c1261697ffa	yes	a task body may not be `Never`: `halt` never returns, so the task never completes and `join` on its handle could never return
 conformance/D11_spawn_closure_never_refused.saw	arm64-apple-darwin	same	ec140644fb2d	error	refused	-	-	-	159:7c0253d64711	no: no error contains 'a task body may not be `Never`'	Parse error at 14:31: two statements on one line need a `;` between them: the first begins with `let`, the second with `{` — write `;` where they meet
 conformance/D12_drive_never_body_refused.saw	arm64-apple-darwin	same	4a2f07bafeb5	error	refused	-	-	-	479:a8cf91001a66	yes	a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever
-conformance/D13_no_fallthrough_past_diverging_call.saw	arm64-apple-darwin	same	27956b76a43c	panic	ok	-6	86:4affed230ce7	0:e3b0c44298fc	-	yes	-
+conformance/D13_no_fallthrough_past_diverging_call.saw	arm64-apple-darwin	same	27956b76a43c	panic	ok	-6	19:0d3221775c5f	67:7d825ddf7635	-	yes	-
 conformance/D14_diverging_forwarded_and_later_args.saw	arm64-apple-darwin	differs	061207b43cf9	success	ok	0	12:2c492d5ef0ec	0:e3b0c44298fc	-	yes	-
 conformance/E12_autowrap_at_the_argument_position.saw	arm64-apple-darwin	same	ff9772b52283	success	ok	0	167:157aed2bf3f2	0:e3b0c44298fc	-	yes	-
 conformance/G01_sync_main_int_exit_status.saw	arm64-apple-darwin	same	a13833ac455c	success	ok	7	9:e5e90bb4cadd	0:e3b0c44298fc	-	yes	-
@@ -295,8 +295,8 @@ conformance/G02_suspending_main_int_exit_status.saw	arm64-apple-darwin	same	7db6
 conformance/G03_ambient_main_int_exit_status.saw	arm64-apple-darwin	same	d4da7570d371	success	ok	7	10:2a5c8b5054f0	0:e3b0c44298fc	-	yes	-
 conformance/G04_mt_main_int_exit_status.saw	arm64-apple-darwin	same	71ac3449385e	success	ok	7	9:bdbeaa72859c	0:e3b0c44298fc	-	yes	-
 conformance/G05_suspending_main_void_exit_zero.saw	arm64-apple-darwin	same	1e219c94342f	success	ok	0	10:379699964a6d	0:e3b0c44298fc	-	yes	-
-conformance/G06_panic_in_suspending_main_aborts.saw	arm64-apple-darwin	same	d2eea474bc71	panic	ok	-6	67:8c0d62756cc6	0:e3b0c44298fc	-	yes	-
-conformance/G07_panic_in_spawned_task_mt_aborts.saw	arm64-apple-darwin	same	fc635a028705	panic	ok	-6	209:4ca19f26d676	0:e3b0c44298fc	-	yes	-
+conformance/G06_panic_in_suspending_main_aborts.saw	arm64-apple-darwin	same	d2eea474bc71	panic	ok	-6	0:e3b0c44298fc	67:8c0d62756cc6	-	yes	-
+conformance/G07_panic_in_spawned_task_mt_aborts.saw	arm64-apple-darwin	same	fc635a028705	panic	ok	-6	0:e3b0c44298fc	209:4ca19f26d676	-	yes	-
 conformance/G08_sync_main_result_ok_exit_status.saw	arm64-apple-darwin	same	dcb84d25209e	success	ok	5	7:45cf4875accc	0:e3b0c44298fc	-	yes	-
 conformance/G09_sync_main_result_err_exits_one.saw	arm64-apple-darwin	same	888295617148	success	ok	1	24:49d8f9c0d377	0:e3b0c44298fc	-	yes	-
 conformance/G10_suspending_main_result_ok_exit_status.saw	arm64-apple-darwin	same	ab9bfa63fc31	success	ok	5	12:081bb3b9e5ee	0:e3b0c44298fc	-	yes	-
@@ -384,7 +384,7 @@ conformance/K63_channel_wait_is_a_park.saw	arm64-apple-darwin	same	269e4b1dfe23	
 conformance/K64_close_drains_before_it_reports_closed.saw	arm64-apple-darwin	same	e5b6accd39d8	success	ok	0	35:3ce35b5de18b	0:e3b0c44298fc	-	yes	-
 conformance/K65_close_wakes_a_parked_receiver.saw	arm64-apple-darwin	same	3cb9d3206686	success	ok	0	10:8c4a7ed249a9	0:e3b0c44298fc	-	yes	-
 conformance/K66_send_and_close_after_close_report.saw	arm64-apple-darwin	same	2326c219842e	success	ok	0	110:3f98e2b203b9	0:e3b0c44298fc	-	yes	-
-conformance/K67_quiescent_channel_deadlock_is_reported.saw	arm64-apple-darwin	same	606188c5bd43	panic	ok	-6	502:bda23bee87b4	0:e3b0c44298fc	-	yes	-
+conformance/K67_quiescent_channel_deadlock_is_reported.saw	arm64-apple-darwin	same	606188c5bd43	panic	ok	-6	8:a61eb4074b2c	494:3955df654c8b	-	yes	-
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	arm64-apple-darwin	same	7ddb223acd23	success	refused	-	-	-	159:7316200a02ef	no: Stage 0 does not build it	Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	arm64-apple-darwin	same	0762b7d1f6da	success	ok	0	55:a71a92402550	0:e3b0c44298fc	-	yes	-
 conformance/K70_driven_scope_end_release_matrix.saw	arm64-apple-darwin	same	1c28851c6447	success	ok	0	774:039dc89f1284	0:e3b0c44298fc	-	yes	-
@@ -397,7 +397,7 @@ conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	arm64-apple-darwin	
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	arm64-apple-darwin	same	0cc1aa16ff42	error	refused	-	-	-	159:7aa80815cc3c	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 26:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K84_thread_spawn_permits_a_blocking_extern.saw	arm64-apple-darwin	same	6cea80f48497	success	refused	-	-	-	159:bc4dae4e9462	no: Stage 0 does not build it	Parse error at 37:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 conformance/K85_background_spawn_handle_must_be_consumed.saw	arm64-apple-darwin	same	ca9029a60af5	error	refused	-	-	-	1918:a7b087c53c61	yes	`Task.spawn` hands back a `Task<Int>` that must be consumed, and this one is discarded
-conformance/K86_background_task_handle_panics_in_deinit.saw	arm64-apple-darwin	same	9b4bd5ab30f0	panic	ok	-6	530:2c9c94d80946	0:e3b0c44298fc	-	yes	-
+conformance/K86_background_task_handle_panics_in_deinit.saw	arm64-apple-darwin	same	9b4bd5ab30f0	panic	ok	-6	83:e370cb35fcd6	447:50f63317a69f	-	yes	-
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	arm64-apple-darwin	same	937737f0b1af	success	ok	0	105:5262a451575d	0:e3b0c44298fc	-	yes	-
 conformance/K88_background_spawn_takes_no_borrows.saw	arm64-apple-darwin	same	a71dfca8d345	error	refused	-	-	-	1448:b7639b0fd16f	yes	`Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call
 conformance/K89_detach_gives_up_the_result.saw	arm64-apple-darwin	same	7713ec1b141a	success	ok	0	55:8dddd41bcca3	0:e3b0c44298fc	-	yes	-
@@ -460,11 +460,11 @@ conformance/R39_explicit_self_borrow_capture.saw	arm64-apple-darwin	same	9d737d8
 conformance/R40_var_self_capture_needs_var_receiver.saw	arm64-apple-darwin	same	a2fc723b070b	error	refused	-	-	-	484:0fa785e91a77	yes	`[&var self]` needs a `&var self` receiver, and `read` takes `&self`: a shared borrow has no exclusive borrow to hand out
 conformance/R41_explicit_self_capture_escaping_error.saw	arm64-apple-darwin	same	b298e8cca95b	error	refused	-	-	-	760:925003fb723c	yes	an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the CALLER owns — a reference borrows storage for the duration of one call and may not outlive the frame it points into
 conformance/S09_same_scope_redefinition_owning_across_suspend.saw	arm64-apple-darwin	same	3dc6c92f1f9e	success	ok	0	103:280435dfc19e	0:e3b0c44298fc	-	yes	-
-conformance/T10_vector_index_oob.saw	arm64-apple-darwin	same	a69b8843ab6f	panic	ok	-6	65:23855900d969	0:e3b0c44298fc	-	yes	-
-conformance/T11_vector_negative_index.saw	arm64-apple-darwin	same	c1ccf46fea5a	panic	ok	-6	66:63e025bf60e4	0:e3b0c44298fc	-	yes	-
+conformance/T10_vector_index_oob.saw	arm64-apple-darwin	same	a69b8843ab6f	panic	ok	-6	0:e3b0c44298fc	65:23855900d969	-	yes	-
+conformance/T11_vector_negative_index.saw	arm64-apple-darwin	same	c1ccf46fea5a	panic	ok	-6	0:e3b0c44298fc	66:63e025bf60e4	-	yes	-
 conformance/T12_vector_get_none.saw	arm64-apple-darwin	same	dc61a67f65df	success	ok	0	3:dc51b8c96c2d	0:e3b0c44298fc	-	yes	-
-conformance/T18_map_forced_absent_key.saw	arm64-apple-darwin	differs	8800d8c3a084	panic	ok	-6	68:03e3046a92b0	0:e3b0c44298fc	-	yes	-
-conformance/T25_data_index_oob.saw	arm64-apple-darwin	same	8a9c77746920	panic	ok	-6	62:30df45060c45	0:e3b0c44298fc	-	yes	-
+conformance/T18_map_forced_absent_key.saw	arm64-apple-darwin	differs	8800d8c3a084	panic	ok	-6	0:e3b0c44298fc	68:03e3046a92b0	-	yes	-
+conformance/T25_data_index_oob.saw	arm64-apple-darwin	same	8a9c77746920	panic	ok	-6	0:e3b0c44298fc	62:30df45060c45	-	yes	-
 conformance/U02_plain_struct_unsafe_name.saw	arm64-apple-darwin	same	b2b2644990d4	compiles	ok	-	-	-	-	yes	-
 conformance/U04_unsafe_param_undeclared.saw	arm64-apple-darwin	same	6e674fe55ba8	error	refused	-	-	-	489:185ead8cdd30	yes	function `f` is not declared `unsafe`, but its signature receives a value of unsafe type (`UnsafePointer<Int>`)
 conformance/U05_unsafe_return_undeclared.saw	arm64-apple-darwin	same	83bc9da2e1d6	error	refused	-	-	-	479:63a9c22f9392	yes	function `f` is not declared `unsafe`, but its signature returns a value of unsafe type (`UnsafePointer<Int>`)
@@ -760,7 +760,7 @@ coro_optbind_loop_control_spawned.saw	arm64-apple-darwin	same	db289a7ceb76	succe
 coro_optbind_split_in_try.saw	arm64-apple-darwin	same	f2952a1c17b6	success	ok	0	47:753fc16e9268	0:e3b0c44298fc	-	yes	-
 coro_optional_binding_suspending_method.saw	arm64-apple-darwin	same	ac043ee5b4ae	success	ok	0	48:37e4eb2fc7fe	0:e3b0c44298fc	-	yes	-
 coro_optional_presence_unconditional_lend.saw	arm64-apple-darwin	differs	ad8686213a8e	success	ok	0	37:b0efe83f25f6	0:e3b0c44298fc	-	yes	-
-coro_panic_value_position.saw	arm64-apple-darwin	same	738b02d9c522	panic	ok	-6	213:a8dd86ee6247	0:e3b0c44298fc	-	yes	-
+coro_panic_value_position.saw	arm64-apple-darwin	same	738b02d9c522	panic	ok	-6	27:43d4ade5a135	186:abc9c1ac3eb8	-	yes	-
 coro_qualified_generic_call_embeds.saw	arm64-apple-darwin	same	0f377eaa9957	success	ok	0	63:4650b7ce9af2	0:e3b0c44298fc	-	yes	-
 coro_reassign_owning_local.saw	arm64-apple-darwin	same	39ffda72884e	success	ok	0	28:e3b1d071757b	0:e3b0c44298fc	-	yes	-
 coro_ref_arg_beside_suspending_arg.saw	arm64-apple-darwin	same	c021e32ef2b7	success	ok	0	64:63bf4ecc9856	0:e3b0c44298fc	-	yes	-
@@ -838,7 +838,7 @@ data_cow_slice.saw	arm64-apple-darwin	same	ca4a06e73668	success	ok	0	3:dc51b8c96
 data_cow_value_semantics.saw	arm64-apple-darwin	same	af2c1e1e6bee	success	ok	0	3:dc51b8c96c2d	0:e3b0c44298fc	-	yes	-
 data_iter_outlives_source.saw	arm64-apple-darwin	same	c219a295133c	success	ok	0	23:fb9bafead746	0:e3b0c44298fc	-	yes	-
 data_place_shared_read.saw	arm64-apple-darwin	same	579dd3e1a850	success	ok	0	3:dc51b8c96c2d	0:e3b0c44298fc	-	yes	-
-data_set_oob_panic.saw	arm64-apple-darwin	same	04d334facb23	panic	ok	-6	71:28d02cb1ec95	0:e3b0c44298fc	-	yes	-
+data_set_oob_panic.saw	arm64-apple-darwin	same	04d334facb23	panic	ok	-6	8:f4beca226af3	63:694b35dac6a5	-	yes	-
 data_simple.saw	arm64-apple-darwin	same	24a7200c4386	success	ok	0	38:cea618fa7df2	0:e3b0c44298fc	-	yes	-
 data_to_string_validates_utf8.saw	arm64-apple-darwin	same	b5acb0171757	success	ok	0	47:32d9eda0c3ed	0:e3b0c44298fc	-	yes	-
 declaration_lists_take_a_line_each.saw	arm64-apple-darwin	same	d2875155dc7d	success	ok	0	61:77803b1f49a7	0:e3b0c44298fc	-	yes	-
@@ -915,8 +915,8 @@ discard_let_read_error.saw	arm64-apple-darwin	same	1942eb0617ab	error	refused	-	
 discard_let_two_same_scope.saw	arm64-apple-darwin	same	227003ef792b	success	ok	0	8:a25622dcbf70	0:e3b0c44298fc	-	yes	-
 discard_var_error.saw	arm64-apple-darwin	same	9faead556a84	error	refused	-	-	-	137:ad52446a699e	yes	Parse error at 6:11: `var _` is not allowed: `_` is a discard binding and has nothing to mutate (use `let _` to evaluate and drop)
 distinct_type_value_access_error.saw	arm64-apple-darwin	same	1c6f544594f7	error	refused	-	-	-	380:431ad61dbcf0	yes	cannot access member `value` on the distinct type `MyInt`: it has no fields and there is no `.value` accessor — a distinct type flows to its underlying type implicitly (use it directly), or project it explicitly with a cast like `x as Int`
-div_by_zero_modulo.saw	arm64-apple-darwin	same	71404af7862b	panic	ok	-6	53:1102f7f84042	0:e3b0c44298fc	-	yes	-
-div_by_zero_panics.saw	arm64-apple-darwin	same	b5fe62f5911a	panic	ok	-6	53:e604c629d0ea	0:e3b0c44298fc	-	yes	-
+div_by_zero_modulo.saw	arm64-apple-darwin	same	71404af7862b	panic	ok	-6	0:e3b0c44298fc	53:1102f7f84042	-	yes	-
+div_by_zero_panics.saw	arm64-apple-darwin	same	b5fe62f5911a	panic	ok	-6	0:e3b0c44298fc	53:e604c629d0ea	-	yes	-
 doc_comment_attachment.saw	arm64-apple-darwin	same	8880ec7962b0	success	ok	0	2:10159baf262b	0:e3b0c44298fc	-	yes	-
 doc_comment_module_placement_error.saw	arm64-apple-darwin	same	e274102fbbd9	error	refused	-	-	-	107:102ffda3c7f1	yes	Parse error at 11:1: module doc comment (`//!`) must appear before the first declaration in the file
 doc_comment_unattached_error.saw	arm64-apple-darwin	same	ad6a6f479c3f	error	refused	-	-	-	243:681a6a8dcb9f	yes	Parse error at 10:1: doc comment is not followed by a documentable declaration
@@ -1553,12 +1553,12 @@ fixed_string_builder_too_small_error.saw	arm64-apple-darwin	same	a35efcb32163	er
 fixed_width_arith_literal.saw	arm64-apple-darwin	same	b1bae9623d4d	success	ok	0	23:d31447d788c5	0:e3b0c44298fc	-	yes	-
 fixed_width_enum_payload_out_of_range_error.saw	arm64-apple-darwin	same	8c8d80f91f6d	error	refused	-	-	-	220:4cb05aa80da7	yes	integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_let_narrow.saw	arm64-apple-darwin	same	20fa99959093	success	ok	0	24:47ec8463dbf8	0:e3b0c44298fc	-	yes	-
-fixed_width_let_negate_panic.saw	arm64-apple-darwin	same	d18a58e2b51d	panic	ok	-6	63:5fbb6ead5b59	0:e3b0c44298fc	-	yes	-
+fixed_width_let_negate_panic.saw	arm64-apple-darwin	same	d18a58e2b51d	panic	ok	-6	0:e3b0c44298fc	63:5fbb6ead5b59	-	yes	-
 fixed_width_param_out_of_range_error.saw	arm64-apple-darwin	same	e2ae5d673452	error	refused	-	-	-	222:bb52d4a21877	yes	integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_return_out_of_range_error.saw	arm64-apple-darwin	same	2362fdad9c29	error	refused	-	-	-	215:85f7cb66302e	yes	integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_value_positions.saw	arm64-apple-darwin	same	c052a057a87a	success	ok	0	11:02b3336d3583	0:e3b0c44298fc	-	yes	-
 fixedbuf_get_out_of_range_none.saw	arm64-apple-darwin	same	12316df52ac3	success	ok	0	15:d00a12425e23	0:e3b0c44298fc	-	yes	-
-fixedbuf_set_oob_panic.saw	arm64-apple-darwin	same	2163a5ce0643	panic	ok	-6	71:125d147a5712	0:e3b0c44298fc	-	yes	-
+fixedbuf_set_oob_panic.saw	arm64-apple-darwin	same	2163a5ce0643	panic	ok	-6	0:e3b0c44298fc	71:125d147a5712	-	yes	-
 flag_enum_const.saw	arm64-apple-darwin	same	781b1c7eeeae	success	ok	0	14:2b31b530a223	0:e3b0c44298fc	-	yes	-
 flat_and_nested_module_paths_are_distinct.saw	arm64-apple-darwin	same	a575b2ac2689	success	ok	0	8:c108a03e1979	0:e3b0c44298fc	-	yes	-
 flat_and_nested_modules_declare_distinct_types.saw	arm64-apple-darwin	same	6e431795354e	success	ok	0	8:c108a03e1979	0:e3b0c44298fc	-	yes	-
@@ -1573,14 +1573,14 @@ for_loop_continue.saw	arm64-apple-darwin	same	0f21ebb38547	success	ok	0	8:8363b7
 for_loop_expr.saw	arm64-apple-darwin	same	f9c88655df12	success	ok	0	12:e572b3470ab8	0:e3b0c44298fc	-	yes	-
 for_loop_nested.saw	arm64-apple-darwin	same	285fd0eaceee	success	ok	0	15:2ae1b532fa19	0:e3b0c44298fc	-	yes	-
 for_loop_simple.saw	arm64-apple-darwin	same	e2c00385c207	success	ok	0	10:026d8ad3dfa1	0:e3b0c44298fc	-	yes	-
-force_unwrap_panic.saw	arm64-apple-darwin	same	d39d524188ee	panic	ok	-6	56:4fae3a18c9ca	0:e3b0c44298fc	-	yes	-
+force_unwrap_panic.saw	arm64-apple-darwin	same	d39d524188ee	panic	ok	-6	0:e3b0c44298fc	56:4fae3a18c9ca	-	yes	-
 format_args_alloc_free.saw	arm64-apple-darwin	same	a3dd7fc6bd14	success	ok	0	126:9576854321a2	0:e3b0c44298fc	-	yes	-
 format_args_arity_error.saw	arm64-apple-darwin	same	5f2370d10617	error	refused	-	-	-	254:dd9f914e490f	yes	`print` format string has 2 placeholders but 1 argument was given
-format_args_assert.saw	arm64-apple-darwin	same	6a519a3040f8	panic	ok	-6	98:268531bd08b2	0:e3b0c44298fc	-	yes	-
+format_args_assert.saw	arm64-apple-darwin	same	6a519a3040f8	panic	ok	-6	19:4e324a8a937f	79:72f687b1de95	-	yes	-
 format_args_mixed_error.saw	arm64-apple-darwin	same	c7325a68ca69	error	refused	-	-	-	371:4f3e468a77d8	yes	`print` format string mixes `{...}` interpolation with `{}` placeholders
 format_args_nonliteral_error.saw	arm64-apple-darwin	same	bbdb02fb02b6	error	refused	-	-	-	1200:b91d23a83922	yes	`print` with format arguments needs a literal format string
 format_args_not_printable_error.saw	arm64-apple-darwin	same	b231534dcce6	error	refused	-	-	-	279:736f79551024	yes	cannot format value of type `Opaque`: it is not `Printable`
-format_args_panic.saw	arm64-apple-darwin	same	9502b0932ef3	panic	ok	-6	102:6ac324ebe3e7	0:e3b0c44298fc	-	yes	-
+format_args_panic.saw	arm64-apple-darwin	same	9502b0932ef3	panic	ok	-6	6:dc05a2487730	96:bfd931819d3c	-	yes	-
 format_args_placeholder_error.saw	arm64-apple-darwin	same	2266f35fa3b0	error	refused	-	-	-	475:179d272c3146	yes	`{}` is a format placeholder and needs an argument to fill it
 format_args_print.saw	arm64-apple-darwin	same	866584a3820b	success	ok	0	256:26ab0a1b1eec	0:e3b0c44298fc	-	yes	-
 format_args_too_many_error.saw	arm64-apple-darwin	same	1bc360bd38f2	error	refused	-	-	-	257:73d0d3b1e3a6	yes	`panic` format string has 1 placeholder but 2 arguments were given
@@ -1701,14 +1701,14 @@ init_fallible_result_shapes.saw	arm64-apple-darwin	same	31ecc4331c65	success	ok	
 init_generic_body_isolates_cleanup_state.saw	arm64-apple-darwin	same	4ce1ff4d7c66	success	ok	0	11:3a26497c8883	0:e3b0c44298fc	-	yes	-
 init_generic_param_released.saw	arm64-apple-darwin	same	52b8b06a9ad6	success	ok	0	31:f41b4b8897fa	0:e3b0c44298fc	-	yes	-
 init_receiver_return_spellings.saw	arm64-apple-darwin	same	351871ccb27c	success	ok	0	113:5e9eb7223916	0:e3b0c44298fc	-	yes	-
-int_abs_min_panics.saw	arm64-apple-darwin	same	e040473920b2	panic	ok	-6	42:b9af3265be02	0:e3b0c44298fc	-	yes	-
+int_abs_min_panics.saw	arm64-apple-darwin	same	e040473920b2	panic	ok	-6	0:e3b0c44298fc	42:b9af3265be02	-	yes	-
 int_limits.saw	arm64-apple-darwin	same	739dd5368b2a	success	ok	0	85:4603f644dcd4	0:e3b0c44298fc	-	yes	-
 int_literal_out_of_range.saw	arm64-apple-darwin	same	5744ec566ed8	error	refused	-	-	-	128:bf4ce0029550	yes	Lexer error at 8:19: integer literal 18446744073709551616 is out of range for a 64-bit integer (max 18446744073709551615)
 int_methods.saw	arm64-apple-darwin	same	3512a3cb2ab5	success	ok	0	30:a8ef3591da82	0:e3b0c44298fc	-	yes	-
 int_narrowing_transfer_through_platform_int.saw	arm64-apple-darwin	same	152012082f50	error	refused	-	-	-	332:21088a07d858	yes	cannot assign `Int` to variable of type `Int8`
 int_parse_to_uint.saw	arm64-apple-darwin	same	9c43016bc254	success	ok	0	195:3ea42c9ffc77	0:e3b0c44298fc	-	yes	-
 int_parse_unsigned_compare.saw	arm64-apple-darwin	same	63da74e56b97	success	ok	0	158:72f82477371b	0:e3b0c44298fc	-	yes	-
-int_pow_negative_panics.saw	arm64-apple-darwin	same	3fdb2aa3cdce	panic	ok	-6	43:1afce082a71a	0:e3b0c44298fc	-	yes	-
+int_pow_negative_panics.saw	arm64-apple-darwin	same	3fdb2aa3cdce	panic	ok	-6	0:e3b0c44298fc	43:1afce082a71a	-	yes	-
 int_sign_flip_transfer_through_platform_int.saw	arm64-apple-darwin	same	1e121a86b70a	error	refused	-	-	-	328:0238986257b4	yes	cannot assign `UInt` to variable of type `Int`
 int_types.saw	arm64-apple-darwin	same	2da2f5ec8fdd	success	ok	0	614:e7294dc018c0	0:e3b0c44298fc	-	yes	-
 int_widening_argument_positions.saw	arm64-apple-darwin	same	8b49245dbea0	success	ok	0	110:9e1ca07b83e1	0:e3b0c44298fc	-	yes	-
@@ -1786,7 +1786,7 @@ link_dead_strip.saw	arm64-apple-darwin	same	0c930d7b8609	success	ok	0	15:4496856
 literal_coercion_positions.saw	arm64-apple-darwin	same	dc4b9b10a659	success	ok	0	20:beb904065664	0:e3b0c44298fc	-	yes	-
 literal_suffix_basic.saw	arm64-apple-darwin	same	1ec10b8e40be	success	ok	0	23:32028100719c	0:e3b0c44298fc	-	yes	-
 literal_suffix_out_of_range_error.saw	arm64-apple-darwin	same	1224193167ff	error	refused	-	-	-	84:8e5bacdd9b43	yes	Lexer error at 7:13: integer literal 256u8 is out of range for `u8` (max 255)
-literal_suffix_overflow_panic.saw	arm64-apple-darwin	same	1e1a019c3406	panic	ok	-6	63:4de4670663e7	0:e3b0c44298fc	-	yes	-
+literal_suffix_overflow_panic.saw	arm64-apple-darwin	same	1e1a019c3406	panic	ok	-6	0:e3b0c44298fc	63:4de4670663e7	-	yes	-
 literal_suffix_type_mismatch_error.saw	arm64-apple-darwin	same	50f761965a2d	error	refused	-	-	-	325:b577b23d9cf8	yes	cannot assign `UInt16` to variable of type `Int8`
 logical_ops.saw	arm64-apple-darwin	same	78f2fa8c3f39	success	ok	0	261:a73117aeb7b5	0:e3b0c44298fc	-	yes	-
 loop_exit_releases_body_local.saw	arm64-apple-darwin	same	8c2b4db238c2	success	ok	0	315:56115e6dfd6f	0:e3b0c44298fc	-	yes	-
@@ -1972,7 +1972,7 @@ net_two_concurrent_parked_reads.saw	arm64-apple-darwin	same	35e9913de5bd	success
 net_unroutable_connect_names_the_cause.saw	arm64-apple-darwin	same	2d421069a5b8	success	ok	0	254:703c610cea4e	0:e3b0c44298fc	-	yes	-
 net_write_overloads.saw	arm64-apple-darwin	same	36892af86dd0	success	refused	-	-	-	556:3173ef4acb7f	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_write_to_closed_peer_is_an_error.saw	arm64-apple-darwin	same	51b2787a5fa8	success	refused	-	-	-	749:59f5cabc7e07	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
-never_extern_module_abi.saw	arm64-apple-darwin	same	6fe5c3abdb59	panic	ok	-6	54:3562ed6f971d	0:e3b0c44298fc	-	yes	-
+never_extern_module_abi.saw	arm64-apple-darwin	same	6fe5c3abdb59	panic	ok	-6	0:e3b0c44298fc	54:3562ed6f971d	-	yes	-
 newline_braces_stay_significant.saw	arm64-apple-darwin	same	0b2ea79350e7	success	ok	0	7:d19c96f75adc	0:e3b0c44298fc	-	yes	-
 newline_comparison_unaffected.saw	arm64-apple-darwin	same	55f8c89af515	success	ok	0	27:c8a6d7175cd8	0:e3b0c44298fc	-	yes	-
 newline_generic_call_trailing_comma_error.saw	arm64-apple-darwin	same	11fb59d81e4d	error	refused	-	-	-	132:16fd1a89ac77	yes	Parse error at 11:19: a trailing comma is not allowed in a generic argument list (it is allowed in `(...)` and `[...]` lists)
@@ -1989,7 +1989,7 @@ no_copy_return_error.saw	arm64-apple-darwin	same	bb021bc5272f	error	refused	-	-	
 no_hidden_alloc_escaping_closure.saw	arm64-apple-darwin	same	7178a4661f27	error	refused	-	-	-	552:4e4ff30e9100	yes	an escaping closure heap-allocates its captured environment — `--no-hidden-alloc` forbids allocations the source does not name
 no_hidden_alloc_interpolation.saw	arm64-apple-darwin	same	4fc9e14d5346	error	refused	-	-	-	512:5e732740dcce	yes	string interpolation allocates a String — `--no-hidden-alloc` forbids allocations the source does not name
 no_hidden_alloc_named_allocations.saw	arm64-apple-darwin	same	6a9cd0eecb3b	success	ok	0	157:8b4a88426f34	0:e3b0c44298fc	-	yes	-
-no_hidden_alloc_off_by_default.saw	arm64-apple-darwin	same	bec0c2d50792	panic	ok	-6	97:e1be61cc0304	0:e3b0c44298fc	-	yes	-
+no_hidden_alloc_off_by_default.saw	arm64-apple-darwin	same	bec0c2d50792	panic	ok	-6	27:421af6958627	70:cf114f07e280	-	yes	-
 no_hidden_alloc_panic_interpolation.saw	arm64-apple-darwin	same	b21b0a6ee3ba	error	refused	-	-	-	536:2fba4c2ddce6	yes	string interpolation allocates a String — `--no-hidden-alloc` forbids allocations the source does not name
 no_hidden_alloc_print_printable.saw	arm64-apple-darwin	same	bbf323785680	error	refused	-	-	-	2024:8c91751853e4	yes	`print` renders `Point` through `to_string()`, which allocates a String — `--no-hidden-alloc` forbids allocations the source does not name
 nocopy_array_elem_requires_move.saw	arm64-apple-darwin	same	33bbb65ec578	error	refused	-	-	-	287:88ef8b1d462a	yes	cannot copy value of type `FileHandle` which implements NoCopy
@@ -2013,8 +2013,8 @@ offload_seam_first_tick.saw	arm64-apple-darwin	same	e355524c906c	success	ok	0	31
 offload_signature_shapes.saw	arm64-apple-darwin	same	e9293755439d	success	ok	0	73:17b5419c5347	0:e3b0c44298fc	-	yes	-
 offload_spawn_interleave.saw	arm64-apple-darwin	same	73ebf1bf1e2d	success	ok	0	9:67df1a21c787	0:e3b0c44298fc	-	yes	-
 once_cross_thread_publish.saw	arm64-apple-darwin	same	7fb7c431bc7c	success	refused	-	-	-	159:e71b789bdf81	no: Stage 0 does not build it	Parse error at 48:32: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
-once_double_set_panic.saw	arm64-apple-darwin	same	121e045e4cf6	panic	ok	-6	82:f5aa11f3b0de	0:e3b0c44298fc	-	yes	-
-once_get_before_set_panic.saw	arm64-apple-darwin	same	d52be3180b09	panic	ok	-6	60:4da9bcc51c52	0:e3b0c44298fc	-	yes	-
+once_double_set_panic.saw	arm64-apple-darwin	same	121e045e4cf6	panic	ok	-6	5:5eab4b719020	77:e551e8ff358c	-	yes	-
+once_get_before_set_panic.saw	arm64-apple-darwin	same	d52be3180b09	panic	ok	-6	0:e3b0c44298fc	60:4da9bcc51c52	-	yes	-
 once_static_set_get.saw	arm64-apple-darwin	same	2fb879116445	success	ok	0	32:016eb9803c49	0:e3b0c44298fc	-	yes	-
 optimization_level_o0_preserves_semantics.saw	arm64-apple-darwin	same	b7262b8a4ead	success	ok	0	40:9b049d6bf285	0:e3b0c44298fc	-	yes	-
 optimization_level_o2_preserves_semantics.saw	arm64-apple-darwin	same	e6554ba7622c	success	ok	0	40:9b049d6bf285	0:e3b0c44298fc	-	yes	-
@@ -2074,13 +2074,13 @@ optionals_advanced.saw	arm64-apple-darwin	same	028fda78633d	success	ok	0	6:227cb
 optionals_chain_debug.saw	arm64-apple-darwin	same	918ce2450675	success	ok	0	3:917df3320d77	0:e3b0c44298fc	-	yes	-
 optionals_debug.saw	arm64-apple-darwin	same	7dd9510e4ce2	success	ok	0	6:ce289a1af143	0:e3b0c44298fc	-	yes	-
 optionals_struct_simple.saw	arm64-apple-darwin	same	38f1e8c61def	success	ok	0	3:917df3320d77	0:e3b0c44298fc	-	yes	-
-overflow_add_panics.saw	arm64-apple-darwin	same	322454e6fb05	panic	ok	-6	53:7dc45cce4bf3	0:e3b0c44298fc	-	yes	-
-overflow_div_intmin_panics.saw	arm64-apple-darwin	same	2d43adc0c1ef	panic	ok	-6	60:a0e6a1e69a1b	0:e3b0c44298fc	-	yes	-
-overflow_mod_intmin_panics.saw	arm64-apple-darwin	same	a88fb348780b	panic	ok	-6	60:2484c743281f	0:e3b0c44298fc	-	yes	-
-overflow_mul_panics.saw	arm64-apple-darwin	same	8db9ab5f30a2	panic	ok	-6	53:bf0b4f565c75	0:e3b0c44298fc	-	yes	-
-overflow_neg_min_panics.saw	arm64-apple-darwin	same	a9a2a01f8443	panic	ok	-6	57:316890a9ef88	0:e3b0c44298fc	-	yes	-
-overflow_sub_panics.saw	arm64-apple-darwin	same	d605f83b803a	panic	ok	-6	53:283516e3a118	0:e3b0c44298fc	-	yes	-
-overflow_unsigned_panics.saw	arm64-apple-darwin	same	393a5b5dec7d	panic	ok	-6	58:f711ffa35bef	0:e3b0c44298fc	-	yes	-
+overflow_add_panics.saw	arm64-apple-darwin	same	322454e6fb05	panic	ok	-6	0:e3b0c44298fc	53:7dc45cce4bf3	-	yes	-
+overflow_div_intmin_panics.saw	arm64-apple-darwin	same	2d43adc0c1ef	panic	ok	-6	0:e3b0c44298fc	60:a0e6a1e69a1b	-	yes	-
+overflow_mod_intmin_panics.saw	arm64-apple-darwin	same	a88fb348780b	panic	ok	-6	0:e3b0c44298fc	60:2484c743281f	-	yes	-
+overflow_mul_panics.saw	arm64-apple-darwin	same	8db9ab5f30a2	panic	ok	-6	0:e3b0c44298fc	53:bf0b4f565c75	-	yes	-
+overflow_neg_min_panics.saw	arm64-apple-darwin	same	a9a2a01f8443	panic	ok	-6	0:e3b0c44298fc	57:316890a9ef88	-	yes	-
+overflow_sub_panics.saw	arm64-apple-darwin	same	d605f83b803a	panic	ok	-6	0:e3b0c44298fc	53:283516e3a118	-	yes	-
+overflow_unsigned_panics.saw	arm64-apple-darwin	same	393a5b5dec7d	panic	ok	-6	0:e3b0c44298fc	58:f711ffa35bef	-	yes	-
 overload_arity_dispatch.saw	arm64-apple-darwin	same	d0821cf66d74	success	ok	0	5:652064313b25	0:e3b0c44298fc	-	yes	-
 overload_call_ambiguous_error.saw	arm64-apple-darwin	same	3fcd282258e9	error	refused	-	-	-	256:a16f01ebeecb	yes	ambiguous call to `h`: multiple overloads match the argument types (Int)
 overload_closure_arg.saw	arm64-apple-darwin	same	9aa249827d4a	success	ok	0	5:f836f55f9083	0:e3b0c44298fc	-	yes	-
@@ -2104,15 +2104,15 @@ package_tier_foreign_relative_selection_error.saw	arm64-apple-darwin	same	37f942
 package_tier_refused_argument_reported_error.saw	arm64-apple-darwin	same	c79a7952e4ab	error	refused	-	-	-	829:2e8964e4ac4f	yes	`pkg_scale` is public(package) in `module_tests.pkg232n.src.lib`
 package_tier_refused_type_no_cascade_error.saw	arm64-apple-darwin	same	102c39220576	error	refused	-	-	-	2368:c37424e8dff4	yes	`PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
 package_tier_refused_type_qualified_error.saw	arm64-apple-darwin	same	4ea80c67e7d9	error	refused	-	-	-	775:6a349d7d7854	yes	`PkgBox` is public(package) in `module_tests.pkg232n.src.lib`
-panic_builtin.saw	arm64-apple-darwin	same	2b6c3f26af50	panic	ok	-6	64:c837543c7005	0:e3b0c44298fc	-	yes	-
-panic_location_bounds.saw	arm64-apple-darwin	same	d236145afbfa	panic	ok	-6	76:9e96dfe07fcc	0:e3b0c44298fc	-	yes	-
-panic_location_divzero.saw	arm64-apple-darwin	same	41f01800ef32	panic	ok	-6	57:604ecd7665e9	0:e3b0c44298fc	-	yes	-
-panic_location_overflow.saw	arm64-apple-darwin	same	69c391e34668	panic	ok	-6	58:8657786c0b0d	0:e3b0c44298fc	-	yes	-
-panic_location_shift.saw	arm64-apple-darwin	same	4927c6a16426	panic	ok	-6	57:6a1a4cdd60e5	0:e3b0c44298fc	-	yes	-
-panic_message_truncated.saw	arm64-apple-darwin	same	d00c1ca8bbb1	panic	ok	-6	518:373a33de6b61	0:e3b0c44298fc	-	yes	-
+panic_builtin.saw	arm64-apple-darwin	same	2b6c3f26af50	panic	ok	-6	13:cf5f427fdfb5	51:7f024426675a	-	yes	-
+panic_location_bounds.saw	arm64-apple-darwin	same	d236145afbfa	panic	ok	-6	0:e3b0c44298fc	76:9e96dfe07fcc	-	yes	-
+panic_location_divzero.saw	arm64-apple-darwin	same	41f01800ef32	panic	ok	-6	0:e3b0c44298fc	57:604ecd7665e9	-	yes	-
+panic_location_overflow.saw	arm64-apple-darwin	same	69c391e34668	panic	ok	-6	0:e3b0c44298fc	58:8657786c0b0d	-	yes	-
+panic_location_shift.saw	arm64-apple-darwin	same	4927c6a16426	panic	ok	-6	0:e3b0c44298fc	57:6a1a4cdd60e5	-	yes	-
+panic_message_truncated.saw	arm64-apple-darwin	same	d00c1ca8bbb1	panic	ok	-6	6:56f6e6304d02	512:382b7710c077	-	yes	-
 panic_never_diverges.saw	arm64-apple-darwin	same	95930351bd3f	success	ok	0	6:aa0c4d644b86	0:e3b0c44298fc	-	yes	-
 panic_non_string_error.saw	arm64-apple-darwin	same	784012661b1a	error	refused	-	-	-	162:a41c7648937e	yes	`panic` expects a String message, got `Int`
-panic_source_location.saw	arm64-apple-darwin	same	5ed9cb53c15e	panic	ok	-6	43:c71b5ad1534c	0:e3b0c44298fc	-	yes	-
+panic_source_location.saw	arm64-apple-darwin	same	5ed9cb53c15e	panic	ok	-6	0:e3b0c44298fc	43:c71b5ad1534c	-	yes	-
 parse_recovery_two_errors.saw	arm64-apple-darwin	same	e8bc6d22a5d9	error	refused	-	-	-	113:37765a7f6b46	yes	Parse error at 10:7: Expected type, got NEWLINE
 path_simple.saw	arm64-apple-darwin	same	b5f39370b371	success	ok	0	150:c240e8507407	0:e3b0c44298fc	-	yes	-
 payload_derived_binding_fills_default_type_args.saw	arm64-apple-darwin	same	7f4c2d7e509b	success	ok	0	116:3d21fbbdf60a	0:e3b0c44298fc	-	yes	-
@@ -2296,8 +2296,8 @@ shadow_redef_nested_owning.saw	arm64-apple-darwin	same	3e34d41c417d	success	ok	0
 shadow_redef_same_scope.saw	arm64-apple-darwin	same	08cbeea316e9	success	ok	0	56:016941bf2886	0:e3b0c44298fc	-	yes	-
 shared_self_field_call_exemption.saw	arm64-apple-darwin	differs	53896d4363a8	success	ok	0	60:e8a2150e579f	0:e3b0c44298fc	-	yes	-
 shared_self_write_alternatives.saw	arm64-apple-darwin	differs	e3047f9da7ad	success	ok	0	48:ae4c12fba9c8	0:e3b0c44298fc	-	yes	-
-shift_negative_panic.saw	arm64-apple-darwin	same	89678f36f7fb	panic	ok	-6	56:7edfe3b160cd	0:e3b0c44298fc	-	yes	-
-shift_out_of_range_panic.saw	arm64-apple-darwin	same	3071e748b5e0	panic	ok	-6	60:d62c8746d173	0:e3b0c44298fc	-	yes	-
+shift_negative_panic.saw	arm64-apple-darwin	same	89678f36f7fb	panic	ok	-6	0:e3b0c44298fc	56:7edfe3b160cd	-	yes	-
+shift_out_of_range_panic.saw	arm64-apple-darwin	same	3071e748b5e0	panic	ok	-6	0:e3b0c44298fc	60:d62c8746d173	-	yes	-
 shift_signed_unsigned.saw	arm64-apple-darwin	same	a894707609e0	success	ok	0	16:5c1d152ca890	0:e3b0c44298fc	-	yes	-
 short_circuit_skipped_operand_temp_cleanup.saw	arm64-apple-darwin	same	8cd0f0ba9ef9	success	ok	0	123:e315c86c78c7	0:e3b0c44298fc	-	yes	-
 short_circuit_token_field_no_crash.saw	arm64-apple-darwin	differs	dd2828f7561e	success	ok	0	6:2ed27c1421e6	0:e3b0c44298fc	-	yes	-
@@ -2356,8 +2356,8 @@ static_zero_init.saw	arm64-apple-darwin	same	c1ee4582a0d4	success	ok	0	6:f456c1f
 std_gated_name_redefined_by_user.saw	arm64-apple-darwin	same	0d970f733e69	success	ok	0	12:27ae113ed3fe	0:e3b0c44298fc	-	yes	-
 std_import_gate_signature_position.saw	arm64-apple-darwin	same	75e34bd998f1	error	refused	-	-	-	1342:cb778cfb2fde	yes	`Data` is not in the prelude and must be imported
 std_time.saw	arm64-apple-darwin	same	eeedd765c340	success	ok	0	88:6bacfa1fae71	0:e3b0c44298fc	-	yes	-
-std_time_duration_overflow_panic.saw	arm64-apple-darwin	same	e5b1f59f7479	panic	ok	-6	104:3513b1f5cc78	0:e3b0c44298fc	-	yes	-
-string_byte_at_oob_panic.saw	arm64-apple-darwin	same	44df46a42945	panic	ok	-6	75:46a604a2e3e7	0:e3b0c44298fc	-	yes	-
+std_time_duration_overflow_panic.saw	arm64-apple-darwin	same	e5b1f59f7479	panic	ok	-6	12:d99263450c80	92:104800eb33d6	-	yes	-
+string_byte_at_oob_panic.saw	arm64-apple-darwin	same	44df46a42945	panic	ok	-6	4:77a60c200656	71:29cb642a1f17	-	yes	-
 string_bytes_iter.saw	arm64-apple-darwin	same	0e14f0096ace	success	ok	0	15:abe59f07ea20	0:e3b0c44298fc	-	yes	-
 string_escaped_brace_keeps_control_byte.saw	arm64-apple-darwin	same	f1239d4567aa	success	ok	0	214:50aecebf76d4	0:e3b0c44298fc	-	yes	-
 string_escapes.saw	arm64-apple-darwin	same	e5c79877da05	success	ok	0	14:5506c8b4def4	0:e3b0c44298fc	-	yes	-
@@ -2378,8 +2378,8 @@ string_scalars_iter.saw	arm64-apple-darwin	same	a7abf42fd93c	success	ok	0	55:7d9
 string_scalars_temp_receiver.saw	arm64-apple-darwin	same	6fac012e5fb7	success	ok	0	16:1e0b5cad7514	0:e3b0c44298fc	-	yes	-
 string_simple.saw	arm64-apple-darwin	same	be25db7529b8	success	ok	0	2:f0b5c2c2211c	0:e3b0c44298fc	-	yes	-
 string_split_join.saw	arm64-apple-darwin	same	c02c020f4174	success	ok	0	100:b369302e2b2e	0:e3b0c44298fc	-	yes	-
-string_substring_oob_panic.saw	arm64-apple-darwin	same	e066c00be249	panic	ok	-6	82:da3dfb4757b1	0:e3b0c44298fc	-	yes	-
-string_substring_reversed_panic.saw	arm64-apple-darwin	same	23e5991452fb	panic	ok	-6	77:b15082a4c3a8	0:e3b0c44298fc	-	yes	-
+string_substring_oob_panic.saw	arm64-apple-darwin	same	e066c00be249	panic	ok	-6	4:c068e3fadaaf	78:0d69a892cf3e	-	yes	-
+string_substring_reversed_panic.saw	arm64-apple-darwin	same	23e5991452fb	panic	ok	-6	1:01ba4719c80b	76:575c0babc6d8	-	yes	-
 string_to_float.saw	arm64-apple-darwin	same	a5de62e17ab6	success	ok	0	53:32bd39114302	0:e3b0c44298fc	-	yes	-
 string_to_int.saw	arm64-apple-darwin	same	2135d49fa0ef	success	ok	0	72:376dc9e96493	0:e3b0c44298fc	-	yes	-
 string_to_int_radix.saw	arm64-apple-darwin	same	7456035ec050	success	ok	0	28:cf9c18870ed9	0:e3b0c44298fc	-	yes	-
@@ -2414,7 +2414,8 @@ synthesize_explicit_copy_holder.saw	arm64-apple-darwin	same	8383027f0a60	success
 task_backtrace_churn.saw	arm64-apple-darwin	same	9a8089ff16b0	success	ok	0	264:d4c52b4547b7	0:e3b0c44298fc	-	yes	-
 task_backtrace_mt.saw	arm64-apple-darwin	same	b81322ee79a5	success	ok	0	322:4484274558e2	0:e3b0c44298fc	-	yes	-
 task_backtrace_nest.saw	arm64-apple-darwin	same	fd55555b5e68	success	ok	0	311:8e2a4afe6096	0:e3b0c44298fc	-	yes	-
-task_backtrace_panic.saw	arm64-apple-darwin	same	14ea1b34b15a	panic	ok	-6	325:318240de1b3e	0:e3b0c44298fc	-	yes	-
+task_backtrace_panic.saw	arm64-apple-darwin	same	14ea1b34b15a	panic	ok	-6	0:e3b0c44298fc	325:318240de1b3e	-	yes	-
+task_dump_streams_on_panic.saw	arm64-apple-darwin	same	eb456b27c4f7	panic	ok	-6	138:af013cc7c442	198:8c5be623a688	-	yes	-
 taskgroup_budget_loop_semantics.saw	arm64-apple-darwin	same	d772ccfdf6d7	success	ok	0	60:2d2a57e21c64	0:e3b0c44298fc	-	yes	-
 taskgroup_cancel_check.saw	arm64-apple-darwin	same	c53f521d82c8	success	ok	0	8:de171b932979	0:e3b0c44298fc	-	yes	-
 taskgroup_cancel_during_sleep.saw	arm64-apple-darwin	same	f17f7763b21f	success	ok	0	56:bd7b85f67439	0:e3b0c44298fc	-	yes	-
@@ -2443,7 +2444,7 @@ taskgroup_spawn_and_loop.saw	arm64-apple-darwin	same	c1e8443298b2	success	ok	0	2
 taskgroup_spawn_generic.saw	arm64-apple-darwin	same	e457636d8b98	success	ok	0	6:fe6d6200cfe4	0:e3b0c44298fc	-	yes	-
 taskgroup_spawn_void.saw	arm64-apple-darwin	same	dadac94e00ce	success	ok	0	3:95cf32708a31	0:e3b0c44298fc	-	yes	-
 taskgroup_stale_handle_cancel.saw	arm64-apple-darwin	same	2341ad22bc35	panic	ok	0	44:a121c6ebc99e	0:e3b0c44298fc	-	no: expected a panic, exited 0	-
-taskgroup_stale_handle_join.saw	arm64-apple-darwin	same	8e71a864fae9	panic	ok	-6	81:3a826240e3ec	0:e3b0c44298fc	-	yes	-
+taskgroup_stale_handle_join.saw	arm64-apple-darwin	same	8e71a864fae9	panic	ok	-6	3:084c799cd551	78:02a0c3daadcd	-	yes	-
 taskgroup_structured_join.saw	arm64-apple-darwin	same	cc77fca69efe	success	ok	0	6:b78a1987bcbd	0:e3b0c44298fc	-	yes	-
 taskgroup_suspending_cancel.saw	arm64-apple-darwin	same	0fe39dfef807	success	ok	0	2:9a271f2a916b	0:e3b0c44298fc	-	yes	-
 taskgroup_suspending_deinit_join.saw	arm64-apple-darwin	same	d7c59d9fe77e	success	ok	0	9:b09a47a0292f	0:e3b0c44298fc	-	yes	-
@@ -2490,8 +2491,8 @@ try_catch_union_nonexhaustive_error.saw	arm64-apple-darwin	same	7a124bfaa8d0	err
 try_catch_void_result.saw	arm64-apple-darwin	same	b93fced807a9	success	ok	0	49:43cdf10d2a9c	0:e3b0c44298fc	-	yes	-
 try_catch_void_result_spawned.saw	arm64-apple-darwin	same	e04173bdbbce	success	ok	0	21:211aff351250	0:e3b0c44298fc	-	yes	-
 try_force.saw	arm64-apple-darwin	same	b176f1cdc26a	success	ok	0	3:084c799cd551	0:e3b0c44298fc	-	yes	-
-try_force_panic.saw	arm64-apple-darwin	same	e3eba72558c1	panic	ok	-6	45:963fe0374c9f	0:e3b0c44298fc	-	yes	-
-try_force_panic_names_the_error.saw	arm64-apple-darwin	same	8f1fa9987b5e	panic	ok	-6	112:ebbe69532048	0:e3b0c44298fc	-	yes	-
+try_force_panic.saw	arm64-apple-darwin	same	e3eba72558c1	panic	ok	-6	0:e3b0c44298fc	45:963fe0374c9f	-	yes	-
+try_force_panic_names_the_error.saw	arm64-apple-darwin	same	8f1fa9987b5e	panic	ok	-6	10:c4f6532664b5	102:3694416a3e22	-	yes	-
 try_force_result_layout_disambig.saw	arm64-apple-darwin	same	5c75e73f67dd	success	ok	0	8:f1e894d75e70	0:e3b0c44298fc	-	yes	-
 try_inline_catch_diverging_arm.saw	arm64-apple-darwin	same	4b91cf71c447	success	ok	0	44:8d979d4b5d9b	0:e3b0c44298fc	-	yes	-
 try_optional.saw	arm64-apple-darwin	same	a954a9e831d6	success	ok	0	5:54906b1139af	0:e3b0c44298fc	-	yes	-
@@ -2529,7 +2530,7 @@ uint_compound_division_signedness.saw	arm64-apple-darwin	same	624b5575fb66	succe
 uint_division_signedness.saw	arm64-apple-darwin	same	7c2bce12e7d7	success	ok	0	20:e218d3c0020f	0:e3b0c44298fc	-	yes	-
 uint_modulo_signedness.saw	arm64-apple-darwin	same	fde12e00c2a6	success	ok	0	2:1121cfccd591	0:e3b0c44298fc	-	yes	-
 unary_minus_fixed_width.saw	arm64-apple-darwin	same	a25c3d6e68e2	success	ok	0	28:a5519ce9503d	0:e3b0c44298fc	-	yes	-
-unary_minus_int8_min_panics.saw	arm64-apple-darwin	same	a3b1ea7e12bb	panic	ok	-6	61:50cae459a9c6	0:e3b0c44298fc	-	yes	-
+unary_minus_int8_min_panics.saw	arm64-apple-darwin	same	a3b1ea7e12bb	panic	ok	-6	0:e3b0c44298fc	61:50cae459a9c6	-	yes	-
 unicode_escape_basic.saw	arm64-apple-darwin	same	3e57306dfa8d	success	ok	0	22:5801eee64c73	0:e3b0c44298fc	-	yes	-
 unicode_escape_malformed_error.saw	arm64-apple-darwin	same	5dbe6a819bbd	error	refused	-	-	-	72:afbd8fafa897	yes	Lexer error at 6:16: `\u{}` must contain 1–6 hexadecimal digits
 unicode_escape_oversized_error.saw	arm64-apple-darwin	same	51c42b822bc3	error	refused	-	-	-	92:8a7800edd1aa	yes	Lexer error at 7:22: `\u{110000}` is greater than the maximum Unicode scalar 0x10FFFF
@@ -2593,18 +2594,18 @@ vector_nested_each_borrows.saw	arm64-apple-darwin	same	f57d75e09907	success	ok	0
 vector_nocopy_elem_construct.saw	arm64-apple-darwin	same	d44347a74133	success	ok	0	9:4413942113aa	0:e3b0c44298fc	-	yes	-
 vector_owning_element_safety.saw	arm64-apple-darwin	same	658d65c2785e	success	ok	0	47:aabe931d900f	0:e3b0c44298fc	-	yes	-
 vector_pop_refcount_exact.saw	arm64-apple-darwin	same	081f274ab274	success	ok	0	68:c7a59c2f0957	0:e3b0c44298fc	-	yes	-
-vector_set_oob_panic.saw	arm64-apple-darwin	same	ab7087382150	panic	ok	-6	74:c9e8569edc30	0:e3b0c44298fc	-	yes	-
+vector_set_oob_panic.saw	arm64-apple-darwin	same	ab7087382150	panic	ok	-6	6:9d1d1111e42b	68:fed16d475f76	-	yes	-
 vector_simple.saw	arm64-apple-darwin	same	a0017157cfd0	success	ok	0	7:ae8071229de4	0:e3b0c44298fc	-	yes	-
 vector_sort.saw	arm64-apple-darwin	same	298729cb2be0	success	ok	0	32:46c96e4b7e3d	0:e3b0c44298fc	-	yes	-
 vector_sort_by.saw	arm64-apple-darwin	same	8c8270c56ce2	success	ok	0	10:2a94613e5f9b	0:e3b0c44298fc	-	yes	-
 vector_swap.saw	arm64-apple-darwin	same	804ae21c4d69	success	ok	0	12:9aa32ad0b14a	0:e3b0c44298fc	-	yes	-
-vector_swap_oob_panic.saw	arm64-apple-darwin	same	72e7ad7dd6a6	panic	ok	-6	72:a6396e2b84f1	0:e3b0c44298fc	-	yes	-
-vector_swap_out_oob_panic.saw	arm64-apple-darwin	same	12514a6cc0df	panic	ok	-6	79:ab1763f7f963	0:e3b0c44298fc	-	yes	-
+vector_swap_oob_panic.saw	arm64-apple-darwin	same	72e7ad7dd6a6	panic	ok	-6	3:f4ccd05b3271	69:61082a6e32c5	-	yes	-
+vector_swap_out_oob_panic.saw	arm64-apple-darwin	same	12514a6cc0df	panic	ok	-6	6:e0ad0e4f9793	73:647223d49a3e	-	yes	-
 vector_swap_string.saw	arm64-apple-darwin	same	d6e062661e03	success	ok	0	208:a08a705e4895	0:e3b0c44298fc	-	yes	-
 vector_test.saw	arm64-apple-darwin	same	d41d4e6e78ff	success	ok	0	30:07633b87b83f	0:e3b0c44298fc	-	yes	-
 vector_with_ref.saw	arm64-apple-darwin	differs	03be7bab0437	success	ok	0	8:5c1c77f7229d	0:e3b0c44298fc	-	yes	-
-vector_with_ref_oob_panic.saw	arm64-apple-darwin	differs	d89926f62ccd	panic	ok	-6	76:c1b656f2b62b	0:e3b0c44298fc	-	yes	-
-vector_with_var_ref_oob_panic.saw	arm64-apple-darwin	differs	d191bdd3cd13	panic	ok	-6	80:107a0bb93321	0:e3b0c44298fc	-	yes	-
+vector_with_ref_oob_panic.saw	arm64-apple-darwin	differs	d89926f62ccd	panic	ok	-6	3:537879630753	73:72022e52e5ae	-	yes	-
+vector_with_var_ref_oob_panic.saw	arm64-apple-darwin	differs	d191bdd3cd13	panic	ok	-6	3:64aeb9975f23	77:41b41640ff5c	-	yes	-
 version_semver_sort.saw	arm64-apple-darwin	same	686db6cade5c	success	ok	0	24:e5a50c09bfac	0:e3b0c44298fc	-	yes	-
 vis258_extension_members_do_not_inherit_error.saw	arm64-apple-darwin	same	9c72e0aaa6ee	error	refused	-	-	-	331:a595d6d94d3f	yes	method `helper` of `Crate` is private and not accessible from this module
 vis258_field_inherits_package.saw	arm64-apple-darwin	same	3d9dcc420e55	success	ok	0	2:10159baf262b	0:e3b0c44298fc	-	yes	-

@@ -4,5 +4,6 @@ source	183675eade823de8
 build	ok
 exit	-6
 stdout	"descriptors exhausted: true"
-stdout	"panic at offload_start_refused.saw:66: blocking call: starting its offload failed (errno 24)"
 stdout	""
+stderr	"panic at offload_start_refused.saw:66: blocking call: starting its offload failed (errno 24)"
+stderr	""

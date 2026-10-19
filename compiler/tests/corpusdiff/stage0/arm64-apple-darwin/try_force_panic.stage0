@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at try_force_panic.saw:26: try! failed"
-stdout	""
+stderr	"panic at try_force_panic.saw:26: try! failed"
+stderr	""
 meets_expect	yes

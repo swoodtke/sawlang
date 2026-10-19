@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"1"
-stdout	"panic at map.saw:448: Map.copy: allocation of 128 bytes (align 8) failed"
 stdout	""
+stderr	"panic at map.saw:448: Map.copy: allocation of 128 bytes (align 8) failed"
+stderr	""
 meets_expect	yes

@@ -3,5 +3,5 @@ triple	arm64-apple-darwin
 source	645c5a81d428e921
 build	ok
 exit	-6
-stdout	"panic at numeric.saw:64: integer overflow"
-stdout	""
+stderr	"panic at numeric.saw:64: integer overflow"
+stderr	""

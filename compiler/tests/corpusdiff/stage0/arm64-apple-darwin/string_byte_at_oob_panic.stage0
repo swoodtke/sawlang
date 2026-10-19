@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"104"
-stdout	"panic at string.saw:49: String.byte_at: index out of range: 99 (len 5)"
 stdout	""
+stderr	"panic at string.saw:49: String.byte_at: index out of range: 99 (len 5)"
+stderr	""
 meets_expect	yes

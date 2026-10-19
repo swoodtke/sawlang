@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"checking"
-stdout	"panic at assert_fail.saw:9: assertion failed: x must equal 42"
 stdout	""
+stderr	"panic at assert_fail.saw:9: assertion failed: x must equal 42"
+stderr	""
 meets_expect	yes

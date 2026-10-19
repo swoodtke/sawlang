@@ -1,1 +1,0 @@
-panic at ?: Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task

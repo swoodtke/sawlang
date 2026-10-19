@@ -7,22 +7,22 @@ alloc_channel_send_reports_oom.saw	stage0-wrong	annotated SL-777	sawc2 meets its
 alloc_channel_taskgroup_reports_oom.saw	refused	typecheck transfer.no-move	cannot `match` on `group_made`: `Result<std.taskgroup.TaskGroup, std.alloc.AllocError>` is `NoMove`, so it lives where its constructor built it and a `match` that consumes it would move it into the ma
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
-alloc_data_push_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
+alloc_data_push_forced_panics_named.saw	wrong	stderr differs	line 1: sawc2 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
 alloc_data_reports_oom.saw	stage0-wrong	annotated SL-735	sawc2 meets its directives
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
 alloc_hosted_no_degradation.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
 alloc_map_copy_panics.saw	pass	-	-
-alloc_map_insert_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
+alloc_map_insert_forced_panics_named.saw	wrong	stderr differs	line 1: sawc2 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
 alloc_map_set_reports_oom.saw	pass	-	-
 alloc_panic_under_full_denial.saw	pass	-	-
-alloc_set_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Map.copy: allocation of 192 bytes (align 8) failed", Stage 0 "panic at <std>: Map.copy: allocation of 128 bytes (align 8) failed"
+alloc_set_copy_panics.saw	wrong	stderr differs	line 1: sawc2 "panic at <std>: Map.copy: allocation of 192 bytes (align 8) failed", Stage 0 "panic at <std>: Map.copy: allocation of 128 bytes (align 8) failed"
 alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
-alloc_string_oom_panic.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
+alloc_string_oom_panic.saw	wrong	stderr differs	line 1: sawc2 "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
-alloc_taskgroup_threads_forced_panics_named.saw	wrong	stdout differs	line 2: sawc2 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed", Stage 0 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (al
-alloc_vector_copy_panics.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
+alloc_taskgroup_threads_forced_panics_named.saw	wrong	stderr differs	line 1: sawc2 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed", Stage 0 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (al
+alloc_vector_copy_panics.saw	wrong	stderr differs	line 1: sawc2 "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	pass	-	-
 any_box_deinit.saw	pass	-	-
@@ -296,7 +296,7 @@ conformance/G03_ambient_main_int_exit_status.saw	pass	-	-
 conformance/G04_mt_main_int_exit_status.saw	pass	-	-
 conformance/G05_suspending_main_void_exit_zero.saw	pass	-	-
 conformance/G06_panic_in_suspending_main_aborts.saw	pass	-	-
-conformance/G07_panic_in_spawned_task_mt_aborts.saw	wrong	stdout differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
+conformance/G07_panic_in_spawned_task_mt_aborts.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
 conformance/G08_sync_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G09_sync_main_result_err_exits_one.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G10_suspending_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
@@ -384,7 +384,7 @@ conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-symbol
 conformance/K64_close_drains_before_it_reports_closed.saw	pass	-	-
 conformance/K65_close_wakes_a_parked_receiver.saw	pass	-	-
 conformance/K66_send_and_close_after_close_report.saw	pass	-	-
-conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stdout differs	line 3: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
+conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-
@@ -397,7 +397,7 @@ conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	stage0-wrong	annota
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → `yield_now` → __saw_park_ready: a spawned thread runs no executor, so there is nothing there to resume a su
 conformance/K84_thread_spawn_permits_a_blocking_extern.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K85_background_spawn_handle_must_be_consumed.saw	pass	-	drop.must-consume: `Task.spawn` hands back a `std.taskgroup.Task<Int>` that must be consumed, and this one is discarded. Bind it and consume it on every path: `join()` waits for it and takes its resul
-conformance/K86_background_task_handle_panics_in_deinit.saw	wrong	stdout differs	line 5: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
+conformance/K86_background_task_handle_panics_in_deinit.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	pass	-	-
 conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call. A background task outlives the statement that spawned it and may be detached, so no join ends the borro
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
@@ -463,7 +463,7 @@ conformance/S09_same_scope_redefinition_owning_across_suspend.saw	pass	-	-
 conformance/T10_vector_index_oob.saw	pass	-	-
 conformance/T11_vector_negative_index.saw	pass	-	-
 conformance/T12_vector_get_none.saw	pass	-	-
-conformance/T18_map_forced_absent_key.saw	wrong	stdout differs	line 1: sawc2 "panic at <std>: Map.[]: no entry for the key", Stage 0 "panic at T18_map_forced_absent_key.saw:?: Map.[]: no place to lend"
+conformance/T18_map_forced_absent_key.saw	wrong	stderr differs	line 1: sawc2 "panic at <std>: Map.[]: no entry for the key", Stage 0 "panic at T18_map_forced_absent_key.saw:?: Map.[]: no place to lend"
 conformance/T25_data_index_oob.saw	pass	-	-
 conformance/U02_plain_struct_unsafe_name.saw	pass	-	built
 conformance/U04_unsafe_param_undeclared.saw	pass	-	unsafe.undeclared: `f` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int>`): write `unsafe` after its parameter list, where every caller can see it
@@ -760,7 +760,7 @@ coro_optbind_loop_control_spawned.saw	pass	-	-
 coro_optbind_split_in_try.saw	pass	-	-
 coro_optional_binding_suspending_method.saw	pass	-	-
 coro_optional_presence_unconditional_lend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-coro_panic_value_position.saw	wrong	stdout differs	line 5: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
+coro_panic_value_position.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
 coro_qualified_generic_call_embeds.saw	pass	-	-
 coro_reassign_owning_local.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg.saw	pass	-	-
@@ -2414,7 +2414,8 @@ synthesize_explicit_copy_holder.saw	pass	-	-
 task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
 task_backtrace_mt.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
-task_backtrace_panic.saw	wrong	stdout differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
+task_backtrace_panic.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
+task_dump_streams_on_panic.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
 taskgroup_budget_loop_semantics.saw	pass	-	-
 taskgroup_cancel_check.saw	pass	-	-
 taskgroup_cancel_during_sleep.saw	pass	-	-
@@ -2491,7 +2492,7 @@ try_catch_void_result.saw	pass	-	-
 try_catch_void_result_spawned.saw	pass	-	-
 try_force.saw	pass	-	-
 try_force_panic.saw	pass	-	-
-try_force_panic_names_the_error.saw	wrong	stdout differs	line 2: sawc2 "panic at try_force_panic_names_the_error.saw:39: try! failed", Stage 0 "panic at try_force_panic_names_the_error.saw:39: try! failed: allocation of 64 bytes (align 8) failed"
+try_force_panic_names_the_error.saw	wrong	stderr differs	line 1: sawc2 "panic at try_force_panic_names_the_error.saw:39: try! failed", Stage 0 "panic at try_force_panic_names_the_error.saw:39: try! failed: allocation of 64 bytes (align 8) failed"
 try_force_result_layout_disambig.saw	pass	-	-
 try_inline_catch_diverging_arm.saw	pass	-	-
 try_optional.saw	pass	-	-
@@ -2603,8 +2604,8 @@ vector_swap_out_oob_panic.saw	pass	-	-
 vector_swap_string.saw	pass	-	-
 vector_test.saw	pass	-	-
 vector_with_ref.saw	pass	-	-
-vector_with_ref_oob_panic.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_ref: index out of range: 99 (len 2)"
-vector_with_var_ref_oob_panic.saw	wrong	stdout differs	line 2: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_var_ref: index out of range: 99 (len 2)"
+vector_with_ref_oob_panic.saw	wrong	stderr differs	line 1: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_ref: index out of range: 99 (len 2)"
+vector_with_var_ref_oob_panic.saw	wrong	stderr differs	line 1: sawc2 "panic at <std>: Vector.[]: index out of range: 99 (len 2)", Stage 0 "panic at <std>: Vector.with_var_ref: index out of range: 99 (len 2)"
 version_semver_sort.saw	pass	-	-
 vis258_extension_members_do_not_inherit_error.saw	refused	typecheck member.unknown	`modules.vis258.Crate` has no method `helper` this module can see
 vis258_field_inherits_package.saw	pass	-	-

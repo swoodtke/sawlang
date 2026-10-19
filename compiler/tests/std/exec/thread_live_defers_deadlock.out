@@ -1,3 +1,2 @@
 waiting
 the thread ends without sending
-panic at ?: deadlock: every task is waiting to receive from a channel, and nothing in this program can send. A channel has no sender count — every handle is the same handle — so a producer that is finished must say so with close(), and a receive on a closed, drained channel returns Err(Closed) instead of waiting

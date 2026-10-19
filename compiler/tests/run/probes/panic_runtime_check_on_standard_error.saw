@@ -1,0 +1,16 @@
+// probe: panics
+// about: a check the compiler inserts, an index out of range, panics on standard error while the program's prints stay on standard output (SL-768)
+// stage 0: its record follows whichever stream Stage 0 writes, so it cannot pin the stream
+// speeds: -O0 -O2
+// prints: before
+// panics: Vector.[]: index out of range: 5 (len 1)
+func pick(v: &Vector<Int>, i: Int) -> Int {
+    v[i]
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(1)
+    print("before")
+    print("{}", pick(&v, 5))
+}

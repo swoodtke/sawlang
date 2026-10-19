@@ -4,9 +4,9 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at G07_panic_in_spawned_task_mt_aborts.saw:14: task panicked"
-stdout	"saw tasks: 1 live (as-of panic, unsynchronized)"
-stdout	"  task group 1 slot 0 gen 1 running"
-stdout	"    at G07_panic_in_spawned_task_mt_aborts.saw:13 in work"
-stdout	""
+stderr	"panic at G07_panic_in_spawned_task_mt_aborts.saw:14: task panicked"
+stderr	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stderr	"  task group 1 slot 0 gen 1 running"
+stderr	"    at G07_panic_in_spawned_task_mt_aborts.saw:13 in work"
+stderr	""
 meets_expect	yes

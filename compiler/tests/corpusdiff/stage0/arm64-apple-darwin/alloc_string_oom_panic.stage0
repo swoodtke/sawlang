@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic: string allocation failed"
-stdout	""
+stderr	"panic: string allocation failed"
+stderr	""
 meets_expect	yes

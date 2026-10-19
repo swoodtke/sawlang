@@ -36,10 +36,27 @@ void __saw_rt_write(const char *ptr, size_t len) {
     fflush(stdout);
 }
 
-/* The panic sink: write the message, then abort. */
+/* Standard error, unbuffered: `write(2)` on fd 2, so nothing a panic says
+ * waits in a stdio buffer that `abort` discards. Best-effort and void: a
+ * write that fails on the way to an abort has no one left to report to. It
+ * stays in C beside the sink because the sink calls it.
+ */
+void __saw_rt_write_error(const char *ptr, size_t len) {
+    while (len > 0) {
+        ssize_t n = write(2, ptr, len);
+        if (n < 0 && errno == EINTR)
+            continue;
+        if (n <= 0)
+            return;
+        ptr += n;
+        len -= (size_t)n;
+    }
+}
+
+/* The panic sink: write the message to standard error, then abort. */
 __attribute__((noreturn))
 void __saw_rt_panic(const char *msg, size_t len) {
-    __saw_rt_write(msg, len);
+    __saw_rt_write_error(msg, len);
     abort();
 }
 

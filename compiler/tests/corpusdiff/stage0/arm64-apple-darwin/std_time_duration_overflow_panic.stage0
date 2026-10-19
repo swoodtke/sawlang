@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"18446744073"
-stdout	"panic at duration.saw:74: Duration.secs: 18446744074 seconds is past the representable span"
 stdout	""
+stderr	"panic at duration.saw:74: Duration.secs: 18446744074 seconds is past the representable span"
+stderr	""
 meets_expect	yes

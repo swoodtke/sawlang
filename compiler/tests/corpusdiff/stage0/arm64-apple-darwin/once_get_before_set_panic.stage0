@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at once.saw:113: Once.get: read before initialization"
-stdout	""
+stderr	"panic at once.saw:113: Once.get: read before initialization"
+stderr	""
 meets_expect	yes

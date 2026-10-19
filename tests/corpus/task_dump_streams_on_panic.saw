@@ -1,0 +1,24 @@
+// A program's own `dump_tasks()` is its output and goes to standard output.
+// Everything a panic prints goes to standard error: the message, then the
+// dump the panic path writes while a task is live. Stage 0's record of this
+// program shows the split; the directives read both streams (SL-768).
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: worker failed on 5
+// EXPECT-PANIC-CONTAINS: saw tasks: 1 live (as-of panic, unsynchronized)
+import std.task.{dump_tasks}
+
+func worker(n: Int) -> Int {
+    sleep(Duration.ms(1))
+    if n > 1 {
+        dump_tasks()
+        panic("worker failed on {}", n)
+    }
+    n
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(worker(5))
+    print("before")
+    print("{}", h.join())
+}

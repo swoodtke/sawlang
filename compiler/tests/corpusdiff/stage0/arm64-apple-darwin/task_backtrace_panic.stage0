@@ -4,12 +4,12 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at task_backtrace_panic.saw:32: deliberate"
-stdout	"saw tasks: 2 live (as-of panic, unsynchronized)"
-stdout	"  task group 1 slot 0 gen 1 sleeping"
-stdout	"    at task_backtrace_panic.saw:21 in panicking_leaf"
-stdout	"    at task_backtrace_panic.saw:26 in panicking_worker"
-stdout	"  task group 1 slot 1 gen 1 running"
-stdout	"    at task_backtrace_panic.saw:31 in exploder"
-stdout	""
+stderr	"panic at task_backtrace_panic.saw:32: deliberate"
+stderr	"saw tasks: 2 live (as-of panic, unsynchronized)"
+stderr	"  task group 1 slot 0 gen 1 sleeping"
+stderr	"    at task_backtrace_panic.saw:21 in panicking_leaf"
+stderr	"    at task_backtrace_panic.saw:26 in panicking_worker"
+stderr	"  task group 1 slot 1 gen 1 running"
+stderr	"    at task_backtrace_panic.saw:31 in exploder"
+stderr	""
 meets_expect	yes

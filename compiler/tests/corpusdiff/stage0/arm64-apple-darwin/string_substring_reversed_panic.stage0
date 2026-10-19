@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	""
-stdout	"panic at string.saw:374: String.substring: range out of range: 5..2 (len 5)"
 stdout	""
+stderr	"panic at string.saw:374: String.substring: range out of range: 5..2 (len 5)"
+stderr	""
 meets_expect	yes

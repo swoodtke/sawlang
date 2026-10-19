@@ -5,8 +5,9 @@ expect	panic
 build	ok
 exit	-6
 stdout	"6"
-stdout	"panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (align 16) failed"
 stdout	""
+stderr	"panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (align 16) failed"
+stderr	""
 meets_expect	yes
 frame	__Frame_work$m$	work	48	8	states=1	own=48	sub=0	bt=0	root=1	method=0	agrees=1
 field	n	own	0	8	8

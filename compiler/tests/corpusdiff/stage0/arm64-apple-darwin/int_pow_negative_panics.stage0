@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at numeric.saw:59: negative exponent"
-stdout	""
+stderr	"panic at numeric.saw:59: negative exponent"
+stderr	""
 meets_expect	yes

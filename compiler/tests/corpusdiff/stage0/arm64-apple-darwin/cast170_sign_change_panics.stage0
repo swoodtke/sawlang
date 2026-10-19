@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"42"
-stdout	"panic at cast170_sign_change_panics.saw:17: cast to UInt out of range: -1"
 stdout	""
+stderr	"panic at cast170_sign_change_panics.saw:17: cast to UInt out of range: -1"
+stderr	""
 meets_expect	yes

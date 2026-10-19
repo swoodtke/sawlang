@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"denial armed"
-stdout	"panic at alloc_panic_under_full_denial.saw:31: out of frames"
 stdout	""
+stderr	"panic at alloc_panic_under_full_denial.saw:31: out of frames"
+stderr	""
 meets_expect	yes

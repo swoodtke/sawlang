@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"armed"
-stdout	"panic at format_args_panic.saw:30: out of frames: wanted 64, had 3 (slab (1, 2) -> slab (9, 8))"
 stdout	""
+stderr	"panic at format_args_panic.saw:30: out of frames: wanted 64, had 3 (slab (1, 2) -> slab (9, 8))"
+stderr	""
 meets_expect	yes

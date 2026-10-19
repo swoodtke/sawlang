@@ -1,0 +1,23 @@
+// probe: panics
+// about: `try!` on an `Err` panics on standard error while the program's prints stay on standard output (SL-768)
+// stage 0: its record follows whichever stream Stage 0 writes, so it cannot pin the stream
+// speeds: -O0 -O2
+// prints: before
+// panics: try! failed
+struct Failure { why: String }
+
+extension Failure: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func fails(n: Int) -> Result<Int, Failure> {
+    if n > 0 {
+        return Failure(why: "no such widget")
+    }
+    return n
+}
+
+func main() {
+    print("before")
+    print("{}", try! fails(4))
+}

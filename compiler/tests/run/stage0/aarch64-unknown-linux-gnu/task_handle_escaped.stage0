@@ -6,5 +6,6 @@ exit	-6
 stdout	"3"
 stdout	"about to drop the keeper"
 stdout	"the keeper forgot to join"
-stdout	"panic at taskgroup.saw:1909: Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop"
 stdout	""
+stderr	"panic at taskgroup.saw:1982: Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop"
+stderr	""

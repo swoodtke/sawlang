@@ -1753,7 +1753,9 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 - `panic(msg) -> Never`; `assert(cond, msg)`. Overflow/bounds/shift/div-zero
   violations panic ALWAYS (wrap intentionally with `&+ &- &*`; an out-of-range
   integer CAST panics too — see above). EVERY panic —
-  the compiler-raised traps included — prints `panic at FILE:LINE: {reason}`,
+  the compiler-raised traps included — prints `panic at FILE:LINE: {reason}`
+  to STANDARD ERROR (`print` stays on standard output; a panic's task dump
+  follows the message there, while a `dump_tasks()` call writes stdout),
   where LINE is the trapping expression's own line (a closure body reports its
   own line, not the enclosing function's), in both profiles. The message is
   assembled in STACK scratch (design 137), so it survives an exhausted allocator

@@ -3,5 +3,5 @@ triple	aarch64-unknown-linux-gnu
 source	77eb4a3fe8fdf1e5
 build	ok
 exit	-6
-stdout	"panic at numeric.saw:29: integer overflow"
-stdout	""
+stderr	"panic at numeric.saw:29: integer overflow"
+stderr	""

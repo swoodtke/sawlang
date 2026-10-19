@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"before panic"
-stdout	"panic at panic_builtin.saw:8: something went wrong"
 stdout	""
+stderr	"panic at panic_builtin.saw:8: something went wrong"
+stderr	""
 meets_expect	yes

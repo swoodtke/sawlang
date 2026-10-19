@@ -5,7 +5,7 @@
 # the build's cone differs from this file. `via runtime` marks what only the
 # runtime objects reach; an `instance` line is one type-argument tuple, a type
 # the compiler source declares written as (owning) or (plain).
-# 358 declarations in 27 modules
+# 360 declarations in 27 modules
 
 builtin: 13
   struct Atomic
@@ -367,7 +367,7 @@ std.stringbuilder: 26
 std.task: 1
   struct VoidThread
 
-std.taskgroup: 44
+std.taskgroup: 46
   static BT_DIGITS
   static BT_FRAME_FILE
   static BT_FRAME_FIRST
@@ -403,6 +403,7 @@ std.taskgroup: 44
   func __bt_state_of
   func __bt_state_rec
   func __bt_u32
+  func __bt_write
   func __park_is_flag
   func __park_is_io
   func __saw_bt_dump
@@ -412,6 +413,7 @@ std.taskgroup: 44
   func __saw_bt_panic
   extern __saw_rt_panic
   extern __saw_rt_write
+  extern __saw_rt_write_error
 
 std.vector: 10
   struct Vector
@@ -494,7 +496,7 @@ std.vector: 10
   __saw_string_release
   __saw_string_retain
 
-(external C symbols): 39
+(external C symbols): 40
   _NSGetExecutablePath
   __error
   __saw_classify_code  shim.c
@@ -505,6 +507,7 @@ std.vector: 10
   __saw_rt_panic  shim.c
   __saw_rt_thread_spawn  shim.c
   __saw_rt_write  shim.c
+  __saw_rt_write_error  shim.c
   _exit
   abort
   clock_gettime

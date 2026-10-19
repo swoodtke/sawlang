@@ -5,5 +5,6 @@ build	ok
 exit	-6
 stdout	"20"
 stdout	"77"
-stdout	"panic at vector.saw:271: Vector.swap_out: index out of range: 99 (len 2)"
 stdout	""
+stderr	"panic at vector.saw:271: Vector.swap_out: index out of range: 99 (len 2)"
+stderr	""

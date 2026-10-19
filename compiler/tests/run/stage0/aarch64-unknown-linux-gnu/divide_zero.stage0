@@ -4,5 +4,6 @@ source	11d4ab58026836ba
 build	ok
 exit	-6
 stdout	"3"
-stdout	"panic at divide_zero.saw:3: division by zero"
 stdout	""
+stderr	"panic at divide_zero.saw:3: division by zero"
+stderr	""

@@ -5,7 +5,7 @@ align_nonresident_local_in_suspending_function.saw	arm64-apple-darwin	same	succe
 align_nonresident_local_in_suspending_function.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	2	96	48	2	4	335
 alloc_hosted_no_degradation.saw	arm64-apple-darwin	same	success	ok	0	26:663d134f110f	0:e3b0c44298fc	yes	3	3272	1672	3	26	656
 alloc_hosted_no_degradation.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	3	3272	1672	3	26	656
-alloc_taskgroup_threads_forced_panics_named.saw	arm64-apple-darwin	same	panic	ok	-6	118:cda285fd275e	0:e3b0c44298fc	yes	1	48	48	1	1	243
+alloc_taskgroup_threads_forced_panics_named.saw	arm64-apple-darwin	same	panic	ok	-6	2:06e9d52c1720	116:d69788a19545	yes	1	48	48	1	1	243
 alloc_taskgroup_threads_forced_panics_named.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	1	48	48	1	1	243
 async_main_nested_sleep.saw	arm64-apple-darwin	same	success	ok	0	15:4918c9576384	0:e3b0c44298fc	yes	3	456	224	3	12	440
 async_main_nested_sleep.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	3	456	224	3	12	440
@@ -271,7 +271,7 @@ coro_optional_binding_suspending_method.saw	arm64-apple-darwin	same	success	ok	0
 coro_optional_binding_suspending_method.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	3	416	280	3	17	542
 coro_optional_presence_unconditional_lend.saw	arm64-apple-darwin	differs	success	ok	0	37:b0efe83f25f6	0:e3b0c44298fc	yes	1	64	64	1	4	279
 coro_optional_presence_unconditional_lend.saw	x86_64-unknown-linux-gnu	differs	success	not-run	-	-	-	-	1	64	64	1	4	279
-coro_panic_value_position.saw	arm64-apple-darwin	same	panic	ok	-6	213:a8dd86ee6247	0:e3b0c44298fc	yes	4	184	48	4	8	464
+coro_panic_value_position.saw	arm64-apple-darwin	same	panic	ok	-6	27:43d4ade5a135	186:abc9c1ac3eb8	yes	4	184	48	4	8	464
 coro_panic_value_position.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	4	184	48	4	8	464
 coro_qualified_generic_call_embeds.saw	arm64-apple-darwin	same	success	ok	0	63:4650b7ce9af2	0:e3b0c44298fc	yes	7	1032	248	7	19	870
 coro_qualified_generic_call_embeds.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	7	1032	248	7	19	870
@@ -669,7 +669,7 @@ task_backtrace_mt.saw	arm64-apple-darwin	same	success	ok	0	322:4484274558e2	0:e3
 task_backtrace_mt.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	4	896	368	4	22	642
 task_backtrace_nest.saw	arm64-apple-darwin	same	success	ok	0	311:8e2a4afe6096	0:e3b0c44298fc	yes	4	392	176	4	10	476
 task_backtrace_nest.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	4	392	176	4	10	476
-task_backtrace_panic.saw	arm64-apple-darwin	same	panic	ok	-6	325:318240de1b3e	0:e3b0c44298fc	yes	3	208	112	3	7	434
+task_backtrace_panic.saw	arm64-apple-darwin	same	panic	ok	-6	0:e3b0c44298fc	325:318240de1b3e	yes	3	208	112	3	7	434
 task_backtrace_panic.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	3	208	112	3	7	434
 taskgroup_budget_loop_semantics.saw	arm64-apple-darwin	same	success	ok	0	60:2d2a57e21c64	0:e3b0c44298fc	yes	5	440	128	5	47	1049
 taskgroup_budget_loop_semantics.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	5	440	128	5	47	1049
@@ -725,7 +725,7 @@ taskgroup_spawn_void.saw	arm64-apple-darwin	same	success	ok	0	3:95cf32708a31	0:e
 taskgroup_spawn_void.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	64	64	1	8	304
 taskgroup_stale_handle_cancel.saw	arm64-apple-darwin	same	success	ok	0	24:e86fb55b8570	0:e3b0c44298fc	yes	2	104	64	2	10	382
 taskgroup_stale_handle_cancel.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	2	104	64	2	10	382
-taskgroup_stale_handle_join.saw	arm64-apple-darwin	same	panic	ok	-6	81:3a826240e3ec	0:e3b0c44298fc	yes	1	48	48	1	2	239
+taskgroup_stale_handle_join.saw	arm64-apple-darwin	same	panic	ok	-6	3:084c799cd551	78:02a0c3daadcd	yes	1	48	48	1	2	239
 taskgroup_stale_handle_join.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	1	48	48	1	2	239
 taskgroup_structured_join.saw	arm64-apple-darwin	same	success	ok	0	6:b78a1987bcbd	0:e3b0c44298fc	yes	1	48	48	1	2	231
 taskgroup_structured_join.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	48	48	1	2	231
@@ -791,9 +791,9 @@ conformance/G04_mt_main_int_exit_status.saw	arm64-apple-darwin	same	success	ok	7
 conformance/G04_mt_main_int_exit_status.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	2	584	536	2	4	305
 conformance/G05_suspending_main_void_exit_zero.saw	arm64-apple-darwin	same	success	ok	0	10:379699964a6d	0:e3b0c44298fc	yes	1	40	40	1	2	243
 conformance/G05_suspending_main_void_exit_zero.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	40	40	1	2	243
-conformance/G06_panic_in_suspending_main_aborts.saw	arm64-apple-darwin	same	panic	ok	-6	67:8c0d62756cc6	0:e3b0c44298fc	yes	1	48	48	1	2	244
+conformance/G06_panic_in_suspending_main_aborts.saw	arm64-apple-darwin	same	panic	ok	-6	0:e3b0c44298fc	67:8c0d62756cc6	yes	1	48	48	1	2	244
 conformance/G06_panic_in_suspending_main_aborts.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	1	48	48	1	2	244
-conformance/G07_panic_in_spawned_task_mt_aborts.saw	arm64-apple-darwin	same	panic	ok	-6	209:4ca19f26d676	0:e3b0c44298fc	yes	1	40	40	1	2	247
+conformance/G07_panic_in_spawned_task_mt_aborts.saw	arm64-apple-darwin	same	panic	ok	-6	0:e3b0c44298fc	209:4ca19f26d676	yes	1	40	40	1	2	247
 conformance/G07_panic_in_spawned_task_mt_aborts.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	1	40	40	1	2	247
 conformance/G10_suspending_main_result_ok_exit_status.saw	arm64-apple-darwin	same	success	ok	5	12:081bb3b9e5ee	0:e3b0c44298fc	yes	1	64	64	1	2	250
 conformance/G10_suspending_main_result_ok_exit_status.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	64	64	1	2	250
@@ -909,7 +909,7 @@ conformance/K64_close_drains_before_it_reports_closed.saw	arm64-apple-darwin	sam
 conformance/K64_close_drains_before_it_reports_closed.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	136	136	1	13	387
 conformance/K65_close_wakes_a_parked_receiver.saw	arm64-apple-darwin	same	success	ok	0	10:8c4a7ed249a9	0:e3b0c44298fc	yes	2	176	112	2	9	382
 conformance/K65_close_wakes_a_parked_receiver.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	2	176	112	2	9	382
-conformance/K67_quiescent_channel_deadlock_is_reported.saw	arm64-apple-darwin	same	panic	ok	-6	502:bda23bee87b4	0:e3b0c44298fc	yes	1	112	112	1	7	320
+conformance/K67_quiescent_channel_deadlock_is_reported.saw	arm64-apple-darwin	same	panic	ok	-6	8:a61eb4074b2c	494:3955df654c8b	yes	1	112	112	1	7	320
 conformance/K67_quiescent_channel_deadlock_is_reported.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	1	112	112	1	7	320
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	arm64-apple-darwin	same	success	ok	0	53:3f9f7b56ed01	0:e3b0c44298fc	yes	3	1600	1416	3	22	608
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	3	1600	1416	3	22	608
@@ -919,7 +919,7 @@ conformance/K70_driven_scope_end_release_matrix.saw	arm64-apple-darwin	same	succ
 conformance/K70_driven_scope_end_release_matrix.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	8	1048	544	8	58	1315
 conformance/K80_group_spawn_handle_may_be_dropped.saw	arm64-apple-darwin	same	success	ok	0	10:8ba0eea36ad6	0:e3b0c44298fc	yes	1	48	48	1	1	239
 conformance/K80_group_spawn_handle_may_be_dropped.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	48	48	1	1	239
-conformance/K86_background_task_handle_panics_in_deinit.saw	arm64-apple-darwin	same	panic	ok	-6	530:2c9c94d80946	0:e3b0c44298fc	yes	1	48	48	1	2	255
+conformance/K86_background_task_handle_panics_in_deinit.saw	arm64-apple-darwin	same	panic	ok	-6	83:e370cb35fcd6	447:50f63317a69f	yes	1	48	48	1	2	255
 conformance/K86_background_task_handle_panics_in_deinit.saw	x86_64-unknown-linux-gnu	same	panic	not-run	-	-	-	-	1	48	48	1	2	255
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	arm64-apple-darwin	same	success	ok	0	105:5262a451575d	0:e3b0c44298fc	yes	1	72	72	1	8	333
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	x86_64-unknown-linux-gnu	same	success	not-run	-	-	-	-	1	72	72	1	8	333

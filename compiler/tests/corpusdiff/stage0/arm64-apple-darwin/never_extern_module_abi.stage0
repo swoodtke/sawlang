@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at never_extern_module_abi.saw:25: stopped at 7"
-stdout	""
+stderr	"panic at never_extern_module_abi.saw:25: stopped at 7"
+stderr	""
 meets_expect	yes

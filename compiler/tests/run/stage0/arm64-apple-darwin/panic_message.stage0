@@ -4,5 +4,6 @@ source	af6bf2001a665f2d
 build	ok
 exit	-6
 stdout	"about to fail"
-stdout	"panic at panic_message.saw:3: failed with 7 (true): the reason"
 stdout	""
+stderr	"panic at panic_message.saw:3: failed with 7 (true): the reason"
+stderr	""

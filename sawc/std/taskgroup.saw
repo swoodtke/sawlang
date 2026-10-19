@@ -646,7 +646,8 @@ static __saw_bt_head: Atomic<Int> = Atomic(0)
 
 // Set once, before the first byte of a panic-time dump, and never cleared:
 // the process is ending either way. It is what stops a panic raised by the
-// walk from re-entering the walk that raised it.
+// walk from re-entering the walk that raised it, and what sends the dump to
+// standard error with the panic while `dump_tasks()` writes standard output.
 static __saw_bt_dumping: Atomic<Int> = Atomic(0)
 
 // =============================================================================
@@ -2789,8 +2790,9 @@ extern "C" {
     // line is written in pieces (a file, a colon, a number) and `print` ends
     // every call with a newline. `__saw_rt_panic` is the abort policy (hosted
     // it aborts, a kernel decides for itself) and is called last, once the
-    // message and the dump are already out.
+    // message and the dump are already out on standard error.
     func __saw_rt_write(ptr: UnsafePointer<Int8>, len: Int)
+    func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
     func __saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) -> Never
 }
 
@@ -2829,9 +2831,20 @@ func __bt_u32(base: UnsafeConstPointer<UInt8>, off: Int) unsafe -> Int {
     p[0] as Int
 }
 
-// Writes a literal to the output seam: no newline, no allocation.
+// Writes `len` bytes of a dump: to standard error once a panic is dumping,
+// since everything a panic prints goes there, else to standard output, where
+// `dump_tasks()` is the program's own output.
+func __bt_write(ptr: UnsafePointer<Int8>, len: Int) unsafe {
+    if __saw_bt_dumping.load() != 0 {
+        __saw_rt_write_error(ptr, len)
+    } else {
+        __saw_rt_write(ptr, len)
+    }
+}
+
+// Writes a literal to the dump's stream: no newline, no allocation.
 func __bt_emit(text: String) unsafe {
-    __saw_rt_write(text, text.len())
+    __bt_write(text, text.len())
 }
 
 // Writes a NUL-terminated name out of the table's string table.
@@ -2848,7 +2861,7 @@ func __bt_emit_name(tbl: UnsafeConstPointer<UInt8>, off: Int) unsafe {
         }
         n = n + 1
     }
-    __saw_rt_write(base as UnsafePointer<Int8>, n)
+    __bt_write(base as UnsafePointer<Int8>, n)
 }
 
 // Writes a non-negative integer as decimal digits.
@@ -2874,7 +2887,7 @@ func __bt_emit_int(value: Int) unsafe {
         }
     }
     let p = (&digits) as UnsafePointer<Int8>
-    __saw_rt_write(p + first, BT_DIGITS - first)
+    __bt_write(p + first, BT_DIGITS - first)
 }
 
 // Is `index` a frame this table describes?
@@ -3064,7 +3077,8 @@ func __saw_bt_live_count() unsafe -> Int {
     count
 }
 
-/// Writes every live task's logical backtrace to the runtime's output seam.
+/// Writes every live task's logical backtrace: to standard output, or to
+/// standard error when the panic path writes it.
 ///
 /// The slot walk takes no lock. A multi-threaded group's worker may be
 /// mid-resume while this reads its frame, so what comes out is a best-effort
@@ -3112,8 +3126,9 @@ public func __saw_bt_dump() unsafe {
 
 /// The panic sink for a program that links the executor.
 ///
-/// Writes the panic line, then the task dump, then hands the abort to the
-/// runtime seam with nothing left to say. A panic with no live task takes the
+/// Writes the panic line, then the task dump, both to standard error, then
+/// hands the abort to the runtime seam with nothing left to say. A panic with
+/// no live task takes the
 /// seam directly with its message, so it prints what it would print in a
 /// program without the executor.
 ///
@@ -3128,7 +3143,7 @@ func __saw_bt_panic(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
     if __saw_bt_live_count() == 0 {
         __saw_rt_panic(message, length)
     }
-    __saw_rt_write(message, length)
+    __saw_rt_write_error(message, length)
     __saw_bt_dump()
     __saw_rt_panic(message, 0)
 }

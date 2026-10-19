@@ -5,6 +5,7 @@ expect	panic
 build	ok
 exit	-6
 stdout	"8080"
-stdout	"panic at once.saw:83: Once.set: already initialized (a Once is written once)"
 stdout	""
+stderr	"panic at once.saw:83: Once.set: already initialized (a Once is written once)"
+stderr	""
 meets_expect	yes

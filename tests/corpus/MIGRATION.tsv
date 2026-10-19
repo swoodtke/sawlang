@@ -2588,6 +2588,7 @@ task_backtrace_churn.saw	copied	-	-
 task_backtrace_mt.saw	copied	-	-
 task_backtrace_nest.saw	copied	-	-
 task_backtrace_panic.saw	copied	-	-
+task_dump_streams_on_panic.saw	copied	-	-
 taskgroup_budget_loop_semantics.saw	copied	-	-
 taskgroup_cancel_check.saw	copied	-	-
 taskgroup_cancel_during_sleep.saw	copied	-	-

@@ -716,7 +716,8 @@ See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
   [Variables and Mutability](LANGUAGE_SPEC.md#variables-and-mutability).
 - **Source locations are literals.** `#file`, `#line`, and `#function` are
   filled in at compile time, and panics and asserts already carry a
-  `panic at FILE:LINE:` prefix. See
+  `panic at FILE:LINE:` prefix. A panic's message goes to standard error,
+  apart from the program's `print` output on standard output. See
   [Source-location literals](LANGUAGE_SPEC.md#source-location-literals).
 - **Doc comments are checked.** `///` documents the declaration that follows,
   `//!` the file; one that documents nothing is a compile error rather than a

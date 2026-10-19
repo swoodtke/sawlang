@@ -1,0 +1,17 @@
+program	task_dump_streams_on_panic.saw
+triple	arm64-apple-darwin
+twin	same
+expect	panic
+build	ok
+exit	-6
+stdout	"before"
+stdout	"saw tasks: 1 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 running"
+stdout	"    at task_dump_streams_on_panic.saw:11 in worker"
+stdout	""
+stderr	"panic at task_dump_streams_on_panic.saw:14: worker failed on 5"
+stderr	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stderr	"  task group 1 slot 0 gen 1 running"
+stderr	"    at task_dump_streams_on_panic.saw:11 in worker"
+stderr	""
+meets_expect	yes

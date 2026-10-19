@@ -7,11 +7,12 @@ exit	-6
 stdout	"branch 5"
 stdout	"guarded 1"
 stdout	"alive 3"
-stdout	"panic at coro_panic_value_position.saw:49: deliberate"
-stdout	"saw tasks: 1 live (as-of panic, unsynchronized)"
-stdout	"  task group 1 slot 0 gen 4 running"
-stdout	"    at coro_panic_value_position.saw:48 in boom"
 stdout	""
+stderr	"panic at coro_panic_value_position.saw:49: deliberate"
+stderr	"saw tasks: 1 live (as-of panic, unsynchronized)"
+stderr	"  task group 1 slot 0 gen 4 running"
+stderr	"    at coro_panic_value_position.saw:48 in boom"
+stderr	""
 meets_expect	yes
 frame	__Frame_boom$m$	boom	40	8	states=2	own=40	sub=0	bt=0	root=1	method=0	agrees=1
 field	__state	own	0	8	8

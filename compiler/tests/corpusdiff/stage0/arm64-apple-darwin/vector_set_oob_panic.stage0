@@ -6,6 +6,7 @@ build	ok
 exit	-6
 stdout	"99"
 stdout	"20"
-stdout	"panic at vector.saw:164: Vector.set: index out of range: 99 (len 2)"
 stdout	""
+stderr	"panic at vector.saw:164: Vector.set: index out of range: 99 (len 2)"
+stderr	""
 meets_expect	yes

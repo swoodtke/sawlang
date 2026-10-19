@@ -13,7 +13,8 @@ run of it, built against its own std.
 `compiler/tests/run.py` runs `run()`. Each `NAME.saw` is one case:
 
 - a plain program passes when sawc2's binary, built at -O0 and again at -O2,
-  prints the same bytes as Stage 0's recorded run and exits with the same
+  prints the same bytes as Stage 0's recorded run on standard output and on
+  standard error, where a panic's message goes, and exits with the same
   status (a panic's abort included); the record is `stage0/HOST/NAME.stage0`,
   written by `--stage0` through the v0 compiler, and a program without one,
   or whose bytes changed since it was made, fails until it is rerecorded;
@@ -25,9 +26,10 @@ run of it, built against its own std.
 - a program with a `// differs: REASON` line is one whose output the two
   compilers may word differently, for the reason given (a panic raised inside
   std reports std's own file and line, and the two stds are different files):
-  the lane compares the exit status and every line but a `panic at` line's
-  location; when the reason cites an SL:hazards entry, a timing Stage 0 gets
-  wrong, the program's `// prints: LINE` headers are the oracle instead:
+  the lane compares the exit status and every line of both streams but a
+  `panic at` line's location; when the reason cites an SL:hazards entry, a
+  timing Stage 0 gets wrong, the program's `// prints: LINE` headers are the
+  standard output's oracle instead:
   sawc2 must print exactly those lines, and Stage 0 the same lines in some
   other order, since such a hazard moves output and never adds or loses it;
 - a build that links prints nothing: the runtime it links is built at the
@@ -78,6 +80,7 @@ import glob
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -276,11 +279,22 @@ def record_stage0(names=None):
 
 
 def execute(binary):
+    """(exit status, standard output, standard error), the status None on a
+    timeout. A panic's message is on standard error, the program's prints on
+    standard output."""
     try:
         r = subprocess.run([binary], cwd=OUT, capture_output=True, timeout=RUN_TIMEOUT)
     except subprocess.TimeoutExpired:
-        return None, b""
-    return r.returncode, r.stdout
+        return None, b"", b""
+    return r.returncode, r.stdout, r.stderr
+
+
+def lines_of(text):
+    """`text`'s lines, without the empty one after a final line break."""
+    if text == "":
+        return []
+    lines = text.split("\n")
+    return lines[:-1] if lines[-1] == "" else lines
 
 
 def masked(stdout):
@@ -330,10 +344,12 @@ def check_case(src):
     # The record holds the output with this checkout's root removed, so
     # sawc2's is compared the same way.
     out_old = None if old.stdout == "varies" else old.stdout.encode("utf-8", "surrogateescape")
+    err_old = None if old.stderr == "varies" else old.stderr.encode("utf-8", "surrogateescape")
     failures = []
     for speed, binary in (("-O0", new), ("-O2", fast)):
-        code_new, out_new = execute(binary)
+        code_new, out_new, err_new = execute(binary)
         out_new = oracle.unrooted(out_new.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
+        err_new = oracle.unrooted(err_new.decode("utf-8", "surrogateescape")).encode("utf-8", "surrogateescape")
         where = "%s %s" % (rel(src), speed)
         if code_new is None or code_old is None:
             failures.append("run %s: a binary timed out" % where)
@@ -350,6 +366,19 @@ def check_case(src):
                                 % (where, first_difference(out_new, out_old)))
         elif out_new != out_old:
             failures.append("run %s: output differs: %s" % (where, first_difference(out_new, out_old)))
+        # Standard error holds a panic's message, compared as the output is:
+        # whole, or past each panic location under `// differs:`. An ordering
+        # hazard moves only the prints, so it does not exempt this stream.
+        if code_new is None:
+            continue
+        if err_old is None:
+            failures.append("run %s: Stage 0's standard error varies between runs, so it is no oracle" % where)
+        elif differs is not None:
+            if masked(err_new) != masked(err_old):
+                failures.append("run %s: standard error differs beyond a panic location: %s"
+                                % (where, first_difference(err_new, err_old)))
+        elif err_new != err_old:
+            failures.append("run %s: standard error differs: %s" % (where, first_difference(err_new, err_old)))
     return failures, "fail" if failures else "pass"
 
 
@@ -787,18 +816,19 @@ def held_probe(src, header):
             continue
         elif kind == "stated":
             want = "".join(line + "\n" for line in header["prints"]).encode()
-            code, out = execute(binary)
+            code, out, _ = execute(binary)
             if code != 0 or out != want:
                 failures.append("%s: exit %s, prints %r, not %r" % (where, code, out[:300], want))
         else:
             want = header.get("prints", [])
             panic = header["panics"][0]
-            code, out = execute(binary)
-            lines = masked(out).rstrip("\n").split("\n")
-            if code in (0, None) or lines[:-1] != want or not lines[-1].startswith("panic at ?: ") \
-                    or panic not in lines[-1]:
-                failures.append("%s: exit %s, prints %r, not %r then a panic holding %r"
-                                % (where, code, out[:300], want, panic))
+            code, out, err = execute(binary)
+            printed = lines_of(masked(out))
+            said = lines_of(masked(err))
+            if code != -signal.SIGABRT or printed != want or len(said) != 1 or not said[0].startswith("panic at ?: ") \
+                    or panic not in said[0]:
+                failures.append("%s: exit %s, prints %r and %r on standard error, not %r then a panic holding %r "
+                                "on standard error" % (where, code, out[:300], err[:300], want, panic))
         ll_failures += ll_problems(where, ll, header)
     counts = {}
     if not failures:
@@ -929,7 +959,7 @@ def best_time(binary, reps=BENCH_REPS):
     out = b""
     for _ in range(reps):
         start = time.perf_counter()
-        _, out = execute(binary)
+        _, out, _ = execute(binary)
         took = time.perf_counter() - start
         best = took if best is None or took < best else best
     return best, out

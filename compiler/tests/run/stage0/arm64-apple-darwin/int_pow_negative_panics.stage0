@@ -3,5 +3,5 @@ triple	arm64-apple-darwin
 source	3c2c2a6c4c9970ab
 build	ok
 exit	-6
-stdout	"panic at numeric.saw:59: negative exponent"
-stdout	""
+stderr	"panic at numeric.saw:59: negative exponent"
+stderr	""

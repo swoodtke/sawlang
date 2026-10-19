@@ -11,9 +11,10 @@ of the run lane's `coro_*` programs that is not due, its offload pins
 (`stated` or `panics`). Each is built at -O0 twice, plainly and with
 `sawc2 build --sanitize address`, which stamps `sanitize_address` on every
 function and poisons each lowered frame's values outside the lifetimes rule 5
-recomputes; it passes when the sanitized binary prints the same bytes and
-exits with the same status as the plain one, and AddressSanitizer reports
-nothing. Leak detection is off: the lane checks frame lifetimes, and a
+recomputes; it passes when the sanitized binary prints the same bytes on
+standard output and on standard error, where a panic goes, and exits with the
+same status as the plain one, and AddressSanitizer reports nothing. Leak
+detection is off: the lane checks frame lifetimes, and a
 leak is no frame access.
 
 The injection: `compiler/tests/coro/inject/asan_inject.saw`, built and run,
@@ -105,7 +106,7 @@ def check_case(src):
             return ["%s: sawc2 %s%s: %s" % (where, "builds it but prints" if ok else "does not build it",
                                            " under --sanitize address" if sanitize else "", log[:300])]
         builds.append(binary)
-    code_plain, out_plain, _ = execute(builds[0])
+    code_plain, out_plain, err_plain = execute(builds[0])
     code_asan, out_asan, err_asan = execute(builds[1])
     if code_plain is None or code_asan is None:
         return ["%s: a binary timed out (plain %s, sanitized %s)"
@@ -117,6 +118,11 @@ def check_case(src):
         start = text.index(REPORT)
         failures.append("%s: AddressSanitizer reports: %s" % (where, " | ".join(
             line.strip() for line in text[start:].split("\n")[:4])))
+    elif err_asan != err_plain:
+        # A panic's message is on standard error, so a sanitized build that
+        # reports nothing must say there what the plain build says.
+        failures.append("%s: standard error differs from the plain build: %s"
+                        % (where, run_lane.first_difference(err_asan, err_plain)))
     if code_asan != code_plain:
         failures.append("%s: exit %d sanitized, %d plain" % (where, code_asan, code_plain))
     if out_asan != out_plain:

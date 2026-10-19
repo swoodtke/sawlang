@@ -107,9 +107,20 @@ The output primitive behind `print`. Writes `len` bytes from `ptr` to standard
 output. The hosted default writes through C stdio (`fwrite`, then `fflush`), so
 each call's bytes are flushed before it returns.
 
+### `__saw_rt_write_error(ptr: i8*, len: word) -> void`
+Writes `len` bytes from `ptr` to standard error, unbuffered: the hosted default
+calls `write(2)` on fd 2 until every byte is out, retrying an interrupted call,
+so nothing waits in a buffer an abort discards. It takes no lock. It is
+best-effort and returns nothing by design: its callers are on the way to an
+abort, and a failed write there has no one left to report to. Everything a
+panic prints goes through it, the message and the task dump the executor
+writes after it. A freestanding runtime must supply it when a program links
+the executor (`std.taskgroup`), whose panic sink calls it.
+
 ### `__saw_rt_panic(ptr: i8*, len: word) -> ! (noreturn)`
-The panic sink. Emits the message at `ptr` (via `__saw_rt_write`) and does not
-return. Hosted default aborts; a kernel decides policy. Marked `noreturn`.
+The panic sink. Writes the message at `ptr` to standard error through
+`__saw_rt_write_error` and does not return. Hosted default aborts; a kernel
+decides policy. Marked `noreturn`.
 
 ## Time
 
@@ -1118,6 +1129,7 @@ a flag bit.
 | SL-737 | `__saw_rt_env_get` (status-carrying like `__saw_rt_fs_getcwd`) and `__saw_rt_env_contains`: two new symbols, so std's environment reads go through the runtime. `__saw_rt_env_set`/`_unset`, `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract: all six take one environment lock, both spawns hold it in the parent across `fork`, and `_spawn_env` copies the parent's entries under it. No existing signature moved |
 | SL-569 | `__saw_rt_reactor_register` **changed**: returns a status word, `0` armed or the platform's `errno`, where it returned `void`; `__saw_rt_reactor_poll` **changed** contract: its latch is a compare-and-swap from `-1` to `0` on an `Atomic<Int>` token word (sawc 0.14.0, SL-355's R5). Every runtime provider follows it |
 | SL-768 | sawc 0.15.0 (SL-765 T3a): the portable-tag convention for every seam that can fail. **Changed** signatures: `__saw_rt_thread_spawn` gains `handle_out` and returns `0`/`-tag`; `__saw_rt_thread_join`, `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` return `0`/`-tag` where they returned `void`; `__saw_rt_offload_start` gains `job_out`, `__saw_rt_reactor_create` takes `r_out` and `__saw_rt_reactor_poll` gains `count_out`, each returning `0`/`-tag`; `__saw_rt_thread_detach` returns `1` when the caller owns the control block and no longer frees it. **Changed** contracts with the same signature: `__saw_rt_reactor_register` reports `-tag` where it reported `errno`, `__saw_rt_tcp_local_port` reports `-tag` where it answered port 0, and `__saw_rt_set_nonblocking` reports `-tag` for both of its calls where it answered `-1` for one. Every runtime provider follows it |
+| SL-768 (c1) | for sawc 0.16.0: `__saw_rt_write_error`, one new symbol, standard error, unbuffered and best-effort. `__saw_rt_panic` **changed** contract with the same signature: it writes the message to standard error through `__saw_rt_write_error` where it wrote standard output through `__saw_rt_write`. A freestanding runtime supplies the new seam when a program links the executor |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1268,9 +1280,11 @@ freestanding profile links no runtime (verified by
 **The C floor: `shim.c`.** Each body there is C because of a named Saw FFI gap,
 and moves to Saw when its gap closes:
 
-- `__saw_rt_write` / `__saw_rt_panic`: no extern C global (DF-113a). They write
-  through libc's `stdout` `FILE*` (`fwrite`, then `fflush`), which Saw cannot
-  name.
+- `__saw_rt_write`: no extern C global (DF-113a). It writes through libc's
+  `stdout` `FILE*` (`fwrite`, then `fflush`), which Saw cannot name.
+- `__saw_rt_write_error` / `__saw_rt_panic`: no gap of their own. They call
+  only `write` and `abort`, which Saw can declare, and are C beside
+  `__saw_rt_write` until they move.
 - `__saw_rt_thread_spawn` and the offload thread body: no C function-pointer
   type (DF-113b). Both pass or call a raw C function pointer.
 - `__saw_rt_thread_detach`: DF-113b's reason plus an atomic exchange over raw

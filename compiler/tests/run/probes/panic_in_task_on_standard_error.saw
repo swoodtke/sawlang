@@ -1,0 +1,20 @@
+// probe: panics
+// about: a panic inside a spawned task goes to standard error while the program's prints stay on standard output (SL-768)
+// stage 0: its record follows whichever stream Stage 0 writes, so it cannot pin the stream
+// speeds: -O0 -O2
+// prints: before
+// panics: worker failed on 5
+func worker(n: Int) -> Int {
+    sleep(Duration.ms(1))
+    if n > 1 {
+        panic("worker failed on {}", n)
+    }
+    n
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(worker(5))
+    print("before")
+    print("{}", h.join())
+}

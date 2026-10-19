@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at overflow_div_intmin_panics.saw:9: integer overflow"
-stdout	""
+stderr	"panic at overflow_div_intmin_panics.saw:9: integer overflow"
+stderr	""
 meets_expect	yes

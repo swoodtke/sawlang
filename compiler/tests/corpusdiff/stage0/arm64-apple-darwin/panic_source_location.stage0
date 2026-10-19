@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at panic_source_location.saw:8: boom"
-stdout	""
+stderr	"panic at panic_source_location.saw:8: boom"
+stderr	""
 meets_expect	yes

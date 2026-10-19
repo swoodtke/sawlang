@@ -4,6 +4,6 @@ twin	same
 expect	panic
 build	ok
 exit	-6
-stdout	"panic at array_dynamic_compound_oob_panic.saw:9: array: index out of range: 4 (len 3)"
-stdout	""
+stderr	"panic at array_dynamic_compound_oob_panic.saw:9: array: index out of range: 4 (len 3)"
+stderr	""
 meets_expect	yes

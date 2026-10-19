@@ -1,0 +1,10 @@
+// probe: panics
+// about: a panic's message, its `panic at FILE:LINE:` prefix included, goes to standard error while the program's prints stay on standard output (SL-768)
+// stage 0: its record follows whichever stream Stage 0 writes, so it cannot pin the stream
+// speeds: -O0 -O2
+// prints: before
+// panics: boom 7
+func main() {
+    print("before")
+    panic("boom {}", 7)
+}
