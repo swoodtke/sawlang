@@ -1,0 +1,50 @@
+(Module void_thread_traits
+  (declarations
+    (struct Pool 9:8 private)
+    (field Pool.workers 9:15 private std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator>)
+    (extension 11:1 (target void_thread_traits.Pool) (conforms NoCopy))
+    (func nothing 13:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func needs_send 16:6 private (signature (generics (T (bounds Send))) (params (f () -> T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func needs_sync 19:6 private (signature (generics (T (bounds Sync))) (params (f () -> T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func needs_copy 22:6 private (signature (generics (T (bounds Copy))) (params (f () -> T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func needs_equatable 25:6 private (signature (generics (T (bounds Equatable))) (params (f () -> T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func needs_hashable 28:6 private (signature (generics (T (bounds Hashable))) (params (f () -> T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func needs_send_value 31:6 private (signature (generics (T (bounds Send))) (params (v T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func check 34:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (void_thread_traits.Pool
+      (field workers std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator> private declared)
+      (method deinit public (synthesized Deinit))))
+  (views
+    (void_thread_traits.Pool workers deinit))
+  (conformances
+    (void_thread_traits.Pool NoCopy 11:17 (deinit implicit)))
+  (copy-tier
+    (void_thread_traits.Pool NoCopy declared))
+  (bodies
+    (nothing 13:6)
+    (needs_send 16:6)
+    (needs_sync 19:6)
+    (needs_copy 22:6)
+    (needs_equatable 25:6)
+    (needs_hashable 28:6)
+    (needs_send_value 31:6)
+    (check 34:6
+      (35:5-35:30 Call.paren Void value temp (call void_thread_traits.needs_send(f: () -> T) (inst Void)))
+      (35:16-35:29 Closure () -> Void value temp)
+      (35:18-35:27 Call.paren Void value temp (call void_thread_traits.nothing()))
+      (36:5-36:30 Call.paren Void value temp (call void_thread_traits.needs_sync(f: () -> T) (inst Void)))
+      (36:16-36:29 Closure () -> Void value temp)
+      (36:18-36:27 Call.paren Void value temp (call void_thread_traits.nothing()))
+      (37:5-37:30 Call.paren Void value temp (call void_thread_traits.needs_copy(f: () -> T) (inst Void)))
+      (37:16-37:29 Closure () -> Void value temp)
+      (37:18-37:27 Call.paren Void value temp (call void_thread_traits.nothing()))
+      (38:5-38:35 Call.paren Void value temp (call void_thread_traits.needs_equatable(f: () -> T) (inst Void)))
+      (38:21-38:34 Closure () -> Void value temp)
+      (38:23-38:32 Call.paren Void value temp (call void_thread_traits.nothing()))
+      (39:5-39:34 Call.paren Void value temp (call void_thread_traits.needs_hashable(f: () -> T) (inst Void)))
+      (39:20-39:33 Closure () -> Void value temp)
+      (39:22-39:31 Call.paren Void value temp (call void_thread_traits.nothing()))
+      (40:5-40:60 Call.paren Void value temp (call void_thread_traits.needs_send_value(v: T) (inst void_thread_traits.Pool)))
+      (40:22-40:59 Call.paren void_thread_traits.Pool value temp (memberwise void_thread_traits.Pool (owner void_thread_traits.Pool)))
+      (40:36-40:58 Call.paren std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator>))))))

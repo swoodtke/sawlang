@@ -1,0 +1,41 @@
+// flags: --std-root std
+// `Void` holds no state, so it meets `Send` and `Sync`: a bound on either
+// accepts a `Void` argument, and `Thread<Void>`, a struct holding one, and an
+// `Optional` or `Result` of `Void` follow. It keeps `Copy`, `Equatable` and
+// `Hashable`.
+
+import std.task.{Thread}
+
+struct Pool { workers: Vector<Thread<Void>> }
+
+extension Pool: NoCopy {}
+
+func nothing() {
+}
+
+func needs_send<T: Send>(f: () -> T) {
+}
+
+func needs_sync<T: Sync>(f: () -> T) {
+}
+
+func needs_copy<T: Copy>(f: () -> T) {
+}
+
+func needs_equatable<T: Equatable>(f: () -> T) {
+}
+
+func needs_hashable<T: Hashable>(f: () -> T) {
+}
+
+func needs_send_value<T: Send>(v: T) {
+}
+
+func check() {
+    needs_send({ nothing() })
+    needs_sync({ nothing() })
+    needs_copy({ nothing() })
+    needs_equatable({ nothing() })
+    needs_hashable({ nothing() })
+    needs_send_value(Pool(workers: Vector<Thread<Void>>()))
+}

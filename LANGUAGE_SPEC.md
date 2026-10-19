@@ -1256,6 +1256,10 @@ breaking the loop
 A `-> Never` function is otherwise unrestricted, including a suspending one
 called directly.
 
+`Never` meets every trait bound, `Send`, `Sync`, `Copy`, `Equatable` and
+`Hashable` included: no `Never` value ever exists to break what a trait
+promises.
+
 `Never` is spellable wherever a return type is written, and only there: it is
 not a type values are stored at. A `-> Never` declaration lowers to a `void`
 symbol carrying LLVM's `noreturn`, which is the C `_start`/`abort` shape and
@@ -7610,8 +7614,8 @@ is what keeps "a raw-backed enum value is always a declared case" true.
 `==` / `!=`; conformance mirrors the Copy family's house rule:
 
 - **Auto-conform:** trivial (POD) structs — the exact set that auto-conforms to
-  `Copy` — and payload-free enums. Integers, `Bool`, `Float`, and `String`
-  conform builtin.
+  `Copy` — and payload-free enums. Integers, `Bool`, `Float`, `String` and
+  `Void` conform builtin (a `Void` equals itself, so `Void?` compares).
 - **Opt-in with synthesis:** every other struct/enum declares the conformance and
   marks it `@synthesize` to have the comparison derived: memberwise `&&` for
   structs, payload-deep for enums (equal tag, then the active variant's payload
@@ -7794,7 +7798,8 @@ trait Hashable {            // requires Equatable
 - Conformance **mirrors `Equatable`'s gating exactly:** trivial (POD) structs
   and payload-free enums auto-conform; everything else opts in with
   `@synthesize extension T: Hashable {}` (which streams each field / active
-  payload); primitives and `String` conform builtin. `Hashable` **requires
+  payload); primitives, `String` and `Void` conform builtin, and a tuple is
+  `Hashable` iff every element is. `Hashable` **requires
   Equatable**. In a generic body the bound carries it, as a bound carries a
   `Send` parent: `T: Hashable` meets a `T: Equatable` bound.
 - **hash/== contract:** `a == b` implies `a` and `b` hash identically. Synthesis
@@ -8226,8 +8231,11 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
 - **`Send`/`Sync` marker traits**, compiler-known and auto-derived
   *structurally* (the auto-`Copy` pattern), usable as generic bounds
   (`T: Send`). Primitives/`Bool`/`Float`/`String` are `Send + Sync` (`String`'s
-  day-one atomic refcount is the designed payoff); a struct/enum is `Send`/`Sync`
-  iff all its fields/payloads are; `UnsafePointer<T>` is neither and poisons its
+  day-one atomic refcount is the designed payoff). `Void` holds no state and is
+  `Send + Sync`, so a `Thread<Void>` handle, and a struct holding one, can move
+  into a spawned thread. A struct/enum is `Send`/`Sync`
+  iff all its fields/payloads are, and a tuple iff every element is, so an
+  empty struct and `()` are both; `UnsafePointer<T>` is neither and poisons its
   containers structurally. The wrappers override the structural rule so their raw
   pointers do not poison them: `Arc<T>` is `Send + Sync` iff `T: Send + Sync`;
   `Mutex<T>`/`Channel<T>`/`Thread<T>` are `Send`/`Sync` iff `T: Send`; and an

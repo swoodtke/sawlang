@@ -1,0 +1,46 @@
+// probe: stated
+// about: `Void` is `Send`, so a `Pool` of `Thread<Void>` handles moves into a `Thread.spawn` body and its joining `deinit` runs on that thread (SL-794)
+// stage 0: refuses `try! Thread.spawn` at parse (SL-765 Q1 (b))
+// speeds: -O0 -O2
+// prints: handed off
+// prints: retired
+// A worker pool outlives the function that starts it and is retired from
+// another thread: the `Pool` is captured by the spawned body and dropped
+// there, where its `deinit` joins the workers.
+
+import std.task.{Thread}
+
+struct Pool { workers: Vector<Thread<Void>> }
+
+extension Pool: NoCopy {
+    func deinit(&var self) {
+        while self.workers.len() > 0 {
+            if let held = self.workers.pop() { var h = move held; h.join() }
+        }
+    }
+}
+
+extension Pool {
+    func start(&var self, count: Int) {
+        var i = 0
+        while i < count {
+            var t = try! Thread.spawn { serve() }
+            try! self.workers.push(move t)
+            i = i + 1
+        }
+    }
+}
+
+func serve() {
+}
+
+func main() {
+    var pool = Pool(workers: Vector<Thread<Void>>())
+    pool.start(count: 2)
+    var retirer = try! Thread.spawn { [move pool] in
+        let _ = pool.workers.len()
+    }
+    print("handed off")
+    retirer.join()
+    print("retired")
+}

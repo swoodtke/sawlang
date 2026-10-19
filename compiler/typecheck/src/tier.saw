@@ -1059,14 +1059,16 @@ extension TcProgram {
 
     // The builtin conformances of the types no source declares (design 109):
     // the numbers, `Bool` and `String` meet the value traits, and the raw
-    // pointers only Copy and Equatable.
+    // pointers only Copy and Equatable. `Void` is granted `Send` and `Sync`
+    // here (it holds no state); its Copy comes from `classify`, and its
+    // Equatable and Hashable from `is_trivial` through `nominal_satisfies`.
     public func primitive_grants(&self, d: Int, tr: Int) -> Bool {
         let info = self.res.decls[d]
         if info.kind != ResDeclKind.Primitive {
             return false
         }
         if d == self.known.void_type {
-            return tr == self.known.explicit_copy
+            return tr == self.known.explicit_copy || tr == self.known.send || tr == self.known.sync
         }
         let pointer = d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer
         if pointer {
