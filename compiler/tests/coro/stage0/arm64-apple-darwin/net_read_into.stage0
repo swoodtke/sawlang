@@ -2,61 +2,6 @@ program	net_read_into.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"5"
-stdout	"5"
-stdout	""
-meets_expect	yes
-frame	__Frame_TcpStream_read_into$OL$$RefM$Data	TcpStream.read_into	120	8	states=16	own=113	sub=0	bt=0	root=0	method=1	agrees=1
-field	__recv	own	0	8	8
-field	into	own	8	8	8
-field	count	own	16	8	8
-field	r	own	24	8	8
-field	__state	own	32	8	8
-field	__wake	own	40	8	8
-field	__io_tok	own	48	8	8
-field	__io_deadline	own	56	8	8
-field	__io_fd	own	64	8	8
-field	__io_dir	own	72	8	8
-field	__cancel	own	80	1	1
-field	__result	own	88	32	8
-frame	__Frame_TcpStream_write$OL$String	TcpStream.write	184	8	states=11	own=177	sub=0	bt=1	root=0	method=1	agrees=1
-field	__recv	own	0	8	8
-field	s	own	8	16	8
-field	bytes	own	24	48	8
-field	off	own	72	8	8
-field	total	own	80	8	8
-field	w	own	88	8	8
-field	__state	own	96	8	8
-field	__wake	own	104	8	8
-field	__io_tok	own	112	8	8
-field	__io_deadline	own	120	8	8
-field	__io_fd	own	128	8	8
-field	__io_dir	own	136	8	8
-field	__cancel	own	144	1	1
-field	__result	own	152	32	8
-frame	__Frame_client$m$	client	272	8	states=3	own=88	sub=184	bt=2	root=1	method=0	agrees=1
-field	stream	own	0	16	8
-field	__match0	own	16	32	8
-field	__sub0	sub	48	184	8	callee=__Frame_TcpStream_write$OL$String	live=1
-field	__state	own	232	8	8
-field	__wake	own	240	8	8
-field	__io_tok	own	248	8	8
-field	__io_deadline	own	256	8	8
-field	__cellp	own	264	8	8
-frame	__Frame_server$m$	server	256	8	states=3	own=136	sub=120	bt=3	root=1	method=0	agrees=1
-field	stream	own	0	16	8
-field	buf	own	16	48	8
-field	__match0	own	64	32	8
-field	__sub0	sub	96	120	8	callee=__Frame_TcpStream_read_into$OL$$RefM$Data	live=1
-field	__state	own	216	8	8
-field	__wake	own	224	8	8
-field	__io_tok	own	232	8	8
-field	__io_deadline	own	240	8	8
-field	__cellp	own	248	8	8
-bt	818	strtab=230	version=1	word_bits=64
-btframe	__Frame_TcpStream_read_into$OL$$RefM$Data	TcpStream.read_into	net.saw	32	0 0 0 0 0 0 1103 0 0 0 0 0 0 0 0 1117
-btframe	__Frame_TcpStream_write$OL$String	TcpStream.write	net.saw	96	0 0 0 0 0 0 0 1210 0 0 1219
-btframe	__Frame_client$m$	client	net_read_into.saw	232	0 26>1@48 0
-btframe	__Frame_server$m$	server	net_read_into.saw	216	0 19>0@96 0
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+layout_error	`try` requires a Result type, got `(TcpStream, TcpStream)`
+bt_error	`try` requires a Result type, got `(TcpStream, TcpStream)`

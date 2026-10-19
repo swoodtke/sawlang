@@ -2,37 +2,6 @@ program	conformance/K94_timed_park_times_out_in_every_engine.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"sweep timed out, waited long enough"
-stdout	"mt timed out, waited long enough"
-stdout	""
-meets_expect	yes
-frame	__Frame_TcpStream_read$OL$Duration	TcpStream.read	208	8	states=16	own=201	sub=0	bt=0	root=0	method=1	agrees=1
-field	__recv	own	0	8	8
-field	timeout	own	8	16	8
-field	out	own	24	48	8
-field	at	own	72	8	8
-field	r	own	80	8	8
-field	__state	own	88	8	8
-field	__wake	own	96	8	8
-field	__io_tok	own	104	8	8
-field	__io_deadline	own	112	8	8
-field	__io_fd	own	120	8	8
-field	__io_dir	own	128	8	8
-field	__cancel	own	136	1	1
-field	__result	own	144	64	8
-frame	__Frame_idle_read$m$	idle_read	360	8	states=3	own=152	sub=208	bt=1	root=1	method=0	agrees=1
-field	s	own	0	16	8
-field	label	own	16	16	8
-field	start	own	32	16	8
-field	__match0	own	48	64	8
-field	__sub0	sub	112	208	8	callee=__Frame_TcpStream_read$OL$Duration	live=1
-field	__state	own	320	8	8
-field	__wake	own	328	8	8
-field	__io_tok	own	336	8	8
-field	__io_deadline	own	344	8	8
-field	__cellp	own	352	8	8
-bt	548	strtab=176	version=1	word_bits=64
-btframe	__Frame_TcpStream_read$OL$Duration	TcpStream.read	net.saw	88	0 0 0 0 0 0 1065 0 0 0 0 0 0 0 0 1077
-btframe	__Frame_idle_read$m$	idle_read	K94_timed_park_times_out_in_every_engine.saw	320	0 34>0@112 0
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+layout_error	`try` requires a Result type, got `(TcpStream, TcpStream)`
+bt_error	`try` requires a Result type, got `(TcpStream, TcpStream)`

@@ -53,8 +53,10 @@ RAW = os.path.join(REPO, ".build", "coro-stage0")
 sys.path.insert(0, CORO)
 sys.path.insert(0, os.path.dirname(CORO))
 sys.path.append(os.path.join(REPO, "tools"))
+sys.path.append(os.path.join(os.path.dirname(CORO), "corpusdiff"))
 
 import child_groups  # noqa: E402
+import corpusdiff  # noqa: E402
 import expect  # noqa: E402
 import oracle  # noqa: E402
 
@@ -62,10 +64,11 @@ import oracle  # noqa: E402
 # are layout and table only.
 TRIPLES = ("arm64-apple-darwin", "x86_64-unknown-linux-gnu")
 RUNS = oracle.RUNS
+WRITE_COMMAND = "./.venv/bin/python compiler/tests/coro/stage0/snapshot.py"
 
-INDEX_COLUMNS = ("path", "triple", "twin", "expect", "build", "exit", "stdout", "stderr", "meets_expect",
+INDEX_COLUMNS = ("path", "triple", "twin", "twin_sha", "expect", "build", "exit", "stdout", "stderr", "meets_expect",
                  "frames", "frame_bytes", "largest_frame", "bt_frames", "bt_states", "bt_bytes")
-REFUSAL_COLUMNS = ("path", "twin", "exit", "meets_expect", "errors", "error")
+REFUSAL_COLUMNS = ("path", "twin", "twin_sha", "exit", "meets_expect", "errors", "error")
 
 
 def rel(path):
@@ -174,7 +177,8 @@ def load(triple=None):
 
 
 def summary(rec):
-    """The index.tsv row a record determines."""
+    """The index.tsv row a record determines, but for `twin_sha`, which the
+    files determine."""
     sizes = [rec.frames[s]["size"] for s in rec.frame_order]
     if not rec.ran:
         exit_text = "-"
@@ -199,11 +203,34 @@ def summary(rec):
     }
 
 
+def stale_twin(row):
+    """The failures of a row whose twin changed since its record was written:
+    the twin's bytes (`twin_sha`) and whether it still equals the corpus
+    file, both recomputed from the files, never taken from the record."""
+    path = row["path"]
+    try:
+        sha = corpusdiff.twin_sha(path)
+        relation = oracle.twin_of(path)[1]
+    except (OSError, SystemExit) as e:
+        return ["stage0 snapshot %s: its examples/ twin cannot be read: %s" % (path, e)]
+    if row["twin_sha"] != sha:
+        return ["stage0 snapshot %s: examples/%s has changed since its record was written: run `%s --write`"
+                % (path, path, WRITE_COMMAND)]
+    if row["twin"] != relation:
+        return ["stage0 snapshot %s: the twin is %s now, %s in its record: run `%s --write`"
+                % (path, relation, row["twin"], WRITE_COMMAND)]
+    return []
+
+
 def check():
     """(failures, counts): every row's record against the row, every record
     in a row, and each triple's executor header present."""
     failures = []
-    rows = read_index()
+    try:
+        rows = read_index()
+        refusals = read_refusals()
+    except (OSError, ValueError) as e:
+        return ["stage0 snapshot: %s: run `%s --write`" % (e, WRITE_COMMAND)], {}
     keys = [(r["path"], r["triple"]) for r in rows]
     if len(set(keys)) != len(keys):
         failures.append("stage0 snapshot: index.tsv names a program twice on one triple")
@@ -214,9 +241,10 @@ def check():
             failures.append("stage0 snapshot %s (%s): unreadable: %s" % (row["path"], row["triple"], e))
             continue
         for column in INDEX_COLUMNS:
-            if row[column] != got[column]:
+            if column != "twin_sha" and row[column] != got[column]:
                 failures.append("stage0 snapshot %s (%s): index.tsv has %s %s, the record %s"
                                 % (row["path"], row["triple"], column, row[column], got[column]))
+        failures.extend(stale_twin(row))
     expected = {os.path.normpath(record_path(p, t)) for p, t in keys}
     for triple in sorted({t for _, t in keys}):
         if not os.path.exists(os.path.join(HERE, triple, "bt_exec.tsv")):
@@ -226,8 +254,8 @@ def check():
                 path = os.path.normpath(os.path.join(root, name))
                 if name.endswith(".stage0") and path not in expected:
                     failures.append("stage0 snapshot: %s is in no row of index.tsv" % rel(path))
-    refusals = read_refusals()
     for row in refusals:
+        failures.extend(stale_twin(row))
         if not os.path.exists(refusal_path(row["path"])):
             failures.append("stage0 snapshot: refusal test %s has no %s" % (row["path"],
                                                                           rel(refusal_path(row["path"]))))
@@ -257,7 +285,7 @@ def collect_program(path, host, others):
     d = expect.read(src)
     work = os.path.join(RAW, "work", os.path.splitext(path)[0].replace("/", "__"))
     os.makedirs(work, exist_ok=True)
-    raw = {"path": path, "twin": twin, "expect": d.expect or "-", "triples": {}}
+    raw = {"path": path, "twin": twin, "twin_sha": corpusdiff.twin_sha(path), "expect": d.expect or "-", "triples": {}}
     for triple in (host,) + others:
         target = [] if triple == host else ["--target", triple]
         entry = {}
@@ -289,7 +317,7 @@ def collect_refusal(path):
     work = os.path.join(RAW, "work", "refuse__" + os.path.splitext(path)[0].replace("/", "__"))
     os.makedirs(work, exist_ok=True)
     code, log = oracle.stage0(src, os.path.join(work, "bin"), d.flags)
-    return {"path": path, "twin": twin, "exit": code, "errors": oracle.errors(log) if code else [],
+    return {"path": path, "twin": twin, "twin_sha": corpusdiff.twin_sha(path), "exit": code, "errors": oracle.errors(log) if code else [],
             "first_error": oracle.first_error(log) if code else "-", "log": oracle.unrooted(log)}
 
 
@@ -302,7 +330,7 @@ def refusal_row(raw):
     found = raw["errors"]
     meets = oracle.refusal_meets_expect(d, raw["exit"], raw["log"])
     named = [e for e in found if d.error_contains and d.error_contains[0] in e]
-    return [raw["path"], raw["twin"], str(raw["exit"]), meets.replace("\t", " "),
+    return [raw["path"], raw["twin"], raw["twin_sha"], str(raw["exit"]), meets.replace("\t", " "),
             str(len(found)), named[0] if named else raw["first_error"]]
 
 
@@ -394,6 +422,8 @@ def write(args):
     if args.reuse and os.path.exists(cache):
         with open(cache) as fh:
             raws = json.load(fh)
+        for kind in ("programs", "refusals"):
+            raws[kind] = {p: r for p, r in raws.get(kind, {}).items() if r.get("twin_sha") == corpusdiff.twin_sha(p)}
     todo = [p for p in program_list if p not in raws.get("programs", {})]
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         got = list(pool.map(lambda p: collect_program(p, host, others), todo))
@@ -425,7 +455,7 @@ def write(args):
             with open(out, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(head + body) + "\n")
         for triple in TRIPLES:
-            rows.append(summary(read_record(path, triple)))
+            rows.append(dict(summary(read_record(path, triple)), twin_sha=raw["twin_sha"]))
     for triple, seen in headers.items():
         if len(seen) != 1:
             raise SystemExit("snapshot: the table's executor header differs between programs on %s: %s"

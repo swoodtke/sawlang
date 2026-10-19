@@ -18,7 +18,7 @@ stdout	"live 0"
 stdout	"cancelled 101"
 stdout	"void task cancelled"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 9 is 'unjoined live 1', expected 'deinit r2'
 frame	__Frame_cancel_word$m$	cancel_word	64	8	states=8	own=64	sub=0	bt=0	root=1	method=0	agrees=1
 field	base	own	0	8	8
 field	__saw_loop_budget	own	8	8	8
@@ -67,9 +67,9 @@ field	__io_tok	own	464	8	8
 field	__io_deadline	own	472	8	8
 field	__cancel	own	480	1	1
 bt	889	strtab=277	version=1	word_bits=64
-btframe	__Frame_cancel_word$m$	cancel_word	K32_task_cell_result_and_cancel.saw	24	0 0 0 0 0 0 103 107
-btframe	__Frame_cancel_word_void$m$	cancel_word_void	K32_task_cell_result_and_cancel.saw	16	0 0 0 0 0 0 117 122
-btframe	__Frame_main	main	K32_task_cell_result_and_cancel.saw	488	0 142>5@0 0
-btframe	__Frame_make_arc$m$	make_arc	K32_task_cell_result_and_cancel.saw	16	0 62
-btframe	__Frame_make_one$m$	make_one	K32_task_cell_result_and_cancel.saw	16	0 57
-btframe	__Frame_unjoined_result$m$	unjoined_result	K32_task_cell_result_and_cancel.saw	448	0 0 0 0 0 0 91 92
+btframe	__Frame_cancel_word$m$	cancel_word	K32_task_cell_result_and_cancel.saw	24	0 0 0 0 0 0 104 108
+btframe	__Frame_cancel_word_void$m$	cancel_word_void	K32_task_cell_result_and_cancel.saw	16	0 0 0 0 0 0 118 123
+btframe	__Frame_main	main	K32_task_cell_result_and_cancel.saw	488	0 143>5@0 0
+btframe	__Frame_make_arc$m$	make_arc	K32_task_cell_result_and_cancel.saw	16	0 63
+btframe	__Frame_make_one$m$	make_one	K32_task_cell_result_and_cancel.saw	16	0 58
+btframe	__Frame_unjoined_result$m$	unjoined_result	K32_task_cell_result_and_cancel.saw	448	0 0 0 0 0 0 92 93

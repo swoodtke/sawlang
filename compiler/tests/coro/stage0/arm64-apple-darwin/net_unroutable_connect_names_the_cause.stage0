@@ -74,8 +74,8 @@ field	__io_deadline	own	528	8	8
 field	__cancel	own	536	1	1
 field	__result	own	544	8	8
 bt	922	strtab=286	version=1	word_bits=64
-btframe	__Frame_TcpStream_connect$OL$String$Int	TcpStream.connect	net.saw	368	0 0 0 832>1@40 838>2@160 0 842>1@248
-btframe	__Frame_TcpStream_dial	TcpStream.dial	net.saw	32	0 0 0 0 0 0 893 0 0 0 0 0 903
-btframe	__Frame_TcpStream_resolve_first	TcpStream.resolve_first	net.saw	40	0 861 0 0 0
+btframe	__Frame_TcpStream_connect$OL$String$Int	TcpStream.connect	net.saw	368	0 0 0 842>1@40 848>2@160 0 852>1@248
+btframe	__Frame_TcpStream_dial	TcpStream.dial	net.saw	32	0 0 0 0 0 0 903 0 0 0 0 0 913
+btframe	__Frame_TcpStream_resolve_first	TcpStream.resolve_first	net.saw	40	0 871 0 0 0
 btframe	__Frame_main	main	net_unroutable_connect_names_the_cause.saw	1688	0 73>4@32 0 74>4@584 0 75>4@1136 0
 btframe	__Frame_probe$m$	probe	net_unroutable_connect_names_the_cause.saw	504	0 61>0@64 0

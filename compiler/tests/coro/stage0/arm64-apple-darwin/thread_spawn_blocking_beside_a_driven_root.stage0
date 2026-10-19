@@ -2,18 +2,6 @@ program	thread_spawn_blocking_beside_a_driven_root.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"napped"
-stdout	"1"
-stdout	""
-meets_expect	yes
-frame	__Frame_marker$m$	marker	48	8	states=2	own=41	sub=0	bt=0	root=0	method=0	agrees=1
-field	__state	own	0	8	8
-field	__wake	own	8	8	8
-field	__io_tok	own	16	8	8
-field	__io_deadline	own	24	8	8
-field	__cancel	own	32	1	1
-field	__result	own	40	8	8
-bt	258	strtab=114	version=1	word_bits=64
-btframe	__Frame_marker$m$	marker	thread_spawn_blocking_beside_a_driven_root.saw	0	0 27
+build	refused	Parse error at 32:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+layout_error	Parse error at 32:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+bt_error	Parse error at 32:36: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet

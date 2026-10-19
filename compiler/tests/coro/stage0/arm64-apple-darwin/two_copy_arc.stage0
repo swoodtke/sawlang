@@ -1,6 +1,6 @@
 program	two_copy_arc.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0

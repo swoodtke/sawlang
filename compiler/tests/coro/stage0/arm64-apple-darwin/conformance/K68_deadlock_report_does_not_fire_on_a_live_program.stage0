@@ -2,56 +2,6 @@ program	conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"sleeper fed 1"
-stdout	"thread fed 2"
-stdout	"mt fed 3"
-stdout	"busy owner fed 4"
-stdout	""
-meets_expect	yes
-frame	__Frame_late_sender$m$	late_sender	72	8	states=2	own=72	sub=0	bt=0	root=1	method=0	agrees=1
-field	ch	own	0	24	8
-field	v	own	24	8	8
-field	__state	own	32	8	8
-field	__wake	own	40	8	8
-field	__io_tok	own	48	8	8
-field	__io_deadline	own	56	8	8
-field	__cellp	own	64	8	8
-frame	__Frame_main	main	1416	8	states=13	own=1403	sub=0	bt=1	root=0	method=0	agrees=1
-field	g	own	0	432	8
-field	ch1	own	432	24	8
-field	w1	own	456	64	8
-field	s1	own	520	64	8
-field	ch2	own	584	24	8
-field	feeder	own	608	24	8
-field	t	own	632	32	8
-field	__trycall0	own	664	40	8
-field	__anf0	own	704	8	8
-field	mt	own	712	432	8
-field	ch3	own	1144	24	8
-field	s3	own	1168	64	8
-field	__trycall1	own	1232	40	8
-field	__anf1	own	1272	8	8
-field	ch4	own	1280	24	8
-field	w4	own	1304	64	8
-field	__have0	own	1368	1	1
-field	__have1	own	1369	1	1
-field	__state	own	1376	8	8
-field	__wake	own	1384	8	8
-field	__io_tok	own	1392	8	8
-field	__io_deadline	own	1400	8	8
-field	__cancel	own	1408	1	1
-frame	__Frame_waiter$m$	waiter	112	8	states=7	own=105	sub=0	bt=2	root=1	method=0	agrees=1
-field	ch	own	0	24	8
-field	__trycall0	own	24	40	8
-field	__have0	own	64	1	1
-field	__state	own	72	8	8
-field	__wake	own	80	8	8
-field	__io_tok	own	88	8	8
-field	__io_deadline	own	96	8	8
-field	__cellp	own	104	8	8
-bt	608	strtab=176	version=1	word_bits=64
-btframe	__Frame_late_sender$m$	late_sender	K68_deadlock_report_does_not_fire_on_a_live_program.saw	32	0 37
-btframe	__Frame_main	main	K68_deadlock_report_does_not_fire_on_a_live_program.saw	1376	0 72 0 0 0 0 0 79 0 0 0 0 0
-btframe	__Frame_waiter$m$	waiter	K68_deadlock_report_does_not_fire_on_a_live_program.saw	72	0 33 0 0 0 0 0
+build	refused	Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+layout_error	Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
+bt_error	Parse error at 68:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet

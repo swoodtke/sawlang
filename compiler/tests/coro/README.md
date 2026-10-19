@@ -774,6 +774,13 @@ builds and passes and the refusal tests it refuses by the plan's rule.
 `stage0/snapshot.py --write` regenerates the snapshot with the v0 compiler,
 which `oracle.v0_compiler` finds; nothing else does.
 
+Every row of `index.tsv` and `refusals.tsv` carries the `twin_sha` of its
+program's `examples/` twin, computed by `corpusdiff.twin_sha`, and the check
+recomputes it, and the `twin` relation, from the files. A program whose twin
+changed since its record was written fails the check (and so the census),
+naming the program and the `snapshot.py --write` to run; `--write --reuse`
+keeps only the raw results whose twin is unchanged.
+
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it, and whose op-budget point gives
 its frame a counter): the values each frame holds, and

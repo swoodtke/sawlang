@@ -1,15 +1,14 @@
 program	taskgroup_stale_handle_cancel.saw
 triple	arm64-apple-darwin
 twin	same
-expect	success
+expect	panic
 build	ok
 exit	0
 stdout	"1"
 stdout	"2"
-stdout	"void joined twice"
-stdout	"0"
+stdout	"void joined once, and the group holds 0"
 stdout	""
-meets_expect	yes
+meets_expect	no: expected a panic, exited 0
 frame	__Frame_slow$m$	slow	64	8	states=8	own=64	sub=0	bt=0	root=1	method=0	agrees=1
 field	tag	own	0	8	8
 field	__saw_loop_budget	own	8	8	8
@@ -26,5 +25,5 @@ field	__io_tok	own	16	8	8
 field	__io_deadline	own	24	8	8
 field	__cellp	own	32	8	8
 bt	382	strtab=118	version=1	word_bits=64
-btframe	__Frame_slow$m$	slow	taskgroup_stale_handle_cancel.saw	24	0 0 0 0 0 0 24 28
-btframe	__Frame_tick$m$	tick	taskgroup_stale_handle_cancel.saw	0	0 35
+btframe	__Frame_slow$m$	slow	taskgroup_stale_handle_cancel.saw	24	0 0 0 0 0 0 22 26
+btframe	__Frame_tick$m$	tick	taskgroup_stale_handle_cancel.saw	0	0 33

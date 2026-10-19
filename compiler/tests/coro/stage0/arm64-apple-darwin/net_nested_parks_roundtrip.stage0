@@ -2,64 +2,6 @@ program	net_nested_parks_roundtrip.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"2"
-stdout	"1"
-stdout	""
-meets_expect	yes
-frame	__Frame_client$m$	client	296	8	states=5	own=56	sub=240	bt=0	root=1	method=0	agrees=1
-field	fd	own	0	8	8
-field	n	own	8	8	8
-field	__sub0	sub	16	120	8	callee=__Frame_write_hi$m$	live=1
-field	__sub1	sub	136	120	8	callee=__Frame_read_n$m$	live=3
-field	__state	own	256	8	8
-field	__wake	own	264	8	8
-field	__io_tok	own	272	8	8
-field	__io_deadline	own	280	8	8
-field	__cellp	own	288	8	8
-frame	__Frame_read_n$m$	read_n	120	8	states=11	own=106	sub=0	bt=1	root=0	method=0	agrees=1
-field	fd	own	0	8	8
-field	__saw_loop_budget	own	8	8	8
-field	buf	own	16	16	8
-field	n	own	32	8	8
-field	going	own	40	1	1
-field	r	own	48	8	8
-field	__state	own	56	8	8
-field	__wake	own	64	8	8
-field	__io_tok	own	72	8	8
-field	__io_deadline	own	80	8	8
-field	__io_fd	own	88	8	8
-field	__io_dir	own	96	8	8
-field	__cancel	own	104	1	1
-field	__result	own	112	8	8
-frame	__Frame_server$m$	server	296	8	states=5	own=56	sub=240	bt=2	root=1	method=0	agrees=1
-field	fd	own	0	8	8
-field	n	own	8	8	8
-field	__sub0	sub	16	120	8	callee=__Frame_read_n$m$	live=1
-field	__sub1	sub	136	120	8	callee=__Frame_write_hi$m$	live=3
-field	__state	own	256	8	8
-field	__wake	own	264	8	8
-field	__io_tok	own	272	8	8
-field	__io_deadline	own	280	8	8
-field	__cellp	own	288	8	8
-frame	__Frame_write_hi$m$	write_hi	120	8	states=11	own=106	sub=0	bt=3	root=0	method=0	agrees=1
-field	fd	own	0	8	8
-field	__saw_loop_budget	own	8	8	8
-field	buf	own	16	16	8
-field	off	own	32	8	8
-field	going	own	40	1	1
-field	w	own	48	8	8
-field	__state	own	56	8	8
-field	__wake	own	64	8	8
-field	__io_tok	own	72	8	8
-field	__io_deadline	own	80	8	8
-field	__io_fd	own	88	8	8
-field	__io_dir	own	96	8	8
-field	__cancel	own	104	1	1
-field	__result	own	112	8	8
-bt	753	strtab=177	version=1	word_bits=64
-btframe	__Frame_client$m$	client	net_nested_parks_roundtrip.saw	256	0 62>3@16 0 63>1@136 0
-btframe	__Frame_read_n$m$	read_n	net_nested_parks_roundtrip.saw	56	0 0 0 0 0 0 19 0 0 0 22
-btframe	__Frame_server$m$	server	net_nested_parks_roundtrip.saw	256	0 56>1@16 0 57>3@136 0
-btframe	__Frame_write_hi$m$	write_hi	net_nested_parks_roundtrip.saw	56	0 0 0 0 0 0 38 0 0 0 41
+build	refused	`try` requires a Result type, got `(TcpStream, TcpStream)`
+layout_error	`try` requires a Result type, got `(TcpStream, TcpStream)`
+bt_error	`try` requires a Result type, got `(TcpStream, TcpStream)`

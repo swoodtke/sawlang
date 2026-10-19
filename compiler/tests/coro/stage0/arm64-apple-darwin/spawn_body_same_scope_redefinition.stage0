@@ -1,6 +1,6 @@
 program	spawn_body_same_scope_redefinition.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	success
 build	ok
 exit	0
