@@ -14,7 +14,7 @@ fn group_task_root.double(n: Int) -> Int {
 }
 resume #12: group_task_root.hello(name: String) task root  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #44 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #45 std.task.yield_now() at (*frame).[16]
 fn group_task_root.hello(name: String) -> Void {
     let _0: Void;  // return
     let _1: String;  // param name
@@ -35,7 +35,7 @@ fn group_task_root.hello(name: String) -> Void {
         return;
     }
 }
-resume #44: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #45: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {

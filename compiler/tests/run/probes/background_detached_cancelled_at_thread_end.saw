@@ -1,0 +1,37 @@
+// probe: stated
+// about: a `Thread.spawn` body detaches a background task that loops until it is cancelled, and the body's end cancels it and joins it, so the task's cancel path runs before the thread's join returns, conformance row K189 (SL-806)
+// stage 0: keeps one process-wide background group, which only `main`'s exit closes (SL-797)
+// speeds: -O0 -O2
+// prints: body returns
+// prints: the detached task saw the cancel
+// prints: main joined 9
+import std.task.*
+
+func linger() -> Int {
+    while not cancelled() {
+        yield_now()
+    }
+    print("the detached task saw the cancel")
+    0
+}
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func body() -> Int {
+    let lingering = Task.spawn(linger())
+    lingering.detach()
+    // The join drives this thread's background group, so the detached task
+    // runs a few turns before the body ends.
+    let r = Task.spawn(square(3)).join()
+    print("body returns")
+    r
+}
+
+func main() {
+    var th = try! Thread.spawn { body() }
+    let r = th.join()
+    print("main joined {}", r)
+}

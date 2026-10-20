@@ -1,0 +1,29 @@
+// probe: panics
+// about: a `Task.spawn` handle carried to another thread by its address is refused at that thread's `join`, before the group is touched, since only the thread whose record holds a cooperative group runs it, conformance row K189 (SL-806)
+// stage 0: keeps one process-wide background group, and has no check of a handle's thread (SL-797)
+// speeds: -O0 -O2
+// panics: Task.join: this task belongs to another thread's group; join a task on the thread that spawned it
+import std.task.*
+
+func one() -> Int {
+    yield_now()
+    1
+}
+
+func join_from(addr: Int) unsafe -> Int {
+    let p = addr as UnsafePointer<Task<Int>>
+    p[0].join()
+}
+
+func address_of(h: &Task<Int>) unsafe -> Int {
+    (&h) as UnsafePointer<Task<Int>> as Int
+}
+
+func main() {
+    let h = Task.spawn(one())
+    let addr = address_of(&h)
+    var t = try! Thread.spawn { [addr] in join_from(addr) }
+    let r = t.join()
+    h.cancel()
+    print("joined {}", r)
+}

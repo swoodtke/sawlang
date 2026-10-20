@@ -1,0 +1,56 @@
+// probe: stated
+// about: `dump_tasks` lists each thread's background group as a group of its own: a `Thread.spawn` body's `Task.spawn` and `main`'s, both live at the dump, conformance row K189 (SL-806)
+// stage 0: keeps one process-wide background group (SL-797)
+// speeds: -O0 -O2
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 ready
+// prints:     at dump_lists_each_threads_background_group.saw:0 in held_by_thread
+// prints:   task group 2 slot 0 gen 1 ready
+// prints:     at dump_lists_each_threads_background_group.saw:0 in held_by_main
+// prints: joined 1 and 2
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 1_000_000
+// 1 once the thread's background task is spawned, 2 once `main` has dumped.
+static STAGE: Atomic<Int> = Atomic(0)
+
+func held_by_thread() -> Int {
+    while not cancelled() {
+        sleep(Duration.ms(1))
+    }
+    1
+}
+
+func held_by_main() -> Int {
+    while not cancelled() {
+        sleep(Duration.ms(1))
+    }
+    2
+}
+
+func body() -> Int {
+    let h = Task.spawn(held_by_thread())
+    STAGE.store(1)
+    while STAGE.load() != 2 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    h.cancel()
+    h.join()
+}
+
+func main() {
+    var th = try! Thread.spawn { body() }
+    while STAGE.load() != 1 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    let m = Task.spawn(held_by_main())
+    dump_tasks()
+    STAGE.store(2)
+    let a = th.join()
+    m.cancel()
+    print("joined {} and {}", a, m.join())
+}

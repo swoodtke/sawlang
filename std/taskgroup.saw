@@ -1,5 +1,6 @@
 //! The cooperative executor: the run queue tasks are resumed from, the handles
-//! a spawn returns, and the background group `Task.spawn` spawns into.
+//! a spawn returns, and each thread's background group, which `Task.spawn`
+//! spawns into.
 //!
 //! A task is a coroutine frame the compiler lays out. The executor reaches a
 //! frame only through its `FrameDescriptor`: it resumes the frame, reads the
@@ -88,6 +89,19 @@ func joins_thread(park: Int) -> Bool {
 // The handshake word a join's park word `park` names.
 func joined_word(park: Int) unsafe -> UnsafePointer<Int> {
     (0 - park - 1) as UnsafePointer<Int>
+}
+
+// The park word of a join of the thread whose handshake word is at `word`:
+// the word's negated address less one, which `joins_thread` and
+// `joined_word` read back. A task's `Thread.join` parks on it, and a pool's
+// teardown on a thread that drives tasks drives on it, so both wait for a
+// thread's exit the one way and neither blocks the thread's other tasks.
+//
+// ENTRY POINTS:
+//   Thread.join
+//   drive_on_exit
+public(package) func __saw_exec_join_park(word: UnsafePointer<Int>) unsafe -> Int {
+    0 - (word as Int) - 1
 }
 
 /// What one resume of a frame reports.
@@ -464,8 +478,11 @@ struct ExecutorRecord {
     // thread drives tasks, so a wait it makes drives them too rather than
     // blocking it (`await_task`, `drain_pool`). Only its own thread reads it.
     sweeps: Int
-    // Reserved for this thread's own `Task.spawn` group; 0 while that group
-    // is the process-wide `BACKGROUND`.
+    // The address of this thread's background group, the one its
+    // `Task.spawn`s spawn into, or 0 before the first. The group is built
+    // once per record and kept with it, emptied at each thread's end, so a
+    // walk holding its address still finds a group there. Only the record's
+    // own thread reads this field.
     background: Int
     // The next record in `EXEC_RECORDS`, written once, before the record is
     // published.
@@ -534,30 +551,18 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     fresh
 }
 
-// The calling thread is about to end: `Thread.__saw_exit`'s call, ahead of
-// the live-thread count dropping. Its record, if it has one, is published
-// empty first, and claimable after that, so a walk that reads a claimable
-// record finds nothing waiting in it (the run probe
-// `executor_records_reused`). A group still registered in it stays there,
-// read by the walk, until whichever thread tears it down unlinks it.
+// The calling thread is about to end: `Thread.__saw_exit`'s call, after its
+// background group is closed and ahead of the live-thread count dropping. Its
+// record, if it has one, is published empty first, and claimable after that,
+// so a walk that reads a claimable record finds nothing waiting in it (the run
+// probe `executor_records_reused`). A group still registered in it stays
+// there, read by the walk, until whichever thread tears it down unlinks it.
 public(package) func __saw_exec_thread_exiting() unsafe {
     let current = __saw_rt_thread_executor()
     if current == 0 {
         return
     }
     let r = current as UnsafePointer<ExecutorRecord>
-    // The background group outlives the thread that holds it: it leaves this
-    // record's list and is given up, before the record is published empty,
-    // so a later thread or `main`'s exit claims it (`claim_background`).
-    if BACKGROUND_OWNER.load() == current {
-        let addr = BACKGROUND.load()
-        if addr != 0 {
-            var g = addr as UnsafePointer<TaskGroup>
-            // Stage 0 workaround (SL:hazards S15): canonical: g[0].unregister()
-            unregister(&var g[0])
-        }
-        BACKGROUND_OWNER.store(0)
-    }
     store_word((&r[0].waiting) as UnsafePointer<Int>, 0)
     r[0].sweeps = 0
     store_word((&r[0].live) as UnsafePointer<Int>, 0)
@@ -593,13 +598,6 @@ func leave_executor(record: UnsafePointer<ExecutorRecord>) unsafe {
         let _ = WAITING_THREADS.fetch_add(-1)
     }
 }
-
-// The background group's address once the first `Task.spawn` built it, or 0.
-static BACKGROUND: Atomic<Int> = Atomic(0)
-
-// The address of the executor record of the thread the background group
-// belongs to, claimed by its first `Task.spawn`, or 0.
-static BACKGROUND_OWNER: Atomic<Int> = Atomic(0)
 
 // The executor's side of the hidden-allocation boundary (design 234): a spawn
 // is a form, with no expression a `try` could sit on, so a refused allocation
@@ -1593,7 +1591,8 @@ func start_crew(group: &var TaskGroup, addr: Int) unsafe {
 // The owning thread waits inside the executor meanwhile, so a worker whose
 // tasks are all parked on channels nothing can send to reports it. A
 // teardown on a thread that drives tasks has already run them until the pool
-// drained (`drain_pool`), so the workers it joins are leaving.
+// drained (`drain_pool`), and runs them on while each worker's exit finishes
+// (`join_crew`).
 func shutdown_crew(at: UnsafePointer<TaskGroup>) unsafe {
     var g = at
     if not g[0].started {
@@ -1673,11 +1672,14 @@ func drive_on_word(word: UnsafePointer<Int>) unsafe {
 // Joins each of a stopping pool's workers, putting each back in
 // `LIVE_THREADS` first, since its thread's exit takes it out again.
 //
-// This is the group's `Deinit` barrier. The workers are threads the group
-// itself started, each about to leave since no work is coming, so the reap is
-// a plain call rather than `Thread.join`, whose default would park in a
-// `deinit`.
+// This is the group's `Deinit` barrier, which cannot park, so the reap is a
+// plain call rather than `Thread.join`. A worker's exit closes its own
+// background group first, which may wait on a join or an offloaded call, so
+// on a thread that drives tasks each worker's exit is driven for
+// (`drive_on_exit`) before its reap, which is then prompt; elsewhere the reap
+// blocks the thread until the worker ends.
 func join_crew(crew: &var Vector<Thread<Void>>) unsafe {
+    let drives = this_executor()[0].sweeps > 0
     var joining = true
     while joining {
         // Stage 0 workaround (SL:hazards S2): canonical: while let worker = crew.pop() { var held = move worker; LIVE_THREADS.fetch_add(1); held.__saw_reap() }
@@ -1685,10 +1687,29 @@ func join_crew(crew: &var Vector<Thread<Void>>) unsafe {
         if let worker = move next {
             var held = move worker
             let _ = LIVE_THREADS.fetch_add(1)
+            if drives {
+                drive_on_exit(held.__saw_exit_word())
+            }
             held.__saw_reap()
         } else {
             joining = false
         }
+    }
+}
+
+// Runs the calling thread's tasks until the thread whose handshake word is at
+// `word` has exited: a nested sweep whose drive point is parked on that
+// thread's join park (`__saw_exec_join_park`), so `idle` and the deadlock walk
+// read it as they read a task's `Thread.join`, and the thread's exit pokes the
+// reactor once the word is set (`__saw_exec_thread_finished`). A cancel does
+// not end it, as it does not end a join.
+func drive_on_exit(word: UnsafePointer<Int>) unsafe {
+    var park = __saw_exec_join_park(word)
+    var cancel = false
+    var context = TaskContext(park: (&park) as UnsafePointer<Int>, cancel: (&cancel) as UnsafePointer<Bool>,
+                              task: 0, deadline: 0)
+    while load_word(word) >= 0 {
+        sweep(0, -1, 0, (&context) as UnsafePointer<TaskContext> as Int)
     }
 }
 
@@ -2003,74 +2024,41 @@ public func __saw_exec_offload_done(job: Int) -> Bool {
     __saw_rt_offload_done(job) != 0
 }
 
-// Claims the background group for the calling thread, and answers whether
-// the thread holds it. One compare-and-swap of the thread's record decides,
-// so two threads spawning at once never both enqueue into the group, which
-// its unlocked run queue would not survive. A claim moves a group that
-// already exists into the calling thread's list, where its sweeps run it.
-// The owner gives the group up when its thread ends
-// (`__saw_exec_thread_exiting`).
-//
-// ENTRY POINTS:
-//   __saw_exec_background
-//   __saw_exec_close_background
-func claim_background() unsafe -> Bool {
-    let me = this_executor() as Int
-    if BACKGROUND_OWNER.compare_exchange(0, me) {
-        let addr = BACKGROUND.load()
-        if addr != 0 {
-            var g = addr as UnsafePointer<TaskGroup>
-            // Stage 0 workaround (SL:hazards S15): canonical: g[0].register()
-            register(&var g[0])
-        }
-        return true
-    }
-    BACKGROUND_OWNER.load() == me
-}
-
-/// The process-wide group `Task.spawn` spawns into, built on the first call.
+/// The calling thread's background group, the one `Task.spawn` spawns into,
+/// built on the thread's first call.
 ///
-/// The group belongs to one thread at a time, the one that claimed it with
-/// its first spawn, until that thread ends. Panics on any other thread,
-/// before the group is touched, and if the group cannot be allocated.
+/// Each thread has its own, so only the thread that spawned a background
+/// task ever runs it. Panics if the group cannot be allocated.
 public func __saw_exec_background() unsafe -> UnsafePointer<TaskGroup> {
-    if not claim_background() {
-        panic("Task.spawn: the background group belongs to another running thread; `Task.spawn` concurrently, from more than one thread, is not supported yet")
-    }
-    let current = BACKGROUND.load()
+    let record = this_executor()
+    let current = record[0].background
     if current != 0 {
         return current as UnsafePointer<TaskGroup>
     }
-    let size = sizeof<TaskGroup>()
-    let align = alignof<TaskGroup>()
-    let raw = exec_alloc(size, align, "Task.spawn")
+    let raw = exec_alloc(sizeof<TaskGroup>(), alignof<TaskGroup>(), "Task.spawn")
     let g = raw as UnsafePointer<TaskGroup>
     g[0] = TaskGroup()
-    if BACKGROUND.compare_exchange(0, raw as Int) {
-        return g
-    }
-    // A peer published first; nothing was enqueued into this one.
-    drop_in_place(g)
-    GlobalAllocator().dealloc(raw, size, align)
-    BACKGROUND.load() as UnsafePointer<TaskGroup>
+    record[0].background = raw as Int
+    g
 }
 
-/// Closes the background group at `main`'s return: every live member is
-/// cancelled, then joined, then released.
+/// Closes the calling thread's background group as the thread ends: at
+/// `main`'s return, and at the end of every `Thread.spawn` body. Every live
+/// member is cancelled, then joined, then released.
 ///
 /// Cancel first, because a background task may loop until asked to stop;
 /// join after, because a cancelled task still finishes through its own code,
-/// which is where its values are destroyed. Does nothing when no task was
-/// ever spawned into the group, or when a thread that is still running holds
-/// it: its tasks are that thread's to run, and they end with the process.
-/// A group whose thread has ended is claimed here, so a task that thread
-/// detached is cancelled and joined like `main`'s own.
+/// which is where its values are destroyed. A task parked where a cancel does
+/// not wake it, such as a join of a thread, holds the close open until that
+/// wait ends. Does nothing when the thread never spawned a background task.
+/// The group is left empty, for the next thread that takes this record.
 public func __saw_exec_close_background() unsafe {
-    let addr = BACKGROUND.load()
-    if addr == 0 {
+    let current = __saw_rt_thread_executor()
+    if current == 0 {
         return
     }
-    if not claim_background() {
+    let addr = (current as UnsafePointer<ExecutorRecord>)[0].background
+    if addr == 0 {
         return
     }
     var g = addr as UnsafePointer<TaskGroup>
@@ -2081,6 +2069,10 @@ public func __saw_exec_close_background() unsafe {
     release_slots(&var g[0])
     // Stage 0 workaround (SL:hazards S15): canonical: g[0].unregister()
     unregister(&var g[0])
+    // Its storage stays with the record (`ExecutorRecord.background`); only
+    // its run queue is given back.
+    drop_in_place(g)
+    g[0] = TaskGroup()
 }
 
 /// Runs a suspending `main` whose frame is at `frame`: its root and every task
@@ -2209,6 +2201,29 @@ extension Task<T> {
                 released: UnsafeMutableInterior(false))
     }
 
+    // Refuses, before the group is touched, a handle to a cooperative group
+    // used on a thread other than the one whose record holds the group. That
+    // thread alone runs the group and writes its run queue, which takes no
+    // lock, so another thread could neither finish the task nor touch its slot
+    // safely. A pool's run queue is locked and its workers finish its tasks,
+    // so its handles work from any thread. Safe code cannot get here, since a
+    // handle is not `Send`; a handle carried across threads by address can (the
+    // run probe `task_handle_used_on_another_thread`).
+    //
+    // ENTRY POINTS:
+    //   Task.join
+    //   Task.cancel_addr
+    //   Task.cancel
+    //   Task.detach
+    //   Task.deinit
+    func check_home_thread(&self, what: String, verb: String) unsafe {
+        let g = self.group
+        if g[0].lock == 0 && g[0].owner != __saw_rt_thread_executor() {
+            panic("{}: this task belongs to another thread's group; {} a task on the thread that spawned it", what,
+                  verb)
+        }
+    }
+
     // Writes the handle's fate: `join`, `cancel` and `detach` each mark it,
     // and the drop of a `Task.spawn` handle panics without it.
     func consume(&self) unsafe {
@@ -2246,6 +2261,7 @@ extension Task<T> {
     /// result once, so joining a second time, or after `detach`, panics, a
     /// `Task<Void>` included.
     public func join(&self) unsafe -> T {
+        self.check_home_thread("Task.join", "join")
         self.consume()
         if self.let_go() {
             panic("Task.join: this task's result was already joined")
@@ -2288,6 +2304,7 @@ extension Task<T> {
     /// write landing after the task finished is defined and does nothing.
     /// Panics once the task's result was joined.
     public func cancel_addr(&self) unsafe -> Int {
+        self.check_home_thread("Task.cancel_addr", "take the cancel address of")
         var g = self.group
         lock_queue(g)
         if g[0].stale(self.slot, self.generation) {
@@ -2306,6 +2323,7 @@ extension Task<T> {
     /// wait is woken to do so. Cancelling a finished task does nothing, and
     /// its result stays for a `join`.
     public func cancel(&self) unsafe {
+        self.check_home_thread("Task.cancel", "cancel")
         self.consume()
         let g = self.group
         lock_queue(g)
@@ -2330,6 +2348,7 @@ extension Task<T> {
         if self.provenance == TaskProvenance.Group {
             panic("Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
         }
+        self.check_home_thread("Task.detach", "detach")
         self.consume()
         if self.let_go() {
             return
@@ -2351,6 +2370,10 @@ extension Task<T>: NoCopy {
     public func deinit(&var self) unsafe {
         if self.provenance == TaskProvenance.Singleton && not self.consumed.ptr()[0] {
             panic("Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop")
+        }
+        // A handle that already let go reaches nothing, wherever it is dropped.
+        if not self.released.ptr()[0] {
+            self.check_home_thread("Task", "drop the handle to")
         }
         if self.let_go() {
             return

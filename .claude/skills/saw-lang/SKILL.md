@@ -2487,12 +2487,15 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   ```
   It takes a CALL to a named function, not a brace: a coroutine frame is built
   for a named function, and a background task's whole point is that it can
-  suspend. The group it spawns into is built on the FIRST `Task.spawn` in the
-  process and never before. At `main`'s return it CANCELS every task still
-  live, joins them, and exits — cancel first because a background task is the
-  kind that loops forever with nobody left to stop it, join after because a
+  suspend. Each THREAD has its own background group, built on that thread's
+  first `Task.spawn` and never before. When the thread ends (`main`'s return,
+  or a `Thread.spawn` body's end) it CANCELS every task still live in its
+  group and joins them — cancel first because a background task is the kind
+  that loops forever with nobody left to stop it, join after because a
   cancelled task reaches completion through ordinary control flow and that is
-  where its values are released.
+  where its values are released. So a detached background task lives no
+  longer than the thread that spawned it, and a task's handle is used only on
+  that thread (using it from another one panics).
   GOTCHA: a SYNC `main` never yields, so its background tasks first run at that
   exit join, already cancelled. Give them a `yield_now()`, join them, or spawn
   from a suspending `main`.

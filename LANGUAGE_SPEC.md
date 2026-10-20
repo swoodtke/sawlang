@@ -9342,7 +9342,12 @@ threads, no lock).
   task, and a pool's `Deinit`, made by a task run that task's thread's other
   tasks until the pool's task finishes, or until the pool has no live task, as
   a join and a teardown on the cooperative engine do. So a pool's task may wait
-  on a task of the thread that joins it. Made outside every task (in a
+  on a task of the thread that joins it. The teardown then waits for each
+  worker to end, and a worker's end closes that worker's own background group
+  (*Background tasks: `Task.spawn`*, below): a background task a pool's task
+  detached on the worker, parked where a cancel does not wake it, holds the
+  teardown open until that wait finishes, and inside a task the thread's other
+  tasks keep running throughout. Made outside every task (in a
   `Thread.spawn` body, or in a `main` that does not suspend) both block the
   calling thread, and a pool dropped there waits for its tasks with nothing
   else running on that thread.
@@ -9603,8 +9608,11 @@ handle.detach()
 // the Report is built, and dropped, when the task finishes
 ```
 
-At `main`'s return the background group cancels every member still live and
-joins them (below), so a detached task ends there if it has not ended sooner.
+A detached task lives no longer than the thread that spawned it. When that
+thread ends (at `main`'s return for `main`, at the end of its body for a
+`Thread.spawn` thread), its background group cancels every member still live
+and joins them (below), so a detached task ends there if it has not ended
+sooner.
 
 `group.spawn` handles take no `detach()`. A group task may borrow from the
 frame that spawned it, and the group's scope is what releases that borrow, so
@@ -10075,20 +10083,27 @@ It takes a CALL to a named function, not a brace, and for the reason the
 cooperative engine exists: a coroutine frame is built for a named function, and
 a background task's whole point is that it can suspend.
 
-THE GROUP IT SPAWNS INTO is one the program never declares. It is built on the
-first `Task.spawn` in the process and never before, so a program that spawns no
-background task pays one zero word for it. There is no multi-threaded flavour:
-`TaskGroup(threads: N)` is how parallelism is asked for. The group belongs to
-one thread at a time, the first to spawn into it, until that thread ends, when
-the next thread to spawn takes it over, and `main`'s exit closes it as usual.
-`Task.spawn` concurrently, from more than one thread, is not supported yet: a
-`Task.spawn` while another running thread holds the group panics.
+THE GROUP IT SPAWNS INTO is one the program never declares, and EACH THREAD HAS
+ITS OWN. A thread's background group is built on that thread's first
+`Task.spawn` and never before, so a thread that spawns no background task pays
+nothing for one. It belongs to its thread as a `TaskGroup()` belongs to the
+thread that made it: only that thread runs its tasks, so two threads may
+`Task.spawn` at once and neither ever resumes the other's tasks. There is no
+multi-threaded flavour: `TaskGroup(threads: N)` is how parallelism is asked
+for. A `Task<T>` handle is not `Send`, so it stays on the thread that spawned
+its task; one carried to another thread by its address in `unsafe` code is
+refused there, and `join()`, `cancel()`, `cancel_addr()`, `detach()` and the
+handle's drop each panic with `this task belongs to another thread's group`
+before they touch the group. That holds for a `group.spawn` handle to a
+`TaskGroup()` too.
 
-AT `main`'s RETURN that group cancels every member still live, joins them, and
-exits. Cancel first, because a background task is exactly the kind that loops
-forever and there is nobody left to ask it to stop; join after, because a
-cancelled task reaches its own completion through ordinary control flow, and
-that is where the values it owns are released:
+AT THE THREAD'S END that group cancels every member still live and joins them:
+at `main`'s return for `main`, and at the end of its body for a `Thread.spawn`
+thread, a pool's workers included, before a join of that thread returns. Cancel
+first, because a background task is exactly the kind that loops forever and
+there is nobody left to ask it to stop; join after, because a cancelled task
+reaches its own completion through ordinary control flow, and that is where the
+values it owns are released:
 
 ```saw-fragment
 func serve(id: Int) {
@@ -10112,7 +10127,18 @@ A SYNC `main` never yields, so its background tasks first run at that exit join
 — by which time they are already cancelled. That is the cooperative model being
 itself rather than a special case: a task runs when something cedes to it, and a
 `main` that never suspends never does. Give the tasks a `yield_now()`, or join
-them, or spawn them from a suspending `main`.
+them, or spawn them from a suspending `main`. A `Thread.spawn` body is `sync`
+in the same way, so its background tasks run while it joins one of them and at
+its end.
+
+THE THREAD'S END WAITS FOR THE JOIN, and so for every wait a cancel does not
+end. A background task parked in `Thread.join()` keeps waiting after its cancel
+(a thread cannot be asked to stop), and so does one whose offloaded `blocking`
+call is still running; either holds its thread's end open until that wait
+finishes, as it holds `main`'s exit. A background task that ignores its cancel
+keeps its thread from ending at all. A DETACHED thread still running at process
+exit is terminated by the operating system with its background tasks, which
+are released no more than the rest of what it holds.
 
 BORROWS ARE REFUSED AT THE FORM. A `&`/`&var` argument of the spawned call, and
 a borrow capture in a closure inside it, are both clean errors:
@@ -10127,7 +10153,7 @@ let filler = Task.spawn(fill(&var buffer, 3))
 
 A group's scope is what ends such a borrow (see *The borrow's extent is the
 task's life*), and a background task has no scope: it may be detached, and it
-ends at `main`'s return rather than at a scope its root outlives. Spawn into a
+ends at its thread's end rather than at a scope its root outlives. Spawn into a
 `TaskGroup`, or hand the task an owned value, an `Arc` or a `Channel`.
 
 THE HANDLE IS MUST-CONSUME, on the same terms `Thread.spawn`'s is (*No implicit

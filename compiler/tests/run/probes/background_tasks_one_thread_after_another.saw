@@ -1,5 +1,5 @@
 // probe: stated
-// about: a `Thread.spawn` body spawns a background task with `Task.spawn`, joins it and ends; then `main` spawns one of its own, since the ended thread gave the background group up, conformance row K189 (SL-793)
+// about: a `Thread.spawn` body spawns a background task with `Task.spawn`, joins it and ends; then `main` spawns one into its own background group, conformance row K189 (SL-806)
 // stage 0: keeps one process-wide list of cooperative groups, which any thread's sweep runs (SL-797)
 // speeds: -O0 -O2
 // prints: thread joined 9, main joined 16

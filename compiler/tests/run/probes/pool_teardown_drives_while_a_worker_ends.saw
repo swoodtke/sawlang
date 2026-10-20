@@ -1,0 +1,74 @@
+// probe: stated
+// about: a `TaskGroup(threads: 2)` worker leaves a detached background task joining a thread that sleeps 200 ms, and the pool is torn down inside a cooperative task while a sibling ticks; the worker's end waits on that join, and the teardown drives the thread's tasks until the worker has ended, so the sibling keeps ticking, conformance row K188 (SL-806)
+// stage 0: keeps one process-wide background group, which the worker never closes (SL-797)
+// speeds: -O0 -O2
+// prints: the teardown waited for the worker: true
+// prints: the sibling ticked through the teardown: true
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+static NAP_NANOS: UInt64 = 200_000_000
+static AT_LEAST_MS: Int = 150
+// A sibling ticking every 5 ms ticks about 40 times in 200 ms, and none at
+// all while the executor's thread is blocked.
+static AT_LEAST_TICKS: Int = 10
+static TICKS: Atomic<Int> = Atomic(0)
+static STOP: Atomic<Int> = Atomic(0)
+
+func now_ms() -> Int {
+    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+}
+
+func nap() -> Int {
+    __saw_rt_sleep_ns(NAP_NANOS)
+    7
+}
+
+func join_sleeper() -> Int {
+    var sleeper = try! Thread.spawn { nap() }
+    sleeper.join()
+}
+
+func leave_one() -> Int {
+    let h = Task.spawn(join_sleeper())
+    h.detach()
+    1
+}
+
+func ticker() -> Int {
+    while STOP.load() == 0 {
+        sleep(Duration.ms(5))
+        let _ = TICKS.fetch_add(1)
+    }
+    0
+}
+
+func pool_scope() -> Int {
+    var pool = try! TaskGroup(threads: 2)
+    let a = pool.spawn(leave_one())
+    a.join()
+}
+
+func owner() -> Int {
+    let before = TICKS.load()
+    let start = now_ms()
+    let r = pool_scope()
+    let ms = now_ms() - start
+    let ticks = TICKS.load() - before
+    print("the teardown waited for the worker: {}", ms >= AT_LEAST_MS)
+    print("the sibling ticked through the teardown: {}", ticks >= AT_LEAST_TICKS)
+    r
+}
+
+func main() {
+    var g = TaskGroup()
+    let t = g.spawn(ticker())
+    let o = g.spawn(owner())
+    let _ = o.join()
+    STOP.store(1)
+    let _ = t.join()
+}

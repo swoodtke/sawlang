@@ -15,7 +15,7 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
-import std.taskgroup.{__saw_exec_dump_tasks}
+import std.taskgroup.{__saw_exec_close_background, __saw_exec_dump_tasks, __saw_exec_join_park}
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_exiting, __saw_exec_thread_finished}
 
 extern "C" {
@@ -117,9 +117,9 @@ extension Thread<T> {
         // word once the result is stored (runtime/ABI.md), and only the exit
         // writes it while the handle is live. So once the word is negative
         // the reap waits for nothing but the thread's own return.
-        let word = (&self.block[0].state) as UnsafePointer<Int>
+        let word = self.__saw_exit_word()
         while __saw_atomic_load_i64_seq_cst(word) >= 0 {
-            __saw_park_thread(0 - (word as Int) - 1)
+            __saw_park_thread(__saw_exec_join_park(word))
         }
         self.__saw_reap()
     }
@@ -127,6 +127,13 @@ extension Thread<T> {
     public func join(&var self) unsafe blocking -> T {
         self.check_fate_open("Thread.join")
         self.__saw_reap()
+    }
+
+    // The thread's handshake word, which its exit leaves negative: what a
+    // join waits on before the reap, a pool teardown's among them
+    // (`join_crew` in std.taskgroup).
+    public(package) func __saw_exit_word(&self) unsafe -> UnsafePointer<Int> {
+        (&self.block[0].state) as UnsafePointer<Int>
     }
 
     // Joins the OS thread and takes its result, the handle's fate still
@@ -213,13 +220,19 @@ extension Thread<T> {
     }
 
     // The thread's own exit, after the body's result is stored and its
-    // environment freed: ends the detach handshake, then counts the thread as
-    // finished (`__saw_exec_thread_finished`). Returns whether this side
-    // freed the block. When the handle detached first, nothing will read the
+    // environment freed: closes the thread's background group, ends the
+    // detach handshake, then counts the thread as finished
+    // (`__saw_exec_thread_finished`). Returns whether this side freed the
+    // block. When the handle detached first, nothing will read the
     // result, so it is destroyed here and the block freed; otherwise the
     // joiner or the detacher frees it.
     public(package) static func __saw_exit(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Bool {
         let size = sizeof<ThreadControlBlock<T>>()
+        // The thread's background tasks are cancelled and joined first, while
+        // the handshake still reads the thread as running, so a parked joiner
+        // wakes only once they are done and never waits on the OS thread with
+        // its executor blocked (the run probe `background_close_waits_on_a_join`).
+        __saw_exec_close_background()
         // Last: a detacher that frees the block on the other side of this
         // exchange must find the result stored and the environment released.
         // The exchange also comes before the live-thread count drops, so a

@@ -1,9 +1,9 @@
 // probe: stated
-// about: a `Thread.spawn` body spawns a background task with `Task.spawn`, detaches it and ends; the thread gives the background group up as it ends, so `main`'s exit claims it, cancels the task and joins it, and the value the task holds deinits, conformance row K189 (SL-793)
+// about: a `Thread.spawn` body spawns a background task with `Task.spawn`, detaches it and ends; the thread's end cancels and joins its own background group, so the value the task holds deinits before `main`'s join of the thread returns, conformance row K189 (SL-806)
 // stage 0: keeps one process-wide list of cooperative groups, which `main`'s exit sweeps whichever thread spawned into it (SL-797)
 // speeds: -O0 -O2
-// prints: main exits
 // prints: deinit 1
+// prints: main exits
 import std.task.*
 
 struct Noisy {

@@ -1,0 +1,45 @@
+// probe: stated
+// about: a `Thread.spawn` body detaches a background task that joins a thread sleeping 200 ms; a cancel does not end a join, so the body's end waits for the sleeper and the thread ends after about 200 ms, not at once and not never, conformance row K189 (SL-806)
+// stage 0: keeps one process-wide background group, which only `main`'s exit closes (SL-797)
+// speeds: -O0 -O2
+// prints: the thread ended after the sleeper: true
+// prints: the thread ended within a second: true
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+static NAP_NANOS: UInt64 = 200_000_000
+static AT_LEAST_MS: Int = 180
+static AT_MOST_MS: Int = 1000
+
+func now_ms() -> Int {
+    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+}
+
+func nap() -> Int {
+    __saw_rt_sleep_ns(NAP_NANOS)
+    7
+}
+
+func join_sleeper() -> Int {
+    var sleeper = try! Thread.spawn { nap() }
+    sleeper.join()
+}
+
+func body() -> Int {
+    let h = Task.spawn(join_sleeper())
+    h.detach()
+    0
+}
+
+func main() {
+    let start = now_ms()
+    var th = try! Thread.spawn { body() }
+    let _ = th.join()
+    let ms = now_ms() - start
+    print("the thread ended after the sleeper: {}", ms >= AT_LEAST_MS)
+    print("the thread ended within a second: {}", ms < AT_MOST_MS)
+}
