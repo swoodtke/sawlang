@@ -59,6 +59,10 @@ PLAN_MEMBERS = {"TcpStream": ("pair", "read", "write"), "TcpListener": ("listen"
 # design (SL:architecture §5, "language changed"): each is counted as
 # `changed` while sawc2 accepts it, and as `accepted` would be otherwise.
 LANGUAGE_CHANGED = {
+    "coro_suspending_default_omitted.saw":
+        "a call that leaves out a suspending default suspends in the caller and runs (SL-656 (b))",
+    "coro_suspending_default_omitted_cross_module.saw":
+        "a call that leaves out a suspending default suspends in the caller and runs (SL-656 (b))",
     "conformance/P08_borrows_body_suspends.saw":
         "a `borrows` body may suspend unless it is `borrows(sync)` (SL-559; run lane probes/coro_windows_held)",
     "while_let_tuple_over_suspension_refused.saw":

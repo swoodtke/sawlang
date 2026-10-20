@@ -1,5 +1,5 @@
 // DF-181f (design 183 unit 1): `blocking` is part of an extern's contract, so two
-// declarations of one symbol must agree about it. `__saw_rt_last_syserror` is a
+// declarations of one symbol must agree about it. `__saw_rt_last_raw_code` is a
 // runtime seam std already declares without `blocking`; annotating it here used to
 // be dropped along with the whole redeclaration, and the call compiled to a naked
 // thread-blocking one. Now it is a clean error at the annotation.
@@ -8,11 +8,11 @@
 // EXPECT-ERROR-CONTAINS: every declaration of one symbol must agree
 
 extern "C" {
-    blocking func __saw_rt_last_syserror() -> Int
+    blocking func __saw_rt_last_raw_code() -> Int
 }
 
 func worker() -> Int {
-    __saw_rt_last_syserror()
+    __saw_rt_last_raw_code()
 }
 
 func main() {

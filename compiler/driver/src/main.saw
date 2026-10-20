@@ -29,6 +29,8 @@
 //   sawc2 coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
 //   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
+//   sawc2 build --freestanding FILE the entry file's program checked under the freestanding profile, and not built
+//   sawc2 build --runtime FILE      the entry file checked as a runtime's source, and not built
 //   sawc2 runtime --out DIR         the host's, or --target's, runtime objects built into DIR
 //   sawc2 runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
 //
@@ -81,7 +83,8 @@ func driver_usage() -> Int {
     print("       sawc2 resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
-    print("                       [--lowerings] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("                       [--freestanding] [--lowerings] [--std-root DIR] [--module-path NAME=DIR]...")
+    print("                       [FILE | @LIST]...")
     print("       sawc2 mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
     print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
@@ -95,7 +98,8 @@ func driver_usage() -> Int {
     print("       sawc2 coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
     print("                  [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
-    print("                   [--sanitize address] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("                   [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...")
+    print("                   (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc2 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                     (--out DIR | --emit-ll FILE)")
     DRIVER_EXIT_USAGE
@@ -116,7 +120,9 @@ func driver_speed_level(flag: String) -> String {
 // `--sanitize address` builds it under AddressSanitizer, its frames poisoned
 // outside their values' lifetimes; it is the one value the flag takes. A
 // refusal prints its record and exits 1, and a failing clang's exit status
-// is the build's (compiler/tests/run/README.md).
+// is the build's (compiler/tests/run/README.md). `--freestanding` and
+// `--runtime` name a profile sawc2 checks but does not build
+// (`driver_check_profile`).
 func driver_build(args: &Vector<String>) -> Int {
     var std_root = "sawc"
     var triple = ""
@@ -127,6 +133,8 @@ func driver_build(args: &Vector<String>) -> Int {
     var out = ""
     var emit = false
     var sanitize = false
+    var freestanding = false
+    var runtime = false
     var i = 2
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -137,6 +145,10 @@ func driver_build(args: &Vector<String>) -> Int {
             speed = level
         } else if arg.equals("--emit-ll") {
             emit = true
+        } else if arg.equals("--freestanding") {
+            freestanding = true
+        } else if arg.equals("--runtime") {
+            runtime = true
         } else if valued || arg.equals("-o") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -165,13 +177,16 @@ func driver_build(args: &Vector<String>) -> Int {
         }
         i = i + 1
     }
-    if path.len() == 0 || (emit && out.len() > 0) {
+    if path.len() == 0 || (emit && out.len() > 0) || (freestanding && runtime) {
         return driver_usage()
     }
     if triple.len() > 0 && not target_known(triple) {
         // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {triple}")
         print("sawc2: unknown target {}", triple)
         return DRIVER_EXIT_USAGE
+    }
+    if freestanding || runtime {
+        return driver_check_profile(path, std_root, runtime, freestanding, &names, &dirs)
     }
     var objects = Vector<String>()
     var clang = StringBuilder()
@@ -247,6 +262,34 @@ func driver_emit(path: String, std_root: String, triple: String, speed: String, 
     }
     print(ir.build())
     0
+}
+
+// `sawc2 build --freestanding` or `--runtime`: the program checked through
+// typecheck under that profile, where the rules that know a profile live,
+// then refused with `driver.not-yet` when nothing else refuses it. sawc2
+// links only a hosted program, and `sawc2 runtime` builds a runtime, so a
+// profile build never emits a hosted image in its place.
+func driver_check_profile(path: String, std_root: String, runtime: Bool, freestanding: Bool,
+                          names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    let p = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding)
+    let options = TypecheckOptions(std_root: std_root, dump: false, notes: false, interfaces: false, summaries: false)
+    var record = StringBuilder()
+    try! record.append("FILE\t")
+    try! record.append(path)
+    try! record.append("\n")
+    var status = typecheck_record(out: &var record, p: &p, options: &options)
+    if status == 0 {
+        try! record.append("ERROR\tdriver.not-yet\t")
+        try! record.append(path)
+        if freestanding {
+            try! record.append(":1:1\tthe freestanding profile is checked through typecheck, and sawc2 builds no freestanding image yet: it links only a hosted program, so it emits nothing rather than a hosted image\n")
+        } else {
+            try! record.append(":1:1\ta runtime's source is checked through typecheck here, and `sawc2 runtime` is what builds a runtime: it compiles the runtime's own sources against runtime/ABI.md\n")
+        }
+        status = 1
+    }
+    print(record.build())
+    status
 }
 
 // Prints the record `sawc2 mono --check` would, headed by its file.
@@ -1041,6 +1084,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var interfaces = false
     var summaries = false
     var runtime = false
+    var freestanding = false
     var counted = false
     var std_root = "sawc"
     var names = Vector<String>()
@@ -1063,6 +1107,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             summaries = true
         } else if arg.equals("--runtime") && typecheck {
             runtime = true
+        } else if arg.equals("--freestanding") && typecheck {
+            freestanding = true
         } else if arg.equals("--spans") && stage == DRIVER_STAGE_MIR {
             spans = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") {
@@ -1124,7 +1170,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                                     dirs: &dirs, lowerings: &var lowerings)
             } else if typecheck {
                 let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
-                                                        runtime: runtime)
+                                                        runtime: runtime, freestanding: freestanding)
                 result = typecheck_record(out: &var out, p: &checked, options: &checking)
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,

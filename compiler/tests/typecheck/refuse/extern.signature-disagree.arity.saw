@@ -1,0 +1,11 @@
+// refuses: extern.signature-disagree at 6:10
+// flags: --std-root std
+// a program's redeclaration of a std seam with a parameter std's lacks
+
+extern "C" {
+    func __saw_rt_last_raw_code(x: Int) -> Int
+}
+
+func main() {
+    print(1)
+}

@@ -6,6 +6,8 @@
 // EXPECT-ERROR-CONTAINS: cannot suspend in an `@export` function
 // COMPILE-FLAGS: --runtime-build
 
+import std.task.{yield_now}
+
 @export("__saw_rt_sleep_ns")
 func rt_sleep(ns: UInt64) {
     yield_now()

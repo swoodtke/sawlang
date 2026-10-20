@@ -10705,7 +10705,9 @@ threads to offload onto.
 declarations of one symbol that disagree about it are a clean error, so a
 declaration cannot be silently dropped along with its annotation, and no
 downstream declaration can make a function another module calls a suspension
-source.
+source. The same holds for the rest of the signature: every declaration of
+one symbol, std's included, has the same parameter types, arity and result,
+since the program calls one C function by that name.
 
 **What the offload does.** Inside a suspending body (a driven or spawned task,
 or a suspending `main`), the call lowers to three steps: start a worker thread

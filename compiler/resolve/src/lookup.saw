@@ -64,6 +64,21 @@ func res_join_names(names: &Vector<String>, last: String) -> String {
     out.build()
 }
 
+// The refusal for a name the language retired, naming what replaced it, or
+// "" when `text` is no retired name.
+func res_retired_hint(text: String) -> String {
+    if text.equals("spawn") {
+        return "`spawn \{ ... \}` no longer names an engine: write `Thread.spawn \{ ... \}` for an OS thread (blocking, `join()` waits), or `Task.spawn(work(...))` or `group.spawn(work(...))` for a cooperative task"
+    }
+    if text.equals("TaskHandle") {
+        return "undefined type `TaskHandle`: `TaskHandle<T>` is `Task<T>` (design 242); the cooperative engine owns the `Task` vocabulary, and `Thread<T>` is what `Thread.spawn` hands back"
+    }
+    if text.equals("VoidTaskHandle") {
+        return "undefined type `VoidTaskHandle`: `VoidTaskHandle` is `VoidTask` (design 242)"
+    }
+    ""
+}
+
 // Where a name is looked up: a value position sees locals, a type position
 // sees only type-level bindings (type parameters, `Self`, associated types).
 public enum ResSpace {
@@ -269,6 +284,9 @@ extension ResProgram {
         if self.defer_bare_name(name, leaf) {
             return self.error_binding()
         }
+        if self.refuse_retired(leaf, text) {
+            return self.error_binding()
+        }
         try! msg.append("cannot find `")
         try! msg.append(text)
         try! msg.append("` in scope")
@@ -465,6 +483,9 @@ extension ResProgram {
             self.settle_bare(&p)
             return
         }
+        if self.refuse_retired(p.leaf, text) {
+            return
+        }
         try! msg.append("cannot find `")
         try! msg.append(text)
         try! msg.append("` in scope")
@@ -657,6 +678,9 @@ extension ResProgram {
             }
             k = k + 1
         }
+        if spellings.len() == 0 && self.refuse_retired(p.leaf, text) {
+            return
+        }
         var msg = StringBuilder()
         try! msg.append("cannot find `")
         try! msg.append(text)
@@ -832,6 +856,24 @@ extension ResProgram {
         try! msg.append(text)
         try! msg.append("` exists only in test builds")
         self.refuse(leaf, "test.only-reference", msg.build())
+    }
+
+    // THE RETIRED-NAME FUNNEL: a name the language once defined and no longer
+    // does, met where nothing binds it, is refused with the word that
+    // replaced it rather than as undefined. A program's own declaration of
+    // the name binds first, so it never reaches here. True when `text` is one
+    // and its refusal is made.
+    // ENTRY POINTS:
+    //     lookup_outside
+    //     settle_inherited
+    //     settle_bare
+    func refuse_retired(&var self, leaf: Int, text: String) -> Bool {
+        let hint = res_retired_hint(text)
+        if hint.len() == 0 {
+            return false
+        }
+        self.refuse(leaf, "name.retired", hint)
+        true
     }
 
     // A std name the prelude leaves out: say which import supplies it.

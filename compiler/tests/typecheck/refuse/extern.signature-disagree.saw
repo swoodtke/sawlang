@@ -1,0 +1,12 @@
+// refuses: extern.signature-disagree at 7:10
+// flags: --std-root std
+// a program's redeclaration of a std seam with another result type: the program
+// calls one C function, which cannot return both
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int8
+}
+
+func main() {
+    print(__saw_rt_clock_monotonic_nanos())
+}

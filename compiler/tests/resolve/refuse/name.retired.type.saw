@@ -1,0 +1,14 @@
+// refuses: name.retired at 8:14
+// `TaskHandle<T>` in a type position, which is `Task<T>` now
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func keep(h: TaskHandle<Int>) -> Int {
+    0
+}
+
+func main() {
+    print(1)
+}

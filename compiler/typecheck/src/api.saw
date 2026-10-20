@@ -56,10 +56,12 @@ public struct TypecheckOptions {
 // Copy tiers, and runs the checks that need only those (SL:architecture §3.4,
 // "Order").
 public func typecheck_program(path: String, std_root: String, names: &Vector<String>,
-                              dirs: &Vector<String>, runtime: Bool = false) -> TcProgram {
+                              dirs: &Vector<String>, runtime: Bool = false,
+                              freestanding: Bool = false) -> TcProgram {
     let res = resolve_program(path, std_root, &names, &dirs)
     var p = tc_program(move res)
     p.runtime_build = runtime
+    p.freestanding = freestanding
     p.find_known()
     tc_index_generics(&var p)
     tc_build_signatures(&var p)

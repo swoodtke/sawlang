@@ -1,0 +1,41 @@
+// probe: stated
+// about: what the extern agreement and retired-name rules admit (SL-580)
+// stage 0: keeps the first declaration of a symbol and drops the rest unchecked, so it is no oracle for the agreeing side
+// speeds: -O0
+// prints: true
+// prints: true
+// prints: 4
+//
+// A program's redeclaration of a std seam that agrees with std's, `blocking`
+// included, declares the same C function and builds; so does one whose
+// pointer points at another type (`access` takes `UnsafePointer<Int8>` in
+// std.file), since a pointer is one machine word whatever it points at. A
+// program's own `spawn` and `TaskHandle` bind before the retired-name refusal
+// is ever reached.
+
+extern "C" {
+    func __saw_rt_last_raw_code() -> Int
+    blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) -> Int
+    func access(path: UnsafePointer<UInt8>, mode: Int32) -> Int32
+}
+
+func root_exists() unsafe -> Bool {
+    // "/", NUL-terminated.
+    var path: [UInt8; 2] = [47, 0]
+    access((&path) as UnsafePointer<UInt8>, 0 as Int32) == (0 as Int32)
+}
+
+struct TaskHandle {
+    id: Int
+}
+
+func spawn(h: TaskHandle) -> Int {
+    h.id + 1
+}
+
+func main() {
+    let code = __saw_rt_last_raw_code()
+    print(code == code)
+    print(root_exists())
+    print(spawn(h: TaskHandle(id: 3)))
+}

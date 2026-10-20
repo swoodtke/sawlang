@@ -1,0 +1,13 @@
+// refuses: extern.freestanding-blocking at 7:19
+// flags: --std-root std --freestanding
+// a `blocking` extern under the freestanding profile, which has no offload
+// thread pool; std's own hosted modules declare some and are not refused
+
+extern "C" {
+    blocking func slow(x: Int) -> Int
+}
+
+@export("entry")
+func entry(x: Int) -> Int {
+    x
+}

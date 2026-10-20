@@ -249,6 +249,7 @@ what the fixture shows.
 | `name.duplicate-binding` | two parameters, or two generic parameters, of one name |
 | `name.ambiguous` | a bare name two explicit imports bind to two declarations that are not both functions, refused at the use; `T.Item` when `T`'s bounds reach two associated types of that name; bare `Item` in a refining trait whose parents declare two |
 | `name.not-in-prelude` | a std name the prelude leaves out, with the import that supplies it (design 255) |
+| `name.retired` | THE RETIRED-NAME FUNNEL (`refuse_retired`): a name the language retired, met where nothing binds it, with what replaced it: the bare `spawn { }` (`name.retired`), `TaskHandle` (`.type`) and `VoidTaskHandle` (`.void-task-handle`); a program's own declaration of one binds first (SL-580) |
 | `name.self-outside-method` | `self` with no receiver |
 | `name.self-outside-type` | `Self` with no enclosing type |
 | `name.unknown-case` | an implicit member no enum in the module's import closure declares as a case |

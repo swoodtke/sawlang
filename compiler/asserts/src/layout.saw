@@ -19,10 +19,12 @@ import sawtypecheck.typeops.{TcClient}
 // false one as surely as a build does.
 // ENTRY POINTS:
 //     driver_resolve
+//     driver_check_profile
 //     mir_lower_file
 public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
-                                      dirs: &Vector<String>, runtime: Bool = false) -> TcProgram {
-    var p = typecheck_program(path, std_root, &names, &dirs, runtime: runtime)
+                                      dirs: &Vector<String>, runtime: Bool = false,
+                                      freestanding: Bool = false) -> TcProgram {
+    var p = typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding)
     asserts_check_concrete(&var p)
     move p
 }

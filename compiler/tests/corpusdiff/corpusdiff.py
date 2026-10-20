@@ -521,8 +521,12 @@ def build_verdict(src, d, rec, code, found, log, wrong_refusal=False):
     if code == 0:
         return None if d.expect in RUN_KINDS or wrong_refusal else ("pass", "-", "built")
     if code == 2 and log.startswith("usage:"):
-        unknown = [f for f in d.flags if f.startswith("-") and f not in usage_flags(log)]
+        unknown = [f for f in oracle.sawc2_flags(d.flags) if f.startswith("-") and f not in usage_flags(log)]
         return "refused", "driver driver.usage", "sawc2 build takes no %s" % (" ".join(unknown) or "such arguments")
+    if code == 2 and log.startswith("sawc2: unknown target"):
+        # A target sawc2 describes no layout for is refused before anything is
+        # checked, which is a gap in sawc2, not a fault.
+        return "refused", "driver driver.unknown-target", one_line(log)
     panic = _PANIC.search(log)
     if code < 0 or panic:
         return "crash", "sawc2 %s" % (oracle.exit_text(code) if not panic else "panic"), \
@@ -777,7 +781,7 @@ def write_results(path, rows):
 
 # A gap rule's message names what is missing, so its details group as written;
 # any other message groups by its shape.
-_NAMED_DETAILS = oracle.GAP_RULES + ("driver.usage",)
+_NAMED_DETAILS = oracle.GAP_RULES + ("driver.usage", "driver.unknown-target")
 # A passing refusal test's detail: its rule, then the message.
 _RULE_DETAIL = re.compile(r"^([a-z]+(?:\.[a-z-]+)+): ")
 

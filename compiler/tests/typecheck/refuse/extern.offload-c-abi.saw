@@ -1,0 +1,10 @@
+// refuses: extern.offload-c-abi at 7:30
+// flags: --std-root std
+// a `blocking` extern taking a `String`: the offload hands its arguments to a
+// worker thread as C words, and a `String` is none, called or not
+
+extern "C" {
+    blocking func slow_named(s: String) -> Int
+}
+
+func main() {}

@@ -1,0 +1,12 @@
+// refuses: name.retired at 10:13
+// the bare `spawn { }`, which named no engine: the refusal teaches both
+// spellings that do
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    var t = spawn { work(6) }
+    print(t.join())
+}

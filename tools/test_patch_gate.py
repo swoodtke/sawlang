@@ -17,6 +17,8 @@ Checks, with nothing built or run:
   compared by the verdict its second try reached;
 - a refusal test that annotations.tsv marks `stage0-wrong` is built and run
   rather than judged as a refusal, and its detail says what the run did;
+- an unknown target is a driver refusal, and a usage refusal names a flag by
+  the spelling `sawc2 build` is given;
 - measuring threads that key refusals at once agree on the stage, since a
   gate that flips a key by thread timing fails patches for nothing.
 """
@@ -152,6 +154,28 @@ def check_wrong_refusal():
           "an annotated refusal test's run: %s" % (got,))
 
 
+def check_driver_refusals():
+    """A target sawc2 has no layout for is a driver refusal, not a crash; a
+    usage refusal names only the flags sawc2 does not take, as `sawc2 build`
+    spells them."""
+    path = "static_zero_bss.saw"
+    d = corpusdiff.expect.read(os.path.join(corpusdiff.CORPUS, path))
+    rec = corpusdiff.load()[path]
+    src = os.path.join(corpusdiff.CORPUS, path)
+    got = corpusdiff.build_verdict(src, d, rec, 2, [], "sawc2: unknown target riscv32-unknown-none-elf\n")
+    check(got == ("refused", "driver driver.unknown-target", "sawc2: unknown target riscv32-unknown-none-elf"),
+          "an unknown target's exit: %s" % (got,))
+    check("driver.unknown-target" in corpusdiff._NAMED_DETAILS, "an unknown target's details are grouped by shape")
+    path = "runtime_build_suspending_body_error.saw"
+    d = corpusdiff.expect.read(os.path.join(corpusdiff.CORPUS, path))
+    rec = corpusdiff.load()[path]
+    src = os.path.join(corpusdiff.CORPUS, path)
+    usage = "usage: sawc2 lex [--docs] <file.saw>\n       sawc2 build [--runtime] (FILE [-o OUT])\n"
+    got = corpusdiff.build_verdict(src, d, rec, 2, [], usage)
+    check(got == ("refused", "driver driver.usage", "sawc2 build takes no such arguments"),
+          "a usage refusal names a Stage 0 spelling sawc2 maps: %s" % (got,))
+
+
 def check_stage_table_threads():
     """Threads that key refusals at once, as a parallel run does, each see the
     whole table of which stage spells a rule, never a half-filled one."""
@@ -177,6 +201,7 @@ def main():
     check_no_python_compiler()
     check_regressions()
     check_wrong_refusal()
+    check_driver_refusals()
     check_stage_table_threads()
     for f in failures:
         print("FAIL: " + f)

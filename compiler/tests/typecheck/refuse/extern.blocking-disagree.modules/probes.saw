@@ -1,0 +1,7 @@
+extern "C" {
+    func sl580_probe_depth(x: Int) -> Int
+}
+
+public func probe_depth(x: Int) -> Int {
+    sl580_probe_depth(x)
+}

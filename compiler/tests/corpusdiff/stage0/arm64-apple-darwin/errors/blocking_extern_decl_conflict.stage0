@@ -2,12 +2,12 @@ program	errors/blocking_extern_decl_conflict.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
-build	refused	`__saw_rt_last_syserror` is declared `blocking` here, but another declaration of the same symbol says the opposite
+build	refused	`__saw_rt_last_raw_code` is declared `blocking` here, but another declaration of the same symbol says the opposite
 meets_expect	yes
-log	"error: `__saw_rt_last_syserror` is declared `blocking` here, but another declaration of the same symbol says the opposite"
+log	"error: `__saw_rt_last_raw_code` is declared `blocking` here, but another declaration of the same symbol says the opposite"
 log	"  --> examples/errors/blocking_extern_decl_conflict.saw:11:5"
 log	"     |"
-log	" 11 |     blocking func __saw_rt_last_syserror() -> Int"
+log	" 11 |     blocking func __saw_rt_last_raw_code() -> Int"
 log	"     |     ^"
 log	"   hint: `blocking` is part of an extern's contract (it makes every call a suspension point), so every declaration of one symbol must agree — annotate the declaration they share, or offload a distinctly-named wrapper of your own instead"
 log	""

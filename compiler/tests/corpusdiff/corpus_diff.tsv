@@ -283,7 +283,7 @@ conformance/D05_diverging_value_branch_arms.saw	pass	-	-
 conformance/D06_diverging_tail_and_never_chain.saw	pass	-	-
 conformance/D07_never_method_and_generic.saw	pass	-	-
 conformance/D08_never_closure_vtable_default.saw	refused	typecheck type.mismatch	expected `D08_never_closure_vtable_default.Reply`, the type of the function's result, which the body's last expression is, and found `Void`
-conformance/D09_diverging_positions_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+conformance/D09_diverging_positions_freestanding.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 conformance/D10_spawn_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a loop, `func se
 conformance/D11_spawn_closure_never_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: this closure's body never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a l
 conformance/D12_drive_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever. Write a forever-task as `-> Void` with a loop, `func serve() { while { ... } }`, and e
@@ -434,7 +434,7 @@ conformance/M41_shared_self_indirection_carveout_spellings.saw	pass	-	subscript.
 conformance/M42_shared_self_inline_array_element.saw	pass	-	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
 conformance/M43_write_optional_payload_of_let.saw	pass	-	mutability.immutable: this assignment writes `o!.n`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M44_var_self_call_through_inline_array_element.saw	pass	-	mutability.immutable: this exclusive borrow of `h.cells[0]` would let it be written, and `h` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `v
-conformance/N05_freestanding_hosted_module.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+conformance/N05_freestanding_hosted_module.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 conformance/N08_align_local_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 conformance/N09_align_static_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 conformance/N10_align_rejects_non_power_of_two.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
@@ -610,7 +610,7 @@ const_bitwise_fold.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is no
 const_bitwise_negative_length_error.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_bitwise_shift_range_error.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
-const_bitwise_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+const_bitwise_width_riscv32.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
 const_expression_adopts_an_operand_width.saw	pass	-	-
 const_generic_arg_notations.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
@@ -630,7 +630,7 @@ const_static_generic_arg.saw	crash	INVARIANT	47:39 an expression has no type
 const_static_leaf_at_struct_type.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MAX_SLOTS`, is not in the bootstrap slice yet
 const_static_length.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
 const_static_length_crossmodule.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `FRAME_BYTES`, is not in the bootstrap slice yet
-const_static_length_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+const_static_length_freestanding.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 const_static_length_shadow.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
 const_static_static_assert_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
 constructor_infers_type_arguments.saw	pass	-	-
@@ -868,8 +868,8 @@ deinit_temp_receiver.saw	pass	-	-
 dependency_error_names_its_own_file_error.saw	pass	-	type.not-a-value: `Widget` names a type, a module or a trait, not a value
 dependency_named_main_keeps_the_entry_point.saw	pass	-	-
 destructuring_wildcard_over_a_borrowed_projection.saw	pass	-	-
-df137d_literal_width_riscv32.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-df137d_literal_width_riscv32_ok.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+df137d_literal_width_riscv32.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
+df137d_literal_width_riscv32_ok.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 df139a_copy_then_overwrite.saw	pass	-	-
 df140b_import_wrap.saw	pass	-	-
 df140c_qualified_type_position.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
@@ -1018,8 +1018,8 @@ errors/array_immutable.saw	pass	-	mutability.immutable: this assignment writes `
 errors/array_mixed_types.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
 errors/array_non_int_index.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 errors/array_wrong_type.saw	pass	-	type.mismatch: expected `Int`, the type of the assignment's target, and found `String`
-errors/background_spawn_needs_a_hosted_entry.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-errors/blocking_extern_decl_conflict.saw	wrong	accepts a refusal test	`__saw_rt_last_syserror` is declared `blocking` here, but another declaration of the same symbol says the opposite
+errors/background_spawn_needs_a_hosted_entry.saw	pass	-	spawn.freestanding: freestanding profile: `Task.spawn` needs the process-wide background task group, which is closed at `main`'s return — a freestanding image has no such entry point; declare a `TaskG
+errors/blocking_extern_decl_conflict.saw	pass	-	extern.blocking-disagree: `__saw_rt_last_raw_code` is declared `blocking` here, but another declaration of the same symbol, in `std.systemerror`, says the opposite: `blocking` is part of an extern's c
 errors/blocking_extern_sync_reject.saw	pass	-	effect.sync: `f` is declared `sync`, and it calls `slow`, which may suspend
 errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this assignment writes `self.source.value`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_field_is_read_only.saw	pass	-	mutability.immutable: this assignment writes `self.source.n`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
@@ -1123,7 +1123,7 @@ errors/forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw	pass	-	subscript.r
 errors/forwarding_capture_escaping.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/forwarding_return.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/forwarding_store_field.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-errors/freestanding_macho_target_rejected.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+errors/freestanding_macho_target_rejected.saw	refused	llvm driver.not-yet	the freestanding profile is checked through typecheck, and sawc2 builds no freestanding image yet: it links only a hosted program, so it emits nothing rather than a hosted image
 errors/funcpointer226_arg_arity.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 errors/funcpointer226_arg_not_function.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 errors/funcpointer226_arg_suspending.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
@@ -1200,9 +1200,9 @@ errors/nomove_not_a_bound.saw	pass	-	nomove.bound: `NoMove` is not a bound: `NoM
 errors/nomove_placement_after_borrow.saw	pass	-	transfer.no-move: cannot `move` `value`: `nomove_placement_after_borrow.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the v
 errors/nomove_requires_nocopy.saw	pass	-	nomove.requires-nocopy: `Loose` declares `NoMove` without a declared `NoCopy`: a pinned type is move-only first, so declare `extension Loose: NoCopy {}` beside it
 errors/none_default_underdetermined.saw	pass	-	infer.failed: cannot infer type argument `T` of `with_default`: nothing in the call determines it; write it, as `<T = ...>` does for a type
-errors/offload_freestanding_reject.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+errors/offload_freestanding_reject.saw	pass	-	extern.freestanding-blocking: `extern blocking func slow` is not available in the freestanding profile: blocking-call offload needs the hosted thread pool, which the freestanding runtime does not prov
 errors/offload_pointer_sync_reject.saw	pass	-	effect.sync: `fill` is declared `sync`, and it calls `slow_into`, which may suspend
-errors/offload_signature_reject.saw	wrong	accepts a refusal test	`extern blocking func slow_named`: parameter `s` has type `String`, which is not C-ABI-safe
+errors/offload_signature_reject.saw	pass	-	extern.offload-c-abi: `extern blocking func slow_named`: parameter `s` has type `String`, which is not C-ABI-safe: an offloaded signature allows fixed-width integers, `Int`/`UInt`, `Float` and pointer
 errors/optional_chain_assign_exclusivity.saw	wrong	accepts a refusal test	exclusive access violation: `oh` is written by this optional-chain assignment while also being accessed in the right-hand side
 errors/optional_chain_assign_explicit_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `optional_chain_assign_explicit_copy.Money`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move m` to take it, `m.copy()`
 errors/optional_chain_assign_immutable_head.saw	pass	-	mutability.immutable: this assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
@@ -1263,9 +1263,9 @@ errors/ref_sigil_var_on_let.saw	pass	-	mutability.immutable: this exclusive borr
 errors/ref_static_declaration.saw	pass	-	type.mismatch: expected `&Int`, the type of the static's type, and found `Int`
 errors/ref_type_arg_generic_func.saw	pass	-	type.reference-position: a type argument may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; us
 errors/ref_type_arg_generic_struct.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-errors/resolve_seam_must_be_blocking.saw	pass	-	type.cast: `as` cannot convert `String` to `UnsafePointer<Int8>`: it converts between numbers, from a raw-backed enum, and between pointers
+errors/resolve_seam_must_be_blocking.saw	pass	-	extern.blocking-disagree: `__saw_rt_resolve_ipv4` is declared without `blocking` here, but another declaration of the same symbol, in `std.net`, says `blocking`: `blocking` is part of an extern's cont
 errors/result_none_tail_needs_an_optional_ok.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
-errors/retired_task_handle_names.saw	refused	resolve name.undefined	cannot find `TaskHandle` in scope
+errors/retired_task_handle_names.saw	pass	-	name.retired: undefined type `TaskHandle`: `TaskHandle<T>` is `Task<T>` (design 242); the cooperative engine owns the `Task` vocabulary, and `Thread<T>` is what `Thread.spawn` hands back
 errors/runtime_provider_bad_signature.saw	refused	driver driver.usage	sawc2 build takes no --runtime-provider -c
 errors/section_macho_specifier_error.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
 errors/semicolon_at_end_of_file.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_end_of_file.saw` (syntax.rule.declaration-separator), so its declarations are not available
@@ -1292,17 +1292,17 @@ errors/shared_self_borrows_field_var_method_call.saw	pass	-	mutability.immutable
 errors/shared_self_field_var_method_call.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/shared_self_field_write.saw	pass	-	mutability.immutable: this assignment writes `self.hits`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the
 errors/shared_self_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached thr
-errors/signal_is_hosted_only.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+errors/signal_is_hosted_only.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 errors/sleep_bare_int.saw	pass	-	type.mismatch: expected `std.duration.Duration`, the type of the parameter, and found `Int`
 errors/spawn_capture_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` capture is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: t
 errors/spawn_capture_mt_send.saw	pass	-	coro.spawn-not-send: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` is not `Send`, so the task frame cannot cross to a worker thread. Share threa
 errors/spawn_capture_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `UnsafePointer<Int8>` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-unsafe
 errors/spawn_capture_unjoined_handle.saw	pass	-	loan.read-while-exclusive: exclusive access violation: `n` cannot be read here — the task spawned at 31:29 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins i
 errors/spawn_handle_may_not_escape_the_function.saw	pass	-	drop.must-consume: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed: `t` leaves the function by a `return` without consuming it. `join()` waits for it and takes its result,
-errors/spawn_names_its_engine.saw	refused	resolve name.undefined	cannot find `spawn` in scope
+errors/spawn_names_its_engine.saw	pass	-	name.retired: `spawn { ... }` no longer names an engine: write `Thread.spawn { ... }` for an OS thread (blocking, `join()` waits), or `Task.spawn(work(...))` or `group.spawn(work(...))` for a cooperat
 errors/spawn_result_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `spawn_result_not_send.Raw` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-
 errors/specialized_method_wrong_type.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `join` this module can see
-errors/spinlock_needs_atomics.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+errors/spinlock_needs_atomics.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 errors/spinlock_suspending_body.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/statement_juxtaposition_in_closure_and_module_scope.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw` (syntax.rule.juxtaposition), so its declarations are not available
 errors/statement_juxtaposition_in_control_flow_bodies.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw` (syntax.rule.juxtaposition), so its declarations are not available
@@ -1588,8 +1588,8 @@ format_into_builtin_alloc_free.saw	refused	mono mono.not-yet	a synthesized `Prin
 forwarding_nonescaping_ok.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 forwarding_transfer_drops_once_driven.saw	pass	-	-
 free_function_never_shadows_a_runtime_symbol.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
-freestanding_aarch64_no_simd.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
-freestanding_seams_extern_no_runtime.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+freestanding_aarch64_no_simd.saw	refused	driver driver.unknown-target	sawc2: unknown target aarch64-unknown-none-elf
+freestanding_seams_extern_no_runtime.saw	refused	llvm driver.not-yet	the freestanding profile is checked through typecheck, and sawc2 builds no freestanding image yet: it links only a hosted program, so it emits nothing rather than a hosted image
 funcpointer226_call.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 funcpointer226_coercion_positions.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 funcpointer226_composites.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
@@ -2248,9 +2248,9 @@ result_string_error.saw	pass	-	-
 result_wrapper_tier_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 return_chain_temp_deinit.saw	pass	-	-
 return_struct_from_branches.saw	pass	-	-
-runtime_build_bad_abi_name_error.saw	refused	driver driver.usage	sawc2 build takes no --runtime-build
+runtime_build_bad_abi_name_error.saw	pass	-	export.unknown-seam: `@export` symbol `__saw_rt_allocate` is not part of the frozen `__saw_rt_*` runtime ABI (runtime/ABI.md): a runtime defines only the seams it lists
 runtime_build_reserved_without_mode_error.saw	pass	-	export.reserved: `@export` symbol `__saw_rt_alloc` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc2 ru
-runtime_build_suspending_body_error.saw	refused	driver driver.usage	sawc2 build takes no --runtime-build
+runtime_build_suspending_body_error.saw	pass	-	export.suspends: `@export` function `rt_sleep` may suspend: C calls an export directly, with no executor to resume it, so an exported body is sync
 runtime_provider_seams.saw	refused	driver driver.usage	sawc2 build takes no --runtime-provider -c
 scalar_removed_char_surface.saw	refused	typecheck member.unknown	`String` has no method `chars` this module can see
 scalar_type.saw	pass	-	-
@@ -2351,7 +2351,7 @@ static_non_optional_types_unaffected.saw	pass	-	-
 static_optional_type_refused.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_optional_type_refused_none.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_pod.saw	pass	-	-
-static_zero_bss.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+static_zero_bss.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 static_zero_init.saw	pass	-	-
 std_gated_name_redefined_by_user.saw	pass	-	-
 std_import_gate_signature_position.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it
@@ -2654,7 +2654,7 @@ while_let_value_position_refused.saw	pass	-	type.void-binding: cannot bind `r` t
 while_nested.saw	pass	-	-
 while_never_break_forms.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 while_never_diverges.saw	pass	-	-
-while_never_freestanding.saw	refused	driver driver.usage	sawc2 build takes no --freestanding
+while_never_freestanding.saw	refused	llvm driver.not-yet	the freestanding profile is checked through typecheck, and sawc2 builds no freestanding image yet: it links only a hosted program, so it emits nothing rather than a hosted image
 while_never_sync_context.saw	pass	-	-
 while_simple.saw	pass	-	-
 wrapped_return_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `wrapped_return_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has noth

@@ -1,0 +1,9 @@
+// refuses: extern.offload-c-abi at 6:19
+// flags: --std-root std
+// a `blocking` extern returning an optional, which no C call returns
+
+extern "C" {
+    blocking func slow_maybe(x: Int) -> Int?
+}
+
+func main() {}

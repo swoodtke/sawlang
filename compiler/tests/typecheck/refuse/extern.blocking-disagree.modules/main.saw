@@ -1,0 +1,15 @@
+// refuses: extern.blocking-disagree at probes.saw:2:10
+// flags: --std-root std
+// two of a program's own modules declaring one C symbol, one of them
+// `blocking`: with no std declaration of it, the first declared is the
+// reference and the other is refused, in the module that writes it
+
+import probes.{probe_depth}
+
+extern "C" {
+    blocking func sl580_probe_depth(x: Int) -> Int
+}
+
+func main() {
+    print(probe_depth(1))
+}

@@ -1,0 +1,13 @@
+// refuses: spawn.freestanding at 12:5
+// flags: --std-root std --freestanding
+// `Task.spawn` under the freestanding profile: the background task group it
+// spawns into closes at `main`'s return, and a freestanding image has none
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) -> Int {
+    Task.spawn(work(n)).join()
+}

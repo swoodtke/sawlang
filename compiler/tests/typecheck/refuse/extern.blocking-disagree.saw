@@ -1,0 +1,12 @@
+// refuses: extern.blocking-disagree at 7:19
+// flags: --std-root std
+// a program's `blocking` redeclaration of a seam std declares without it: the
+// annotation would make every call an offload that std's own calls are not
+
+extern "C" {
+    blocking func __saw_rt_last_raw_code() -> Int
+}
+
+func main() {
+    print(__saw_rt_last_raw_code())
+}

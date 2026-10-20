@@ -334,6 +334,11 @@ public struct TcProgram {
     // Whether the program is a runtime, whose `@export`s may be the frozen
     // `__saw_rt_*` seams, as `sawc2 runtime` checks one (design 149).
     runtime_build: Bool
+    // Whether the program is built for the freestanding profile: no hosted
+    // runtime under it, so no background task group and no offload thread
+    // pool. It is the one place the profile is known; every later stage reads
+    // it here.
+    freestanding: Bool
     // By declaration: the C symbol an `@export` gives it, or "" for none, and
     // the attribute that says so, or -1 (`check_exports`).
     export_symbols: Vector<String>
@@ -435,7 +440,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
-                      runtime_build: false,
+                      runtime_build: false, freestanding: false,
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>(), blocking_twins: move twins, pair_defaults: move defaults)
     let empty = Vector<Int>()

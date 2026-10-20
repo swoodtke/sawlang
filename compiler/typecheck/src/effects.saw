@@ -16,11 +16,13 @@ import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst}
+// For the extension giving `export_class`, the C-ABI set an offload carries.
+import sawtypecheck.exports.{tc_export_rules}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_PAIRED, TC_EFFECT_BLOCKING,
-                               TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
+                               TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_VARIADIC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
                                TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TcReceiver,
                                TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
@@ -835,6 +837,252 @@ extension TcProgram {
         }
         self.check_blocking_conformances()
         self.check_blocking_containment()
+        self.check_extern_declarations()
+    }
+
+    // THE EXTERN FUNNEL: every extern declaration of the program, std's
+    // included. A `blocking` one is refused under the freestanding profile,
+    // which has no offload thread pool, and otherwise takes and returns only
+    // the C-ABI set an `@export` admits. Every declaration of one C symbol
+    // agrees on its whole signature and on `blocking`, since the program calls
+    // one C function by that name; each is judged against one reference, a
+    // std module's when there is one, so a redeclaration of a std seam is
+    // refused where the program writes it.
+    // ENTRY POINTS:
+    //     check_blocking_declarations
+    func check_extern_declarations(&var self) {
+        var symbols = Vector<String>()
+        var references = Vector<Int>()
+        var d = 0
+        while d < self.res.decls.len() {
+            if self.is_checked_extern(d) {
+                // Stage 0 workaround (SL:hazards S4): canonical: let symbol = self.name_text(self.res.decls[d].name)
+                let name = self.res.decls[d].name
+                let symbol = self.name_text(name)
+                let at = tc_symbol_index(&symbols, symbol)
+                if at < 0 {
+                    try! symbols.push(symbol)
+                    try! references.push(d)
+                } else {
+                    let first = references[at]
+                    if not self.is_std_decl(first) && self.is_std_decl(d) {
+                        references[at] = d
+                    }
+                }
+            }
+            d = d + 1
+        }
+        d = 0
+        while d < self.res.decls.len() {
+            if self.is_checked_extern(d) {
+                // Stage 0 workaround (SL:hazards S4): canonical: let symbol = self.name_text(self.res.decls[d].name)
+                let name = self.res.decls[d].name
+                let symbol = self.name_text(name)
+                let reference = references[tc_symbol_index(&symbols, symbol)]
+                if self.check_extern_profile(d) && self.check_offload_signature(d) && reference != d {
+                    self.check_extern_agreement(d, reference)
+                }
+            }
+            d = d + 1
+        }
+    }
+
+    // Whether declaration `d` is an extern of an available module.
+    func is_checked_extern(&self, d: Int) -> Bool {
+        let info = self.res.decls[d]
+        info.kind == ResDeclKind.Extern && self.res.module(info.module).available
+    }
+
+    // Whether declaration `d` belongs to a std module.
+    func is_std_decl(&self, d: Int) -> Bool {
+        // Stage 0 workaround (SL:hazards S4): canonical: self.res.module(self.res.decls[d].module).kind == ResModuleKind.Std
+        let m = self.res.decls[d].module
+        self.res.module(m).kind == ResModuleKind.Std
+    }
+
+    // Whether extern `d` may stand under the program's profile: a `blocking`
+    // one is offloaded, and the freestanding runtime has no thread pool to
+    // offload it to. Every std module is read whatever a program imports, so
+    // a std module's extern says nothing about the program, and only the
+    // program's own declarations are judged.
+    func check_extern_profile(&var self, d: Int) -> Bool {
+        if not self.freestanding || (self.sigs[d].flags & TC_FLAG_BLOCKING) == 0 || self.is_std_decl(d) {
+            return true
+        }
+        var msg = StringBuilder()
+        try! msg.append("`extern blocking func ")
+        // Stage 0 workaround (SL:hazards S4): canonical: try! msg.append(self.name_text(self.res.decls[d].name))
+        let name = self.res.decls[d].name
+        try! msg.append(self.name_text(name))
+        try! msg.append("` is not available in the freestanding profile: blocking-call offload needs the hosted thread pool, which the freestanding runtime does not provide; drop `blocking` (an unannotated extern promises promptness) or keep this module out of the freestanding build")
+        self.refuse_blocking_decl(d, "extern.freestanding-blocking", msg.build())
+        false
+    }
+
+    // Whether `blocking` extern `d`'s signature is one the offload thunk can
+    // carry: each parameter and the result are C-ABI words, as an `@export`'s
+    // are, since a worker thread makes the plain C call with them. Every
+    // parameter out of that set is refused, then the result.
+    func check_offload_signature(&var self, d: Int) -> Bool {
+        let s = self.sigs[d]
+        if (s.flags & TC_FLAG_BLOCKING) == 0 {
+            return true
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let name = self.name_text(self.res.decls[d].name)
+        let id = self.res.decls[d].name
+        let name = self.name_text(id)
+        var ok = true
+        var k = 0
+        while k < s.param_count {
+            let prm = self.params[s.param_first + k]
+            k = k + 1
+            if self.export_class(prm.ty, false).len() > 0 {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("`extern blocking func ")
+            try! msg.append(name)
+            try! msg.append("`: parameter `")
+            try! msg.append(self.name_text(prm.name))
+            try! msg.append("` has type ")
+            try! msg.append(self.c_abi_type_text(prm.ty))
+            try! msg.append(", which is not C-ABI-safe: an offloaded signature allows fixed-width integers, `Int`/`UInt`, `Float` and pointers; pass an aggregate by `UnsafePointer<S>`, and keep what it points at in frame-owned or heap storage so it outlives the park")
+            let info = self.res.decls[d]
+            let at = if prm.leaf >= 0 { prm.leaf } else { self.decl_site(d) }
+            self.refuse_in(info.module, at, "extern.offload-c-abi", msg.build())
+            ok = false
+        }
+        if self.export_class(s.result, true).len() == 0 {
+            var msg = StringBuilder()
+            try! msg.append("`extern blocking func ")
+            try! msg.append(name)
+            try! msg.append("`: return type ")
+            try! msg.append(self.c_abi_type_text(s.result))
+            try! msg.append(" is not C-ABI-safe: an offloaded return allows a fixed-width integer, `Int`/`UInt`, `Float`, a pointer, `Void` or `Never`, the one value the job carries back")
+            self.refuse_blocking_decl(d, "extern.offload-c-abi", msg.build())
+            ok = false
+        }
+        ok
+    }
+
+    // Type `t` as a C-ABI refusal names it: an optional by its kind, since
+    // no optional crosses the C boundary, and any other type by its spelling.
+    func c_abi_type_text(&self, t: Int) -> String {
+        if self.nominal_decl(t) == self.known.optional {
+            return "an optional (`T?`)"
+        }
+        var out = StringBuilder()
+        try! out.append("`")
+        try! out.append(self.type_text(t))
+        try! out.append("`")
+        out.build()
+    }
+
+    // Extern `d` against `reference`, another declaration of its C symbol:
+    // the same parameter types, variadic or not, and result, and the same
+    // `blocking`.
+    func check_extern_agreement(&var self, d: Int, reference: Int) {
+        // Stage 0 workaround (SL:hazards S4): canonical: let symbol = self.name_text(self.res.decls[d].name)
+        let name = self.res.decls[d].name
+        let symbol = self.name_text(name)
+        // Stage 0 workaround (SL:hazards S4): canonical: let other = self.res.module_name(self.res.decls[reference].module)
+        let home = self.res.decls[reference].module
+        let other = self.res.module_name(home)
+        if not self.same_extern_types(d, reference) {
+            let mine = self.extern_signature_text(d)
+            let theirs = self.extern_signature_text(reference)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(symbol)
+            try! msg.append("` is declared here as `")
+            try! msg.append(mine)
+            try! msg.append("`, but another declaration of the same symbol, in `")
+            try! msg.append(other)
+            try! msg.append("`, declares it `")
+            try! msg.append(theirs)
+            try! msg.append("`: the program calls one C function by that name, so every declaration of one symbol must agree on its parameters and its result; declare it as the other does, or offload or wrap a distinctly-named function of your own")
+            self.refuse_blocking_decl(d, "extern.signature-disagree", msg.build())
+        }
+        let blocks = (self.sigs[d].flags & TC_FLAG_BLOCKING) != 0
+        if blocks == ((self.sigs[reference].flags & TC_FLAG_BLOCKING) != 0) {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(symbol)
+        if blocks {
+            try! msg.append("` is declared `blocking` here, but another declaration of the same symbol, in `")
+            try! msg.append(other)
+            try! msg.append("`, says the opposite")
+        } else {
+            try! msg.append("` is declared without `blocking` here, but another declaration of the same symbol, in `")
+            try! msg.append(other)
+            try! msg.append("`, says `blocking`")
+        }
+        try! msg.append(": `blocking` is part of an extern's contract (it makes every call a suspension point), so every declaration of one symbol must agree; annotate the declaration they share, or offload a distinctly-named wrapper of your own instead")
+        self.refuse_blocking_decl(d, "extern.blocking-disagree", msg.build())
+    }
+
+    // Whether externs `d` and `e` agree on arity, variadic-ness, and each
+    // parameter's and the result's type (`extern_types_agree`).
+    func same_extern_types(&self, d: Int, e: Int) -> Bool {
+        let a = self.sigs[d]
+        let b = self.sigs[e]
+        if (a.param_count != b.param_count || not self.extern_types_agree(a.result, b.result)
+            || (a.flags & TC_FLAG_VARIADIC) != (b.flags & TC_FLAG_VARIADIC)) {
+            return false
+        }
+        var k = 0
+        while k < a.param_count {
+            let mine = self.params[a.param_first + k].ty
+            let theirs = self.params[b.param_first + k].ty
+            if not self.extern_types_agree(mine, theirs) {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Whether two declarations' types at one position of a C symbol agree:
+    // the same interned type, or two pointers, since a pointer is one machine
+    // word to C and one `ptr` to the backend whatever it points at.
+    func extern_types_agree(&self, a: Int, b: Int) -> Bool {
+        a == b || (self.is_extern_pointer(a) && self.is_extern_pointer(b))
+    }
+
+    // Whether type `t` is a raw pointer: `UnsafePointer`, `UnsafeConstPointer`
+    // or `FuncPointer`.
+    func is_extern_pointer(&self, t: Int) -> Bool {
+        let d = self.nominal_decl(t)
+        let k = self.known
+        d >= 0 && (d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer)
+    }
+
+    // Extern `d`'s signature as a refusal spells it: `(T, U, ...) -> R`.
+    func extern_signature_text(&self, d: Int) -> String {
+        let s = self.sigs[d]
+        var out = StringBuilder()
+        try! out.append("(")
+        var k = 0
+        while k < s.param_count {
+            if k > 0 {
+                try! out.append(", ")
+            }
+            // Stage 0 workaround (SL:hazards S4): canonical: try! out.append(self.type_text(self.params[s.param_first + k].ty))
+            let t = self.params[s.param_first + k].ty
+            try! out.append(self.type_text(t))
+            k = k + 1
+        }
+        if (s.flags & TC_FLAG_VARIADIC) != 0 {
+            if s.param_count > 0 {
+                try! out.append(", ")
+            }
+            try! out.append("...")
+        }
+        try! out.append(") -> ")
+        try! out.append(self.type_text(s.result))
+        out.build()
     }
 
     // A `deinit` not declared `blocking` whose body blocks: it runs wherever
@@ -1494,4 +1742,17 @@ extension TcProgram {
         try! msg.append(" may suspend: a dispatch through `any` to a suspending implementation is refused, so call it on the concrete type, or take it as a generic parameter bounded by the trait")
         self.refuse_at(id, "effect.any-suspends", msg.build())
     }
+}
+
+// The index of `symbol` in `symbols`, or -1.
+func tc_symbol_index(symbols: &Vector<String>, symbol: String) -> Int {
+    var k = 0
+    while k < symbols.len() {
+        let name = symbols.get(k) ?? ""
+        if name.equals(symbol) {
+            return k
+        }
+        k = k + 1
+    }
+    return -1
 }

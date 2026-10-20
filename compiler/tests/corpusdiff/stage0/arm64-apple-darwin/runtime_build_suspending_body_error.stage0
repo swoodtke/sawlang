@@ -2,13 +2,20 @@ program	runtime_build_suspending_body_error.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
-build	refused	cannot suspend in an `@export` function: `@export func rt_sleep` calls yield_now (`rt_sleep` suspends at line 11)
+build	refused	cannot suspend in an `@export` function: `@export func rt_sleep` calls yield_now (`rt_sleep` suspends at line 13)
 meets_expect	yes
-log	"error: cannot suspend in an `@export` function: `@export func rt_sleep` calls yield_now (`rt_sleep` suspends at line 11)"
-log	"  --> examples/runtime_build_suspending_body_error.saw:10:1"
+log	"error: unknown std module `std.task`"
+log	"  --> examples/runtime_build_suspending_body_error.saw:9:1"
+log	"    |"
+log	" 9 | import std.task.{yield_now}"
+log	"    | ^"
+log	"   hint: std modules are: builtin"
+log	""
+log	"error: cannot suspend in an `@export` function: `@export func rt_sleep` calls yield_now (`rt_sleep` suspends at line 13)"
+log	"  --> examples/runtime_build_suspending_body_error.saw:12:1"
 log	"     |"
-log	" 10 | func rt_sleep(ns: UInt64) {"
+log	" 12 | func rt_sleep(ns: UInt64) {"
 log	"     | ^"
 log	"   hint: a `sync` context must be transitively suspension-free: remove the suspending call or hoist it out of the sync region"
 log	""
-log	"1 error(s) generated"
+log	"2 error(s) generated"

@@ -1,0 +1,13 @@
+// refuses: extern.signature-disagree at 8:10
+// flags: --std-root std
+// a program's redeclaration of a std seam taking an `Int` where std's takes a
+// pointer: two pointers agree whatever they point at, and a pointer and an
+// `Int` do not
+
+extern "C" {
+    func __saw_rt_lock_acquire(state: Int)
+}
+
+func main() {
+    print(1)
+}

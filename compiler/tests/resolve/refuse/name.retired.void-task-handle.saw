@@ -1,0 +1,7 @@
+// refuses: name.retired at 5:25
+// `VoidTaskHandle` as a generic argument, which is `VoidTask` now
+
+func main() {
+    var handles: Vector<VoidTaskHandle> = []
+    print(handles.len())
+}

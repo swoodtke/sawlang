@@ -29,7 +29,7 @@ typecheck/
 
 ```sh
 .build/sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]
-                       [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
+                       [--freestanding] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
 Each FILE is the entry of its own program, which is resolved, then checked,
@@ -37,7 +37,9 @@ with every module it imports. The flags are resolve's (see
 `compiler/tests/resolve/README.md`); `--interfaces` also dumps the std and
 builtin modules, whose signatures are checked as interfaces; `--runtime` checks
 each program as a runtime source, whose exports may be the frozen seams, as
-`sawc2 runtime` does (the `export.*` rules). Each entry gets one record, starting
+`sawc2 runtime` does (the `export.*` rules); `--freestanding` checks it under
+the freestanding profile, `TcProgram.freestanding` (`spawn.freestanding`,
+`extern.freestanding-blocking`). Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
 
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal:
@@ -1669,6 +1671,11 @@ says what the fixture shows.
 | `effect.blocking-value` | a `blocking` function taken as a function value (K176; SL-782) |
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
 | `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`), the two test drivers (`.drive`, `.drive-steps`) and the `Thread.spawn` brace (`.thread`, conformance row D11) |
+| `spawn.freestanding` | a `Task.spawn` under `--freestanding`: the background group it spawns into closes at `main`'s return, which a freestanding image lacks; `group.spawn` stands (SL-580) |
+| `extern.freestanding-blocking` | THE EXTERN FUNNEL (`check_extern_declarations`): a program's own `blocking` extern under `--freestanding`, which has no offload thread pool; std's hosted modules are read whatever a program imports and are not judged (SL-580) |
+| `extern.offload-c-abi` | the extern funnel: a `blocking` extern's parameter (`extern.offload-c-abi`) or result (`.result`) outside the C-ABI set an `@export` admits, at the declaration, called or not (SL-580) |
+| `extern.signature-disagree` | the extern funnel: a declaration of a C symbol whose parameter types (`.parameter`, an `Int` where std's takes a pointer), arity (`.arity`), variadic-ness or result (`extern.signature-disagree`) differ from the symbol's reference declaration, std's when std declares it and else the first; refused where the other is written. Two pointer types agree whatever they point at (the run probe `extern_agreement_accepts_the_same_declaration` redeclares std.file's `access` with an `UnsafePointer<UInt8>`) (SL-580) |
+| `extern.blocking-disagree` | the extern funnel: a declaration of a C symbol that adds `blocking` to a std seam (`extern.blocking-disagree`) or leaves it off one (`.unannotated`), or disagrees with another of the program's own modules (`.modules`); the run probe `extern_agreement_accepts_the_same_declaration` pins the agreeing side (SL-580) |
 | `slice.not-yet` | a signature or body construct outside the bootstrap slice |
 
 The traits that derive under `@synthesize` are `Copy`, `ExplicitCopy`,

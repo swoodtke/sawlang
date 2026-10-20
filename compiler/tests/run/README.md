@@ -26,7 +26,16 @@ run/
 .build/sawc2 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
                    [--sanitize address] [--module-path NAME=DIR]... FILE [-o OUT]
 .build/sawc2 build [...] --emit-ll FILE
+.build/sawc2 build [...] (--freestanding | --runtime) FILE
 ```
+
+`--freestanding` and `--runtime` name a profile sawc2 checks and does not
+build: the program goes through typecheck under it, as `sawc2 typecheck
+--freestanding` or `--runtime` takes it, and its refusals print as a record
+does. With none, the record's one refusal is `driver.not-yet`, at the entry
+file's first line, and the exit status is 1: sawc2 links only a hosted
+program, and `sawc2 runtime` builds a runtime, so neither profile ever emits
+a hosted image in its place. Nothing is written.
 
 `sawc2 build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs

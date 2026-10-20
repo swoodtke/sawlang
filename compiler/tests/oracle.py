@@ -75,7 +75,7 @@ _SAWC2_INVARIANT = re.compile(r"^INVARIANT\t(.*)$")
 
 # The refusals that say sawc2 lacks something, not that the program is wrong.
 GAP_RULES = ("import.unknown-module", "name.undefined", "member.unknown", "slice.not-yet", "backend.not-yet",
-             "mono.not-yet", "coro.not-yet")
+             "mono.not-yet", "coro.not-yet", "driver.not-yet")
 
 # The sawc2 rule SL:coroutines §3.3 names for a refusal Stage 0 makes, by a
 # phrase of Stage 0's message; a test whose message matches none is judged
@@ -441,13 +441,24 @@ def read_tsv(path, columns):
 
 # --- sawc2 -------------------------------------------------------------------
 
+# A `COMPILE-FLAGS` flag Stage 0 spells one way and `sawc2 build` another:
+# Stage 0's runtime build is `sawc2 build --runtime`, which checks a runtime's
+# source (`sawc2 runtime` builds one).
+SAWC2_SPELLINGS = {"--runtime-build": "--runtime"}
+
+
+def sawc2_flags(flags):
+    """A program's `COMPILE-FLAGS` as `sawc2 build` spells them."""
+    return [SAWC2_SPELLINGS.get(f, f) for f in flags]
+
+
 def sawc2_build(src, out, flags, timeout=SAWC2_TIMEOUT):
     """`sawc2 build` of `src` against the new std: (exit status, or None on a
     timeout; [(rule, position, message)] of its refusals; what it printed;
     seconds)."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
     start = time.monotonic()
-    proc = child_groups.start([build.SAWC2, "build", "--std-root", "std"] + list(flags) + [rel(src), "-o", out],
+    proc = child_groups.start([build.SAWC2, "build", "--std-root", "std"] + sawc2_flags(flags) + [rel(src), "-o", out],
                               cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         so, se = proc.communicate(timeout=timeout)

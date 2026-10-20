@@ -21,9 +21,10 @@ func peer_fd_is_open(s: &TcpStream) -> Bool {
 }
 
 func naked() unsafe -> Int {
-    let host = "localhost"
+    // "localhost", NUL-terminated, as the seam's C string.
+    var host: [Int8; 10] = [108, 111, 99, 97, 108, 104, 111, 115, 116, 0]
     var found: [UInt32; 1] = [0; 1]
-    __saw_rt_resolve_ipv4(host as UnsafePointer<Int8>,
+    __saw_rt_resolve_ipv4((&host) as UnsafePointer<Int8>,
                           (&found) as UnsafePointer<UInt32>, 1)
 }
 

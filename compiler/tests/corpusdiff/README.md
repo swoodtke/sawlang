@@ -102,7 +102,10 @@ program's bucket:
    test whose refusal `annotations.tsv` marks `stage0-wrong` is not: it goes
    on through the rules below like any program, and one sawc2 builds is run.
 3. Any other refusal: `refused`, keyed by its stage and rule. A flag `sawc2
-   build` does not take is the driver's refusal, `driver driver.usage`.
+   build` does not take is the driver's refusal, `driver driver.usage`
+   (Stage 0's `--runtime-build` is passed as `--runtime`,
+   `oracle.SAWC2_SPELLINGS`), and a `--target` sawc2 has no layout for is
+   `driver driver.unknown-target`.
 4. A `compiles`, `object` or `docs` test that builds: `pass`.
 5. A build that fails otherwise: `crash` when sawc2 panicked, died by a
    signal or printed no error; `link` when clang or the linker printed one.

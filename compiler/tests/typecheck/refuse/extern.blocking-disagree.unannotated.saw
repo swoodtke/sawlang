@@ -1,0 +1,12 @@
+// refuses: extern.blocking-disagree at 7:10
+// flags: --std-root std
+// a program's redeclaration, without `blocking`, of a seam std declares
+// `blocking`: the one way to reach the resolver as a naked call
+
+extern "C" {
+    func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) -> Int
+}
+
+func main() {
+    print(1)
+}
