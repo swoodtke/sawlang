@@ -565,7 +565,7 @@ among its prose:
 | kind | sawc2 at each speed | its lines |
 |---|---|---|
 | `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0 | `prints`, at least one |
-| `panics` | builds it with nothing printed; the binary prints exactly its `// prints:` lines on standard output and one `panic at` line holding the `// panics:` text on standard error, and aborts | `prints`, any number; one `panics` |
+| `panics` | builds it with nothing printed; the binary prints exactly its `// prints:` lines on standard output and one `panic at` line holding the `// panics:` text on standard error, followed by nothing or by the panic path's task dump (its header, then each task's line and its frame lines), and aborts | `prints`, any number; one `panics` |
 | `link-fails` | does not link it: the build prints no refusal, and the linker names every `// undefined:` symbol undefined | `undefined`, at least one |
 | `custom` | whatever its function in `run_lane.py`'s `CUSTOM_PROBES` checks | `probe` and `about` alone |
 | `module` | never builds it alone: it is a module another probe imports, as `import NAME`, and one that no probe imports fails | `probe` and `about` alone |

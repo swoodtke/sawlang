@@ -13,6 +13,8 @@
 //! spawn until its teardown, and the shared sweep leaves its frames alone.
 
 import std.mem.{copy_bytes, drop_in_place}
+import std.panic.{PANIC_REPORT}
+import std.systemerror.{SystemError}
 import std.task.{Thread}
 
 // A pool's run-queue lock and its idle workers' condition variable. Both live
@@ -497,6 +499,8 @@ func this_executor() unsafe -> UnsafePointer<ExecutorRecord> {
     if __saw_rt_set_thread_executor(record as Int) != 0 {
         panic("executor: the runtime cannot keep this thread's executor record (no thread-specific word)")
     }
+    // Before any task exists, so a panic with one in flight has its dump.
+    install_panic_report()
     record
 }
 
@@ -2091,10 +2095,12 @@ public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
     var root = TaskGroup()
     let ticket = enqueue(&var root, descriptor, frame, false)
     let at = (&root) as UnsafePointer<TaskGroup> as Int
+    ENTRY_GROUP.store(at)
     exec_run(at, ticket.slot, ticket.generation)
     if not root.is_done(ticket.slot) {
         panic("executor: `main` cannot finish: every live task is waiting")
     }
+    ENTRY_GROUP.store(0)
     __saw_exec_close_background()
 }
 
@@ -2355,4 +2361,387 @@ extension Task<T>: NoCopy {
         unclaim_slot(&var g[0], self.slot, self.generation)
         unlock_queue(g)
     }
+}
+
+// =============================================================================
+// The task dump (design 158)
+// =============================================================================
+//
+// A parked task is one allocation, its root's frame, with every child it drives
+// embedded at a fixed offset and every frame's state word naming where it
+// stopped. The compiler writes down what each state means in `__saw_bt_table`
+// (compiler/coro/src/bttable.saw is the format's other half), so a task's
+// logical stack is a static table walk from its frame's address: no unwinder
+// and no allocation, which is what lets the dump run on the panic path, under
+// an allocator that has refused. Every piece of a line goes straight to the
+// output seam, and nothing is assembled first.
+
+extern "C" {
+    func __saw_rt_write(ptr: UnsafePointer<Int8>, len: Int) -> Int
+    func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
+    func __saw_rt_output_lock()
+    func __saw_rt_output_unlock()
+    // The backend defines it beside the table it returns.
+    func __saw_bt_table_address() -> UnsafePointer<UInt8>
+}
+
+// The table's field offsets, in bytes, as the encoder writes them.
+static BT_MAGIC: Int = 0x4257_4153
+static BT_HDR_FRAME_COUNT: Int = 8
+static BT_HDR_FRAMES: Int = 12
+static BT_HDR_STATES: Int = 16
+static BT_HDR_STRTAB: Int = 20
+static BT_FRAME_REC_SIZE: Int = 24
+static BT_FRAME_NAME: Int = 4
+static BT_FRAME_FILE: Int = 8
+static BT_FRAME_FIRST: Int = 12
+static BT_FRAME_STATES: Int = 16
+static BT_FRAME_STATE_OFF: Int = 20
+static BT_STATE_REC_SIZE: Int = 12
+static BT_STATE_CHILD: Int = 4
+static BT_STATE_CHILD_OFF: Int = 8
+
+// A logical stack deeper than this, or a walk over more groups and records
+// than this, is a corrupt structure rather than a program: the dump may run
+// once something has already gone wrong, so every walk here is bounded.
+static BT_MAX_DEPTH: Int = 64
+static BT_MAX_GROUPS: Int = 1024
+// How far a name's terminating NUL is looked for: a bound on a bad table.
+static BT_MAX_NAME: Int = 256
+
+// The address of the group the entry executor runs a suspending `main` in, or
+// 0. `main` is the program rather than a task, so the dump leaves its group
+// out, as Stage 0's does.
+static ENTRY_GROUP: Atomic<Int> = Atomic(0)
+
+// Installs the task dump as the report the panic sink writes after a panic's
+// message, once per process (std.panic). It is never freed: a panic on any
+// thread may read it at any time.
+func install_panic_report() unsafe {
+    if PANIC_REPORT.load() != 0 {
+        return
+    }
+    let size = sizeof<(UnsafePointer<Int8>, Int) unsafe sync -> Void>()
+    let align = alignof<(UnsafePointer<Int8>, Int) unsafe sync -> Void>()
+    let raw = exec_alloc(size, align, "executor")
+    let at = raw as UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>
+    at[0] = { message: UnsafePointer<Int8>, length: Int in report_on_panic(message, length) }
+    if not PANIC_REPORT.compare_exchange(0, raw as Int) {
+        GlobalAllocator().dealloc(raw, size, align)
+    }
+}
+
+// The panic path's report: the message, then the dump, on standard error.
+// The output lock is taken first and never given back, so neither lands
+// inside another thread's `print` line; the panic seam that ends the process
+// takes it again on this thread. A panic the walk raises takes the plain seam
+// (std.panic), so nothing raises here while the lock is held.
+func report_on_panic(message: UnsafePointer<Int8>, length: Int) unsafe {
+    __saw_rt_output_lock()
+    __saw_rt_write_error(message, length)
+    let _ = write_task_dump(true)
+}
+
+/// Writes every live task's logical backtrace to standard output: the body of
+/// `std.task`'s `dump_tasks`.
+///
+/// Panics if standard output refuses the dump, as `print` does.
+public(package) func __saw_exec_dump_tasks() unsafe {
+    // Held across the whole dump, so no other thread's `print` lands inside
+    // it, and given back before the failure is raised (SL-768).
+    __saw_rt_output_lock()
+    let status = write_task_dump(false)
+    __saw_rt_output_unlock()
+    if status != 0 {
+        panic("dump_tasks: failed printing to stdout: {}", SystemError.of("write", 0 - status))
+    }
+}
+
+// Where a dump's bytes go.
+struct DumpSink {
+    // Standard error, for the panic path; standard output otherwise.
+    to_error: Bool
+    // 0, or the negated tag of the first write standard output refused,
+    // after which nothing more is written.
+    status: Int
+}
+
+// Writes the dump: on standard error from the panic path, where nothing is
+// written when no task is live, and on standard output otherwise. Returns 0,
+// or the negated tag of the first write standard output refused.
+//
+// The walk takes no lock: a pool's worker may be resuming a frame while this
+// reads it, so a multi-threaded group's lines are a best-effort snapshot, and
+// the header says so.
+func write_task_dump(to_error: Bool) unsafe -> Int {
+    let table = __saw_bt_table_address()
+    var sink = DumpSink(to_error: to_error, status: 0)
+    let live = dump_walk(&var sink, table, false)
+    if live == 0 {
+        if not to_error {
+            dump_text(&var sink, "saw tasks: none live\n")
+        }
+        return sink.status
+    }
+    dump_text(&var sink, "saw tasks: ")
+    dump_int(&var sink, live)
+    if to_error {
+        dump_text(&var sink, " live (as-of panic, unsynchronized)\n")
+    } else {
+        dump_text(&var sink, " live (unsynchronized snapshot)\n")
+    }
+    let _ = dump_walk(&var sink, table, true)
+    sink.status
+}
+
+// Counts the live tasks of every executor record's groups, the registry the
+// deadlock walk reads, writing each one's lines when `emit` is set. Groups are
+// numbered from 1 in walk order, newest-registered first, so the count and
+// the lines agree on the bound, the live test and the order.
+func dump_walk(sink: &var DumpSink, table: UnsafePointer<UInt8>, emit: Bool) unsafe -> Int {
+    let entry = ENTRY_GROUP.load()
+    var live = 0
+    var number = 0
+    var visited = 0
+    var at = EXEC_RECORDS.load()
+    while at != 0 && visited < BT_MAX_GROUPS {
+        let record = at as UnsafePointer<ExecutorRecord>
+        var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
+        while cur != 0 && visited < BT_MAX_GROUPS {
+            visited = visited + 1
+            let g = cur as UnsafePointer<TaskGroup>
+            if cur != entry {
+                number = number + 1
+                live = live + dump_group(&var sink, table, g, number, emit)
+            }
+            cur = g[0].next
+        }
+        visited = visited + 1
+        at = record[0].next
+    }
+    live
+}
+
+// The live tasks of the group at `g`, numbered `number`, each one's lines
+// written when `emit` is set.
+func dump_group(sink: &var DumpSink, table: UnsafePointer<UInt8>, g: UnsafePointer<TaskGroup>, number: Int,
+                emit: Bool) unsafe -> Int {
+    var live = 0
+    var i = 0
+    while i < g[0].slots.len() {
+        let s = g[0].slots[i]
+        if not s.done {
+            live = live + 1
+            if emit {
+                dump_task(&var sink, table, number, i, &s)
+            }
+        }
+        i = i + 1
+    }
+    live
+}
+
+// One task's line, then its stack, innermost frame first: a reader looks for
+// where a task is stopped, not where it started. A running task's frames show
+// its last suspension.
+func dump_task(sink: &var DumpSink, table: UnsafePointer<UInt8>, number: Int, slot: Int, s: &TaskSlot) unsafe {
+    dump_text(&var sink, "  task group ")
+    dump_int(&var sink, number)
+    dump_text(&var sink, " slot ")
+    dump_int(&var sink, slot)
+    dump_text(&var sink, " gen ")
+    dump_int(&var sink, s.generation)
+    dump_text(&var sink, " ")
+    guard let cell = s.cell else {
+        dump_text(&var sink, "unrecorded\n")
+        return
+    }
+    dump_status(&var sink, s.active, cell)
+    dump_text(&var sink, "\n")
+    if let frame = s.frame {
+        bt_write_stack(&var sink, table, cell[0].descriptor[0].backtrace, frame as Int)
+    }
+}
+
+// Why a task is not running, in the executor's own vocabulary: `active` is a
+// frame on some thread's stack, and otherwise the park its cell records says.
+func dump_status(sink: &var DumpSink, active: Bool, cell: UnsafePointer<TaskCell>) unsafe {
+    if active {
+        dump_text(&var sink, "running")
+        return
+    }
+    let park = park_word((&cell[0].context) as UnsafePointer<TaskContext>)
+    if park == PARK_READY {
+        dump_text(&var sink, "ready")
+    } else if park == PARK_TIMER {
+        dump_text(&var sink, "sleeping")
+    } else if park == PARK_FD {
+        dump_text(&var sink, "io-parked")
+    } else if joins_thread(park) {
+        dump_text(&var sink, "joining")
+    } else if park < PARK_FD && park != PARK_UNSET {
+        dump_text(&var sink, "channel-parked")
+    } else {
+        // A frame that reported `Pending` and recorded no park, which the
+        // executor is panicking about as this runs.
+        dump_text(&var sink, "unrecorded")
+    }
+}
+
+// Writes `length` bytes of the dump.
+func dump_write(sink: &var DumpSink, ptr: UnsafePointer<Int8>, length: Int) unsafe {
+    if sink.to_error {
+        __saw_rt_write_error(ptr, length)
+    } else if sink.status == 0 {
+        sink.status = __saw_rt_write(ptr, length)
+    }
+}
+
+func dump_text(sink: &var DumpSink, text: String) unsafe {
+    dump_write(&var sink, text.c_bytes(), text.len())
+}
+
+// Writes `value` as decimal digits, most significant first, one write each,
+// so nothing needs a buffer. A negative value, which no line, slot,
+// generation or count is, prints `?`: negating `Int.min` would trap inside
+// the panic reporter.
+func dump_int(sink: &var DumpSink, value: Int) unsafe {
+    if value < 0 {
+        dump_text(&var sink, "?")
+        return
+    }
+    var scale = 1
+    while value / scale >= 10 {
+        scale = scale * 10
+    }
+    let digits = "0123456789"
+    let at = digits.c_bytes() as Int
+    var rest = value
+    while scale > 0 {
+        let digit = rest / scale
+        dump_write(&var sink, (at + digit) as UnsafePointer<Int8>, 1)
+        rest = rest - digit * scale
+        scale = scale / 10
+    }
+}
+
+// A frame of a task's logical stack: its index in the table and its address.
+struct BtFrameAt {
+    index: Int
+    addr: Int
+}
+
+// The little-endian u32 `offset` bytes into the table.
+func bt_u32(table: UnsafePointer<UInt8>, offset: Int) unsafe -> Int {
+    ((table as Int + offset) as UnsafePointer<UInt32>)[0] as Int
+}
+
+// Whether `index` names a frame the table describes. A frame whose index the
+// table does not hold is never read through, since its state word's offset
+// would come from outside the table.
+func bt_known_frame(table: UnsafePointer<UInt8>, index: Int) unsafe -> Bool {
+    index >= 0 && index < bt_u32(table, BT_HDR_FRAME_COUNT)
+}
+
+func bt_frame_record(table: UnsafePointer<UInt8>, index: Int) unsafe -> Int {
+    bt_u32(table, BT_HDR_FRAMES) + index * BT_FRAME_REC_SIZE
+}
+
+// The offset of the state record frame `at` is in, or -1 when the table does
+// not describe the frame or its state word.
+func bt_state_record(table: UnsafePointer<UInt8>, at: BtFrameAt) unsafe -> Int {
+    if not bt_known_frame(table, at.index) {
+        return -1
+    }
+    let rec = bt_frame_record(table, at.index)
+    let state = ((at.addr + bt_u32(table, rec + BT_FRAME_STATE_OFF)) as UnsafePointer<Int>)[0]
+    if state < 0 || state >= bt_u32(table, rec + BT_FRAME_STATES) {
+        return -1
+    }
+    bt_u32(table, BT_HDR_STATES) + (bt_u32(table, rec + BT_FRAME_FIRST) + state) * BT_STATE_REC_SIZE
+}
+
+// The child frame `at`'s state drives, or `at` itself when the state parks
+// the frame, or names nothing.
+func bt_child(table: UnsafePointer<UInt8>, at: BtFrameAt) unsafe -> BtFrameAt {
+    let rec = bt_state_record(table, at)
+    if rec < 0 {
+        return at
+    }
+    // Biased by one in the encoding: 0 is "parks itself", not "frame 0".
+    let child = bt_u32(table, rec + BT_STATE_CHILD)
+    if child == 0 {
+        return at
+    }
+    BtFrameAt(index: child - 1, addr: at.addr + bt_u32(table, rec + BT_STATE_CHILD_OFF))
+}
+
+// How many logical frames the stack rooted at `root` has, the root included.
+func bt_depth(table: UnsafePointer<UInt8>, root: BtFrameAt) unsafe -> Int {
+    var at = root
+    var depth = 1
+    while depth < BT_MAX_DEPTH {
+        let next = bt_child(table, at)
+        if next.index == at.index && next.addr == at.addr {
+            return depth
+        }
+        at = next
+        depth = depth + 1
+    }
+    depth
+}
+
+// Writes the stack rooted at frame `index` of the table, at `addr`, innermost
+// frame first. Re-walking from the root per level is quadratic in a depth
+// bounded at BT_MAX_DEPTH, and buys a walk with no storage at all.
+func bt_write_stack(sink: &var DumpSink, table: UnsafePointer<UInt8>, index: Int, addr: Int) unsafe {
+    if bt_u32(table, 0) != BT_MAGIC {
+        return
+    }
+    let root = BtFrameAt(index: index, addr: addr)
+    var level = bt_depth(table, root) - 1
+    while level >= 0 {
+        var at = root
+        var step = 0
+        while step < level {
+            at = bt_child(table, at)
+            step = step + 1
+        }
+        bt_write_frame(&var sink, table, at)
+        level = level - 1
+    }
+}
+
+// One frame line: `    at FILE:LINE in NAME`.
+func bt_write_frame(sink: &var DumpSink, table: UnsafePointer<UInt8>, at: BtFrameAt) unsafe {
+    if not bt_known_frame(table, at.index) {
+        dump_text(&var sink, "    at <unknown frame>\n")
+        return
+    }
+    let rec = bt_frame_record(table, at.index)
+    let state = bt_state_record(table, at)
+    dump_text(&var sink, "    at ")
+    bt_write_name(&var sink, table, bt_u32(table, rec + BT_FRAME_FILE))
+    if state >= 0 {
+        dump_text(&var sink, ":")
+        dump_int(&var sink, bt_u32(table, state))
+    }
+    dump_text(&var sink, " in ")
+    bt_write_name(&var sink, table, bt_u32(table, rec + BT_FRAME_NAME))
+    dump_text(&var sink, "\n")
+}
+
+// Writes the NUL-terminated name at offset `offset` of the string table; the
+// empty name, offset 0, prints `?`.
+func bt_write_name(sink: &var DumpSink, table: UnsafePointer<UInt8>, offset: Int) unsafe {
+    if offset == 0 {
+        dump_text(&var sink, "?")
+        return
+    }
+    let base = table as Int + bt_u32(table, BT_HDR_STRTAB) + offset
+    var n = 0
+    while n < BT_MAX_NAME && ((base + n) as UnsafePointer<UInt8>)[0] != 0 {
+        n = n + 1
+    }
+    dump_write(&var sink, base as UnsafePointer<Int8>, n)
 }

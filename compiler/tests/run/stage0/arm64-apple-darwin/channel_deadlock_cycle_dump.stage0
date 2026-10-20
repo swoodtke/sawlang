@@ -1,0 +1,14 @@
+program	compiler/tests/run/channel_deadlock_cycle_dump.saw
+triple	arm64-apple-darwin
+source	fc519a9e9abe5d64
+build	ok
+exit	-6
+stdout	"waiting"
+stdout	""
+stderr	"panic at taskgroup.saw:2452: deadlock: every task is waiting to receive from a channel, and nothing in this program can send. A channel has no sender count — every handle is the same handle — so a producer that is finished must say so with close(), and a receive on a closed, drained channel returns Err(Closed) instead of waiting"
+stderr	"saw tasks: 2 live (as-of panic, unsynchronized)"
+stderr	"  task group 1 slot 0 gen 1 channel-parked"
+stderr	"    at channel_deadlock_cycle_dump.saw:9 in side"
+stderr	"  task group 1 slot 1 gen 1 channel-parked"
+stderr	"    at channel_deadlock_cycle_dump.saw:9 in side"
+stderr	""

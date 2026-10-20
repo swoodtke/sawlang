@@ -17,7 +17,7 @@ frame #5: yield_loop.tally(rounds: Int)  (size 64 align 8, lower bound 64)
     (*frame).[56: Int]  size 8 align 8  _6 step  (across 1 2)
     (*frame).[16: frame std.task.yield_now()]  size 8 align 8  child  (across 2)
     stack: _5 _7 _8 _9 _10 _11 _12
-frame #9: std.task.yield_now()  (size 8 align 8, lower bound 8)
+frame #11: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result

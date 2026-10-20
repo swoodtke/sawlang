@@ -1,11 +1,18 @@
 # The cone of compiler/tests/std/cone/optional_result.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 4 declarations in 2 modules
+# 11 declarations in 2 modules
 
 std.panic: 2
   extern __saw_rt_panic
   func panic_sink
 
-std.prelude: 2
+std.prelude: 9
   enum Optional
   enum Result
+  func atomic_exchange_word
+  func atomic_load_word
+  method Atomic.compare_exchange
+  method Atomic.load
+  method UnsafeMutableInterior.ptr
+  struct Atomic
+  struct UnsafeMutableInterior

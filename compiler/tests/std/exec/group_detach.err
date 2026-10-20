@@ -1,1 +1,4 @@
 panic at ?: Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task
+saw tasks: 1 live (as-of panic, unsynchronized)
+  task group 1 slot 0 gen 1 ready
+    at <unknown frame>

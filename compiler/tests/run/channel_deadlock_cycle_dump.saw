@@ -1,0 +1,22 @@
+// differs: the panic is raised inside std, and each compiler's std is its own file
+// Two tasks wait on each other: each receives on the channel only the other
+// sends on, so neither ever sends. The deadlock walk reports it, and the
+// panic path's task dump follows the panic line, both tasks `channel-parked`
+// and each frame line naming the receive it waits in (SL-577).
+import std.channel.{Channel}
+
+func side(inbox: Channel<Int>, outbox: Channel<Int>) -> Int {
+    let got = try! inbox.receive()
+    try! outbox.send(got + 1)
+    got
+}
+
+func main() {
+    var group = TaskGroup()
+    let left = try! Channel<Int>()
+    let right = try! Channel<Int>()
+    let a = group.spawn(side(left.copy(), right.copy()))
+    let b = group.spawn(side(right.copy(), left.copy()))
+    print("waiting")
+    print("{} {}", a.join(), b.join())
+}

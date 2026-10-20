@@ -1,0 +1,42 @@
+// probe: stated
+// about: a task parked joining a thread dumps as `joining`, at the line of its `join()`, beside the running dumper (SL-577)
+// stage 0: refuses `try! Thread.spawn` at parse, and its thread join parks on no word a dump could name (SL-765)
+// speeds: -O0 -O2
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 joining
+// prints:     at task_dump_names_a_thread_join.saw:26 in joiner
+// prints:   task group 1 slot 1 gen 1 running
+// prints:     at task_dump_names_a_thread_join.saw:30 in watcher
+// prints: watcher 0
+// prints: joiner 7
+// The thread spins until the watcher has dumped, so the joiner is still
+// parked on the thread's exit when the dump reads it; the watcher's sleep only
+// gives the joiner its turn to park, and the gate keeps it parked.
+import std.task.{Thread, dump_tasks}
+
+static GATE: Atomic<Int> = Atomic(0)
+
+func hold() -> Int {
+    while GATE.load() == 0 {}
+    7
+}
+
+func joiner() -> Int {
+    var t = try! Thread.spawn { hold() }
+    t.join()
+}
+
+func watcher() -> Int {
+    sleep(Duration.ms(20))
+    dump_tasks()
+    GATE.store(1)
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(joiner())
+    let b = g.spawn(watcher())
+    print("watcher {}", b.join())
+    print("joiner {}", a.join())
+}

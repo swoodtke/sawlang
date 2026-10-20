@@ -1,11 +1,11 @@
 resume #5: pack_tree.root() task root  (frame size 304 align 8, pointer _18)
     state 0: bb0
-    state 1: bb0 drive #9 pack_tree.w2(k: Int) at (*frame).[8]
-    state 2: bb1 drive #10 pack_tree.w4(k: Int) at (*frame).[8]
-    state 3: bb2 drive #11 pack_tree.w8(k: Int) at (*frame).[8]
-    state 4: bb3 drive #12 pack_tree.t3(k: Int) at (*frame).[8]
-    state 5: bb4 drive #13 pack_tree.t2(k: Int) at (*frame).[8]
-    state 6: bb5 drive #14 pack_tree.t1(k: Int) at (*frame).[8]
+    state 1: bb0 drive #11 pack_tree.w2(k: Int) at (*frame).[8]
+    state 2: bb1 drive #12 pack_tree.w4(k: Int) at (*frame).[8]
+    state 3: bb2 drive #13 pack_tree.w8(k: Int) at (*frame).[8]
+    state 4: bb3 drive #14 pack_tree.t3(k: Int) at (*frame).[8]
+    state 5: bb4 drive #15 pack_tree.t2(k: Int) at (*frame).[8]
+    state 6: bb5 drive #16 pack_tree.t1(k: Int) at (*frame).[8]
 fn pack_tree.root() -> Int {
     let _0: Int;  // return
     let _1: Int;  // a
@@ -103,10 +103,10 @@ fn pack_tree.root() -> Int {
         goto -> bb6;
     }
 }
-resume #9: pack_tree.w2(k: Int)  (frame size 208 align 8, pointer _7)
+resume #11: pack_tree.w2(k: Int)  (frame size 208 align 8, pointer _7)
     state 0: bb0
-    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 1: bb0 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
 fn pack_tree.w2(k: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param k
@@ -145,12 +145,12 @@ fn pack_tree.w2(k: Int) -> Int {
         goto -> bb2;
     }
 }
-resume #10: pack_tree.w4(k: Int)  (frame size 224 align 8, pointer _13)
+resume #12: pack_tree.w4(k: Int)  (frame size 224 align 8, pointer _13)
     state 0: bb0
-    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 3: bb2 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 4: bb3 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 1: bb0 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 3: bb2 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 4: bb3 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
 fn pack_tree.w4(k: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param k
@@ -219,16 +219,16 @@ fn pack_tree.w4(k: Int) -> Int {
         goto -> bb4;
     }
 }
-resume #11: pack_tree.w8(k: Int)  (frame size 256 align 8, pointer _25)
+resume #13: pack_tree.w8(k: Int)  (frame size 256 align 8, pointer _25)
     state 0: bb0
-    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 3: bb2 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 4: bb3 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 5: bb4 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 6: bb5 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 7: bb6 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 8: bb7 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 1: bb0 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 3: bb2 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 4: bb3 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 5: bb4 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 6: bb5 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 7: bb6 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 8: bb7 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
 fn pack_tree.w8(k: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param k
@@ -357,10 +357,10 @@ fn pack_tree.w8(k: Int) -> Int {
         goto -> bb8;
     }
 }
-resume #12: pack_tree.t3(k: Int)  (frame size 208 align 8, pointer _8)
+resume #14: pack_tree.t3(k: Int)  (frame size 208 align 8, pointer _8)
     state 0: bb0
-    state 1: bb0 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
-    state 2: bb1 drive #17 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 1: bb0 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
+    state 2: bb1 drive #21 pack_tree.leaf(k: Int) at (*frame).[8]
 fn pack_tree.t3(k: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param k
@@ -401,10 +401,10 @@ fn pack_tree.t3(k: Int) -> Int {
         goto -> bb2;
     }
 }
-resume #13: pack_tree.t2(k: Int)  (frame size 232 align 8, pointer _8)
+resume #15: pack_tree.t2(k: Int)  (frame size 232 align 8, pointer _8)
     state 0: bb0
-    state 1: bb0 drive #12 pack_tree.t3(k: Int) at (*frame).[8]
-    state 2: bb1 drive #12 pack_tree.t3(k: Int) at (*frame).[8]
+    state 1: bb0 drive #14 pack_tree.t3(k: Int) at (*frame).[8]
+    state 2: bb1 drive #14 pack_tree.t3(k: Int) at (*frame).[8]
 fn pack_tree.t2(k: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param k
@@ -445,10 +445,10 @@ fn pack_tree.t2(k: Int) -> Int {
         goto -> bb2;
     }
 }
-resume #14: pack_tree.t1(k: Int)  (frame size 256 align 8, pointer _8)
+resume #16: pack_tree.t1(k: Int)  (frame size 256 align 8, pointer _8)
     state 0: bb0
-    state 1: bb0 drive #13 pack_tree.t2(k: Int) at (*frame).[8]
-    state 2: bb1 drive #13 pack_tree.t2(k: Int) at (*frame).[8]
+    state 1: bb0 drive #15 pack_tree.t2(k: Int) at (*frame).[8]
+    state 2: bb1 drive #15 pack_tree.t2(k: Int) at (*frame).[8]
 fn pack_tree.t1(k: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param k
@@ -489,7 +489,7 @@ fn pack_tree.t1(k: Int) -> Int {
         goto -> bb2;
     }
 }
-resume #17: pack_tree.leaf(k: Int)  (frame size 184 align 8, pointer _6, context _7)
+resume #21: pack_tree.leaf(k: Int)  (frame size 184 align 8, pointer _6, context _7)
     state 0: bb0
     state 1: bb0 park ready
 fn pack_tree.leaf(k: Int) -> Int {

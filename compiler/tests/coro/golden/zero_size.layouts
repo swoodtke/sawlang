@@ -42,7 +42,7 @@ frame #17: zero_size.enum_at_end() task root  (size 40 align 8, lower bound 36)
     (*frame).[24: Int]  size 8 align 8  _1 i  (across 1)
     (*frame).[32: zero_size.One]  size 4 align 4  _2 o  (across 1)
     stack: _3 _4 _5 _6
-frame #23: zero_size.before_index(p: UnsafePointer<Int>) task root  (size 56 align 8, lower bound 56)
+frame #25: zero_size.before_index(p: UnsafePointer<Int>) task root  (size 56 align 8, lower bound 56)
     suspend 1: bb3 budget
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  op budget
@@ -53,14 +53,14 @@ frame #23: zero_size.before_index(p: UnsafePointer<Int>) task root  (size 56 ali
     (*frame).[56: [Int; 0]]  size 0 align 8  _4 z  (across 1)
     (*frame).[48: Int]  size 8 align 8  _8  (across 1)
     stack: _5 _6 _7 _9 _10 _11 _12
-frame #24: zero_size.last_param(n: Int, z: [Int; 0])  (size 24 align 8, lower bound 24)
+frame #26: zero_size.last_param(n: Int, z: [Int; 0])  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param n  (across 1)
     (*frame).[24: [Int; 0]]  size 0 align 8  _2 param z  (across 1)
     stack: _3 _4 _5
-frame #25: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (size 24 align 8, lower bound 24)
+frame #27: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
@@ -68,7 +68,7 @@ frame #25: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (size 24 al
     (*frame).[24: [Int; 0]]  size 0 align 8  _2 param z  (across 1)
     (*frame).[16: Int]  size 8 align 8  _3 param n  (across 1)
     stack: _4 _5 _6 _7 _8
-frame #26: zero_size.result()  (size 8 align 8, lower bound 8)
+frame #28: zero_size.result()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: [Int; 0]]  size 0 align 8  _0 result

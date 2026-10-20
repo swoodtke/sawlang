@@ -24,7 +24,7 @@ frame #7: prologue chains.Bed.slot() receiver exclusive  (size 32 align 8, lower
     (*frame).[24: &var chains.Bed]  size 8 align 8  _1 self  (across 1)
     (*frame).[8: [Int; 2]]  size 16 align 8  offload usleep  (across 1)
     stack: _2 _3
-frame #12: chains.Napper.twice() self chains.Bed  (size 56 align 8, lower bound 56)
+frame #14: chains.Napper.twice() self chains.Bed  (size 56 align 8, lower bound 56)
     suspend 1: bb0 call Bed.nap
     suspend 2: bb1 call Bed.nap
     (*frame).[0: Int]  size 8 align 8  state
@@ -34,7 +34,7 @@ frame #12: chains.Napper.twice() self chains.Bed  (size 56 align 8, lower bound 
     (*frame).[8: frame chains.Bed.nap()]  size 32 align 8  child  (across 1)
     (*frame).[8: frame chains.Bed.nap()]  size 32 align 8  child  (across 2)
     stack: _2 _4 _5 _6
-frame #17: chains.Bed.nap()  (size 32 align 8, lower bound 32)
+frame #21: chains.Bed.nap()  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call usleep
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result

@@ -114,9 +114,9 @@ fn zero_size.mid() -> Int {
 }
 resume #9: zero_size.children() task root  (frame size 40 align 8, pointer _13)
     state 0: bb0
-    state 1: bb0 drive #24 zero_size.last_param(n: Int, z: [Int; 0]) at (*frame).[8]
-    state 2: bb1 drive #25 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) at (*frame).[8]
-    state 3: bb2 drive #26 zero_size.result() at (*frame).[8]
+    state 1: bb0 drive #26 zero_size.last_param(n: Int, z: [Int; 0]) at (*frame).[8]
+    state 2: bb1 drive #27 zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) at (*frame).[8]
+    state 3: bb2 drive #28 zero_size.result() at (*frame).[8]
 fn zero_size.children() -> Int {
     let _0: Int;  // return
     let _1: Int;  // a
@@ -271,7 +271,7 @@ fn zero_size.enum_at_end() -> Int {
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
     }
 }
-resume #23: zero_size.before_index(p: UnsafePointer<Int>) task root  (frame size 56 align 8, pointer _13, context _14)
+resume #25: zero_size.before_index(p: UnsafePointer<Int>) task root  (frame size 56 align 8, pointer _13, context _14)
     state 0: bb0
     state 1: bb6 park ready
 fn zero_size.before_index(p: UnsafePointer<Int>) -> Int {
@@ -340,7 +340,7 @@ fn zero_size.before_index(p: UnsafePointer<Int>) -> Int {
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
     }
 }
-resume #24: zero_size.last_param(n: Int, z: [Int; 0])  (frame size 24 align 8, pointer _6, context _7)
+resume #26: zero_size.last_param(n: Int, z: [Int; 0])  (frame size 24 align 8, pointer _6, context _7)
     state 0: bb0
     state 1: bb0 park ready
 fn zero_size.last_param(n: Int, z: [Int; 0]) -> Int {
@@ -369,7 +369,7 @@ fn zero_size.last_param(n: Int, z: [Int; 0]) -> Int {
         return;
     }
 }
-resume #25: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (frame size 24 align 8, pointer _9, context _10)
+resume #27: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int)  (frame size 24 align 8, pointer _9, context _10)
     state 0: bb0
     state 1: bb0 park ready
 fn zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
@@ -406,7 +406,7 @@ fn zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) -> Int {
         return;
     }
 }
-resume #26: zero_size.result()  (frame size 8 align 8, pointer _2, context _3)
+resume #28: zero_size.result()  (frame size 8 align 8, pointer _2, context _3)
     state 0: bb0
     state 1: bb0 park ready
 fn zero_size.result() -> [Int; 0] {
@@ -599,7 +599,7 @@ fn zero_size.main() -> Void {
     }
 }
 driver #8: zero_size.indexed()
-    drive bb0 task root #23 zero_size.before_index(p: UnsafePointer<Int>) task root, descriptor _7, frame _8
+    drive bb0 task root #25 zero_size.before_index(p: UnsafePointer<Int>) task root, descriptor _7, frame _8
 fn zero_size.indexed() -> Void {
     let _0: Void;  // return
     let _1: zero_size.Pair;  // q

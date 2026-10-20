@@ -1,1 +1,4 @@
 panic at ?: deadlock: every task is waiting to receive from a channel, and nothing in this program can send. A channel has no sender count — every handle is the same handle — so a producer that is finished must say so with close(), and a receive on a closed, drained channel returns Err(Closed) instead of waiting
+saw tasks: 1 live (as-of panic, unsynchronized)
+  task group 1 slot 0 gen 1 channel-parked
+    at thread_live_defers_deadlock.saw:21 in consume

@@ -1,10 +1,19 @@
 # The cone of compiler/tests/std/cone/literal_only.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 11 declarations in 2 modules
+# 18 declarations in 3 modules
 
 std.panic: 2
   extern __saw_rt_panic
   func panic_sink
+
+std.prelude: 7
+  func atomic_exchange_word
+  func atomic_load_word
+  method Atomic.compare_exchange
+  method Atomic.load
+  method UnsafeMutableInterior.ptr
+  struct Atomic
+  struct UnsafeMutableInterior
 
 std.string: 9
   extern __saw_rt_dealloc

@@ -1,1 +1,5 @@
 panic at ?: reactor: arming fd 3 for read readiness failed (errno 9)
+saw tasks: 1 live (as-of panic, unsynchronized)
+  task group 1 slot 0 gen 1 running
+    at task.saw:0 in fd_wait
+    at park_arm_failure_task.saw:43 in wait_on

@@ -19,7 +19,7 @@ frame #5: pack_tree.root() task root  (size 304 align 8, lower bound 304)
     (*frame).[8: frame pack_tree.t2(k: Int)]  size 232 align 8  child  (across 5)
     (*frame).[8: frame pack_tree.t1(k: Int)]  size 256 align 8  child  (across 6)
     stack: _2 _4 _6 _8 _10 _11 _12 _13 _14 _15 _16 _17
-frame #9: pack_tree.w2(k: Int)  (size 208 align 8, lower bound 208)
+frame #11: pack_tree.w2(k: Int)  (size 208 align 8, lower bound 208)
     suspend 1: bb0 call leaf
     suspend 2: bb1 call leaf
     (*frame).[0: Int]  size 8 align 8  state
@@ -29,7 +29,7 @@ frame #9: pack_tree.w2(k: Int)  (size 208 align 8, lower bound 208)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 1)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 2)
     stack: _3 _4 _5 _6
-frame #10: pack_tree.w4(k: Int)  (size 224 align 8, lower bound 224)
+frame #12: pack_tree.w4(k: Int)  (size 224 align 8, lower bound 224)
     suspend 1: bb0 call leaf
     suspend 2: bb1 call leaf
     suspend 3: bb2 call leaf
@@ -45,7 +45,7 @@ frame #10: pack_tree.w4(k: Int)  (size 224 align 8, lower bound 224)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 3)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 4)
     stack: _3 _5 _7 _8 _9 _10 _11 _12
-frame #11: pack_tree.w8(k: Int)  (size 256 align 8, lower bound 256)
+frame #13: pack_tree.w8(k: Int)  (size 256 align 8, lower bound 256)
     suspend 1: bb0 call leaf
     suspend 2: bb1 call leaf
     suspend 3: bb2 call leaf
@@ -73,7 +73,7 @@ frame #11: pack_tree.w8(k: Int)  (size 256 align 8, lower bound 256)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 7)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 8)
     stack: _3 _5 _7 _9 _11 _13 _15 _16 _17 _18 _19 _20 _21 _22 _23 _24
-frame #12: pack_tree.t3(k: Int)  (size 208 align 8, lower bound 208)
+frame #14: pack_tree.t3(k: Int)  (size 208 align 8, lower bound 208)
     suspend 1: bb0 call leaf
     suspend 2: bb1 call leaf
     (*frame).[0: Int]  size 8 align 8  state
@@ -83,7 +83,7 @@ frame #12: pack_tree.t3(k: Int)  (size 208 align 8, lower bound 208)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 1)
     (*frame).[8: frame pack_tree.leaf(k: Int)]  size 184 align 8  child  (across 2)
     stack: _3 _4 _5 _6 _7
-frame #13: pack_tree.t2(k: Int)  (size 232 align 8, lower bound 232)
+frame #15: pack_tree.t2(k: Int)  (size 232 align 8, lower bound 232)
     suspend 1: bb0 call t3
     suspend 2: bb1 call t3
     (*frame).[0: Int]  size 8 align 8  state
@@ -93,7 +93,7 @@ frame #13: pack_tree.t2(k: Int)  (size 232 align 8, lower bound 232)
     (*frame).[8: frame pack_tree.t3(k: Int)]  size 208 align 8  child  (across 1)
     (*frame).[8: frame pack_tree.t3(k: Int)]  size 208 align 8  child  (across 2)
     stack: _3 _4 _5 _6 _7
-frame #14: pack_tree.t1(k: Int)  (size 256 align 8, lower bound 256)
+frame #16: pack_tree.t1(k: Int)  (size 256 align 8, lower bound 256)
     suspend 1: bb0 call t2
     suspend 2: bb1 call t2
     (*frame).[0: Int]  size 8 align 8  state
@@ -103,7 +103,7 @@ frame #14: pack_tree.t1(k: Int)  (size 256 align 8, lower bound 256)
     (*frame).[8: frame pack_tree.t2(k: Int)]  size 232 align 8  child  (across 1)
     (*frame).[8: frame pack_tree.t2(k: Int)]  size 232 align 8  child  (across 2)
     stack: _3 _4 _5 _6 _7
-frame #17: pack_tree.leaf(k: Int)  (size 184 align 8, lower bound 184)
+frame #21: pack_tree.leaf(k: Int)  (size 184 align 8, lower bound 184)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[168: Int]  size 8 align 8  _0 result

@@ -16,13 +16,13 @@ frame #7: pack_arms.by_match(pick: pack_arms.Pick) task root  (size 64 align 8, 
     (*frame).[8: frame pack_arms.small(k: Int)]  size 24 align 8  child  (across 1)
     (*frame).[8: frame pack_arms.large(k: Int, label: String)]  size 48 align 8  child  (across 2)
     stack: _2 _3
-frame #10: pack_arms.small(k: Int)  (size 24 align 8, lower bound 24)
+frame #12: pack_arms.small(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param k  (across 1)
     stack: _2
-frame #11: pack_arms.large(k: Int, label: String)  (size 48 align 8, lower bound 48)
+frame #13: pack_arms.large(k: Int, label: String)  (size 48 align 8, lower bound 48)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result

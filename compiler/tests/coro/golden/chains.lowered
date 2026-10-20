@@ -70,7 +70,7 @@ fn chains.main() -> Void {
 }
 resume #6: chains.rest(bed: &chains.Bed)  (frame size 72 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #12 chains.Napper.twice() self chains.Bed at (*frame).[8]
+    state 1: bb0 drive #14 chains.Napper.twice() self chains.Bed at (*frame).[8]
 fn chains.rest(bed: &chains.Bed) -> Int {
     let _0: Int;  // return
     let _1: &chains.Bed;  // param bed
@@ -96,9 +96,9 @@ fn chains.rest(bed: &chains.Bed) -> Int {
 }
 resume #7: prologue chains.Bed.slot() receiver exclusive  (frame size 32 align 8, pointer _4, context _5)
     state 0: bb0
-    offload bb0 start #13 extern usleep, storage (*frame).[8]
+    offload bb0 start #15 extern usleep, storage (*frame).[8]
     state 1: bb6 park offload
-    offload bb8 take #13 extern usleep, storage (*frame).[8]
+    offload bb8 take #15 extern usleep, storage (*frame).[8]
 fn prologue chains.Bed.slot() -> &var Int {
     let _0: &var Int;  // return
     let _1: &var chains.Bed;  // self
@@ -153,10 +153,10 @@ fn prologue chains.Bed.slot() -> &var Int {
         _2 = call chains.usleep(us: UInt32) [] -> [return: bb1];
     }
 }
-resume #12: chains.Napper.twice() self chains.Bed  (frame size 56 align 8, pointer _7)
+resume #14: chains.Napper.twice() self chains.Bed  (frame size 56 align 8, pointer _7)
     state 0: bb0
-    state 1: bb0 drive #17 chains.Bed.nap() at (*frame).[8]
-    state 2: bb1 drive #17 chains.Bed.nap() at (*frame).[8]
+    state 1: bb0 drive #21 chains.Bed.nap() at (*frame).[8]
+    state 2: bb1 drive #21 chains.Bed.nap() at (*frame).[8]
 fn chains.Napper.twice() -> Int {
     let _0: Int;  // return
     let _1: &chains.Bed;  // self
@@ -195,11 +195,11 @@ fn chains.Napper.twice() -> Int {
         goto -> bb2;
     }
 }
-resume #17: chains.Bed.nap()  (frame size 32 align 8, pointer _5, context _6)
+resume #21: chains.Bed.nap()  (frame size 32 align 8, pointer _5, context _6)
     state 0: bb0
-    offload bb0 start #13 extern usleep, storage (*frame).[8]
+    offload bb0 start #15 extern usleep, storage (*frame).[8]
     state 1: bb6 park offload
-    offload bb8 take #13 extern usleep, storage (*frame).[8]
+    offload bb8 take #15 extern usleep, storage (*frame).[8]
 fn chains.Bed.nap() -> Int {
     let _0: Int;  // return
     let _1: &chains.Bed;  // self

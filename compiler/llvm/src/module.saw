@@ -6,6 +6,7 @@
 // tables, or in the target.
 
 import sawcoro.bttable.{coro_bt_frame_index, coro_bt_table, coro_bt_with_word_bits}
+import sawllvm.attributes.{ll_function_attributes}
 import sawcoro.program.{CoroDriveSite, CoroPoint, CoroPoison, CoroProgram, CoroResume}
 import sawllvm.text.{ll_c_string, ll_quoted}
 import sawmir.model.{MirDiag}
@@ -192,8 +193,9 @@ extension LlEmitter {
     // and kept by `@llvm.used`, since nothing in the program names it and a
     // debugger finds it by its symbol; it is 8-aligned, so a walker reads its
     // words in place; and it sits in a section of its own, Mach-O's needing
-    // a segment, as Stage 0 places it.
-    public func bt_table_global(&self, triple: String) -> String {
+    // a segment, as Stage 0 places it. With `accessor`, the function std
+    // declares to read the table is defined beside it.
+    public func bt_table_global(&self, triple: String, accessor: Bool) -> String {
         if self.lowering.bt_table.len() == 0 {
             return ""
         }
@@ -211,12 +213,44 @@ extension LlEmitter {
         }
         try! out.append(", align 8\n")
         try! out.append("@llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section \"llvm.metadata\"\n")
+        if accessor {
+            // A Saw `extern` names a function, never data, so std's task
+            // dump reaches the table through this accessor (SL-577).
+            try! out.append("define ptr @")
+            try! out.append(ll_bt_table_address())
+            try! out.append("()")
+            try! out.append(ll_function_attributes(""))
+            try! out.append(" \{\n  ret ptr @__saw_bt_table\n\}\n")
+        }
         out.build()
     }
 }
 
 // Whether `triple`'s objects are Mach-O, which names a section with its
 // segment.
+// The symbol std's task dump declares to read the backtrace table.
+public func ll_bt_table_address() -> String {
+    "__saw_bt_table_address"
+}
+
+// Whether the program reaches std's extern `symbol`: mono makes one extern
+// item per C name it calls.
+public func ll_reaches_extern(mono: &MonoProgram, symbol: String) -> Bool {
+    var k = 0
+    while k < mono.items.len() {
+        let it = mono.items[k]
+        if it.kind == MonoItemKind.Extern {
+            // Stage 0 workaround (SL:hazards L33): canonical: let id = mono.dp.bc.mir.tc.res.decls[it.decl].name
+            let decl = mono.dp.bc.mir.tc.res.decls[it.decl]
+            if mono.dp.bc.mir.tc.res.name_text(decl.name).equals(symbol) {
+                return true
+            }
+        }
+        k = k + 1
+    }
+    false
+}
+
 func ll_mach_o(triple: String) -> Bool {
     let tail = "-darwin"
     let size = triple.len()

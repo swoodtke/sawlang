@@ -1,8 +1,8 @@
 resume #6: bt_table_tail_chain.worker() task root  (frame size 64 align 8, pointer _5, context _6)
     state 0: bb0
-    state 1: bb2 drive #19 bt_table_tail_chain.step(n: Int) at (*frame).[8]
+    state 1: bb2 drive #21 bt_table_tail_chain.step(n: Int) at (*frame).[8]
     state 2: bb8 park ready
-    state 3: bb4 drive #20 bt_table_tail_chain.handle(n: Int) at (*frame).[8]
+    state 3: bb4 drive #22 bt_table_tail_chain.handle(n: Int) at (*frame).[8]
 fn bt_table_tail_chain.worker() -> Int {
     let _0: Int;  // return
     let _1: Int;  // i
@@ -62,10 +62,10 @@ fn bt_table_tail_chain.worker() -> Int {
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
     }
 }
-resume #19: bt_table_tail_chain.step(n: Int)  (frame size 40 align 8, pointer _3)
+resume #21: bt_table_tail_chain.step(n: Int)  (frame size 40 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #48 std.task.yield_now() at (*frame).[8]
-    state 2: bb1 drive #49 bt_table_tail_chain.serve(n: Int) at (*frame).[8]
+    state 1: bb0 drive #50 std.task.yield_now() at (*frame).[8]
+    state 2: bb1 drive #51 bt_table_tail_chain.serve(n: Int) at (*frame).[8]
 fn bt_table_tail_chain.step(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -91,10 +91,10 @@ fn bt_table_tail_chain.step(n: Int) -> Int {
         goto -> bb2;
     }
 }
-resume #20: bt_table_tail_chain.handle(n: Int)  (frame size 40 align 8, pointer _4)
+resume #22: bt_table_tail_chain.handle(n: Int)  (frame size 40 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #48 std.task.yield_now() at (*frame).[8]
-    state 2: bb1 drive #49 bt_table_tail_chain.serve(n: Int) at (*frame).[8]
+    state 1: bb0 drive #50 std.task.yield_now() at (*frame).[8]
+    state 2: bb1 drive #51 bt_table_tail_chain.serve(n: Int) at (*frame).[8]
 fn bt_table_tail_chain.handle(n: Int) -> Void {
     let _0: Void;  // return
     let _1: Int;  // param n
@@ -125,7 +125,7 @@ fn bt_table_tail_chain.handle(n: Int) -> Void {
         goto -> bb2;
     }
 }
-resume #48: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #50: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {
@@ -142,9 +142,9 @@ fn std.task.yield_now() -> Void {
         return;
     }
 }
-resume #49: bt_table_tail_chain.serve(n: Int)  (frame size 24 align 8, pointer _3)
+resume #51: bt_table_tail_chain.serve(n: Int)  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #48 std.task.yield_now() at (*frame).[8]
+    state 1: bb0 drive #50 std.task.yield_now() at (*frame).[8]
 fn bt_table_tail_chain.serve(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n

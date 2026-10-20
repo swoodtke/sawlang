@@ -1,6 +1,6 @@
 resume #5: cancel_read.watch(n: Int) task root  (frame size 32 align 8, pointer _9, context _10)
     state 0: bb0
-    state 1: bb1 drive #10 std.task.yield_now() at (*frame).[8]
+    state 1: bb1 drive #12 std.task.yield_now() at (*frame).[8]
 fn cancel_read.watch(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -80,7 +80,7 @@ fn cancel_read.watch(n: Int) -> Int {
         goto -> bb10;
     }
 }
-resume #10: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #12: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {

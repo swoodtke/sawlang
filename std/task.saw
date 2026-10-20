@@ -2,8 +2,9 @@
 //! and the handle to a thread `Thread.spawn` starts.
 //!
 //! `yield_now` cedes to the other ready tasks, `sleep` parks for a span, and
-//! `cancelled` reads whether the running task has been asked to stop. `sleep`
-//! and `cancelled` are in the prelude; `yield_now` and `Thread` need
+//! `cancelled` reads whether the running task has been asked to stop, and
+//! `dump_tasks` writes where every live task is parked. `sleep` and
+//! `cancelled` are in the prelude; `yield_now`, `dump_tasks` and `Thread` need
 //! `import std.task`.
 //!
 //! `Thread.spawn { ... }` hands back a `Thread<T>`, a `Thread<Void>` when the
@@ -14,6 +15,7 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
+import std.taskgroup.{__saw_exec_dump_tasks}
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_exiting, __saw_exec_thread_finished}
 
 extern "C" {
@@ -284,6 +286,42 @@ func free_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe {
 /// for the points the compiler's budget does not reach.
 public func yield_now() {
     __saw_park_ready()
+}
+
+/// Writes every live task's logical backtrace to standard output.
+///
+/// One entry per task: which group and slot holds it, and why it is not
+/// running, followed by its stack, innermost frame first, with the real
+/// `file:line` of every suspending call between the task's entry point and
+/// the place it is parked. A native backtrace of a parked program cannot show
+/// this: a suspended task is not on any thread's stack.
+///
+/// ```saw-fragment
+/// import std.task.{dump_tasks}
+///
+/// dump_tasks()
+/// // saw tasks: 2 live (unsynchronized snapshot)
+/// //   task group 1 slot 0 gen 1 sleeping
+/// //     at worker.saw:21 in leaf
+/// //     at worker.saw:27 in middle
+/// //   task group 1 slot 1 gen 1 running
+/// //     at worker.saw:33 in watcher
+/// ```
+///
+/// The last word of a task's line is `running`, `ready`, `sleeping`,
+/// `io-parked`, `channel-parked` or `joining` (a thread's exit). A running
+/// task's frames show its last suspension, not where it is executing.
+///
+/// Allocates nothing, so it works under an exhausted allocator. The panic
+/// path calls it for you: a program that dies with tasks in flight writes
+/// this dump after its panic line, on standard error.
+///
+/// The walk is unsynchronized. A multi-threaded group's worker may be
+/// resuming a frame while this reads it, so treat its lines as a best-effort
+/// snapshot; a single-threaded group's are exact. Panics if standard output
+/// refuses the dump, as `print` does.
+public func dump_tasks() {
+    __saw_exec_dump_tasks()
 }
 
 /// Parks the running task for at least `duration`, or until the task is

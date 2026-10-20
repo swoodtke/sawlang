@@ -16,9 +16,64 @@ fn -> Never {
     let _0: Never;  // return
     let _1: UnsafePointer<Int8>;  // param message
     let _2: Int;  // param length
+    let _3: Int;  // at
+    let _4: &Atomic<Int>;
+    let _5: Int;
+    let _6: Bool;
+    let _7: Bool;
+    let _8: &Atomic<Int>;
+    let _9: Bool;
+    let _10: (UnsafePointer<Int8>, Int) unsafe sync -> Void;  // report
+    let _11: UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>;
+    let _12: Int;
 
     bb0: {
-        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, copy _2] -> !; => #5
+        _4 = ref(shared, static std.panic.PANIC_REPORT);
+        _5 = call Atomic.load() (owner Atomic<Int>) [move _4] -> [return: bb1]; => #5
+    }
+
+    bb1: {
+        _3 = move _5;
+        _7 = Ne(copy _3, const 0: Int);
+        switch move _7 -> [true: bb4, false: bb5];
+    }
+
+    bb2: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, copy _2] -> !; => #6
+    }
+
+    bb3: {
+        switch move _6 -> [true: bb7, false: bb8];
+    }
+
+    bb4: {
+        _8 = ref(shared, static std.panic.PANIC_REPORTING);
+        _9 = call Atomic.compare_exchange(expected: Int, desired: Int) (owner Atomic<Int>) [move _8, const 0: Int, const 1: Int] -> [return: bb6]; => #7
+    }
+
+    bb5: {
+        _6 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb6: {
+        _6 = move _9;
+        goto -> bb3;
+    }
+
+    bb7: {
+        _11 = cast(copy _3 as UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>);
+        _12 = const 0: Int;
+        _10 = copy _11[_12];
+        call value copy _10 [copy _1, copy _2] -> [return: bb9];
+    }
+
+    bb8: {
+        goto -> bb2;
+    }
+
+    bb9: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, const 0: Int] -> !; => #6
     }
 }
 
@@ -55,7 +110,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #6
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #8
     }
 
     bb1: {
@@ -64,9 +119,47 @@ fn -> Int {
     }
 }
 
-item #5: extern __saw_rt_panic  (from #1)
+item #5: Atomic.load() args Int  (from #1)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Atomic<Int>;  // self
+    let _2: &Atomic<Int>;
+    let _3: Int;
 
-item #6: std.string.String.len()  (from #4)
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #9
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #6: extern __saw_rt_panic  (from #1)
+
+item #7: Atomic.compare_exchange(expected: Int, desired: Int) args Int  (from #1)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &Atomic<Int>;  // self
+    let _2: Int;  // param expected
+    let _3: Int;  // param desired
+    let _4: &Atomic<Int>;
+    let _5: Bool;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #10
+    }
+
+    bb1: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #8: std.string.String.len()  (from #4)
 fn -> Int {
     let _0: Int;  // return
     let _1: &String;  // self
@@ -79,6 +172,73 @@ fn -> Int {
         _2 = move _3;
         _4 = copy static std.string.LENGTH_SLOT;
         _0 = copy _2[_4];
+        return;
+    }
+}
+
+item #9: atomic_load_word(a: &Atomic<T>) inst Int  (from #5)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Atomic<Int>;  // param a
+    let _2: &UnsafeMutableInterior<Int>;
+    let _3: UnsafePointer<Int>;
+    let _4: UnsafePointer<Int>;
+    let _5: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).value);
+        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #11
+    }
+
+    bb1: {
+        _4 = cast(move _3 as UnsafePointer<Int>);
+        _5 = call builtin __saw_atomic_load_i64_seq_cst [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #10: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #7)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &Atomic<Int>;  // param a
+    let _2: Int;  // param expected
+    let _3: Int;  // param desired
+    let _4: &UnsafeMutableInterior<Int>;
+    let _5: UnsafePointer<Int>;
+    let _6: UnsafePointer<Int>;
+    let _7: Bool;
+
+    bb0: {
+        _4 = ref(shared, (*_1).value);
+        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #11
+    }
+
+    bb1: {
+        _6 = cast(move _5 as UnsafePointer<Int>);
+        _7 = call builtin __saw_atomic_cmpxchg_i64_seq_cst [move _6, copy _2, copy _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _7;
+        return;
+    }
+}
+
+item #11: UnsafeMutableInterior.ptr() args Int  (from #9)
+fn -> UnsafePointer<Int> {
+    let _0: UnsafePointer<Int>;  // return
+    let _1: &UnsafeMutableInterior<Int>;  // self
+    let _2: &Int;
+    let _3: UnsafePointer<Int>;
+
+    bb0: {
+        _2 = ref(shared, (*_1).value);
+        _3 = cast(move _2 as UnsafePointer<Int>);
+        _0 = move _3;
         return;
     }
 }

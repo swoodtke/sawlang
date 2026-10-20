@@ -11,8 +11,8 @@ import sawllvm.erased.{ll_drop_nothing}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
 import sawcoro.lower.{CORO_STATE_START}
-import sawllvm.module.{LlEmitter, LlLowering, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol,
-                       ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, LlLowering, ll_bt_table_address, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar,
+                       ll_reaches_extern, ll_resume_symbol, ll_symbol, ll_value_type}
 import sawllvm.text.{ll_quoted}
 import sawparse.grammar.{Alt}
 import sawresolve.model.{ResDeclKind}
@@ -42,11 +42,17 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     // "Program arguments"), which std's `extern` declarations name, and,
     // when it hands `main`'s frame to the entry executor, the descriptor call
     // the executor resumes a frame through (runtime/ABI.md, "The compiler →
-    // executor boundary"). A runtime has no entry point: those belong to the
-    // program it is linked into.
+    // executor boundary"). When std's task dump is reached, the backtrace
+    // table's accessor is defined beside the table (`bt_table_global`). A
+    // runtime has no entry point: those belong to the program it is linked
+    // into.
+    let bt_accessor = not mono.runtime && ll_reaches_extern(&mono, ll_bt_table_address())
     if not mono.runtime {
         e.defines("__saw_rt_get_argc")
         e.defines("__saw_rt_get_argv")
+        if bt_accessor {
+            e.defines(ll_bt_table_address())
+        }
         if mono.exec_item >= 0 {
             e.defines("__saw_frame_resume")
         }
@@ -111,7 +117,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         k = k + 1
     }
     if not mono.runtime {
-        let table = e.bt_table_global(target.triple)
+        let table = e.bt_table_global(target.triple, bt_accessor)
         try! e.globals.append(table)
     }
     mono.current = -1

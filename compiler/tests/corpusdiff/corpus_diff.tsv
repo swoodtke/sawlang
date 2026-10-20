@@ -296,7 +296,7 @@ conformance/G03_ambient_main_int_exit_status.saw	pass	-	-
 conformance/G04_mt_main_int_exit_status.saw	pass	-	-
 conformance/G05_suspending_main_void_exit_zero.saw	pass	-	-
 conformance/G06_panic_in_suspending_main_aborts.saw	pass	-	-
-conformance/G07_panic_in_spawned_task_mt_aborts.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
+conformance/G07_panic_in_spawned_task_mt_aborts.saw	pass	-	-
 conformance/G08_sync_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G09_sync_main_result_err_exits_one.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G10_suspending_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
@@ -380,11 +380,11 @@ conformance/K59_main_receives_after_mt_group_scope.saw	pass	-	-
 conformance/K60_threads_one_is_the_single_threaded_engine.saw	pass	-	-
 conformance/K61_st_group_task_feeds_main_receive.saw	pass	-	-
 conformance/K62_mt_join_returns_the_task_result.saw	pass	-	-
-conformance/K63_channel_wait_is_a_park.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
+conformance/K63_channel_wait_is_a_park.saw	pass	-	-
 conformance/K64_close_drains_before_it_reports_closed.saw	pass	-	-
 conformance/K65_close_wakes_a_parked_receiver.saw	pass	-	-
 conformance/K66_send_and_close_after_close_report.saw	pass	-	-
-conformance/K67_quiescent_channel_deadlock_is_reported.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
+conformance/K67_quiescent_channel_deadlock_is_reported.saw	pass	-	-
 conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-
@@ -397,7 +397,7 @@ conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	stage0-wrong	annota
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a susp
 conformance/K84_thread_spawn_permits_a_blocking_extern.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K85_background_spawn_handle_must_be_consumed.saw	pass	-	drop.must-consume: `Task.spawn` hands back a `std.taskgroup.Task<Int>` that must be consumed, and this one is discarded. Bind it and consume it on every path: `join()` waits for it and takes its resul
-conformance/K86_background_task_handle_panics_in_deinit.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
+conformance/K86_background_task_handle_panics_in_deinit.saw	pass	-	-
 conformance/K87_background_group_cancels_then_joins_at_exit.saw	pass	-	-
 conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call. A background task outlives the statement that spawned it and may be detached, so no join ends the borro
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
@@ -760,7 +760,7 @@ coro_optbind_loop_control_spawned.saw	pass	-	-
 coro_optbind_split_in_try.saw	pass	-	-
 coro_optional_binding_suspending_method.saw	pass	-	-
 coro_optional_presence_unconditional_lend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-coro_panic_value_position.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 1 live (as-of panic, unsynchronized)"
+coro_panic_value_position.saw	pass	-	-
 coro_qualified_generic_call_embeds.saw	pass	-	-
 coro_reassign_owning_local.saw	pass	-	-
 coro_ref_arg_beside_suspending_arg.saw	pass	-	-
@@ -825,9 +825,9 @@ d249_bare_imports_merge_into_one_overload_set.saw	pass	-	-
 d249_both_std_encoders_bare_is_a_tie_error.saw	refused	resolve import.unknown-module	no module `std.json`
 d249_glob_import_binds_whole_overload_set.saw	pass	-	-
 d249_module_twins_qualified.saw	pass	-	-
-d249_own_declaration_beside_bare_std_import_error.saw	wrong	accepts a refusal test	ambiguous call to `dump_tasks`: multiple overloads match the argument types ()
+d249_own_declaration_beside_bare_std_import_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: dump_tasks() [d249_own_declaration_beside_bare_std_import_error]; dum
 d249_own_declaration_wins_over_unimported_std_name.saw	pass	-	-
-d249_prelude_gate_over_a_std_free_function.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
+d249_prelude_gate_over_a_std_free_function.saw	pass	-	name.not-in-prelude: `dump_tasks` is not in the prelude and must be imported: `import std.task.{dump_tasks}` selects it
 d249_selective_import_binds_whole_overload_set.saw	pass	-	-
 d249_selective_import_of_one_twin.saw	pass	-	-
 d249_std_json_and_cbor_both_name_encode.saw	refused	resolve import.unknown-module	no module `std.json`
@@ -1686,8 +1686,8 @@ import225e_bare_std_leaf_not_found.saw	refused	resolve import.unknown-module	no 
 import247b_glob_pair_one_identity.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 import247b_nonbinding_form_qualifier_error.saw	refused	resolve name.undefined	cannot find `data` in scope
 import247b_pair_one_identity.saw	refused	typecheck type.mismatch	expected `Int`, the type of the parameter, and found `pair247b.Widget`
-import_rename_function_positions.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
-import_std_function_rename.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
+import_rename_function_positions.saw	pass	-	-
+import_std_function_rename.saw	pass	-	-
 indexed_read_addresses_the_live_array.saw	pass	-	-
 infer_generic_driven.saw	pass	-	-
 infer_generic_spawned.saw	pass	-	-
@@ -2411,11 +2411,11 @@ sync_suspending_mainline.saw	pass	-	-
 synthesize_across_coro_reentry.saw	pass	-	-
 synthesize_auto_conformance_unmarked.saw	pass	-	-
 synthesize_explicit_copy_holder.saw	pass	-	-
-task_backtrace_churn.saw	refused	resolve name.undefined	cannot find `dump_tasks` in scope
-task_backtrace_mt.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
-task_backtrace_nest.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
-task_backtrace_panic.saw	wrong	stderr differs	line 2: sawc2 "<end>", Stage 0 "saw tasks: 2 live (as-of panic, unsynchronized)"
-task_dump_streams_on_panic.saw	refused	resolve import.unknown-symbol	`dump_tasks` is not defined in `std.task`
+task_backtrace_churn.saw	pass	-	-
+task_backtrace_mt.saw	pass	-	-
+task_backtrace_nest.saw	pass	-	-
+task_backtrace_panic.saw	pass	-	-
+task_dump_streams_on_panic.saw	pass	-	-
 taskgroup_budget_loop_semantics.saw	pass	-	-
 taskgroup_cancel_check.saw	pass	-	-
 taskgroup_cancel_during_sleep.saw	pass	-	-

@@ -7,6 +7,8 @@ target triple = "arm64-apple-macosx11.0.0"
 
 @.bytes.0 = private unnamed_addr constant [12 x i8] c"hello, world"
 @.bytes.1 = private unnamed_addr constant [9 x i8] c"hello.saw"
+@"static std.panic.PANIC_REPORT" = internal global i64 0, align 8
+@"static std.panic.PANIC_REPORTING" = internal global i64 0, align 8
 @"static std.string.LENGTH_SLOT" = internal global i64 -1
 @.bytes.2 = private unnamed_addr constant [9 x i8] c"panic.saw"
 @.bytes.3 = private unnamed_addr constant { i64, i64, [6 x i8] } { i64 -1, i64 5, [6 x i8] c"write\00" }, align 16
@@ -124,13 +126,79 @@ entry:
   %l0 = alloca [0 x i8], align 1
   %l1 = alloca ptr, align 8
   %l2 = alloca i64, align 8
+  %l3 = alloca i64, align 8
+  %l4 = alloca ptr, align 8
+  %l5 = alloca i64, align 8
+  %l6 = alloca i8, align 1
+  %l7 = alloca i8, align 1
+  %l8 = alloca ptr, align 8
+  %l9 = alloca i8, align 1
+  %l10 = alloca [16 x i8], align 8
+  %l11 = alloca ptr, align 8
+  %l12 = alloca i64, align 8
   store ptr %p1, ptr %l1
   store i64 %p2, ptr %l2
   br label %bb0
 bb0:
-  %t0 = load ptr, ptr %l1
-  %t1 = load i64, ptr %l2
-  call void @__saw_rt_panic(ptr %t0, i64 %t1)
+  store ptr @"static std.panic.PANIC_REPORT", ptr %l4
+  %t0 = load ptr, ptr %l4
+  %t1 = call i64 @"saw Atomic.load() args Int"(ptr %t0)
+  store i64 %t1, ptr %l5
+  br label %bb1
+bb1:
+  %t2 = load i64, ptr %l5
+  store i64 %t2, ptr %l3
+  %t3 = load i64, ptr %l3
+  %t4 = icmp ne i64 %t3, 0
+  %t5 = zext i1 %t4 to i8
+  store i8 %t5, ptr %l7
+  %t6 = load i8, ptr %l7
+  %t7 = icmp ne i8 %t6, 0
+  br i1 %t7, label %bb4, label %bb5
+bb2:
+  %t8 = load ptr, ptr %l1
+  %t9 = load i64, ptr %l2
+  call void @__saw_rt_panic(ptr %t8, i64 %t9)
+  unreachable
+bb3:
+  %t10 = load i8, ptr %l6
+  %t11 = icmp ne i8 %t10, 0
+  br i1 %t11, label %bb7, label %bb8
+bb4:
+  store ptr @"static std.panic.PANIC_REPORTING", ptr %l8
+  %t12 = load ptr, ptr %l8
+  %t13 = call i8 @"saw Atomic.compare_exchange(expected: Int, desired: Int) args Int"(ptr %t12, i64 0, i64 1)
+  store i8 %t13, ptr %l9
+  br label %bb6
+bb5:
+  store i8 0, ptr %l6
+  br label %bb3
+bb6:
+  %t14 = load i8, ptr %l9
+  store i8 %t14, ptr %l6
+  br label %bb3
+bb7:
+  %t15 = load i64, ptr %l3
+  %t16 = inttoptr i64 %t15 to ptr
+  store ptr %t16, ptr %l11
+  store i64 0, ptr %l12
+  %t17 = load ptr, ptr %l11
+  %t18 = load i64, ptr %l12
+  %t19 = mul i64 %t18, 16
+  %t20 = getelementptr i8, ptr %t17, i64 %t19
+  call void @llvm.memcpy.p0.p0.i64(ptr %l10, ptr %t20, i64 16, i1 false)
+  %t21 = load ptr, ptr %l10
+  %t22 = getelementptr i8, ptr %l10, i64 8
+  %t23 = load ptr, ptr %t22
+  %t24 = load ptr, ptr %l1
+  %t25 = load i64, ptr %l2
+  call void %t21(ptr %t23, ptr %t24, i64 %t25)
+  br label %bb9
+bb8:
+  br label %bb2
+bb9:
+  %t26 = load ptr, ptr %l1
+  call void @__saw_rt_panic(ptr %t26, i64 0)
   unreachable
 }
 
@@ -185,6 +253,56 @@ bb1:
   ret i64 %t4
 }
 
+define internal i64 @"saw Atomic.load() args Int"(ptr %p1) #0 {
+entry:
+  %l0 = alloca i64, align 8
+  %l1 = alloca ptr, align 8
+  %l2 = alloca ptr, align 8
+  %l3 = alloca i64, align 8
+  store ptr %p1, ptr %l1
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  store ptr %t0, ptr %l2
+  %t1 = load ptr, ptr %l2
+  %t2 = call i64 @"saw atomic_load_word(a: &Atomic<T>) inst Int"(ptr %t1)
+  store i64 %t2, ptr %l3
+  br label %bb1
+bb1:
+  %t3 = load i64, ptr %l3
+  store i64 %t3, ptr %l0
+  %t4 = load i64, ptr %l0
+  ret i64 %t4
+}
+
+define internal i8 @"saw Atomic.compare_exchange(expected: Int, desired: Int) args Int"(ptr %p1, i64 %p2, i64 %p3) #0 {
+entry:
+  %l0 = alloca i8, align 1
+  %l1 = alloca ptr, align 8
+  %l2 = alloca i64, align 8
+  %l3 = alloca i64, align 8
+  %l4 = alloca ptr, align 8
+  %l5 = alloca i8, align 1
+  store ptr %p1, ptr %l1
+  store i64 %p2, ptr %l2
+  store i64 %p3, ptr %l3
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  store ptr %t0, ptr %l4
+  %t1 = load ptr, ptr %l4
+  %t2 = load i64, ptr %l2
+  %t3 = load i64, ptr %l3
+  %t4 = call i8 @"saw atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int"(ptr %t1, i64 %t2, i64 %t3)
+  store i8 %t4, ptr %l5
+  br label %bb1
+bb1:
+  %t5 = load i8, ptr %l5
+  store i8 %t5, ptr %l0
+  %t6 = load i8, ptr %l0
+  ret i8 %t6
+}
+
 define internal i64 @"saw std.string.String.len()"(ptr noalias %p1) #0 {
 entry:
   %l0 = alloca i64, align 8
@@ -210,6 +328,95 @@ bb0:
   store i64 %t8, ptr %l0
   %t9 = load i64, ptr %l0
   ret i64 %t9
+}
+
+define internal i64 @"saw atomic_load_word(a: &Atomic<T>) inst Int"(ptr %p1) #0 {
+entry:
+  %l0 = alloca i64, align 8
+  %l1 = alloca ptr, align 8
+  %l2 = alloca ptr, align 8
+  %l3 = alloca ptr, align 8
+  %l4 = alloca ptr, align 8
+  %l5 = alloca i64, align 8
+  store ptr %p1, ptr %l1
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  store ptr %t0, ptr %l2
+  %t1 = load ptr, ptr %l2
+  %t2 = call ptr @"saw UnsafeMutableInterior.ptr() args Int"(ptr %t1)
+  store ptr %t2, ptr %l3
+  br label %bb1
+bb1:
+  %t3 = load ptr, ptr %l3
+  store ptr %t3, ptr %l4
+  %t4 = load ptr, ptr %l4
+  %t5 = load atomic i64, ptr %t4 seq_cst, align 8
+  store i64 %t5, ptr %l5
+  br label %bb2
+bb2:
+  %t6 = load i64, ptr %l5
+  store i64 %t6, ptr %l0
+  %t7 = load i64, ptr %l0
+  ret i64 %t7
+}
+
+define internal i8 @"saw atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int"(ptr %p1, i64 %p2, i64 %p3) #0 {
+entry:
+  %l0 = alloca i8, align 1
+  %l1 = alloca ptr, align 8
+  %l2 = alloca i64, align 8
+  %l3 = alloca i64, align 8
+  %l4 = alloca ptr, align 8
+  %l5 = alloca ptr, align 8
+  %l6 = alloca ptr, align 8
+  %l7 = alloca i8, align 1
+  store ptr %p1, ptr %l1
+  store i64 %p2, ptr %l2
+  store i64 %p3, ptr %l3
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  store ptr %t0, ptr %l4
+  %t1 = load ptr, ptr %l4
+  %t2 = call ptr @"saw UnsafeMutableInterior.ptr() args Int"(ptr %t1)
+  store ptr %t2, ptr %l5
+  br label %bb1
+bb1:
+  %t3 = load ptr, ptr %l5
+  store ptr %t3, ptr %l6
+  %t4 = load ptr, ptr %l6
+  %t5 = load i64, ptr %l2
+  %t6 = load i64, ptr %l3
+  %t7 = cmpxchg ptr %t4, i64 %t5, i64 %t6 seq_cst seq_cst
+  %t8 = extractvalue { i64, i1 } %t7, 1
+  %t9 = zext i1 %t8 to i8
+  store i8 %t9, ptr %l7
+  br label %bb2
+bb2:
+  %t10 = load i8, ptr %l7
+  store i8 %t10, ptr %l0
+  %t11 = load i8, ptr %l0
+  ret i8 %t11
+}
+
+define internal ptr @"saw UnsafeMutableInterior.ptr() args Int"(ptr %p1) #0 {
+entry:
+  %l0 = alloca ptr, align 8
+  %l1 = alloca ptr, align 8
+  %l2 = alloca ptr, align 8
+  %l3 = alloca ptr, align 8
+  store ptr %p1, ptr %l1
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  store ptr %t0, ptr %l2
+  %t1 = load ptr, ptr %l2
+  store ptr %t1, ptr %l3
+  %t2 = load ptr, ptr %l3
+  store ptr %t2, ptr %l0
+  %t3 = load ptr, ptr %l0
+  ret ptr %t3
 }
 
 define internal i64 @"saw std.panic.print_failure(status: Int, bytes: UnsafePointer<Int8>, capacity: Int)"(i64 %p1, ptr %p2, i64 %p3) #0 {
@@ -243,7 +450,7 @@ bb0:
   %t3 = extractvalue { i64, i1 } %t1, 1
   br i1 %t3, label %check.0, label %checked.1
 check.0:
-  call void @__saw_fail_overflow(ptr @.bytes.2, i64 9, i64 27)
+  call void @__saw_fail_overflow(ptr @.bytes.2, i64 9, i64 47)
   unreachable
 checked.1:
   store i64 %t2, ptr %l5
@@ -272,7 +479,7 @@ bb3:
   %t14 = icmp eq i64 %t13, 0
   br i1 %t14, label %forced.2, label %unforced.3
 unforced.3:
-  call void @__saw_fail_try(ptr @.bytes.2, i64 9, i64 29)
+  call void @__saw_fail_try(ptr @.bytes.2, i64 9, i64 49)
   unreachable
 forced.2:
   %t15 = getelementptr i8, ptr %l10, i64 8

@@ -1,1 +1,4 @@
 panic at ?: executor: a task reported Pending without recording a park
+saw tasks: 1 live (as-of panic, unsynchronized)
+  task group 1 slot 0 gen 1 unrecorded
+    at <unknown frame>

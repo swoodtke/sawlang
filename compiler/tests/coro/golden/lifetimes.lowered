@@ -104,7 +104,7 @@ fn lifetimes.across_one() -> Int {
 }
 resume #6: lifetimes.child_result()  (frame size 32 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #13 lifetimes.child(k: Int) at (*frame).[8]
+    state 1: bb0 drive #15 lifetimes.child(k: Int) at (*frame).[8]
 fn lifetimes.child_result() -> Int {
     let _0: Int;  // return
     let _1: Int;  // v
@@ -175,9 +175,9 @@ fn lifetimes.window_record() -> Int {
 }
 resume #8: lifetimes.offload_storage()  (frame size 16 align 8, pointer _1, context _2)
     state 0: bb0
-    offload bb0 start #16 extern pause, storage (*frame).[8]
+    offload bb0 start #18 extern pause, storage (*frame).[8]
     state 1: bb6 park offload
-    offload bb8 take #16 extern pause, storage (*frame).[8]
+    offload bb8 take #18 extern pause, storage (*frame).[8]
 fn lifetimes.offload_storage() -> Void {
     let _0: Void;  // return
     let _1: &var Int;
@@ -229,8 +229,8 @@ fn lifetimes.offload_storage() -> Void {
 }
 resume #9: lifetimes.sequential()  (frame size 40 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #20 lifetimes.step_a(k: Int) at (*frame).[8]
-    state 2: bb1 drive #21 lifetimes.step_b(k: Int) at (*frame).[8]
+    state 1: bb0 drive #22 lifetimes.step_a(k: Int) at (*frame).[8]
+    state 2: bb1 drive #23 lifetimes.step_b(k: Int) at (*frame).[8]
 fn lifetimes.sequential() -> Int {
     let _0: Int;  // return
     let _1: Int;  // x
@@ -264,7 +264,7 @@ fn lifetimes.sequential() -> Int {
         goto -> bb2;
     }
 }
-resume #13: lifetimes.child(k: Int)  (frame size 24 align 8, pointer _3, context _4)
+resume #15: lifetimes.child(k: Int)  (frame size 24 align 8, pointer _3, context _4)
     state 0: bb0
     state 1: bb0 park ready
 fn lifetimes.child(k: Int) -> Int {
@@ -285,7 +285,7 @@ fn lifetimes.child(k: Int) -> Int {
         return;
     }
 }
-resume #20: lifetimes.step_a(k: Int)  (frame size 24 align 8, pointer _3, context _4)
+resume #22: lifetimes.step_a(k: Int)  (frame size 24 align 8, pointer _3, context _4)
     state 0: bb0
     state 1: bb0 park ready
 fn lifetimes.step_a(k: Int) -> Int {
@@ -306,7 +306,7 @@ fn lifetimes.step_a(k: Int) -> Int {
         return;
     }
 }
-resume #21: lifetimes.step_b(k: Int)  (frame size 24 align 8, pointer _3, context _4)
+resume #23: lifetimes.step_b(k: Int)  (frame size 24 align 8, pointer _3, context _4)
     state 0: bb0
     state 1: bb0 park ready
 fn lifetimes.step_b(k: Int) -> Int {

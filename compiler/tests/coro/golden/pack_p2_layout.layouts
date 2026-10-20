@@ -13,7 +13,7 @@ frame #5: pack_p2_layout.caller() task root  (size 80 align 8, lower bound 80)
     (*frame).[8: frame pack_p2_layout.child(k: Int)]  size 48 align 8  child  (across 3)
     (*frame).[8: frame pack_p2_layout.child(k: Int)]  size 48 align 8  child  (across 4)
     stack: _2 _4 _6 _7 _8 _9 _10 _11
-frame #9: pack_p2_layout.child(k: Int)  (size 48 align 8, lower bound 48)
+frame #11: pack_p2_layout.child(k: Int)  (size 48 align 8, lower bound 48)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[32: Int]  size 8 align 8  _0 result

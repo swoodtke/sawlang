@@ -788,6 +788,28 @@ def ll_problems(where, ll, header):
     return problems
 
 
+_DUMP_HEADER = re.compile(r"saw tasks: \d+ live \(as-of panic, unsynchronized\)$")
+_DUMP_TASK = re.compile(r"  task group \d+ slot \d+ gen \d+ [a-z-]+$")
+_DUMP_FRAME = re.compile(r"    at (\S+ in .+|<unknown frame>)$")
+
+
+def panic_dump_ok(lines):
+    """Whether `lines`, what a panic wrote after its own line, are nothing or
+    the panic path's task dump: its header, then a line per task, each
+    followed by its frame lines (SL-577)."""
+    if not lines:
+        return True
+    if not _DUMP_HEADER.match(lines[0]):
+        return False
+    tasks = 0
+    for k, line in enumerate(lines[1:]):
+        if _DUMP_TASK.match(line):
+            tasks += 1
+        elif not (_DUMP_FRAME.match(line) and k > 0):
+            return False
+    return tasks > 0
+
+
 def held_probe(src, header):
     """(failures, counts) for a probe of a kind its header states, built by
     sawc2 alone at each of its speeds. Each build is held whole, since a read
@@ -825,8 +847,8 @@ def held_probe(src, header):
             code, out, err = execute(binary)
             printed = lines_of(masked(out))
             said = lines_of(masked(err))
-            if code != -signal.SIGABRT or printed != want or len(said) != 1 or not said[0].startswith("panic at ?: ") \
-                    or panic not in said[0]:
+            if code != -signal.SIGABRT or printed != want or not said or not panic_dump_ok(said[1:]) \
+                    or not said[0].startswith("panic at ?: ") or panic not in said[0]:
                 failures.append("%s: exit %s, prints %r and %r on standard error, not %r then a panic holding %r "
                                 "on standard error" % (where, code, out[:300], err[:300], want, panic))
         ll_failures += ll_problems(where, ll, header)

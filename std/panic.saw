@@ -6,13 +6,33 @@ extern "C" {
     func __saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) -> Never
 }
 
+// The address of a never-freed `(UnsafePointer<Int8>, Int) unsafe sync ->
+// Void` function value, or 0: how a program that runs tasks reports a panic,
+// the message and then the task dump. std.panic names no executor type and
+// no seam beyond the panic one, so a program that never runs a task links
+// none of the walker; the executor installs its report when it makes its
+// first executor record (design 158).
+public(package) static PANIC_REPORT: Atomic<Int> = Atomic(0)
+
+// 1 once a panic is reporting. A panic raised by the report itself, or by
+// another thread meanwhile, takes the plain seam instead of re-entering it.
+static PANIC_REPORTING: Atomic<Int> = Atomic(0)
+
 /// Writes the `length` bytes at `message` through the runtime's panic seam,
 /// which does not return.
 ///
 /// The compiler calls it once a panic's message is formatted: for `panic`, a
 /// failed `assert`, and each check it inserts, such as an index out of range,
-/// an overflow, or `try!` on an `Err`.
+/// an overflow, or `try!` on an `Err`. In a program that runs tasks, the
+/// message is followed by the task dump, both on standard error.
 public func panic_sink(message: UnsafePointer<Int8>, length: Int) unsafe -> Never {
+    let at = PANIC_REPORT.load()
+    if at != 0 && PANIC_REPORTING.compare_exchange(0, 1) {
+        // The report has written the message, so the seam is handed none.
+        let report = (at as UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>)[0]
+        report(message, length)
+        __saw_rt_panic(message, 0)
+    }
     __saw_rt_panic(message, length)
 }
 
