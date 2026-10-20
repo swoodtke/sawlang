@@ -220,6 +220,7 @@ extension SystemError {
     //     File.remove
     //     File.rename
     //     Command.wait
+    //     Command.output
     //     Thread.__saw_started
     //     std.panic.print_failure
     public(package) static func of(operation: String, tag: Int) -> SystemError {

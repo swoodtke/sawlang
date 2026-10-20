@@ -11,7 +11,7 @@ alloc_data_push_forced_panics_named.saw	arm64-apple-darwin	same	267422188659	pan
 alloc_data_reports_oom.saw	arm64-apple-darwin	differs	cffa74c61b48	success	ok	0	141:eb88db73ee63	0:e3b0c44298fc	-	yes	-
 alloc_default_equals_global.saw	arm64-apple-darwin	same	02bf615934ea	success	ok	0	6:14c5e74c4b96	0:e3b0c44298fc	-	yes	-
 alloc_deny_after_seam.saw	arm64-apple-darwin	same	7818b635f7e6	success	ok	0	31:43f612e65036	0:e3b0c44298fc	-	yes	-
-alloc_hosted_no_degradation.saw	arm64-apple-darwin	same	b6d9a95d5d36	success	ok	0	26:663d134f110f	0:e3b0c44298fc	-	yes	-
+alloc_hosted_no_degradation.saw	arm64-apple-darwin	same	a30059e2c058	success	refused	-	-	-	433:53136996a199	no: Stage 0 does not build it	cannot access member of non-struct type `CommandOutput?`
 alloc_map_copy_panics.saw	arm64-apple-darwin	same	89bc111a11fb	panic	ok	-6	2:4355a46b19d3	73:5e9a7dd9c293	-	yes	-
 alloc_map_insert_forced_panics_named.saw	arm64-apple-darwin	same	539dda4d3b28	panic	ok	-6	2:06e9d52c1720	108:e2682fa8402d	-	yes	-
 alloc_map_set_reports_oom.saw	arm64-apple-darwin	same	16da551a2605	success	ok	0	96:2540b9cc410f	0:e3b0c44298fc	-	yes	-
@@ -2155,16 +2155,16 @@ printable_nested.saw	arm64-apple-darwin	same	257fca1a6c0d	success	ok	0	23:d19bd6
 printable_struct.saw	arm64-apple-darwin	same	72adc6fa3580	success	ok	0	51:e689da3fe734	0:e3b0c44298fc	-	yes	-
 private_in_public_extension_surface_error.saw	arm64-apple-darwin	same	41ec20f345d4	error	refused	-	-	-	1059:f2055b33fa69	yes	extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private — a public API needs public types
 private_in_public_positions_error.saw	arm64-apple-darwin	same	a71ad45e1e98	error	refused	-	-	-	8582:845a52a6fb84	yes	function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
-process_argv_no_shell.saw	arm64-apple-darwin	same	c9427201f020	success	ok	0	43:2852eaab3dd5	0:e3b0c44298fc	-	yes	-
+process_argv_no_shell.saw	arm64-apple-darwin	same	612e83888164	success	refused	-	-	-	535:e876576d6d24	no: Stage 0 does not build it	cannot access member of non-struct type `CommandOutput?`
 process_cancel_during_child.saw	arm64-apple-darwin	same	641fac852a5a	success	ok	0	43:bab2df09a62f	0:e3b0c44298fc	-	yes	-
 process_env.saw	arm64-apple-darwin	same	cdcf93fe8b97	success	ok	0	68:93865b2c4d68	0:e3b0c44298fc	-	yes	-
 process_error_surfaced.saw	arm64-apple-darwin	same	369b335f3c9a	success	ok	0	42:7b691ff990c9	0:e3b0c44298fc	-	yes	-
-process_merge_stderr.saw	arm64-apple-darwin	same	58b0ab1203c5	success	ok	0	38:aed7c8c73de6	10:5a695eea5b00	-	yes	-
-process_output_concurrent.saw	arm64-apple-darwin	same	a16ddb8f91a6	success	ok	0	43:ce3663e6b93c	0:e3b0c44298fc	-	yes	-
-process_output_multithreaded.saw	arm64-apple-darwin	same	97a8db93b20f	success	ok	0	26:16851befaf5a	0:e3b0c44298fc	-	yes	-
+process_merge_stderr.saw	arm64-apple-darwin	same	daaa98a39507	success	refused	-	-	-	553:219bb90f05bb	no: Stage 0 does not build it	cannot access member of non-struct type `CommandOutput?`
+process_output_concurrent.saw	arm64-apple-darwin	same	33b82054dc4a	success	refused	-	-	-	201:b4ebd587ca9a	no: Stage 0 does not build it	cannot access member of non-struct type `CommandOutput?`
+process_output_multithreaded.saw	arm64-apple-darwin	same	d41d54237ed3	success	refused	-	-	-	204:81c3b9f38c48	no: Stage 0 does not build it	cannot access member of non-struct type `CommandOutput?`
 process_run_concurrent.saw	arm64-apple-darwin	same	62425ecc99be	success	ok	0	42:af05611d32c9	0:e3b0c44298fc	-	yes	-
 process_signal_death.saw	arm64-apple-darwin	same	ff31d4edc7dc	success	ok	0	79:683c27d45dea	0:e3b0c44298fc	-	yes	-
-process_simple.saw	arm64-apple-darwin	same	88ec6fdd766f	success	ok	0	28:44daca6c9569	0:e3b0c44298fc	-	yes	-
+process_simple.saw	arm64-apple-darwin	same	2f992eb9dfed	success	refused	-	-	-	653:2772d90dfdfa	no: Stage 0 does not build it	cannot access member of non-struct type `CommandOutput?`
 qualified_call_literal_adopts_parameter_width.saw	arm64-apple-darwin	same	9f6ee77156f5	error	refused	-	-	-	245:0ec80b8a9d16	yes	integer literal 300 does not fit in `UInt8` (range 0..=255)
 qualified_call_threads_the_callee_signature.saw	arm64-apple-darwin	same	59c87468d19d	success	ok	0	73:20447a64de7d	0:e3b0c44298fc	-	yes	-
 qualified_type_declaration_slots.saw	arm64-apple-darwin	same	1cb05df46485	success	ok	0	121:21ecdcd60472	0:e3b0c44298fc	-	yes	-

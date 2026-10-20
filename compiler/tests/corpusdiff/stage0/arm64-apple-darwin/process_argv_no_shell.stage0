@@ -2,12 +2,24 @@ program	process_argv_no_shell.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"[a  b]"
-stdout	"[; echo INJECTED]"
-stdout	"[*]"
-stdout	"[$HOME]"
-stdout	"[one]"
-stdout	""
-meets_expect	yes
+build	refused	cannot access member of non-struct type `CommandOutput?`
+meets_expect	no: Stage 0 does not build it
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/process_argv_no_shell.saw:25:9"
+log	"     |"
+log	" 25 |     \"[{r.stdout}]\""
+log	"     |         ^"
+log	""
+log	"error: function `echoed` should return `String` but body has no value"
+log	"  --> examples/process_argv_no_shell.saw:20:1"
+log	"     |"
+log	" 20 | func echoed(argument: String) -> String {"
+log	"     | ^"
+log	""
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/process_argv_no_shell.saw:40:15"
+log	"     |"
+log	" 40 |     print(\"[{r.stdout}]\")"
+log	"     |               ^"
+log	""
+log	"3 error(s) generated"

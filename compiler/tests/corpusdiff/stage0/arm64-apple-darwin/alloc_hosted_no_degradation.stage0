@@ -2,10 +2,18 @@ program	alloc_hosted_no_degradation.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"hello from a child"
-stdout	"0"
-stdout	"true"
-stdout	""
-meets_expect	yes
+build	refused	cannot access member of non-struct type `CommandOutput?`
+meets_expect	no: Stage 0 does not build it
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/alloc_hosted_no_degradation.saw:33:14"
+log	"     |"
+log	" 33 |     print(out.stdout.trim())            // hello from a child"
+log	"     |              ^"
+log	""
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/alloc_hosted_no_degradation.saw:34:14"
+log	"     |"
+log	" 34 |     print(out.exit_code)                // 0"
+log	"     |              ^"
+log	""
+log	"2 error(s) generated"

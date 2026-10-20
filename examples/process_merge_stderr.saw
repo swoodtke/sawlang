@@ -23,11 +23,8 @@ func captured_diagnostic(merge: Bool) -> String {
     if merge {
         c.merge_stderr()
     }
-    if let r = try! c.output() {
-        "[{r.stdout}]"
-    } else {
-        "<spawn failed>"
-    }
+    let r = try! c.output()
+    "[{r.stdout}]"
 }
 
 func main() {
@@ -42,9 +39,6 @@ func main() {
     try! both.arg("-c")
     try! both.arg("printf 'out then '; printf diagnostic 1>&2")
     both.merge_stderr()
-    if let r = try! both.output() {
-        print("[{r.stdout}]")
-    } else {
-        print("<spawn failed>")
-    }
+    let r = try! both.output()
+    print("[{r.stdout}]")
 }

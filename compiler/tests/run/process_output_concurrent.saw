@@ -1,0 +1,40 @@
+// Command.output is cooperative: a sibling task runs for the child's whole
+// life instead of waiting behind it, and the captured text still arrives.
+
+import std.process.{Command, CommandOutput}
+import std.time.{Instant}
+
+static STARVED_MS: UInt64 = 400
+
+func capture_child() -> String {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg("sleep 1; echo done")
+    let result: CommandOutput? = try! c.output()
+    if let out = result {
+        return out.stdout.trim()
+    }
+    "<no output>"
+}
+
+func first_tick(start: Instant) -> UInt64 {
+    start.elapsed().as_millis()
+}
+
+func main() {
+    let start = Instant.now()
+    var group = TaskGroup()
+    let child = group.spawn(capture_child())
+    let sibling = group.spawn(first_tick(start))
+
+    let when = sibling.join()
+    let text = child.join()
+
+    if when < STARVED_MS {
+        print("sibling: concurrent")
+    } else {
+        print("sibling: starved ({when} ms)")
+    }
+    print("captured: {text}")
+    print("-- done")
+}

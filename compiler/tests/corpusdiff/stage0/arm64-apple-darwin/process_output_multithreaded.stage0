@@ -2,9 +2,12 @@ program	process_output_multithreaded.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"first: alpha"
-stdout	"second: beta"
-stdout	""
-meets_expect	yes
+build	refused	cannot access member of non-struct type `CommandOutput?`
+meets_expect	no: Stage 0 does not build it
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/process_output_multithreaded.saw:24:15"
+log	"     |"
+log	" 24 |     return out.stdout.trim()"
+log	"     |               ^"
+log	""
+log	"1 error(s) generated"

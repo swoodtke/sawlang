@@ -1,0 +1,16 @@
+program	compiler/tests/run/process_output_capture.saw
+triple	aarch64-unknown-linux-gnu
+source	4384a05550d3df5d
+build	ok
+exit	0
+stdout	"stdout: hello"
+stdout	"success: true"
+stdout	"[] code 0 success true"
+stdout	"[diagnostic] code 0 success true"
+stdout	"[out then diagnostic] code 0 success true"
+stdout	"[partial] code 3 success false"
+stdout	"[] code 137 success false"
+stdout	"[30000] code 0 success true"
+stdout	"[] code 0 success true"
+stdout	""
+stderr	"diagnostic"

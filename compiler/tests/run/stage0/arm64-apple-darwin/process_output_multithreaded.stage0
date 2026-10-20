@@ -1,0 +1,8 @@
+program	compiler/tests/run/process_output_multithreaded.saw
+triple	arm64-apple-darwin
+source	0238ce791b7c0932
+build	ok
+exit	0
+stdout	"first: alpha"
+stdout	"second: beta"
+stdout	""

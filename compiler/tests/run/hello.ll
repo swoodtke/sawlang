@@ -492,7 +492,7 @@ bb2:
   %t6 = icmp eq i64 %t5, 0
   br i1 %t6, label %forced.0, label %unforced.1
 unforced.1:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 251)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 252)
   unreachable
 forced.0:
   %t7 = getelementptr i8, ptr %l6, i64 8
@@ -510,7 +510,7 @@ bb3:
   %t14 = icmp eq i64 %t13, 0
   br i1 %t14, label %forced.2, label %unforced.3
 unforced.3:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 252)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 253)
   unreachable
 forced.2:
   %t15 = getelementptr i8, ptr %l9, i64 8
@@ -533,7 +533,7 @@ bb5:
   %t23 = icmp eq i64 %t22, 0
   br i1 %t23, label %forced.4, label %unforced.5
 unforced.5:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 253)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 254)
   unreachable
 forced.4:
   %t24 = getelementptr i8, ptr %l14, i64 8
@@ -598,7 +598,7 @@ bb17:
   %t49 = icmp eq i64 %t48, 0
   br i1 %t49, label %forced.6, label %unforced.7
 unforced.7:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 259)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 260)
   unreachable
 forced.6:
   %t50 = getelementptr i8, ptr %l20, i64 8
@@ -619,7 +619,7 @@ bb18:
   %t59 = icmp eq i64 %t58, 0
   br i1 %t59, label %forced.8, label %unforced.9
 unforced.9:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 260)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 261)
   unreachable
 forced.8:
   %t60 = getelementptr i8, ptr %l24, i64 8
@@ -631,7 +631,7 @@ bb19:
   %t63 = icmp eq i64 %t62, 0
   br i1 %t63, label %forced.10, label %unforced.11
 unforced.11:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 262)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 263)
   unreachable
 forced.10:
   %t64 = getelementptr i8, ptr %l27, i64 8

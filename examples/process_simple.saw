@@ -10,12 +10,9 @@ func main() {
     try! cmd.arg("-n")
     try! cmd.arg("hello")
 
-    if let result = try! cmd.output() {
-        let out = result.stdout
-        let ok = result.success()
-        print("stdout: {out}")
-        print("success: {ok}")
-    } else {
-        print("command failed")
-    }
+    let result = try! cmd.output()
+    let out = result.stdout
+    let ok = result.success()
+    print("stdout: {out}")
+    print("success: {ok}")
 }

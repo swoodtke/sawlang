@@ -2,11 +2,14 @@
 //!
 //! The child is spawned with a real argument vector, never a shell command
 //! line, so each argument reaches it as one element, whatever bytes it holds.
-//! `wait` blocks the calling thread until the child exits; nothing here
-//! suspends, and a `Command` holds no process, so its deinit has nothing to
-//! wait for (SL:hazards S28).
+//! `wait` blocks the calling thread until the child exits and never suspends.
+//! `output` is cooperative: it parks the task on the child's pipe and on its
+//! exit, so siblings run for the child's whole life. A `Command` holds no
+//! process, so its deinit has nothing to wait for (SL:hazards S28).
 
+import std.data.{Data}
 import std.systemerror.{SystemError, SystemErrorKind, system_error_kind}
+import std.task.{io_wait, sleep, yield_now}
 
 extern "C" {
     // A job handle (`> 0`) or a negated portable tag; `argv` is the program's
@@ -16,12 +19,31 @@ extern "C" {
     // while it runs, or another negated tag; every answer but `-WouldBlock`
     // destroys the job.
     func __saw_rt_proc_try_wait(job: Int) -> Int
+    // Reads up to `len` bytes of the child's captured stdout: the count (0 at
+    // end of stream) or a negated tag. The pipe blocks for as long as the child
+    // stays silent, so the call is offloaded to a worker thread and the task
+    // parks; `buf` outlives the call, which a cancelled task still waits for.
+    blocking func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    // A descriptor readable once the child has exited, owned by the job, or a
+    // negated tag when this child cannot be waited for by descriptor.
+    func __saw_rt_proc_wait_fd(job: Int) -> Int
+    // Drops the job without waiting: the child keeps running, unreaped.
+    func __saw_rt_proc_release(job: Int)
     // Parks the calling thread for the given nanoseconds.
     func __saw_rt_sleep_ns(ns: UInt64)
+    // The io budget (runtime/common/op_budget.saw): a tick answers nonzero
+    // once a run of operations that never parked has used the budget up.
+    func __saw_rt_op_budget_tick() -> Int
+    func __saw_rt_op_budget_reset()
 }
 
-// No redirection: the child inherits standard input, output and error.
+// The spawn seam's redirection bits (runtime/ABI.md, "Process spawn"). With
+// none set, the child inherits standard input, output and error.
 static NO_REDIRECTION: Int = 0
+// The child's standard output goes into a pipe the job owns.
+static CAPTURE_STDOUT: Int = 1
+// The child's standard error goes wherever its standard output goes.
+static MERGE_STDERR: Int = 2
 // The exit code the spawn's child reports when it cannot execute the program.
 static EXEC_FAILED: Int32 = 127
 // The poll interval of `wait`, in nanoseconds: short at first, since most
@@ -29,19 +51,50 @@ static EXEC_FAILED: Int32 = 127
 // noticed.
 static POLL_START_NS: UInt64 = 1_000_000
 static POLL_MAX_NS: UInt64 = 32_000_000
+// The same poll for a parked wait, in milliseconds, used only when the host
+// cannot hand out a wait descriptor for the child.
+static PARK_POLL_START_MS: UInt64 = 1
+static PARK_POLL_MAX_MS: UInt64 = 32
 static ARGV_END_BYTE: Int8 = 0
+// The most one read of the child's stdout takes.
+static DRAIN_CHUNK: Int = 4096
+// The answer of a drain that std itself refused, by the growth of the captured
+// bytes. It is below every negated tag, so it never collides with one.
+static DRAIN_REFUSED: Int = -1000
+// The exit-wait descriptor is waited on for reading, with no deadline.
+static READ_INTEREST: Int = 0
+static PARK_NO_DEADLINE: UInt64 = 0
 
 /// A program to run as a child process, with its arguments.
 public struct Command {
     private program: String
     private args: Vector<String>
+    // Whether the child's standard error follows its standard output.
+    private merged_stderr: Bool
+}
+
+/// What a command that ran to completion printed on standard output, and how
+/// it exited.
+public struct CommandOutput {
+    /// The child's standard output, decoded as UTF-8.
+    stdout: String
+    /// The child's exit code: 128 plus the signal's number for a child a
+    /// signal killed, so only a normal exit with code 0 is 0.
+    exit_code: Int32
+}
+
+extension CommandOutput {
+    /// Returns whether the child exited with code 0.
+    public func success(&self) -> Bool {
+        self.exit_code == 0
+    }
 }
 
 extension Command {
     /// Creates a command that runs `program`, found on `PATH` when it names no
     /// directory, with no arguments.
     public init(program: String) -> Command {
-        Command(program: program, args: Vector<String>())
+        Command(program: program, args: Vector<String>(), merged_stderr: false)
     }
 
     /// Adds one argument, which the child receives as exactly one element of
@@ -50,6 +103,17 @@ extension Command {
     /// Returns `Err(AllocError)` when the argument list cannot grow.
     public func arg(&var self, argument: String) -> Result<Void, AllocError> {
         self.args.push(argument)
+    }
+
+    /// Sends the child's standard error wherever its standard output goes: into
+    /// the captured text under `output()`, and to this process's own standard
+    /// output under `wait()`, as `2>&1` does in a shell.
+    ///
+    /// Without it, `output()` captures standard output while standard error
+    /// still reaches the terminal. The capture holds both streams in the order
+    /// the child wrote them.
+    public func merge_stderr(&var self) {
+        self.merged_stderr = true
     }
 
     /// Runs the program and blocks the calling thread until it exits, and
@@ -62,6 +126,114 @@ extension Command {
     /// holding a NUL byte, which no argument vector can carry. A program
     /// that itself exits 127 reads as `LaunchFailed` too.
     public func wait(&self) unsafe -> Result<Int32, SystemError> {
+        let flags = self.redirection(false)
+        let job = try self.spawned(flags)
+        let status = process_reaped(job)
+        if status < 0 {
+            return SystemError.of("wait", 0 - status)
+        }
+        let code = process_exit_code(status)
+        if code == EXEC_FAILED {
+            return SystemError.raised("exec", SystemErrorKind.LaunchFailed)
+        }
+        code
+    }
+
+    /// Runs the program and captures its standard output, parking the task
+    /// until the child exits.
+    ///
+    /// Cooperative: the drain parks on the child's pipe and the wait on its
+    /// exit, so sibling tasks run for the child's whole life and no executor
+    /// thread waits. A `sync` function cannot call it, and neither can a
+    /// `Thread.spawn` body, which has no executor to resume a parked task.
+    ///
+    /// The child's standard error is inherited unless `merge_stderr()` was
+    /// called. Returns the captured text and the exit code (see
+    /// `CommandOutput`), or `Err(SystemError)` when no complete output exists:
+    /// the causes `wait()` reports (a program that itself exits 127 reads as
+    /// `LaunchFailed` too, as it does there), a read of the child's pipe that failed,
+    /// standard output that is not UTF-8 (`InvalidArgument`), and a capture
+    /// that could not grow (`ResourcesExhausted`). A task cancelled while it
+    /// waits for the child to exit gets `Interrupted`: cancellation ends the
+    /// wait, not the child, which keeps running unreaped. A read of the pipe is
+    /// not cut short, so the cancel is seen once the child closes it.
+    public func output(&self) unsafe -> Result<CommandOutput, SystemError> {
+        let flags = self.redirection(true)
+        let job = try self.spawned(flags)
+        let data = match process_drained(job) {
+            case Ok(bytes) -> bytes,
+            case Err(failure) -> {
+                // A pipe that cannot be read leaves a child that may never
+                // exit, so dropping the job beats waiting on it.
+                __saw_rt_proc_release(job)
+                return failure
+            }
+        }
+        // The park loop is this body's own, not a helper's: a refusal in a
+        // thread body names `Command.output` and the primitive it parks on.
+        // The task waits on the child's wait descriptor, and a child the host
+        // cannot hand one for is polled on a doubling sleep of the task.
+        var nap = PARK_POLL_START_MS
+        var status = __saw_rt_proc_try_wait(job)
+        while process_running(status) {
+            if cancelled() {
+                __saw_rt_proc_release(job)
+                return SystemError.raised("output", SystemErrorKind.Interrupted)
+            }
+            let descriptor = __saw_rt_proc_wait_fd(job)
+            if descriptor >= 0 {
+                match io_wait(descriptor, READ_INTEREST, PARK_NO_DEADLINE) {
+                    case Cancelled -> {
+                        __saw_rt_proc_release(job)
+                        return SystemError.raised("output", SystemErrorKind.Interrupted)
+                    },
+                    case _ -> {
+                        // A park ceded to the scheduler, so the run of
+                        // operations that never parked starts over.
+                        __saw_rt_op_budget_reset()
+                    }
+                }
+            } else {
+                sleep(Duration.ms(nap))
+                if nap < PARK_POLL_MAX_MS {
+                    nap = nap * 2
+                }
+            }
+            status = __saw_rt_proc_try_wait(job)
+        }
+        // A wait that never parked must not keep its siblings from running.
+        if __saw_rt_op_budget_tick() != 0 {
+            yield_now()
+        }
+        if status < 0 {
+            return SystemError.of("wait", 0 - status)
+        }
+        let code = process_exit_code(status)
+        if code == EXEC_FAILED {
+            return SystemError.raised("exec", SystemErrorKind.LaunchFailed)
+        }
+        match data.to_string() {
+            case Ok(text) -> CommandOutput(stdout: text, exit_code: code),
+            case Err(_) -> SystemError.raised("output", SystemErrorKind.InvalidArgument)
+        }
+    }
+
+    // The redirection bits a spawn asks for: the pipe when `capture`, and the
+    // merge when `merge_stderr()` was called.
+    func redirection(&self, capture: Bool) -> Int {
+        var flags = NO_REDIRECTION
+        if capture {
+            flags = flags | CAPTURE_STDOUT
+        }
+        if self.merged_stderr {
+            flags = flags | MERGE_STDERR
+        }
+        flags
+    }
+
+    // Spawns the child with `flags` and returns its job handle, or the cause
+    // the spawn gave.
+    func spawned(&self, flags: Int) unsafe -> Result<Int, SystemError> {
         if process_holds_nul(self.program) {
             return SystemError.raised("spawn", SystemErrorKind.InvalidArgument)
         }
@@ -92,22 +264,14 @@ extension Command {
             block[end + k] = ARGV_END_BYTE
             k = k + 1
         }
-        let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, NO_REDIRECTION)
+        let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, flags)
         if job < 0 {
             let failure = SystemError.of("spawn", 0 - job)
             GlobalAllocator().dealloc(block, size, align)
             return move failure
         }
         GlobalAllocator().dealloc(block, size, align)
-        let status = process_reaped(job)
-        if status < 0 {
-            return SystemError.of("wait", 0 - status)
-        }
-        let code = process_exit_code(status)
-        if code == EXEC_FAILED {
-            return SystemError.raised("exec", SystemErrorKind.LaunchFailed)
-        }
-        code
+        job
     }
 }
 
@@ -124,6 +288,47 @@ func process_reaped(job: Int) unsafe -> Int {
         answer = __saw_rt_proc_try_wait(job)
     }
     answer
+}
+
+// Everything the child writes to its captured stdout, read until it closes the
+// pipe. Each read lands in the captured bytes' own spare room, which the worker
+// thread writes while the task is parked: the block is heap storage, so it
+// outlives the call, and no raw pointer stays in the suspended frame (a
+// multi-threaded group must be able to move the frame). A read that fails is
+// the failure, never the bytes read before it.
+func process_drained(job: Int) unsafe -> Result<Data, SystemError> {
+    var collected = Data()
+    var refusal = 0
+    var draining = true
+    while draining {
+        match collected.reserve(DRAIN_CHUNK) {
+            case Ok(_) -> {},
+            case Err(_) -> {
+                refusal = DRAIN_REFUSED
+                draining = false
+            }
+        }
+        if draining {
+            let n = __saw_rt_proc_read_stdout(job, collected.spare(), DRAIN_CHUNK)
+            if n > 0 {
+                collected.grow(n)
+            } else {
+                if n < 0 {
+                    refusal = n
+                }
+                draining = false
+            }
+        }
+    }
+    if refusal == DRAIN_REFUSED {
+        return SystemError.raised("read", SystemErrorKind.ResourcesExhausted)
+    }
+    if refusal < 0 {
+        // The worker thread classified the failure, so no raw code is stamped
+        // on this one.
+        return SystemError.raised("read", system_error_kind(0 - refusal))
+    }
+    collected
 }
 
 // Whether a reap's answer says the child is still running: `-WouldBlock`.

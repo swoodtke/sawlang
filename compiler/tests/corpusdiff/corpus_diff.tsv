@@ -11,7 +11,7 @@ alloc_data_push_forced_panics_named.saw	wrong	stderr differs	line 1: sawc2 "pani
 alloc_data_reports_oom.saw	stage0-wrong	annotated SL-735	sawc2 meets its directives
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
-alloc_hosted_no_degradation.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
+alloc_hosted_no_degradation.saw	refused	typecheck member.unknown	`std.directory.Directory` has no method `current` this module can see
 alloc_map_copy_panics.saw	pass	-	-
 alloc_map_insert_forced_panics_named.saw	wrong	stderr differs	line 1: sawc2 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
 alloc_map_set_reports_oom.saw	pass	-	-
@@ -311,7 +311,7 @@ conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` retur
 conformance/K02_nonsend_across_suspend_local_mt.saw	pass	-	coro.spawn-not-send: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension b
 conformance/K100_shutdown_rides_cancellation.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
-conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
+conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `Command.output` → `io_wait` (parks the task): a spawned thread runs no executor, so there is nothing there to resume
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	refused	coro coro.drive-in-suspending	`__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `driven(...)` needs no drive site: call it directly and the suspending call embeds here (de
 conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `__saw_suspend`: a spawned thread runs no executor, so there is nothing there to resume a suspension, an
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -1354,7 +1354,7 @@ errors/synthesize_required_equatable.saw	pass	-	synthesize.required: `Named` con
 errors/synthesize_required_explicit_copy.saw	pass	-	synthesize.required: `Holder` conforms to `ExplicitCopy` with no `ExplicitCopy.copy` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_hashable.saw	pass	-	synthesize.required: `Keyed` conforms to `Hashable` with no `Hashable.hash` written: write it, or mark the extension `@synthesize` to derive it
 errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is not `Send`, so the
-errors/thread_body_reports_both_violations.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
+errors/thread_body_reports_both_violations.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a s
 errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
 errors/two_exclusive_only_windows_conflict.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `tally` opened at 42:18 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the ro
@@ -2155,16 +2155,16 @@ printable_nested.saw	pass	-	-
 printable_struct.saw	pass	-	-
 private_in_public_extension_surface_error.saw	wrong	accepts a refusal test	extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private — a public API needs public types
 private_in_public_positions_error.saw	wrong	accepts a refusal test	function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
-process_argv_no_shell.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
+process_argv_no_shell.saw	refused	typecheck member.unknown	`std.process.Command` has no method `arg_count` this module can see
 process_cancel_during_child.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
 process_env.saw	refused	typecheck member.unknown	`std.process.Command` has no method `env` this module can see
 process_error_surfaced.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
-process_merge_stderr.saw	refused	typecheck member.unknown	`std.process.Command` has no method `merge_stderr` this module can see
-process_output_concurrent.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
-process_output_multithreaded.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
+process_merge_stderr.saw	stage0-wrong	annotated SL-596	sawc2 meets its directives
+process_output_concurrent.saw	stage0-wrong	annotated SL-596	sawc2 meets its directives
+process_output_multithreaded.saw	stage0-wrong	annotated SL-596	sawc2 meets its directives
 process_run_concurrent.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
 process_signal_death.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
-process_simple.saw	refused	typecheck member.unknown	`std.process.Command` has no method `output` this module can see
+process_simple.saw	stage0-wrong	annotated SL-596	sawc2 meets its directives
 qualified_call_literal_adopts_parameter_width.saw	pass	-	type.mismatch: integer literal 300 does not fit in `UInt8` (range 0..=255)
 qualified_call_threads_the_callee_signature.saw	pass	-	-
 qualified_type_declaration_slots.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet

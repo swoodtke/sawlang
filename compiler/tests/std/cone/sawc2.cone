@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 137 declarations in 15 modules
+# 139 declarations in 15 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -81,7 +81,7 @@ std.prelude: 5
   requirement Printable.format
   requirement Printable.to_string
 
-std.process: 11
+std.process: 13
   extern __saw_rt_proc_spawn
   extern __saw_rt_proc_try_wait
   extern __saw_rt_sleep_ns
@@ -91,6 +91,8 @@ std.process: 11
   func process_running
   init Command.init
   method Command.arg
+  method Command.redirection
+  method Command.spawned
   method Command.wait
   struct Command
 

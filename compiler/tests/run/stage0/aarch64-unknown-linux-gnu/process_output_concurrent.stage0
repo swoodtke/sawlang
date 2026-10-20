@@ -1,0 +1,9 @@
+program	compiler/tests/run/process_output_concurrent.saw
+triple	aarch64-unknown-linux-gnu
+source	d7be21b7eac7ffe8
+build	ok
+exit	0
+stdout	"sibling: concurrent"
+stdout	"captured: done"
+stdout	"-- done"
+stdout	""

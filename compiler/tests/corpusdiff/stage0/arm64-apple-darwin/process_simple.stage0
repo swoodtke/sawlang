@@ -2,9 +2,30 @@ program	process_simple.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"stdout: hello"
-stdout	"success: true"
-stdout	""
-meets_expect	yes
+build	refused	cannot access member of non-struct type `CommandOutput?`
+meets_expect	no: Stage 0 does not build it
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/process_simple.saw:14:21"
+log	"     |"
+log	" 14 |     let out = result.stdout"
+log	"     |                     ^"
+log	""
+log	"error: cannot call method on non-struct type `CommandOutput?`"
+log	"  --> examples/process_simple.saw:15:20"
+log	"     |"
+log	" 15 |     let ok = result.success()"
+log	"     |                    ^"
+log	""
+log	"error: undefined variable `out`"
+log	"  --> examples/process_simple.saw:16:21"
+log	"     |"
+log	" 16 |     print(\"stdout: {out}\")"
+log	"     |                     ^"
+log	""
+log	"error: undefined variable `ok`"
+log	"  --> examples/process_simple.saw:17:22"
+log	"     |"
+log	" 17 |     print(\"success: {ok}\")"
+log	"     |                      ^"
+log	""
+log	"4 error(s) generated"

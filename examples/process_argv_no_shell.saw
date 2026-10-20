@@ -21,11 +21,8 @@ func echoed(argument: String) -> String {
     var c = Command(program: "/bin/echo")
     try! c.arg("-n")
     try! c.arg(argument)
-    if let r = try! c.output() {
-        "[{r.stdout}]"
-    } else {
-        "<spawn failed>"
-    }
+    let r = try! c.output()
+    "[{r.stdout}]"
 }
 
 func main() {
@@ -39,9 +36,6 @@ func main() {
     try! c.arg("-n")
     try! c.arg("one")
     assert(c.arg_count() == 2, "arg_count counts argv elements")
-    if let r = try! c.output() {
-        print("[{r.stdout}]")
-    } else {
-        print("<spawn failed>")
-    }
+    let r = try! c.output()
+    print("[{r.stdout}]")
 }

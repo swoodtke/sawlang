@@ -2,10 +2,12 @@ program	process_output_concurrent.saw
 triple	arm64-apple-darwin
 twin	same
 expect	success
-build	ok
-exit	0
-stdout	"sibling: concurrent"
-stdout	"captured: done"
-stdout	"-- done"
-stdout	""
-meets_expect	yes
+build	refused	cannot access member of non-struct type `CommandOutput?`
+meets_expect	no: Stage 0 does not build it
+log	"error: cannot access member of non-struct type `CommandOutput?`"
+log	"  --> examples/process_output_concurrent.saw:31:15"
+log	"     |"
+log	" 31 |     return out.stdout.trim()"
+log	"     |               ^"
+log	""
+log	"1 error(s) generated"

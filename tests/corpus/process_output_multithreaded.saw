@@ -20,10 +20,8 @@ import std.process.*
 func capture(word: String) -> String {
     var c = Command(program: "/bin/echo")
     try! c.arg(word)
-    if let out = try! c.output() {
-        return out.stdout.trim()
-    }
-    "<no output>"
+    let out = try! c.output()
+    return out.stdout.trim()
 }
 
 func main() {

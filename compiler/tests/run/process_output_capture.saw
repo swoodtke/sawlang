@@ -1,0 +1,47 @@
+// Command.output captures the child's standard output and its exit code, and
+// merge_stderr folds standard error into the capture in the order written.
+// The result is bound through a `CommandOutput?` so one source reads the same
+// under both standard libraries.
+
+import std.process.{Command, CommandOutput}
+
+func captured(script: String, merge: Bool) -> String {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg(script)
+    if merge {
+        c.merge_stderr()
+    }
+    let result: CommandOutput? = try! c.output()
+    if let r = result {
+        "[{r.stdout}] code {r.exit_code} success {r.success()}"
+    } else {
+        "<no output>"
+    }
+}
+
+func main() {
+    var echo = Command(program: "/bin/echo")
+    try! echo.arg("-n")
+    try! echo.arg("hello")
+    let first: CommandOutput? = try! echo.output()
+    if let r = first {
+        print("stdout: {r.stdout}")
+        print("success: {r.success()}")
+    }
+
+    // Inherited: nothing of the child's standard error reaches the capture.
+    print(captured("printf diagnostic 1>&2", false))
+    // Merged: the diagnostic lands in the captured output instead.
+    print(captured("printf diagnostic 1>&2", true))
+    // Both streams, in the order the child wrote them.
+    print(captured("printf 'out then '; printf diagnostic 1>&2", true))
+    // A nonzero exit is a result, not an error.
+    print(captured("printf partial; exit 3", false))
+    // A signal death reads as 128 plus the signal.
+    print(captured("kill -9 $$", false))
+    // Output larger than one read chunk survives the drain.
+    print(captured("i=0; while [ $i -lt 3000 ]; do printf 0123456789; i=$((i+1)); done | wc -c | tr -d ' \\n'", false))
+    // No output at all.
+    print(captured("true", false))
+}
