@@ -1,0 +1,57 @@
+// probe: stated
+// about: a cancelled `Command.output()` leaves its child running, and the next spawn reaps it once it exits, so no zombie is left for nobody (SL-799)
+// stage 0: cannot run it, since its `std.process` has no `Command.output()` that returns a `Result` and ends in `SystemError.Interrupted`
+// speeds: -O0 -O2
+// prints: interrupted 20 of 20
+// prints: zombies left for nobody: 0
+//
+// Each round's child closes its standard output at once and sleeps, so the
+// drain ends and `output()` parks on the child's exit; the cancel lands
+// inside that sleep. After every child has exited, one more spawn sweeps the
+// orphan list, and `waitpid(-1, WNOHANG)` then counts what no one reaped.
+
+import std.process.{Command, CommandOutput}
+
+extern "C" {
+    func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+}
+
+func interrupted_output() -> Int {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg("exec 1>&-; sleep 0.3")
+    match c.output() {
+        case Ok(_) -> 0,
+        case Err(_) -> 1
+    }
+}
+
+func leftovers() unsafe -> Int {
+    var count = 0
+    var status: Int32 = 0
+    while waitpid(-1, (&status) as UnsafePointer<Int32>, 1) > 0 {
+        count = count + 1
+    }
+    count
+}
+
+func main() {
+    var cancelled = 0
+    var round = 0
+    while round < 20 {
+        var group = TaskGroup()
+        let t = group.spawn(interrupted_output())
+        sleep(Duration.ms(50))
+        t.cancel()
+        cancelled = cancelled + t.join()
+        round = round + 1
+    }
+    sleep(Duration.ms(600))
+    // A spawn sweeps the orphans whose children have exited.
+    var sweeper = Command(program: "/bin/sh")
+    try! sweeper.arg("-c")
+    try! sweeper.arg("exit 0")
+    let _ = try! sweeper.wait()
+    print("interrupted {cancelled} of 20")
+    print("zombies left for nobody: {leftovers()}")
+}

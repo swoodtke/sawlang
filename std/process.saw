@@ -6,8 +6,13 @@
 //! `output` is cooperative: it parks the task on the child's pipe and on its
 //! exit, so siblings run for the child's whole life. A `Command` holds no
 //! process, so its deinit has nothing to wait for (SL:hazards S28).
+//!
+//! A wait that is cancelled leaves its child running. The child's record is
+//! kept on a process-wide list, and each later spawn reaps the children on it
+//! that have exited, so a cancelled `output` leaves no zombie behind.
 
 import std.data.{Data}
+import std.mutex.{Mutex}
 import std.systemerror.{SystemError, SystemErrorKind, system_error_kind}
 import std.task.{io_wait, sleep, yield_now}
 
@@ -27,7 +32,9 @@ extern "C" {
     // A descriptor readable once the child has exited, owned by the job, or a
     // negated tag when this child cannot be waited for by descriptor.
     func __saw_rt_proc_wait_fd(job: Int) -> Int
-    // Drops the job without waiting: the child keeps running, unreaped.
+    // Drops the job without waiting: the child keeps running, and one that
+    // exits later is never reaped. Std calls it when a drain fails, which
+    // must close the pipe, and when the orphan list cannot take the job.
     func __saw_rt_proc_release(job: Int)
     // Parks the calling thread for the given nanoseconds.
     func __saw_rt_sleep_ns(ns: UInt64)
@@ -64,6 +71,21 @@ static DRAIN_REFUSED: Int = -1000
 // The exit-wait descriptor is waited on for reading, with no deadline.
 static READ_INTEREST: Int = 0
 static PARK_NO_DEADLINE: UInt64 = 0
+// The first capacity of the orphan list, in jobs.
+static ORPHANS_FIRST_CAPACITY: Int = 8
+
+// The jobs whose child was still running when the wait for it ended. Zero is
+// the empty list, so a static holds it with no initializer.
+struct ProcessOrphans {
+    // The address of a heap block of `capacity` job handles, 0 while none.
+    jobs: Int
+    count: Int
+    capacity: Int
+}
+
+// Guarded by a `Mutex`: spawns run on any thread, and the sweep only polls, so
+// the lock is never held across a wait.
+static PROCESS_ORPHANS: Mutex<ProcessOrphans>
 
 /// A program to run as a child process, with its arguments.
 public struct Command {
@@ -155,8 +177,9 @@ extension Command {
     /// standard output that is not UTF-8 (`InvalidArgument`), and a capture
     /// that could not grow (`ResourcesExhausted`). A task cancelled while it
     /// waits for the child to exit gets `Interrupted`: cancellation ends the
-    /// wait, not the child, which keeps running unreaped. A read of the pipe is
-    /// not cut short, so the cancel is seen once the child closes it.
+    /// wait, not the child, which keeps running; a later spawn reaps it once it
+    /// has exited. A read of the pipe is not cut short, so the cancel is seen
+    /// once the child closes it.
     public func output(&self) unsafe -> Result<CommandOutput, SystemError> {
         let flags = self.redirection(true)
         let job = try self.spawned(flags)
@@ -164,7 +187,10 @@ extension Command {
             case Ok(bytes) -> bytes,
             case Err(failure) -> {
                 // A pipe that cannot be read leaves a child that may never
-                // exit, so dropping the job beats waiting on it.
+                // exit, so dropping the job beats waiting on it. Release closes
+                // the pipe, so a child still writing dies of SIGPIPE, which an
+                // orphaned job holding the read end open would not do; std has
+                // no seam to close it alone.
                 __saw_rt_proc_release(job)
                 return failure
             }
@@ -177,14 +203,14 @@ extension Command {
         var status = __saw_rt_proc_try_wait(job)
         while process_running(status) {
             if cancelled() {
-                __saw_rt_proc_release(job)
+                process_abandon(job)
                 return SystemError.raised("output", SystemErrorKind.Interrupted)
             }
             let descriptor = __saw_rt_proc_wait_fd(job)
             if descriptor >= 0 {
                 match io_wait(descriptor, READ_INTEREST, PARK_NO_DEADLINE) {
                     case Cancelled -> {
-                        __saw_rt_proc_release(job)
+                        process_abandon(job)
                         return SystemError.raised("output", SystemErrorKind.Interrupted)
                     },
                     case _ -> {
@@ -264,6 +290,7 @@ extension Command {
             block[end + k] = ARGV_END_BYTE
             k = k + 1
         }
+        process_sweep()
         let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, flags)
         if job < 0 {
             let failure = SystemError.of("spawn", 0 - job)
@@ -272,6 +299,86 @@ extension Command {
         }
         GlobalAllocator().dealloc(block, size, align)
         job
+    }
+}
+
+// Ends the wait for `job`'s child without ending the child. A child that has
+// exited is reaped here; one still running goes on the orphan list for a later
+// sweep. The list's block cannot grow only when the allocator refuses, and then
+// the job is released, which leaves that one exit unreaped.
+func process_abandon(job: Int) unsafe {
+    if not process_running(__saw_rt_proc_try_wait(job)) {
+        return
+    }
+    let kept = borrow var orphans = PROCESS_ORPHANS.lock() {
+        orphans_push(&var orphans, job)
+    }
+    if not kept {
+        __saw_rt_proc_release(job)
+    }
+}
+
+// Reaps every orphan whose child has exited. Only polls, so a running child
+// costs one `waitpid` and nothing waits.
+func process_sweep() unsafe {
+    borrow var orphans = PROCESS_ORPHANS.lock() {
+        orphans_sweep(&var orphans)
+    }
+}
+
+// Adds `job` to the list, growing its block; false when the block cannot grow.
+func orphans_push(list: &var ProcessOrphans, job: Int) unsafe sync -> Bool {
+    if list.count == list.capacity {
+        var wider = ORPHANS_FIRST_CAPACITY
+        if list.capacity > 0 {
+            wider = list.capacity * 2
+        }
+        let size = wider * sizeof<Int>()
+        let align = alignof<Int>()
+        guard let block = GlobalAllocator().alloc(size, align) else {
+            return false
+        }
+        let fresh = block as UnsafePointer<Int>
+        let old = list.jobs as UnsafePointer<Int>
+        var i = 0
+        while i < list.count {
+            fresh[i] = old[i]
+            i = i + 1
+        }
+        if list.capacity > 0 {
+            GlobalAllocator().dealloc(old as UnsafePointer<Int8>, list.capacity * sizeof<Int>(), align)
+        }
+        list.jobs = fresh as Int
+        list.capacity = wider
+    }
+    let jobs = list.jobs as UnsafePointer<Int>
+    jobs[list.count] = job
+    list.count = list.count + 1
+    true
+}
+
+// Drops each orphan whose child has exited (the poll reaps it and destroys the
+// job), keeping the running ones in order, and frees the block once it is empty.
+func orphans_sweep(list: &var ProcessOrphans) unsafe sync {
+    if list.count == 0 {
+        return
+    }
+    let jobs = list.jobs as UnsafePointer<Int>
+    var kept = 0
+    var i = 0
+    while i < list.count {
+        let job = jobs[i]
+        if process_running(__saw_rt_proc_try_wait(job)) {
+            jobs[kept] = job
+            kept = kept + 1
+        }
+        i = i + 1
+    }
+    list.count = kept
+    if kept == 0 {
+        GlobalAllocator().dealloc(jobs as UnsafePointer<Int8>, list.capacity * sizeof<Int>(), alignof<Int>())
+        list.jobs = 0
+        list.capacity = 0
     }
 }
 
