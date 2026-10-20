@@ -1,0 +1,9 @@
+program	compiler/tests/run/format_generic_sync_instance.saw
+triple	aarch64-unknown-linux-gnu
+source	9d35993b4f2512c4
+build	ok
+exit	0
+stdout	"plain w"
+stdout	"argument plain w"
+stdout	"named 7"
+stdout	""

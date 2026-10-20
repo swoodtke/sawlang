@@ -1,0 +1,26 @@
+// refuses: effect.format-suspends at 10:10
+// a `format` that suspends only by forwarding to a field's `format`, named
+// with the path through it; the field's own `format` is refused after it
+// (SL-781)
+
+import std.task.*
+
+struct Outer { s: Slow }
+extension Outer: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("outer ")
+        self.s.format(into: &var into)
+    }
+}
+
+struct Slow { n: Int }
+extension Slow: Printable {
+    func format(&self, into: &var StringBuilder) {
+        yield_now()
+        try! into.append(value: self.n)
+    }
+}
+
+func main() {
+    print("{Outer(s: Slow(n: 4))}")
+}

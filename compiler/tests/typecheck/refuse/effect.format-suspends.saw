@@ -1,0 +1,22 @@
+// refuses: effect.format-suspends at 10:10
+// a `Printable.format` that suspends at every instantiation, refused at the
+// conformance: a render calls it into stack scratch at positions no source
+// call names (SL-781; the message is pinned in golden `format_suspends`)
+
+import std.task.*
+
+struct Slow { n: Int }
+extension Slow: Printable {
+    func format(&self, into: &var StringBuilder) {
+        yield_now()
+        try! into.append(value: self.n)
+    }
+}
+
+func render() -> Int { "{Slow(n: 4)}".len() }
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(render())
+    print("rendered {}", h.join())
+}

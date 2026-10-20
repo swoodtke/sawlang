@@ -1,0 +1,25 @@
+// refuses: effect.format-suspends at 10:10
+// a suspending `format` reached only by an explicit `to_string()`, an
+// ordinary call that could suspend, is refused all the same: `format` is
+// `sync` (SL-781)
+
+import std.task.*
+
+struct Slow { n: Int }
+extension Slow: Printable {
+    func format(&self, into: &var StringBuilder) {
+        yield_now()
+        try! into.append(value: self.n)
+    }
+}
+
+func render() -> Int {
+    let s = Slow(n: 4)
+    s.to_string().len()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(render())
+    print("rendered {}", h.join())
+}

@@ -1,0 +1,17 @@
+// refuses: effect.format-suspends at 9:10
+// a suspending `format` nothing renders or calls is refused all the same:
+// the rule is the implementation's, not a render site's (SL-781)
+
+import std.task.*
+
+struct Ticker { n: Int }
+extension Ticker: Printable {
+    func format(&self, into: &var StringBuilder) {
+        yield_now()
+        try! into.append(value: self.n)
+    }
+}
+
+func main() {
+    print("compiled")
+}

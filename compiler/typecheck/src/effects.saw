@@ -20,7 +20,7 @@ import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_PAIRED, TC_EFFECT_BLOCKING,
-                               TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
+                               TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
                                TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TcReceiver,
                                TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
@@ -35,6 +35,13 @@ public func tc_check_effects(p: &var TcProgram) {
     p.check_effects()
 }
 
+// Why a `Printable.format` that suspends is refused, the sentence both halves
+// of the check end with: typecheck's, at every instantiation, and coroutine
+// lowering's, at one.
+public func tc_format_sync_reason() -> String {
+    "A render (an interpolation, a `\{\}` argument of `print`, `panic` or `assert`, `print(x)`, `try!`'s message and `to_string()`) calls `format` synchronously into stack scratch, where nothing may suspend and a `blocking` extern cannot be offloaded, so `format` is `sync`. Do the suspending work first, in a method of its own, and render what it returns"
+}
+
 extension TcProgram {
     public func check_effects(&var self) {
         var u = 0
@@ -47,6 +54,7 @@ extension TcProgram {
         }
         self.check_sync_requirements()
         self.check_copy_hooks()
+        self.check_format_hooks()
         self.check_declared_requirements()
         self.check_entry_root()
         self.check_blocking_declarations()
@@ -90,6 +98,129 @@ extension TcProgram {
                 self.refuse_in(info.module, site, "effect.sync", msg.build())
             }
         }
+    }
+
+    // THE SYNC-FORMAT CHECK, its declaration half: a written `Printable.format`
+    // must not suspend (spec, Printable). A render calls it at positions no
+    // source call names, into stack scratch, so one that suspends at every
+    // instantiation is refused at the conformance, instantiated or not. One
+    // that suspends only at some, through a bound, is coroutine lowering's
+    // `coro_refuse_suspending_formats`, decided per instance.
+    // ENTRY POINTS:
+    //     check_effects
+    func check_format_hooks(&var self) {
+        let req = self.format_requirement()
+        if req < 0 {
+            return
+        }
+        // A refining trait's conformance (`Error`'s) lists the member again.
+        var refused = Vector<Int>()
+        var k = 0
+        while k < self.conformances.len() {
+            let c = self.conformances[k]
+            k = k + 1
+            if c.type_decl < 0 {
+                continue
+            }
+            var j = 0
+            while j < c.status_count {
+                let st = self.statuses[c.status_first + j]
+                j = j + 1
+                if st.kind != TcStatusKind.Written || st.requirement != req || st.member < 0 || not self.is_function_decl(st.member) {
+                    continue
+                }
+                if not self.summaries[st.member].suspends || tc_contains(&refused, st.member) {
+                    continue
+                }
+                try! refused.push(st.member)
+                var msg = StringBuilder()
+                try! msg.append("`Printable.format` must not suspend, and `")
+                try! msg.append(self.nominal_name(c.type_decl))
+                try! msg.append("`'s does: ")
+                try! msg.append(self.suspend_chain(st.member))
+                try! msg.append(". ")
+                try! msg.append(tc_format_sync_reason())
+                let info = self.res.decls[st.member]
+                let site = self.decl_site(st.member)
+                self.refuse_in(info.module, site, "effect.format-suspends", msg.build())
+            }
+        }
+    }
+
+    // `Printable`'s `format` requirement, or -1.
+    func format_requirement(&self) -> Int {
+        let printable = self.known.printable
+        if printable < 0 {
+            return -1
+        }
+        let reqs = self.members_of(printable)
+        var j = 0
+        while j < reqs.len() {
+            // Stage 0 workaround (SL:hazards S4): canonical: if self.name_text(self.res.decls[reqs[j]].name).equals("format") {
+            let name = self.res.decls[reqs[j]].name
+            if self.name_text(name).equals("format") {
+                return reqs[j]
+            }
+            j = j + 1
+        }
+        return -1
+    }
+
+    // `` `f` → `g` (parks the task) ``: function `d`, then each function its
+    // first suspending call passes, to the source. A park point is std's
+    // internal, so the path ends at the function that calls it; a `blocking`
+    // extern is named as one.
+    func suspend_chain(&var self, d: Int) -> String {
+        var out = StringBuilder()
+        try! out.append("`")
+        try! out.append(self.res.decl_path(d))
+        try! out.append("`")
+        var visited = Vector<Int>()
+        try! visited.push(d)
+        var at = self.suspending_call_in(d)
+        while at >= 0 {
+            if self.parks_at(at) {
+                try! out.append(" (parks the task)")
+                return out.build()
+            }
+            try! out.append(" → ")
+            let ci = self.call_at[at]
+            let target = if ci >= 0 { self.calls[ci].target } else { -1 }
+            let role = if ci >= 0 { self.calls[ci].role } else { TcRole.Builtin }
+            if target >= 0 && role != TcRole.Builtin && role != TcRole.Value && self.res.decls[target].kind == ResDeclKind.Extern && (self.sigs[target].flags & TC_FLAG_BLOCKING) != 0 {
+                try! out.append("blocking extern ")
+            }
+            try! out.append(self.callee_text(at))
+            if target < 0 || role == TcRole.Builtin || role == TcRole.Value || tc_contains(&visited, target) || self.summaries[target].state != TC_SUMMARY_BODY {
+                return out.build()
+            }
+            try! visited.push(target)
+            at = self.suspending_call_in(target)
+        }
+        out.build()
+    }
+
+    // The first call in function `d`'s own body that may suspend, or -1.
+    func suspending_call_in(&var self, d: Int) -> Int {
+        let u = self.decl_unit[d]
+        if u < 0 {
+            return -1
+        }
+        let unit = self.units[u]
+        var k = unit.item_first
+        while k < unit.item_end {
+            let item = self.items[k]
+            k = k + 1
+            if item.kind != TC_ITEM_CALL || item.unit != u {
+                continue
+            }
+            var acc = TcAcc(owner: d, unit: -1)
+            self.eval_call(item.node, &var acc)
+            if acc.suspends {
+                return item.node
+            }
+        }
+        return -1
     }
 
     // A generic body's inferred Copy requirement against what its signature

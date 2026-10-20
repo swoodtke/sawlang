@@ -1,0 +1,88 @@
+ERROR	effect.format-suspends	compiler/tests/typecheck/golden/format_suspends.saw:21:10	`Printable.format` must not suspend, and `format_suspends.Meter`'s does: `Meter.format` → `settle` → `yield_now` (parks the task). A render (an interpolation, a `{}` argument of `print`, `panic` or `assert`, `print(x)`, `try!`'s message and `to_string()`) calls `format` synchronously into stack scratch, where nothing may suspend and a `blocking` extern cannot be offloaded, so `format` is `sync`. Do the suspending work first, in a method of its own, and render what it returns
+ERROR	effect.format-suspends	compiler/tests/typecheck/golden/format_suspends.saw:29:10	`Printable.format` must not suspend, and `format_suspends.Panel`'s does: `Panel.format` → `Meter.format` → `settle` → `yield_now` (parks the task). A render (an interpolation, a `{}` argument of `print`, `panic` or `assert`, `print(x)`, `try!`'s message and `to_string()`) calls `format` synchronously into stack scratch, where nothing may suspend and a `blocking` extern cannot be offloaded, so `format` is `sync`. Do the suspending work first, in a method of its own, and render what it returns
+ERROR	effect.format-suspends	compiler/tests/typecheck/golden/format_suspends.saw:37:10	`Printable.format` must not suspend, and `format_suspends.Sleeper`'s does: `Sleeper.format` → blocking extern `__saw_rt_blocking_sleep`. A render (an interpolation, a `{}` argument of `print`, `panic` or `assert`, `print(x)`, `try!`'s message and `to_string()`) calls `format` synchronously into stack scratch, where nothing may suspend and a `blocking` extern cannot be offloaded, so `format` is `sync`. Do the suspending work first, in a method of its own, and render what it returns
+(Module format_suspends
+  (declarations
+    (extern __saw_rt_blocking_sleep 11:19 private (signature (params (ms Int owned)) -> Int blocking) (summary declared (suspends yes) (sync-callable no)))
+    (func settle 14:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends yes) (sync-callable no)))
+    (struct Meter 19:8 private)
+    (field Meter.n 19:16 private Int)
+    (extension 20:1 (target format_suspends.Meter) (conforms Printable))
+    (method Meter.format 21:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void) (summary body (suspends yes) (sync-callable no)))
+    (extension 25:1 (target format_suspends.Meter) (conforms Error))
+    (struct Panel 27:8 private)
+    (field Panel.m 27:16 private format_suspends.Meter)
+    (extension 28:1 (target format_suspends.Panel) (conforms Printable))
+    (method Panel.format 29:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void) (summary body (suspends yes) (sync-callable no)))
+    (struct Sleeper 35:8 private)
+    (field Sleeper.n 35:18 private Int)
+    (extension 36:1 (target format_suspends.Sleeper) (conforms Printable))
+    (method Sleeper.format 37:10 private (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void) (summary body (suspends yes) (sync-callable no)))
+    (func main 43:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (format_suspends.Meter
+      (field n Int private declared)
+      (method format private (extension format_suspends))
+      (method to_string public (default Printable)))
+    (format_suspends.Panel
+      (field m format_suspends.Meter private declared)
+      (method format private (extension format_suspends))
+      (method to_string public (default Printable)))
+    (format_suspends.Sleeper
+      (field n Int private declared)
+      (method format private (extension format_suspends))
+      (method to_string public (default Printable))))
+  (views
+    (format_suspends.Meter n format to_string)
+    (format_suspends.Panel m format to_string)
+    (format_suspends.Sleeper n format to_string))
+  (conformances
+    (format_suspends.Meter Printable 20:18 (format written) (to_string default))
+    (format_suspends.Meter Error 25:18 (format written) (to_string default))
+    (format_suspends.Panel Printable 28:18 (format written) (to_string default))
+    (format_suspends.Sleeper Printable 36:20 (format written) (to_string default)))
+  (copy-tier
+    (format_suspends.Meter Copy)
+    (format_suspends.Panel Copy)
+    (format_suspends.Sleeper Copy))
+  (bodies
+    (settle 14:6
+      (15:5-15:16 Call.paren Void value temp (call std.task.yield_now()))
+      (16:5-16:6 Name Int place copy))
+    (Meter.format 21:10
+      (22:9-22:48 Try.force Void value temp)
+      (22:14-22:48 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder)))
+      (22:14-22:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (22:33-22:47 Call.paren Int value temp (call format_suspends.settle(n: Int)))
+      (22:40-22:46 Member Int place copy)
+      (22:40-22:44 SelfExpr format_suspends.Meter place project))
+    (Panel.format 29:10
+      (30:9-30:35 Try.force Void value temp)
+      (30:14-30:35 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder)))
+      (30:14-30:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (30:26-30:34 StringLit String value temp)
+      (31:9-31:39 Call.paren Void value temp (call format_suspends.Meter.format(into: &var std.stringbuilder.StringBuilder) (owner format_suspends.Meter)))
+      (31:9-31:15 Member format_suspends.Meter (borrow &format_suspends.Meter) place borrow)
+      (31:9-31:13 SelfExpr format_suspends.Panel place project)
+      (31:29-31:38 Ref.exclusive &var std.stringbuilder.StringBuilder value temp)
+      (31:34-31:38 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) place borrow-var))
+    (Sleeper.format 37:10
+      (38:13-38:14 BindingName Int place temp)
+      (38:17-38:43 Call.paren Int value temp (call format_suspends.__saw_rt_blocking_sleep(ms: Int)))
+      (38:41-38:42 IntLit Int value temp)
+      (39:9-39:40 Try.force Void value temp)
+      (39:14-39:40 Call.paren Result<Void, std.alloc.AllocError> value temp (call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder)))
+      (39:14-39:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
+      (39:33-39:39 Member Int place copy)
+      (39:33-39:37 SelfExpr format_suspends.Sleeper place project))
+    (main 43:6
+      (44:5-44:53 Call.paren Void value temp (builtin print))
+      (44:11-44:52 Interp String value temp)
+      (44:13-44:34 Call.paren format_suspends.Panel value borrow (memberwise format_suspends.Panel (owner format_suspends.Panel)))
+      (44:22-44:33 Call.paren format_suspends.Meter value temp (memberwise format_suspends.Meter (owner format_suspends.Meter)))
+      (44:31-44:32 IntLit Int value temp)
+      (44:37-44:50 Call.paren format_suspends.Sleeper value borrow (memberwise format_suspends.Sleeper (owner format_suspends.Sleeper)))
+      (44:48-44:49 IntLit Int value temp)))
+  (string-positions
+    (30:26 literal std.string.string_literal)
+    (44:11 interpolation std.stringbuilder.StringBuilder)))

@@ -142,7 +142,15 @@ public trait Hashable {
 }
 
 /// A type that renders itself as text.
+///
+/// `format` is `sync`. Interpolation, a `{}` argument of `print`, `panic` or
+/// `assert`, `try!`'s message and `to_string()` all call it synchronously,
+/// into stack scratch, so an implementation that suspends is refused, and so
+/// is one that reaches a `blocking` extern, which a render cannot offload. A
+/// generic implementation is judged at each instantiation. The requirement
+/// does not spell `sync`, so a generic `format` may call its bounds' methods.
 public trait Printable {
+    /// Writes the value's text into `into`, without suspending.
     func format(&self, into: &var StringBuilder)
 
     func to_string(&self) -> String {

@@ -20,8 +20,16 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
+// For the extension writing `members_of`.
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.effects.{tc_format_sync_reason}
 import sawtypecheck.model.{TC_FLAG_BLOCKING, TC_SUMMARY_BODY, TC_SUMMARY_NONE, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
+// For the extension writing `type_text`.
+import sawtypecheck.spell.{tc_effects_text}
+// For the extension writing `is_park_point`.
+import sawtypecheck.summaries.{TcAcc}
+import sawtypecheck.typeops.{TcClient}
 
 // The rules coroutine lowering refuses by.
 public func coro_rules() -> Vector<String> {
@@ -29,6 +37,7 @@ public func coro_rules() -> Vector<String> {
     try! out.push("coro.blocking-drop-position")
     try! out.push("coro.closure-drop-blocks")
     try! out.push("coro.drive-in-suspending")
+    try! out.push("coro.format-suspends")
     try! out.push("coro.not-yet")
     try! out.push("coro.spawn-not-send")
     try! out.push("coro.suspending-cycle")
@@ -60,7 +69,7 @@ extension CoroEdges: NoCopy {}
 // so each item is marked once, a cycle suspends only when a call in it
 // reaches a source, and each item's cause chain is a shortest one. Then
 // refuses each cycle among the items that suspend, and each copy-policy
-// `copy()` that suspends at its instantiation.
+// `copy()` and each `Printable.format` that suspends at its instantiation.
 public func coro_solve_suspension(coro: &var CoroProgram) {
     let count = coro.mono.items.len()
     coro.suspending = Vector<Bool>()
@@ -116,6 +125,7 @@ public func coro_solve_suspension(coro: &var CoroProgram) {
     let cycles = coro_refuse_cycles(&var coro, &edges)
     coro.cyclic = cycles > 0
     coro_refuse_copy_hooks(&var coro)
+    coro_refuse_suspending_formats(&var coro)
 }
 
 // Whether item `k` definitely suspends.
@@ -469,29 +479,146 @@ func coro_refuse_copy_hooks(coro: &var CoroProgram) {
         try! msg.append("`: method `")
         try! msg.append(coro.item_label(item))
         try! msg.append("` calls ")
-        var at = item
-        var first = true
-        while at >= 0 && coro.cause_call[at] >= 0 {
-            if not first {
-                try! msg.append(" → ")
-            }
-            first = false
-            let next = coro.cause_item[at]
-            if next >= 0 {
-                try! msg.append("`")
-                try! msg.append(coro.item_label(next))
-                try! msg.append("`")
-            } else {
-                // Stage 0 workaround (SL:hazards S4): canonical: try! msg.append(coro_source_text(&coro, coro.cause_call[at]))
-                let call = coro.cause_call[at]
-                try! msg.append(coro_source_text(&coro, call))
-            }
-            at = next
-        }
+        coro_append_cause_path(&coro, item, false, &var msg)
         // Stage 0 workaround (SL:hazards S4): canonical: coro.refuse(item, coro.item_node(item), "effect.sync", msg.build())
         let node = coro.item_node(item)
         coro.refuse(item, node, "effect.sync", msg.build())
     }
+}
+
+// THE SYNC-FORMAT CHECK, its per-instance half: refuses each item that is a
+// written `Printable.format` and suspends at its instantiation, at its
+// declaration, naming the instance and the path (spec, Printable). A render
+// calls `format` into stack scratch at positions no source call names, so
+// `format` is `sync`. Typecheck's `check_format_hooks` refuses one that
+// suspends at every instantiation; one that suspends only at some, through a
+// bound, is decided here, item by item, whatever reaches it.
+// ENTRY POINTS:
+//   coro_solve_suspension
+func coro_refuse_suspending_formats(coro: &var CoroProgram) {
+    let req = coro_format_requirement(&coro)
+    if req < 0 {
+        return
+    }
+    var k = 0
+    while k < coro.suspending.len() {
+        let item = k
+        k = k + 1
+        if not coro.suspending[item] {
+            continue
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: if not coro_writes_requirement(&coro, coro.item_decl(item), req) {
+        let d = coro.item_decl(item)
+        if not coro_writes_requirement(&coro, d, req) {
+            continue
+        }
+        var msg = StringBuilder()
+        try! msg.append("`Printable.format` must not suspend, and `")
+        try! msg.append(coro_receiver_text(&coro, item))
+        try! msg.append("`'s does: `")
+        try! msg.append(coro.item_label(item))
+        try! msg.append("`")
+        coro_append_cause_path(&coro, item, true, &var msg)
+        try! msg.append(". ")
+        try! msg.append(tc_format_sync_reason())
+        // At the declaration's name, where typecheck's half anchors.
+        let node = coro.mono.dp.bc.mir.tc.decl_site(d)
+        coro.refuse(item, node, "coro.format-suspends", msg.build())
+    }
+}
+
+// `Printable`'s `format` requirement, or -1.
+func coro_format_requirement(coro: &CoroProgram) -> Int {
+    let printable = coro.mono.dp.bc.mir.tc.known.printable
+    if printable < 0 {
+        return -1
+    }
+    let reqs = coro.mono.dp.bc.mir.tc.members_of(printable)
+    var j = 0
+    while j < reqs.len() {
+        let name = coro.mono.dp.bc.mir.tc.res.decls[reqs[j]].name
+        if coro.mono.dp.bc.mir.tc.name_text(name).equals("format") {
+            return reqs[j]
+        }
+        j = j + 1
+    }
+    return -1
+}
+
+// Whether declaration `d` is a conformance's written member for requirement
+// `req`, whichever trait refining the requirement's that conformance names.
+func coro_writes_requirement(coro: &CoroProgram, d: Int, req: Int) -> Bool {
+    if d < 0 {
+        return false
+    }
+    var k = 0
+    while k < coro.mono.dp.bc.mir.tc.conformances.len() {
+        let c = coro.mono.dp.bc.mir.tc.conformances[k]
+        k = k + 1
+        var j = 0
+        while j < c.status_count {
+            let st = coro.mono.dp.bc.mir.tc.statuses[c.status_first + j]
+            j = j + 1
+            if st.kind == TcStatusKind.Written && st.member == d && st.requirement == req {
+                return true
+            }
+        }
+    }
+    false
+}
+
+// The type of item `k`'s receiver, its concrete body's first parameter's
+// referent, as a refusal names an instance (`Wrapper<Yielder>`); the item's
+// label for one with no parameter.
+func coro_receiver_text(coro: &CoroProgram, k: Int) -> String {
+    let f = coro.mono.items[k].body
+    if f < 0 || coro.mono.dp.bc.mir.funcs[f].param_count < 1 {
+        return coro.item_label(k)
+    }
+    let first = coro.mono.dp.bc.mir.funcs[f].local_first
+    let t = coro.mono.dp.bc.mir.locals[first + 1].ty
+    let r = coro.mono.dp.bc.mir.tc.referent(t)
+    let shown = if r >= 0 { r } else { t }
+    coro.mono.dp.bc.mir.tc.type_text(shown)
+}
+
+// Appends what item `from`'s suspension was found through: each item on its
+// cause chain, `` `g` → `h` ``, then the source. A park point is std's
+// internal, so the path ends at the item calling it, `` (parks the task) ``;
+// any other source is named by `coro_source_text`. `after` says whether
+// something already precedes the path, which then starts with ` → `.
+func coro_append_cause_path(coro: &CoroProgram, from: Int, after: Bool, msg: &var StringBuilder) {
+    var at = from
+    var preceded = after
+    while at >= 0 && coro.cause_call[at] >= 0 {
+        let next = coro.cause_item[at]
+        let call = coro.cause_call[at]
+        if next < 0 && preceded && coro_parks(&coro, call) {
+            try! msg.append(" (parks the task)")
+            return
+        }
+        if preceded {
+            try! msg.append(" → ")
+        }
+        preceded = true
+        if next >= 0 {
+            try! msg.append("`")
+            try! msg.append(coro.item_label(next))
+            try! msg.append("`")
+        } else {
+            try! msg.append(coro_source_text(&coro, call))
+        }
+        at = next
+    }
+}
+
+// Whether concrete call `c` calls a park point.
+func coro_parks(coro: &CoroProgram, c: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.calls[c]
+    if info.kind == MirCallKind.Builtin || info.kind == MirCallKind.Value || info.target < 0 {
+        return false
+    }
+    coro.mono.dp.bc.mir.tc.is_park_point(info.target)
 }
 
 // The conformance whose written `copy()` declaration `d` is, of the `Copy`

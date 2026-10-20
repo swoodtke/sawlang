@@ -1,0 +1,48 @@
+// A generic `Printable.format` that suspends only at some instantiations,
+// through a bound's method, is refused at those (the coro fixture
+// `coro.format-suspends`, where `T` is `Yielder`) and builds at the rest: at
+// `Plain`, `name` does not suspend, so neither does `Wrapper.format`, and a
+// task renders it. `Yielder` is called directly, which may suspend (SL-781).
+import std.task.*
+
+trait Namer {
+    func name(&self) -> String
+}
+
+struct Plain { n: Int }
+
+extension Plain: Namer {
+    func name(&self) -> String { "plain" }
+}
+
+struct Yielder { n: Int }
+
+extension Yielder: Namer {
+    func name(&self) -> String {
+        yield_now()
+        "yielder"
+    }
+}
+
+struct Wrapper<T: Namer> { inner: T }
+
+extension Wrapper<T: Namer>: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.inner.name())
+        try! into.append(" w")
+    }
+}
+
+func show() -> Int {
+    let p = Wrapper(inner: Plain(n: 1))
+    let y = Yielder(n: 2)
+    print("{p}")
+    print("argument {}", p)
+    y.name().len()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(show())
+    print("named {}", h.join())
+}

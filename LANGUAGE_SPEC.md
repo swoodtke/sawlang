@@ -2781,6 +2781,50 @@ let p = Point(x: 3, y: 4)
 print("point = {p}")   // point = (3, 4)
 ```
 
+**`format` is `sync`.** A render calls `format` synchronously, into stack
+scratch, at a position no source call names: string interpolation, a `{}`
+format argument of `print`, `panic` or `assert`, the single-argument
+`print(x)`, `try!`'s message for an `Err`, and `to_string()`, whose default
+body calls `format`. Nothing there may suspend, and a render cannot offload a
+`blocking` extern, so a `format` that reaches one counts as suspending. An
+implementation of `format` that suspends, directly, through a helper or
+through a bound, is refused at its declaration with the type and the path to
+the suspension:
+
+```saw-fragment
+// ticker.saw
+import std.task.*
+
+struct Ticker { n: Int }
+
+extension Ticker: Printable {
+    func format(&self, into: &var StringBuilder) {
+        yield_now()
+        try! into.append(value: self.n)
+    }
+}
+// error: `Printable.format` must not suspend, and `ticker.Ticker`'s does:
+//        `Ticker.format` → `yield_now` (parks the task). A render (...) calls
+//        `format` synchronously into stack scratch, ...
+```
+
+The rule is about the implementation, not the call, so it holds whether
+anything renders the type or not, and an explicit `t.format(into: &var b)` or
+`t.to_string()` is no way around it. A generic implementation is judged at each
+instantiation the program builds: a `Wrapper<T: Namer>` whose `format` calls
+`self.inner.name()` compiles at a `T` whose `name` never suspends and is refused
+at one whose `name` does, naming the instance (`Wrapper<Yielder>`). A `format`
+that blocks its thread is refused as any implementation that blocks is (see
+[Blocking functions](#blocking-functions)).
+
+The requirement does not spell `sync`. A `sync` requirement holds each
+implementation to a `sync` body at its declaration, so a generic `format`
+calling a bound's method would have to declare `sync` itself, and would be
+refused even where every instantiation is sync. The compiler checks what each
+implementation does instead. To render something that has to wait, such as
+a value read from a socket, fetch it first in an ordinary method and render
+what it returns.
+
 #### Format arguments and the allocation-free path
 
 **Status: implemented.** `print`, `panic` and `assert` take a literal format

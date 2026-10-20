@@ -1,0 +1,45 @@
+// flags: --std-root std
+// each `Printable.format` that suspends at every instantiation is refused at
+// its declaration, naming the type and the path to the suspension: a park
+// reached through a helper, a forward to a field's `format`, and a `blocking`
+// extern, which a render cannot offload. An `Error` conformance lists its
+// type's `format` again and is refused once (SL-781).
+
+import std.task.*
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func settle(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+struct Meter { n: Int }
+extension Meter: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(value: settle(self.n))
+    }
+}
+extension Meter: Error {}
+
+struct Panel { m: Meter }
+extension Panel: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("panel ")
+        self.m.format(into: &var into)
+    }
+}
+
+struct Sleeper { n: Int }
+extension Sleeper: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = __saw_rt_blocking_sleep(1)
+        try! into.append(value: self.n)
+    }
+}
+
+func main() {
+    print("{Panel(m: Meter(n: 1))} {Sleeper(n: 2)}")
+}

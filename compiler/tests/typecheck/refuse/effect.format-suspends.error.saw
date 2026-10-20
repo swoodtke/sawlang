@@ -1,0 +1,26 @@
+// refuses: effect.format-suspends at 10:10
+// an error type's `format`, which `try!`'s message renders: `Error` refines
+// `Printable` and adds no requirement, and the `Error` conformance's own
+// listing of the member is not refused a second time (SL-781)
+
+import std.task.*
+
+struct Refusal { n: Int }
+extension Refusal: Printable {
+    func format(&self, into: &var StringBuilder) {
+        yield_now()
+        try! into.append(value: self.n)
+    }
+}
+extension Refusal: Error {}
+
+func fetch(n: Int) -> Result<Int, Refusal> {
+    if n > 100 {
+        return Refusal(n: n)
+    }
+    return n
+}
+
+func main() {
+    print("fetched {}", try! fetch(4))
+}

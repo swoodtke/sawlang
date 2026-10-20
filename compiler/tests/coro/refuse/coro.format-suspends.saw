@@ -1,0 +1,49 @@
+// refuses: coro.format-suspends at 33:10
+// message: `Printable.format` must not suspend, and `coro.format-suspends.Wrapper<coro.format-suspends.Yielder>`'s does: `Wrapper.format` → `Yielder.name` → `yield_now` (parks the task)
+// A generic `format` suspends only where its bound's `name` does, so
+// typecheck, which refuses one that suspends at every instantiation, passes
+// it, and the instance an interpolation in a task reaches, `Wrapper<Yielder>`,
+// is refused here. `Wrapper<Plain>` renders beside it and is not (the run
+// lane's `format_generic_sync_instance`, built at `Plain` alone) (SL-781).
+
+import std.task.*
+
+trait Namer {
+    func name(&self) -> String
+}
+
+struct Plain { n: Int }
+
+extension Plain: Namer {
+    func name(&self) -> String { "plain" }
+}
+
+struct Yielder { n: Int }
+
+extension Yielder: Namer {
+    func name(&self) -> String {
+        yield_now()
+        "yielder"
+    }
+}
+
+struct Wrapper<T: Namer> { inner: T }
+
+extension Wrapper<T: Namer>: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.inner.name())
+        try! into.append(" w")
+    }
+}
+
+func show() -> Int {
+    let p = Wrapper(inner: Plain(n: 1))
+    let y = Wrapper(inner: Yielder(n: 2))
+    "{p} {y}".len()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(show())
+    print("rendered {}", h.join())
+}

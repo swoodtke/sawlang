@@ -1,0 +1,24 @@
+// refuses: effect.format-suspends at 12:10
+// a `format` that calls a `blocking` extern: an offload parks the task, and
+// a render cannot offload, so it is refused as suspending, where a body that
+// blocks its thread is `effect.blocking-conformance`'s (SL-781)
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+struct Slow { n: Int }
+extension Slow: Printable {
+    func format(&self, into: &var StringBuilder) {
+        let _ = __saw_rt_blocking_sleep(1)
+        try! into.append(value: self.n)
+    }
+}
+
+func render() -> Int { "{Slow(n: 4)}".len() }
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(render())
+    print("rendered {}", h.join())
+}

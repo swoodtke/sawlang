@@ -1,0 +1,40 @@
+// refuses: coro.format-suspends at 26:10
+// message: `Printable.format` must not suspend
+// message: .Wrapper<
+// message: .Yielder>`'s does: `Wrapper.format` → `Yielder.name` → `yield_now` (parks the task)
+// The rule's per-instance half, at an explicit `to_string()`, whose default
+// body calls `format`, in a task (SL-781).
+
+import std.task.*
+
+trait Namer {
+    func name(&self) -> String
+}
+
+struct Yielder { n: Int }
+
+extension Yielder: Namer {
+    func name(&self) -> String {
+        yield_now()
+        "yielder"
+    }
+}
+
+struct Wrapper<T: Namer> { inner: T }
+
+extension Wrapper<T: Namer>: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.inner.name())
+    }
+}
+
+func show(n: Int) -> Int {
+    let w = Wrapper(inner: Yielder(n: n))
+    w.to_string().len()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(show(4))
+    print("rendered {}", h.join())
+}
