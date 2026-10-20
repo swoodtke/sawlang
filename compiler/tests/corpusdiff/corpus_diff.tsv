@@ -403,12 +403,12 @@ conformance/K88_background_spawn_takes_no_borrows.saw	pass	-	spawn.borrow: `Task
 conformance/K89_detach_gives_up_the_result.saw	pass	-	-
 conformance/K90_thread_detach_is_a_fate.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 conformance/K91_spawn_brace_captures_nothing_implicitly.saw	pass	-	spawn.implicit-capture: a spawned brace captures nothing implicitly, and this body names `count`, `label`. Name what crosses in the capture list — `Thread.spawn { [count, label] in ... }`. The list IS
-conformance/K93_timed_park_observes_cancellation.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
-conformance/K94_timed_park_times_out_in_every_engine.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
-conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
-conformance/K95_ready_before_deadline_reports_the_value.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
-conformance/K96_timed_and_untimed_parks_coexist.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
-conformance/K97_timed_park_leaves_no_registration_behind.saw	refused	resolve import.unknown-symbol	`Timed` is not defined in `std.net`
+conformance/K93_timed_park_observes_cancellation.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+conformance/K94_timed_park_times_out_in_every_engine.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+conformance/K94b_timed_park_times_out_in_a_single_frame_drive.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+conformance/K95_ready_before_deadline_reports_the_value.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+conformance/K96_timed_and_untimed_parks_coexist.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
+conformance/K97_timed_park_leaves_no_registration_behind.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 conformance/K98_signal_wakes_a_parked_watcher.saw	pass	-	-
 conformance/K99_watch_is_scoped_and_singly_owned.saw	pass	-	-
 conformance/M06_push_on_let_vector.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
@@ -1960,11 +1960,11 @@ net_nested_shape_matrix.saw	stage0-wrong	annotated SL-768	sawc2 meets its direct
 net_owning_echo.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_precise_n_readers.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
 net_precise_wakeup.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
-net_read_into.saw	refused	typecheck member.unknown	`std.net.TcpStream` has no method `read_into` this module can see
+net_read_into.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_serve_three_connections.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_serve_two_connections.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_sibling_eof_no_deadlock.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
-net_socket_options.saw	refused	typecheck member.unknown	`std.net.TcpStream` has no method `set_no_delay` this module can see
+net_socket_options.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_socketpair_echo.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 net_threads_io.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
 net_three_park_sequence.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives

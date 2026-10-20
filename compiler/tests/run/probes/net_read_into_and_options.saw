@@ -1,0 +1,60 @@
+// probe: stated
+// about: read_into appends to the caller's buffer and counts, and the socket options are accepted on a live connection (SL-770)
+// stage 0: its frozen std.net answers `local_port()` with an `Int`, so it refuses the `try!` on it (SL-768)
+// speeds: -O0 -O2
+// prints: no_delay off: ok
+// prints: no_delay on: ok
+// prints: keepalive on: ok
+// prints: keepalive off: ok
+// prints: first read_into: 5, buffer holds 5 bytes
+// prints: second read_into: 7, buffer holds 12 bytes
+// prints: the buffer reads: hello, world
+// prints: after the close: 0, buffer holds 12 bytes
+// `read_into` (design 88) appends each chunk to one growing buffer and returns
+// the chunk's size, 0 at the peer's close; the `&var` is held across the park.
+// The first call finds nothing sent, so it parks with the buffer held.
+// `set_no_delay` and `set_keepalive` answer `Result`, each direction on a live
+// connection.
+import std.data.{Data}
+import std.net.{IoError, TcpListener, TcpStream}
+
+func report(label: String, answer: Result<Void, IoError>) {
+    match answer {
+        case Ok(_) -> print("{}: ok", label),
+        case Err(e) -> print("{}: FAILED {}", label, e)
+    }
+}
+
+func writer(stream: TcpStream) -> TcpStream {
+    try! stream.write("hello")
+    move stream
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let client = try! TcpStream.connect("127.0.0.1", try! listener.local_port())
+    let server = try! listener.accept()
+
+    report("no_delay off", client.set_no_delay(false))
+    report("no_delay on", client.set_no_delay(true))
+    report("keepalive on", client.set_keepalive(true))
+    report("keepalive off", client.set_keepalive(false))
+
+    // Nothing is sent yet, so the first read_into parks with `buf` held and the
+    // writer task runs.
+    var group = TaskGroup()
+    let w = group.spawn(writer(move client))
+    var buf = Data()
+    let first = try! server.read_into(&var buf)
+    print("first read_into: {}, buffer holds {} bytes", first, buf.len())
+
+    let back = w.join()
+    try! back.write(", world")
+    let second = try! server.read_into(&var buf)
+    print("second read_into: {}, buffer holds {} bytes", second, buf.len())
+    print("the buffer reads: {}", try! buf.to_string())
+
+    let _ = move back
+    let after = try! server.read_into(&var buf)
+    print("after the close: {}, buffer holds {} bytes", after, buf.len())
+}

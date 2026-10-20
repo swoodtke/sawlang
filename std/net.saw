@@ -38,6 +38,13 @@ extern "C" {
     // through `fds_out`: 0, or the negated tag.
     func __saw_rt_tcp_socketpair(fds_out: UnsafePointer<Int>) -> Int
 
+    // Sets one socket option, named by its portable tag, to a C `int`: 0, or
+    // the negated tag (runtime/ABI.md).
+    func __saw_rt_socket_set_option(fd: Int, option: Int, value: Int) -> Int
+
+    // The monotonic clock, in nanoseconds: the one a park's deadline is read on.
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+
     // The raw platform code behind the tag a failing seam just returned, on
     // this thread; anything that runs in between may replace it.
     func __saw_rt_last_raw_code() -> Int
@@ -94,9 +101,6 @@ func socket_pair() unsafe -> Result<FdPair, IoError> {
 /// for the log. `Unknown` is a failure the portable set has no word for; treat
 /// it as opaque. A case added later breaks an exhaustive `match` at compile
 /// time rather than rerouting a code silently.
-///
-/// A runtime's portable tag (runtime/ABI.md) becomes a kind through
-/// `of(tag:)`.
 public enum IoErrorKind {
     /// The operation would have blocked, and the descriptor is non-blocking.
     case WouldBlock,
@@ -258,8 +262,14 @@ extension IoError {
         IoError(syscall: syscall, kind: IoErrorKind.of(tag), code: raw_code_now())
     }
 
-    /// Returns an error for a failure the platform did not report, such as a
-    /// wait cut short by cancellation. Its `code()` is 0.
+    /// Returns an error for `syscall` of the given `kind`, for a failure the
+    /// platform did not report, such as a wait cut short by cancellation, or
+    /// for a test double. Its `code()` is 0.
+    ///
+    /// ```saw-fragment
+    /// let refused = IoError.of(syscall: "connect", kind: IoErrorKind.ConnectionRefused)
+    /// // "{refused}" renders as: io error: connect failed (connection refused)
+    /// ```
     public static func of(syscall: String, kind: IoErrorKind) -> IoError {
         IoError(syscall: syscall, kind: kind, code: 0)
     }
@@ -319,10 +329,41 @@ func in_progress(r: Int) -> Bool {
     }
 }
 
-// Parks until `fd` is ready for `interest`. True when the task was cancelled
-// meanwhile, in which case `io_wait` has withdrawn the registration.
-func park(fd: Int, interest: Interest) -> Bool {
-    match io_wait(fd, interest as Int, NO_DEADLINE) {
+// The option tags `__saw_rt_socket_set_option` takes (runtime/ABI.md).
+static OPTION_NO_DELAY: Int = 1
+static OPTION_KEEP_ALIVE: Int = 2
+
+// The latest instant a deadline can name: a span past it means "not coming
+// back", and a wrapped sum would mean "already expired", the opposite.
+static DEADLINE_LATEST: UInt64 = 9_223_372_036_854_775_807
+
+// The monotonic instant `timeout` from now, which a park gives up at.
+//
+// Absolute rather than relative, and computed once before the first attempt:
+// a loop that re-parks after a wake must not restart its own timeout, or a
+// peer sending a byte just inside every span would never time out.
+func deadline_after(timeout: Duration) -> UInt64 {
+    let now = __saw_rt_clock_monotonic_nanos() as UInt64
+    let span = timeout.as_nanos()
+    if span >= DEADLINE_LATEST || DEADLINE_LATEST - span < now {
+        return DEADLINE_LATEST
+    }
+    now + span
+}
+
+// Whether the monotonic clock has reached `deadline`. Read afresh on every
+// call, since time has passed since the last one.
+func deadline_passed(deadline: UInt64) -> Bool {
+    (__saw_rt_clock_monotonic_nanos() as UInt64) >= deadline
+}
+
+// Parks until `fd` is ready for `interest`, or until `deadline` (NO_DEADLINE
+// waits without one). True when the task was cancelled meanwhile, in which
+// case `io_wait` has withdrawn the registration. A wake says nothing of why:
+// the caller retries its operation, and only then consults the clock, so
+// readiness that lands in the same instant as the deadline is data.
+func park(fd: Int, interest: Interest, deadline: UInt64) -> Bool {
+    match io_wait(fd, interest as Int, deadline) {
         case Cancelled -> true,
         case _ -> {
             // A park ceded to the scheduler, so the run of operations that
@@ -482,6 +523,37 @@ func resolve_error(host: String, kind: IoErrorKind) -> IoError {
     IoError.of(syscall: what.build(), kind: kind)
 }
 
+/// The outcome of a network operation given a deadline.
+///
+/// A timed read ends three ways, which are three different facts: bytes
+/// arrived, the peer closed, or the deadline ran out first. A failure is the
+/// fourth, and stays an `Err`. The deadline is not an `IoError`, since
+/// `IoErrorKind.TimedOut` already means the platform's own timeout.
+///
+/// ```saw-fragment
+/// import std.net.{TcpStream, Timed}
+///
+/// func serve(stream: TcpStream) -> Int {
+///     var total = 0
+///     while true {
+///         match try! stream.read(timeout: Duration.secs(30)) {
+///             case Value(chunk) -> {
+///                 if chunk.len() == 0 { break }   // the peer closed
+///                 total = total + chunk.len()
+///             },
+///             case TimedOut -> { break }          // idle too long
+///         }
+///     }
+///     total
+/// }
+/// ```
+public enum Timed<T> {
+    /// The operation finished before the deadline, carrying its result.
+    case Value(value: T),
+    /// The deadline passed first. Nothing was read, accepted or connected.
+    case TimedOut
+}
+
 /// A listening TCP socket, which owns its descriptor.
 public struct TcpListener {
     private fd: Int
@@ -542,7 +614,7 @@ extension TcpListener {
         while not cancelled() {
             let c = __saw_rt_tcp_accept(self.fd)
             if would_block(c) {
-                if park(self.fd, Interest.Read) {
+                if park(self.fd, Interest.Read, NO_DEADLINE) {
                     return io_cancelled("accept")
                 }
             } else if c < 0 {
@@ -550,6 +622,36 @@ extension TcpListener {
             } else {
                 charge_io_budget()
                 return TcpStream(fd: c)
+            }
+        }
+        io_cancelled("accept")
+    }
+
+    /// Accepts the next connection, giving up after `timeout`.
+    ///
+    /// Returns `Value` with the stream, or `TimedOut` when no client arrived
+    /// in time; a failed accept is still `Err`, and a cancelled task gets
+    /// `Interrupted`, never a timeout. The deadline is measured from the call,
+    /// so a wake that proves spurious does not extend it, and it rounds up to
+    /// the reactor's millisecond: it can arrive late, never early.
+    public func accept(&self, timeout: Duration) -> Result<Timed<TcpStream>, IoError> {
+        let deadline = deadline_after(timeout)
+        while not cancelled() {
+            let c = __saw_rt_tcp_accept(self.fd)
+            if would_block(c) {
+                // The syscall comes first on every pass, so a connection that
+                // arrives as the deadline does is reported as the connection.
+                if deadline_passed(deadline) {
+                    return Timed<TcpStream>.TimedOut
+                }
+                if park(self.fd, Interest.Read, deadline) {
+                    return io_cancelled("accept")
+                }
+            } else if c < 0 {
+                return IoError.of(syscall: "accept", tag: 0 - c)
+            } else {
+                charge_io_budget()
+                return Timed<TcpStream>.Value(value: TcpStream(fd: c))
             }
         }
         io_cancelled("accept")
@@ -609,7 +711,7 @@ extension TcpStream {
         while not cancelled() {
             let check = __saw_rt_tcp_connect_check(fd, address, port)
             if in_progress(check) {
-                if park(fd, Interest.Write) {
+                if park(fd, Interest.Write, NO_DEADLINE) {
                     close_fd(fd)
                     return io_cancelled("connect")
                 }
@@ -626,6 +728,97 @@ extension TcpStream {
         io_cancelled("connect")
     }
 
+    /// Connects to `host`:`port`, giving up after `timeout`.
+    ///
+    /// Returns `Value` with the stream, or `TimedOut` when the peer did not
+    /// answer in time. A refused or unreachable peer is still `Err`: a closed
+    /// port is a different fact from a silent one.
+    ///
+    /// When `host` is a name, the deadline does not interrupt the lookup: the
+    /// resolver runs on a worker thread and cannot be cancelled, so the
+    /// timeout is checked once the lookup returns and then governs the dial.
+    /// Pass a dotted IPv4 literal to bound the whole span.
+    public static func connect(host: String, port: Int,
+                               timeout: Duration) -> Result<Timed<TcpStream>, IoError> {
+        let deadline = deadline_after(timeout)
+        if let address = parse_ipv4_literal(host) {
+            return TcpStream.dial_until(address as Int, port, deadline)
+        }
+        let address = try resolve_first(host)
+        // The lookup may have used the whole span, and dialling against a
+        // deadline already gone would only park once to learn it.
+        if deadline_passed(deadline) {
+            return Timed<TcpStream>.TimedOut
+        }
+        TcpStream.dial_until(address, port, deadline)
+    }
+
+    // `dial` with its park bounded by `deadline`: the half-open socket is
+    // closed on a timeout, as it is on a cancel.
+    static func dial_until(address: Int, port: Int,
+                           deadline: UInt64) -> Result<Timed<TcpStream>, IoError> {
+        let fd = __saw_rt_tcp_connect_start(address, port)
+        if fd < 0 {
+            return IoError.of(syscall: "connect", tag: 0 - fd)
+        }
+        while not cancelled() {
+            let check = __saw_rt_tcp_connect_check(fd, address, port)
+            if in_progress(check) {
+                if deadline_passed(deadline) {
+                    close_fd(fd)
+                    return Timed<TcpStream>.TimedOut
+                }
+                if park(fd, Interest.Write, deadline) {
+                    close_fd(fd)
+                    return io_cancelled("connect")
+                }
+            } else if check < 0 {
+                let failure = IoError.of(syscall: "connect", tag: 0 - check)
+                close_fd(fd)
+                return failure
+            } else {
+                charge_io_budget()
+                return Timed<TcpStream>.Value(value: TcpStream(fd: fd))
+            }
+        }
+        close_fd(fd)
+        io_cancelled("connect")
+    }
+
+    /// Sets whether small writes are sent at once rather than coalesced.
+    ///
+    /// On by default, which is what a request and response protocol wants:
+    /// with coalescing, a small reply can sit in the kernel waiting for more
+    /// data while the peer waits for the reply. Turn it off for a stream of
+    /// many small writes where throughput matters more than latency.
+    ///
+    /// Returns `Err(IoError)` when the system refuses the option.
+    public func set_no_delay(&self, on: Bool) -> Result<Void, IoError> {
+        self.set_option("set_no_delay", OPTION_NO_DELAY, on)
+    }
+
+    /// Sets whether the system probes an idle connection to learn whether the
+    /// peer is still there.
+    ///
+    /// Off by default. The probe interval is the system's, usually hours; to
+    /// bound an idle connection yourself, give the read a `timeout` instead.
+    ///
+    /// Returns `Err(IoError)` when the system refuses the option.
+    public func set_keepalive(&self, on: Bool) -> Result<Void, IoError> {
+        self.set_option("set_keepalive", OPTION_KEEP_ALIVE, on)
+    }
+
+    // The one place a boolean option reaches the seam, so a refusal is never
+    // dropped.
+    func set_option(&self, name: String, option: Int, on: Bool) -> Result<Void, IoError> {
+        let value = if on { 1 } else { 0 }
+        let status = __saw_rt_socket_set_option(self.fd, option, value)
+        if status < 0 {
+            return IoError.of(syscall: name, tag: 0 - status)
+        }
+        return
+    }
+
     /// Reads the next chunk of bytes, suspending until some arrive.
     ///
     /// An empty chunk means the peer closed the connection. Returns
@@ -637,7 +830,7 @@ extension TcpStream {
         while not cancelled() {
             let r = read_once(self.fd, &var out)
             if would_block(r) {
-                if park(self.fd, Interest.Read) {
+                if park(self.fd, Interest.Read, NO_DEADLINE) {
                     return io_cancelled("read")
                 }
             } else if r == NO_SCRATCH {
@@ -647,6 +840,77 @@ extension TcpStream {
             } else {
                 charge_io_budget()
                 return move out
+            }
+        }
+        io_cancelled("read")
+    }
+
+    /// Reads the next chunk of bytes, giving up after `timeout`.
+    ///
+    /// Returns `Value` with the chunk, an empty one meaning the peer closed,
+    /// or `TimedOut` when nothing arrived in time, so bytes, a close, a
+    /// timeout and a failure stay four different answers. The deadline is
+    /// measured from the call, so a peer sending a byte just inside every span
+    /// cannot hold the caller open. A cancelled task gets `Interrupted`.
+    public func read(&self, timeout: Duration) -> Result<Timed<Data>, IoError> {
+        var out = Data()
+        match try self.read_into(&var out, timeout) {
+            case Value(_) -> Timed<Data>.Value(value: move out),
+            case TimedOut -> Timed<Data>.TimedOut
+        }
+    }
+
+    /// Appends the next chunk of bytes to `into` and returns how many, 0
+    /// meaning the peer closed, suspending until some arrive.
+    ///
+    /// The bytes land in the caller's buffer, so a loop can gather reads into
+    /// one growing `Data` without a fresh one per chunk. Returns
+    /// `Err(IoError)` when the read fails, `ResourcesExhausted` when `into`
+    /// cannot grow, and `Interrupted` when the task is cancelled; a failed or
+    /// cancelled read leaves `into` as it was.
+    public func read_into(&self, into: &var Data) -> Result<Int, IoError> {
+        while not cancelled() {
+            let r = read_once(self.fd, &var into)
+            if would_block(r) {
+                if park(self.fd, Interest.Read, NO_DEADLINE) {
+                    return io_cancelled("read")
+                }
+            } else if r == NO_SCRATCH {
+                return IoError.of(syscall: "read", kind: IoErrorKind.ResourcesExhausted)
+            } else if r < 0 {
+                return IoError.of(syscall: "read", tag: 0 - r)
+            } else {
+                charge_io_budget()
+                return r
+            }
+        }
+        io_cancelled("read")
+    }
+
+    /// Appends the next chunk to `into`, giving up after `timeout`.
+    ///
+    /// Returns `Value` with the byte count, 0 meaning the peer closed, or
+    /// `TimedOut` when nothing arrived in time, in which case `into` is as it
+    /// was.
+    public func read_into(&self, into: &var Data,
+                          timeout: Duration) -> Result<Timed<Int>, IoError> {
+        let deadline = deadline_after(timeout)
+        while not cancelled() {
+            let r = read_once(self.fd, &var into)
+            if would_block(r) {
+                if deadline_passed(deadline) {
+                    return Timed<Int>.TimedOut
+                }
+                if park(self.fd, Interest.Read, deadline) {
+                    return io_cancelled("read")
+                }
+            } else if r == NO_SCRATCH {
+                return IoError.of(syscall: "read", kind: IoErrorKind.ResourcesExhausted)
+            } else if r < 0 {
+                return IoError.of(syscall: "read", tag: 0 - r)
+            } else {
+                charge_io_budget()
+                return Timed<Int>.Value(value: r)
             }
         }
         io_cancelled("read")
@@ -667,7 +931,7 @@ extension TcpStream {
             }
             let w = write_once(self.fd, &bytes, offset)
             if would_block(w) {
-                if park(self.fd, Interest.Write) {
+                if park(self.fd, Interest.Write, NO_DEADLINE) {
                     return io_cancelled("write")
                 }
             } else if w < 0 {

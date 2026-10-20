@@ -10405,6 +10405,14 @@ on its own behalf such as a park cut short by cancellation. Log the code, branch
 on the kind. Growth is loud: promoting a code out of `Unknown` into a new kind
 breaks an exhaustive match at compile time instead of silently rerouting it.
 
+User code builds an `IoError` with `IoError.of(syscall:kind:)`, for a test double
+or a failure of its own. The result's `code()` is `0`.
+
+```saw-fragment
+let refused = IoError.of(syscall: "connect", kind: IoErrorKind.ConnectionRefused)
+// "{refused}" renders as: io error: connect failed (connection refused)
+```
+
 ```saw-fragment
 import std.net.{TcpListener, TcpStream}
 

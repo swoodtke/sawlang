@@ -53,9 +53,9 @@ func main() {
     let mine = IoError.of(syscall: "read", kind: IoErrorKind.Interrupted)
     print("a std-raised failure carries none: {mine.code() == 0}")
 
-    // The vocabulary is curated, so a tag it has no word for — a runtime newer
-    // than this std — lands on `Unknown` rather than inventing a meaning.
-    let unmapped = IoErrorKind.of(tag: 9999)
+    // The vocabulary is curated and ends in `Unknown`, which is where a failure
+    // it has no word for lands rather than inventing a meaning.
+    let unmapped = IoErrorKind.Unknown
     let is_unknown = match unmapped {
         case Unknown -> true,
         case _ -> false

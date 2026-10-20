@@ -1,0 +1,79 @@
+// probe: stated
+// about: accept(timeout:) and connect(timeout:) answer TimedOut or the stream, and a refused or named host connects as before (SL-770)
+// stage 0: its frozen std.net answers `local_port()` with an `Int`, so it refuses the `try!` on it (SL-768)
+// speeds: -O0 -O2
+// prints: no client: timed out, waited long enough
+// prints: client connected by literal: ping
+// prints: client connected by name: pong
+// prints: closed port: connection refused
+// prints: refused is an Err, not a timeout: true
+// A timed accept and a timed connect (design 272). The accept finds no client
+// and gives up at its deadline, at least as late as the span asked for. A
+// client that arrives is accepted as a `Value`, by an IPv4 literal and by a
+// name, which resolves on a worker thread while the task parks. A port nothing
+// listens on is `Err` of kind `ConnectionRefused`, not a timeout: a closed port
+// and a silent one are different facts.
+import std.net.{IoErrorKind, TcpListener, TcpStream, Timed}
+import std.time
+
+static ASKED_MS: UInt64 = 60
+static FLOOR_MS: UInt64 = 50
+static LONG_SECS: UInt64 = 30
+
+func client(port: Int, host: String, word: String) {
+    match try! TcpStream.connect(host, port, timeout: Duration.secs(LONG_SECS)) {
+        case Value(stream) -> try! stream.write(word),
+        case TimedOut -> print("connect TIMED OUT")
+    }
+}
+
+func serve_one(listener: &TcpListener) -> String {
+    match try! listener.accept(timeout: Duration.secs(LONG_SECS)) {
+        case Value(stream) -> {
+            let chunk = try! stream.read()
+            try! chunk.to_string()
+        },
+        case TimedOut -> "ACCEPT TIMED OUT"
+    }
+}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let port = try! listener.local_port()
+
+    let start = time.Instant.now()
+    match try! listener.accept(timeout: Duration.ms(ASKED_MS)) {
+        case Value(_) -> print("no client: ACCEPTED"),
+        case TimedOut -> {
+            if start.elapsed().as_millis() >= FLOOR_MS {
+                print("no client: timed out, waited long enough")
+            } else {
+                print("no client: TIMED OUT EARLY after {}", start.elapsed())
+            }
+        }
+    }
+
+    var group = TaskGroup()
+    let first = group.spawn(client(port, "127.0.0.1", "ping"))
+    print("client connected by literal: {}", serve_one(&listener))
+    first.join()
+
+    let second = group.spawn(client(port, "localhost", "pong"))
+    print("client connected by name: {}", serve_one(&listener))
+    second.join()
+
+    let gone = try! TcpListener.listen(0)
+    let dead_port = try! gone.local_port()
+    let _ = move gone
+    match TcpStream.connect("127.0.0.1", dead_port, timeout: Duration.secs(LONG_SECS)) {
+        case Ok(_) -> print("closed port: CONNECTED"),
+        case Err(e) -> {
+            print("closed port: {}", e.kind())
+            let refused = match e.kind() {
+                case ConnectionRefused -> true,
+                case _ -> false
+            }
+            print("refused is an Err, not a timeout: {}", refused)
+        }
+    }
+}

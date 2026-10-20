@@ -1,0 +1,72 @@
+// probe: stated
+// about: a timed read answers TimedOut at its deadline, the chunk when bytes are ready first, and an empty Value at a close (SL-770)
+// stage 0: its frozen std.net answers `TcpStream.pair()` with a bare pair, so it refuses the `try!` on it (SL-768)
+// speeds: -O0 -O2
+// prints: idle: timed out, waited long enough
+// prints: zero span, nothing ready: timed out
+// prints: zero span, bytes ready: 3 bytes
+// prints: ready before a long deadline: 3 bytes
+// prints: read_into timed out, buffer holds 2 bytes
+// prints: read_into with bytes ready: 4, buffer holds 6 bytes
+// prints: closed: 0 bytes
+// A read with `timeout:` (SL:coroutines, design 272). An idle pair end parks to
+// its deadline and answers `TimedOut`; the wait is at least the span, never
+// less, since the reactor rounds up. A zero span still tries the read first, so
+// bytes that are already there win the tie and an empty socket answers
+// `TimedOut` at once. A close answers an empty `Value`, distinct from a
+// timeout, and `read_into` leaves the caller's buffer as it was when it times
+// out.
+import std.data.{Data}
+import std.net.{IoError, TcpStream, Timed}
+import std.time
+
+static ASKED_MS: UInt64 = 60
+static FLOOR_MS: UInt64 = 50
+
+func report(label: String, answer: Result<Timed<Data>, IoError>) {
+    match answer {
+        case Ok(timed) -> match timed {
+            case Value(chunk) -> print("{}: {} bytes", label, chunk.len()),
+            case TimedOut -> print("{}: timed out", label)
+        },
+        case Err(e) -> print("{}: error {}", label, e)
+    }
+}
+
+func main() {
+    let (near, far) = try! TcpStream.pair()
+
+    let start = time.Instant.now()
+    match try! near.read(timeout: Duration.ms(ASKED_MS)) {
+        case Value(_) -> print("idle: READ"),
+        case TimedOut -> {
+            if start.elapsed().as_millis() >= FLOOR_MS {
+                print("idle: timed out, waited long enough")
+            } else {
+                print("idle: TIMED OUT EARLY after {}", start.elapsed())
+            }
+        }
+    }
+
+    report("zero span, nothing ready", near.read(timeout: Duration.ns(0)))
+    try! far.write("abc")
+    report("zero span, bytes ready", near.read(timeout: Duration.ns(0)))
+
+    try! far.write("abc")
+    report("ready before a long deadline", near.read(timeout: Duration.secs(30)))
+
+    var buf = Data()
+    try! buf.append(try! "xy".to_data())
+    match try! near.read_into(&var buf, timeout: Duration.ms(30)) {
+        case Value(n) -> print("read_into read {}", n),
+        case TimedOut -> print("read_into timed out, buffer holds {} bytes", buf.len())
+    }
+    try! far.write("abcd")
+    match try! near.read_into(&var buf, timeout: Duration.secs(30)) {
+        case Value(n) -> print("read_into with bytes ready: {}, buffer holds {} bytes", n, buf.len()),
+        case TimedOut -> print("read_into TIMED OUT")
+    }
+
+    let _ = move far
+    report("closed", near.read(timeout: Duration.secs(30)))
+}
