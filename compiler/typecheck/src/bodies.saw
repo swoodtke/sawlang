@@ -161,6 +161,7 @@ extension TcProgram {
         self.settle_places()
         self.settle_captures()
         self.check_thread_braces()
+        self.check_task_spawn_environments()
     }
 
     func check_module_bodies(&var self, m: Int) {
@@ -7918,7 +7919,8 @@ extension TcProgram {
     // the call, then each borrow capture a closure anywhere inside it writes
     // (`[&x]`, `[&var x]`, `[&self]`, `[&var self]`). A reference that a call
     // nested in the arguments makes is none: that call runs at the spawn, and
-    // its borrow ends with the statement.
+    // its borrow ends with the statement. A closure argument's own borrow of
+    // its environment is the second half's (`spawn_environment_sources`).
     // ENTRY POINTS:
     //     refuse_spawn_borrows
     func spawn_borrow_sources(&self, root: Int) -> Vector<Int> {
@@ -7966,6 +7968,117 @@ extension TcProgram {
             }
         }
         move out
+    }
+
+    // The spawn-borrow funnel's second half, which reads the capture tables
+    // `settle_captures` builds: each argument of root call `root` that is a
+    // borrow of an environment, a capturing closure that does not escape,
+    // whose value is a reference to its environment in the spawning function,
+    // or a binding of a non-escaping function value, whose environment some
+    // caller holds. A capture-less closure has no environment (SL-805).
+    // ENTRY POINTS:
+    //     check_task_spawn_environments
+    func spawn_environment_sources(&self, root: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let callee = self.res.first_node_child(root)
+        let n = self.child_count(root)
+        var k = 0
+        while k < n {
+            var arg = self.child(root, k)
+            k = k + 1
+            if arg == callee || self.is_leaf(arg) {
+                continue
+            }
+            if self.has_alt(arg, Alt.Expr_Argument_Positional) {
+                arg = self.res.first_node_child(arg)
+            } else if self.has_alt(arg, Alt.Expr_Argument_Labelled) {
+                arg = self.res.last_node_child(arg)
+            }
+            if self.nonescaping_value(arg) {
+                try! out.push(arg)
+                continue
+            }
+            let at = self.unparen(arg)
+            if at < 0 || not self.has_alt(at, Alt.Expr_Closure) {
+                continue
+            }
+            let found = self.closure_index.first(at, 0)
+            if found < 0 {
+                continue
+            }
+            let ordinal = self.closure_index.value(found)
+            let escapes = ordinal >= self.closure_escaping.len() || self.closure_escaping[ordinal]
+            if not escapes && ordinal < self.capture_count.len() && self.capture_count[ordinal] > 0 {
+                try! out.push(at)
+            }
+        }
+        move out
+    }
+
+    // Each `Task.spawn` root's arguments that borrow an environment
+    // (`spawn_environment_sources`), refused as `spawn.borrow` refuses a
+    // written `&x`: the background task may outlive the environment.
+    func check_task_spawn_environments(&var self) {
+        var k = 0
+        while k < self.calls.len() {
+            let c = self.calls[k]
+            k = k + 1
+            if c.role != TcRole.Spawn || c.spelling < 0 || not self.name_text(c.spelling).equals("Task.spawn") {
+                continue
+            }
+            let root = self.spawned_root_of(c.node)
+            if root < 0 {
+                continue
+            }
+            let sources = self.spawn_environment_sources(root)
+            let m = self.node_module(root)
+            var j = 0
+            while j < sources.len() {
+                let at = sources[j]
+                j = j + 1
+                var msg = StringBuilder()
+                try! msg.append("`Task.spawn` accepts no borrows: ")
+                if self.has_alt(at, Alt.Expr_Closure) {
+                    try! msg.append("the closure at ")
+                    let start = self.res.nodes[at].start
+                    try! msg.append(self.res.position_text(m, start))
+                    try! msg.append(" borrows its environment, which lives in the function that spawns it")
+                } else {
+                    try! msg.append("the closure `")
+                    try! msg.append(self.text(m, at))
+                    try! msg.append("` borrows an environment a caller holds")
+                }
+                try! msg.append(". A background task outlives the statement that spawned it and may be detached, so no join ends the borrow: spawn into a `TaskGroup`, since a group's scope is the borrow's extent, or hand the task an owned value, an `Arc` or a `Channel`")
+                self.refuse(at, "spawn.borrow", msg.build())
+            }
+        }
+    }
+
+    // The root call of spawn form `e`: its argument the form marked as a
+    // spawn root, or -1.
+    func spawned_root_of(&self, e: Int) -> Int {
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if self.spawn_roots[c] {
+                return c
+            }
+            let inner = self.child_count(c)
+            var j = 0
+            while j < inner {
+                let g = self.child(c, j)
+                j = j + 1
+                if not self.is_leaf(g) && self.spawn_roots[g] {
+                    return g
+                }
+            }
+        }
+        return -1
     }
 
     // Refuses each borrow root call `root` of spawn form `form` would take,

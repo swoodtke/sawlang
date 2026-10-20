@@ -98,8 +98,10 @@ fn generics.copied(x: T) -> Int {
     let _1: T;  // param x
     let _2: &T;
     let _3: T;
-    let _4: () -> Int;
-    let _5: Int;
+    let _4: (T,);  // environment
+    let _5: &(T,);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _2 = ref(shared, _1);
@@ -107,12 +109,14 @@ fn generics.copied(x: T) -> Int {
     }
 
     bb1: {
-        _4 = closure#0 of generics.copied(x: T) [move _3];
-        _5 = call generics.run(body: () -> Int) [move _4] -> [return: bb2];
+        _4 = (move _3,);
+        _5 = ref(shared, _4);
+        _6 = closure#0 of generics.copied(x: T) [move _5];
+        _7 = call generics.run(body: () -> Int) [move _6] -> [return: bb2];
     }
 
     bb2: {
-        _0 = move _5;
+        _0 = move _7;
         drop(_1);
         return;
     }

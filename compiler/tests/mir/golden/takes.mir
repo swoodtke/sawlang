@@ -74,19 +74,23 @@ fn takes.once() -> Int {
     let _2: takes.Res;
     let _3: Bool;  // flag r
     let _4: (&var takes.Res, &var Bool);
-    let _5: () -> Int;
-    let _6: Int;
+    let _5: ((&var takes.Res, &var Bool),);  // environment
+    let _6: &var ((&var takes.Res, &var Bool),);
+    let _7: () -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = takes.Res { name: const "abc": String };
         _1 = move _2;
         _4 = take(_1, _3);
-        _5 = closure#0 of takes.once() [move _4];
-        _6 = call takes.run(body: () -> Int) [move _5] -> [return: bb1];
+        _5 = (move _4,);
+        _6 = ref(exclusive, _5);
+        _7 = closure#0 of takes.once() [move _6];
+        _8 = call takes.run(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _6;
+        _0 = move _8;
         drop(_1);
         return;
     }
@@ -125,19 +129,23 @@ fn takes.twice() -> Int {
     let _2: takes.Res;
     let _3: Bool;  // flag r
     let _4: (&var takes.Res, &var Bool);
-    let _5: () -> Int;
-    let _6: Int;
+    let _5: ((&var takes.Res, &var Bool),);  // environment
+    let _6: &var ((&var takes.Res, &var Bool),);
+    let _7: () -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = takes.Res { name: const "abc": String };
         _1 = move _2;
         _4 = take(_1, _3);
-        _5 = closure#0 of takes.twice() [move _4];
-        _6 = call takes.run_twice(body: () -> Int) [move _5] -> [return: bb1];
+        _5 = (move _4,);
+        _6 = ref(exclusive, _5);
+        _7 = closure#0 of takes.twice() [move _6];
+        _8 = call takes.run_twice(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _6;
+        _0 = move _8;
         drop(_1);
         return;
     }
@@ -176,19 +184,23 @@ fn takes.never() -> Int {
     let _2: takes.Res;
     let _3: Bool;  // flag r
     let _4: (&var takes.Res, &var Bool);
-    let _5: () -> Int;
-    let _6: Int;
+    let _5: ((&var takes.Res, &var Bool),);  // environment
+    let _6: &var ((&var takes.Res, &var Bool),);
+    let _7: () -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = takes.Res { name: const "abc": String };
         _1 = move _2;
         _4 = take(_1, _3);
-        _5 = closure#0 of takes.never() [move _4];
-        _6 = call takes.skip(body: () -> Int) [move _5] -> [return: bb1];
+        _5 = (move _4,);
+        _6 = ref(exclusive, _5);
+        _7 = closure#0 of takes.never() [move _6];
+        _8 = call takes.skip(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _6;
+        _0 = move _8;
         drop(_1);
         return;
     }
@@ -227,19 +239,23 @@ fn takes.kept() -> Int {
     let _2: takes.Res;
     let _3: Bool;  // flag r
     let _4: (&var takes.Res, &var Bool);
-    let _5: () -> Int;
-    let _6: Int;
+    let _5: ((&var takes.Res, &var Bool),);  // environment
+    let _6: &var ((&var takes.Res, &var Bool),);
+    let _7: () -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = takes.Res { name: const "abc": String };
         _1 = move _2;
         _4 = take(_1, _3);
-        _5 = closure#0 of takes.kept() [move _4];
-        _6 = call takes.run(body: () -> Int) [move _5] -> [return: bb1];
+        _5 = (move _4,);
+        _6 = ref(exclusive, _5);
+        _7 = closure#0 of takes.kept() [move _6];
+        _8 = call takes.run(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _6;
+        _0 = move _8;
         drop(_1);
         return;
     }
@@ -279,17 +295,21 @@ fn takes.param(r: takes.Res) -> Int {
     let _1: takes.Res;  // param r
     let _2: Bool;  // flag r
     let _3: (&var takes.Res, &var Bool);
-    let _4: () -> Int;
-    let _5: Int;
+    let _4: ((&var takes.Res, &var Bool),);  // environment
+    let _5: &var ((&var takes.Res, &var Bool),);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _3 = take(_1, _2);
-        _4 = closure#0 of takes.param(r: takes.Res) [move _3];
-        _5 = call takes.run(body: () -> Int) [move _4] -> [return: bb1];
+        _4 = (move _3,);
+        _5 = ref(exclusive, _4);
+        _6 = closure#0 of takes.param(r: takes.Res) [move _5];
+        _7 = call takes.run(body: () -> Int) [move _6] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _5;
+        _0 = move _7;
         drop(_1);
         return;
     }
@@ -329,37 +349,45 @@ fn takes.retaken() -> Int {
     let _3: Int;  // first
     let _4: Bool;  // flag r
     let _5: (&var takes.Res, &var Bool);
-    let _6: () -> Int;
-    let _7: Int;
-    let _8: takes.Res;
+    let _6: ((&var takes.Res, &var Bool),);  // environment
+    let _7: &var ((&var takes.Res, &var Bool),);
+    let _8: () -> Int;
     let _9: Int;
-    let _10: (&var takes.Res, &var Bool);
-    let _11: () -> Int;
-    let _12: Int;
-    let _13: Int;
+    let _10: takes.Res;
+    let _11: Int;
+    let _12: (&var takes.Res, &var Bool);
+    let _13: ((&var takes.Res, &var Bool),);  // environment
+    let _14: &var ((&var takes.Res, &var Bool),);
+    let _15: () -> Int;
+    let _16: Int;
+    let _17: Int;
 
     bb0: {
         _2 = takes.Res { name: const "abc": String };
         _1 = move _2;
         _5 = take(_1, _4);
-        _6 = closure#0 of takes.retaken() [move _5];
-        _7 = call takes.run(body: () -> Int) [move _6] -> [return: bb1];
+        _6 = (move _5,);
+        _7 = ref(exclusive, _6);
+        _8 = closure#0 of takes.retaken() [move _7];
+        _9 = call takes.run(body: () -> Int) [move _8] -> [return: bb1];
     }
 
     bb1: {
-        _3 = move _7;
-        _8 = takes.Res { name: const "de": String };
+        _3 = move _9;
+        _10 = takes.Res { name: const "de": String };
         drop(_1);
-        _1 = move _8;
-        _9 = copy _3;
-        _10 = take(_1, _4);
-        _11 = closure#1 of takes.retaken() [move _10];
-        _12 = call takes.run(body: () -> Int) [move _11] -> [return: bb2];
+        _1 = move _10;
+        _11 = copy _3;
+        _12 = take(_1, _4);
+        _13 = (move _12,);
+        _14 = ref(exclusive, _13);
+        _15 = closure#1 of takes.retaken() [move _14];
+        _16 = call takes.run(body: () -> Int) [move _15] -> [return: bb2];
     }
 
     bb2: {
-        _13 = Add(move _9, move _12);
-        _0 = move _13;
+        _17 = Add(move _11, move _16);
+        _0 = move _17;
         drop(_1);
         return;
     }
@@ -424,18 +452,22 @@ fn takes.copy_tier() -> Int {
     let _1: String;  // s
     let _2: Bool;  // flag s
     let _3: (&var String, &var Bool);
-    let _4: () -> Int;
-    let _5: Int;
+    let _4: ((&var String, &var Bool),);  // environment
+    let _5: &var ((&var String, &var Bool),);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _1 = const "abc": String;
         _3 = take(_1, _2);
-        _4 = closure#0 of takes.copy_tier() [move _3];
-        _5 = call takes.run(body: () -> Int) [move _4] -> [return: bb1];
+        _4 = (move _3,);
+        _5 = ref(exclusive, _4);
+        _6 = closure#0 of takes.copy_tier() [move _5];
+        _7 = call takes.run(body: () -> Int) [move _6] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _5;
+        _0 = move _7;
         drop(_1);
         return;
     }
@@ -473,17 +505,21 @@ fn closure#0 of takes.copy_tier() -> Int {
 fn takes.trivial() -> Int {
     let _0: Int;  // return
     let _1: Int;  // n
-    let _2: () -> Int;
-    let _3: Int;
+    let _2: (Int,);  // environment
+    let _3: &(Int,);
+    let _4: () -> Int;
+    let _5: Int;
 
     bb0: {
         _1 = const 3: Int;
-        _2 = closure#0 of takes.trivial() [move _1];
-        _3 = call takes.run(body: () -> Int) [move _2] -> [return: bb1];
+        _2 = (move _1,);
+        _3 = ref(shared, _2);
+        _4 = closure#0 of takes.trivial() [move _3];
+        _5 = call takes.run(body: () -> Int) [move _4] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _3;
+        _0 = move _5;
         return;
     }
 }

@@ -1,0 +1,20 @@
+// refuses: spawn.borrow at 13:28
+// a non-escaping closure parameter forwarded into a `Task.spawn` root: its
+// environment is a caller's, which the background task may outlive, as a
+// forwarded `&r` would.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func forward(f: () -> Int) {
+    var t = Task.spawn(run(f))
+    t.detach()
+}
+
+func main() {
+    let base = 5
+    forward({ [base] in base + 1 })
+}

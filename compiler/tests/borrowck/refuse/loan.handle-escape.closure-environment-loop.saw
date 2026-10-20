@@ -1,0 +1,24 @@
+// refuses: loan.handle-escape at 16:43
+// a closure spawned in a loop, its handle kept past the iteration: the next
+// iteration rebuilds the one environment while the first task still borrows
+// it, so every task would read the last iteration's capture.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var group = TaskGroup()
+    var handles = Vector<Task<Int>>()
+    for i in 0..3 {
+        try! handles.push(group.spawn(run({ [i] in i * 10 + 1 })))
+    }
+    var total = 0
+    while handles.len() > 0 {
+        let h = handles.pop()!
+        total += h.join()
+    }
+    print("{}", total)
+}

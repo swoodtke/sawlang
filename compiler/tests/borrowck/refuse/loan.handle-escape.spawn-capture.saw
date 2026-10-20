@@ -1,0 +1,21 @@
+// refuses: loan.handle-escape at 14:29
+// a borrow capture spawned into the caller's group with no join before the
+// return: the capture's own borrow of `n` is the one named, ahead of the
+// closure's environment.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func start(group: &var TaskGroup) {
+    var n = 7
+    let _ = group.spawn(run({ [&var n] in n = n + 1; n }))
+}
+
+func main() {
+    var group = TaskGroup()
+    start(&var group)
+    yield_now()
+}

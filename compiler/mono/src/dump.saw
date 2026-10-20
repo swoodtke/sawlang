@@ -256,7 +256,8 @@ extension MonoProgram {
             case Flag -> {
                 try! out.append("  // flag ")
                 try! out.append(self.dp.bc.mir.tc.name_text(l.name))
-            }
+            },
+            case Environment -> try! out.append("  // environment")
         }
     }
 

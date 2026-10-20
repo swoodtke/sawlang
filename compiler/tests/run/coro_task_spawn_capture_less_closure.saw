@@ -1,0 +1,15 @@
+// A capture-less closure argument of a detached `Task.spawn` root: it has no
+// environment, so it borrows nothing of `main` and is accepted, and the task
+// runs it at the exit's cancel-then-join (SL-805).
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var t = Task.spawn(run({ 6 }))
+    t.detach()
+    print("spawned")
+}

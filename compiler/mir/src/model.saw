@@ -18,7 +18,12 @@ public enum MirLocalKind {
     case User,
     case Temp,
     case Record,
-    case Flag
+    case Flag,
+    // A non-escaping closure's environment, in the function that builds the
+    // closure: the closure value is a reference to it, so it is storage of
+    // that function's own, frame-resident when it lives across a suspension
+    // (`closure_environment`). `node` is the closure.
+    case Environment
 }
 
 public struct MirLocal {

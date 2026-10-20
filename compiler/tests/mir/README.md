@@ -75,7 +75,8 @@ fn NAME -> RESULT {
   `// NAME` for a `let`, `var` or pattern binding, `// ref NAME` for one whose
   local holds a reference its name reads through (a borrow binding, an
   alias into a borrowed scrutinee, a guard's view of a binding), `// flag
-  NAME` for the take flag of a binding a take capture takes (Closure
+  NAME` for the take flag of a binding a take capture takes, `// environment`
+  for a closure's environment in the function that builds it (Closure
   environments, below); a temporary has none. A receiver is `&Self` or `&var Self`, and `Self` for a `consumes`
   method, which owns it. `// record` marks an accessor's state record: a
   half's first parameter, `&var` of the record, or a caller's local holding
@@ -125,7 +126,7 @@ array or an Optional of those alone. An **rvalue** is:
 | `TYPE::CASE(A, ...)` | an enum case; `Optional`'s and `Result`'s are the auto-wraps |
 | `(A, B)`, `[A, B]`, `[A; N]` | a tuple, a fixed array, a repeat literal |
 | `vector [...]: T`, `set [...]: T`, `map [K: V, ...]: T` | a collection literal |
-| `closure#K of PARENT [A, ...]` | a closure, its captures in its table's order |
+| `closure#K of PARENT [A, ...]` | a closure, its captures in its table's order, or one `ref` of the environment local it keeps (Closure environments, below) |
 | `interpolate [A, ...]` | an interpolated string's segments, placeholders and values, a `String` it allocates |
 | `take(_L, _F)` | a take capture's environment entry: exclusive references to the local `_L` the closure body takes and to its take flag `_F`, `(&var T, &var Bool)` |
 
@@ -363,7 +364,7 @@ through a reference to stay a reported move.
 | `p[i] = x`, `*p = x` through a raw pointer | a placement store, no drop of the slot first (spec, Placement writes); a fixed array's `a[i] = x` and a `&var` referent's `r = x` drop what they held | placements |
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
-| a closure | an aggregate of its captures, its body a function of its own | closures |
+| a closure | an aggregate of its captures, its body a function of its own; a non-escaping one that captures, its captures built into an environment local and the closure a `ref` of it | closures, takes |
 | any capture of a reference parameter or a slice, `[&r]`, `[&var r]`, `[r]`, `[copy r]` or implicit; a slice's `&s` | a reborrow of the referent, `ref(MODE, (*_1))`, typed as the reference in that mode: the word's, or for a copy the reference's own | reborrow_captures |
 | a non-escaping `[move v]` of a value that owns something | `take(_L, _F)` in the environment; in the body, the flag's test, the take and the flag's clear | takes |
 | `print("x = {}", x)`, `panic`'s and `assert`'s format messages | a `format` constant, the arguments after it; `"x = {x}"` an `interpolate` | formats |
@@ -472,8 +473,26 @@ alias row. A user's `move` of an aliased binding is typecheck's to refuse
 (`transfer.move-from-borrow`); one it missed would lower through the alias,
 and the verifier would report it.
 
-**Closure environments** (`lower_closure`). A closure's body reads its
-captures out of its environment, `_1`, at entry. An escaping closure's
+**Closure environments** (`lower_closure`). Where the environment lives is
+`closure_environment`'s answer (`compiler/mir/src/build.saw`, whose
+docstring lists its entry points). A closure that captures something, does
+not escape, and is no `Thread.spawn` brace keeps it in a local of the function
+that builds it, noted `// environment`: the captures are built into that
+local as a tuple, and the closure's one operand is a `ref` of it, exclusive
+when an element is an exclusive reference or a take (SL-805):
+
+```
+_4 = (copy _1,);
+_5 = ref(shared, _4);
+_6 = closure#0 of generic_recursion.closed(x: T, n: Int) [move _5];
+```
+
+So the environment is storage of that function's own, frame-resident when it
+lives across a suspension, and the borrow check holds the closure value,
+wherever it is passed, a spawn's root included, to a loan of it. An escaping
+closure, a `Thread.spawn` brace, whose site moves the environment to the heap,
+and a closure that captures nothing are the aggregate of their captures. A
+closure's body reads its captures out of its environment, `_1`, at entry. An escaping closure's
 environment is shared by every copy of the closure and released once, at its
 last owner (spec, Escaping-closure heap environments), so a call never takes
 ownership out of it (`load_owned_capture`, SL-475), and neither does a call of
@@ -523,7 +542,9 @@ its flag:
 
 ```
 _4 = take(_1, _3);
-_5 = closure#0 of takes.once() [move _4];
+_5 = (move _4,);
+_6 = ref(exclusive, _5);
+_7 = closure#0 of takes.once() [move _6];
 ```
 
 The body's entry tests the flag, panics on a run after the one that took the

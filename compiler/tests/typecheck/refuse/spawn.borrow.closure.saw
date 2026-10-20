@@ -1,0 +1,16 @@
+// refuses: spawn.borrow at 14:28
+// a capturing closure argument of a `Task.spawn` root, the form's third
+// borrow: the closure is a reference to its environment in `main`, and the
+// detached task would call it after `main` is gone.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    let base = 5
+    var t = Task.spawn(run({ [base] in base + 1 }))
+    t.detach()
+}

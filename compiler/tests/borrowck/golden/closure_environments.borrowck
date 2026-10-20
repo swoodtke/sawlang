@@ -1,0 +1,268 @@
+module closure_environments
+
+fn closure_environments.run(f: () -> Int) {
+    place _1: () -> Int;  // f
+
+    bb0: {
+        [W] call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        [W] _2 = call value copy _1 [] -> [return: bb2];
+    }
+
+    bb2: {
+        [W] _0 = move _2;
+        [W] drop(_1);  // static
+        [D] return;
+    }
+}
+
+fn closure_environments.read(r: &Int) {
+
+    bb0: {
+        [] call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        [] _2 = Add(copy (*_1), const 1: Int);
+        [] _0 = move _2;
+        [] return;
+    }
+}
+
+fn closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) {
+    place _7: std.taskgroup.Task<Int>;  // h
+    place _10: () -> Int;  // _10
+    place _12: std.taskgroup.Task<Int>;  // _12
+    loan L0: exclusive _3;  // argument at 20:5
+    loan L1: shared _8;  // capture at 21:33
+    loan L2: shared (*_1);  // argument at 21:17
+    loan L3: shared (*_1);  // handle at 21:17
+    loan L4: shared _7;  // argument at 22:18
+    loan L5: shared _8;  // capture at 21:17
+
+    bb0: {
+        [U U U] {} _2 = const 0: Int;
+        [U U U] {} _3 = Range(const 0: Int, const 3: Int);
+        [U U U] {} goto -> bb1;
+    }
+
+    bb1: {
+        [UD UM UM] {} _5 = ref(exclusive, _3);
+        [UD UM UM] {L0} _4 = call Range.next() (owner Range) [move _5] -> [return: bb3];
+    }
+
+    bb2: {
+        [UD UM UM] {} _0 = copy _2;
+        [UD UM UM] {} return;
+    }
+
+    bb3: {
+        [UD UM UM] {} switch discriminant(_4) -> [Some: bb4, None: bb2];
+    }
+
+    bb4: {
+        [UD UM UM] {} _6 = copy (_4 as Some).0;
+        [UD UM UM] {} budget(yield-capable);
+        [UD UM UM] {} goto -> bb5;
+    }
+
+    bb5: {
+        [UD UM UM] {} _8 = (copy _6,);
+        [UD UM UM] {} _9 = ref(shared, _8);
+        [UD UM UM] {L1} _10 = closure#0 of closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) [move _9];
+        [UD W UM] {L1} _11 = ref(shared, (*_1));
+        [UD W UM] {L1 L2} _12 = spawn group closure_environments.run(f: () -> Int) [move _11, move _10] -> [return: bb6];
+    }
+
+    bb6: {
+        [UD M W] {L3 L5} _7 = move _12;
+        [W M M] {L3 L5} _13 = ref(shared, _7);
+        [W M M] {L4 L5} _14 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _13] -> [return: bb7];
+    }
+
+    bb7: {
+        [W M M] {} _2 = Add(copy _2, move _14);
+        [W M M] {} drop(_7);  // static
+        [D M M] {} goto -> bb1;
+    }
+}
+
+fn closure#0 of closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) {
+
+    bb0: {
+        [] _2 = copy (*_1).0;
+        [] _3 = Mul(copy _2, const 10: Int);
+        [] _4 = Add(move _3, const 1: Int);
+        [] _0 = move _4;
+        [] return;
+    }
+}
+
+fn closure_environments.owned_group(base: Int) {
+    place _2: std.taskgroup.TaskGroup;  // group
+    place _3: std.taskgroup.TaskGroup;  // _3
+    place _6: () -> Int;  // _6
+    place _8: std.taskgroup.Task<Int>;  // _8
+    loan L0: shared _4;  // capture at 29:29
+    loan L1: shared _2;  // argument at 29:13
+    loan L2: shared _2;  // handle at 29:13
+    loan L3: shared _4;  // capture at 29:13
+
+    bb0: {
+        [U U U U] {} _3 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W U U] {} _2 = move _3;
+        [W M U U] {} _4 = (copy _1,);
+        [W M U U] {} _5 = ref(shared, _4);
+        [W M U U] {L0} _6 = closure#0 of closure_environments.owned_group(base: Int) [move _5];
+        [W M W U] {L0} _7 = ref(shared, _2);
+        [W M W U] {L0 L1} _8 = spawn group closure_environments.run(f: () -> Int) [move _7, move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M M W] {L3} drop(_8);  // static
+        [W M M D] {L3} drop(_2);  // static
+        [D M M D] {} return;
+    }
+}
+
+fn closure#0 of closure_environments.owned_group(base: Int) {
+
+    bb0: {
+        [] _2 = copy (*_1).0;
+        [] _3 = Add(copy _2, const 1: Int);
+        [] _0 = move _3;
+        [] return;
+    }
+}
+
+fn closure_environments.forward_closure(group: &var std.taskgroup.TaskGroup, f: () -> Int) {
+    place _2: () -> Int;  // f
+    place _3: std.taskgroup.Task<Int>;  // h
+    place _5: std.taskgroup.Task<Int>;  // _5
+    loan L0: shared (*_1);  // argument at 33:13
+    loan L1: shared (*_1);  // handle at 33:13
+    loan L2: shared _3;  // argument at 34:5
+    loan L3: shared _2;  // argument at 33:13
+
+    bb0: {
+        [W U U] {} _4 = ref(shared, (*_1));
+        [W U U] {L0} _5 = spawn group closure_environments.run(f: () -> Int) [move _4, copy _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [W U W] {L1 L3} _3 = move _5;
+        [W W M] {L1 L3} _6 = ref(shared, _3);
+        [W W M] {L2 L3} _7 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        [W W M] {} _0 = move _7;
+        [W W M] {} drop(_3);  // static
+        [W D M] {} drop(_2);  // static
+        [D D M] {} return;
+    }
+}
+
+fn closure_environments.forward_reference(group: &var std.taskgroup.TaskGroup, r: &Int) {
+    place _3: std.taskgroup.Task<Int>;  // h
+    place _6: std.taskgroup.Task<Int>;  // _6
+    loan L0: shared (*_2);  // argument at 38:30
+    loan L1: shared (*_1);  // argument at 38:13
+    loan L2: shared (*_1);  // handle at 38:13
+    loan L3: shared _3;  // argument at 39:5
+    loan L4: shared (*_2);  // argument at 38:13
+
+    bb0: {
+        [U U] {} _4 = ref(shared, (*_2));
+        [U U] {L0} _5 = ref(shared, (*_1));
+        [U U] {L0 L1} _6 = spawn group closure_environments.read(r: &Int) [move _5, move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W] {L2 L4} _3 = move _6;
+        [W M] {L2 L4} _7 = ref(shared, _3);
+        [W M] {L3 L4} _8 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _7] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M] {} _0 = move _8;
+        [W M] {} drop(_3);  // static
+        [D M] {} return;
+    }
+}
+
+fn closure_environments.main() {
+    place _2: std.taskgroup.TaskGroup;  // group
+    place _3: std.taskgroup.TaskGroup;  // _3
+    place _10: () -> Int;  // _10
+    loan L0: exclusive _2;  // argument at 45:29
+    loan L1: exclusive _2;  // argument at 47:33
+    loan L2: exclusive _1;  // capture at 47:45
+    loan L3: exclusive (*_7);  // capture at 47:45
+    loan L4: exclusive _8;  // capture at 47:45
+    loan L5: exclusive _2;  // argument at 48:35
+    loan L6: shared _1;  // argument at 48:47
+
+    bb0: {
+        [U U U] {} _1 = const 7: Int;
+        [U U U] {} _3 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W U] {} _2 = move _3;
+        [W M U] {} _4 = ref(exclusive, _2);
+        [W M U] {L0} _5 = call closure_environments.joined_loop(group: &var std.taskgroup.TaskGroup) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M U] {} call builtin print [format "{}", copy _5] -> [return: bb3];
+    }
+
+    bb3: {
+        [W M U] {} call closure_environments.owned_group(base: Int) [const 41: Int] -> [return: bb4];
+    }
+
+    bb4: {
+        [W M U] {} _6 = ref(exclusive, _2);
+        [W M U] {L1} _7 = ref(exclusive, _1);
+        [W M U] {L1 L2} _8 = (move _7,);
+        [W M U] {L1 L2 L3} _9 = ref(exclusive, _8);
+        [W M U] {L1 L2 L3 L4} _10 = closure#0 of closure_environments.main() [move _9];
+        [W M W] {L1 L2 L3 L4} _11 = call closure_environments.forward_closure(group: &var std.taskgroup.TaskGroup, f: () -> Int) [move _6, move _10] -> [return: bb5];
+    }
+
+    bb5: {
+        [W M M] {} call builtin print [format "{}", copy _11] -> [return: bb6];
+    }
+
+    bb6: {
+        [W M M] {} _12 = ref(exclusive, _2);
+        [W M M] {L5} _13 = ref(shared, _1);
+        [W M M] {L5 L6} _14 = call closure_environments.forward_reference(group: &var std.taskgroup.TaskGroup, r: &Int) [move _12, move _13] -> [return: bb7];
+    }
+
+    bb7: {
+        [W M M] {} call builtin print [format "{}", copy _14] -> [return: bb8];
+    }
+
+    bb8: {
+        [W M M] {} drop(_2);  // static
+        [D M M] {} return;
+    }
+}
+
+fn closure#0 of closure_environments.main() {
+
+    bb0: {
+        [] _2 = copy (*_1).0;
+        [] _3 = Add(copy (*_2), const 1: Int);
+        [] (*_2) = move _3;
+        [] _0 = copy (*_2);
+        [] return;
+    }
+}

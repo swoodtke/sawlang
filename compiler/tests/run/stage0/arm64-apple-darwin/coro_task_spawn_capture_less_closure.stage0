@@ -1,0 +1,7 @@
+program	compiler/tests/run/coro_task_spawn_capture_less_closure.saw
+triple	arm64-apple-darwin
+source	25c1c80e4ed88df7
+build	ok
+exit	0
+stdout	"spawned"
+stdout	""

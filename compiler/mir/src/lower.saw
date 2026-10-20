@@ -597,18 +597,11 @@ extension MirProgram {
         let k = self.tc.closure_index.value(at)
         let first = self.tc.capture_first[k]
         let count = self.tc.capture_count[k]
-        var elements = Vector<Int>()
+        let elements = self.closure_env_elements(k)
         var takes = Vector<Bool>()
         var j = 0
         while j < count {
-            let cap = self.tc.captures[first + j]
-            let take = self.take_capture(k, j)
-            try! takes.push(take)
-            if take {
-                try! elements.push(self.take_entry_type(cap.ty))
-            } else {
-                try! elements.push(self.capture_type(&cap))
-            }
+            try! takes.push(self.take_capture(k, j))
             j = j + 1
         }
         let none = Vector<Int>()
@@ -798,6 +791,26 @@ extension MirProgram {
             return self.tc.is_exclusive_ref(cap.ty)
         }
         cap.use == TcUse.BorrowVar
+    }
+
+    // The element types of closure `k`'s environment tuple, in its capture
+    // table's order: the one spelling of the layout the closure body reads
+    // and the function building the closure writes.
+    func closure_env_elements(&var self, k: Int) -> Vector<Int> {
+        let first = self.tc.capture_first[k]
+        let count = self.tc.capture_count[k]
+        var elements = Vector<Int>()
+        var j = 0
+        while j < count {
+            let cap = self.tc.captures[first + j]
+            if self.take_capture(k, j) {
+                try! elements.push(self.take_entry_type(cap.ty))
+            } else {
+                try! elements.push(self.capture_type(&cap))
+            }
+            j = j + 1
+        }
+        move elements
     }
 
     // The type a capture takes in its closure's environment: the value, a
@@ -4254,9 +4267,13 @@ extension MirProgram {
         self.temp_operand(rv)
     }
 
-    // A closure: the aggregate of its captures, each taken as typecheck's
-    // capture table says, its body lowered after the function it is written
-    // in (SL:architecture §3.5).
+    // A closure: its captures, each taken as typecheck's capture table says,
+    // its body lowered after the function it is written in (SL:architecture
+    // §3.5). An environment this function keeps (`closure_environment`) is a
+    // local of its own, built from the captures, and the closure's one
+    // operand is a reference to it, exclusive when a capture is: a loan the
+    // borrow check holds the closure value to, and storage the frame layout
+    // places. Any other closure is the aggregate of its captures.
     func closure(&var self, e: Int) -> Int {
         let t = self.tc.expr_types[e]
         let at = self.tc.closure_index.first(e, 0)
@@ -4265,7 +4282,29 @@ extension MirProgram {
             return self.dead_operand(t)
         }
         let index = self.tc.closure_index.value(at)
-        let ops = self.closure_captures(e, index)
+        let captures = self.closure_captures(e, index)
+        var ops = Vector<Int>()
+        if self.closure_environment(e) {
+            let elements = self.closure_env_elements(index)
+            let none = Vector<Int>()
+            let env_tuple = self.tc.mk_tuple(&elements, &none)
+            let env = self.new_local(env_tuple, MirLocalKind.Environment, -1, e)
+            let built = self.rv_aggregate(MirAggregate.Tuple, -1, env_tuple, &captures)
+            self.assign_local(env, built)
+            var exclusive = false
+            var j = 0
+            while j < elements.len() {
+                if self.tc.is_exclusive_ref(elements[j]) || self.take_capture(index, j) {
+                    exclusive = true
+                }
+                j = j + 1
+            }
+            let whole = self.place_local(env)
+            let lent = self.rv_ref(exclusive, whole)
+            try! ops.push(self.temp_operand(lent))
+        } else {
+            ops = move captures
+        }
         let rv = self.rv_aggregate(MirAggregate.Closure, e, t, &ops)
         let parent = self.cur
         try! self.pending.push(e)

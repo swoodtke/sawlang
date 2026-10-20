@@ -458,20 +458,24 @@ fn scrutinees.match_capture() -> Int {
     let _2: scrutinees.Res;
     let _3: scrutinees.Slot;
     let _4: &scrutinees.Slot;
-    let _5: () -> Int;
-    let _6: Int;
+    let _5: (&scrutinees.Slot,);  // environment
+    let _6: &(&scrutinees.Slot,);
+    let _7: () -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = scrutinees.Res { name: const "a": String };
         _3 = scrutinees.Slot::Occupied(move _2);
         _1 = move _3;
         _4 = ref(shared, _1);
-        _5 = closure#0 of scrutinees.match_capture() [move _4];
-        _6 = call scrutinees.run(body: () -> Int) [move _5] -> [return: bb1];
+        _5 = (move _4,);
+        _6 = ref(shared, _5);
+        _7 = closure#0 of scrutinees.match_capture() [move _6];
+        _8 = call scrutinees.run(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _6;
+        _0 = move _8;
         drop(_1);
         return;
     }
@@ -524,19 +528,23 @@ fn scrutinees.match_capture_copy() -> Int {
     let _1: scrutinees.Tag;  // t
     let _2: scrutinees.Tag;
     let _3: &scrutinees.Tag;
-    let _4: () -> Int;
-    let _5: Int;
+    let _4: (&scrutinees.Tag,);  // environment
+    let _5: &(&scrutinees.Tag,);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _2 = scrutinees.Tag::Named(const "a": String);
         _1 = move _2;
         _3 = ref(shared, _1);
-        _4 = closure#0 of scrutinees.match_capture_copy() [move _3];
-        _5 = call scrutinees.run(body: () -> Int) [move _4] -> [return: bb1];
+        _4 = (move _3,);
+        _5 = ref(shared, _4);
+        _6 = closure#0 of scrutinees.match_capture_copy() [move _5];
+        _7 = call scrutinees.run(body: () -> Int) [move _6] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _5;
+        _0 = move _7;
         drop(_1);
         return;
     }
@@ -1081,19 +1089,23 @@ fn scrutinees.if_let_capture() -> Int {
     let _1: String?;  // o
     let _2: String?;
     let _3: &String?;
-    let _4: () -> Int;
-    let _5: Int;
+    let _4: (&String?,);  // environment
+    let _5: &(&String?,);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _2 = String?::Some(const "a": String);
         _1 = move _2;
         _3 = ref(shared, _1);
-        _4 = closure#0 of scrutinees.if_let_capture() [move _3];
-        _5 = call scrutinees.run(body: () -> Int) [move _4] -> [return: bb1];
+        _4 = (move _3,);
+        _5 = ref(shared, _4);
+        _6 = closure#0 of scrutinees.if_let_capture() [move _5];
+        _7 = call scrutinees.run(body: () -> Int) [move _6] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _5;
+        _0 = move _7;
         drop(_1);
         return;
     }

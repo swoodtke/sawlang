@@ -1,0 +1,25 @@
+// refuses: loan.handle-escape at 14:13
+// a closure parameter forwarded into a spawn into the caller's group with no
+// join before the return, as `loan.handle-escape.spawn-borrow` forwards a
+// reference: the closure's environment is a local of a caller, which `forward`
+// cannot see outlive the task.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func forward(group: &var TaskGroup, f: () -> Int) {
+    let _ = group.spawn(run(f))
+}
+
+func start(group: &var TaskGroup, base: Int) {
+    forward(&var group, { [base] in base + 1 })
+}
+
+func main() {
+    var group = TaskGroup()
+    start(&var group, 41)
+    yield_now()
+}

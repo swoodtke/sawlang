@@ -526,6 +526,7 @@ func coro_append_local_note(coro: &CoroProgram, out: &var StringBuilder, l: &Mir
         case Flag -> {
             try! out.append(" flag ")
             try! out.append(coro.mono.dp.bc.mir.tc.name_text(l.name))
-        }
+        },
+        case Environment -> try! out.append(" environment")
     }
 }

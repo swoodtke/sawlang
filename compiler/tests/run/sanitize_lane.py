@@ -7,7 +7,7 @@ reported at its access (SL:coroutines B3, risk R2).
 
 `compiler/tests/run.py` runs `run()` as its `sanitize` step. Each case is one
 of the run lane's `coro_*` programs that is not due, its offload pins
-(`OFFLOAD_PINS`), or a `thread_*` probe of `probes/` that states its output
+(`OFFLOAD_PINS`), or a `thread_*` or `coro_*` probe of `probes/` that states its output
 (`stated` or `panics`). Each is built at -O0 twice, plainly and with
 `sawc2 build --sanitize address`, which stamps `sanitize_address` on every
 function and poisons each lowered frame's values outside the lifetimes rule 5
@@ -49,8 +49,11 @@ INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60
 # The lane checks frame accesses; LeakSanitizer, on by default on Linux,
-# would fail a program for a leak, which is no frame access.
-ASAN_OPTIONS = "detect_leaks=0"
+# would fail a program for a leak, which is no frame access. A resume
+# function's stack slots die each time it returns `Pending`, so a value read
+# from one after a suspension is a stack use after return, which ASan reports
+# only with this detection on (SL-805).
+ASAN_OPTIONS = "detect_leaks=0:detect_stack_use_after_return=1"
 REPORT = "ERROR: AddressSanitizer"
 
 
@@ -60,13 +63,15 @@ def rel(path):
 
 def cases(names=None):
     """The programs the lane builds, in name order: the run lane's `coro_*`
-    programs and offload pins that are not due, then the `thread_*` probes
-    that state their output."""
+    programs and offload pins that are not due, then the `thread_*` and
+    `coro_*` probes that state their output."""
     found = [src for src in sorted(glob.glob(os.path.join(HERE, "coro_*.saw")))
              + [os.path.join(HERE, name + ".saw") for name in OFFLOAD_PINS]
              if run_lane.headers(src)[0] is None]
     found.sort()
-    for src in sorted(glob.glob(os.path.join(run_lane.PROBES, "thread_*.saw"))):
+    probes = [src for pattern in ("thread_*.saw", "coro_*.saw")
+              for src in glob.glob(os.path.join(run_lane.PROBES, pattern))]
+    for src in sorted(probes):
         if run_lane.probe_header(src).get("probe", [None])[0] in PROBE_KINDS:
             found.append(src)
     if names:

@@ -15,27 +15,30 @@ fn loan.closure-carrier.apply(f: (Int) -> Int, x: Int) {
 }
 
 fn loan.closure-carrier.pushed(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) {
-    place _4: (Int) -> Int;  // _4
+    place _6: (Int) -> Int;  // _6
     loan L0: exclusive (*_1);  // capture at 11:19
     loan L1: exclusive (*_3);  // capture at 11:19
-    loan L2: shared (*_1);  // argument at 15:9
+    loan L2: exclusive _4;  // capture at 11:19
+    loan L3: shared (*_1);  // argument at 15:9
 
     bb0: {
         [U] {} _3 = ref(exclusive, (*_1));
-        [U] {L0} _4 = closure#0 of loan.closure-carrier.pushed(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _3];
-        [W] {L0 L1} _5 = call loan.closure-carrier.apply(f: (Int) -> Int, x: Int) [move _4, const 4: Int] -> [return: bb1];
+        [U] {L0} _4 = (move _3,);
+        [U] {L0 L1} _5 = ref(exclusive, _4);
+        [U] {L0 L1 L2} _6 = closure#0 of loan.closure-carrier.pushed(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _5];
+        [W] {L0 L1 L2} _7 = call loan.closure-carrier.apply(f: (Int) -> Int, x: Int) [move _6, const 4: Int] -> [return: bb1];
     }
 
     bb1: {
-        [M] {} _2 = move _5;
-        [M] {} _6 = copy _2;
-        [M] {} _7 = ref(shared, (*_1));
-        [M] {L2} _8 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7] -> [return: bb2];
+        [M] {} _2 = move _7;
+        [M] {} _8 = copy _2;
+        [M] {} _9 = ref(shared, (*_1));
+        [M] {L3} _10 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9] -> [return: bb2];
     }
 
     bb2: {
-        [M] {} _9 = Add(move _6, move _8);
-        [M] {} _0 = move _9;
+        [M] {} _11 = Add(move _8, move _10);
+        [M] {} _0 = move _11;
         [M] {} return;
     }
 }
@@ -68,45 +71,48 @@ fn closure#0 of loan.closure-carrier.pushed(v: &var std.vector.Vector<Int, std.a
 fn loan.closure-carrier.main() {
     place _1: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
     place _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // _2
-    place _5: (Int) -> Int;  // _5
-    place _8: Result<Void, std.alloc.AllocError>;  // _8
+    place _7: (Int) -> Int;  // _7
+    place _10: Result<Void, std.alloc.AllocError>;  // _10
     loan L0: exclusive _1;  // capture at 20:19
     loan L1: exclusive (*_4);  // capture at 20:19
-    loan L2: exclusive _1;  // argument at 24:10
-    loan L3: shared _1;  // argument at 25:15
-    loan L4: exclusive _1;  // argument at 25:32
+    loan L2: exclusive _5;  // capture at 20:19
+    loan L3: exclusive _1;  // argument at 24:10
+    loan L4: shared _1;  // argument at 25:15
+    loan L5: exclusive _1;  // argument at 25:32
 
     bb0: {
         [U U U U] {} _2 = vector [const 1: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
         [U W U U] {} _1 = move _2;
         [W M U U] {} _4 = ref(exclusive, _1);
-        [W M U U] {L0} _5 = closure#0 of loan.closure-carrier.main() [move _4];
-        [W M W U] {L0 L1} _6 = call loan.closure-carrier.apply(f: (Int) -> Int, x: Int) [move _5, const 2: Int] -> [return: bb1];
+        [W M U U] {L0} _5 = (move _4,);
+        [W M U U] {L0 L1} _6 = ref(exclusive, _5);
+        [W M U U] {L0 L1 L2} _7 = closure#0 of loan.closure-carrier.main() [move _6];
+        [W M W U] {L0 L1 L2} _8 = call loan.closure-carrier.apply(f: (Int) -> Int, x: Int) [move _7, const 2: Int] -> [return: bb1];
     }
 
     bb1: {
-        [W M M U] {} _3 = move _6;
-        [W M M U] {} _7 = ref(exclusive, _1);
-        [W M M U] {L2} _8 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _7, const 3: Int] -> [return: bb2];
+        [W M M U] {} _3 = move _8;
+        [W M M U] {} _9 = ref(exclusive, _1);
+        [W M M U] {L3} _10 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9, const 3: Int] -> [return: bb2];
     }
 
     bb2: {
-        [W M M W] {} _9 = copy (_8 as Ok!).0;
-        [W M M W] {} drop(_8);  // static
-        [W M M D] {} _10 = copy _3;
-        [W M M D] {} _11 = ref(shared, _1);
-        [W M M D] {L3} _12 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _11] -> [return: bb3];
+        [W M M W] {} _11 = copy (_10 as Ok!).0;
+        [W M M W] {} drop(_10);  // static
+        [W M M D] {} _12 = copy _3;
+        [W M M D] {} _13 = ref(shared, _1);
+        [W M M D] {L4} _14 = call std.vector.Vector.len() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _13] -> [return: bb3];
     }
 
     bb3: {
-        [W M M D] {} _13 = Add(move _10, move _12);
-        [W M M D] {} _14 = ref(exclusive, _1);
-        [W M M D] {L4} _15 = call loan.closure-carrier.pushed(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _14] -> [return: bb4];
+        [W M M D] {} _15 = Add(move _12, move _14);
+        [W M M D] {} _16 = ref(exclusive, _1);
+        [W M M D] {L5} _17 = call loan.closure-carrier.pushed(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _16] -> [return: bb4];
     }
 
     bb4: {
-        [W M M D] {} _16 = Add(move _13, move _15);
-        [W M M D] {} call builtin print [move _16] -> [return: bb5];
+        [W M M D] {} _18 = Add(move _15, move _17);
+        [W M M D] {} call builtin print [move _18] -> [return: bb5];
     }
 
     bb5: {

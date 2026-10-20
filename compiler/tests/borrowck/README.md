@@ -136,7 +136,11 @@ dump are its clients.
   0's std predates declared modes, so each of its
   accessors serves both from one declaration, the use site choosing. A
   closure holding a reference in its environment, a slice's included, makes a
-  loan on the referent, `(*_k)`, which for a slice stands for its elements.
+  loan on the referent, `(*_k)`, which for a slice stands for its elements,
+  held by the environment local where the closure keeps one
+  (`compiler/tests/mir/README.md`, "Closure environments") and by the closure
+  otherwise. The closure's `ref` of that local is a loan of its own, held by
+  the closure value: the environment is storage of the building function.
   Every capture of a reference binding, implicit, `[r]`, `[copy r]`, `[&r]` or
   `[&var r]`, reaches the check as a reborrow, `ref(MODE, (*_k))`, the shape
   `self`'s capture and `&r` have: an access of the referent, so it meets a
@@ -165,7 +169,15 @@ dump are its clients.
   (SL:coroutines A8c, `spawn_loans`): a `ref` or capture loan an operand of
   the root carries, a `&`/`&var` argument or a borrow capture, on its place
   traced to its root, shared or exclusive as written; one root borrowed in
-  one mode at one site is one loan. It is held from the spawn until a `join`
+  one mode at one site is one loan. A spawned closure's `ref` of its
+  environment is one of them, so the task may not outlive the environment;
+  a message names it by its closure, `the closure at L:C` (SL-805). An
+  operand reading a non-escaping function parameter, directly or through the
+  locals it is copied into, borrows what that closure borrows, which the
+  function cannot see: a shared loan of the parameter, judged as a forwarded
+  reference parameter's reborrow is, and named "the closure `f`"
+  (`function_value_loan`). Such a parameter's drop touches nothing, as a
+  reference parameter has none. It is held from the spawn until a `join`
   of a local that holds its handle on every path there, or a drop of its
   group, on the paths that reach
   neither, whatever the handle's liveness: a discarded handle's task runs
@@ -205,7 +217,9 @@ dump are its clients.
   every value assigned into it: an operand read from a local's own storage,
   or a reference or function value read through one, carries; a value read
   through a reference carries nothing, since references are never stored. A
-  reborrow, a `ref` through a reference, carries that reference's loans.
+  reborrow, a `ref` through a reference, carries that reference's loans, and
+  a closure's `ref` of its environment carries the environment's: that local
+  is the one whose storage holds references, read through the closure.
   Carrying is flow-insensitive.
 - **Authorisation.** An access through a reference names a place rooted in
   the reference's local, so it never overlaps the loan the reference holds.
@@ -239,7 +253,7 @@ dump are its clients.
 | `consumes.replace-partial` | a `self = v` in a `consumes` body where the receiver may be `P`: the replacement deinits the old referent whole, hand-written `deinit` included, and a field of it has left. A field assigned again leaves the receiver `P`, so it is refused too. The drops are `init_consumes_replacements`'s, which the MIR verifier also reads to skip the move-path checks of a body refused here; a replacement before any move, or after a trivially copyable field's, is accepted (golden `replace`) | `consumes.replace-partial`, assigned again first `.refill`, on one arm `.branch`, in a loop `.loop`, a generic receiver `.generic` |
 | `loan.read-while-exclusive` | a read or a shared borrow of a place overlapping a live exclusive loan | `loan.read-while-exclusive`, `.tuple-element`, `.forwarded`; a read while a group spawn's `&var` argument is held, `.spawn-argument`, and while a discarded handle's task holds it, `.spawn-discarded` |
 | `loan.write-while-shared` | a write or an exclusive borrow of a place overlapping a live shared loan | `loan.write-while-shared`, `.receiver`; a slice forwarded `&s` beside `&var s`: `.slice-forward`; `&var group` while a group task's handle is live: `.group-handle`; a write while a spawn's shared `&` argument is held, `.spawn-shared`, and an erased one, `.spawn-erased` |
-| `loan.handle-escape` | a group spawn site whose handle may leave every scope of the function (Handles, above): returned bare, inside a value or in a returned closure; stored through a reference parameter or a `&var self` receiver; handed to a function value the function did not write, or to a spawn's root. At the site, naming where the group ends, or that it is the caller's | `loan.handle-escape` (SL-683's `leak()`), `.wrapped`, `.closure`, `.parameter`, `.through-parameter`, `.receiver`, `.function-value`, `.task`; the legal shapes, golden `group_handles`. No static can hold a handle at all: typecheck's `static.immortal` refuses the static first (`typecheck/refuse/static.immortal.task-handle`); a spawn borrow still held at a `return` into the caller's group, `.spawn-borrow`; a shared spawn borrow still held when a loop body ends, `.spawn-loop`, through `continue`, `.spawn-loop-continue` |
+| `loan.handle-escape` | a group spawn site whose handle may leave every scope of the function (Handles, above): returned bare, inside a value or in a returned closure; stored through a reference parameter or a `&var self` receiver; handed to a function value the function did not write, or to a spawn's root. At the site, naming where the group ends, or that it is the caller's | `loan.handle-escape` (SL-683's `leak()`), `.wrapped`, `.closure`, `.parameter`, `.through-parameter`, `.receiver`, `.function-value`, `.task`; the legal shapes, golden `group_handles`. No static can hold a handle at all: typecheck's `static.immortal` refuses the static first (`typecheck/refuse/static.immortal.task-handle`); a spawn borrow still held at a `return` into the caller's group, `.spawn-borrow`; a shared spawn borrow still held when a loop body ends, `.spawn-loop`, through `continue`, `.spawn-loop-continue`; a spawned closure's capture held at a `return` into the caller's group, `.spawn-capture`, and its environment, `.closure-environment`, and across loop iterations, `.closure-environment-loop`; a forwarded closure parameter, `.forwarded-closure` and `.forwarded-closure-capture`; the legal shapes, golden `closure_environments` (SL-805) |
 | `loan.handle-outlives-group` | a group's drop, at its scope's end, while a value carrying a handle of it is used after: an `Optional`, a struct's field, a `Vector` declared before the group, or one a closure's `[&var v]` capture may store it into; at the scope's closing brace | `loan.handle-outlives-group`, `.field`, `.vector`, `.closure-capture` |
 | `loan.exclusive-twice` | a write or an exclusive borrow of a place overlapping a live exclusive loan | `loan.exclusive-twice`, `.dynamic-index`; `&var v` beside a `[&var v]` capture of the same reference parameter: `.capture-reference`; a closure naming the same parameter with no capture list: `.implicit-capture-reference`; a slice forwarded `&var s` twice: `.slice-forward`; a `[&var s]` capture inside a borrow of an element: `.slice-capture`; a second task's `[&var]` capture of a borrowed root, `.spawn-capture`; a write below a join on one path, `.spawn-branch-join`; a spawn borrow live when a loop body ends, `.spawn-across-iterations`; a write after the join of a handle variable assigned another task's handle, `.spawn-rebound` |
 | `loan.move-while-borrowed` | a move of a place overlapping a live loan, a take included | `loan.move-while-borrowed`, `.take`; a `for` loop's root moved in its body while a borrowing struct points into it: `.struct-carrier`; a move of a root a spawned task borrows, `.spawn`, after the join of a handle variable assigned another task's handle, `.spawn-rebound`, after the borrowing handle moved out and the variable rebound, `.spawn-moved-then-rebound`, and after a join of a variable rebound on one path, `.spawn-conditional-rebind` |

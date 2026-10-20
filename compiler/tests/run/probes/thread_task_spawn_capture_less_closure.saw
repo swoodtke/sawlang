@@ -1,0 +1,23 @@
+// probe: stated
+// about: a capture-less closure argument of a detached `Task.spawn` in a thread body, accepted (SL-805)
+// stage 0: refuses to parse it, at the `Thread.spawn` brace's `{`
+// speeds: -O0 -O2
+// prints: joined
+// A capture-less closure has no environment, so a background task spawned in
+// a `Thread.spawn` body may outlive the body's frame with it; the sanitizer
+// lane runs it with stack-use-after-return detection.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var th = try! Thread.spawn {
+        var t = Task.spawn(run({ 6 }))
+        t.detach()
+    }
+    th.join()
+    print("joined")
+}

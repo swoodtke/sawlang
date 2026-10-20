@@ -41,7 +41,7 @@ import sawmir.model.{MirAggregate, MirCallKind, MirConstKind, MirFuncKind, MirLo
                          MirRvalue, MirRvalueKind, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind,
                          mir_spawn_leading}
 import sawmir.program.{MirProgram}
-import sawtypecheck.model.{TC_FLAG_SYNTHESIZE_SHARED, TcReceiver}
+import sawtypecheck.model.{TC_EFFECT_ESCAPING, TC_FLAG_SYNTHESIZE_SHARED, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
@@ -634,7 +634,7 @@ extension BorrowckProgram {
                         let path = self.path_of(rv.place, &var facts)
                         self.add_loan(&var facts, BorrowckLoanKind.Ref, path, rv.exclusive, stmt.node, stmt.closing, b,
                                       s, -1, dest)
-                    } else if rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure {
+                    } else if self.capture_site(f, &rv, dest) {
                         self.capture_loans(&var facts, &rv, stmt.node, stmt.closing, b, s, dest)
                     }
                 }
@@ -829,9 +829,24 @@ extension BorrowckProgram {
         s.receiver == TcReceiver.Exclusive || s.lending_exclusive
     }
 
+    // Whether rvalue `rv`, assigned into local `dest` of function `f`, is
+    // where a closure's captures enter its environment: the environment
+    // local's construction, for a closure that keeps one, whose value then
+    // holds a `ref` of that local and carries its loans
+    // (`closure_environment`); else the closure itself.
+    func capture_site(&self, f: Int, rv: &MirRvalue, dest: Int) -> Bool {
+        if rv.kind != MirRvalueKind.Aggregate {
+            return false
+        }
+        if rv.aggregate == MirAggregate.Closure {
+            return not self.mir.closure_environment(rv.decl)
+        }
+        rv.aggregate == MirAggregate.Tuple && dest >= 0 && mir_func_local(&self.mir, f, dest).kind == MirLocalKind.Environment
+    }
+
     // The loan of each reference a closure copies into its environment, a
     // slice's included: on the referent, a slice's elements, held by the
-    // closure.
+    // closure, or by the environment local that the closure holds a `ref` of.
     func capture_loans(&self, facts: &var BorrowckLoans, rv: &MirRvalue, node: Int, closing: Bool,
                        b: Int, s: Int, dest: Int) {
         var k = 0
@@ -901,7 +916,7 @@ extension BorrowckProgram {
                             k = k + 1
                         }
                     }
-                    if dest >= 0 && rv.kind == MirRvalueKind.Ref && rv.place >= 0 && self.mir.init_place_cut(rv.place) {
+                    if dest >= 0 && rv.kind == MirRvalueKind.Ref && rv.place >= 0 && self.ref_carries(f, rv.place) {
                         let src = self.mir.places[rv.place].local
                         if src >= 0 && src != dest {
                             try! from.push(src)
@@ -967,10 +982,12 @@ extension BorrowckProgram {
     // A borrow is a `ref` or capture loan an operand of the root carries; its
     // place is traced to the root it charges, and two borrows of one root in
     // one mode at one site are one loan. A loan a call nested in the root's
-    // arguments makes ends with the statement, carried by no operand.
+    // arguments makes ends with the statement, carried by no operand. A
+    // non-escaping function parameter an operand reads is a borrow too.
     // ENTRY POINTS:
     //     argument
     //     capture
+    //     function_value_loan
     func spawn_loans(&self, f: Int, facts: &var BorrowckLoans, from: &Vector<Int>, to: &Vector<Int>) {
         let info = self.mir.funcs[f]
         let made = facts.loans.len()
@@ -1018,6 +1035,8 @@ extension BorrowckProgram {
                     held.argument = not held.captured
                     facts.loans[s] = held
                 }
+                self.function_value_loan(f, &var facts, operand, &from, &to, first, block.call, block.term_node,
+                                         block.term_closing, at, holder, &group)
             }
         }
         // Each spawn loan's carriers: the handle, then every local it is
@@ -1055,6 +1074,80 @@ extension BorrowckProgram {
         }
         if facts.loans.len() > made {
             self.spawn_releases(f, made, &var facts)
+        }
+    }
+
+    // Whether a drop of place `p` of function `f` touches no storage: a
+    // non-escaping function parameter's, whose environment is its builder's
+    // local and whose captures own nothing, so the loan the parameter lends
+    // a task outlives it as a reference parameter's does
+    // (`function_value_loan`). A parameter's type keeps the `escaping` it is
+    // declared with.
+    func drops_nothing(&self, f: Int, p: Int) -> Bool {
+        let place = self.mir.places[p]
+        if place.local < 1 || place.local > self.mir.funcs[f].param_count || place.count != 0 {
+            return false
+        }
+        let t = place.ty
+        self.mir.tc.kind_of(t) == TcKind.Func && (self.mir.tc.types.ty(t).a & TC_EFFECT_ESCAPING) == 0
+    }
+
+    // A spawn root's argument `operand` reading a non-escaping function
+    // parameter of `f`, directly or through the locals it is copied into,
+    // borrows what that closure's environment borrows, which `f` cannot see:
+    // a spawn loan of the parameter, shared, as a reference parameter's
+    // reborrow is (`argument`). A closure `f` builds is no such value: its
+    // environment's `ref` is a loan of its own.
+    func function_value_loan(&self, f: Int, facts: &var BorrowckLoans, operand: Int, from: &Vector<Int>,
+                             to: &Vector<Int>, first: Int, call: Int, node: Int, closing: Bool, b: Int, holder: Int,
+                             group: &BorrowckPath) {
+        let o = self.mir.operands[operand]
+        if o.kind == MirOperandKind.Const || o.place < 0 {
+            return
+        }
+        let read = self.bare_local_of(o.place)
+        if read < 0 {
+            return
+        }
+        let info = self.mir.funcs[f]
+        var p = 1
+        while p <= info.param_count {
+            let param = p
+            p = p + 1
+            let t = mir_func_local(&self.mir, f, param).ty
+            if self.mir.tc.kind_of(t) != TcKind.Func || (self.mir.tc.types.ty(t).a & TC_EFFECT_ESCAPING) != 0 {
+                continue
+            }
+            var run = Vector<Int>()
+            try! run.push(param)
+            var at = 0
+            while at < run.len() {
+                let l = run[at]
+                at = at + 1
+                var e = 0
+                while e < from.len() {
+                    if from[e] == l && not borrowck_has(&run, to[e]) {
+                        try! run.push(to[e])
+                    }
+                    e = e + 1
+                }
+            }
+            if not borrowck_has(&run, read) {
+                continue
+            }
+            let root = BorrowckPath(local: param, static_decl: -1, first: facts.projs.len(), count: 0)
+            if self.spawn_loan_made(&facts, first, &root, false) {
+                continue
+            }
+            self.add_loan(&var facts, BorrowckLoanKind.Spawn, root, false, node, closing, b, -1, -1, holder)
+            let s = facts.loans.len() - 1
+            var held = facts.loans[s]
+            held.source = node
+            held.source_local = param
+            held.site = call
+            held.group = group
+            held.argument = true
+            facts.loans[s] = held
         }
     }
 
@@ -1455,6 +1548,18 @@ extension BorrowckProgram {
         rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure
     }
 
+    // Whether a `ref` of place `p` of function `f` carries the loans of
+    // `p`'s local: a reborrow through a reference does, and so does a
+    // closure's `ref` of its environment, the one local whose storage holds
+    // references, which the closure reads through it (`closure_environment`).
+    func ref_carries(&self, f: Int, p: Int) -> Bool {
+        if self.mir.init_place_cut(p) {
+            return true
+        }
+        let l = self.mir.places[p].local
+        l >= 0 && mir_func_local(&self.mir, f, l).kind == MirLocalKind.Environment
+    }
+
     // Whether a value read from place `p` may carry its local's loans: one
     // read from the local's own storage, or a reference or a function value
     // read through one. A value stored behind a reference holds no reference
@@ -1468,7 +1573,8 @@ extension BorrowckProgram {
         kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func
     }
 
-    // Whether local `l` of function `f` is an operand of a closure.
+    // Whether local `l` of function `f` is an operand of a closure, or of the
+    // environment local a closure is built over (`capture_site`).
     func used_by_closure(&self, f: Int, l: Int) -> Bool {
         let info = self.mir.funcs[f]
         var b = 0
@@ -1479,8 +1585,13 @@ extension BorrowckProgram {
                 let stmt = self.mir.stmts[s]
                 if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
                     let rv = self.mir.rvalues[stmt.rvalue]
+                    var dest = -1
+                    if stmt.place >= 0 {
+                        dest = self.mir.places[stmt.place].local
+                    }
                     let closure = rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure
-                    if closure && self.operands_name(rv.first, rv.count, l) {
+                    let site = closure || self.capture_site(f, &rv, dest)
+                    if site && self.operands_name(rv.first, rv.count, l) {
                         return true
                     }
                 }
@@ -1783,7 +1894,7 @@ extension BorrowckProgram {
                     self.place_access(BorrowckAccessKind.Write, stmt.place, stmt.node, stmt.closing, &var facts,
                                       &var out)
                 }
-            } else if stmt.kind == MirStmtKind.Drop && stmt.place >= 0 {
+            } else if stmt.kind == MirStmtKind.Drop && stmt.place >= 0 && not self.drops_nothing(f, stmt.place) {
                 self.place_access(BorrowckAccessKind.Drop, stmt.place, stmt.node, stmt.closing, &var facts, &var out)
             }
             return move out
@@ -2074,9 +2185,43 @@ extension BorrowckProgram {
         BorrowckPath(local: base.local, static_decl: base.static_decl, first: start, count: base.count + p.count - 1)
     }
 
+    // How a diagnostic names a borrow of path `p` of function `f` in mode
+    // `exclusive`: its sigil and path in backticks; for a closure's
+    // environment, which the source never names, the closure itself; and
+    // for a function parameter, the closure it is.
+    public func borrowck_borrow_text(&self, f: Int, p: &BorrowckPath, exclusive: Bool, facts: &BorrowckLoans) -> String {
+        if self.environment_root(f, &p) {
+            return self.borrowck_path_text(f, &p, &facts)
+        }
+        var text = StringBuilder()
+        // Stage 0 workaround (SL:hazards S4): canonical: if p.local >= 0 && p.count == 0 && self.mir.tc.kind_of(mir_func_local(&self.mir, f, p.local).ty) == TcKind.Func {
+        var t = -1
+        if p.local >= 0 {
+            t = mir_func_local(&self.mir, f, p.local).ty
+        }
+        if p.local >= 0 && p.count == 0 && self.mir.tc.kind_of(t) == TcKind.Func {
+            try! text.append("the closure `")
+            try! text.append(self.borrowck_path_text(f, &p, &facts))
+            try! text.append("`")
+            return text.build()
+        }
+        try! text.append("`")
+        try! text.append(if exclusive { "&var " } else { "&" })
+        try! text.append(self.borrowck_path_text(f, &p, &facts))
+        try! text.append("`")
+        text.build()
+    }
+
+    // Whether path `p` of function `f` is rooted in a closure's environment
+    // local (`closure_environment`).
+    public func environment_root(&self, f: Int, p: &BorrowckPath) -> Bool {
+        p.local >= 0 && mir_func_local(&self.mir, f, p.local).kind == MirLocalKind.Environment
+    }
+
     // How a diagnostic names path `p` of function `f`: its root's binding,
-    // `self` or a static, then each field, element and index; a deref adds
-    // nothing, since a reference reads as what it refers to.
+    // `self` or a static, a closure's environment by its closure, then each
+    // field, element and index; a deref adds nothing, since a reference
+    // reads as what it refers to.
     public func borrowck_path_text(&self, f: Int, p: &BorrowckPath, facts: &BorrowckLoans) -> String {
         var text = StringBuilder()
         var k = 0
@@ -2094,6 +2239,9 @@ extension BorrowckProgram {
             let l = mir_func_local(&self.mir, f, p.local)
             if l.kind == MirLocalKind.Receiver {
                 try! text.append("self")
+            } else if l.kind == MirLocalKind.Environment {
+                try! text.append("the closure at ")
+                try! text.append(self.mir.span_text(l.node, false))
             } else if l.name >= 0 {
                 try! text.append(self.mir.tc.name_text(l.name))
             } else {

@@ -1,0 +1,47 @@
+// probe: stated
+// about: a closure's environment held in its builder's frame while a suspending callee holds the closure (SL-805)
+// stage 0: refuses a borrow capture passed to a suspending callee
+// speeds: -O0 -O2
+// prints: borrowed 107
+// prints: n 107
+// prints: by value 101
+// prints: capture-less 5
+// prints: hoisted 106
+// prints: per iteration 33
+// A non-escaping closure's environment lives across its builder's suspension
+// in the builder's frame, while a suspending callee's frame holds the closure:
+// borrow captures, a by-value capture, a capture-less closure, a closure
+// beside a hoisted suspending argument, and one built per iteration. The
+// sanitizer lane runs it with stack-use-after-return detection, which faults
+// on an environment left in the resume function's own stack.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func run2(f: () -> Int, k: Int) -> Int {
+    yield_now()
+    f() + k
+}
+
+func main() {
+    var n = 7
+    let base = 100
+    print("borrowed {}", run({ [&var n, &base] in n = n + base; n }))
+    print("n {}", n)
+    print("by value {}", run({ [base] in base + 1 }))
+    print("capture-less {}", run({ 5 }))
+    print("hoisted {}", run2({ [base] in base + 1 }, slow(5)))
+    var total = 0
+    for i in 0..3 {
+        total += run({ [i] in i * 10 + 1 })
+    }
+    print("per iteration {}", total)
+}

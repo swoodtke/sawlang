@@ -506,11 +506,14 @@ the flag the `.ll` is byte for byte what it was.
 `sanitize_lane.py`, run.py's `sanitize` step, builds each of this directory's
 `coro_*` programs that is not due, the offload pins
 (`offload_cancel_waits_for_the_call`, `offload_start_refused`,
-`suspend_blocking_main`) and each `thread_*` probe that states its output, at
+`suspend_blocking_main`) and each `thread_*` or `coro_*` probe that states its output, at
 -O0 plainly and under `--sanitize address`, into `.build/sanitize-lane/`. A
 case passes when the sanitized binary prints the same bytes and exits with the
 same status as the plain one, and AddressSanitizer reports nothing; leak
-detection is off, since the lane checks frame accesses. Then the injection:
+detection is off, since the lane checks frame accesses, and stack-use-after-
+return detection is on, since a resume function's own stack slots die each
+time it returns `Pending`, so a read of one after a suspension is a frame
+access gone wrong (`probes/coro_closure_environment_*`, SL-805). Then the injection:
 `compiler/tests/coro/inject/asan_inject.saw`, built by sawc2 and run, lowers
 `asan_overlap.saw` for a sanitizing build, moves `late` onto the offset of
 `early`, which dies first, requires the verifier's rule-5 reports, and writes

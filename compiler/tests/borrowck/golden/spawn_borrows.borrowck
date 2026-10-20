@@ -114,18 +114,18 @@ fn spawn_borrows.main() {
     place _7: std.taskgroup.Task<Int>;  // h
     place _10: std.taskgroup.Task<Int>;  // _10
     place _15: std.taskgroup.Task<Int>;  // c
-    place _17: () -> Int;  // _17
-    place _19: std.taskgroup.Task<Int>;  // _19
-    place _23: std.taskgroup.Task<Int>;  // a
-    place _26: std.taskgroup.Task<Int>;  // _26
-    place _27: std.taskgroup.Task<Int>;  // b
-    place _30: std.taskgroup.Task<Int>;  // _30
-    place _39: std.taskgroup.Task<Int>;  // _39
-    place _44: std.taskgroup.Task<Int>;  // t
-    place _47: std.taskgroup.Task<Int>;  // _47
-    place _52: std.taskgroup.TaskGroup;  // inner
-    place _53: std.taskgroup.TaskGroup;  // _53
-    place _56: std.taskgroup.Task<Int>;  // _56
+    place _19: () -> Int;  // _19
+    place _21: std.taskgroup.Task<Int>;  // _21
+    place _25: std.taskgroup.Task<Int>;  // a
+    place _28: std.taskgroup.Task<Int>;  // _28
+    place _29: std.taskgroup.Task<Int>;  // b
+    place _32: std.taskgroup.Task<Int>;  // _32
+    place _41: std.taskgroup.Task<Int>;  // _41
+    place _46: std.taskgroup.Task<Int>;  // t
+    place _49: std.taskgroup.Task<Int>;  // _49
+    place _54: std.taskgroup.TaskGroup;  // inner
+    place _55: std.taskgroup.TaskGroup;  // _55
+    place _58: std.taskgroup.Task<Int>;  // _58
     loan L0: exclusive _1;  // argument at 40:30
     loan L1: shared _5;  // argument at 40:13
     loan L2: shared _5;  // handle at 40:13
@@ -133,37 +133,39 @@ fn spawn_borrows.main() {
     loan L4: shared _1;  // argument at 42:17
     loan L5: exclusive _3;  // capture at 43:29
     loan L6: exclusive (*_16);  // capture at 43:29
-    loan L7: shared _5;  // argument at 43:13
-    loan L8: shared _5;  // handle at 43:13
-    loan L9: shared _15;  // argument at 44:17
-    loan L10: shared _4;  // argument at 46:30
-    loan L11: shared _5;  // argument at 46:13
-    loan L12: shared _5;  // handle at 46:13
-    loan L13: shared _4;  // argument at 47:30
-    loan L14: shared _5;  // argument at 47:13
-    loan L15: shared _5;  // handle at 47:13
-    loan L16: shared _23;  // argument at 48:29
-    loan L17: shared _27;  // argument at 48:39
-    loan L18: exclusive _3;  // argument at 49:30
-    loan L19: shared _5;  // argument at 49:13
-    loan L20: shared _5;  // handle at 49:13
-    loan L21: shared _39;  // argument at 49:13
-    loan L22: exclusive _1;  // argument at 53:34
-    loan L23: shared _5;  // argument at 53:17
-    loan L24: shared _5;  // handle at 53:17
-    loan L25: shared _44;  // argument at 54:21
-    loan L26: exclusive _3;  // argument at 62:25
-    loan L27: shared _5;  // argument at 62:33
-    loan L28: exclusive _3;  // argument at 59:34
-    loan L29: shared _52;  // argument at 59:17
-    loan L30: shared _52;  // handle at 59:17
-    loan L31: exclusive _1;  // argument at 40:13
-    loan L32: exclusive _3;  // capture at 43:13
-    loan L33: shared _4;  // argument at 46:13
-    loan L34: shared _4;  // argument at 47:13
-    loan L35: exclusive _3;  // argument at 49:13
-    loan L36: exclusive _1;  // argument at 53:17
-    loan L37: exclusive _3;  // argument at 59:17
+    loan L7: exclusive _17;  // capture at 43:29
+    loan L8: shared _5;  // argument at 43:13
+    loan L9: shared _5;  // handle at 43:13
+    loan L10: shared _15;  // argument at 44:17
+    loan L11: shared _4;  // argument at 46:30
+    loan L12: shared _5;  // argument at 46:13
+    loan L13: shared _5;  // handle at 46:13
+    loan L14: shared _4;  // argument at 47:30
+    loan L15: shared _5;  // argument at 47:13
+    loan L16: shared _5;  // handle at 47:13
+    loan L17: shared _25;  // argument at 48:29
+    loan L18: shared _29;  // argument at 48:39
+    loan L19: exclusive _3;  // argument at 49:30
+    loan L20: shared _5;  // argument at 49:13
+    loan L21: shared _5;  // handle at 49:13
+    loan L22: shared _41;  // argument at 49:13
+    loan L23: exclusive _1;  // argument at 53:34
+    loan L24: shared _5;  // argument at 53:17
+    loan L25: shared _5;  // handle at 53:17
+    loan L26: shared _46;  // argument at 54:21
+    loan L27: exclusive _3;  // argument at 62:25
+    loan L28: shared _5;  // argument at 62:33
+    loan L29: exclusive _3;  // argument at 59:34
+    loan L30: shared _54;  // argument at 59:17
+    loan L31: shared _54;  // handle at 59:17
+    loan L32: exclusive _1;  // argument at 40:13
+    loan L33: exclusive _3;  // capture at 43:13
+    loan L34: exclusive _17;  // capture at 43:13
+    loan L35: shared _4;  // argument at 46:13
+    loan L36: shared _4;  // argument at 47:13
+    loan L37: exclusive _3;  // argument at 49:13
+    loan L38: exclusive _1;  // argument at 53:17
+    loan L39: exclusive _3;  // argument at 59:17
 
     bb0: {
         [U U U U U U U U U U U U U U U U U U U] {} _2 = vector []: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
@@ -181,9 +183,9 @@ fn spawn_borrows.main() {
     }
 
     bb2: {
-        [W M W M U W U U U U U U U U U U U U U] {L2 L31} _7 = move _10;
-        [W M W M W M U U U U U U U U U U U U U] {L2 L31} _11 = ref(shared, _7);
-        [W M W M W M U U U U U U U U U U U U U] {L3 L31} _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb3];
+        [W M W M U W U U U U U U U U U U U U U] {L2 L32} _7 = move _10;
+        [W M W M W M U U U U U U U U U U U U U] {L2 L32} _11 = ref(shared, _7);
+        [W M W M W M U U U U U U U U U U U U U] {L3 L32} _12 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _11] -> [return: bb3];
     }
 
     bb3: {
@@ -201,82 +203,84 @@ fn spawn_borrows.main() {
 
     bb6: {
         [W M W M W M U U U U U U U U U U U U U] {} _16 = ref(exclusive, _3);
-        [W M W M W M U U U U U U U U U U U U U] {L5} _17 = closure#0 of spawn_borrows.main() [move _16];
-        [W M W M W M U W U U U U U U U U U U U] {L5 L6} _18 = ref(shared, _5);
-        [W M W M W M U W U U U U U U U U U U U] {L5 L6 L7} _19 = spawn group spawn_borrows.run(f: () -> Int) [move _18, move _17] -> [return: bb7];
+        [W M W M W M U U U U U U U U U U U U U] {L5} _17 = (move _16,);
+        [W M W M W M U U U U U U U U U U U U U] {L5 L6} _18 = ref(exclusive, _17);
+        [W M W M W M U U U U U U U U U U U U U] {L5 L6 L7} _19 = closure#0 of spawn_borrows.main() [move _18];
+        [W M W M W M U W U U U U U U U U U U U] {L5 L6 L7} _20 = ref(shared, _5);
+        [W M W M W M U W U U U U U U U U U U U] {L5 L6 L7 L8} _21 = spawn group spawn_borrows.run(f: () -> Int) [move _20, move _19] -> [return: bb7];
     }
 
     bb7: {
-        [W M W M W M U M W U U U U U U U U U U] {L8 L32} _15 = move _19;
-        [W M W M W M W M M U U U U U U U U U U] {L8 L32} _20 = ref(shared, _15);
-        [W M W M W M W M M U U U U U U U U U U] {L9 L32} _21 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _20] -> [return: bb8];
+        [W M W M W M U M W U U U U U U U U U U] {L9 L33 L34} _15 = move _21;
+        [W M W M W M W M M U U U U U U U U U U] {L9 L33 L34} _22 = ref(shared, _15);
+        [W M W M W M W M M U U U U U U U U U U] {L10 L33 L34} _23 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _22] -> [return: bb8];
     }
 
     bb8: {
-        [W M W M W M W M M U U U U U U U U U U] {} call builtin print [format "{}", copy _21] -> [return: bb9];
+        [W M W M W M W M M U U U U U U U U U U] {} call builtin print [format "{}", copy _23] -> [return: bb9];
     }
 
     bb9: {
-        [W M W M W M W M M U U U U U U U U U U] {} _22 = Add(copy _3, const 1: Int);
-        [W M W M W M W M M U U U U U U U U U U] {} _3 = move _22;
-        [W M W M W M W M M U U U U U U U U U U] {} _24 = ref(shared, _4);
-        [W M W M W M W M M U U U U U U U U U U] {L10} _25 = ref(shared, _5);
-        [W M W M W M W M M U U U U U U U U U U] {L10 L11} _26 = spawn group spawn_borrows.look(n: &Int) [move _25, move _24] -> [return: bb10];
+        [W M W M W M W M M U U U U U U U U U U] {} _24 = Add(copy _3, const 1: Int);
+        [W M W M W M W M M U U U U U U U U U U] {} _3 = move _24;
+        [W M W M W M W M M U U U U U U U U U U] {} _26 = ref(shared, _4);
+        [W M W M W M W M M U U U U U U U U U U] {L11} _27 = ref(shared, _5);
+        [W M W M W M W M M U U U U U U U U U U] {L11 L12} _28 = spawn group spawn_borrows.look(n: &Int) [move _27, move _26] -> [return: bb10];
     }
 
     bb10: {
-        [W M W M W M W M M U W U U U U U U U U] {L12 L33} _23 = move _26;
-        [W M W M W M W M M W M U U U U U U U U] {L12 L33} _28 = ref(shared, _4);
-        [W M W M W M W M M W M U U U U U U U U] {L12 L13 L33} _29 = ref(shared, _5);
-        [W M W M W M W M M W M U U U U U U U U] {L12 L13 L14 L33} _30 = spawn group spawn_borrows.look(n: &Int) [move _29, move _28] -> [return: bb11];
+        [W M W M W M W M M U W U U U U U U U U] {L13 L35} _25 = move _28;
+        [W M W M W M W M M W M U U U U U U U U] {L13 L35} _30 = ref(shared, _4);
+        [W M W M W M W M M W M U U U U U U U U] {L13 L14 L35} _31 = ref(shared, _5);
+        [W M W M W M W M M W M U U U U U U U U] {L13 L14 L15 L35} _32 = spawn group spawn_borrows.look(n: &Int) [move _31, move _30] -> [return: bb11];
     }
 
     bb11: {
-        [W M W M W M W M M W M U W U U U U U U] {L12 L15 L33 L34} _27 = move _30;
-        [W M W M W M W M M W M W M U U U U U U] {L12 L15 L33 L34} _31 = copy _4;
-        [W M W M W M W M M W M W M U U U U U U] {L12 L15 L33 L34} _32 = ref(shared, _23);
-        [W M W M W M W M M W M W M U U U U U U] {L15 L16 L33 L34} _33 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _32] -> [return: bb12];
+        [W M W M W M W M M W M U W U U U U U U] {L13 L16 L35 L36} _29 = move _32;
+        [W M W M W M W M M W M W M U U U U U U] {L13 L16 L35 L36} _33 = copy _4;
+        [W M W M W M W M M W M W M U U U U U U] {L13 L16 L35 L36} _34 = ref(shared, _25);
+        [W M W M W M W M M W M W M U U U U U U] {L16 L17 L35 L36} _35 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _34] -> [return: bb12];
     }
 
     bb12: {
-        [W M W M W M W M M W M W M U U U U U U] {L15 L34} _34 = ref(shared, _27);
-        [W M W M W M W M M W M W M U U U U U U] {L17 L34} _35 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _34] -> [return: bb13];
+        [W M W M W M W M M W M W M U U U U U U] {L16 L36} _36 = ref(shared, _29);
+        [W M W M W M W M M W M W M U U U U U U] {L18 L36} _37 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _36] -> [return: bb13];
     }
 
     bb13: {
-        [W M W M W M W M M W M W M U U U U U U] {} call builtin print [format "{} {} {}", move _31, copy _33, copy _35] -> [return: bb14];
+        [W M W M W M W M M W M W M U U U U U U] {} call builtin print [format "{} {} {}", move _33, copy _35, copy _37] -> [return: bb14];
     }
 
     bb14: {
-        [W M W M W M W M M W M W M U U U U U U] {} _37 = ref(exclusive, _3);
-        [W M W M W M W M M W M W M U U U U U U] {L18} _38 = ref(shared, _5);
-        [W M W M W M W M M W M W M U U U U U U] {L18 L19} _39 = spawn group spawn_borrows.bump(n: &var Int) [move _38, move _37] -> [return: bb15];
+        [W M W M W M W M M W M W M U U U U U U] {} _39 = ref(exclusive, _3);
+        [W M W M W M W M M W M W M U U U U U U] {L19} _40 = ref(shared, _5);
+        [W M W M W M W M M W M W M U U U U U U] {L19 L20} _41 = spawn group spawn_borrows.bump(n: &var Int) [move _40, move _39] -> [return: bb15];
     }
 
     bb15: {
-        [W M W M W M W M M W M W M W U U U U U] {L20 L35} _40 = ref(shared, _39);
-        [W M W M W M W M M W M W M W U U U U U] {L21 L35} _41 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _40] -> [return: bb16];
+        [W M W M W M W M M W M W M W U U U U U] {L21 L37} _42 = ref(shared, _41);
+        [W M W M W M W M M W M W M W U U U U U] {L22 L37} _43 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _42] -> [return: bb16];
     }
 
     bb16: {
-        [W M W M W M W M M W M W M W U U U U U] {} _36 = move _41;
-        [W M W M W M W M M W M W M W U U U U U] {} drop(_39);  // static
-        [W M W M W M W M M W M W M D U U U U U] {} call builtin print [format "{}", copy _36] -> [return: bb17];
+        [W M W M W M W M M W M W M W U U U U U] {} _38 = move _43;
+        [W M W M W M W M M W M W M W U U U U U] {} drop(_41);  // static
+        [W M W M W M W M M W M W M D U U U U U] {} call builtin print [format "{}", copy _38] -> [return: bb17];
     }
 
     bb17: {
-        [W M W M W M W M M W M W M D U U U U U] {} _42 = const 0: Int;
+        [W M W M W M W M M W M W M D U U U U U] {} _44 = const 0: Int;
         [W M W M W M W M M W M W M D U U U U U] {} goto -> bb18;
     }
 
     bb18: {
-        [W M W M W M W M M W M W M D UD UM U U U] {} _43 = Lt(copy _42, const 2: Int);
-        [W M W M W M W M M W M W M D UD UM U U U] {} switch move _43 -> [true: bb20, false: bb19];
+        [W M W M W M W M M W M W M D UD UM U U U] {} _45 = Lt(copy _44, const 2: Int);
+        [W M W M W M W M M W M W M D UD UM U U U] {} switch move _45 -> [true: bb20, false: bb19];
     }
 
     bb19: {
-        [W M W M W M W M M W M W M D UD UM U U U] {} _51 = Gt(copy _42, const 0: Int);
-        [W M W M W M W M M W M W M D UD UM U U U] {} switch move _51 -> [true: bb26, false: bb27];
+        [W M W M W M W M M W M W M D UD UM U U U] {} _53 = Gt(copy _44, const 0: Int);
+        [W M W M W M W M M W M W M D UD UM U U U] {} switch move _53 -> [true: bb26, false: bb27];
     }
 
     bb20: {
@@ -285,38 +289,38 @@ fn spawn_borrows.main() {
     }
 
     bb21: {
-        [W M W M W M W M M W M W M D UD UM U U U] {} _45 = ref(exclusive, _1);
-        [W M W M W M W M M W M W M D UD UM U U U] {L22} _46 = ref(shared, _5);
-        [W M W M W M W M M W M W M D UD UM U U U] {L22 L23} _47 = spawn group spawn_borrows.fill(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>, n: Int) [move _46, move _45, const 1: Int] -> [return: bb22];
+        [W M W M W M W M M W M W M D UD UM U U U] {} _47 = ref(exclusive, _1);
+        [W M W M W M W M M W M W M D UD UM U U U] {L23} _48 = ref(shared, _5);
+        [W M W M W M W M M W M W M D UD UM U U U] {L23 L24} _49 = spawn group spawn_borrows.fill(v: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>, n: Int) [move _48, move _47, const 1: Int] -> [return: bb22];
     }
 
     bb22: {
-        [W M W M W M W M M W M W M D UD W U U U] {L24 L36} _44 = move _47;
-        [W M W M W M W M M W M W M D W M U U U] {L24 L36} _48 = ref(shared, _44);
-        [W M W M W M W M M W M W M D W M U U U] {L25 L36} _49 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _48] -> [return: bb23];
+        [W M W M W M W M M W M W M D UD W U U U] {L25 L38} _46 = move _49;
+        [W M W M W M W M M W M W M D W M U U U] {L25 L38} _50 = ref(shared, _46);
+        [W M W M W M W M M W M W M D W M U U U] {L26 L38} _51 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _50] -> [return: bb23];
     }
 
     bb23: {
-        [W M W M W M W M M W M W M D W M U U U] {} call builtin print [format "{}", copy _49] -> [return: bb24];
+        [W M W M W M W M M W M W M D W M U U U] {} call builtin print [format "{}", copy _51] -> [return: bb24];
     }
 
     bb24: {
-        [W M W M W M W M M W M W M D W M U U U] {} _50 = Add(copy _42, const 1: Int);
-        [W M W M W M W M M W M W M D W M U U U] {} _42 = move _50;
-        [W M W M W M W M M W M W M D W M U U U] {} drop(_44);  // static
+        [W M W M W M W M M W M W M D W M U U U] {} _52 = Add(copy _44, const 1: Int);
+        [W M W M W M W M M W M W M D W M U U U] {} _44 = move _52;
+        [W M W M W M W M M W M W M D W M U U U] {} drop(_46);  // static
         [W M W M W M W M M W M W M D D M U U U] {} goto -> bb18;
     }
 
     bb25: {
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {} _57 = Add(copy _3, const 1: Int);
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {} _3 = move _57;
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {} _58 = ref(exclusive, _3);
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {L26} _59 = ref(shared, _5);
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {L26 L27} _60 = call spawn_borrows.through(v: &var Int, group: &std.taskgroup.TaskGroup) [move _58, move _59] -> [return: bb30];
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {} _59 = Add(copy _3, const 1: Int);
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {} _3 = move _59;
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {} _60 = ref(exclusive, _3);
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {L27} _61 = ref(shared, _5);
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {L27 L28} _62 = call spawn_borrows.through(v: &var Int, group: &std.taskgroup.TaskGroup) [move _60, move _61] -> [return: bb30];
     }
 
     bb26: {
-        [W M W M W M W M M W M W M D UD UM U U U] {} _53 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb28];
+        [W M W M W M W M M W M W M D UD UM U U U] {} _55 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb28];
     }
 
     bb27: {
@@ -324,25 +328,25 @@ fn spawn_borrows.main() {
     }
 
     bb28: {
-        [W M W M W M W M M W M W M D UD UM U W U] {} _52 = move _53;
-        [W M W M W M W M M W M W M D UD UM W M U] {} _54 = ref(exclusive, _3);
-        [W M W M W M W M M W M W M D UD UM W M U] {L28} _55 = ref(shared, _52);
-        [W M W M W M W M M W M W M D UD UM W M U] {L28 L29} _56 = spawn group spawn_borrows.bump(n: &var Int) [move _55, move _54] -> [return: bb29];
+        [W M W M W M W M M W M W M D UD UM U W U] {} _54 = move _55;
+        [W M W M W M W M M W M W M D UD UM W M U] {} _56 = ref(exclusive, _3);
+        [W M W M W M W M M W M W M D UD UM W M U] {L29} _57 = ref(shared, _54);
+        [W M W M W M W M M W M W M D UD UM W M U] {L29 L30} _58 = spawn group spawn_borrows.bump(n: &var Int) [move _57, move _56] -> [return: bb29];
     }
 
     bb29: {
-        [W M W M W M W M M W M W M D UD UM W M W] {L37} drop(_56);  // static
-        [W M W M W M W M M W M W M D UD UM W M D] {L37} drop(_52);  // static
+        [W M W M W M W M M W M W M D UD UM W M W] {L39} drop(_58);  // static
+        [W M W M W M W M M W M W M D UD UM W M D] {L39} drop(_54);  // static
         [W M W M W M W M M W M W M D UD UM D M D] {} goto -> bb25;
     }
 
     bb30: {
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {} call builtin print [format "{}", copy _60] -> [return: bb31];
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {} call builtin print [format "{}", copy _62] -> [return: bb31];
     }
 
     bb31: {
-        [W M W M W M W M M W M W M D UD UM UD UM UD] {} drop(_27);  // static
-        [W M W M W M W M M W M D M D UD UM UD UM UD] {} drop(_23);  // static
+        [W M W M W M W M M W M W M D UD UM UD UM UD] {} drop(_29);  // static
+        [W M W M W M W M M W M D M D UD UM UD UM UD] {} drop(_25);  // static
         [W M W M W M W M M D M D M D UD UM UD UM UD] {} drop(_15);  // static
         [W M W M W M D M M D M D M D UD UM UD UM UD] {} drop(_7);  // static
         [W M W M D M D M M D M D M D UD UM UD UM UD] {} drop(_5);  // static

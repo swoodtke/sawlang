@@ -49,42 +49,54 @@ fn copy_hooks.plain(p: copy_hooks.Plain) -> Int {
     let _3: (copy_hooks.Plain, Int);  // t
     let _4: (copy_hooks.Plain, Int);
     let _5: Int;  // c
-    let _6: () -> Int;
-    let _7: Int;
+    let _6: (copy_hooks.Plain,);  // environment
+    let _7: &(copy_hooks.Plain,);
     let _8: () -> Int;
     let _9: Int;
-    let _10: Int;
-    let _11: () -> Int;
-    let _12: Int;
+    let _10: (copy_hooks.Plain,);  // environment
+    let _11: &(copy_hooks.Plain,);
+    let _12: () -> Int;
     let _13: Int;
     let _14: Int;
-    let _15: Int;
+    let _15: (copy_hooks.Plain,);  // environment
+    let _16: &(copy_hooks.Plain,);
+    let _17: () -> Int;
+    let _18: Int;
+    let _19: Int;
+    let _20: Int;
+    let _21: Int;
 
     bb0: {
         _2 = copy _1;
         _4 = (copy _1, const 1: Int);
         _3 = move _4;
-        _6 = closure#0 of copy_hooks.plain(p: copy_hooks.Plain) [copy _1];
-        _7 = call copy_hooks.call(f: () -> Int) [move _6] -> [return: bb1];
+        _6 = (copy _1,);
+        _7 = ref(shared, _6);
+        _8 = closure#0 of copy_hooks.plain(p: copy_hooks.Plain) [move _7];
+        _9 = call copy_hooks.call(f: () -> Int) [move _8] -> [return: bb1];
     }
 
     bb1: {
-        _8 = closure#1 of copy_hooks.plain(p: copy_hooks.Plain) [copy _1];
-        _9 = call copy_hooks.call(f: () -> Int) [move _8] -> [return: bb2];
+        _10 = (copy _1,);
+        _11 = ref(shared, _10);
+        _12 = closure#1 of copy_hooks.plain(p: copy_hooks.Plain) [move _11];
+        _13 = call copy_hooks.call(f: () -> Int) [move _12] -> [return: bb2];
     }
 
     bb2: {
-        _10 = Add(move _7, move _9);
-        _11 = closure#2 of copy_hooks.plain(p: copy_hooks.Plain) [copy _1];
-        _12 = call copy_hooks.call(f: () -> Int) [move _11] -> [return: bb3];
+        _14 = Add(move _9, move _13);
+        _15 = (copy _1,);
+        _16 = ref(shared, _15);
+        _17 = closure#2 of copy_hooks.plain(p: copy_hooks.Plain) [move _16];
+        _18 = call copy_hooks.call(f: () -> Int) [move _17] -> [return: bb3];
     }
 
     bb3: {
-        _13 = Add(move _10, move _12);
-        _5 = move _13;
-        _14 = Add(copy _2.n, copy _3.0.n);
-        _15 = Add(move _14, copy _5);
-        _0 = move _15;
+        _19 = Add(move _14, move _18);
+        _5 = move _19;
+        _20 = Add(copy _2.n, copy _3.0.n);
+        _21 = Add(move _20, copy _5);
+        _0 = move _21;
         return;
     }
 }
@@ -183,8 +195,10 @@ fn copy_hooks.dup(d: copy_hooks.Dup) -> Int {
     let _1: copy_hooks.Dup;  // param d
     let _2: &copy_hooks.Dup;
     let _3: copy_hooks.Dup;
-    let _4: () -> Int;
-    let _5: Int;
+    let _4: (copy_hooks.Dup,);  // environment
+    let _5: &(copy_hooks.Dup,);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _2 = ref(shared, _1);
@@ -192,12 +206,14 @@ fn copy_hooks.dup(d: copy_hooks.Dup) -> Int {
     }
 
     bb1: {
-        _4 = closure#0 of copy_hooks.dup(d: copy_hooks.Dup) [move _3];
-        _5 = call copy_hooks.call(f: () -> Int) [move _4] -> [return: bb2];
+        _4 = (move _3,);
+        _5 = ref(shared, _4);
+        _6 = closure#0 of copy_hooks.dup(d: copy_hooks.Dup) [move _5];
+        _7 = call copy_hooks.call(f: () -> Int) [move _6] -> [return: bb2];
     }
 
     bb2: {
-        _0 = move _5;
+        _0 = move _7;
         drop(_1);
         return;
     }

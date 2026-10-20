@@ -1,0 +1,49 @@
+// A spawned closure borrows its environment, a local of the function that
+// builds it, the closure value holding a `ref` of it (SL-805); the legal
+// shapes beside each refusal's: a spawn joined before the loop body ends, an
+// owned group that drains its task before the function returns, and a
+// forwarded closure parameter joined, beside the same with a reference.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func read(r: &Int) -> Int {
+    yield_now()
+    r + 1
+}
+
+func joined_loop(group: &var TaskGroup) -> Int {
+    var total = 0
+    for i in 0..3 {
+        let h = group.spawn(run({ [i] in i * 10 + 1 }))
+        total += h.join()
+    }
+    total
+}
+
+func owned_group(base: Int) {
+    var group = TaskGroup()
+    let _ = group.spawn(run({ [base] in base + 1 }))
+}
+
+func forward_closure(group: &var TaskGroup, f: () -> Int) -> Int {
+    let h = group.spawn(run(f))
+    h.join()
+}
+
+func forward_reference(group: &var TaskGroup, r: &Int) -> Int {
+    let h = group.spawn(read(&r))
+    h.join()
+}
+
+func main() {
+    var n = 7
+    var group = TaskGroup()
+    print("{}", joined_loop(&var group))
+    owned_group(41)
+    print("{}", forward_closure(&var group, { [&var n] in n = n + 1; n }))
+    print("{}", forward_reference(&var group, &n))
+}

@@ -317,13 +317,20 @@ extension BorrowckProgram {
             if loan.exclusive {
                 try! msg.append("exclusive access violation: ")
             }
-            try! msg.append("this task's `")
-            try! msg.append(borrowck_sigil(loan.exclusive))
-            try! msg.append(self.borrowck_path_text(f, &loan.path, &facts))
-            if loan.captured {
-                try! msg.append("` capture")
+            if self.environment_root(f, &loan.path) {
+                try! msg.append("the environment of ")
+                try! msg.append(self.borrowck_path_text(f, &loan.path, &facts))
+                try! msg.append(", which this task holds,")
             } else {
-                try! msg.append("` argument")
+                try! msg.append("this task's ")
+                // Stage 0 workaround (SL:hazards S4): canonical: try! msg.append(self.borrowck_borrow_text(f, &loan.path, loan.exclusive, &facts))
+                let exclusive = loan.exclusive
+                try! msg.append(self.borrowck_borrow_text(f, &loan.path, exclusive, &facts))
+                if loan.captured {
+                    try! msg.append(" capture")
+                } else {
+                    try! msg.append(" argument")
+                }
             }
             if loan.exclusive {
                 try! msg.append(" is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: ")
@@ -371,10 +378,11 @@ extension BorrowckProgram {
                     continue
                 }
                 var msg = StringBuilder()
-                try! msg.append("the task this `group.spawn` makes still holds `")
-                try! msg.append(borrowck_sigil(loan.exclusive))
-                try! msg.append(self.borrowck_path_text(f, &loan.path, &facts))
-                try! msg.append("` when the function returns at ")
+                try! msg.append("the task this `group.spawn` makes still holds ")
+                // Stage 0 workaround (SL:hazards S4): canonical: try! msg.append(self.borrowck_borrow_text(f, &loan.path, loan.exclusive, &facts))
+                let exclusive = loan.exclusive
+                try! msg.append(self.borrowck_borrow_text(f, &loan.path, exclusive, &facts))
+                try! msg.append(" when the function returns at ")
                 try! msg.append(self.mir.span_text(block.term_node, block.term_closing))
                 try! msg.append(": nothing joins its handle on that path, and its group `")
                 let group = loan.group
@@ -463,10 +471,11 @@ extension BorrowckProgram {
         var text = StringBuilder()
         try! text.append("the task spawned at ")
         try! text.append(self.mir.span_text(loan.source, false))
-        try! text.append(" holds `")
-        try! text.append(borrowck_sigil(loan.exclusive))
-        try! text.append(self.borrowck_path_text(f, &loan.path, &facts))
-        try! text.append("` until ")
+        try! text.append(" holds ")
+        // Stage 0 workaround (SL:hazards S4): canonical: try! text.append(self.borrowck_borrow_text(f, &loan.path, loan.exclusive, &facts))
+        let exclusive = loan.exclusive
+        try! text.append(self.borrowck_borrow_text(f, &loan.path, exclusive, &facts))
+        try! text.append(" until ")
         if handle.len() > 0 {
             try! text.append("`")
             try! text.append(handle)

@@ -446,17 +446,21 @@ fn closure#0 of captures.passed_move() -> Int {
 fn captures.local_plain() -> Int {
     let _0: Int;  // return
     let _1: String;  // s
-    let _2: () -> Int;
-    let _3: Int;
+    let _2: (String,);  // environment
+    let _3: &(String,);
+    let _4: () -> Int;
+    let _5: Int;
 
     bb0: {
         _1 = const "abc": String;
-        _2 = closure#0 of captures.local_plain() [copy _1];
-        _3 = call captures.run(body: () -> Int) [move _2] -> [return: bb1];
+        _2 = (copy _1,);
+        _3 = ref(shared, _2);
+        _4 = closure#0 of captures.local_plain() [move _3];
+        _5 = call captures.run(body: () -> Int) [move _4] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _3;
+        _0 = move _5;
         drop(_1);
         return;
     }
@@ -489,17 +493,21 @@ fn closure#0 of captures.local_plain() -> Int {
 fn captures.local_copy_copy_tier() -> Int {
     let _0: Int;  // return
     let _1: String;  // s
-    let _2: () -> Int;
-    let _3: Int;
+    let _2: (String,);  // environment
+    let _3: &(String,);
+    let _4: () -> Int;
+    let _5: Int;
 
     bb0: {
         _1 = const "abc": String;
-        _2 = closure#0 of captures.local_copy_copy_tier() [copy _1];
-        _3 = call captures.run(body: () -> Int) [move _2] -> [return: bb1];
+        _2 = (copy _1,);
+        _3 = ref(shared, _2);
+        _4 = closure#0 of captures.local_copy_copy_tier() [move _3];
+        _5 = call captures.run(body: () -> Int) [move _4] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _3;
+        _0 = move _5;
         drop(_1);
         return;
     }
@@ -535,8 +543,10 @@ fn captures.local_copy() -> Int {
     let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _3: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _4: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
-    let _5: () -> Int;
-    let _6: Int;
+    let _5: (std.vector.Vector<Int, std.alloc.GlobalAllocator>,);  // environment
+    let _6: &(std.vector.Vector<Int, std.alloc.GlobalAllocator>,);
+    let _7: () -> Int;
+    let _8: Int;
 
     bb0: {
         _2 = vector [const 1: Int, const 2: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
@@ -546,12 +556,14 @@ fn captures.local_copy() -> Int {
     }
 
     bb1: {
-        _5 = closure#0 of captures.local_copy() [move _4];
-        _6 = call captures.run(body: () -> Int) [move _5] -> [return: bb2];
+        _5 = (move _4,);
+        _6 = ref(shared, _5);
+        _7 = closure#0 of captures.local_copy() [move _6];
+        _8 = call captures.run(body: () -> Int) [move _7] -> [return: bb2];
     }
 
     bb2: {
-        _0 = move _6;
+        _0 = move _8;
         drop(_1);
         return;
     }

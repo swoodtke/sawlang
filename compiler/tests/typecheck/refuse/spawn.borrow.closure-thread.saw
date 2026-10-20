@@ -1,0 +1,20 @@
+// refuses: spawn.borrow at 16:32
+// flags: --std-root std
+// the same inside a `Thread.spawn` body: a background task outlives its
+// spawning statement on every thread, and the environment lives in the
+// thread body's frame.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var th = try! Thread.spawn {
+        let base = 5
+        var t = Task.spawn(run({ [base] in base + 1 }))
+        t.detach()
+    }
+    th.join()
+}

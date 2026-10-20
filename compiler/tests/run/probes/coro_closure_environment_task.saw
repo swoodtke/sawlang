@@ -1,0 +1,47 @@
+// probe: stated
+// about: a spawned closure's environment held in the spawner's frame until the join (SL-805)
+// stage 0: prints `task saw 7` and `n 7`, the write through `[&var n]` lost
+// speeds: -O0 -O2
+// prints: task saw 107
+// prints: n 107 s 18
+// prints: in task 42
+// prints: joined per iteration 33
+// A closure spawned into a group: its environment, a local of the spawner,
+// lives across the spawner's suspension while the task holds the closure, and
+// a task root's own closure lives in the task's frame. The sanitizer lane
+// runs it with stack-use-after-return detection.
+import std.task.{yield_now}
+
+func fill(depth: Int) sync -> Int {
+    let a = [depth; 64]
+    a[3] + a[60]
+}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    let s = fill(1) + fill(2)
+    f() + s - s
+}
+
+func task_body(base: Int) -> Int {
+    run({ [base] in base + 1 })
+}
+
+func main() {
+    var n = 7
+    let base = 100
+    var group = TaskGroup()
+    let h = group.spawn(run({ [&var n, &base] in n = n + base; n }))
+    yield_now()
+    let s = fill(9)
+    print("task saw {}", h.join())
+    print("n {} s {}", n, s)
+    let t = group.spawn(task_body(41))
+    print("in task {}", t.join())
+    var total = 0
+    for i in 0..3 {
+        let each = group.spawn(run({ [i] in i * 10 + 1 }))
+        total += each.join()
+    }
+    print("joined per iteration {}", total)
+}

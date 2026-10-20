@@ -1,0 +1,20 @@
+// refuses: loan.handle-escape at 13:29
+// a closure capturing by value, spawned into the caller's group with no join
+// before the return: its environment is a local of `start`, which the closure
+// borrows, so the task would read it after `start` is gone.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func start(group: &var TaskGroup, base: Int) {
+    let _ = group.spawn(run({ [base] in base + 1 }))
+}
+
+func main() {
+    var group = TaskGroup()
+    start(&var group, 41)
+    yield_now()
+}

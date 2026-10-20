@@ -88,7 +88,7 @@ fn group_handles.main() {
     place _46: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // seen
     place _47: std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>;  // _47
     place _49: std.taskgroup.Task<Int>;  // _49
-    place _51: (std.taskgroup.Task<Int>) -> Void;  // _51
+    place _53: (std.taskgroup.Task<Int>) -> Void;  // _53
     place _16.first: std.taskgroup.Task<Int>;  // pair.first
     place _16.second: std.taskgroup.Task<Int>;  // pair.second
     loan L0: shared _1;  // argument at 34:13
@@ -119,7 +119,8 @@ fn group_handles.main() {
     loan L25: shared _1;  // handle at 50:11
     loan L26: exclusive _46;  // capture at 50:34
     loan L27: exclusive (*_50);  // capture at 50:34
-    loan L28: shared _46;  // argument at 51:17
+    loan L28: exclusive _51;  // capture at 50:34
+    loan L29: shared _46;  // argument at 51:17
 
     bb0: {
         [U U U U U U U U U U U U U U U U U U U U U U U U U U] {} _2 = call std.taskgroup.TaskGroup.init() (owner std.taskgroup.TaskGroup) [] -> [return: bb1];
@@ -264,17 +265,19 @@ fn group_handles.main() {
 
     bb27: {
         [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25} _50 = ref(exclusive, _46);
-        [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25 L26} _51 = closure#0 of group_handles.main() [move _50];
-        [W M W M W M D W M M M W M M M W M M D M W M W W W W] {L25 L26 L27} call group_handles.apply(t: std.taskgroup.Task<Int>, body: (std.taskgroup.Task<Int>) -> Void) [move _49, move _51] -> [return: bb28];
+        [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25 L26} _51 = (move _50,);
+        [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25 L26 L27} _52 = ref(exclusive, _51);
+        [W M W M W M D W M M M W M M M W M M D M W M W U W W] {L25 L26 L27 L28} _53 = closure#0 of group_handles.main() [move _52];
+        [W M W M W M D W M M M W M M M W M M D M W M W W W W] {L25 L26 L27 L28} call group_handles.apply(t: std.taskgroup.Task<Int>, body: (std.taskgroup.Task<Int>) -> Void) [move _49, move _53] -> [return: bb28];
     }
 
     bb28: {
-        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {L25} _52 = ref(shared, _46);
-        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {L28} _53 = call std.vector.Vector.len() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _52] -> [return: bb29];
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {L25} _54 = ref(shared, _46);
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {L29} _55 = call std.vector.Vector.len() (owner std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>) [move _54] -> [return: bb29];
     }
 
     bb29: {
-        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {} call builtin print [format "{}", copy _53] -> [return: bb30];
+        [W M W M W M D W M M M W M M M W M M D M W M M M W W] {} call builtin print [format "{}", copy _55] -> [return: bb30];
     }
 
     bb30: {

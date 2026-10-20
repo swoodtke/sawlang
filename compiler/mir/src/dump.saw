@@ -335,7 +335,8 @@ extension MirProgram {
             case Flag -> {
                 try! out.append("  // flag ")
                 try! out.append(self.tc.name_text(l.name))
-            }
+            },
+            case Environment -> try! out.append("  // environment")
         }
     }
 

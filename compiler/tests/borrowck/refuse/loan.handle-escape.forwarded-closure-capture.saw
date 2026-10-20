@@ -1,0 +1,24 @@
+// refuses: loan.handle-escape at 12:13
+// the same with a borrow capture: the task would also write `n` after
+// `start` has returned, so it is refused in `forward`, where the spawn is.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func forward(group: &var TaskGroup, f: () -> Int) {
+    let _ = group.spawn(run(f))
+}
+
+func start(group: &var TaskGroup) {
+    var n = 7
+    forward(&var group, { [&var n] in n = n + 1; n })
+}
+
+func main() {
+    var group = TaskGroup()
+    start(&var group)
+    yield_now()
+}

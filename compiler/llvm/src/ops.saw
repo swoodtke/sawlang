@@ -16,6 +16,7 @@ import sawllvm.places.{ll_local_slot, ll_tag_type}
 import sawllvm.literals.{ll_zero_constant}
 import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_fit_signed, ll_integer_value}
+import sawmir.build.{mir_func_local}
 import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue, MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoProgram}
@@ -108,13 +109,27 @@ extension LlEmitter {
         }
     }
 
-    // A non-escaping closure: its captures in an environment slot of this
-    // frame, then the value, the body's code beside the environment.
+    // A closure value, the body's code beside its environment's address. An
+    // environment the building function keeps in a local of its own arrives
+    // as the closure's one operand, that local's address, so it lives where
+    // the frame layout put the local (`closure_environment`). Any other is
+    // written here into an entry-block slot: a capture-less closure's, which
+    // nothing reads, and a `Thread.spawn` brace's, which its site copies to
+    // the heap in the same terminator.
     func closure_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String, node: Int) {
         let rv = mono.dp.bc.mir.rvalues[r]
         let item = mono.closure_item(r)
         if item < 0 {
             self.refuse_here(&var mono, node, "a closure whose body mono did not reach")
+            return
+        }
+        if mono.dp.bc.mir.closure_environment(rv.decl) {
+            let lent = mono.dp.bc.mir.lists[rv.first]
+            let address = self.operand_value(&var mono, &var target, lent, node)
+            let symbol = self.plain_symbol(&var mono, item)
+            self.store("ptr", symbol, dest)
+            let lent_at = self.offset_addr(dest, target.closure_env_offset())
+            self.store("ptr", address, lent_at)
             return
         }
         let body = mono.items[item].body

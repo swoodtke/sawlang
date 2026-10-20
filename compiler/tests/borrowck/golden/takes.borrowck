@@ -37,20 +37,23 @@ fn takes.sink(r: takes.Res) {
 fn takes.once() {
     place _1: takes.Res;  // r
     place _2: takes.Res;  // _2
-    place _5: () -> Int;  // _5
+    place _7: () -> Int;  // _7
+    loan L0: exclusive _5;  // capture at 28:9
 
     bb0: {
-        [U U U] _2 = takes.Res { id: const 1: Int };
-        [U W U] _1 = move _2;
-        [W M U] _4 = take(_1, _3);
-        [WM M U] _5 = closure#0 of takes.once() [move _4];
-        [WM M W] _6 = call takes.run(body: () -> Int) [move _5] -> [return: bb1];
+        [U U U] {} _2 = takes.Res { id: const 1: Int };
+        [U W U] {} _1 = move _2;
+        [W M U] {} _4 = take(_1, _3);
+        [WM M U] {} _5 = (move _4,);
+        [WM M U] {} _6 = ref(exclusive, _5);
+        [WM M U] {L0} _7 = closure#0 of takes.once() [move _6];
+        [WM M W] {L0} _8 = call takes.run(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        [WM M M] _0 = move _6;
-        [WM M M] drop(_1);  // flagged
-        [D M M] return;
+        [WM M M] {} _0 = move _8;
+        [WM M M] {} drop(_1);  // flagged
+        [D M M] {} return;
     }
 }
 
@@ -81,20 +84,23 @@ fn closure#0 of takes.once() {
 fn takes.never() {
     place _1: takes.Res;  // r
     place _2: takes.Res;  // _2
-    place _5: () -> Int;  // _5
+    place _7: () -> Int;  // _7
+    loan L0: exclusive _5;  // capture at 33:10
 
     bb0: {
-        [U U U] _2 = takes.Res { id: const 2: Int };
-        [U W U] _1 = move _2;
-        [W M U] _4 = take(_1, _3);
-        [WM M U] _5 = closure#0 of takes.never() [move _4];
-        [WM M W] _6 = call takes.skip(body: () -> Int) [move _5] -> [return: bb1];
+        [U U U] {} _2 = takes.Res { id: const 2: Int };
+        [U W U] {} _1 = move _2;
+        [W M U] {} _4 = take(_1, _3);
+        [WM M U] {} _5 = (move _4,);
+        [WM M U] {} _6 = ref(exclusive, _5);
+        [WM M U] {L0} _7 = closure#0 of takes.never() [move _6];
+        [WM M W] {L0} _8 = call takes.skip(body: () -> Int) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        [WM M M] _0 = move _6;
-        [WM M M] drop(_1);  // flagged
-        [D M M] return;
+        [WM M M] {} _0 = move _8;
+        [WM M M] {} drop(_1);  // flagged
+        [D M M] {} return;
     }
 }
 

@@ -81,31 +81,37 @@ fn slices.forward(s: &var [Int]) {
 }
 
 fn slices.captured(s: &var [Int]) {
-    place _3: () -> Void;  // _3
     place _5: () -> Void;  // _5
+    place _9: () -> Void;  // _9
     loan L0: exclusive (*_1);  // capture at 21:9
     loan L1: exclusive (*_2);  // capture at 21:9
-    loan L2: exclusive (*_1);  // capture at 22:9
-    loan L3: exclusive (*_4);  // capture at 22:9
+    loan L2: exclusive _3;  // capture at 21:9
+    loan L3: exclusive (*_1);  // capture at 22:9
+    loan L4: exclusive (*_6);  // capture at 22:9
+    loan L5: exclusive _7;  // capture at 22:9
 
     bb0: {
         [U U] {} _2 = ref(exclusive, (*_1));
-        [U U] {L0} _3 = closure#0 of slices.captured(s: &var [Int]) [move _2];
-        [W U] {L0 L1} call slices.run(f: () -> Void) [move _3] -> [return: bb1];
+        [U U] {L0} _3 = (move _2,);
+        [U U] {L0 L1} _4 = ref(exclusive, _3);
+        [U U] {L0 L1 L2} _5 = closure#0 of slices.captured(s: &var [Int]) [move _4];
+        [W U] {L0 L1 L2} call slices.run(f: () -> Void) [move _5] -> [return: bb1];
     }
 
     bb1: {
-        [M U] {} _4 = ref(exclusive, (*_1));
-        [M U] {L2} _5 = closure#1 of slices.captured(s: &var [Int]) [move _4];
-        [M W] {L2 L3} call slices.run(f: () -> Void) [move _5] -> [return: bb2];
+        [M U] {} _6 = ref(exclusive, (*_1));
+        [M U] {L3} _7 = (move _6,);
+        [M U] {L3 L4} _8 = ref(exclusive, _7);
+        [M U] {L3 L4 L5} _9 = closure#1 of slices.captured(s: &var [Int]) [move _8];
+        [M W] {L3 L4 L5} call slices.run(f: () -> Void) [move _9] -> [return: bb2];
     }
 
     bb2: {
-        [M M] {} _6 = const 0: Int;
-        [M M] {} _7 = copy _1[_6];
-        [M M] {} _8 = const 1: Int;
-        [M M] {} _9 = Add(move _7, copy _1[_8]);
-        [M M] {} _0 = move _9;
+        [M M] {} _10 = const 0: Int;
+        [M M] {} _11 = copy _1[_10];
+        [M M] {} _12 = const 1: Int;
+        [M M] {} _13 = Add(move _11, copy _1[_12]);
+        [M M] {} _0 = move _13;
         [M M] {} return;
     }
 }

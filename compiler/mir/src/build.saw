@@ -765,6 +765,33 @@ extension MirProgram {
         cap.use == TcUse.Move && self.owns(cap.ty)
     }
 
+    // Whether closure expression `e` keeps its environment in a local of the
+    // function that builds it: one that captures something, does not escape,
+    // and is no `Thread.spawn` brace, whose environment its site moves to the
+    // heap. Its value is then a reference to that local, so the frame layout
+    // places the environment like any local, and the borrow check holds the
+    // closure value, wherever it is passed, to that loan (SL-805).
+    //
+    // ENTRY POINTS (closure_environment):
+    //     closure
+    //     capture_site
+    //     resolve_closure
+    //     closure_into
+    public func closure_environment(&self, e: Int) -> Bool {
+        let at = self.tc.closure_index.first(e, 0)
+        if at < 0 {
+            return false
+        }
+        let k = self.tc.closure_index.value(at)
+        if k >= self.tc.closure_escaping.len() || self.tc.closure_escaping[k] {
+            return false
+        }
+        if tc_contains(&self.tc.thread_braces, e) {
+            return false
+        }
+        self.tc.capture_count[k] > 0
+    }
+
     // Whether function `f`, a source function or a concrete copy of one, is
     // a `Thread.spawn` brace's body. It runs once, on a thread of its own with
     // no executor: it takes its environment by value, moving every capture
