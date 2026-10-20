@@ -1,0 +1,32 @@
+// probe: stated
+// about: four thousand short `Thread.spawn` bodies, at most two at once, each drive a one-task `TaskGroup()`, and the executor makes two thread records in all, each reused once its thread ends, conformance row K189 (SL-793)
+// stage 0: has no per-thread executor record to count (SL-793)
+// speeds: -O0 -O2
+// prints: 4000 tasks, 2 executor records
+import std.task.*
+import std.taskgroup.{__saw_exec_record_count}
+
+static ROUNDS: Int = 2000
+
+func one() -> Int {
+    yield_now()
+    1
+}
+
+func drive() -> Int {
+    var g = TaskGroup()
+    let h = g.spawn(one())
+    h.join()
+}
+
+func main() blocking {
+    var total = 0
+    var i = 0
+    while i < ROUNDS {
+        var a = try! Thread.spawn { drive() }
+        var b = try! Thread.spawn { drive() }
+        total = total + a.join() + b.join()
+        i = i + 1
+    }
+    print("{} tasks, {} executor records", total, __saw_exec_record_count())
+}

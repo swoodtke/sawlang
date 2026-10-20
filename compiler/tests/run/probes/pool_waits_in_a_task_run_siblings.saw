@@ -1,0 +1,51 @@
+// probe: stated
+// about: a cooperative task that joins a `TaskGroup(threads: 2)` task, or drops such a group with a task still live, runs its thread's other tasks meanwhile: a sibling ticks every 5 ms through both 100 ms waits, conformance row K188 (SL-793)
+// stage 0: blocks the executor's thread on the pool's condition variable for both waits, so the sibling never ticks (SL-793)
+// speeds: -O0 -O2
+// prints: sibling ticked during the join: true
+// prints: joined 7
+// prints: sibling ticked during the teardown: true
+import std.task.*
+
+static TICKS: Atomic<Int> = Atomic(0)
+static STOP: Atomic<Int> = Atomic(0)
+
+func ticker() -> Int {
+    while STOP.load() == 0 {
+        sleep(Duration.ms(5))
+        let _ = TICKS.fetch_add(1)
+    }
+    0
+}
+
+func napper() -> Int {
+    sleep(Duration.ms(100))
+    7
+}
+
+func pool_scope_ends() {
+    var pool = try! TaskGroup(threads: 2)
+    let _ = pool.spawn(napper())
+}
+
+func waiter(pool: &TaskGroup) -> Int {
+    let h = pool.spawn(napper())
+    let before_join = TICKS.load()
+    let v = h.join()
+    print("sibling ticked during the join: {}", TICKS.load() > before_join)
+    print("joined {}", v)
+    let before_teardown = TICKS.load()
+    pool_scope_ends()
+    print("sibling ticked during the teardown: {}", TICKS.load() > before_teardown)
+    STOP.store(1)
+    v
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    let a = group.spawn(ticker())
+    let b = group.spawn(waiter(&pool))
+    let _ = b.join()
+    let _ = a.join()
+}

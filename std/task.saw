@@ -14,7 +14,7 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
-import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_finished}
+import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_exiting, __saw_exec_thread_finished}
 
 extern "C" {
     // 0, or the negated portable tag of a refused join (runtime/ABI.md).
@@ -224,6 +224,10 @@ extension Thread<T> {
         // deadlock walk that reads the count as zero finds a parked joiner's
         // word set (the run probe `thread_join_exit_while_parked`).
         let previous = exchange_state(block, 0 - size)
+        // The thread's executor record is published empty and claimable
+        // before the live-thread count drops, so a walk that reads the count
+        // as zero finds no wait of this thread in it.
+        __saw_exec_thread_exiting()
         var freed = false
         if previous == 0 {
             drop_in_place((&block[0].result) as UnsafePointer<T>)

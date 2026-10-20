@@ -841,6 +841,30 @@ Decrement the budget. Returns `1` (and resets to the default) when it reaches ze
 ### `__saw_rt_op_budget_reset() -> void`
 Restore the default budget (a genuine park already ceded).
 
+## The thread's executor record (SL-793)
+
+One word per thread, which std's cooperative executor stores the address of
+the calling thread's executor record in: the cooperative groups the thread
+drives, its waits inside the executor and its sweep depth. A group's tasks run
+only on the thread that registered it, so each thread's sweep reads its own
+record. The record, its layout and its lifetime are std's (`std/taskgroup.saw`):
+records live in a process-wide registry and are never freed, since another
+thread's deadlock walk may read one at any time. The runtime keeps only the
+word, and frees nothing at a thread's exit.
+
+The hosted bodies keep the word in pthread thread-specific data, as
+`rt/common/op_budget.saw` keeps its budget. A single-threaded provider (a
+freestanding runtime with one executor thread) keeps one static word.
+
+### `__saw_rt_thread_executor() -> word`
+The word the calling thread last stored, or `0` when it stored none. Also `0`
+when no thread-specific key can be made; the store then reports it.
+
+### `__saw_rt_set_thread_executor(record: word) -> word  (0/-1)`
+Stores `record` as the calling thread's word. Returns `0`, or `-1` when no
+thread-specific key can be made or the store is refused. A refusal has no
+process-wide fallback, which would hand one thread's record to another.
+
 ## The IO reactor (instance-based)
 
 The reactor is an opaque instance created through the ABI, not process-global
@@ -1240,6 +1264,7 @@ a flag bit.
 | SL-768 | sawc 0.15.0 (SL-765 T3a): the portable-tag convention for every seam that can fail. **Changed** signatures: `__saw_rt_thread_spawn` gains `handle_out` and returns `0`/`-tag`; `__saw_rt_thread_join`, `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` return `0`/`-tag` where they returned `void`; `__saw_rt_offload_start` gains `job_out`, `__saw_rt_reactor_create` takes `r_out` and `__saw_rt_reactor_poll` gains `count_out`, each returning `0`/`-tag`; `__saw_rt_thread_detach` returns `1` when the caller owns the control block and no longer frees it. **Changed** contracts with the same signature: `__saw_rt_reactor_register` reports `-tag` where it reported `errno`, `__saw_rt_tcp_local_port` reports `-tag` where it answered port 0, and `__saw_rt_set_nonblocking` reports `-tag` for both of its calls where it answered `-1` for one. Every runtime provider follows it |
 | SL-768 (c1) | for sawc 0.16.0: `__saw_rt_write_error`, one new symbol, standard error, unbuffered and best-effort. `__saw_rt_panic` **changed** contract with the same signature: it writes the message to standard error through `__saw_rt_write_error` where it wrote standard output through `__saw_rt_write`. A freestanding runtime supplies the new seam when a program links the executor |
 | SL-768 (c2) | sawc 0.16.0: standard output reports and serializes. **Changed** signatures: `__saw_rt_write` returns `0`/`-tag` where it returned `void`, and `__saw_rt_executable_path` takes `status_out` and reports a positive tag with its NULL. **New:** `__saw_rt_write_line` (the line `print` writes, its parts and line break under the output lock), `__saw_rt_output_lock`/`_unlock` (the recursive output lock, around a dump) and `__saw_rt_tcp_socketpair`. **Changed** contracts with the same signature: `__saw_rt_write` and `__saw_rt_panic` take the output lock; `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` report `EAGAIN` as `Exhausted` (SL-783). Every runtime provider follows it |
+| SL-793 | `__saw_rt_thread_executor` and `__saw_rt_set_thread_executor`: two new symbols, the per-thread word std's executor keeps its record's address in, so a cooperative group's tasks run only on the thread that drives it. No existing signature moved. A freestanding runtime supplies both when a program links the executor; a single-threaded one keeps a static word |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1363,7 +1388,8 @@ The hosted runtime is **authored in Saw** under `sawc/rt/`, compiled with
 ```
 sawc/rt/
   common/       OS-independent bodies: mem.saw (alloc, dealloc, deny_after),
-                sleep.saw, op_budget.saw, pthread.saw (mutex/cond init,
+                sleep.saw, op_budget.saw, thread_executor.saw (the
+                per-thread executor word), pthread.saw (mutex/cond init,
                 thread_join), offload.saw, proc.saw (fork/exec argv spawn,
                 WNOHANG reap, the env_* ops and the environment lock),
                 os_ops.saw (the status-carrying tcp_*/fs_* ops, socket

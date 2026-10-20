@@ -24,6 +24,8 @@ import sawcoro.program.{CoroProgram}
 import sawmir.model.{MirAggregate, MirCallKind, MirRvalueKind, MirStmtKind, MirTermKind}
 import sawmono.program.{MONO_KEY_DROP, MonoItemKind}
 import sawresolve.model.{ResDeclKind}
+// For `TcProgram.node_module`, an extension of that module's.
+import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -269,9 +271,15 @@ func coro_check_drop_closures(coro: &var CoroProgram, facts: &CoroDropFacts) {
             continue
         }
         try! sites.push(site)
+        // The path starts at the closure, which is what is refused, rather
+        // than at the function that encloses it.
+        var head = StringBuilder()
+        try! head.append("the closure at ")
+        let m = coro.mono.dp.bc.mir.tc.node_module(site)
+        try! head.append(coro.mono.dp.bc.mir.tc.res.node_position(m, site))
         var msg = StringBuilder()
         try! msg.append("a closure body may not block, and this one drops a value whose drop blocks: ")
-        coro_append_drop_path(&coro, &facts, item, &var msg)
+        coro_append_drop_path(&coro, &facts, item, head.build(), &var msg)
         try! msg.append(". A closure's value can be called in a task, where no task root sees the call. Drop the value in a `Thread.spawn` body, or move it out of the closure")
         coro.refuse(item, site, "coro.closure-drop-blocks", msg.build())
     }
@@ -287,7 +295,8 @@ func coro_check_drop_roots(coro: &var CoroProgram, facts: &CoroDropFacts) {
         }
         var msg = StringBuilder()
         try! msg.append("a task blocks its thread here: the task runs ")
-        coro_append_drop_path(&coro, &facts, root, &var msg)
+        let head = coro_item_head(&coro, root)
+        coro_append_drop_path(&coro, &facts, root, head, &var msg)
         try! msg.append(", which would stop the executor's thread and every task on it. Move the value into a `Thread.spawn` body to drop it there, or drop it from a `main` that runs no executor")
         let site = coro.mono.items[root].origin_node
         coro.refuse(root, site, "coro.task-drop-blocks", msg.build())
@@ -298,19 +307,28 @@ func coro_check_drop_roots(coro: &var CoroProgram, facts: &CoroDropFacts) {
     }
     var msg = StringBuilder()
     try! msg.append("`main` suspends, so it runs the executor, and it blocks its thread here: ")
-    coro_append_drop_path(&coro, &facts, main, &var msg)
+    let head = coro_item_head(&coro, main)
+    coro_append_drop_path(&coro, &facts, main, head, &var msg)
     try! msg.append(", which would stop the executor's thread and every task on it. Declare `func main() blocking` to run it in thread context, where a pair such as `Thread.join()` blocks instead of suspending, or move the value into a `Thread.spawn` body to drop it there")
     let node = coro.item_node(main)
     coro.refuse(main, node, "coro.task-drop-blocks", msg.build())
 }
 
-// `` `f` → `g` → drops `x: T` → `U` (blocking deinit) ``: the path from item
-// `from` to the first drop that blocks, then the type whose `deinit` blocks
-// when it is not the dropped value's own.
-func coro_append_drop_path(coro: &CoroProgram, facts: &CoroDropFacts, from: Int, msg: &var StringBuilder) {
-    try! msg.append("`")
-    try! msg.append(coro.item_label(from))
-    try! msg.append("`")
+// `` `f` ``: the head of a drop path that starts at item `k`.
+func coro_item_head(coro: &CoroProgram, k: Int) -> String {
+    var head = StringBuilder()
+    try! head.append("`")
+    try! head.append(coro.item_label(k))
+    try! head.append("`")
+    head.build()
+}
+
+// `` `f` → `g` → drops `x: T` → `U` (blocking deinit) ``: `head`, naming item
+// `from`, then the path to the first drop that blocks, then the type whose
+// `deinit` blocks when it is not the dropped value's own.
+func coro_append_drop_path(coro: &CoroProgram, facts: &CoroDropFacts, from: Int, head: String,
+                           msg: &var StringBuilder) {
+    try! msg.append(head)
     var at = from
     var dropped = -1
     var owner = -1

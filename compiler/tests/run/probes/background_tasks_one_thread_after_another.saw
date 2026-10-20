@@ -1,0 +1,24 @@
+// probe: stated
+// about: a `Thread.spawn` body spawns a background task with `Task.spawn`, joins it and ends; then `main` spawns one of its own, since the ended thread gave the background group up, conformance row K189 (SL-793)
+// stage 0: keeps one process-wide list of cooperative groups, which any thread's sweep runs (SL-797)
+// speeds: -O0 -O2
+// prints: thread joined 9, main joined 16
+import std.task.*
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func body() -> Int {
+    let t = Task.spawn(square(3))
+    t.join()
+}
+
+func main() {
+    var th = try! Thread.spawn { body() }
+    let first = th.join()
+    let h = Task.spawn(square(4))
+    let second = h.join()
+    print("thread joined {}, main joined {}", first, second)
+}

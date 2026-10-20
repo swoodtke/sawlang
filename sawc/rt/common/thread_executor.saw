@@ -1,0 +1,63 @@
+// The calling thread's executor record: one word per thread that std's
+// executor stores the address of its record in and reads back (std.taskgroup).
+// The runtime keeps only the word; the record, its layout and its lifetime
+// are std's, since other threads' deadlock walks read records the runtime
+// could otherwise free under them.
+//
+// Saw has no thread-local storage, so the word lives in pthread
+// thread-specific data, as `op_budget.saw`'s budget does. A thread that never
+// stored one reads NULL, which is 0, the "no record yet" answer. A key that
+// cannot be made has no process-wide fallback, which would hand one thread's
+// record to another: the store reports it, and the read answers 0.
+
+extern "C" {
+    // pthread_key_t is `unsigned long` on macOS and `unsigned int` on glibc;
+    // both fit a platform word, so the key is modelled as `Int` and the create
+    // call is handed a zeroed 8-byte slot to write its 4 or 8 bytes into.
+    func pthread_key_create(key: UnsafePointer<Int8>, dtor: UnsafePointer<Int8>) -> Int32
+    func pthread_key_delete(key: Int) -> Int32
+    func pthread_getspecific(key: Int) -> Int
+    func pthread_setspecific(key: Int, value: Int) -> Int32
+}
+
+// The pthread key, created once and published by compare-and-swap; holds
+// `key + 1`, so 0 means no key yet.
+static THREAD_EXECUTOR_KEY: Atomic<Int> = Atomic(0)
+
+// A refused create publishes nothing and answers -1.
+func thread_executor_key() unsafe -> Int {
+    let cur = THREAD_EXECUTOR_KEY.load()
+    if cur != 0 {
+        return cur - 1
+    }
+    var fresh: Int = 0
+    if pthread_key_create((&fresh) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>) != (0 as Int32) {
+        return -1
+    }
+    if THREAD_EXECUTOR_KEY.compare_exchange(0, fresh + 1) {
+        return fresh
+    }
+    pthread_key_delete(fresh)
+    THREAD_EXECUTOR_KEY.load() - 1
+}
+
+@export("__saw_rt_thread_executor")
+func rt_thread_executor() unsafe -> Int {
+    let key = thread_executor_key()
+    if key < 0 {
+        return 0
+    }
+    pthread_getspecific(key)
+}
+
+@export("__saw_rt_set_thread_executor")
+func rt_set_thread_executor(record: Int) unsafe -> Int {
+    let key = thread_executor_key()
+    if key < 0 {
+        return -1
+    }
+    if pthread_setspecific(key, record) != (0 as Int32) {
+        return -1
+    }
+    0
+}

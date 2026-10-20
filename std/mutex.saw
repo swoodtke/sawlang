@@ -66,7 +66,12 @@ extension Mutex<T> {
 
     /// Blocks until the lock is free, then lends the payload for the window.
     ///
-    /// The lock is released when the window closes, on every way out.
+    /// The lock is released when the window closes, on every way out. A
+    /// contended lock blocks the calling thread, a task's thread included,
+    /// and runs none of its other tasks meanwhile. That wait always ends: the
+    /// window cannot suspend, so the holder is a thread or a task inside a
+    /// window that runs to its end without ceding, and never a suspended task
+    /// waiting on the blocked thread's tasks.
     public func lock(&self) unsafe sync borrows(sync) -> &var T {
         __saw_rt_lock_acquire(self.state.ptr())
         lend self.value.ptr()[0]

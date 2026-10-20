@@ -1,0 +1,24 @@
+// probe: panics
+// about: a cooperative task that joins a `TaskGroup(threads: 2)` task waiting on a channel nothing can send to is reported by the deadlock walk rather than hanging, its message naming the join, conformance row K188 (SL-793)
+// stage 0: blocks the executor's thread on the pool's condition variable, outside the walk, so the program hangs with no report (SL-793)
+// speeds: -O0 -O2
+// panics: deadlock: every task is waiting to receive from a channel, or to join a `TaskGroup(threads:)` task that is
+import std.task.*
+import std.channel.{Channel}
+
+func pool_receive(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func waiter(pool: &TaskGroup, ch: Channel<Int>) -> Int {
+    let h = pool.spawn(pool_receive(ch))
+    h.join()
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    let b = group.spawn(waiter(&pool, ch))
+    print("joined {}", b.join())
+}

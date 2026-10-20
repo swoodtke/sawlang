@@ -1,0 +1,41 @@
+// probe: stated
+// about: two `Thread.spawn` bodies and `main` each drive their own `TaskGroup()` at once, and every resume of each task runs on its group's thread, conformance row K189 (SL-793)
+// stage 0: keeps one process-wide list of cooperative groups, so the three driving threads resume each other's frames and the program crashes (SL-797)
+// speeds: -O0 -O2
+// prints: 12000 resumes checked, foreign resumes: 0
+import std.task.*
+
+extern "C" {
+    func pthread_self() -> Int
+}
+
+static YIELDS: Int = 2000
+static FOREIGN: Atomic<Int> = Atomic(0)
+
+func spin(owner: Int) -> Int {
+    var i = 0
+    while i < YIELDS {
+        yield_now()
+        if pthread_self() != owner {
+            let _ = FOREIGN.fetch_add(1)
+        }
+        i = i + 1
+    }
+    i
+}
+
+func drive() -> Int {
+    let me = pthread_self()
+    var g = TaskGroup()
+    let a = g.spawn(spin(me))
+    let b = g.spawn(spin(me))
+    a.join() + b.join()
+}
+
+func main() {
+    var t1 = try! Thread.spawn { drive() }
+    var t2 = try! Thread.spawn { drive() }
+    let mine = drive()
+    let r = t1.join() + t2.join() + mine
+    print("{} resumes checked, foreign resumes: {}", r, FOREIGN.load())
+}

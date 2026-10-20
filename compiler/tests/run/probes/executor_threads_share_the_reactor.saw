@@ -1,0 +1,45 @@
+// probe: stated
+// about: two `Thread.spawn` bodies each drive a `TaskGroup()` whose one task reads a socket with no deadline, while a suspending `main` writes to both; no pool is live, and every read completes, since a wait is capped while more than one thread may poll the one reactor, conformance row K189 (SL-793)
+// stage 0: keeps one process-wide list of cooperative groups, so two driving threads resume each other's frames (SL-797)
+// speeds: -O0 -O2
+// prints: read 600
+import std.task.*
+import std.net.{TcpStream}
+
+static MESSAGES: Int = 300
+
+func reader(stream: TcpStream) -> Int {
+    var s = move stream
+    var got = 0
+    while got < MESSAGES {
+        let chunk = try! s.read()
+        if chunk.len() == 0 {
+            return got
+        }
+        got = got + chunk.len()
+    }
+    got
+}
+
+func read_all(stream: TcpStream) -> Int {
+    var g = TaskGroup()
+    let r = g.spawn(reader(move stream))
+    r.join()
+}
+
+func main() {
+    let (r1, w1) = try! TcpStream.pair()
+    let (r2, w2) = try! TcpStream.pair()
+    var t1 = try! Thread.spawn { [move r1] in read_all(move r1) }
+    var t2 = try! Thread.spawn { [move r2] in read_all(move r2) }
+    var a = move w1
+    var b = move w2
+    var i = 0
+    while i < MESSAGES {
+        sleep(Duration.ms(1))
+        try! a.write("x")
+        try! b.write("y")
+        i = i + 1
+    }
+    print("read {}", t1.join() + t2.join())
+}

@@ -1,0 +1,45 @@
+// probe: panics
+// about: two `Thread.spawn` bodies spawn background tasks with `Task.spawn` concurrently, the second while the first still holds the background group, so the second's `Task.spawn` panics cleanly before it touches the group, until the ruling on per-thread background groups replaces this (SL-793)
+// stage 0: keeps one process-wide list of cooperative groups, so the two threads resume each other's frames and the program crashes (SL-797)
+// speeds: -O0 -O2
+// panics: Task.spawn: the background group belongs to another running thread; `Task.spawn` concurrently, from more than one thread, is not supported yet
+import std.task.*
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static NAP_NANOS: UInt64 = 1_000_000
+// Set once the first thread holds the background group, and never cleared,
+// so the first thread is still running when the second spawns.
+static FIRST_SPAWNED: Atomic<Int> = Atomic(0)
+
+func one() -> Int {
+    yield_now()
+    1
+}
+
+func holder() -> Int {
+    let a = Task.spawn(one())
+    FIRST_SPAWNED.store(1)
+    while FIRST_SPAWNED.load() != 2 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    a.join()
+}
+
+func second() -> Int {
+    while FIRST_SPAWNED.load() == 0 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    let b = Task.spawn(one())
+    FIRST_SPAWNED.store(2)
+    b.join()
+}
+
+func main() {
+    var t1 = try! Thread.spawn { holder() }
+    var t2 = try! Thread.spawn { second() }
+    let r = t1.join() + t2.join()
+    print("joined {}", r)
+}

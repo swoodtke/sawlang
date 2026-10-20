@@ -1,5 +1,5 @@
 // refuses: coro.closure-drop-blocks at 26:31
-// message: `host` → drops `p: coro.closure-drop-blocks.thread.Pool` (blocking deinit)
+// message: the closure at 26:31 → drops `p: coro.closure-drop-blocks.thread.Pool` (blocking deinit)
 // The same closure built in a `Thread.spawn` body that hosts the group: the
 // brace is thread context, and the closure it builds is still refused, since
 // a task calls it (conformance row K182; the Air's SL-782 c37

@@ -120,6 +120,9 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Cooperative-scheduler fairness (design 89-c)
     "__saw_rt_op_budget_tick",
     "__saw_rt_op_budget_reset",
+    # SL-793: the per-thread word std's executor keeps its record's address in.
+    "__saw_rt_thread_executor",
+    "__saw_rt_set_thread_executor",
     # The IO reactor (designs 76 / 91 / 102; instance-based by design 117)
     "__saw_rt_reactor_create",
     "__saw_rt_reactor_register",

@@ -26,7 +26,7 @@ fn bt_table_nested_drives.worker(seed: Int) -> Int {
 }
 resume #11: bt_table_nested_drives.watcher() task root  (frame size 24 align 8, pointer _2)
     state 0: bb0
-    state 1: bb1 drive #33 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
+    state 1: bb1 drive #34 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
 fn bt_table_nested_drives.watcher() -> Int {
     let _0: Int;  // return
     let _1: std.duration.Duration;
@@ -48,7 +48,7 @@ fn bt_table_nested_drives.watcher() -> Int {
 }
 resume #20: bt_table_nested_drives.middle(n: Int)  (frame size 48 align 8, pointer _5)
     state 0: bb0
-    state 1: bb0 drive #49 bt_table_nested_drives.leaf(n: Int) at (*frame).[8]
+    state 1: bb0 drive #50 bt_table_nested_drives.leaf(n: Int) at (*frame).[8]
 fn bt_table_nested_drives.middle(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -74,7 +74,7 @@ fn bt_table_nested_drives.middle(n: Int) -> Int {
         goto -> bb1;
     }
 }
-resume #33: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
+resume #34: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
     state 0: bb0
     state 1: bb3 park timer
 fn std.task.sleep(duration: std.duration.Duration) -> Void {
@@ -105,9 +105,9 @@ fn std.task.sleep(duration: std.duration.Duration) -> Void {
         call std.task.__saw_park_timer(nanos: UInt64) [] -> [return: bb2] suspends;
     }
 }
-resume #49: bt_table_nested_drives.leaf(n: Int)  (frame size 32 align 8, pointer _4)
+resume #50: bt_table_nested_drives.leaf(n: Int)  (frame size 32 align 8, pointer _4)
     state 0: bb0
-    state 1: bb1 drive #33 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
+    state 1: bb1 drive #34 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
 fn bt_table_nested_drives.leaf(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n

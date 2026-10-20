@@ -1,0 +1,36 @@
+// probe: stated
+// about: a `Thread.spawn` body spawns a background task with `Task.spawn`, detaches it and ends; the thread gives the background group up as it ends, so `main`'s exit claims it, cancels the task and joins it, and the value the task holds deinits, conformance row K189 (SL-793)
+// stage 0: keeps one process-wide list of cooperative groups, which `main`'s exit sweeps whichever thread spawned into it (SL-797)
+// speeds: -O0 -O2
+// prints: main exits
+// prints: deinit 1
+import std.task.*
+
+struct Noisy {
+    n: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.n)
+    }
+}
+
+func linger(held: Noisy) -> Int {
+    while not cancelled() {
+        sleep(Duration.ms(1))
+    }
+    held.n
+}
+
+func body() -> Int {
+    let t = Task.spawn(linger(Noisy(n: 1)))
+    t.detach()
+    0
+}
+
+func main() {
+    var th = try! Thread.spawn { body() }
+    let _ = th.join()
+    print("main exits")
+}

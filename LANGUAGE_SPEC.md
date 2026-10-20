@@ -6008,6 +6008,17 @@ itself. The receiver is `&self`, so `lock()` works on a `let` mutex, a `&Mutex`
 parameter or a static, while the root charge is still exclusive for the window
 (see [Receiver access](#receiver-access-is-a-second-fact)).
 
+**A contended `lock()` blocks the calling thread, inside a task too.** It is
+the one wait in std that a task makes with its thread blocked, and it runs none
+of that thread's other tasks meanwhile. The wait always ends. The window is
+`borrows(sync)`, so no task can suspend while it holds the lock: the holder is a
+thread, or a task inside a window that runs to its end without ceding. It is
+never a suspended task waiting for a task on the blocked thread, which is the
+shape that turns a blocking join into a deadlock (see
+[Cooperative tasks](#cooperative-tasks-taskgroup)). A long critical section
+still stalls every task on the waiting thread, so a task that would wait long
+for shared state is better served by a `Channel`.
+
 **A `static` holds one with no initializer.** Zero is unlocked, so the whole
 value is zerofill and an idle mutex costs no image bytes. `Mutex` declares
 `extension Mutex<T: ZeroInit>: ZeroInit {}`, which vouches for its private
@@ -9327,6 +9338,20 @@ threads, no lock).
   group's `Deinit` signals that no more work is coming, lets the workers finish
   every live task, and joins them; that is the structured join, and it is still
   exactly-once and idempotent.
+- **Inside a task, neither wait blocks the thread.** A `join()` of a pool's
+  task, and a pool's `Deinit`, made by a task run that task's thread's other
+  tasks until the pool's task finishes, or until the pool has no live task, as
+  a join and a teardown on the cooperative engine do. So a pool's task may wait
+  on a task of the thread that joins it. Made outside every task (in a
+  `Thread.spawn` body, or in a `main` that does not suspend) both block the
+  calling thread, and a pool dropped there waits for its tasks with nothing
+  else running on that thread.
+- **A wait made inside a task returns after the waits begun inside it.** The
+  joining task stays on its thread's stack while the thread runs its other
+  tasks, so when one of those joins too, the inner join returns first, on
+  either engine. A task that joins, through a chain of waits, something only
+  an outer join's continuation can do never finishes; the executor reports the
+  state as a deadlock rather than waiting forever, naming the join.
 - **What is observable, and what changed.** Multi-threaded execution order was
   never deterministic. What a live pool widens is WHEN that is visible: a task's
   effects — a channel send, an `Arc<Mutex<T>>` update — now become visible to the
@@ -9349,6 +9374,12 @@ threads, no lock).
 - **D6 task confinement (paper 18).** A frame runs on ONE thread at a time; stealing
   moves frames between workers only BETWEEN suspensions. There are no migration
   guarantees beyond Send-correctness; `&var self` driven methods stay task-confined.
+- **A cooperative group belongs to its thread.** A `TaskGroup()` belongs to the
+  thread that first spawns into it, and its tasks run only on that thread: each
+  thread that drives tasks, `main`, a `Thread.spawn` body or a pool's task,
+  runs only its own groups. Two threads may each drive groups of their own at
+  once. The deadlock report still looks at every thread's tasks, since a task
+  on any of them may be the sender another waits for.
 - **Fairness across threads.** The op-count backstop is PER-THREAD: each worker,
   and the thread running the ambient scheduler, gets its own count of
   non-parking io ops before it is made to cede. The loop-backedge budget that
@@ -10047,7 +10078,11 @@ a background task's whole point is that it can suspend.
 THE GROUP IT SPAWNS INTO is one the program never declares. It is built on the
 first `Task.spawn` in the process and never before, so a program that spawns no
 background task pays one zero word for it. There is no multi-threaded flavour:
-`TaskGroup(threads: N)` is how parallelism is asked for.
+`TaskGroup(threads: N)` is how parallelism is asked for. The group belongs to
+one thread at a time, the first to spawn into it, until that thread ends, when
+the next thread to spawn takes it over, and `main`'s exit closes it as usual.
+`Task.spawn` concurrently, from more than one thread, is not supported yet: a
+`Task.spawn` while another running thread holds the group panics.
 
 AT `main`'s RETURN that group cancels every member still live, joins them, and
 exits. Cancel first, because a background task is exactly the kind that loops

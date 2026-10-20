@@ -1,0 +1,51 @@
+// probe: stated
+// about: a `TaskGroup(threads: 2)` task that receives from a channel a sibling on its joiner's thread sends to completes, whether the cooperative task joins it or drops its group, since the wait runs the sibling, conformance row K188 (SL-793)
+// stage 0: blocks the executor's thread in the join and in the teardown, so the sibling never sends and the program hangs (SL-793)
+// speeds: -O0 -O2
+// prints: joined 5
+// prints: the pool drained
+import std.task.*
+import std.channel.{Channel}
+
+func sender(ch: Channel<Int>, value: Int) -> Int {
+    sleep(Duration.ms(20))
+    try! ch.send(value)
+    0
+}
+
+func pool_receive(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func pool_scope_ends(ch: Channel<Int>) {
+    var pool = try! TaskGroup(threads: 2)
+    let _ = pool.spawn(pool_receive(ch))
+}
+
+func joiner(pool: &TaskGroup, ch: Channel<Int>) -> Int {
+    let h = pool.spawn(pool_receive(ch))
+    let v = h.join()
+    print("joined {}", v)
+    v
+}
+
+func dropper(ch: Channel<Int>) -> Int {
+    pool_scope_ends(ch)
+    print("the pool drained")
+    0
+}
+
+func main() {
+    let first = try! Channel<Int>()
+    let second = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    let j = group.spawn(joiner(&pool, first))
+    let s = group.spawn(sender(first, 5))
+    let _ = j.join()
+    let _ = s.join()
+    let d = group.spawn(dropper(second))
+    let t = group.spawn(sender(second, 6))
+    let _ = d.join()
+    let _ = t.join()
+}

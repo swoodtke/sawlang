@@ -1,0 +1,47 @@
+// probe: stated
+// about: a `Thread.spawn` body spawns two background tasks with `Task.spawn` and joins both while `main` drives a `TaskGroup()` of its own, and every resume runs on the thread that drives it, conformance row K189 (SL-793)
+// stage 0: keeps one process-wide list of cooperative groups, so `main`'s sweep resumes the thread's background tasks and the program crashes (SL-797)
+// speeds: -O0 -O2
+// prints: 8000 resumes checked, foreign resumes: 0
+import std.task.*
+
+extern "C" {
+    func pthread_self() -> Int
+}
+
+static YIELDS: Int = 2000
+static FOREIGN: Atomic<Int> = Atomic(0)
+
+func spin(owner: Int) -> Int {
+    var i = 0
+    while i < YIELDS {
+        yield_now()
+        if pthread_self() != owner {
+            let _ = FOREIGN.fetch_add(1)
+        }
+        i = i + 1
+    }
+    i
+}
+
+func background_pair() -> Int {
+    let me = pthread_self()
+    let a = Task.spawn(spin(me))
+    let b = Task.spawn(spin(me))
+    a.join() + b.join()
+}
+
+func drive() -> Int {
+    let me = pthread_self()
+    var g = TaskGroup()
+    let a = g.spawn(spin(me))
+    let b = g.spawn(spin(me))
+    a.join() + b.join()
+}
+
+func main() {
+    var t = try! Thread.spawn { background_pair() }
+    let mine = drive()
+    let r = t.join() + mine
+    print("{} resumes checked, foreign resumes: {}", r, FOREIGN.load())
+}

@@ -16,12 +16,12 @@ frame #14: task_root.twice() task root  (size 32 align 8, lower bound 32)
     (*frame).[32: Void]  size 0 align 1  _0 result
     (*frame).[8: frame task_root.hello(name: String)]  size 24 align 8  child  (across 1)
     stack: none
-frame #40: std.task.yield_now()  (size 8 align 8, lower bound 8)
+frame #41: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result
     stack: none
-frame #44: task_root.hello(name: String)  (size 24 align 8, lower bound 24)
+frame #45: task_root.hello(name: String)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call yield_now
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[24: Void]  size 0 align 1  _0 result

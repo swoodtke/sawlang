@@ -1,5 +1,5 @@
 // refuses: coro.closure-drop-blocks at 27:31
-// message: a closure body may not block, and this one drops a value whose drop blocks: `main` → drops `p: coro.closure-drop-blocks.Pool` (blocking deinit)
+// message: a closure body may not block, and this one drops a value whose drop blocks: the closure at 27:31 → drops `p: coro.closure-drop-blocks.Pool` (blocking deinit)
 // A closure built in a `main` declared `blocking`, thread context, and
 // called through its function value by a task, whose body drops a value
 // whose `deinit` is `blocking`: no task root sees a call through a value, so
