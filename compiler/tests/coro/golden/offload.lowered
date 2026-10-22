@@ -1,11 +1,11 @@
 resume #0: offload.main()  (frame size 48 align 8, pointer _9, context _10)
     state 0: bb0
     offload bb0 start #5 extern pause, storage (*frame).[8]
-    state 1: bb8 park offload
+    state 1: bb7 park offload
     offload bb10 take #5 extern pause, storage (*frame).[8]
-    offload bb1 start #9 extern fill, storage (*frame).[8]
-    state 2: bb15 park offload
-    offload bb17 take #9 extern fill, storage (*frame).[8]
+    offload bb1 start #10 extern fill, storage (*frame).[8]
+    state 2: bb14 park offload
+    offload bb17 take #10 extern fill, storage (*frame).[8]
 fn offload.main() -> Void {
     let _0: Void;  // return
     let _1: [Int8; 8];  // buf
@@ -21,11 +21,13 @@ fn offload.main() -> Void {
     let _11: Bool;
     let _12: Int;
     let _13: Int;
-    let _14: Bool;
-    let _15: Bool;
-    let _16: Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Bool;
     let _17: Int;
-    let _18: Bool;
+    let _18: Int;
+    let _19: Int;
+    let _20: Int;
 
     bb0: {
         call offload.pause() [] -> [return: bb4];
@@ -51,31 +53,31 @@ fn offload.main() -> Void {
     }
 
     bb4: {
-        _14 = copy (*(*_10).cancel);
-        switch move _14 -> [true: bb10, false: bb5];
+        _11 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_9).[8: Int]] -> [return: bb5];
     }
 
     bb5: {
-        _11 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_9).[8: Int]] -> [return: bb6];
+        switch move _11 -> [true: bb10, false: bb6];
     }
 
     bb6: {
-        switch move _11 -> [true: bb10, false: bb7];
+        (*_10).deadline = const 0: UInt64;
+        _12 = copy (*_9).[8: Int];
+        _13 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _12] -> [return: bb8];
     }
 
     bb7: {
-        (*_10).deadline = const 0: UInt64;
-        (*(*_10).park) = const -1: Int;
-        _12 = cast(copy (*_10).park as Int);
-        _13 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_9).[8: Int]] -> [return: bb9];
-    }
-
-    bb8: {
         call std.task.__saw_park_offload(job: Int) [] -> [return: bb4] suspends;
     }
 
+    bb8: {
+        (*(*_10).park) = move _13;
+        _15 = cast(copy (*_10).park as Int);
+        _14 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _12] -> [return: bb9];
+    }
+
     bb9: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _13, const 0: Int, move _12] -> [return: bb8];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _14, const 0: Int, move _15] -> [return: bb7];
     }
 
     bb10: {
@@ -83,31 +85,31 @@ fn offload.main() -> Void {
     }
 
     bb11: {
-        _18 = copy (*(*_10).cancel);
-        switch move _18 -> [true: bb17, false: bb12];
+        _16 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_9).[8: Int]] -> [return: bb12];
     }
 
     bb12: {
-        _15 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_9).[8: Int]] -> [return: bb13];
+        switch move _16 -> [true: bb17, false: bb13];
     }
 
     bb13: {
-        switch move _15 -> [true: bb17, false: bb14];
+        (*_10).deadline = const 0: UInt64;
+        _17 = copy (*_9).[8: Int];
+        _18 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _17] -> [return: bb15];
     }
 
     bb14: {
-        (*_10).deadline = const 0: UInt64;
-        (*(*_10).park) = const -1: Int;
-        _16 = cast(copy (*_10).park as Int);
-        _17 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_9).[8: Int]] -> [return: bb16];
-    }
-
-    bb15: {
         call std.task.__saw_park_offload(job: Int) [] -> [return: bb11] suspends;
     }
 
+    bb15: {
+        (*(*_10).park) = move _18;
+        _20 = cast(copy (*_10).park as Int);
+        _19 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _17] -> [return: bb16];
+    }
+
     bb16: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _17, const 0: Int, move _16] -> [return: bb15];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _19, const 0: Int, move _20] -> [return: bb14];
     }
 
     bb17: {

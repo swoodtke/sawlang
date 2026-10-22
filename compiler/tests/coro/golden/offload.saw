@@ -1,10 +1,10 @@
 // The offload of a `blocking` extern call (SL:coroutines A14a). The call
 // keeps its arguments and is the start, which writes each into the frame's
-// offload storage after the job word. Then the cancel word's test, whose true
-// edge is the cancel exit to the take; the job's completion check, whose
-// true edge is the completion exit to the same take and whose false edge
-// parks on the job's pipe; and the park, which returns to the cancel word's
-// test: a wake that finds the job running parks again. The take writes the
+// offload storage after the job word. Then the job's completion check, whose
+// true edge is the completion exit to the take and whose false edge parks on
+// the job's completion word, its pipe armed; and the park, which returns to
+// the completion check: a wake that finds the job running parks again, and
+// no cancel ends the wait, since nothing reads the cancel word. The take writes the
 // extern's result where the call wrote it. `pause` returns nothing and takes
 // no argument; `fill` takes a pointer into the frame, a narrow integer and a
 // Float.

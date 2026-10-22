@@ -1,0 +1,55 @@
+// probe: stated
+// about: `main`'s exit cancels a background task inside its offloaded `blocking` call, which stays parked until the call returns while another background task keeps running, and then sees its cancellation (SL-807)
+// stage 0: the cancelled offload goes straight to the take, whose join of the call's thread blocks the executor's thread, stalling the other task for the rest of the call (SL-807)
+// speeds: -O0 -O2
+// prints: main returns
+// prints: caller: cancelled after the call: true
+// prints: spinner: never stalled through the call: true
+// The spinner keeps running for 400 ms whatever its cancel word says and
+// records the longest stretch it could not run; the caller's 200 ms call
+// ends inside that, so a blocked executor would stall it for most of it.
+import std.task.*
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+static CALL_MS: Int = 200
+static SPIN_MS: Int = 400
+static AT_MOST_STALL_MS: Int = 100
+
+func now_ms() -> Int {
+    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+}
+
+func caller() -> Int {
+    let r = __saw_rt_blocking_sleep(CALL_MS)
+    print("caller: cancelled after the call: {}", cancelled())
+    r
+}
+
+func spinner() {
+    let start = now_ms()
+    var last = start
+    var stall = 0
+    while now_ms() - start < SPIN_MS {
+        yield_now()
+        let t = now_ms()
+        if t - last > stall {
+            stall = t - last
+        }
+        last = t
+    }
+    print("spinner: never stalled through the call: {}", stall < AT_MOST_STALL_MS)
+}
+
+func main() {
+    let a = Task.spawn(caller())
+    a.detach()
+    let b = Task.spawn(spinner())
+    b.detach()
+    yield_now()
+    yield_now()
+    print("main returns")
+}

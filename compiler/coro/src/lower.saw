@@ -953,13 +953,14 @@ public func coro_context_shape(coro: &var CoroProgram) -> CoroContext {
 //             (*_C).deadline = move _d; (*(*_C).park) = const 1
 //   fd        (*_C).deadline = DEADLINE, or const 0; (*(*_C).park) = const -1
 //             _t = copy (*_C).park as Int; __saw_exec_io_register(FD, WRITE, move _t)
-//   offload   (*_C).deadline = const 0; (*(*_C).park) = const -1
-//             _p = __saw_exec_offload_pipe(JOB)
+//   offload   (*_C).deadline = const 0; _j = JOB; _w = __saw_exec_offload_park(copy _j)
+//             _p = __saw_exec_offload_pipe(copy _j); (*(*_C).park) = move _w
 //             _t = copy (*_C).park as Int; __saw_exec_io_register(move _p, const 0, move _t)
 //
 // Each operand moves or copies as the park's call passed it, so the rewrite
-// adds no ownership operation. The token an arm passes is the park word's
-// address, which lives as long as the task.
+// adds no ownership operation; the offload's job, an `Int`, is read once into
+// a local of the lowering's own, which both its uses copy. The token an arm
+// passes is the park word's address, which lives as long as the task.
 func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int, b: Int, kind: CoroPointKind) -> Int {
     let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
     let c = coro.mono.dp.bc.mir.blocks[at].call
@@ -1032,14 +1033,27 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
         case ParkOffload -> {
             let unbounded = coro_int_operand(&var coro, cx.deadline_ty, 0)
             coro_record_deadline(&var coro, &cx, f, b, ctx, unbounded, node)
-            let marker = coro_int_operand(&var coro, word, CORO_PARK_FD)
-            coro_record_word(&var coro, &cx, f, b, ctx, marker, node)
-            let token = coro_token(&var coro, &cx, f, b, ctx, node)
+            let job = coro_add_local(&var coro, f, word)
+            let job_place = coro_whole_place(&var coro, job, word)
+            let taken = coro_operand_rvalue(&var coro, word, args[0])
+            coro_append_stmt(&var coro, f, b, job_place, taken, node)
+            let word_item = coro_offload_park_item(&coro)
+            let completion = coro_add_local(&var coro, f, word)
+            var word_call = coro_exec_call(&var coro, word_item, node)
+            let word_job = coro_whole_operand(&var coro, job, word, false)
+            coro_push_arg(&var coro, &var word_call, word_job)
+            word_call.dest = coro_whole_place(&var coro, completion, word)
             let pipe_item = coro.mono.park_pipe_item
             let pipe = coro_add_local(&var coro, f, word)
             var pipe_call = coro_exec_call(&var coro, pipe_item, node)
-            coro_push_arg(&var coro, &var pipe_call, args[0])
+            let pipe_job = coro_whole_operand(&var coro, job, word, false)
+            coro_push_arg(&var coro, &var pipe_call, pipe_job)
             pipe_call.dest = coro_whole_place(&var coro, pipe, word)
+            let parked = coro_move_call(&var coro, f, b, c)
+            let piping = coro_add_exec_block(&var coro, f, pipe_call, pipe_item, node)
+            let recorded = coro_whole_operand(&var coro, completion, word, true)
+            coro_record_word(&var coro, &cx, f, piping, ctx, recorded, node)
+            let token = coro_token(&var coro, &cx, f, piping, ctx, node)
             let pipe_arg = coro_whole_operand(&var coro, pipe, word, true)
             let read = coro_int_operand(&var coro, word, 0)
             let token_arg = coro_whole_operand(&var coro, token, word, true)
@@ -1048,11 +1062,14 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
             coro_push_arg(&var coro, &var call, pipe_arg)
             coro_push_arg(&var coro, &var call, read)
             coro_push_arg(&var coro, &var call, token_arg)
-            let parked = coro_move_call(&var coro, f, b, c)
             call.next = parked
             let arm = coro_add_exec_block(&var coro, f, call, item, node)
-            pipe_call.next = arm
-            coro_end_in_call(&var coro, f, b, pipe_call, pipe_item)
+            let piped = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + piping].call
+            var piping_call = coro.mono.dp.bc.mir.calls[piped]
+            piping_call.next = arm
+            coro.mono.dp.bc.mir.calls[piped] = piping_call
+            word_call.next = piping
+            coro_end_in_call(&var coro, f, b, word_call, word_item)
             parked
         },
         case Drive -> {
@@ -1073,23 +1090,22 @@ func coro_lower_park(coro: &var CoroProgram, cx: &CoroContext, f: Int, ctx: Int,
 // Lowers the offloaded call of `blocking` extern `ext` ending block `b` of
 // function `f`, suspension state `state`, whose frame `_F` (local
 // `frame_local`) holds its storage at offset `S`. The call keeps its
-// arguments and is the start; the park repeats
-// until the job is done or the task is cancelled; the take writes the
-// destination and goes where the call returned:
+// arguments and is the start; the park repeats until the job is done; the
+// take writes the destination and goes where the call returned:
 //
-//   bbB  dest = ext(args) -> bbN   becomes the start, ext(args) -> bbH
-//   bbH  _c = copy (*(*_C).cancel); switch move _c -> [true: bbT, false: bbD]
+//   bbB  dest = ext(args) -> bbN   becomes the start, ext(args) -> bbD
 //   bbD  _d = __saw_exec_offload_done(copy (*_F).[S: Int]) -> bbE
 //   bbE  switch move _d -> [true: bbT, false: bbP]
 //   bbP  the offload park on job (*_F).[S: Int] (`coro_lower_park`), whose
-//        park returns to bbH
+//        park returns to bbD
 //   bbT  dest = ext() -> bbN, the take
 //
-// A wake that finds the job running and the task not cancelled parks again:
-// the take joins the job's thread, so reaching it early would hold the
-// executor's thread in the C call, the wait the offload exists to avoid. A
-// cancelled task takes all the same, waiting for the call, since its
-// storage and every pointer argument must outlive the job's thread.
+// Only a finished job reaches the take, which joins the job's thread, so the
+// executor's thread is never held in the C call, the wait the offload exists
+// to avoid. A cancel does not end the wait: the call cannot be interrupted,
+// and its storage and every pointer argument must outlive the job's thread,
+// so a cancelled task stays parked until the call returns, as the offload
+// park's word, which no cancel wakes, makes it.
 func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_local: Int, ctx: Int, b: Int,
                         state: Int, storage: Int, ext: Int) {
     let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
@@ -1097,14 +1113,13 @@ func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_
     let start = coro.mono.dp.bc.mir.calls[c]
     let node = start.node
     let park_decl = coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.ParkOffloadFunction)
-    let done_item = coro_taskgroup_item(&coro, "__saw_exec_offload_done")
-    if cx.cancel < 0 || park_decl < 0 || done_item < 0 {
-        try! coro.problems.push("an offload reached coroutine lowering under a std root with no cancel word, offload park or `__saw_exec_offload_done`")
+    let done_item = coro_offload_done_item(&coro)
+    if park_decl < 0 || done_item < 0 || coro_offload_park_item(&coro) < 0 {
+        try! coro.problems.push("an offload reached coroutine lowering under a std root with no offload park, `__saw_exec_offload_done` or `__saw_exec_offload_park`")
         return
     }
     let word = coro.mono.dp.bc.mir.tc.int_type()
     let truth = coro.mono.dp.bc.mir.tc.bool_type()
-    let header = coro_add_goto_block(&var coro, f, -1, node)
     let done = coro_add_local(&var coro, f, truth)
     var check = coro_exec_call(&var coro, done_item, node)
     let job = coro_slot_operand(&var coro, frame_local, storage, word)
@@ -1115,7 +1130,7 @@ func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_
     var park = coro.mono.dp.bc.mir.blank_call(MirCallKind.Function, node)
     park.target = park_decl
     park.suspend = MirSuspend.Always
-    park.next = header
+    park.next = checked
     let parked_job = coro_slot_operand(&var coro, frame_local, storage, word)
     coro_push_arg(&var coro, &var park, parked_job)
     let park_item = coro_item_of_decl(&coro, park_decl)
@@ -1125,15 +1140,6 @@ func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_
     take.arg_count = 0
     take.suspend = MirSuspend.Never
     let taking = coro_add_exec_block(&var coro, f, take, ext, node)
-    let cancel_seen = coro_add_local(&var coro, f, truth)
-    let word_place = coro_context_place_to(&var coro, ctx, cx.ty, cx.cancel, cx.cancel_ty, truth)
-    let o = coro.mono.dp.bc.mir.operands.len()
-    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: word_place, ty: truth,
-                                                      const_kind: MirConstKind.Unit, text: -1))
-    let read = coro_operand_rvalue(&var coro, truth, o)
-    let into = coro_whole_place(&var coro, cancel_seen, truth)
-    coro_append_stmt(&var coro, f, header, into, read, node)
-    coro_end_in_test(&var coro, f, header, cancel_seen, taking, checked)
     let check_at = coro.mono.dp.bc.mir.funcs[f].block_first + checked
     let check_call = coro.mono.dp.bc.mir.blocks[check_at].call
     var checking = coro.mono.dp.bc.mir.calls[check_call]
@@ -1142,7 +1148,7 @@ func coro_lower_offload(coro: &var CoroProgram, cx: &CoroContext, f: Int, frame_
     coro_end_in_test(&var coro, f, test, done, taking, parking)
     var started = start
     started.dest = -1
-    started.next = header
+    started.next = checked
     started.suspend = MirSuspend.Never
     coro.mono.dp.bc.mir.calls[c] = started
     let take_call = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + taking].call
@@ -1185,6 +1191,19 @@ func coro_taskgroup_item(coro: &CoroProgram, name: String) -> Int {
     }
     coro_item_of_decl(&coro, d)
 }
+
+// The item of `__saw_exec_offload_park`, which makes an offload park's word,
+// or -1 when mono made none.
+public func coro_offload_park_item(coro: &CoroProgram) -> Int {
+    coro_taskgroup_item(&coro, "__saw_exec_offload_park")
+}
+
+// The item of `__saw_exec_offload_done`, an offload's completion check, or -1
+// when mono made none.
+public func coro_offload_done_item(coro: &CoroProgram) -> Int {
+    coro_taskgroup_item(&coro, "__saw_exec_offload_done")
+}
+
 
 // Appends to block `b` of function `f` the park word's record, `(*(*_C).park)
 // = VALUE`, an `Int` at the target's width, from operand `value`.

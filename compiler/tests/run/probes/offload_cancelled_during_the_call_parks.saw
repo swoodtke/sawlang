@@ -1,0 +1,60 @@
+// probe: stated
+// about: a task cancelled while its offloaded `blocking` call runs stays parked until the call returns, so a sibling keeps ticking, and then sees its cancellation (SL-807)
+// stage 0: its cancelled offload goes straight to the take, whose join of the call's thread blocks the executor's thread until the call returns (SL-807)
+// speeds: -O0 -O2
+// prints: the cancelled task waited for the call: true
+// prints: the sibling ticked through the call: true
+// prints: cancelled after the call: true
+// The cancel lands about 20 ms into a 200 ms call. A sibling ticking every
+// 5 ms ticks about 35 times through the rest of the call, and none at all
+// while the executor's thread is blocked.
+import std.task.*
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+}
+
+static CALL_MS: Int = 200
+static AT_LEAST_MS: Int = 150
+static AT_LEAST_TICKS: Int = 10
+static TICKS: Atomic<Int> = Atomic(0)
+static AT_CANCEL: Atomic<Int> = Atomic(-1)
+static STOP: Atomic<Int> = Atomic(0)
+
+func now_ms() -> Int {
+    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+}
+
+func ticker() -> Int {
+    while STOP.load() == 0 {
+        sleep(Duration.ms(5))
+        let _ = TICKS.fetch_add(1)
+    }
+    0
+}
+
+func caller() -> Int {
+    let start = now_ms()
+    let r = __saw_rt_blocking_sleep(CALL_MS)
+    let ms = now_ms() - start
+    let ticks = TICKS.load() - AT_CANCEL.load()
+    print("the cancelled task waited for the call: {}", ms >= AT_LEAST_MS)
+    print("the sibling ticked through the call: {}", ticks >= AT_LEAST_TICKS)
+    print("cancelled after the call: {}", cancelled())
+    r
+}
+
+func main() {
+    var g = TaskGroup()
+    let t = g.spawn(ticker())
+    let c = g.spawn(caller())
+    sleep(Duration.ms(20))
+    AT_CANCEL.store(TICKS.load())
+    c.cancel()
+    // A timer park, so `main` is not joining while `caller` waits.
+    sleep(Duration.ms(400))
+    let _ = c.join()
+    STOP.store(1)
+    let _ = t.join()
+}

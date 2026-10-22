@@ -3005,9 +3005,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   133 extended that to a NESTED short-circuit: `1 + (cached ?? slow(x))` and
   `identity(cached ?? slow(x))` offload on the None path and skip the offload
   entirely when the LHS decides. (At statement position inside an `if let`/`guard let` body it
-  offloads fine — design 104 CFG-splits that branch.) Cancelling a task parked on an offload job wakes
-  it (design 102), but the in-flight blocking call cannot be aborted: take() joins
-  the worker before the task takes its cancel path.
+  offloads fine — design 104 CFG-splits that branch.) An offloaded call is no
+  cancellation point: the in-flight blocking call cannot be aborted, so a cancelled
+  task stays PARKED (its siblings keep running) until the call returns, then takes
+  the result and sees `cancelled()` (SL-807).
 - Generic suspending functions/methods work (design 70 + 74): effect is
   re-inferred PER instantiation, so `f<A>` may suspend while `f<B>` is
   sync. You can `__saw_drive` / `group.spawn` a generic instantiation, drive a

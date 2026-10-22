@@ -343,8 +343,9 @@ points at its `cx`; the park word is `(*(*_C).park)`, an `Int`, and the
 deadline `(*_C).deadline`, a `UInt64`, each reached by its field. The park
 word's values are std's vocabulary (`std/taskgroup.saw`): 0 ready, 1 a timer,
 -1 a descriptor, below -1 a channel's readiness word by its negated address
-when even, and a thread control block's handshake word by its negated address
-less one when odd. Each argument moves or copies as the call passed it, and the call, its
+when a multiple of 4, a thread control block's handshake word by its negated
+address less one when odd, and an offload job's completion by its negated
+handle less two otherwise, which `__saw_exec_offload_park` makes. Each argument moves or copies as the call passed it, and the call, its
 arguments taken, ends the last block the rewrite leaves: it is the park.
 
 | reason | the park's blocks |
@@ -354,7 +355,7 @@ arguments taken, ends the last block the rewrite leaves: it is the park.
 | thread | `bbB` gains `(*(*_C).park) = WORD` |
 | timer | `bbB` ends in `_d = __saw_exec_timer_deadline(NANOS)`, then a new block records `(*_C).deadline = move _d` and `(*(*_C).park) = const 1` and parks |
 | fd | `bbB` gains `(*_C).deadline = DEADLINE`, or `const 0` for `__saw_park_fd`, `(*(*_C).park) = const -1` and the token `_t = cast(copy (*_C).park as Int)`, and ends in the arm `__saw_exec_io_register(FD, WRITE, move _t)`; a new block parks |
-| offload | `bbB` gains `(*_C).deadline = const 0`, `(*(*_C).park) = const -1` and the token, and ends in `_p = __saw_exec_offload_pipe(JOB)`; a new block ends in the arm `__saw_exec_io_register(move _p, const 0, move _t)`; another parks |
+| offload | `bbB` gains `(*_C).deadline = const 0` and `_j = JOB` and ends in `_w = __saw_exec_offload_park(copy _j)`; a new block records `(*(*_C).park) = move _w` and the token and ends in `_p = __saw_exec_offload_pipe(copy _j)`; another ends in the arm `__saw_exec_io_register(move _p, const 0, move _t)`; another parks |
 
 A signal watch parks as a descriptor does. So in every reason the record
 dominates the arm, and an arm's token is the park word's address, which
@@ -368,7 +369,10 @@ channel park arms nothing: it is resumed once the readiness word it names is
 nonzero, which a send or a close on that channel sets (A13a). A thread park
 arms nothing either: it is resumed once the handshake word it names is
 negative, which the thread's exit sets before it lowers the live-thread
-count, and a cancel does not wake it (SL-782). A timer park,
+count, and a cancel does not wake it (SL-782). An offload park arms its
+job's pipe, so the C call's end rouses the reactor's poll, but the poll's
+latch leaves its word alone: it is resumed once the job's C call has
+returned, and a cancel does not wake it either (SL-807). A timer park,
 which arms nothing either, is resumed once its deadline passes, at a drive
 point (SL-645) and in the entry executor alike (the run lane's
 `drive_timer_park` and `main_timer_park`). Every park returns nothing: its
@@ -389,11 +393,10 @@ and loses its destination, and new blocks follow it:
 
 | block | what it holds |
 |---|---|
-| `bbB` | the start: the call itself, `ext(args) -> bbH` |
-| `bbH` | `_c = copy (*(*_C).cancel)`, then `switch move _c -> [true: bbT, false: bbD]`: the cancel exit |
+| `bbB` | the start: the call itself, `ext(args) -> bbD` |
 | `bbD` | `_d = __saw_exec_offload_done(copy (*_F).[S: Int])`, the job's completion |
 | `bbE` | `switch move _d -> [true: bbT, false: bbP]`: the completion exit, else the park |
-| `bbP` ... | the offload park on the job `copy (*_F).[S: Int]` (the table above), whose park returns to `bbH` |
+| `bbP` ... | the offload park on the job `copy (*_F).[S: Int]` (the table above), whose park returns to `bbD` |
 | `bbT` | the take: `dest = ext()`, which goes where the call returned |
 
 The backend writes the start and the take, which never pend. The start
@@ -404,12 +407,12 @@ records the job in `(*_F).[S]`; the take joins the job's thread
 returns into the destination. A thunk is synthesized once per offloaded
 extern: it reads each argument back at its declared type and makes the
 ordinary extern call (runtime/ABI.md, "Blocking-extern offload"). A wake
-that finds the job running and the task not cancelled parks again, since
-the take would hold the executor's thread in the C call; a cancelled task
-takes all the same, waiting for the call, since the storage and every
-pointer argument must outlive the job's thread (spec, the offload's
-"Cancellation"). `__saw_exec_offload_done` and `__saw_exec_offload_pipe` are
-the executor's half, which panics until SL:coroutines A14b lands.
+that finds the job running parks again, since the take would hold the
+executor's thread in the C call. The cancel word is never read here: a
+cancelled task stays parked until the call returns, since the storage and
+every pointer argument must outlive the job's thread (spec, the offload's
+"Cancellation"). `__saw_exec_offload_done`, `__saw_exec_offload_park` and
+`__saw_exec_offload_pipe` are the executor's half.
 
 Two cases are not offloaded. A `Thread.spawn` body is a `sync` item with no
 frame (SL:architecture §3.8), so its `blocking` extern calls are plain calls:
@@ -694,10 +697,11 @@ task's context, last in a block going where the call returned.
    parameter's slot, a drive's in its own block, which its state re-enters
    past. A drive's result is moved out of the child's result slot once, on its
    return edge, into the call's destination. An offload's start keeps its
-   arguments, each used there alone, and loses its destination; it goes to a
-   test of the cancel word whose true edge reaches the take, a call of the
-   same extern with no arguments, the destination's one write, going where
-   the call returned. Nothing else reaches into a
+   arguments, each used there alone, and loses its destination; it goes to
+   its job's completion check, whose result alone, never the cancel word, is
+   tested, and whose true edge reaches the take, a call of the same extern
+   with no arguments, the destination's one write, going where the call
+   returned. Nothing else reaches into a
    child's frame, nothing reaches into an offload's storage but a read of its
    job word, and no place lowering adds reaches a frame value of the body
    itself but an index's load into its stack local. So lowering adds no
@@ -712,8 +716,9 @@ task's context, last in a block going where the call returned.
    word and, for a timer, a descriptor or an offload, its deadline, reaches its
    park, and its arm when its reason arms the reactor, as one record on every
    path with no suspension since. The record holds its reason's value (0
-   ready, 1 a timer, -1 a descriptor or an offload, the channel's operand for
-   a channel), the deadline its park's bound or 0, and a descriptor park's arm
+   ready, 1 a timer, -1 a descriptor, the channel's operand for a channel,
+   and for an offload the result of its `__saw_exec_offload_park` call), the
+   deadline its park's bound or 0, and a descriptor park's arm
    registers the descriptor and direction the park was given. An armed park is
    entered only from its arm.
 5. **lifetimes disjoint.** No two values of a lowered frame that share a byte
@@ -915,8 +920,8 @@ helper. The run lane's `op_budget_counts`, `op_budget_loop_shapes_driven`,
 Golden `offload` is the offload of `blocking` extern calls: one with no
 argument and no result, and one taking a pointer into the frame, a narrow
 integer and a Float, each with its storage in the frame and its start, its
-cancel exit and completion exit to the take, and its park returning to the
-cancel test, the re-park edge. Golden `chains` offloads in a function, a
+completion exit to the take, and its park returning to the completion
+check, the re-park edge. Golden `chains` offloads in a function, a
 method, a default body and an accessor's prologue. The run lane's
 `probes/suspend_blocking_main` builds an offload and panics where the
 executor's half, SL:coroutines A14b, is not here yet; the run pins come with

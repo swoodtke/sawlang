@@ -63,27 +63,108 @@ extern "C" {
 //           and bounded by the context's `deadline` when that is nonzero;
 //           the reactor's poll latches the word to 0 when the descriptor is
 //           ready, so a latched park reads as a ready one
-//    < -1   even: a channel's readiness word, by its negated address
+//    < -1   a multiple of 4: a channel's readiness word, by its negated
+//           address
 //    < -1   odd: a thread control block's handshake word, by its negated
 //           address less one: a join, ready once the thread's exit leaves
 //           the word negative
+//    < -1   2 more than a multiple of 4: an offload job, by its negated
+//           handle less two: the job's completion, ready once its C call
+//           has returned; the job's pipe is armed through
+//           `__saw_exec_io_register`, so the call's end rouses the poll
 //
-// A value above 1 names no park, and a frame that records one is refused.
-// The executor waits on a ready park, a timer, a descriptor, a channel's
-// readiness word and a thread's handshake word, and wakes a park of any
-// reason but a join whose task is cancelled (`park_wakes`); each other reason
-// has its own lowering and its own executor half. `PARK_UNSET` is written
-// before every resume, so a frame that reports `Pending` without recording a
-// park is caught rather than read as stale (SL:coroutines §3.3).
+// The negated-address reasons are told apart by the low bits alone, since a
+// word and a job are each aligned to at least 4. A value above 1 names no
+// park, and a frame that records one is refused. A cancel wakes a park of
+// any reason but a join or an offload's completion (`park_wakes`), the two
+// waits a cancel does not end; each other reason has its own lowering and
+// its own executor half. `PARK_UNSET` is written before every resume, so a
+// frame that reports `Pending` without recording a park is caught rather
+// than read as stale (SL:coroutines §3.3).
 static PARK_READY: Int = 0
 static PARK_TIMER: Int = 1
 static PARK_FD: Int = -1
 static PARK_UNSET: Int = Int.min
 
-// Whether park word `park` is a join's: below -1 and odd, where a channel's
-// negated word address is even, since every word is aligned.
-func joins_thread(park: Int) -> Bool {
-    park < PARK_FD && park != PARK_UNSET && park % 2 != 0
+// The wait a park word names, by the vocabulary above.
+enum ParkReason {
+    case Ready,
+    case Timer,
+    case Descriptor,
+    case Channel,
+    case Join,
+    case Offload,
+    // `PARK_UNSET`: nothing recorded since the last resume.
+    case Unset,
+    // Above 1: no park the executor performs.
+    case Unknown
+}
+
+// The one decoding of a park word's reason.
+//
+// ENTRY POINTS:
+//   park_wakes
+//   idle
+//   channel_parked
+//   worker_turn
+//   dump_status
+func park_reason(park: Int) -> ParkReason {
+    if park == PARK_UNSET {
+        return ParkReason.Unset
+    }
+    if park == PARK_READY {
+        return ParkReason.Ready
+    }
+    if park == PARK_TIMER {
+        return ParkReason.Timer
+    }
+    if park == PARK_FD {
+        return ParkReason.Descriptor
+    }
+    if park > PARK_TIMER {
+        return ParkReason.Unknown
+    }
+    let low = (0 - park) % 4
+    if low == 0 {
+        return ParkReason.Channel
+    }
+    if low == 2 {
+        return ParkReason.Offload
+    }
+    ParkReason.Join
+}
+
+// Whether the executor waits on park word `park` by blocking in the reactor's
+// poll until a deadline or a descriptor: a timer, a descriptor, and an
+// offload's completion, whose pipe the poll watches.
+func polls_for(park: Int) -> Bool {
+    match park_reason(park) {
+        case Timer -> true,
+        case Descriptor -> true,
+        case Offload -> true,
+        case _ -> false
+    }
+}
+
+/// The park word of a wait for offload job `job` to finish, which an offload
+/// park records: ready once the job's C call has returned, and never woken by
+/// a cancel, since nothing can interrupt the call.
+public func __saw_exec_offload_park(job: Int) -> Int {
+    // The word is the job's negated handle less two, which `park_reason` and
+    // `offload_job` read back. A job is a heap block, so its handle is aligned
+    // to at least 4 and the word cannot be a channel's or a join's.
+    //
+    // ENTRY POINTS:
+    //   coro_lower_park's offload park (`__saw_park_offload`)
+    if job % 4 != 0 {
+        panic("executor: offload job {} is not aligned to 4, so no park word can name it", job)
+    }
+    0 - job - 2
+}
+
+// The offload job an offload park word `park` names.
+func offload_job(park: Int) -> Int {
+    0 - park - 2
 }
 
 // The handshake word a join's park word `park` names.
@@ -92,7 +173,7 @@ func joined_word(park: Int) unsafe -> UnsafePointer<Int> {
 }
 
 // The park word of a join of the thread whose handshake word is at `word`:
-// the word's negated address less one, which `joins_thread` and
+// the word's negated address less one, which `park_reason` and
 // `joined_word` read back. A task's `Thread.join` parks on it, and a pool's
 // teardown on a thread that drives tasks drives on it, so both wait for a
 // thread's exit the one way and neither blocks the thread's other tasks.
@@ -908,14 +989,15 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 
 // Whether the park recorded through `cx` can be resumed now: when it is a
 // ready one, a descriptor park the reactor latched included; when its task
-// has been asked to stop, whatever the park's reason, so a cancelled task
+// has been asked to stop, for every reason but the two below, so a cancelled task
 // reaches its cancel path at its next turn and each park it makes after that
 // resumes at once, a timer's long before its deadline (SL:coroutines §3.1);
 // when it is a timer whose deadline has passed; when it is a bounded
 // descriptor park whose deadline has passed; when it is a channel's
-// readiness word that is set; and when it is a join whose thread has exited,
-// which is the one park a cancel does not wake: a thread cannot be asked to
-// stop, so a woken join would only park again, at once, until it exits.
+// readiness word that is set; when it is a join whose thread has exited; and
+// when it is an offload whose C call has returned. A cancel wakes neither of
+// the last two: a thread cannot be asked to stop and a C call cannot be
+// interrupted, so a woken wait would only park again, at once, until it ends.
 //
 // The readiness word is read atomically: a `Thread.spawn` body or a pool
 // worker may set it from another thread, and this load pairs with
@@ -940,21 +1022,25 @@ func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
 //   idle
 func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
     let park = park_word(cx)
-    if joins_thread(park) {
+    let reason = park_reason(park)
+    if reason == ParkReason.Join {
         return __saw_atomic_load_i64_seq_cst(joined_word(park)) < 0
     }
-    if park == PARK_READY || cx[0].cancel[0] {
+    if reason == ParkReason.Offload {
+        return __saw_exec_offload_done(offload_job(park))
+    }
+    if reason == ParkReason.Ready || cx[0].cancel[0] {
         return true
     }
-    if park == PARK_FD {
+    if reason == ParkReason.Descriptor {
         let deadline = cx[0].deadline
         return deadline != 0 && monotonic_now() >= deadline
     }
-    if park < PARK_FD && park != PARK_UNSET {
+    if reason == ParkReason.Channel {
         let word = (0 - park) as UnsafePointer<Int>
         return __saw_atomic_load_i64_seq_cst(word) != 0
     }
-    park == PARK_TIMER && monotonic_now() >= cx[0].deadline
+    reason == ParkReason.Timer && monotonic_now() >= cx[0].deadline
 }
 
 // The park word recorded through `cx`, read atomically: the reactor's poll
@@ -1148,7 +1234,7 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
 // descriptor that becomes ready, until the earliest deadline among the timers
 // and the bounded descriptor parks off this thread's stack, the drive point's
 // park at `waiter` among them, or with no deadline at all when only unbounded
-// descriptor parks wait, and answers true; answers false when there is no
+// descriptor parks and offloads wait, and answers true; answers false when there is no
 // such park and no channel park either, since every live frame is then on
 // this thread's stack. A frame parked on a wait this executor does not
 // perform is refused rather than spun on, since nothing here would ever wake
@@ -1176,13 +1262,12 @@ func idle(waiter: Int, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
             return true
         }
         let park = park_word(w)
-        if park == PARK_TIMER || park == PARK_FD {
+        if polls_for(park) {
             waits = true
             if bounded_by(park, w[0].deadline) {
                 earliest = w[0].deadline
             }
-        }
-        if park < PARK_FD {
+        } else if park < PARK_FD {
             channel = true
         }
     }
@@ -1205,7 +1290,7 @@ func idle(waiter: Int, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
                 if not waits_on(park) {
                     refuse_park(&lead, "a task", park)
                 }
-                if park == PARK_TIMER || park == PARK_FD {
+                if polls_for(park) {
                     waits = true
                     let deadline = cell[0].context.deadline
                     if bounded_by(park, deadline) && deadline < earliest {
@@ -1398,7 +1483,7 @@ func channel_parked(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
         return false
     }
     let park = park_word(cx)
-    park < PARK_FD && park != PARK_UNSET && not joins_thread(park)
+    park_reason(park) == ParkReason.Channel
 }
 
 // Set by the first deadlock report, so a second engine reaching the same
@@ -1437,7 +1522,8 @@ func bounded_by(park: Int, deadline: UInt64) -> Bool {
 }
 
 // Whether the executor performs the wait park word `park` records. A ready
-// park needs none; a cancel wakes a park of any reason (`park_wakes`).
+// park needs none; a cancel wakes every reason but a join and an offload
+// (`park_wakes`).
 func waits_on(park: Int) -> Bool {
     park == PARK_READY || park == PARK_TIMER || (park <= PARK_FD && park != PARK_UNSET)
 }
@@ -1785,7 +1871,7 @@ func worker_turn(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
                 if not waits_on(park) {
                     refuse_park(&lead, "a task", park)
                 }
-                if park == PARK_TIMER || park == PARK_FD {
+                if polls_for(park) {
                     waits = true
                     let deadline = cell[0].context.deadline
                     if bounded_by(park, deadline) && deadline < earliest {
@@ -1953,9 +2039,12 @@ public func __saw_exec_timer_deadline(nanos: UInt64) -> UInt64 {
 /// Panics if the arm fails, naming the descriptor, the direction and the
 /// platform's error code.
 public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
-    // The one arm funnel. The park value is written through `token` before
-    // the arm, so every latch the reactor's poll makes, from any thread, lands
-    // after it and is never erased by it (SL-355).
+    // The one arm funnel. The park value its park recorded is published
+    // through `token` again, atomically, before the arm, so every latch the
+    // reactor's poll makes, from any thread, lands after it and is never
+    // erased by it (SL-355). The value is the park's own: a descriptor park's
+    // `PARK_FD`, which the poll latches, or an offload's completion word, which
+    // it leaves alone, since only the C call's end makes that park ready.
     //
     // A failed arm panics: no park has an error channel to send it down, and
     // there is nothing to recover, since the descriptor was closed under the
@@ -1970,8 +2059,9 @@ public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
     //   coro_lower_park's descriptor park (`__saw_park_fd`, `__saw_park_fd_until`)
     //   coro_lower_park's offload park (`__saw_park_offload`)
     let word = token as UnsafePointer<Atomic<Int>>
-    // Stage 0 workaround (SL:hazards S15): canonical: word[0].store(PARK_FD)
-    store_park(&word[0], PARK_FD)
+    let recorded = __saw_atomic_load_i64_seq_cst(token as UnsafePointer<Int>)
+    // Stage 0 workaround (SL:hazards S15): canonical: word[0].store(recorded)
+    store_park(&word[0], recorded)
     let status = __saw_rt_reactor_register(host_reactor(), fd, dir, token)
     if status != 0 {
         let direction = if dir != 0 { "write" } else { "read" }
@@ -2011,15 +2101,16 @@ extern "C" {
 /// The read end of offload job `job`'s completion pipe, which an offload park
 /// arms through `__saw_exec_io_register` after it records its word.
 public func __saw_exec_offload_pipe(job: Int) -> Int {
-    // The registration is not withdrawn on a cancel exit: the take closes
-    // this descriptor, which removes it from the reactor, before the task can
-    // park again or its cell can be freed.
+    // The registration is never withdrawn: the park ends only once the call
+    // has returned, and the take then closes this descriptor, which removes
+    // it from the reactor, before the task can park again or its cell can be
+    // freed.
     __saw_rt_offload_pipe_fd(job)
 }
 
 /// Whether offload job `job`'s C call has returned, which an offload asks
-/// before it parks and after every wake, so that only a finished job, or a
-/// cancelled task, reaches the take that joins the job's thread.
+/// before it parks and after every wake, so that only a finished job reaches
+/// the take that joins the job's thread, cancelled task or not.
 public func __saw_exec_offload_done(job: Int) -> Bool {
     __saw_rt_offload_done(job) != 0
 }
@@ -2594,20 +2685,16 @@ func dump_status(sink: &var DumpSink, active: Bool, cell: UnsafePointer<TaskCell
         return
     }
     let park = park_word((&cell[0].context) as UnsafePointer<TaskContext>)
-    if park == PARK_READY {
-        dump_text(&var sink, "ready")
-    } else if park == PARK_TIMER {
-        dump_text(&var sink, "sleeping")
-    } else if park == PARK_FD {
-        dump_text(&var sink, "io-parked")
-    } else if joins_thread(park) {
-        dump_text(&var sink, "joining")
-    } else if park < PARK_FD && park != PARK_UNSET {
-        dump_text(&var sink, "channel-parked")
-    } else {
+    match park_reason(park) {
+        case Ready -> dump_text(&var sink, "ready"),
+        case Timer -> dump_text(&var sink, "sleeping"),
+        case Descriptor -> dump_text(&var sink, "io-parked"),
+        case Join -> dump_text(&var sink, "joining"),
+        case Channel -> dump_text(&var sink, "channel-parked"),
+        case Offload -> dump_text(&var sink, "offload-parked"),
         // A frame that reported `Pending` and recorded no park, which the
         // executor is panicking about as this runs.
-        dump_text(&var sink, "unrecorded")
+        case _ -> dump_text(&var sink, "unrecorded")
     }
 }
 

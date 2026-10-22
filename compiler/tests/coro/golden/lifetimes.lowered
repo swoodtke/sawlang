@@ -176,7 +176,7 @@ fn lifetimes.window_record() -> Int {
 resume #8: lifetimes.offload_storage()  (frame size 16 align 8, pointer _1, context _2)
     state 0: bb0
     offload bb0 start #18 extern pause, storage (*frame).[8]
-    state 1: bb6 park offload
+    state 1: bb5 park offload
     offload bb8 take #18 extern pause, storage (*frame).[8]
 fn lifetimes.offload_storage() -> Void {
     let _0: Void;  // return
@@ -185,7 +185,8 @@ fn lifetimes.offload_storage() -> Void {
     let _3: Bool;
     let _4: Int;
     let _5: Int;
-    let _6: Bool;
+    let _6: Int;
+    let _7: Int;
 
     bb0: {
         call lifetimes.pause() [] -> [return: bb2];
@@ -196,31 +197,31 @@ fn lifetimes.offload_storage() -> Void {
     }
 
     bb2: {
-        _6 = copy (*(*_2).cancel);
-        switch move _6 -> [true: bb8, false: bb3];
+        _3 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_1).[8: Int]] -> [return: bb3];
     }
 
     bb3: {
-        _3 = call std.taskgroup.__saw_exec_offload_done(job: Int) [copy (*_1).[8: Int]] -> [return: bb4];
+        switch move _3 -> [true: bb8, false: bb4];
     }
 
     bb4: {
-        switch move _3 -> [true: bb8, false: bb5];
+        (*_2).deadline = const 0: UInt64;
+        _4 = copy (*_1).[8: Int];
+        _5 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _4] -> [return: bb6];
     }
 
     bb5: {
-        (*_2).deadline = const 0: UInt64;
-        (*(*_2).park) = const -1: Int;
-        _4 = cast(copy (*_2).park as Int);
-        _5 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_1).[8: Int]] -> [return: bb7];
-    }
-
-    bb6: {
         call std.task.__saw_park_offload(job: Int) [] -> [return: bb2] suspends;
     }
 
+    bb6: {
+        (*(*_2).park) = move _5;
+        _7 = cast(copy (*_2).park as Int);
+        _6 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _4] -> [return: bb7];
+    }
+
     bb7: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _5, const 0: Int, move _4] -> [return: bb6];
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _6, const 0: Int, move _7] -> [return: bb5];
     }
 
     bb8: {
@@ -229,8 +230,8 @@ fn lifetimes.offload_storage() -> Void {
 }
 resume #9: lifetimes.sequential()  (frame size 40 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #22 lifetimes.step_a(k: Int) at (*frame).[8]
-    state 2: bb1 drive #23 lifetimes.step_b(k: Int) at (*frame).[8]
+    state 1: bb0 drive #23 lifetimes.step_a(k: Int) at (*frame).[8]
+    state 2: bb1 drive #24 lifetimes.step_b(k: Int) at (*frame).[8]
 fn lifetimes.sequential() -> Int {
     let _0: Int;  // return
     let _1: Int;  // x
@@ -285,7 +286,7 @@ fn lifetimes.child(k: Int) -> Int {
         return;
     }
 }
-resume #22: lifetimes.step_a(k: Int)  (frame size 24 align 8, pointer _3, context _4)
+resume #23: lifetimes.step_a(k: Int)  (frame size 24 align 8, pointer _3, context _4)
     state 0: bb0
     state 1: bb0 park ready
 fn lifetimes.step_a(k: Int) -> Int {
@@ -306,7 +307,7 @@ fn lifetimes.step_a(k: Int) -> Int {
         return;
     }
 }
-resume #23: lifetimes.step_b(k: Int)  (frame size 24 align 8, pointer _3, context _4)
+resume #24: lifetimes.step_b(k: Int)  (frame size 24 align 8, pointer _3, context _4)
     state 0: bb0
     state 1: bb0 park ready
 fn lifetimes.step_b(k: Int) -> Int {

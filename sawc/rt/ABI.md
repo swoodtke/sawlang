@@ -1115,10 +1115,10 @@ cannot spell (DF-186c).
 ## Blocking-extern offload (design 183)
 
 A blocking FFI call inside a suspending task runs on a thread of its own, one
-per call; normally the task parks on the job's pipe like any socket read, so no
-executor thread blocks. Cancellation goes straight to `take`, which joins the
-call's thread, so it can block the executor thread running it until the call
-returns. A job is a heap record; single-owner discipline
+per call; the task parks until the job is done, its pipe roused by the call's
+end, so no executor thread blocks. A cancelled task parks the same way: `take`
+joins the call's thread, so it is reached only once the call has returned. A
+job is a heap record; single-owner discipline
 throughout. The offload thunk `fn` is a C-ABI `word(word)`.
 
 That one word is a pointer to the call's argument slots (one `word`-sized slot

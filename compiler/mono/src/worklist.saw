@@ -1288,8 +1288,8 @@ extension MonoProgram {
 
     // A call of a park point, declaration `d`, reaches what its lowering
     // calls besides the park (SL:coroutines A3c): a timer park the deadline it
-    // records, a descriptor park the reactor arm, and an offload park the arm
-    // and its job's pipe. The other parks only record.
+    // records, a descriptor park the reactor arm, and an offload park the arm,
+    // its job's pipe and its park word. The other parks only record.
     func resolve_park(&var self, k: Int, d: Int, node: Int) {
         if d < 0 {
             return
@@ -1310,11 +1310,14 @@ extension MonoProgram {
         if offload && self.park_pipe_item < 0 {
             self.park_pipe_item = self.exec_entry(k, m, "__saw_exec_offload_pipe", node, "an offload park")
         }
+        if offload {
+            self.exec_entry(k, m, "__saw_exec_offload_park", node, "an offload park")
+        }
     }
 
     // A call of a `blocking` extern, declaration `d`, reaches what its
     // offload calls (SL:coroutines A14a): the job's completion check, and the
-    // offload park's pipe and reactor arm.
+    // offload park's word, pipe and reactor arm.
     func resolve_offload(&var self, k: Int, d: Int, node: Int) {
         if d < 0 || d >= self.dp.bc.mir.tc.sigs.len() || (self.dp.bc.mir.tc.sigs[d].flags & TC_FLAG_BLOCKING) == 0 {
             return
@@ -1326,9 +1329,11 @@ extension MonoProgram {
         if self.park_pipe_item < 0 {
             self.park_pipe_item = self.exec_entry(k, m, "__saw_exec_offload_pipe", node, "an offload")
         }
-        // Coroutine lowering finds the check's item by its declaration; the
-        // item is made once, however many calls reach it.
+        // Coroutine lowering finds the check's item and the park word's by
+        // their declarations; each item is made once, however many calls
+        // reach it.
         self.exec_entry(k, m, "__saw_exec_offload_done", node, "an offload")
+        self.exec_entry(k, m, "__saw_exec_offload_park", node, "an offload")
     }
 
     func spawn_entry(&var self, k: Int, m: Int, name: String, node: Int) -> Int {

@@ -10424,8 +10424,12 @@ saw tasks: 2 live (unsynchronized snapshot)
 
 `group` numbers the live `TaskGroup`s in the order they first spawned; `slot` and
 `gen` are the task's identity in that group's run queue, and a generation
-advancing across dumps is a slot that has been reused. The last word says why the
-task is not running: `ready`, `sleeping`, `io-parked`, or `running`.
+advancing across dumps is a slot that has been reused. The last word is the
+task's state: `running` (resumed right now, on some thread), `ready` (runnable,
+waiting its turn), `sleeping` (a timer), `io-parked` (a descriptor),
+`channel-parked` (a channel), `joining` (a `Thread.join`), `offload-parked` (an
+offloaded `blocking` call), or `unrecorded` (it suspended without recording a
+park).
 
 **The panic path prints one for you.** A program that dies with tasks in flight
 writes its dump after the panic line, on standard error with it. A
@@ -10792,14 +10796,14 @@ hoisted to its own statement first and offloads from there, and one at statement
 position inside a suspension-spanning `if let`/`guard let` body offloads like any
 other, since that branch is split like an `if`.
 
-**Cancellation.** Cancelling a task parked on an offload job wakes it: the
-reactor's self-pipe rouses the poll, and the park loop re-checks the cancel word
-at its top and leaves. The in-flight C call is not aborted, and cannot be — a
-thread sitting in `read(2)` has no cooperative point to observe anything at.
-Taking the result therefore joins the worker first, on the cancel path as much as
-the completion path. Two consequences worth stating: a cancelled task still waits
-for its C call to finish before it can return, and nothing the call points at may
-be released until that join, which is why the frame keeps its storage until then.
+**Cancellation.** An offloaded call is no cancellation point. The in-flight C
+call is not aborted, and cannot be: a thread sitting in `read(2)` has no
+cooperative point to observe anything at. So a cancel does not wake a task parked
+on an offload job. The task stays parked until the call returns, as an uncancelled
+one does, and the executor's other tasks keep running meanwhile. Only then does
+it take the result, which joins the worker, and its next `cancelled()` reads
+`true`. Nothing the call points at may be released until that join, which is why
+the frame keeps its storage until then.
 
 **Two engines coexist today, deliberately not unified, and the NAMESPACE is
 which one you are on.** `Thread.spawn`/`Thread<T>` run on the

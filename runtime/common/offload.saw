@@ -1,10 +1,9 @@
 // Blocking-extern offload seams, authored in Saw (design 183).
 //
 // A blocking FFI call inside a suspending task runs on a thread of its own, one
-// per call; normally the task parks on the job's pipe like any socket read, so
-// no executor thread blocks. A cancelled task instead goes straight to `take`,
-// which joins the call's thread, so cancellation can block the executor
-// thread running it until the call returns. A job is a 48-byte heap record shared with the C
+// per call; the task parks until the job is done, its pipe roused by the
+// call's end, so no executor thread blocks, and a cancelled task parks the
+// same way, since `take` waits for the call. A job is a 48-byte heap record shared with the C
 // thread body in rt/shim.c, which is C because it calls a raw function
 // pointer. Single-owner discipline: `start` creates the job, the thread fills
 // it, and `take` joins the thread (a full happens-before barrier) before it

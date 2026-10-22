@@ -25,7 +25,8 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
-                      coro_child_offset, coro_context_shape, coro_frame_lowered}
+                      coro_child_offset, coro_context_shape, coro_frame_lowered, coro_offload_done_item,
+                      coro_offload_park_item}
 import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroPoison, CoroPoisonAt,
                         CoroProgram, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_call_suspends}
@@ -1347,11 +1348,12 @@ func coro_verify_transfers(coro: &var CoroProgram, target: &var Target, cx: &Cor
 
 // Offloaded call `c` of `blocking` extern item `ext` in lowered frame `b`, as
 // `pre` was before lowering: the start keeps its arguments, each used there
-// alone, and loses its destination; it continues to a test of the cancel
-// word whose true edge reaches the take, a call of the same extern with no
-// arguments that writes the destination, the only write of it, and goes
-// where the call returned. So the offload moves no value and loses none,
-// and a cancelled task still takes.
+// alone, and loses its destination; it continues to its job's completion
+// check, whose result alone, never the cancel word, is tested, and whose true
+// edge reaches the take, a call of the same extern with no arguments that
+// writes the destination, the only write of it, and goes where the call
+// returned. So the offload moves no value and loses none, and only a
+// finished job, cancelled task or not, is taken.
 func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody, uses: &Vector<CoroVerifyUse>,
                          c: Int, pre: &MirCall, ext: Int) {
     let post = coro.mono.dp.bc.mir.calls[c]
@@ -1371,19 +1373,31 @@ func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBefor
     }
     let info = coro.mono.dp.bc.mir.funcs[b.body]
     var take = -1
+    var check_call = -1
     if post.next >= 0 && post.next < info.block_count {
-        let header = coro.mono.dp.bc.mir.blocks[info.block_first + post.next]
-        if header.term == MirTermKind.Switch && header.switch_kind == MirSwitchKind.Bool {
-            var k = 0
-            while k < header.arm_count {
-                let arm = coro.mono.dp.bc.mir.arms[header.arm_first + k]
-                k = k + 1
-                if arm.value == 1 {
-                    take = arm.target
+        let checking = coro.mono.dp.bc.mir.blocks[info.block_first + post.next]
+        if checking.term == MirTermKind.Call && coro.mono.call_item(checking.call) == coro_offload_done_item(&coro) {
+            check_call = checking.call
+        }
+    }
+    if check_call >= 0 {
+        let check = coro.mono.dp.bc.mir.calls[check_call]
+        if check.next >= 0 && check.next < info.block_count && check.dest >= 0 {
+            let test = coro.mono.dp.bc.mir.blocks[info.block_first + check.next]
+            if test.term == MirTermKind.Switch && test.switch_kind == MirSwitchKind.Bool && test.operand >= 0 {
+                let tested = coro.mono.dp.bc.mir.operands[test.operand].place
+                let done = coro.mono.dp.bc.mir.places[check.dest].local
+                var k = 0
+                while k < test.arm_count {
+                    let arm = coro.mono.dp.bc.mir.arms[test.arm_first + k]
+                    k = k + 1
+                    if arm.value == 1 {
+                        take = arm.target
+                    }
                 }
-            }
-            if not coro_verify_tests_cancel(&coro, &cx, &header) {
-                take = -1
+                if tested < 0 || coro.mono.dp.bc.mir.places[tested].local != done || coro_verify_tests_cancel(&coro, &cx, &test) {
+                    take = -1
+                }
             }
         }
     }
@@ -1403,7 +1417,7 @@ func coro_verify_offload(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBefor
         var what = StringBuilder()
         try! what.append("the offload of ")
         coro_verify_append_callee(&coro, &var what, c)
-        try! what.append(" does not go to a test of the cancel word whose true edge takes the job into its destination, its one write, and returns where the call returned")
+        try! what.append(" does not go to its job's completion check, tested alone, whose true edge takes the job into its destination, its one write, and returns where the call returned")
         coro_verify_problem(&var coro, 2, b.item, what.build())
     }
 }
@@ -2181,8 +2195,8 @@ extension CoroRecordFlow: NoCopy {}
 // reaches the park, and its arm when its reason arms the reactor, on every
 // path with no suspension since, so an event the arm lets in finds the
 // record (SL-355). The record holds its reason's value: 0 ready, 1 a timer,
-// -1 a descriptor or an offload, and a channel's word; the deadline, 0 or a
-// descriptor park's bound; and an arm registers its park's descriptor. An
+// -1 a descriptor, an offload's completion word, and a channel's word; the
+// deadline, 0 or a descriptor park's bound; and an arm registers its park's descriptor. An
 // armed park is entered only from its arm.
 func coro_verify_records(coro: &var CoroProgram, cx: &CoroContext, b: &CoroBeforeBody) {
     if cx.park < 0 || cx.deadline < 0 {
@@ -2378,6 +2392,8 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
             ok = coro_verify_const_is(&coro, value, CORO_PARK_TIMER)
         } else if park == CoroVerifyPark.Channel || park == CoroVerifyPark.Thread {
             ok = value >= 0 && value == coro_verify_pre_arg(&coro, &b, c, 0)
+        } else if park == CoroVerifyPark.Offload {
+            ok = coro_verify_offload_word(&coro, b.body, value)
         } else {
             ok = coro_verify_const_is(&coro, value, CORO_PARK_FD)
         }
@@ -2416,6 +2432,35 @@ func coro_verify_park_records(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int
         coro.mono.dp.bc.mir.append_operand(&var text, value)
         coro_verify_problem(&var coro, 4, b.item, text.build())
     }
+}
+
+// Whether operand `o`, an offload park's record, is a whole local of body `f`
+// that a call of `__saw_exec_offload_park` writes: the job's completion word,
+// which no cancel wakes.
+func coro_verify_offload_word(coro: &CoroProgram, f: Int, o: Int) -> Bool {
+    if o < 0 {
+        return false
+    }
+    let op = coro.mono.dp.bc.mir.operands[o]
+    if op.kind == MirOperandKind.Const || op.place < 0 || coro.mono.dp.bc.mir.places[op.place].count != 0 {
+        return false
+    }
+    let local = coro.mono.dp.bc.mir.places[op.place].local
+    let item = coro_offload_park_item(&coro)
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var bb = 0
+    while bb < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+        bb = bb + 1
+        if block.term != MirTermKind.Call || item < 0 || coro.mono.call_item(block.call) != item {
+            continue
+        }
+        let dest = coro.mono.dp.bc.mir.calls[block.call].dest
+        if dest >= 0 && coro.mono.dp.bc.mir.places[dest].local == local && coro.mono.dp.bc.mir.places[dest].count == 0 {
+            return true
+        }
+    }
+    false
 }
 
 func coro_verify_record_problem(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, bb: Int, park: CoroVerifyPark,

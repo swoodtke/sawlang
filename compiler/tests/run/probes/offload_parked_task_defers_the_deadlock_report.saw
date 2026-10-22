@@ -1,0 +1,51 @@
+// probe: panics
+// about: a task parked in an offloaded `blocking` call, dumped as `offload-parked`, is no deadlock while its call runs; the report comes once the call has returned and only the channel's receiver is left (SL-807)
+// stage 0: dumps the offloading task as `io-parked`
+// speeds: -O0 -O2
+// prints: waiting
+// prints: watcher: dumping
+// prints: saw tasks: 3 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 channel-parked
+// prints:     at offload_parked_task_defers_the_deadlock_report.saw:28 in receive
+// prints:   task group 1 slot 1 gen 1 offload-parked
+// prints:     at offload_parked_task_defers_the_deadlock_report.saw:32 in offload
+// prints:   task group 1 slot 2 gen 1 running
+// prints:     at offload_parked_task_defers_the_deadlock_report.saw:38 in watch
+// prints: offloader: the call returned 200
+// panics: deadlock: every task is waiting to receive from a channel
+// `receive` waits on a channel nobody sends to, from the start, so a walk
+// that read the offload's park as a channel's would report at once.
+import std.task.*
+import std.channel.{Channel}
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+static CALL_MS: Int = 200
+
+func receive(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func offload() -> Int {
+    let r = __saw_rt_blocking_sleep(CALL_MS)
+    print("offloader: the call returned {}", r)
+    r
+}
+
+func watch() {
+    sleep(Duration.ms(50))
+    print("watcher: dumping")
+    dump_tasks()
+}
+
+func main() {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(receive(orders.copy()))
+    let _ = g.spawn(offload())
+    let _ = g.spawn(watch())
+    print("waiting")
+    print("never reached {}", h.join())
+}

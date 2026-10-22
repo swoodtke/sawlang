@@ -24,12 +24,13 @@ fn std.task.offload_wait(job: Int) -> Void {
     let _3: &var std.taskgroup.TaskContext;
     let _4: Int;
     let _5: Int;
+    let _6: Int;
+    let _7: Int;
 
     bb0: {
         (*_3).deadline = const 0: UInt64;
-        (*(*_3).park) = const -1: Int;
-        _4 = cast(copy (*_3).park as Int);
-        _5 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy (*_2).[8: Int]] -> [return: bb3];
+        _4 = copy (*_2).[8: Int];
+        _5 = call std.taskgroup.__saw_exec_offload_park(job: Int) [copy _4] -> [return: bb3];
     }
 
     bb1: {
@@ -41,6 +42,12 @@ fn std.task.offload_wait(job: Int) -> Void {
     }
 
     bb3: {
-        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _5, const 0: Int, move _4] -> [return: bb2];
+        (*(*_3).park) = move _5;
+        _7 = cast(copy (*_3).park as Int);
+        _6 = call std.taskgroup.__saw_exec_offload_pipe(job: Int) [copy _4] -> [return: bb4];
+    }
+
+    bb4: {
+        call std.taskgroup.__saw_exec_io_register(fd: Int, dir: Int, token: Int) [move _6, const 0: Int, move _7] -> [return: bb2];
     }
 }
