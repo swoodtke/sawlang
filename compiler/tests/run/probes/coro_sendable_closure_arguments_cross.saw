@@ -1,0 +1,49 @@
+// probe: stated
+// about: a spawned root's function-typed parameter is judged by the closure the spawn site passes it, so the shapes of SL-788's closure bucket cross to a `TaskGroup(threads: 2)` worker: `[&var n]` and `[&base]` borrows of `Int`, a `[&var log]` of a `Vector<Int>`, a capture-less closure taking a parameter, and one at a `sync` function type (SL-795)
+// stage 0: refuses every closure-typed parameter of a root spawned into a `threads:` group
+// speeds: -O0 -O2
+// prints: task saw 8
+// prints: doubled 24
+// prints: logged 2
+// prints: yielder 7
+// prints: visited 3
+// prints: n 8 log 2
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func yielder(f: (Int) -> Int, n: Int) -> Int {
+    yield_now()
+    f(n)
+}
+
+func visit(body: (Int) sync -> Void, count: Int) -> Int {
+    var k = 0
+    while k < count {
+        body(k)
+        yield_now()
+        k = k + 1
+    }
+    count
+}
+
+func main() {
+    var n = 7
+    let base = 12
+    var log: Vector<Int> = []
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(run({ [&var n] in n = n + 1; n }))
+    print("task saw {}", h.join())
+    let d = group.spawn(run({ [&base] in base * 2 }))
+    print("doubled {}", d.join())
+    let l = group.spawn(run({ [&var log] in try! log.push(1); try! log.push(2); log.len() }))
+    print("logged {}", l.join())
+    let y = group.spawn(yielder({ k: Int in k + 2 }, 5))
+    print("yielder {}", y.join())
+    let v = group.spawn(visit({ x in let _ = x }, 3))
+    print("visited {}", v.join())
+    print("n {} log {}", n, log.len())
+}

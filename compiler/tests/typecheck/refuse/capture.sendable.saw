@@ -1,0 +1,19 @@
+// refuses: capture.sendable at 13:39
+// flags: --std-root std
+// a closure taken at a `sendable` type, a local's annotation, whose owned
+// capture is not `Send`: every copy of a closure shares what it captured, so
+// the word promises each capture is `Send` and `Sync` (SL-795)
+
+struct Handle {
+    raw: UnsafePointer<Int8>
+}
+
+func keep(h: Handle) unsafe -> Int {
+    let n = 1
+    let f: () sendable -> Int = { [n, h] in n + 1 }
+    f()
+}
+
+func main() {
+    print(0)
+}

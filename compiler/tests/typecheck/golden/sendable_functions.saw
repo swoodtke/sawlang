@@ -1,0 +1,48 @@
+// Function types and `sendable` (SL-795): a closure's own type says it when
+// every capture proves `Send` and `Sync`, an owned `Int` and `String` and a
+// `sendable` closure included; a named function's value always does; a
+// written type states it, and a closure taken at one is checked against its
+// captures. A `sendable` value converts to its type without the word, a join
+// of the two meets there, and `T: Send` and `T: Sync` bounds meet the word
+// through a `Vector` and an `Arc`.
+
+import std.arc.{Arc}
+
+func needs_send<T: Send>(x: T) -> Int { 1 }
+func needs_sync<T: Sync>(x: T) -> Int { 1 }
+func take_plain(f: () -> Int) -> Int { f() }
+func take_sendable(f: () sendable -> Int) -> Int { f() }
+func pick<T>(a: T, b: T) -> T { a }
+func seven() -> Int { 7 }
+
+struct Job {
+    run: () sync sendable -> Int
+}
+
+func owned_captures(n: Int, name: String) -> () sendable -> Int {
+    let inner = { [n] in n + 1 }
+    { [n, name, inner] in n + name.len() + inner() }
+}
+
+func joins(g: () escaping -> Int) -> Int {
+    let f = { 3 }
+    let both = [f, g]
+    let either = if both.len() > 1 { f } else { g }
+    let solved = pick(f, g)
+    either() + solved()
+}
+
+func bounds(f: () escaping sendable -> Int) -> Int {
+    var v = Vector<() sync sendable -> Int>()
+    try! v.push({ 4 })
+    let shared = try! Arc(f)
+    needs_send(move v) + needs_sync(shared)
+}
+
+func main() {
+    let f = { 2 }
+    print(needs_send(f) + needs_sync(seven) + take_plain(f) + take_sendable(seven))
+    let job = Job(run: { 5 })
+    print(job.run())
+    print(joins(f) + bounds(f))
+}

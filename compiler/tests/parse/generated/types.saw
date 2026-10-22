@@ -169,10 +169,16 @@ type a = () -> b
 // case: syntax.type.func-effects/opt:2:'escaping'?=present
 type a = () escaping -> b
 
-// case: syntax.type.func-effects/opt:3:func-type-borrows?=absent
+// case: syntax.type.func-effects/opt:3:'sendable'?=absent
 type a = () -> b
 
-// case: syntax.type.func-effects/opt:3:func-type-borrows?=present
+// case: syntax.type.func-effects/opt:3:'sendable'?=present
+type a = () sendable -> b
+
+// case: syntax.type.func-effects/opt:4:func-type-borrows?=absent
+type a = () -> b
+
+// case: syntax.type.func-effects/opt:4:func-type-borrows?=present
 type a = () borrows -> b
 
 // case: syntax.type.func-effects/pair:0:"unsafe"?=present,1:'sync'?=present
@@ -181,17 +187,29 @@ type a = () unsafe sync -> b
 // case: syntax.type.func-effects/pair:0:"unsafe"?=present,2:'escaping'?=present
 type a = () unsafe escaping -> b
 
-// case: syntax.type.func-effects/pair:0:"unsafe"?=present,3:func-type-borrows?=present
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,3:'sendable'?=present
+type a = () unsafe sendable -> b
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,4:func-type-borrows?=present
 type a = () unsafe borrows -> b
 
 // case: syntax.type.func-effects/pair:1:'sync'?=present,2:'escaping'?=present
 type a = () sync escaping -> b
 
-// case: syntax.type.func-effects/pair:1:'sync'?=present,3:func-type-borrows?=present
+// case: syntax.type.func-effects/pair:1:'sync'?=present,3:'sendable'?=present
+type a = () sync sendable -> b
+
+// case: syntax.type.func-effects/pair:1:'sync'?=present,4:func-type-borrows?=present
 type a = () sync borrows -> b
 
-// case: syntax.type.func-effects/pair:2:'escaping'?=present,3:func-type-borrows?=present
+// case: syntax.type.func-effects/pair:2:'escaping'?=present,3:'sendable'?=present
+type a = () escaping sendable -> b
+
+// case: syntax.type.func-effects/pair:2:'escaping'?=present,4:func-type-borrows?=present
 type a = () escaping borrows -> b
+
+// case: syntax.type.func-effects/pair:3:'sendable'?=present,4:func-type-borrows?=present
+type a = () sendable borrows -> b
 
 // case: syntax.type.func-borrows.plain/alt
 type a = () borrows -> b

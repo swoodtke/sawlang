@@ -4,7 +4,7 @@ frame #0: chains.main()  (size 120 align 8, lower bound 120)
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[120: Void]  size 0 align 1  _0 result
     (*frame).[96: chains.Bed]  size 8 align 8  _1 bed  (across 1 2)
-    (*frame).[80: (Int) -> Int]  size 16 align 8  _3 add  (across 1 2)
+    (*frame).[80: (Int) sendable -> Int]  size 16 align 8  _3 add  (across 1 2)
     (*frame).[104: Int]  size 8 align 8  _5  (across 1 2)
     (*frame).[112: Int]  size 8 align 8  _7  (across 2)
     (*frame).[8: frame chains.rest(bed: &chains.Bed)]  size 72 align 8  child  (across 1)

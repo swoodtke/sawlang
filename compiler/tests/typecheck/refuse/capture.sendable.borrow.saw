@@ -1,0 +1,14 @@
+// refuses: capture.sendable at 13:18
+// flags: --std-root std
+// a closure passed to a `sendable` parameter whose borrow capture `[&g]`
+// reaches a value that is not `Sync`: a shared borrow crosses a thread only
+// when its referent is `Sync`, while `[&var n]` of an `Int` crosses (SL-795)
+
+func run(f: () sendable -> Int) -> Int { f() }
+
+func main() {
+    var n = 1
+    var g = TaskGroup()
+    print(run({ [&var n] in n = n + 1; n }))
+    print(run({ [&g] in 2 }))
+}

@@ -1,0 +1,16 @@
+// refuses: capture.sendable at 11:8
+// flags: --std-root std
+// a closure returned at a `sendable` return type whose owned capture is not
+// `Send`: the return type states the promise, and the captures must keep it
+
+struct Handle {
+    raw: UnsafePointer<Int8>
+}
+
+func make(h: Handle) unsafe -> () sendable -> Int {
+    { [h] in 1 }
+}
+
+func main() {
+    print(0)
+}

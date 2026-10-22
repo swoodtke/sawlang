@@ -71,14 +71,14 @@
     (construction_override.Fake Copy))
   (bodies
     (Port.init 19:5
-      (20:13-20:18 BindingName (Int) -> construction_override.Port place temp)
-      (20:21-20:57 Closure (Int) -> construction_override.Port value temp)
+      (20:13-20:18 BindingName (Int) sendable -> construction_override.Port place temp)
+      (20:21-20:57 Closure (Int) sendable -> construction_override.Port value temp)
       (20:33-20:55 Call.paren construction_override.Port value temp (memberwise construction_override.Port (owner construction_override.Port)))
       (20:45-20:46 Name Int place copy)
       (20:53-20:54 IntLit Int value temp)
       (21:13-21:18 BindingName construction_override.Port place temp)
-      (21:21-21:33 Call.paren construction_override.Port value temp (value (owner (Int) -> construction_override.Port)))
-      (21:21-21:26 Name (Int) -> construction_override.Port place borrow)
+      (21:21-21:33 Call.paren construction_override.Port value temp (value (owner (Int) sendable -> construction_override.Port)))
+      (21:21-21:26 Name (Int) sendable -> construction_override.Port place borrow)
       (21:27-21:32 Name Int place copy)
       (22:9-22:47 Call.paren construction_override.Port value temp (memberwise construction_override.Port (owner construction_override.Port)))
       (22:21-22:32 Member Int place copy)

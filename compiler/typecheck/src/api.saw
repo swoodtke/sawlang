@@ -9,7 +9,7 @@ import sawresolve.verify.{res_verify_module}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodychecks.{tc_check_body_rules}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
-import sawtypecheck.captures.{tc_check_escaping_consumes}
+import sawtypecheck.captures.{tc_check_closure_traits, tc_check_escaping_consumes}
 import sawtypecheck.checks.{tc_check_atomic_widths, tc_check_derived_conformances,
                                 tc_check_finite_size, tc_check_inits, tc_check_policy_placement,
                                 tc_check_required_conformances, tc_check_test_only_overlaps,
@@ -87,6 +87,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_object_safety(&var p)
     tc_check_mutability(&var p)
     tc_check_escaping_consumes(&var p)
+    tc_check_closure_traits(&var p)
     tc_check_reference_positions(&var p)
     tc_check_exhaustive(&var p)
     tc_settle_path_uses(&var p)

@@ -1,0 +1,17 @@
+// refuses: coro.spawn-not-send at 6:1
+// message: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` holds the closure passed here, and the closure is not `sendable`, since it captures `inner` of type `std.taskgroup.TaskGroup` by borrow
+// A root's function-typed parameter is judged by the closure the spawn site
+// passes it (SL-795): a borrow of a value that is not `Sync` keeps the
+// closure from crossing, though a capture-less closure crosses the same root.
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func main() {
+    var inner = TaskGroup()
+    var group = try! TaskGroup(threads: 2)
+    let a = group.spawn(run({ 1 }))
+    print(a.join())
+    let b = group.spawn(run({ [&inner] in 2 }))
+    print(b.join())
+}

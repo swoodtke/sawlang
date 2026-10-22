@@ -1,6 +1,6 @@
 program	errors/spawn_capture_mt_send.saw
 triple	arm64-apple-darwin
-twin	same
+twin	differs
 expect	error
 build	refused	cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.
 meets_expect	yes

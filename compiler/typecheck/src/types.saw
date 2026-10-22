@@ -5,6 +5,8 @@
 // in the order the signatures are built, which is source order; nothing prints
 // an id, so no output depends on that order.
 
+import sawtypecheck.model.{TC_EFFECT_SENDABLE}
+
 static TC_TYPE_BUCKETS: Int = 16384
 static TC_TYPE_BASIS: Int = 2166136261
 static TC_TYPE_PRIME: Int = 16777619
@@ -203,6 +205,49 @@ extension TcTypes {
         try! self.next.push(head)
         self.heads[bucket] = id
         id
+    }
+
+    // Whether `from` is a `sendable` function type and `to` the same type
+    // without the word, which a value converts to and never back.
+    public func forgets_sendable(&self, from: Int, to: Int) -> Bool {
+        if from < 0 || to < 0 || from == to {
+            return false
+        }
+        let f = self.types[from]
+        let t = self.types[to]
+        if f.kind != TcKind.Func || t.kind != TcKind.Func || f.b != t.b || f.count != t.count {
+            return false
+        }
+        if (f.a & TC_EFFECT_SENDABLE) == 0 || t.a != (f.a & ~TC_EFFECT_SENDABLE) {
+            return false
+        }
+        var k = 0
+        while k < f.count {
+            if self.args[f.first + k] != self.args[t.first + k] {
+                return false
+            }
+            k = k + 1
+        }
+        true
+    }
+
+    // Function type `t` without `sendable`; any other type as it is.
+    public func unmarked(&var self, t: Int) -> Int {
+        if t < 0 {
+            return t
+        }
+        let info = self.types[t]
+        if info.kind != TcKind.Func || (info.a & TC_EFFECT_SENDABLE) == 0 {
+            return t
+        }
+        var params = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            try! params.push(self.args[info.first + k])
+            k = k + 1
+        }
+        let none = Vector<Int>()
+        self.intern(TcKind.Func, -1, info.a & ~TC_EFFECT_SENDABLE, info.b, &params, &none)
     }
 
     func same_key(&self, at: Int, h: Int, kind: TcKind, decl: Int, a: Int, b: Int,

@@ -18,3 +18,6 @@ refuses syntax.rule.effect-slot at 2:23
 
 // case: syntax.rule.effect-slot/function-type-word-written-twice
 refuses syntax.rule.effect-slot at 2:25
+
+// case: syntax.rule.effect-slot/sendable-before-sync-in-a-function-type
+refuses syntax.rule.effect-slot at 2:27

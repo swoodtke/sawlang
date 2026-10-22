@@ -1728,7 +1728,7 @@ ASSIGNMENT_OPS = ("=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">
 # operand's place path takes after its end (syntax.rule.move-place). A `{`
 # after one is no trailing closure either, but in a head it begins the body.
 POSTFIX_OPENERS = ("(", "[", ".", "?.", "!")
-EFFECT_WORDS = ("consumes", "unsafe", "sync", "constexpr", "escaping", "borrows")
+EFFECT_WORDS = ("consumes", "unsafe", "sync", "constexpr", "escaping", "sendable", "borrows")
 # Each effect slot, and the word a removed production refuses there wherever
 # it stands (syntax.decl.refused-escaping, syntax.type.refused-func-consumes).
 EFFECT_SLOTS = {"effect-slot": "escaping", "func-type-effects": "consumes"}

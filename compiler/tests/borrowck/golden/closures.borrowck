@@ -17,8 +17,8 @@ fn closures.run(f: () -> Int) {
 fn closures.captured() {
     place _1: closures.Res;  // r
     place _2: closures.Res;  // _2
-    place _3: () -> Int;  // f
-    place _4: () -> Int;  // _4
+    place _3: () sendable -> Int;  // f
+    place _4: () sendable -> Int;  // _4
 
     bb0: {
         [U U U U] _2 = closures.Res { id: const 7: Int };

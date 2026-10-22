@@ -71,7 +71,8 @@ extension TcProgram {
 
     // The conversion rules: exact; `Never` to anything; auto-wrap into an
     // Optional, then into a Result's unique payload, as far as `allow` lets;
-    // a lossless integer widening where `allow` lets; `&v` to a slice; an exclusive reference to a shared one; erasure; a
+    // a lossless integer widening where `allow` lets; a `sendable` function
+    // value to its type without the word; `&v` to a slice; an exclusive reference to a shared one; erasure; a
     // reference read through. A Result wrap goes outside an optional wrap,
     // never inside one, and `boxes` says the step stands directly under an
     // `Err` wrap that may build the error box.
@@ -131,6 +132,14 @@ extension TcProgram {
         if allow.widens && self.widens_losslessly(from, to) {
             if record {
                 self.add_adjust(e, TcAdjustKind.Widen, to)
+            }
+            return TC_FIT_CONVERTED
+        }
+        // A position that takes a function value takes a `sendable` one;
+        // the reverse would promise what the captures never proved.
+        if self.types.forgets_sendable(from, to) {
+            if record {
+                self.add_adjust(e, TcAdjustKind.ForgetSendable, to)
             }
             return TC_FIT_CONVERTED
         }

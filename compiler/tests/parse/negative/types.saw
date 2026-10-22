@@ -32,3 +32,8 @@ func f() {
 func f() {
     let g: (Int) unsafe unsafe -> Int = w
 }
+
+// case: syntax.rule.effect-slot/sendable-before-sync-in-a-function-type
+func f() {
+    let g: (Int) sendable sync -> Int = w
+}

@@ -5,7 +5,7 @@
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.lang.{ResLang}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
-                               TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SYNC,
+                               TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC,
                                TC_EFFECT_UNSAFE}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.types.{TcKind, TcType}
@@ -30,6 +30,9 @@ public func tc_effects_text(effects: Int) -> String {
     }
     if (effects & TC_EFFECT_ESCAPING) != 0 {
         try! out.append(" escaping")
+    }
+    if (effects & TC_EFFECT_SENDABLE) != 0 {
+        try! out.append(" sendable")
     }
     if (effects & TC_EFFECT_BORROWS_SYNC) != 0 {
         try! out.append(" borrows(sync)")

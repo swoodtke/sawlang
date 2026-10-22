@@ -35,8 +35,8 @@ fn glue.kinds(n: Int) -> Int {
     let _18: glue.Handle;
     let _19: (glue.Handle, Int);
     let _20: String;  // tag
-    let _21: () -> Int;  // f
-    let _22: () -> Int;
+    let _21: () sendable -> Int;  // f
+    let _22: () sendable -> Int;
     let _23: Int;
     let _24: Int;
     let _25: Int;
@@ -82,7 +82,7 @@ fn glue.kinds(n: Int) -> Int {
         return;
     }
 
-    glue () -> Int: closure environment
+    glue () sendable -> Int: closure environment
     glue (glue.Handle, Int): structural
     glue String: builtin
     glue glue.Handle: deinit glue.Handle.deinit() in the NoCopy conformance, then structural

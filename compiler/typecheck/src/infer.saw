@@ -85,6 +85,15 @@ extension TcProgram {
             if current == a || self.is_never(a) {
                 return true
             }
+            // Function values that differ only in `sendable` meet at the type
+            // without it, which the marked one converts to.
+            if self.types.forgets_sendable(current, a) {
+                s.sol[pi.a] = a
+                return true
+            }
+            if self.types.forgets_sendable(a, current) {
+                return true
+            }
             if s.conflict_index < 0 {
                 s.conflict_index = pi.a
                 s.conflict_a = current

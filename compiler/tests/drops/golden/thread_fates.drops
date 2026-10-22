@@ -82,7 +82,7 @@ fn thread_fates.Pool.deinit() blocking -> Void {
 fn thread_fates.bound() -> Int {
     let _0: Int;  // return
     let _1: std.task.Thread<Int>;  // t
-    let _2: () -> Int;
+    let _2: () sendable -> Int;
     let _3: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
     let _4: std.task.Thread<Int>;
     let _5: &var std.task.Thread<Int>;
@@ -127,7 +127,7 @@ fn closure#0 of thread_fates.bound() -> Int {
 fn thread_fates.matched() -> Void {
     let _0: Void;  // return
     let _1: Result<std.task.Thread<Int>, std.systemerror.SystemError>;  // spawned
-    let _2: () -> Int;
+    let _2: () sendable -> Int;
     let _3: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
     let _4: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
     let _5: std.task.Thread<Int>;  // h
@@ -199,7 +199,7 @@ fn closure#0 of thread_fates.matched() -> Int {
 
 fn thread_fates.chained() -> Int {
     let _0: Int;  // return
-    let _1: () -> Int;
+    let _1: () sendable -> Int;
     let _2: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
     let _3: &var std.task.Thread<Int>;
     let _4: Int;
@@ -242,7 +242,7 @@ fn thread_fates.stored(pool: &var thread_fates.Pool) -> Void {
     let _0: Void;  // return
     let _1: &var thread_fates.Pool;  // param pool
     let _2: std.task.Thread<Int>;  // t
-    let _3: () -> Int;
+    let _3: () sendable -> Int;
     let _4: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
     let _5: std.task.Thread<Int>;
     let _6: std.task.Thread<Int>;

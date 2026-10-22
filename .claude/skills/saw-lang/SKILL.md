@@ -2340,8 +2340,18 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   every value a spawned frame carries across a suspension — params, across-suspend
   locals, AND the result type — must be `Send` (else a clean compile error naming
   it). An OWNING CONTAINER is Send iff its CONTENTS are, so moving a
-  `Vector<Int>`, a `Map`, a `Set`, a `Data` or a `StringBuilder` in is fine and a
-  `Vector` of closures is refused, naming the element. Share genuinely shared
+  `Vector<Int>`, a `Map`, a `Set`, a `Data` or a `StringBuilder` in is fine. A
+  FUNCTION TYPE is `Send + Sync` exactly when it says `sendable`
+  (`() sync sendable -> Int`, after `escaping` in the slot): a WRITTEN type
+  must spell it (`Vector<() sendable -> Int>`, a `Channel` element, a field),
+  while a closure's INFERRED type says it when every capture proves it (owned
+  capture `Send + Sync`, `[&x]` needs `x: Sync`, `[&var x]` needs `x: Send`),
+  and a named function's value always does. A `sendable` value converts to
+  the plain type, never back. A spawned root's `f: () -> Int` parameter is
+  judged by the closure the site passes, so `group.spawn(run({ [&var n] in
+  ... }))` crosses into `threads: 2` when `n` is `Send`. An array literal or
+  value `if`/`match` infers its peers WITHOUT the word: write the element type
+  to keep it. Share genuinely shared
   state via `Arc`/`Mutex`/`Channel`. Test MT
   code on counts/sums, NEVER on interleaving. Cross-task cancel:
   `handle.cancel_addr() -> Int` (a Send address a canceller task sets).
@@ -3266,9 +3276,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   stays exactly-once). A SPAWNED task may take one too (design 201) — the
   argument borrows its ROOT for the task's life on the extent rule below, so
   `group.spawn(fill(&var buf, 3))` compiles and the task's writes are at `buf`
-  after the join. EXCEPT into a `threads: N` group, where a reference is not
-  `Send` and the frame cannot cross to a worker thread (pass an owned value /
-  `Arc` / `Channel` there). A reference to a task-LOCAL inside the spawned body
+  after the join. EXCEPT into a `threads: N` group, where a reference
+  parameter is not `Send` and the frame cannot cross to a worker thread (pass
+  an owned value / `Arc` / `Channel` there, or the capture spelling
+  `run({ [&var buf] in ... })`, which crosses when the closure is `sendable`). A reference to a task-LOCAL inside the spawned body
   needs none of this. Net
   offers BOTH: value `read() -> Result<Data, IoError>` (fresh Data per call, the
   ergonomic default) AND reference `read_into(&var Data) -> Result<Int, IoError>`

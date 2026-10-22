@@ -1,0 +1,20 @@
+// probe: stated
+// about: a closure capturing `[base]` by value, passed to a root whose parameter is `f: () -> Int`, crosses to a `TaskGroup(threads: 2)` worker and reads its capture there while the spawner is suspended, the Air's m1 (SL-795)
+// stage 0: refuses every closure-typed parameter of a root spawned into a `threads:` group
+// speeds: -O0 -O2
+// prints: joined 101
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    let base = 100
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(run({ [base] in base + 1 }))
+    yield_now()
+    sleep(Duration.ms(20))
+    print("joined {}", h.join())
+}

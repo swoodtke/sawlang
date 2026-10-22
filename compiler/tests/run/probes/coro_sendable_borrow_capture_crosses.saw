@@ -1,0 +1,21 @@
+// probe: stated
+// about: a closure borrowing `[&n, &base]`, passed to a root whose parameter is `f: () -> Int`, crosses to a `TaskGroup(threads: 2)` worker and reads through its borrows there while the spawner is suspended, the Air's c3 (SL-795)
+// stage 0: refuses every closure-typed parameter of a root spawned into a `threads:` group
+// speeds: -O0 -O2
+// prints: joined 107
+import std.task.*
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    let n = 7
+    let base = 100
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(run({ [&n, &base] in n + base }))
+    yield_now()
+    sleep(Duration.ms(20))
+    print("joined {}", h.join())
+}

@@ -291,6 +291,13 @@ public struct TcProgram {
     closure_index: ResIndex
     // By closure ordinal: whether the closure escapes (`closure_escapes`).
     closure_escaping: Vector<Bool>
+    // By closure ordinal, once captures settle: the first capture that keeps
+    // the closure from being `sendable`, an index into `captures`, and the
+    // trait it fails; -1 for a closure whose captures prove both
+    // (`check_closure_traits`). The Send-on-frames gate reads them for a
+    // closure passed to a spawned call.
+    closure_blocker: Vector<Int>
+    closure_blocker_trait: Vector<Int>
     // Every `Thread.spawn` form typed, and its brace, in the order the walk
     // met them (`thread_spawn`).
     thread_forms: Vector<Int>
@@ -434,6 +441,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
                       closure_index: ResIndex(), closure_escaping: Vector<Bool>(),
+                      closure_blocker: Vector<Int>(), closure_blocker_trait: Vector<Int>(),
                       thread_forms: Vector<Int>(), thread_braces: Vector<Int>(), closure_never: false,
                       implied_copies: Vector<Int>(), narrow_atomics: Vector<Int>(), narrow_reported: Vector<Bool>(),
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),

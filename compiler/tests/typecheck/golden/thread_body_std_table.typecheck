@@ -19,7 +19,7 @@ ERROR	effect.thread-body	compiler/tests/typecheck/golden/thread_body_std_table.s
       (12:9-12:10 BindingName (error) place temp)
       (12:13-15:6 Try.force (error) value temp)
       (12:18-15:6 Call (error) value temp (builtin Thread.spawn))
-      (12:31-15:6 Closure () -> Int value temp (captures (c move)))
+      (12:31-15:6 Closure () sendable -> Int value temp (captures (c move)))
       (13:13-13:14 BindingName Result<std.process.CommandOutput?, std.alloc.AllocError> place temp)
       (13:17-13:27 Call.paren Result<std.process.CommandOutput?, std.alloc.AllocError> value temp (call std.process.Command.output() (owner std.process.Command)))
       (13:17-13:18 Name std.process.Command (borrow &std.process.Command) place borrow)

@@ -44,7 +44,8 @@ public func tc_adjust_text(k: TcAdjustKind) -> String {
         case BorrowVar -> "borrow-var",
         case Shared -> "shared",
         case Erase -> "erase",
-        case Widen -> "widen"
+        case Widen -> "widen",
+        case ForgetSendable -> "forget-sendable"
     }
 }
 

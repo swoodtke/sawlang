@@ -1,18 +1,15 @@
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: multi-threaded `TaskGroup(threads: ...)`
-// EXPECT-ERROR-CONTAINS: is not `Send`
+// DF-188c case (ii), reconsidered by SL-795. A borrow capture reaches a
+// `threads: N` worker only by riding a closure into the task's frame, and the
+// refusal this file pinned came from the closure: no closure was `Send`. Now a
+// closure's type carries the `Send` and `Sync` its captures prove, and a
+// spawned root's function-typed parameter is judged by the closure the site
+// passes. `[&var n]` of an `Int` proves both, since `&var T` crosses when `T`
+// is `Send` (SL-788's reference rule), and the spawn-borrow rules keep `n`
+// alive and exclusive to the task until the join. So the spawn is accepted.
+// Stage 0 still refuses it, which annotations.tsv records.
 //
-// DF-188c case (ii), pinned as a REGRESSION rather than fixed: reference
-// captures into a `threads: N` group were probed (Aug 9) and are ALREADY
-// refused, so design 188 owes nothing here but this test.
-//
-// The refusal comes from a rule that was never about captures. A closure is not
-// `Send`, so the frame-parameter Send check rejects every closure-carrying MT
-// spawn — a borrow capture reaches the worker thread only by riding a closure
-// into the frame, and the closure is what is refused. That is a good message
-// and the right answer, and it is worth pinning precisely because it holds for
-// a reason one indirection away from the thing it protects: a future
-// Send-carrying closure would need this case reconsidered on its own terms.
+// EXPECT: success
+// EXPECT-OUTPUT: task saw 8
 
 import std.task.*
 

@@ -438,14 +438,28 @@
       (FuncType escaping
         (NamedType (Path b))))))
 
-// case: syntax.type.func-effects/opt:3:func-type-borrows?=absent
+// case: syntax.type.func-effects/opt:3:'sendable'?=absent
 (File
   (Declaration.type-alias
     (TypeAlias a
       (FuncType
         (NamedType (Path b))))))
 
-// case: syntax.type.func-effects/opt:3:func-type-borrows?=present
+// case: syntax.type.func-effects/opt:3:'sendable'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType sendable
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:4:func-type-borrows?=absent
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/opt:4:func-type-borrows?=present
 (File
   (Declaration.type-alias
     (TypeAlias a
@@ -466,7 +480,14 @@
       (FuncType unsafe escaping
         (NamedType (Path b))))))
 
-// case: syntax.type.func-effects/pair:0:"unsafe"?=present,3:func-type-borrows?=present
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,3:'sendable'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType unsafe sendable
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:0:"unsafe"?=present,4:func-type-borrows?=present
 (File
   (Declaration.type-alias
     (TypeAlias a
@@ -480,18 +501,39 @@
       (FuncType sync escaping
         (NamedType (Path b))))))
 
-// case: syntax.type.func-effects/pair:1:'sync'?=present,3:func-type-borrows?=present
+// case: syntax.type.func-effects/pair:1:'sync'?=present,3:'sendable'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType sync sendable
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:1:'sync'?=present,4:func-type-borrows?=present
 (File
   (Declaration.type-alias
     (TypeAlias a
       (FuncType sync borrows
         (NamedType (Path b))))))
 
-// case: syntax.type.func-effects/pair:2:'escaping'?=present,3:func-type-borrows?=present
+// case: syntax.type.func-effects/pair:2:'escaping'?=present,3:'sendable'?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType escaping sendable
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:2:'escaping'?=present,4:func-type-borrows?=present
 (File
   (Declaration.type-alias
     (TypeAlias a
       (FuncType escaping borrows
+        (NamedType (Path b))))))
+
+// case: syntax.type.func-effects/pair:3:'sendable'?=present,4:func-type-borrows?=present
+(File
+  (Declaration.type-alias
+    (TypeAlias a
+      (FuncType sendable borrows
         (NamedType (Path b))))))
 
 // case: syntax.type.func-borrows.plain/alt

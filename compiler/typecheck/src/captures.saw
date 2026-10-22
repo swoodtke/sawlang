@@ -6,18 +6,95 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
+import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResBindKind}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
-import sawtypecheck.model.{TcUse}
+import sawtypecheck.model.{TC_EFFECT_SENDABLE, TcCaptureBlock, TcUse}
 import sawtypecheck.mutability.{tc_check_mutability}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
 
 // Refuses each consuming use of a by-value capture in a closure that
 // escapes, once every closure's captures are settled.
 public func tc_check_escaping_consumes(p: &var TcProgram) {
     p.check_escaping_consumes()
+}
+
+// Records which closures' captures prove `sendable`, and refuses a closure
+// whose type says it when one does not.
+public func tc_check_closure_traits(p: &var TcProgram) {
+    p.check_closure_traits()
+}
+
+extension TcProgram {
+    // Each closure's first capture that keeps it from being `sendable`, by
+    // the capture rule (`capture_blocks_sendable`) in the declaration that
+    // holds it. A closure whose type says `sendable`, written at its position
+    // or inferred from its captures, is refused naming that capture.
+    public func check_closure_traits(&var self) {
+        var k = 0
+        while k < self.closures.len() && k < self.capture_first.len() {
+            let e = self.closures[k]
+            let d = self.closure_decls[k]
+            let saved = self.save_context()
+            if d >= 0 {
+                self.enter_decl(d)
+            }
+            let env_decl = self.current_decl
+            let env_ext = self.current_ext
+            let viewer = self.current
+            let in_test = self.current_test
+            var blocker = -1
+            var failed = -1
+            var at = self.capture_first[k]
+            let end = at + self.capture_count[k]
+            while at < end && blocker < 0 {
+                let cap = self.captures[at]
+                let tr = self.capture_blocks_sendable(cap.ty, cap.use, false, env_decl, env_ext, viewer, in_test)
+                if tr >= 0 {
+                    blocker = at
+                    failed = tr
+                }
+                at = at + 1
+            }
+            self.restore_context(saved)
+            try! self.closure_blocker.push(blocker)
+            try! self.closure_blocker_trait.push(failed)
+            let t = self.expr_types[e]
+            if blocker >= 0 && t >= 0 && self.kind_of(t) == TcKind.Func && (self.types.ty(t).a & TC_EFFECT_SENDABLE) != 0 {
+                self.refuse_unsendable_closure(t, blocker, failed)
+            }
+            k = k + 1
+        }
+    }
+
+    // The settled record of closure `ordinal`'s blocking capture, or one
+    // whose `trait_decl` is -1 when its captures prove `sendable`.
+    public func settled_blocker(&self, ordinal: Int) -> TcCaptureBlock {
+        if ordinal < 0 || ordinal >= self.closure_blocker.len() || self.closure_blocker[ordinal] < 0 {
+            return TcCaptureBlock(binding: -1, ty: -1, use: TcUse.Copy, trait_decl: -1)
+        }
+        let cap = self.captures[self.closure_blocker[ordinal]]
+        TcCaptureBlock(binding: cap.binding, ty: cap.ty, use: cap.use, trait_decl: self.closure_blocker_trait[ordinal])
+    }
+
+    func refuse_unsendable_closure(&var self, t: Int, at: Int, tr: Int) {
+        let cap = self.captures[at]
+        let block = TcCaptureBlock(binding: cap.binding, ty: cap.ty, use: cap.use, trait_decl: tr)
+        var msg = StringBuilder()
+        try! msg.append("this closure's type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` says `sendable`, but ")
+        try! msg.append(self.capture_block_text(&block))
+        try! msg.append(". Share the value through `Arc` (and `Mutex` for mutation), or take the closure at a function type without `sendable` where it never crosses a thread")
+        let m = self.node_module(cap.site)
+        self.refuse_in(m, cap.site, "capture.sendable", msg.build())
+    }
 }
 
 extension TcProgram {

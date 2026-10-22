@@ -1,0 +1,20 @@
+// refuses: loan.exclusive-twice at 18:29
+// The other route of `sendable`'s one-word premise (SL-795): two closures that
+// each capture `[&var n]`, spawned into one `threads: 2` group, cannot both
+// reach `n`, since the first task's handle holds it exclusively until
+// `a.join()`. So a `[&var n]` closure, `sendable` when `n` is `Send`, is never
+// run by two workers at once (premise/sendable-borrowing-closure-bound).
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    var n = 0
+    var group = try! TaskGroup(threads: 2)
+    let a = group.spawn(run({ [&var n] in n = n + 1; n }))
+    let b = group.spawn(run({ [&var n] in n = n + 10; n }))
+    print("{} {}", a.join(), b.join())
+}

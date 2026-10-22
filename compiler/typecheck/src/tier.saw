@@ -10,12 +10,12 @@
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst}
-import sawtypecheck.model.{TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
-                               TcGeneric, TcObligation, TcSig, TcTier}
+import sawtypecheck.model.{TC_EFFECT_SENDABLE, TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
+                               TcGeneric, TcObligation, TcSig, TcTier, TcUse}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
-import sawtypecheck.types.{TcKind, TcType}
+import sawtypecheck.types.{TC_HOLDS_ERROR, TcKind, TcType}
 import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TC_WALK_CELL, TC_WALK_DEPTH_REFUSED, TC_WALK_NO_MOVE,
                            TC_WALK_TRIVIAL, TcMemo, tc_memo}
 
@@ -768,6 +768,9 @@ extension TcProgram {
         try! msg.append("` of `")
         try! msg.append(self.res.decl_path(o.owner))
         try! msg.append("`")
+        if o.trait_decl == self.known.send || o.trait_decl == self.known.sync {
+            try! msg.append(self.sendable_hint(o.arg))
+        }
         self.refuse_in(o.module, o.node, "type.bound", msg.build())
     }
 
@@ -881,7 +884,12 @@ extension TcProgram {
                 }
                 self.satisfies_in(info.b, tr, env_decl, env_ext, &var run)
             },
-            case Func -> tr == self.known.copy || tr == self.known.explicit_copy,
+            case Func -> {
+                if tr == self.known.copy || tr == self.known.explicit_copy {
+                    return true
+                }
+                (tr == self.known.send || tr == self.known.sync) && (info.a & TC_EFFECT_SENDABLE) != 0
+            },
             case Ref -> {
                 if tr == self.known.copy || tr == self.known.explicit_copy {
                     return true
@@ -1211,6 +1219,93 @@ extension TcProgram {
             return out.build()
         }
         ""
+    }
+
+    // THE CAPTURE RULE for a `sendable` closure: -1 when a capture of type
+    // `t`, taken by `use`, lets its closure be `Send` and `Sync`, else the
+    // trait it fails. Copies of a closure share one environment, so an owned
+    // capture must be both; a borrow is judged as the reference it is, `&T`
+    // by `T: Sync` and `&var T` by `T: Send`, and a capture of reference type
+    // reborrows in its own mode. A `Thread.spawn` body takes its environment
+    // once, by value, so there an owned capture needs `Send` alone.
+    // ENTRY POINTS:
+    //     closure_blocker
+    //     check_closure_traits
+    //     refuse_unsent_capture
+    public func capture_blocks_sendable(&var self, t: Int, use: TcUse, thread_body: Bool, env_decl: Int,
+                                        env_ext: Int, viewer: Int, in_test: Bool) -> Int {
+        if t < 0 || (self.types.ty(t).holds & TC_HOLDS_ERROR) != 0 {
+            return -1
+        }
+        let send = self.known.send
+        let sync = self.known.sync
+        if thread_body {
+            return if self.satisfies(t, send, env_decl, env_ext, viewer, in_test) { -1 } else { send }
+        }
+        let info = self.types.ty(t)
+        var referent = -1
+        var exclusive = false
+        if use == TcUse.Borrow || use == TcUse.BorrowVar {
+            referent = t
+            exclusive = use == TcUse.BorrowVar
+        } else if info.kind == TcKind.Ref {
+            referent = info.b
+            exclusive = info.a == 1
+        }
+        if referent >= 0 {
+            let needed = if exclusive { send } else { sync }
+            return if self.satisfies(referent, needed, env_decl, env_ext, viewer, in_test) { -1 } else { needed }
+        }
+        if not self.satisfies(t, send, env_decl, env_ext, viewer, in_test) {
+            return send
+        }
+        if not self.satisfies(t, sync, env_decl, env_ext, viewer, in_test) {
+            return sync
+        }
+        return -1
+    }
+
+    // Why `t` falls short of `Send` or `Sync` when a function type without
+    // `sendable` is the reason, as a sentence to append to a refusal; "" when
+    // `t` holds none.
+    public func sendable_hint(&self, t: Int) -> String {
+        let f = self.unmarked_function_in(t, 0)
+        if f < 0 {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append("; the function type `")
+        try! out.append(self.type_text(f))
+        try! out.append("` is not `sendable`: a written function type is `Send` and `Sync` only when it says `sendable`, and a closure's own type says it when everything the closure captures is both")
+        out.build()
+    }
+
+    // The first function type without `sendable` in `t`, -1 when none: `t`
+    // itself, or one of its parts.
+    func unmarked_function_in(&self, t: Int, depth: Int) -> Int {
+        if t < 0 || depth > TC_INSTANTIATION_DEPTH {
+            return -1
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Func {
+            return if (info.a & TC_EFFECT_SENDABLE) == 0 { t } else { -1 }
+        }
+        if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let part = self.types.arg(t, k)
+                let found = self.unmarked_function_in(part, depth + 1)
+                if found >= 0 {
+                    return found
+                }
+                k = k + 1
+            }
+            return -1
+        }
+        if info.kind == TcKind.Ref || info.kind == TcKind.Array {
+            return self.unmarked_function_in(info.b, depth + 1)
+        }
+        return -1
     }
 
     // The instantiation depth limit's refusal (spec, "Instantiation depth is

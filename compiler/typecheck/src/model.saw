@@ -17,6 +17,11 @@ public static TC_EFFECT_CONSTEXPR: Int = 64
 // A Saw function whose body blocks its thread (spec, Blocking functions); an
 // extern's `blocking` prefix is `TC_FLAG_BLOCKING`.
 public static TC_EFFECT_BLOCKING: Int = 128
+// A function type whose value is `Send` and `Sync`: written `sendable`, or
+// carried by a closure whose every capture proves both, and by a named
+// function, which captures nothing. It is part of the type, never of a
+// declaration (spec, Sendable function types).
+public static TC_EFFECT_SENDABLE: Int = 256
 
 // What else a declaration's head says, as bits.
 public static TC_FLAG_STATIC: Int = 1
@@ -289,7 +294,10 @@ public enum TcAdjustKind {
     case Erase,
     // An integer extended losslessly into a wider one, by its own signedness
     // (spec, Integer Width Agreement).
-    case Widen
+    case Widen,
+    // A `sendable` function value taken at the same function type without
+    // the word. The representation is one, so nothing is built.
+    case ForgetSendable
 }
 
 // What a funnel position lets a conversion build beyond the exact and
@@ -393,6 +401,16 @@ public static TC_BIND_DEFAULT: Int = -1
 // writes, and how the closure takes it. `use` is `Copy` or `Move` for a
 // by-value capture, `Borrow` or `BorrowVar` for a borrow of the enclosing
 // frame; a reference parameter's value is copied, so it borrows through it.
+// The capture that keeps a closure from being `sendable`: the binding it
+// takes, its type and how it takes it, and the trait it fails, -1 when every
+// capture proves `Send` and `Sync`.
+public struct TcCaptureBlock {
+    binding: Int
+    ty: Int
+    use: TcUse
+    trait_decl: Int
+}
+
 public struct TcCapture {
     closure: Int
     // The leaf that declares the binding, or the receiver's parameter node

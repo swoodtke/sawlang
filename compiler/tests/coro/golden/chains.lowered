@@ -6,8 +6,8 @@ fn chains.main() -> Void {
     let _0: Void;  // return
     let _1: chains.Bed;  // bed
     let _2: chains.Bed;
-    let _3: (Int) -> Int;  // add
-    let _4: (Int) -> Int;
+    let _3: (Int) sendable -> Int;  // add
+    let _4: (Int) sendable -> Int;
     let _5: Int;
     let _6: &chains.Bed;
     let _7: Int;
@@ -22,8 +22,8 @@ fn chains.main() -> Void {
         _2 = chains.Bed { value: const 2: Int };
         (*_12).[96: chains.Bed] = move _2;
         _4 = closure#0 of chains.main() [];
-        (*_12).[80: (Int) -> Int] = move _4;
-        (*_12).[104: Int] = call value copy (*_12).[80: (Int) -> Int] [const 1: Int] -> [return: bb1];
+        (*_12).[80: (Int) sendable -> Int] = move _4;
+        (*_12).[104: Int] = call value copy (*_12).[80: (Int) sendable -> Int] [const 1: Int] -> [return: bb1];
     }
 
     bb1: {
@@ -54,7 +54,7 @@ fn chains.main() -> Void {
     }
 
     bb6: {
-        drop((*_12).[80: (Int) -> Int]);
+        drop((*_12).[80: (Int) sendable -> Int]);
         return;
     }
 

@@ -82,6 +82,9 @@ refuses syntax.rule.effect-slot at 1:15
 // case: syntax.rule.effect-slot/escaping-on-a-declaration
 refuses syntax.decl.refused-escaping
 
+// case: syntax.rule.effect-slot/sendable-on-a-declaration
+refuses syntax.rule.effect-slot at 1:10
+
 // case: syntax.rule.effect-slot/unsafe-before-func
 refuses syntax.decl.refused-effect-prefix
 

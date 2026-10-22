@@ -18,11 +18,11 @@
     (foo 12:6
       (12:28-12:29 IntLit Int value temp))
     (relay 14:6
-      (15:9-15:10 BindingName (T) -> Int place temp)
-      (15:13-15:26 Closure (T) -> Int value temp)
+      (15:9-15:10 BindingName (T) sendable -> Int place temp)
+      (15:13-15:26 Closure (T) sendable -> Int value temp)
       (15:23-15:24 IntLit Int value temp)
-      (16:5-16:9 Call.paren Int value temp (value (owner (T) -> Int)))
-      (16:5-16:6 Name (T) -> Int place borrow)
+      (16:5-16:9 Call.paren Int value temp (value (owner (T) sendable -> Int)))
+      (16:5-16:6 Name (T) sendable -> Int place borrow)
       (16:7-16:8 Name T place move))
     (main 19:6
       (20:9-20:10 BindingName (Void) -> Int place temp)

@@ -1189,6 +1189,7 @@ errors/shared_self_borrows_field_var_method_call.saw	37	31	unseen	reviewed	print
 errors/shared_self_field_var_method_call.saw	28	16	unseen	reviewed	print("a {b.peek()}")	-	-	reviewed: a plain method in this file, not a `borrows` accessor
 errors/shared_self_field_write.saw	24	14	unseen	reviewed	let _ = c.peek()	-	-	reviewed: a plain method in this file, not a `borrows` accessor
 errors/shared_self_var_method_call.saw	34	14	unseen	reviewed	print("{c.peek()}")	-	-	reviewed: a plain method in this file, not a `borrows` accessor
+errors/spawn_capture_mt_send.saw	1	0	sendable-closure	manual	// EXPECT: error	// EXPECT: success	-	SL-795 ruling: a closure's type carries the `Send` and `Sync` its captures prove, and a root's function-typed parameter is judged by the closure passed, so the spawn this refusal test pinned is accepted; its comment says why
 errors/spinlock_needs_atomics.saw	18	10	unseen	manual	COUNT.lock({ n in	borrow var n = COUNT.lock() {	-	`SpinLock.lock { }` becomes the `lock()` accessor under a `borrow var` block (SL:borrowing §9)
 errors/spinlock_needs_atomics.saw	21	0	unseen.companion	manual	})	}	-	closes the borrow block
 errors/spinlock_suspending_body.saw	1	0	unseen.companion	manual	// design 149 unit (d): a critical section cannot suspend. The lock's body is a	// A critical section cannot suspend. `SpinLock.lock()` is `borrows(sync)`	-	the header states the rule the file now pins

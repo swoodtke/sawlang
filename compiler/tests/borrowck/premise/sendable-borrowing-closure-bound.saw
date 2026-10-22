@@ -1,0 +1,16 @@
+// refuses: capture.escaping-borrow at 13:19
+// The one-word premise of `sendable` (SL-795): `Send` and `Sync` coincide for
+// a closure, because a closure that borrows can never be shared by two
+// threads at once. Binding one to a value, from which two calls or two tasks
+// could take it, makes it escaping, and typecheck refuses its borrow capture
+// before the borrow check sees it. `loan.exclusive-twice.spawn-capture-threads`
+// pins the other route, two closures capturing the same `[&var n]`.
+
+func run(f: () -> Int) -> Int { f() }
+
+func main() {
+    var n = 1
+    let bump = { [&var n] in n = n + 1; n }
+    print(run(bump))
+    print(run(bump))
+}

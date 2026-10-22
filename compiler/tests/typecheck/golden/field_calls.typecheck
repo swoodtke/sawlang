@@ -21,7 +21,7 @@
     (main 13:6
       (14:9-14:10 BindingName field_calls.Handler place temp)
       (14:13-14:31 Call.paren field_calls.Handler value temp (memberwise field_calls.Handler (owner field_calls.Handler)))
-      (14:24-14:30 Name (Int) -> Int value temp (value field_calls.double(n: Int)))
+      (14:24-14:30 Name (Int) sendable -> Int (forget-sendable (Int) -> Int) value temp (value field_calls.double(n: Int)))
       (15:5-15:18 Call.paren Void value temp (builtin print))
       (15:11-15:17 Call.paren Int value borrow (value (owner (Int) -> Int)))
       (15:11-15:14 Member (Int) -> Int place borrow)

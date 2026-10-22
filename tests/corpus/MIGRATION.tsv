@@ -1319,7 +1319,7 @@ errors/shared_self_var_method_call.saw	reviewed,expectation-pending	reviewed.uns
 errors/signal_is_hosted_only.saw	copied,expectation-pending	-	-
 errors/sleep_bare_int.saw	copied,expectation-pending	-	-
 errors/spawn_capture_across_iterations.saw	copied,expectation-pending	-	-
-errors/spawn_capture_mt_send.saw	copied,expectation-pending	-	-
+errors/spawn_capture_mt_send.saw	manual	manual.sendable-closure:1	SL-795 ruling: a closure's type carries the `Send` and `Sync` its captures prove, and a spawned root's function-typed parameter is judged by the closure passed, so `[&var n]` of an `Int` crosses to a `threads: 2` worker; the refusal test is now a success test, and Stage 0 still refuses it
 errors/spawn_capture_not_send.saw	copied,expectation-pending	-	-
 errors/spawn_capture_unjoined_handle.saw	copied,expectation-pending	-	-
 errors/spawn_handle_may_not_escape_the_function.saw	copied,expectation-pending	-	-

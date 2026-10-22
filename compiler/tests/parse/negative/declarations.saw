@@ -135,6 +135,10 @@ func f() sync unsafe {
 func f() escaping {
 }
 
+// case: syntax.rule.effect-slot/sendable-on-a-declaration
+func f() sendable {
+}
+
 // case: syntax.rule.effect-slot/unsafe-before-func
 unsafe func f() {
 }

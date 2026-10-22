@@ -25,10 +25,10 @@ fn closures.closures(limit: Int, total: &var Int, name: String) -> Int {
     let _4: closures.Handle;  // h
     let _5: closures.Handle;
     let _6: Int;  // count
-    let _7: (Int) -> Int;  // copied
-    let _8: (Int) -> Int;
-    let _9: (Int) -> Int;  // moved
-    let _10: (Int) -> Int;
+    let _7: (Int) sendable -> Int;  // copied
+    let _8: (Int) sendable -> Int;
+    let _9: (Int) sendable -> Int;  // moved
+    let _10: (Int) sendable -> Int;
     let _11: Int;  // both
     let _12: &var Int;
     let _13: &var Int;

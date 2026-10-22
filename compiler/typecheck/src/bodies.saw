@@ -36,8 +36,8 @@ import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
+import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
+                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
                                TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
@@ -3304,7 +3304,8 @@ extension TcProgram {
             try! params.push(p.ty)
             k = k + 1
         }
-        let t = self.mk_func(&params, s.result, s.effects)
+        // A named function captures nothing, so its value is `sendable`.
+        let t = self.mk_func(&params, s.result, s.effects | TC_EFFECT_SENDABLE)
         let none = Vector<Int>()
         let _ = self.record_call(e, d, TcRole.Value, -1, &none)
         self.set_type(e, t, false)
@@ -5294,6 +5295,9 @@ extension TcProgram {
             } else {
                 let _ = self.expr(v, TC_WANT_NONE)
                 element = self.read_value(v)
+                if values.len() > 1 {
+                    element = self.peer_slot(v, element, TcPosition.Element)
+                }
                 self.consume(v)
             }
             k = k + 1
@@ -5614,6 +5618,15 @@ extension TcProgram {
             }
             self.borrow_captures = move kept
         }
+        // With no function type expected, the closure's own type says what
+        // its captures prove (spec, Sendable function types).
+        if fwant < 0 {
+            let enclosing = self.current_decl
+            let block = self.closure_blocker(e, enclosing)
+            if block.trait_decl < 0 {
+                effects = effects | TC_EFFECT_SENDABLE
+            }
+        }
         let t = self.mk_func(&params, result, effects)
         self.closure_never = never
         self.set_type(e, t, false)
@@ -5833,7 +5846,7 @@ extension TcProgram {
             } else {
                 bt = self.check_block(block, TC_WANT_NONE, TcTail.Branch)
                 if not self.is_never(bt) && not self.has_error(bt) {
-                    slot = bt
+                    slot = if k + 1 < order.len() { self.peer_slot(tail, bt, TcPosition.Branch) } else { bt }
                     self.note_tail(tail, &var tails)
                 }
             }
@@ -5932,6 +5945,23 @@ extension TcProgram {
         if tail >= 0 {
             try! tails.push(tail)
         }
+    }
+
+    // The type a peer's value `t` gives the peers after it, an array
+    // literal's later elements or a value branch's later arms: `t` without
+    // `sendable`, which their captures were never asked to prove, with the
+    // peer's own value, ending at `tail`, converted to it.
+    // ENTRY POINTS:
+    //     array_expr
+    //     if_expr
+    //     match_expr
+    func peer_slot(&var self, tail: Int, t: Int, pos: TcPosition) -> Int {
+        let plain = self.types.unmarked(t)
+        if plain != t && tail >= 0 {
+            let allow = self.allowance(pos)
+            let _ = self.coerce(tail, t, plain, allow)
+        }
+        plain
     }
 
     // Merges an arm of type `bt` ending in `tail` into the arms before it,
@@ -6216,7 +6246,7 @@ extension TcProgram {
                 bt = self.arm_body(body, stmt, slot)
                 if not stmt && not self.is_never(bt) && not self.has_error(bt) {
                     if slot < 0 {
-                        slot = bt
+                        slot = if k < order.len() { self.peer_slot(tail, bt, TcPosition.Branch) } else { bt }
                     }
                     self.note_tail(tail, &var tails)
                 }
@@ -10417,6 +10447,9 @@ extension TcProgram {
                     try! msg.append("` of `")
                     try! msg.append(self.res.decl_path(owner))
                     try! msg.append("`")
+                    if bound == self.known.send || bound == self.known.sync {
+                        try! msg.append(self.unsendable_argument_text(e, arg))
+                    }
                     self.refuse(e, "type.bound", msg.build())
                 }
                 j = j + 1
@@ -10427,6 +10460,46 @@ extension TcProgram {
 
     // Refuses a conflict unification found, once, and poisons the parameter
     // it concerns, so the arguments that disagree draw no second refusal.
+    // Why type argument `arg` of call `e` falls short of `Send` or `Sync`
+    // when a function type without `sendable` is the reason: the hint, and
+    // the capture that keeps a closure written as an argument from being
+    // `sendable`. "" when no function type is the reason.
+    func unsendable_argument_text(&var self, e: Int, arg: Int) -> String {
+        let hint = self.sendable_hint(arg)
+        if hint.len() == 0 {
+            return hint
+        }
+        var out = StringBuilder()
+        try! out.append(hint)
+        let callee = self.res.first_node_child(e)
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if c == callee || self.is_leaf(c) {
+                continue
+            }
+            var v = c
+            if self.has_alt(c, Alt.Expr_Argument_Positional) {
+                v = self.res.first_node_child(c)
+            } else if self.has_alt(c, Alt.Expr_Argument_Labelled) {
+                v = self.res.last_node_child(c)
+            }
+            if not self.has_alt(v, Alt.Expr_Closure) {
+                continue
+            }
+            let enclosing = self.current_decl
+            let block = self.closure_blocker(v, enclosing)
+            if block.trait_decl >= 0 {
+                try! out.append("; the closure passed here is not `sendable`, since ")
+                try! out.append(self.capture_block_text(&block))
+                break
+            }
+        }
+        out.build()
+    }
+
     func report_conflict(&var self, e: Int, owner: Int, solve: &var TcSolve) {
         if owner < 0 || solve.conflict_index < 0 {
             return
@@ -11776,7 +11849,7 @@ extension TcProgram {
         var at = first
         while at < end && unsent < 0 {
             let cap = self.captures[at]
-            if cap.ty >= 0 && not self.has_error(cap.ty) && not self.satisfies(cap.ty, send, env_decl, env_ext, viewer, in_test) {
+            if self.capture_blocks_sendable(cap.ty, cap.use, true, env_decl, env_ext, viewer, in_test) >= 0 {
                 unsent = at
             }
             at = at + 1
@@ -11791,7 +11864,9 @@ extension TcProgram {
         try! msg.append(self.capture_name(cap.binding))
         try! msg.append("` of type `")
         try! msg.append(self.type_text(cap.ty))
-        try! msg.append("` is not `Send`. Only Send values may cross to another thread; share through `Arc` (and `Mutex` for mutation)")
+        try! msg.append("` is not `Send`")
+        try! msg.append(self.sendable_hint(cap.ty))
+        try! msg.append(". Only Send values may cross to another thread; share through `Arc` (and `Mutex` for mutation)")
         let m = self.node_module(brace)
         self.refuse_in(m, cap.site, "spawn.send", msg.build())
     }
@@ -11873,6 +11948,113 @@ extension TcProgram {
         false
     }
 
+    // How a closure in declaration `d` takes the binding declared at
+    // `binding`, written as capture-list entry `entry` or named in its body
+    // (`entry` -1): the entry's word, a borrow of `self` as its receiver
+    // declares, else a copy. A capture of a reference reborrows it whatever
+    // the word, which the capture rule reads off its type.
+    // ENTRY POINTS:
+    //     add_capture
+    //     closure_blocker
+    func capture_mode(&self, entry: Int, binding: Int, d: Int) -> TcUse {
+        if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Move) {
+            return TcUse.Move
+        }
+        if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Copy) {
+            return TcUse.Copy
+        }
+        if entry >= 0 && (self.has_alt(entry, Alt.Expr_Capture_Borrow) || self.has_alt(entry, Alt.Expr_Capture_Self)) {
+            return TcUse.Borrow
+        }
+        if entry >= 0 && (self.has_alt(entry, Alt.Expr_Capture_BorrowExclusive) || self.has_alt(entry, Alt.Expr_Capture_SelfExclusive)) {
+            return TcUse.BorrowVar
+        }
+        var s = TcSig.blank()
+        if d >= 0 {
+            s = self.sigs[d]
+        }
+        if self.has_alt(binding, Alt.Decl_Param_Receiver) && (s.effects & TC_EFFECT_CONSUMES) == 0 {
+            return if s.receiver == TcReceiver.Exclusive { TcUse.BorrowVar } else { TcUse.Borrow }
+        }
+        TcUse.Copy
+    }
+
+    // The first capture of closure `e`, in declaration `d`, that keeps it
+    // from being `sendable` by the capture rule, in the current context. It
+    // reads the capture list and the body's mentions `collect_captures`
+    // records, before they settle, so a closure's own type can say
+    // `sendable`; `check_closure_traits` judges the settled records again.
+    public func closure_blocker(&var self, e: Int, d: Int) -> TcCaptureBlock {
+        let env_decl = self.current_decl
+        let env_ext = self.current_ext
+        let viewer = self.current
+        let in_test = self.current_test
+        var seen = Vector<Int>()
+        var entries = Vector<Int>()
+        var sites = Vector<Int>()
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if not self.is_capture(c) {
+                continue
+            }
+            var b = self.binding_at(c)
+            if not self.has_alt(c, Alt.Expr_Capture_Self) && not self.has_alt(c, Alt.Expr_Capture_SelfExclusive) {
+                let leaf = self.res.first_leaf(c)
+                b = self.binding_at(leaf)
+            }
+            if b.kind == ResBindKind.Local && b.node >= 0 && not tc_contains(&seen, b.node) {
+                try! seen.push(b.node)
+                try! entries.push(c)
+            }
+        }
+        let mentions = tc_closure_mentions(&self, e)
+        k = 0
+        while k < mentions.len() {
+            let b = self.mention_binding(mentions[k])
+            k = k + 1
+            if b.kind == ResBindKind.Local && b.node >= 0 && not tc_contains(&seen, b.node) {
+                try! seen.push(b.node)
+                try! entries.push(-1)
+            }
+        }
+        k = 0
+        while k < seen.len() {
+            let binding = seen[k]
+            let t = self.local_types[binding]
+            let u = self.capture_mode(entries[k], binding, d)
+            k = k + 1
+            let tr = self.capture_blocks_sendable(t, u, false, env_decl, env_ext, viewer, in_test)
+            if tr >= 0 {
+                return TcCaptureBlock(binding: binding, ty: t, use: u, trait_decl: tr)
+            }
+        }
+        TcCaptureBlock(binding: -1, ty: -1, use: TcUse.Copy, trait_decl: -1)
+    }
+
+    // Why capture `block` keeps its closure from being `sendable`, as a
+    // clause: the binding, its type, and what would let it cross.
+    public func capture_block_text(&self, block: &TcCaptureBlock) -> String {
+        let borrowed = block.use == TcUse.Borrow || block.use == TcUse.BorrowVar || self.is_reference(block.ty)
+        var msg = StringBuilder()
+        try! msg.append("it captures `")
+        try! msg.append(self.capture_name(block.binding))
+        try! msg.append("` of type `")
+        try! msg.append(self.type_text(block.ty))
+        if borrowed {
+            try! msg.append("` by borrow, and the borrowed value is not `")
+            try! msg.append(self.res.decl_path(block.trait_decl))
+            try! msg.append("`: a borrow `[&x]` crosses a thread when `x` is `Sync`, and `[&var x]` when `x` is `Send`")
+        } else {
+            try! msg.append("`, which is not `")
+            try! msg.append(self.res.decl_path(block.trait_decl))
+            try! msg.append("`: every copy of a closure shares what it captured, so each capture must be `Send` and `Sync`")
+        }
+        msg.build()
+    }
+
     // Records one capture of the binding declared at `binding`, written as
     // capture-list entry `entry` or first named at `site` (`entry` -1).
     func add_capture(&var self, e: Int, d: Int, binding: Int, site: Int, entry: Int, escapes: Bool) {
@@ -11883,7 +12065,7 @@ extension TcProgram {
             s = self.sigs[d]
         }
         let consumes = (s.effects & TC_EFFECT_CONSUMES) != 0
-        var u = TcUse.Copy
+        let u = self.capture_mode(entry, binding, d)
         // A reference is a borrow of storage the caller owns whichever word
         // captures it: every capture of one reborrows its referent, in the
         // reference's own mode for `[r]`, `[copy r]` and the implicit
@@ -11891,7 +12073,6 @@ extension TcProgram {
         let reference = self.is_reference(t)
         var frame = reference
         if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_Move) {
-            u = TcUse.Move
             let borrowed = self.borrowed_by_enclosing_capture(e, binding)
             let reason = self.move_from_borrow_reason(t, binding, borrowed)
             if reason.len() > 0 {
@@ -11911,19 +12092,15 @@ extension TcProgram {
                 self.refuse_generic_capture(entry, binding, t)
             }
         } else if entry >= 0 && (self.has_alt(entry, Alt.Expr_Capture_Borrow) || self.has_alt(entry, Alt.Expr_Capture_Self)) {
-            u = TcUse.Borrow
             frame = true
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_BorrowExclusive) {
-            u = TcUse.BorrowVar
             frame = true
         } else if entry >= 0 && self.has_alt(entry, Alt.Expr_Capture_SelfExclusive) {
-            u = TcUse.BorrowVar
             frame = true
             if s.receiver != TcReceiver.Exclusive {
                 self.refuse_exclusive_self(entry, d)
             }
         } else if receiver && not consumes {
-            u = if s.receiver == TcReceiver.Exclusive { TcUse.BorrowVar } else { TcUse.Borrow }
             frame = true
         } else if not reference && t >= 0 && not self.has_error(t) && not self.copies_silently(t) {
             self.refuse_capture_by_value(site, binding, t)

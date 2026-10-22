@@ -1,0 +1,50 @@
+// probe: stated
+// about: `sendable` function values held across a suspension cross to a `TaskGroup(threads: 2)` worker: a `Vector` of capture-less closures written at a `sendable` type (K02's accepted twin), an array of them, a closure whose own type is inferred, and one taken through a `Channel` (SL-795)
+// stage 0: has no `sendable`, and refuses every closure type in a `threads:` frame
+// speeds: -O0 -O2
+// prints: vector 3
+// prints: array 12
+// prints: inferred 9
+// prints: channel 4
+import std.task.*
+import std.channel.{Channel}
+
+func vector_of_closures(n: Int) -> Int {
+    var v = Vector<() sync sendable -> Int>()
+    try! v.push({ 1 })
+    try! v.push({ 2 })
+    yield_now()
+    v.len() + n
+}
+
+func array_of_closures(n: Int) -> Int {
+    let fs: [(Int) sendable -> Int; 2] = [{ k in k * 2 }, { k in k * 3 }]
+    yield_now()
+    fs[0](n) + fs[1](n) - n
+}
+
+func inferred(n: Int) -> Int {
+    let f = { 4 }
+    yield_now()
+    f() + n
+}
+
+func receive_one(ch: Channel<(Int) sendable -> Int>) -> Int {
+    let f = try! ch.receive()
+    yield_now()
+    f(2)
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let a = group.spawn(vector_of_closures(1))
+    print("vector {}", a.join())
+    let b = group.spawn(array_of_closures(3))
+    print("array {}", b.join())
+    let c = group.spawn(inferred(5))
+    print("inferred {}", c.join())
+    let ch = try! Channel<(Int) sendable -> Int>()
+    let d = group.spawn(receive_one(ch))
+    try! ch.send({ k in k * 2 })
+    print("channel {}", d.join())
+}

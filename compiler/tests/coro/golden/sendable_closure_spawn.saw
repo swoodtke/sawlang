@@ -1,0 +1,21 @@
+// A closure borrowing two `Int`s, `[&n, &base]`, passed to a root whose
+// parameter is `f: () -> Int`, spawned into a `TaskGroup(threads: 2)`, with
+// the spawner suspending before the join (SL-795, the Air's c3 program): the
+// gate judges `f` by that closure, and both borrows reach a `Sync` value, so
+// the frame crosses. Building and running it clean under ASan waits on SL-805,
+// which moves the closure's environment out of the creator's stack.
+import std.task.{yield_now}
+
+func run(f: () -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    let n = 7
+    let base = 100
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(run({ [&n, &base] in n + base }))
+    yield_now()
+    print(h.join())
+}

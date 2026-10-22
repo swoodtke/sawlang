@@ -490,7 +490,8 @@ extension TcProgram {
                 }
                 ti.kind == TcKind.Any || ti.kind == TcKind.Nominal
             },
-            case Widen -> self.is_integer(from) && self.is_integer(to) && from != to
+            case Widen -> self.is_integer(from) && self.is_integer(to) && from != to,
+            case ForgetSendable -> self.types.forgets_sendable(from, to)
         }
     }
 

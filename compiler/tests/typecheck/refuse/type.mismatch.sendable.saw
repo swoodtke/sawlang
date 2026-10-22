@@ -1,0 +1,16 @@
+// refuses: type.mismatch at 11:16
+// flags: --std-root std
+// a function value without `sendable` where a `sendable` one is expected:
+// the conversion goes from the word to its absence and never back, since the
+// value's captures were never asked to prove it (SL-795)
+
+func run(f: () sendable -> Int) -> Int { f() }
+
+func pass_on(g: () -> Int) -> Int {
+    let plain: () -> Int = g
+    return run(plain)
+}
+
+func main() {
+    print(0)
+}

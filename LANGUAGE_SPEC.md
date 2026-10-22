@@ -8291,7 +8291,9 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   into a spawned thread. A struct/enum is `Send`/`Sync`
   iff all its fields/payloads are, and a tuple iff every element is, so an
   empty struct and `()` are both; `UnsafePointer<T>` is neither and poisons its
-  containers structurally. The wrappers override the structural rule so their raw
+  containers structurally. A function type is both exactly when it says
+  `sendable`, which a closure's own type says when its captures prove it (see
+  [Sendable function types](#sendable-function-types)). The wrappers override the structural rule so their raw
   pointers do not poison them: `Arc<T>` is `Send + Sync` iff `T: Send + Sync`;
   `Mutex<T>`/`Channel<T>`/`Thread<T>` are `Send`/`Sync` iff `T: Send`; and an
   OWNING CONTAINER inherits its contents' answer — `Vector<T>`, `Map<K, V>` and
@@ -10240,15 +10242,18 @@ let g = group.spawn(bump(&var n))
 
 The group opens the scope it governs, so it is declared at the top of it.
 
-A **`threads: N` group takes neither spelling.** A reference is not `Send`, so
-the frame cannot cross to a worker thread; the capture is refused for the same
-reason one indirection out (a closure is not `Send` either):
+A **`threads: N` group takes the capture spelling only.** A reference
+parameter is not `Send`, so the frame cannot cross to a worker thread. A
+closure that borrows crosses when it is `sendable` (see [Sendable function
+types](#sendable-function-types)): `[&var n]` needs `n` to be `Send`, and
+`[&base]` needs `base` to be `Sync`.
 
 ```saw-fragment
 var group = try! TaskGroup(threads: 2)
 let h = group.spawn(bump(&var n))
 // error: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`:
 //        parameter `n` of type `&var Int` is not `Send` …
+let c = group.spawn(run({ [&var n] in n = n + 1; n }))   // crosses
 ```
 
 Share genuinely cross-thread state through an `Arc`, a `Mutex` or a `Channel`.
@@ -10904,6 +10909,86 @@ Interior mutability is what makes the two separate axes. A struct with an
 struct wrapping a non-atomic interior cell moves harmlessly to another thread
 (`Send`) but would race under two threads' shared access (not `Sync`). `Send`
 cannot tell those apart; `Sync` is the record of exactly that difference.
+
+#### Sendable function types
+
+A function type is `Send` and `Sync` exactly when it says `sendable`, in its
+effect slot after `escaping`: `() sync sendable -> Int`. One word covers both
+traits because, for a function value, they coincide. Copies of an escaping
+closure share one environment behind an atomic count, the `Arc` shape, so a
+second thread may hold a copy only when every capture is `Send` and `Sync`.
+A closure that borrows never escapes, and nothing lets two threads reach one
+at once.
+
+Where a type is written (a field, a parameter, a return, a type argument such
+as `Vector<() -> Int>` or `Channel<(Int) -> Int>`), it says the word or does
+not. Where a closure's type is inferred, it says `sendable` when every capture
+proves both traits:
+
+- an owned capture (`[x]`, `[move x]`, `[copy x]`, or a name the body reads)
+  must be `Send` and `Sync`;
+- a shared borrow, `[&x]` or `&self`, needs `x` to be `Sync`;
+- an exclusive borrow, `[&var x]` or `&var self`, needs `x` to be `Send`;
+- a capture of a reference reborrows it in its own mode;
+- a capture of a function value contributes its own word.
+
+A closure that captures nothing is `sendable`, and so is a named function's
+value. A `sendable` value converts to the same type without the word, and
+never back; generic arguments do not convert (`Vector<() sendable -> Int>`
+is not a `Vector<() -> Int>`).
+
+```saw-fragment
+struct Job { run: () sync sendable -> Int }
+
+let n = 4
+let inferred = { [n] in n + 1 }       // `() sendable -> Int`: `Int` is both
+let job = Job(run: { 5 })              // checked against the field's word
+take_plain(inferred)                   // `() -> Int` takes a `sendable` value
+```
+
+A closure taken at a written `sendable` type is refused when a capture does
+not prove it, naming the capture:
+
+```saw-fragment
+func keep(h: Handle) unsafe -> () sendable -> Int {
+    { [h] in 1 }
+}
+// error: this closure's type `() sendable -> Int` says `sendable`, but it
+//        captures `h` of type `Handle`, which is not `Send`: every copy of a
+//        closure shares what it captured, so each capture must be `Send` and
+//        `Sync` …
+```
+
+A closure whose type is inferred is never refused for its captures; it is
+told at the use that needs the trait, a `T: Send` bound, a `Channel` element,
+a `Thread.spawn` capture or a spawned frame:
+
+```saw-fragment
+needs_send({ [h] in 4 })
+// error: `() -> Int` does not satisfy `Send`, the bound on `T` of
+//        `needs_send`; the function type `() -> Int` is not `sendable` …;
+//        the closure passed here is not `sendable`, since it captures `h` of
+//        type `Handle`, which is not `Send` …
+```
+
+Peers whose type is inferred together, an array literal's elements and a
+value `if` or `match`'s arms, take their first peer's type without
+`sendable`, so a later closure is never asked to prove what nobody wrote:
+`[{ 1 }, { [h] in 2 }]` is a `[() -> Int; 2]`. Write the element type to keep
+the word.
+
+A task's root is the one place the gate looks past a written function type.
+A root parameter written `f: () -> Int` holds exactly the closure its spawn
+site passes, so the frame crosses to a `TaskGroup(threads: N)` worker when
+that closure proves `sendable`:
+
+```saw-fragment
+var n = 7
+let base = 12
+var group = try! TaskGroup(threads: 2)
+let h = group.spawn(run({ [&var n] in n = n + 1; n }))   // crosses: `Int` is `Send`
+let d = group.spawn(run({ [&base] in base * 2 }))         // crosses: `Int` is `Sync`
+```
 
 #### `UnsafeSync` / `UnsafeSend`
 
@@ -14351,8 +14436,10 @@ init(at: Int) unsafe -> UnsafeMmioReg { ... }
 [Places](#places-borrows-and-lend)). `blocking` stands in `sync`'s place,
 `unsafe blocking borrows` (see [Blocking functions](#blocking-functions)).
 
-A function **type** uses the same slot, with `escaping` completing the order
-`unsafe sync escaping`:
+A function **type** uses the same slot, with `escaping` and then `sendable`
+completing the order `unsafe sync escaping sendable` (see [Sendable function
+types](#sendable-function-types)). A declaration takes no `sendable`: a named
+function captures nothing, so its value is `sendable` already.
 
 ```saw-fragment
 func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) unsafe -> R

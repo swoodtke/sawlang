@@ -1,0 +1,24 @@
+// refuses: type.bound at 17:12
+// flags: --std-root std
+// a closure whose own type is inferred meets a `Send` bound only when its
+// captures prove it: this one captures a non-`Send` value, so its type is not
+// `sendable`, and the refusal at the bound names the capture (SL-795)
+
+struct Handle {
+    raw: UnsafePointer<Int8>
+}
+
+func needs_send<T: Send>(x: T) -> Int { 1 }
+
+func check(h: Handle) unsafe -> Int {
+    let n = needs_send({ 3 })
+    let named = needs_send(check_none)
+    print(n + named)
+    return needs_send({ [h] in 4 })
+}
+
+func check_none() -> Int { 0 }
+
+func main() {
+    print(0)
+}

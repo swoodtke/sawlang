@@ -3169,6 +3169,12 @@ extension Parser {
         if not self.parse_effects(host, exclusive) {
             return false
         }
+        if self.word_at(0, "sendable") {
+            let at = self.pos
+            return self.refuse(Rule.Rule_EffectSlot, at,
+                               "`sendable` describes a function value's type, and a named function's value is `sendable` already: it captures nothing",
+                               "write `sendable` on the function type instead")
+        }
         if self.effect_word_at(0) {
             return self.refuse_effect_order()
         }
@@ -5922,8 +5928,8 @@ extension Parser {
             return true
         }
         (self.word_at(ahead, "sync") || self.word_at(ahead, "escaping")
-         || self.word_at(ahead, "consumes") || self.word_at(ahead, "constexpr")
-         || self.word_at(ahead, "blocking"))
+         || self.word_at(ahead, "sendable") || self.word_at(ahead, "consumes")
+         || self.word_at(ahead, "constexpr") || self.word_at(ahead, "blocking"))
     }
 
     // An effect word after an effect slot ended: out of the slot's one
@@ -5931,7 +5937,7 @@ extension Parser {
     // (syntax.rule.effect-slot).
     func refuse_effect_order(&var self) -> Bool {
         self.error_by(Rule.Rule_EffectSlot, "effect words stand once each, in one order",
-                      "write `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` or `blocking` in `sync`'s place, or `unsafe sync escaping borrows` in a function type, each at most once")
+                      "write `consumes unsafe sync borrows` after a declaration's parameters, with `constexpr` or `blocking` in `sync`'s place, or `unsafe sync escaping sendable borrows` in a function type, each at most once")
     }
 
     // `func-type ::= "(" func-type-params? ")" func-type-effects "->" type`,
@@ -5962,6 +5968,9 @@ extension Parser {
             self.take_leaf()
         }
         if self.word_at(0, "escaping") {
+            self.take_leaf()
+        }
+        if self.word_at(0, "sendable") {
             self.take_leaf()
         }
         if self.kind() == TokenKind.Borrows {

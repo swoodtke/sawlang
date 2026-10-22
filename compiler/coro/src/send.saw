@@ -6,7 +6,10 @@
 // root's result, which `join()` takes on the spawner's thread. A value
 // crosses when it is `Send` and holds no borrowing struct; a root's
 // parameter must also hold no reference, since it would point into the
-// spawner, so a `threads: N` group refuses one outright.
+// spawner, so a `threads: N` group refuses one outright. A function-typed
+// parameter the spawn site passes a closure to holds that closure, so it
+// crosses when the closure's captures prove `sendable`, whatever its written
+// type says.
 //
 // A group is multi-threaded when the spawn's group traces back, through the
 // spawner's own MIR, to a `TaskGroup.init(threads:)` call: `threads:` is
@@ -16,6 +19,8 @@
 //   coro_check_frame_send
 
 import sawborrowck.program.{BorrowckProgram}
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
 import sawcoro.frames.{coro_frame_of}
 import sawcoro.program.{CoroProgram, CoroValueKind}
 import sawdrops.program.{DropsProgram}
@@ -23,8 +28,11 @@ import sawmir.model.{MirCall, MirCallKind, MirProjKind, MirRvalueKind, MirSpawnF
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoProgram}
 import sawresolve.program.{ResProgram}
+import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodychecks.{tc_check_body_rules}
+import sawtypecheck.captures.{tc_check_closure_traits}
 import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.model.{TC_BIND_DEFAULT, TcCaptureBlock, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.tier.{tc_compute_tiers}
@@ -65,10 +73,97 @@ public func coro_check_frame_send(coro: &var CoroProgram) {
             if root < 0 || checked[root] || not coro_group_threaded(&coro, f, &site) {
                 continue
             }
-            checked[root] = true
-            coro_check_root(&var coro, root, info.module)
+            // A site passing a closure is judged by that closure, so a root
+            // is checked once only when no site of it passes one.
+            let closures = coro_spawn_closures(&coro.mono.dp.bc.mir.tc, &site)
+            if not coro_passes_closure(&closures) {
+                checked[root] = true
+            }
+            if coro_check_root(&var coro, root, info.module, &closures) {
+                checked[root] = true
+            }
         }
     }
+}
+
+// The closures group spawn site `site` writes as its root's arguments, by
+// the root's parameter local: each one's ordinal in typecheck's closure
+// table, or -1 where the argument is no closure written there. A parameter
+// holds exactly the value passed, so the gate judges a function-typed
+// parameter by what that closure's captures prove.
+func coro_spawn_closures(tc: &TcProgram, site: &MirCall) -> Vector<Int> {
+    var out = Vector<Int>()
+    let e = site.node
+    if e < 0 {
+        return move out
+    }
+    let spawned = coro_written_arguments(&tc, e)
+    if spawned.len() != 1 {
+        return move out
+    }
+    let root = spawned[0]
+    let at = tc.call_at[root]
+    if at < 0 {
+        return move out
+    }
+    let rc = tc.calls[at]
+    if rc.target < 0 || rc.bind_first < 0 {
+        return move out
+    }
+    let written = coro_written_arguments(&tc, root)
+    let offset = if tc.sigs[rc.target].receiver == TcReceiver.Absent { 1 } else { 2 }
+    var k = 0
+    while k < offset + rc.bind_count {
+        try! out.push(-1)
+        k = k + 1
+    }
+    var j = 0
+    while j < rc.bind_count {
+        let arg = tc.binds[rc.bind_first + j]
+        if arg != TC_BIND_DEFAULT && arg < written.len() {
+            let found = tc.closure_index.first(written[arg], 0)
+            if found >= 0 {
+                out[offset + j] = tc.closure_index.value(found)
+            }
+        }
+        j = j + 1
+    }
+    move out
+}
+
+// Whether a site's closures, `coro_spawn_closures`, hold any.
+func coro_passes_closure(closures: &Vector<Int>) -> Bool {
+    var k = 0
+    while k < closures.len() {
+        if closures[k] >= 0 {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// The arguments call `e` writes, each unwrapped from its label.
+func coro_written_arguments(tc: &TcProgram, e: Int) -> Vector<Int> {
+    var out = Vector<Int>()
+    let callee = tc.res.first_node_child(e)
+    let n = tc.child_count(e)
+    var k = 0
+    while k < n {
+        let c = tc.child(e, k)
+        k = k + 1
+        if c == callee || tc.is_leaf(c) {
+            continue
+        }
+        if tc.has_alt(c, Alt.Expr_Argument_Positional) {
+            try! out.push(tc.res.first_node_child(c))
+        } else if tc.has_alt(c, Alt.Expr_Argument_Labelled) {
+            try! out.push(tc.res.last_node_child(c))
+        } else {
+            try! out.push(c)
+        }
+    }
+    move out
 }
 
 // Whether the group spawn site `site` in function `f` spawns into a group
@@ -178,11 +273,13 @@ func coro_threaded_init(coro: &CoroProgram, call: &MirCall) -> Bool {
 }
 
 // Checks task root `root`'s frame, its children's, and its result, judging
-// conformances as module `viewer`, where the spawn is written, sees them.
-func coro_check_root(coro: &var CoroProgram, root: Int, viewer: Int) {
+// conformances as module `viewer`, where the spawn is written, sees them, and
+// a parameter the site passes a closure to by that closure (`closures`).
+// Returns whether it refused one.
+func coro_check_root(coro: &var CoroProgram, root: Int, viewer: Int, closures: &Vector<Int>) -> Bool {
     let rf = coro_frame_of(&coro, root)
     if rf < 0 {
-        return
+        return false
     }
     var seen = Vector<Bool>()
     var k = 0
@@ -190,27 +287,31 @@ func coro_check_root(coro: &var CoroProgram, root: Int, viewer: Int) {
         try! seen.push(false)
         k = k + 1
     }
-    if coro_check_frame(&var coro, root, root, viewer, &var seen) {
-        return
+    if coro_check_frame(&var coro, root, root, viewer, &closures, &var seen) {
+        return true
     }
     let frame = coro.frames[rf]
     let info = coro.mono.dp.bc.mir.funcs[frame.body]
     let result = coro.mono.dp.bc.mir.locals[info.local_first].ty
     if coro_unsent(&var coro, result, viewer, false) == CoroUnsent.Crosses {
-        return
+        return false
     }
     var msg = coro_send_lead(&coro, root)
     try! msg.append("its result type `")
     try! msg.append(coro.mono.dp.bc.mir.tc.type_text(result))
-    try! msg.append("` is not `Send`, so the value cannot travel back from the worker thread to `join()`.")
+    try! msg.append("` is not `Send`")
+    try! msg.append(coro.mono.dp.bc.mir.tc.sendable_hint(result))
+    try! msg.append(", so the value cannot travel back from the worker thread to `join()`.")
     let node = coro.item_node(root)
     coro.refuse(root, node, "coro.spawn-not-send", msg.build())
+    true
 }
 
 // Refuses the first value of item `item`'s frame that cannot cross, or of
 // a child's it embeds, in the order Stage 0 names them: parameters, then
 // resident locals, then each child's. Returns whether it refused one.
-func coro_check_frame(coro: &var CoroProgram, root: Int, item: Int, viewer: Int, seen: &var Vector<Bool>) -> Bool {
+func coro_check_frame(coro: &var CoroProgram, root: Int, item: Int, viewer: Int, closures: &Vector<Int>,
+                      seen: &var Vector<Bool>) -> Bool {
     if seen[item] {
         return false
     }
@@ -228,7 +329,7 @@ func coro_check_frame(coro: &var CoroProgram, root: Int, item: Int, viewer: Int,
             let value = coro.values[frame.value_first + v]
             v = v + 1
             if pass == 2 {
-                if value.kind == CoroValueKind.Child && coro_check_frame(&var coro, root, value.child, viewer, &var seen) {
+                if value.kind == CoroValueKind.Child && coro_check_frame(&var coro, root, value.child, viewer, &closures, &var seen) {
                     return true
                 }
                 continue
@@ -236,6 +337,16 @@ func coro_check_frame(coro: &var CoroProgram, root: Int, item: Int, viewer: Int,
             let wanted = if pass == 0 { CoroValueKind.Param } else { CoroValueKind.Local }
             if value.kind != wanted || value.ty < 0 {
                 continue
+            }
+            let passed = if pass == 0 && item == root && value.local < closures.len() { closures[value.local] } else { -1 }
+            if passed >= 0 && coro.mono.dp.bc.mir.tc.kind_of(value.ty) == TcKind.Func {
+                let block = coro.mono.dp.bc.mir.tc.settled_blocker(passed)
+                if block.trait_decl < 0 {
+                    continue
+                }
+                let local = coro.mono.dp.bc.mir.locals[info.local_first + value.local]
+                coro_refuse_closure(&var coro, root, local.name, value.ty, &block)
+                return true
             }
             let why = coro_unsent(&var coro, value.ty, viewer, pass == 0 && item == root)
             if why == CoroUnsent.Crosses {
@@ -271,10 +382,15 @@ func coro_refuse_value(coro: &var CoroProgram, root: Int, item: Int, param: Bool
         try! msg.append(coro.item_label(item))
         try! msg.append("`")
     }
+    let hint = coro.mono.dp.bc.mir.tc.sendable_hint(ty)
     if param {
-        try! msg.append(" is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.")
+        try! msg.append(" is not `Send`")
+        try! msg.append(hint)
+        try! msg.append(", so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.")
     } else {
-        try! msg.append(" is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread.")
+        try! msg.append(" is held across a suspension but is not `Send`")
+        try! msg.append(hint)
+        try! msg.append(", so the task frame cannot cross to a worker thread.")
     }
     if why == CoroUnsent.Reference {
         try! msg.append(" A reference into the spawner never crosses to another thread, and this parameter holds one.")
@@ -283,6 +399,24 @@ func coro_refuse_value(coro: &var CoroProgram, root: Int, item: Int, param: Bool
     }
     let node = coro.item_node(item)
     coro.refuse(item, node, "coro.spawn-not-send", msg.build())
+}
+
+// Refuses root `root`'s parameter `name`, of function type `ty`, which holds
+// the closure the spawn site passes, for the capture `block` that keeps the
+// closure from being `sendable`.
+func coro_refuse_closure(coro: &var CoroProgram, root: Int, name: Int, ty: Int, block: &TcCaptureBlock) {
+    var msg = coro_send_lead(&coro, root)
+    try! msg.append("parameter `")
+    if name >= 0 {
+        try! msg.append(coro.mono.dp.bc.mir.tc.name_text(name))
+    }
+    try! msg.append("` of type `")
+    try! msg.append(coro.mono.dp.bc.mir.tc.type_text(ty))
+    try! msg.append("` holds the closure passed here, and the closure is not `sendable`, since ")
+    try! msg.append(coro.mono.dp.bc.mir.tc.capture_block_text(&block))
+    try! msg.append(", so the task frame cannot cross to a worker thread.")
+    let node = coro.item_node(root)
+    coro.refuse(root, node, "coro.spawn-not-send", msg.build())
 }
 
 // The sentence every refusal of the gate starts with, naming root `root`.

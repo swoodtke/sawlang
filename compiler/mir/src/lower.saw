@@ -1717,6 +1717,16 @@ extension MirProgram {
             case Slice -> {
                 let o = self.transfer(v, u, e, false)
                 self.rebuilt(MirRvalueKind.Slice, adj.to, o)
+            },
+            // A `sendable` function value and the same type without the word
+            // share one representation, so the value is retyped as an alias's
+            // construction retypes its operand, with nothing built.
+            case ForgetSendable -> {
+                let o = self.transfer(v, u, e, false)
+                let rv = self.rv_one(MirRvalueKind.Conversion, adj.to, "alias", o)
+                let l = self.temp_of(rv)
+                let p = self.place_local(l)
+                MirVal(operand: self.op_move(p))
             }
         }
     }

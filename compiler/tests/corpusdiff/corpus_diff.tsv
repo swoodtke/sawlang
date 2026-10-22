@@ -494,7 +494,7 @@ conformance/V111_discard_let_retains_a_projection.saw	pass	-	-
 conformance/V112_destructuring_let_retains_a_projection.saw	wrong	stdout differs	line 25: sawc2 "E4 if-let fresh        inside 5 after 3", Stage 0 "E4 if-let fresh        inside 4 after 3"
 conformance/V113_chain_assign_retains_a_projection.saw	pass	-	-
 conformance/V114_struct_field_retains_a_projection.saw	pass	-	-
-conformance/V115_stored_closure_owns_its_captures.saw	refused	typecheck type.mismatch	expected `Result<() sync -> Int, V115_stored_closure_owns_its_captures.Res>`, the type of the function's result, which the body's last expression is, and found `() -> Int`
+conformance/V115_stored_closure_owns_its_captures.saw	refused	typecheck type.mismatch	expected `Result<() sync -> Int, V115_stored_closure_owns_its_captures.Res>`, the type of the function's result, which the body's last expression is, and found `() sendable -> Int`
 conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 conformance/V11_copy_on_nocopy.saw	refused	typecheck member.unknown	`Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>` is NoCopy, so it has no `copy()`; move it instead
 conformance/V12_move_capture_out_of_closure.saw	pass	-	transfer.implicit-copy: the closure captures `v` by value, and `std.vector.Vector<Int, std.alloc.GlobalAllocator>` is ExplicitCopy, which does not copy silently: capture it with `[move v]`, or copy it
@@ -1295,7 +1295,7 @@ errors/shared_self_var_method_call.saw	pass	-	mutability.immutable: this exclusi
 errors/signal_is_hosted_only.saw	refused	driver driver.unknown-target	sawc2: unknown target riscv32-unknown-none-elf
 errors/sleep_bare_int.saw	pass	-	type.mismatch: expected `std.duration.Duration`, the type of the parameter, and found `Int`
 errors/spawn_capture_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` capture is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: t
-errors/spawn_capture_mt_send.saw	pass	-	coro.spawn-not-send: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` is not `Send`, so the task frame cannot cross to a worker thread. Share threa
+errors/spawn_capture_mt_send.saw	stage0-wrong	annotated SL-795	sawc2 meets its directives
 errors/spawn_capture_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `UnsafePointer<Int8>` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-unsafe
 errors/spawn_capture_unjoined_handle.saw	pass	-	loan.read-while-exclusive: exclusive access violation: `n` cannot be read here — the task spawned at 31:29 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins i
 errors/spawn_handle_may_not_escape_the_function.saw	pass	-	drop.must-consume: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed: `t` leaves the function by a `return` without consuming it. `join()` waits for it and takes its result,
@@ -1342,7 +1342,7 @@ errors/sync_extension_method_suspend.saw	pass	-	effect.sync: `Sensor.poll` is de
 errors/sync_field_call.saw	pass	-	effect.sync: `invoke` is declared `sync`, and it calls a function value whose type is not `sync`, which is not sync-callable
 errors/sync_generic_instantiation_suspends.saw	pass	-	effect.sync: `caller_slow` is declared `sync`, and it calls `run`, which may suspend
 errors/sync_module_call.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
-errors/sync_nonliteral_function_value.saw	pass	-	type.mismatch: expected `(Int) sync -> Int`, the type of the parameter, and found `(Int) -> Int`
+errors/sync_nonliteral_function_value.saw	pass	-	type.mismatch: expected `(Int) sync -> Int`, the type of the parameter, and found `(Int) sendable -> Int`
 errors/sync_static_method_call.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `Reader.load`, which may suspend
 errors/sync_transitive_path.saw	pass	-	effect.sync: `handler` is declared `sync`, and it calls `f`, which may suspend
 errors/sync_via_function_value.saw	pass	-	effect.sync: `run` is declared `sync`, and it calls a function value whose type is not `sync`, which is not sync-callable
@@ -1353,7 +1353,7 @@ errors/synthesize_required_enum.saw	pass	-	synthesize.required: `Shape` conforms
 errors/synthesize_required_equatable.saw	pass	-	synthesize.required: `Named` conforms to `Equatable` with no `Equatable.equals` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_explicit_copy.saw	pass	-	synthesize.required: `Holder` conforms to `ExplicitCopy` with no `ExplicitCopy.copy` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_hashable.saw	pass	-	synthesize.required: `Keyed` conforms to `Hashable` with no `Hashable.hash` written: write it, or mark the extension `@synthesize` to derive it
-errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is not `Send`, so the
+errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is not `Send`; the fun
 errors/thread_body_reports_both_violations.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a s
 errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default

@@ -1,0 +1,117 @@
+resume #0: sendable_closure_spawn.main()  (frame size 424 align 8, pointer _20)
+    state 0: bb0
+    state 1: bb2 drive #12 std.task.yield_now() at (*frame).[416]
+    spawn bb1 task root #7 sendable_closure_spawn.run(f: () -> Int) task root, descriptor _16, box _17
+fn sendable_closure_spawn.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;  // n
+    let _2: Int;  // base
+    let _3: std.taskgroup.TaskGroup;  // group
+    let _4: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>;
+    let _5: std.taskgroup.TaskGroup;
+    let _6: std.taskgroup.Task<Int>;  // h
+    let _7: &Int;
+    let _8: &Int;
+    let _9: (&Int, &Int);  // environment
+    let _10: &(&Int, &Int);
+    let _11: () -> Int;
+    let _12: &std.taskgroup.TaskGroup;
+    let _13: std.taskgroup.Task<Int>;
+    let _14: &std.taskgroup.Task<Int>;
+    let _15: Int;
+    let _16: UnsafePointer<std.taskgroup.FrameDescriptor>;
+    let _17: UnsafePointer<UInt8>;
+    let _18: UnsafePointer<std.taskgroup.TaskGroup>;
+    let _19: std.taskgroup.TaskProvenance;
+    let _20: &var Int;
+
+    bb0: {
+        (*_20).[400: Int] = const 7: Int;
+        (*_20).[408: Int] = const 100: Int;
+        (*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] = call std.taskgroup.TaskGroup.init(threads: Int) (owner std.taskgroup.TaskGroup) [const 2: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        _5 = move ((*_20).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>] as Ok!).0;
+        (*_20).[184: std.taskgroup.TaskGroup] = move _5;
+        _7 = ref(shared, (*_20).[400: Int]);
+        _8 = ref(shared, (*_20).[408: Int]);
+        (*_20).[384: (&Int, &Int)] = (move _7, move _8);
+        _10 = ref(shared, (*_20).[384: (&Int, &Int)]);
+        _11 = closure#0 of sendable_closure_spawn.main() [move _10];
+        _12 = ref(shared, (*_20).[184: std.taskgroup.TaskGroup]);
+        _16 = spawn group sendable_closure_spawn.run(f: () -> Int) [] -> [return: bb6];
+    }
+
+    bb2: {
+        (*_20).[352: std.taskgroup.Task<Int>] = move _13;
+        call std.task.yield_now() [] -> [return: bb3] suspends;
+    }
+
+    bb3: {
+        _14 = ref(shared, (*_20).[352: std.taskgroup.Task<Int>]);
+        _15 = call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>) [move _14] -> [return: bb4];
+    }
+
+    bb4: {
+        call builtin print [copy _15] -> [return: bb5];
+    }
+
+    bb5: {
+        drop((*_20).[352: std.taskgroup.Task<Int>]);
+        drop((*_20).[184: std.taskgroup.TaskGroup]);
+        return;
+    }
+
+    bb6: {
+        _17 = call std.taskgroup.__saw_exec_task_box(descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>) [copy _16] -> [return: bb7];
+    }
+
+    bb7: {
+        (*_17).[0: Int] = const 0: Int;
+        (*_17).[8: () -> Int] = move _11;
+        _18 = cast(move _12 as UnsafePointer<std.taskgroup.TaskGroup>);
+        _19 = std.taskgroup.TaskProvenance::Group;
+        _13 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _18, copy _16, copy _17, move _19] -> [return: bb2];
+    }
+}
+resume #7: sendable_closure_spawn.run(f: () -> Int) task root  (frame size 32 align 8, pointer _3)
+    state 0: bb0
+    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[24]
+fn sendable_closure_spawn.run(f: () -> Int) -> Int {
+    let _0: Int;  // return
+    let _1: () -> Int;  // param f
+    let _2: Int;
+    let _3: &var Int;
+
+    bb0: {
+        call std.task.yield_now() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        _2 = call value copy (*_3).[8: () -> Int] [] -> [return: bb2];
+    }
+
+    bb2: {
+        (*_3).[24: Int] = move _2;
+        drop((*_3).[8: () -> Int]);
+        return;
+    }
+}
+resume #12: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+    state 0: bb0
+    state 1: bb0 park ready
+fn std.task.yield_now() -> Void {
+    let _0: Void;  // return
+    let _1: &var Int;
+    let _2: &var std.taskgroup.TaskContext;
+
+    bb0: {
+        (*(*_2).park) = const 0: Int;
+        call std.task.__saw_park_ready() [] -> [return: bb1] suspends;
+    }
+
+    bb1: {
+        return;
+    }
+}
