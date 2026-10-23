@@ -77,16 +77,16 @@
 // prints: epi 0 N
 // prints: pro 1 N
 // prints: bump
-// prints: pair 1 102
 // prints: epi 1 N
+// prints: pair 1 102
 // prints: a 1 b 102 k 3
 // prints: then a lend S
 // prints: pro 0 S
 // prints: epi 0 S
 // prints: pro 1 S
 // prints: bump
-// prints: pair 1 102
 // prints: epi 1 S
+// prints: pair 1 102
 // prints: a 1 b 102 k 3
 // Each cell prints its name, then the accessor's prologue and epilogue around
 // what the statement does. `at` takes `&var self` with no shared twin, so

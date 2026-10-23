@@ -167,6 +167,7 @@ INDEX.md, or when an owner is not one of the words below.
 | X55 | U6d2 | `loan.window-root` (SL-686): `compiler/tests/borrowck/refuse/loan.window-root.conditional-present.saw`, `.conditional-undecided`; the absent arm's use of the root, `compiler/tests/run/probes/conditional_lend_block.saw` |
 | X56 | U6d2 | `assign.rhs-borrow` (SL-857): `compiler/tests/borrowck/refuse/assign.rhs-borrow.reference-argument.saw`, `.shared-reference-argument`; `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.kept-reference.saw`; the accepted value reads, `compiler/tests/run/probes/borrow_value_read_beside_its_root.saw` |
 | X57 | U6d2 | `loan.nested-call` (SL-857): `compiler/tests/borrowck/refuse/loan.nested-call.after-reference.saw`, `.after-reference-fresh`, `.receiver-fresh`; the accepted forward order, `compiler/tests/run/probes/borrow_value_read_beside_its_root.saw` |
+| X58 | U6d2 | `assign.rhs-borrow` (SL-855): `compiler/tests/borrowck/refuse/assign.rhs-borrow.argument-reference.saw`, `.exclusive-argument-reference`; `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.argument-then-reference.saw`, `.reference-then-argument`; the root used after the call, and the print order at every position, `compiler/tests/run/probes/borrow_argument_frees_its_root.saw` and `borrow_argument_window_is_the_call.saw` |
 ## Moves and use-after-move
 
 | Row | Owner | Covered by, or why not |

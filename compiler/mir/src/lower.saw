@@ -2085,6 +2085,7 @@ extension MirProgram {
     func interpolation(&var self, e: Int) -> Int {
         let m = self.tc.node_module(e)
         let st = self.tc.string_type()
+        let mark = self.scope.len()
         var ops = Vector<Int>()
         let n = self.tc.child_count(e)
         var k = 0
@@ -2107,6 +2108,7 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         let rv = self.rv_over(MirRvalueKind.Interpolate, t, "", &ops)
         let l = self.temp_of(rv)
+        self.close_argument_windows(mark)
         let p = self.place_local(l)
         self.op_move(p)
     }
@@ -2221,8 +2223,8 @@ extension MirProgram {
     func borrow_place_val(&var self, e: Int) -> MirVal {
         let t = self.tc.expr_types[e]
         if self.tc.referent(t) >= 0 {
-            // A borrow handed on as a reference: its windows stay open to
-            // the end of the statement, across the call it is passed to.
+            // A borrow handed on as a reference: its windows stay open
+            // until the call it is passed to returns (`close_argument_windows`).
             let v = self.prepared_val(e)
             let exclusive = self.tc.is_exclusive_ref(t)
             let rv = self.rv_ref(exclusive, v.place)
@@ -2262,18 +2264,52 @@ extension MirProgram {
     //     prepare_borrow
     //     close_at_fresh_value
     func close_windows_since(&var self, mark: Int) {
-        var k = self.scope.len() - 1
         var closed = Vector<Int>()
+        self.close_windows_from(mark, &var closed)
+        var k = 0
+        while k < closed.len() {
+            self.set_window_value_read(closed[k])
+            k = k + 1
+        }
+    }
+
+    // THE ARGUMENT-WINDOW CLOSE FUNNEL: a borrowed argument's window is the
+    // call, so the windows an operand list opened since scope entry `mark`
+    // close here, newest first, once the call, render or comparison taking
+    // the operands is complete, and are forgotten (spec, Window extent and
+    // nesting). Its result holds nothing of a place: only a `borrows`
+    // accessor returns a reference, and an accessor's own arguments stay
+    // open across its lend. These windows are never marked `value_read`,
+    // since the borrow check holds a reference handed to a callee for the
+    // whole call or assignment.
+    //
+    // ENTRY POINTS (close_argument_windows):
+    //     function_call
+    //     drive_site
+    //     builtin_call
+    //     value_call
+    //     operator_call
+    //     comparison
+    //     interpolation
+    func close_argument_windows(&var self, mark: Int) {
+        var closed = Vector<Int>()
+        self.close_windows_from(mark, &var closed)
+    }
+
+    // Closes the windows registered since scope entry `mark` on the current
+    // path, newest first, and forgets them, adding each to `closed`.
+    func close_windows_from(&var self, mark: Int, closed: &var Vector<Int>) {
+        var k = self.scope.len() - 1
+        let first = closed.len()
         while k >= mark {
             let entry = self.scope[k]
             if entry.window {
                 self.close_window(entry.index)
-                self.set_window_value_read(entry.index)
                 try! closed.push(entry.index)
             }
             k = k - 1
         }
-        k = 0
+        k = first
         while k < closed.len() {
             self.forget_window(closed[k])
             k = k + 1
@@ -3242,7 +3278,8 @@ extension MirProgram {
     // by value is an operand like an argument.
     func function_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
-        let all = self.call_operands(e, &c)
+        var mark = 0
+        let all = self.call_operands(e, &c, &var mark)
         var call = self.blank_call(MirCallKind.Function, e)
         call.target = c.target
         call.owner = c.owner
@@ -3250,12 +3287,16 @@ extension MirProgram {
         call.arg_first = self.push_args(&all)
         call.arg_count = all.len()
         self.suspension(e, &var call)
-        self.finish_call(call, t)
+        let v = self.finish_call(call, t)
+        self.close_argument_windows(mark)
+        v
     }
 
     // The operands call `e` of a function, method, requirement or `init`
-    // passes, in its target's parameter order, the receiver first.
-    func call_operands(&var self, e: Int, c: &TcCall) -> Vector<Int> {
+    // passes, in its target's parameter order, the receiver first. `mark` is
+    // the scope entry its arguments' windows register from, after the
+    // receiver's.
+    func call_operands(&var self, e: Int, c: &TcCall, mark: &var Int) -> Vector<Int> {
         let s = self.tc.sigs[c.target]
         var base = -1
         let rc = self.tc.res_call_at[e]
@@ -3274,6 +3315,7 @@ extension MirProgram {
                 receiver = self.receiver_operand(base, e, &c)
             }
         }
+        mark = self.scope.len()
         let args = self.call_arguments(e, &c, by_reference)
         var all = Vector<Int>()
         if by_reference {
@@ -3359,7 +3401,8 @@ extension MirProgram {
             return MirVal(operand: self.dead_operand(t))
         }
         let saved = self.source_at(root)
-        let all = self.call_operands(root, &rc)
+        var mark = 0
+        let all = self.call_operands(root, &rc, &var mark)
         self.source_restore(saved)
         var call = self.blank_call(MirCallKind.Drive, e)
         call.target = rc.target
@@ -3368,7 +3411,9 @@ extension MirProgram {
         call.arg_first = self.push_args(&all)
         call.arg_count = all.len()
         call.drive = form
-        self.finish_call(call, t)
+        let v = self.finish_call(call, t)
+        self.close_argument_windows(mark)
+        v
     }
 
     // A receiver a consuming method takes by value: an operand, snapshot
@@ -3596,12 +3641,14 @@ extension MirProgram {
         call.owner = c.owner
         let rc = self.tc.res_call_at[e]
         let method = rc >= 0 && self.tc.res.calls[rc].classification == ResCallClass.Method
+        var mark = self.scope.len()
         if method {
             let base = self.tc.res.first_node_child(callee)
             if self.borrows_receiver(base) {
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
                 self.open_receiver_windows(&var steps)
+                mark = self.scope.len()
                 let args = self.builtin_operands(e)
                 let p = self.realize_all(&steps)
                 let exclusive = self.borrows_exclusively(base)
@@ -3612,6 +3659,7 @@ extension MirProgram {
                 self.append_all(&var all, &args)
             } else {
                 try! all.push(self.operand(base))
+                mark = self.scope.len()
                 let args = self.builtin_operands(e)
                 self.append_all(&var all, &args)
             }
@@ -3640,7 +3688,9 @@ extension MirProgram {
             mir_mint_obligation(&var call, MirSpawnForm.Thread)
         }
         self.suspension(e, &var call)
-        self.finish_call(call, t)
+        let v = self.finish_call(call, t)
+        self.close_argument_windows(mark)
+        v
     }
 
     // `__saw_deinit_in_place(at)`: a drop of `(*at)`, so the pointee's glue
@@ -3774,13 +3824,16 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         let callee = self.tc.res.first_node_child(e)
         let f = self.operand(callee)
+        let mark = self.scope.len()
         let args = self.builtin_operands(e)
         var call = self.blank_call(MirCallKind.Value, e)
         call.callee = f
         call.owner = c.owner
         call.arg_first = self.push_args(&args)
         call.arg_count = args.len()
-        self.finish_call(call, t)
+        let v = self.finish_call(call, t)
+        self.close_argument_windows(mark)
+        v
     }
 
     // A conversion no declaration writes: an integer's `from` and `from(
@@ -3942,6 +3995,7 @@ extension MirProgram {
         if c.role == TcRole.Operator {
             return self.operator_call(e, &c, left, right, op)
         }
+        let mark = self.scope.len()
         var a = self.operand(left)
         if not self.is_pure(right) {
             a = self.snapshot(a)
@@ -3951,7 +4005,9 @@ extension MirProgram {
         try! pair.push(a)
         try! pair.push(b)
         let rv = self.rv_over(MirRvalueKind.Binary, t, op, &pair)
-        self.temp_operand(rv)
+        let o = self.temp_operand(rv)
+        self.close_argument_windows(mark)
+        o
     }
 
     // A comparison a declared `equals` or `compare` answers: `!=` negates
@@ -3963,6 +4019,7 @@ extension MirProgram {
     //     comparison
     func operator_call(&var self, e: Int, c: &TcCall, left: Int, right: Int, op: String) -> Int {
         let b = self.tc.bool_type()
+        let mark = self.scope.len()
         let a = self.operand_as(left, true)
         let r = self.operand_as(right, true)
         var args = Vector<Int>()
@@ -3984,6 +4041,7 @@ extension MirProgram {
         call.dest = self.place_local(l)
         self.suspension(e, &var call)
         let _ = self.call_and_continue(call)
+        self.close_argument_windows(mark)
         let value = self.move_local(l)
         if op.equals("==") {
             return value

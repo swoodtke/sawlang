@@ -1,0 +1,313 @@
+// probe: stated
+// about: a borrowed argument's window closes when its call, render or comparison is done, at every position, before the rest of the statement; an accessor's argument stays open across its lend (SL-855)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// prints: plain
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: look abc
+// prints: epi?
+// prints: after
+// prints: pro
+// prints: bump
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: bump
+// prints: epi?
+// prints: after
+// prints: method argument
+// prints: pro
+// prints: look_m abc
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: look_m abc
+// prints: epi?
+// prints: after
+// prints: pro
+// prints: bump_m
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: bump_m
+// prints: epi?
+// prints: after
+// prints: nested call argument
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: after
+// prints: outer
+// prints: pro?
+// prints: look abc
+// prints: epi?
+// prints: after
+// prints: outer
+// prints: pro
+// prints: bump
+// prints: epi
+// prints: after
+// prints: outer
+// prints: pro?
+// prints: bump
+// prints: epi?
+// prints: after
+// prints: outer
+// prints: interpolation segment
+// prints: pro
+// prints: epi
+// prints: slen abc
+// prints: after
+// prints: outer
+// prints: pro?
+// prints: epi?
+// prints: slen abc
+// prints: after
+// prints: outer
+// prints: call in a segment
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: after
+// prints: pro
+// prints: bump
+// prints: epi
+// prints: after
+// prints: comparison operand
+// prints: pro
+// prints: after_s
+// prints: epi
+// prints: bint true
+// prints: after
+// prints: outer
+// prints: pro?
+// prints: after_s
+// prints: epi?
+// prints: bint true
+// prints: after
+// prints: outer
+// prints: return operand
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: look abc
+// prints: epi?
+// prints: after
+// prints: pro
+// prints: bump
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: bump
+// prints: epi?
+// prints: after
+// prints: let initializer
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: look abc
+// prints: epi?
+// prints: after
+// prints: pro
+// prints: bump
+// prints: epi
+// prints: after
+// prints: pro?
+// prints: bump
+// prints: epi?
+// prints: after
+// prints: format argument
+// prints: pro
+// prints: after
+// prints: printed abc 1
+// prints: epi
+// prints: pro?
+// prints: after
+// prints: printed abc 1
+// prints: epi?
+// prints: accessor argument
+// prints: pro
+// prints: at-pro abc
+// prints: look def
+// prints: at-epi abc
+// prints: epi
+// prints: after
+// prints: end 4 31 101 4 4 14 15 14
+// A borrowed argument's window is the call: it opens before the call's later
+// arguments and its callee run, and closes once the call returns, before the
+// rest of the statement. A rendered or compared place closes once the render
+// or the comparison is done. An accessor's own argument stays open across the
+// accessor's lend, and LIFO closes the accessor's window first.
+
+struct Item {
+    name: String,
+    count: Int
+}
+
+struct Holder {
+    item: Item,
+    n: Int
+}
+
+extension Holder {
+    func get(&self) borrows -> &Item {
+        print("pro")
+        lend self.item
+        print("epi")
+    }
+
+    func getv(&var self) borrows -> &var Item {
+        print("pro")
+        lend self.item
+        print("epi")
+    }
+
+    func find(&self) borrows -> &Item? {
+        print("pro?")
+        if self.n < 0 {
+            return None
+        }
+        lend self.item
+        print("epi?")
+    }
+
+    func findv(&var self) borrows -> &var Item? {
+        print("pro?")
+        if self.n < 0 {
+            return None
+        }
+        lend self.item
+        print("epi?")
+    }
+
+    func at(&self, key: &String) borrows -> &Item {
+        print("at-pro {}", key)
+        lend self.item
+        print("at-epi {}", key)
+    }
+}
+
+struct K {
+    k: Int
+}
+
+extension K {
+    func look_m(&self, s: &String) -> Int {
+        print("look_m {}", s)
+        s.len()
+    }
+
+    func bump_m(&self, c: &var Int) -> Int {
+        print("bump_m")
+        c += 1
+        c
+    }
+}
+
+func look(s: &String) -> Int {
+    print("look {}", s)
+    s.len()
+}
+
+func bump(c: &var Int) -> Int {
+    print("bump")
+    c += 1
+    c
+}
+
+func after() -> Int {
+    print("after")
+    1
+}
+
+func after_s() -> String {
+    print("after_s")
+    "abc"
+}
+
+func slen(s: String) -> Int {
+    print("slen {}", s)
+    s.len()
+}
+
+func bint(b: Bool) -> Int {
+    print("bint {}", b)
+    if b { 1 } else { 0 }
+}
+
+func outer(a: Int, b: Int) -> Int {
+    print("outer")
+    a + b
+}
+
+func r_us(h: &Holder) -> Int {
+    return look(borrow h.get().name) + after()
+}
+
+func r_cs(h: &Holder) -> Int {
+    return look(borrow h.find()!.name) + after()
+}
+
+func r_ux(h: &var Holder) -> Int {
+    return bump(borrow var h.getv().count) + after()
+}
+
+func r_cx(h: &var Holder) -> Int {
+    return bump(borrow var h.findv()!.count) + after()
+}
+
+func main() {
+    var h = Holder(item: Item(name: "abc", count: 3), n: 5)
+    let g = Holder(item: Item(name: "def", count: 4), n: 5)
+    let k = K(k: 0)
+    var x = 0
+    print("plain")
+    x = look(borrow h.get().name) + after()
+    x = look(borrow h.find()!.name) + after()
+    x = bump(borrow var h.getv().count) + after()
+    x = bump(borrow var h.findv()!.count) + after()
+    print("method argument")
+    x = k.look_m(borrow h.get().name) + after()
+    x = k.look_m(borrow h.find()!.name) + after()
+    x = k.bump_m(borrow var h.getv().count) + after()
+    x = k.bump_m(borrow var h.findv()!.count) + after()
+    print("nested call argument")
+    x = outer(look(borrow h.get().name), after())
+    x = outer(look(borrow h.find()!.name), after())
+    x = outer(bump(borrow var h.getv().count), after())
+    x = outer(bump(borrow var h.findv()!.count), after())
+    print("interpolation segment")
+    x = outer(slen("{borrow h.get().name}"), after())
+    x = outer(slen("{borrow h.find()!.name}"), after())
+    print("call in a segment")
+    let s1 = "{look(borrow h.get().name)}{after()}"
+    let s2 = "{bump(borrow var h.getv().count)}{after()}"
+    print("comparison operand")
+    x = outer(bint(borrow h.get().name == after_s()), after())
+    x = outer(bint(borrow h.find()!.name == after_s()), after())
+    print("return operand")
+    x = r_us(&h)
+    x = r_cs(&h)
+    x = r_ux(&var h)
+    x = r_cx(&var h)
+    print("let initializer")
+    let l1 = look(borrow h.get().name) + after()
+    let l2 = look(borrow h.find()!.name) + after()
+    let l3 = bump(borrow var h.getv().count) + after()
+    let l4 = bump(borrow var h.findv()!.count) + after()
+    print("format argument")
+    print("printed {} {}", borrow h.get().name, after())
+    print("printed {} {}", borrow h.find()!.name, after())
+    print("accessor argument")
+    x = look(borrow g.at(borrow h.get().name).name) + after()
+    print("end {} {} {} {} {} {} {} {}", x, s1, s2, l1, l2, l3, l4, h.item.count)
+}

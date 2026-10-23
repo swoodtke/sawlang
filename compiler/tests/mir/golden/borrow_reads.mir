@@ -169,12 +169,12 @@ fn borrow_reads.interpolated(s: &borrow_reads.Shelf) -> Void {
     bb1: {
         _6 = ref(shared, (*_2));
         _7 = interpolate [const "element ": String, move _6];
-        call builtin print [move _7] -> [return: bb2];
+        _8 = ref(exclusive, _4);
+        window_close w0 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _8] -> [return: bb2];
     }
 
     bb2: {
-        _8 = ref(exclusive, _4);
-        window_close w0 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _8] -> [return: bb3];
+        call builtin print [move _7] -> [return: bb3];
     }
 
     bb3: {
@@ -220,7 +220,6 @@ fn borrow_reads.compared(s: &borrow_reads.Shelf) -> Bool {
     }
 
     bb3: {
-        _0 = move _12;
         _13 = ref(exclusive, _9);
         window_close w1 epilogue borrow_reads.Shelf.[](i: Int) (owner borrow_reads.Shelf) [move _13] -> [return: bb4];
     }
@@ -231,6 +230,7 @@ fn borrow_reads.compared(s: &borrow_reads.Shelf) -> Bool {
     }
 
     bb5: {
+        _0 = move _12;
         return;
     }
 }

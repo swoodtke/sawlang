@@ -1220,7 +1220,7 @@ extension MirProgram {
     //
     // ENTRY POINTS (close_window):
     //     emit_exit
-    //     close_windows_since
+    //     close_windows_from
     //     bind_test
     //     copy_out
     //     lower_chain_write

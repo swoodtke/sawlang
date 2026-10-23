@@ -1,0 +1,34 @@
+// refuses: loan.nested-call at 33:50
+// a borrowed argument's window closes when its own call returns, but its
+// borrow joins the enclosing call's access set, so a sibling argument's
+// `&var` of the same root still meets it (spec, Nested calls; conformance X58)
+
+struct Item { name: String, count: Int }
+
+struct Holder { item: Item, n: Int }
+
+extension Holder {
+    func getx(&var self) borrows -> &Item {
+        lend self.item
+    }
+}
+
+func look(s: &String) -> Int {
+    s.len()
+}
+
+func bump(c: &var Int) -> Int {
+    c += 1
+    c
+}
+
+func outer(a: Int, b: Int) -> Int {
+    a + b
+}
+
+func main() {
+    var h = Holder(item: Item(name: "abc", count: 3), n: 5)
+    print(h.n)
+    print(h.item.count)
+    print(outer(look(borrow h.getx().name), bump(&var h.n)))
+}

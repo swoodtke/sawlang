@@ -1,0 +1,27 @@
+// refuses: assign.rhs-borrow at 25:5
+// the same with `borrow var`: the callee writes through the lent place, and
+// the assignment then overwrites the root it wrote into, whatever point the
+// window closed at (conformance X58)
+
+struct Item { name: String, count: Int }
+
+struct Holder { item: Item, n: Int }
+
+extension Holder {
+    func getv(&var self) borrows -> &var Item {
+        lend self.item
+    }
+}
+
+func bump(c: &var Int) -> Int {
+    c += 1
+    c
+}
+
+func main() {
+    var h = Holder(item: Item(name: "abc", count: 3), n: 5)
+    print(h.n)
+    print(h.item.count)
+    h.n = bump(borrow var h.getv().count)
+    print(h.n)
+}

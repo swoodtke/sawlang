@@ -274,15 +274,15 @@ fn windows.let_root() {
 
     bb4: {
         [W M U] {L3 L4 L5 L6} _12 = interpolate [copy (*_8), const " ": String, copy (*_10)];
-        [W M W] {L3 L4 L5 L6} call builtin print [move _12] -> [return: bb5];
+        [W M W] {L3 L4 L5 L6} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb5];
     }
 
     bb5: {
-        [W M M] {L3 L4 L5 L6} window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
+        [W M W] {L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb6: {
-        [W M M] {L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb7];
+        [W M W] {} call builtin print [move _12] -> [return: bb7];
     }
 
     bb7: {
@@ -304,7 +304,6 @@ fn windows.let_root() {
 
     bb10: {
         [W M M] {L7 L8 L9 L10} _18 = Eq(move _15, copy (*_16));
-        [W M M] {L7 L8 L9 L10} _19 = move _18;
         [W M M] {L7 L8 L9 L10} window_close w4 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb11];
     }
 
@@ -313,12 +312,12 @@ fn windows.let_root() {
     }
 
     bb12: {
-        [W M M] {} switch move _19 -> [true: bb13, false: bb14];
+        [W M M] {} switch move _18 -> [true: bb13, false: bb14];
     }
 
     bb13: {
-        [W M M] {} _20 = Add(copy _3, const 1: Int);
-        [W M M] {} _3 = move _20;
+        [W M M] {} _19 = Add(copy _3, const 1: Int);
+        [W M M] {} _3 = move _19;
         [W M M] {} goto -> bb8;
     }
 

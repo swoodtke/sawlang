@@ -1,0 +1,26 @@
+// refuses: assign.rhs-borrow at 24:5
+// an assignment whose right side hands a callee a reference into a place an
+// exclusively charged accessor lends: the window closes when the call
+// returns, before the target's borrow opens, but a reference handed to a
+// callee is held for the whole assignment (conformance X58)
+
+struct Item { name: String, count: Int }
+
+struct Holder { item: Item, n: Int }
+
+extension Holder {
+    func getx(&var self) borrows -> &Item {
+        lend self.item
+    }
+}
+
+func look(s: &String) -> Int {
+    s.len()
+}
+
+func main() {
+    var h = Holder(item: Item(name: "abc", count: 3), n: 5)
+    print(h.n)
+    h.n = look(borrow h.getx().name)
+    print(h.n)
+}

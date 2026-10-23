@@ -1,0 +1,112 @@
+// probe: stated
+// about: a borrowed argument's window closes when its call returns, so the rest of the statement may borrow the root again (SL-855)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: bumpn 6
+// prints: shared window, exclusive use: 9
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: count 6
+// prints: exclusive window, shared use: 9
+// prints: pro
+// prints: bump 4
+// prints: epi
+// prints: count 6
+// prints: written window, shared use: 10
+// prints: pro?
+// prints: bump 5
+// prints: epi?
+// prints: bumpn 7
+// prints: conditional written window, exclusive use: 12
+// prints: pro
+// prints: look abc
+// prints: epi
+// prints: count 7
+// prints: outer
+// prints: sibling argument: 10
+// prints: end 5 7
+// A borrowed argument's window closes when its call returns, so the rest of
+// the statement may borrow the root again, shared or exclusively, whatever
+// the accessor charges it; so may a sibling argument of an enclosing call
+// that reaches the root as an implicit receiver.
+
+struct Item {
+    name: String,
+    count: Int
+}
+
+struct Holder {
+    item: Item,
+    n: Int
+}
+
+extension Holder {
+    func get(&self) borrows -> &Item {
+        print("pro")
+        lend self.item
+        print("epi")
+    }
+
+    func getx(&var self) borrows -> &Item {
+        print("pro")
+        lend self.item
+        print("epi")
+    }
+
+    func getv(&var self) borrows -> &var Item {
+        print("pro")
+        lend self.item
+        print("epi")
+    }
+
+    func findv(&var self) borrows -> &var Item? {
+        print("pro?")
+        if self.n < 0 {
+            return None
+        }
+        lend self.item
+        print("epi?")
+    }
+
+    func count(&self) -> Int {
+        print("count {}", self.n)
+        self.n
+    }
+
+    func bumpn(&var self) -> Int {
+        self.n += 1
+        print("bumpn {}", self.n)
+        self.n
+    }
+}
+
+func look(s: &String) -> Int {
+    print("look {}", s)
+    s.len()
+}
+
+func bump(c: &var Int) -> Int {
+    c += 1
+    print("bump {}", c)
+    c
+}
+
+func outer(a: Int, b: Int) -> Int {
+    print("outer")
+    a + b
+}
+
+func main() {
+    var h = Holder(item: Item(name: "abc", count: 3), n: 5)
+    print("shared window, exclusive use: {}", look(borrow h.get().name) + h.bumpn())
+    print("exclusive window, shared use: {}", look(borrow h.getx().name) + h.count())
+    print("written window, shared use: {}", bump(borrow var h.getv().count) + h.count())
+    print("conditional written window, exclusive use: {}", bump(borrow var h.findv()!.count) + h.bumpn())
+    print("sibling argument: {}", outer(look(borrow h.getx().name), h.count()))
+    print("end {} {}", h.item.count, h.n)
+}
