@@ -66,7 +66,7 @@ in it is tagged. Entry codes (S1, L1, C1) are what the inventory maps to.
 
 An entry stays while something cites it: a checker rule, a workaround marker,
 an oracle annotation, or an open defect it pins. The rest are retired: the
-SL-425 sweep compiled and ran every entry's repro with sawc2 and the seed, and
+SL-425 sweep compiled and ran every entry's repro with sawc and the seed, and
 an entry handled correctly by both and cited by nothing is deleted. A mention
 of an id with no section here (S7, L14, C1, ...) names a retired entry; its
 verdict is in SL-425 c7.
@@ -406,15 +406,15 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 **Checker:** yes, an exception to the Stage 1 leak ruling (the user, Sep 29). The checker refuses an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment, a format argument or a cast in `compiler/`. The rule is built under SL-422, and SL-405 adds the cast.
 - **The case for an exception.** A parser comparing token text through a subscript, or a dump or diagnostic interpolating `"{kind_name(t.kind)} {t.text}"`, leaks per token over every file Stage 1 compiles.
 - **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment, a format argument or a cast in `compiler/`. String literals are exempt, since they are static.
-- **Today:** that predicate finds 0 leaking comparison operands in sawc2 (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
+- **Today:** that predicate finds 0 leaking comparison operands in sawc (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
 
 ### S26. A static or an operator from a bounded extension, on an argument that misses the bound (SL-463)
 
-**Shape (missing check):** a member declared in `extension Cell<T: Equatable> { ... }`, or brought by a bounded conformance `extension Cell<T: Equatable>: Equatable`, exists only where `T` meets the bound. Stage 0 enforces that for an instance method (`a.same(&b)` on a `Cell<Token>` is refused: "has no method `same`: requires `T: Equatable`"), but not for a static, `Cell<Token>.twin(&a, &b)`, nor for an operator that resolves to such a member, `a == b` through the bounded conformance's `equals`. It accepts both, and instantiates the member's body at a type that body was never checked for. sawc2's typecheck refuses both, as `type.bound`, through the one member lookup that methods, statics, subscripts, `for` loops and `init`s share.
+**Shape (missing check):** a member declared in `extension Cell<T: Equatable> { ... }`, or brought by a bounded conformance `extension Cell<T: Equatable>: Equatable`, exists only where `T` meets the bound. Stage 0 enforces that for an instance method (`a.same(&b)` on a `Cell<Token>` is refused: "has no method `same`: requires `T: Equatable`"), but not for a static, `Cell<Token>.twin(&a, &b)`, nor for an operator that resolves to such a member, `a == b` through the bounded conformance's `equals`. It accepts both, and instantiates the member's body at a type that body was never checked for. sawc's typecheck refuses both, as `type.bound`, through the one member lookup that methods, statics, subscripts, `for` loops and `init`s share.
 
 **Instead:** call such a member only on an argument that meets the bound.
 
-**Checker:** yes: `bounded-extension` refuses every bound on an extension in compiler source, so the shape cannot arise there, and the new std is compiled by sawc2 alone.
+**Checker:** yes: `bounded-extension` refuses every bound on an extension in compiler source, so the shape cannot arise there, and the new std is compiled by sawc alone.
 
 ### S28. A `deinit` with an observable effect in the compiler's cone (SL-522)
 
@@ -435,7 +435,7 @@ h.join()
 consume(move buf)              // accepted: the teardown then drives `fill` into the freed buffer
 ```
 
-The same hole is reached through `let g = move h; h = group.spawn(…); h.join()`, and through a spawn site inside a loop: a `let h = group.spawn(look(&buf))` in the body leaves an earlier iteration's task unjoined, and a later iteration's `h.join()` releases the one loan both tasks share (shared borrows only: Stage 0 applies the loop-body rule to exclusive borrows alone, where the spec refuses every spawn borrow still live when a loop body ends). Stage 0 compiles all of these, and the program faults at the group's teardown. sawc2 refuses them once SL-565 releases a borrow only where the joined value is the borrowing task's handle on every path. The pins are its borrowck refusal fixtures.
+The same hole is reached through `let g = move h; h = group.spawn(…); h.join()`, and through a spawn site inside a loop: a `let h = group.spawn(look(&buf))` in the body leaves an earlier iteration's task unjoined, and a later iteration's `h.join()` releases the one loan both tasks share (shared borrows only: Stage 0 applies the loop-body rule to exclusive borrows alone, where the spec refuses every spawn borrow still live when a loop body ends). Stage 0 compiles all of these, and the program faults at the group's teardown. sawc refuses them once SL-565 releases a borrow only where the joined value is the borrowing task's handle on every path. The pins are its borrowck refusal fixtures.
 
 **Instead:** give each spawn that borrows its own `let` binding and join that binding. Never rebind or move out of a handle variable while its task still borrows.
 
@@ -443,7 +443,7 @@ The same hole is reached through `let g = move h; h = group.spawn(…); h.join()
 
 ### S37. A detached thread that finishes after the detach drops no result (SL-765)
 
-**Shape (silent: a lost deinit, and a leak):** `Thread.spawn { … }` then `detach()`. When the detach runs first and the thread finishes after it, Stage 0's thread exit (`_generate_spawn_trampoline`, `sawc/codegen/calls.py`) frees the control block without destroying the result. A result that owns something (a `String`, a value with a printing `deinit`) is never dropped. `leaks --atExit` shows the result's storage as a root leak. The other order (exit, then detach) and a join both drop it. sawc2 drops it once in both orders (SL-765 T2's `__saw_exit` and T3a's detach report).
+**Shape (silent: a lost deinit, and a leak):** `Thread.spawn { … }` then `detach()`. When the detach runs first and the thread finishes after it, Stage 0's thread exit (`_generate_spawn_trampoline`, `sawc/codegen/calls.py`) frees the control block without destroying the result. A result that owns something (a `String`, a value with a printing `deinit`) is never dropped. `leaks --atExit` shows the result's storage as a root leak. The other order (exit, then detach) and a join both drop it. sawc drops it once in both orders (SL-765 T2's `__saw_exit` and T3a's detach report).
 
 **Instead:** join the thread when its result owns anything, or return a value with no drop from a thread you detach.
 
@@ -624,13 +624,13 @@ function in the program, std's included: `std.cbor` and `std.json` each declare
 `encode<T>`, so a generic method named `encode` in the compiler source would
 hit it whenever either module is compiled in.
 
-### L29. A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms (SL-656)
+### L29. A suspending default value: sawc charges the caller that leaves it out, and Stage 0 refuses both forms (SL-656)
 
 **Shape:** the user's ruling (b) on SL-656 says a default is evaluated in the caller, so its effect belongs to the call that leaves the argument out, never to the function. For `func f(n: Int = slow())`:
-- **sawc2:** `f` is an ordinary function whose summary is its body's alone. `f()` suspends in the caller, and is refused only in a `sync` context (`effect.sync`, naming the default). `f(n: 2)` is accepted anywhere, `sync` included.
+- **sawc:** `f` is an ordinary function whose summary is its body's alone. `f()` suspends in the caller, and is refused only in a `sync` context (`effect.sync`, naming the default). `f(n: 2)` is accepted anywhere, `sync` included.
 - **Stage 0:** refuses every call that leaves out a suspending default, and also refuses a `sync` caller that passes the argument explicitly.
 
-So code using a suspending default builds under sawc2 and fails under Stage 0. It is loud: Stage 0 refuses at the call.
+So code using a suspending default builds under sawc and fails under Stage 0. It is loud: Stage 0 refuses at the call.
 
 **Instead:** in code Stage 0 builds (`compiler/`, `blade/`, `libs/`, `examples/`), give no parameter a default value that suspends; make the suspending value an argument the caller passes.
 
@@ -694,7 +694,7 @@ interpolation's braces.
 
 ### C10. A consumed `match` on an owned `Optional` keeps its payload to scope end
 
-**Shape (silent: wrong drop timing):** on an owned `Noisy?`, `match o { case Some(n) -> … }` destroys `n` at the end of the enclosing scope under Stage 0, not at the arm's end. The arm binding owns the payload ("Match consumes an owned enum"), so its `deinit` belongs at the arm's end, where sawc2 runs it. A user enum with the same shape drops at the arm's end in both compilers. The repro is the Air's `e9_matchconsume.saw` (chat file f22), and the SL-513 ruling (B) puts the destruction of parts no arm binding takes at the match's completion (C11).
+**Shape (silent: wrong drop timing):** on an owned `Noisy?`, `match o { case Some(n) -> … }` destroys `n` at the end of the enclosing scope under Stage 0, not at the arm's end. The arm binding owns the payload ("Match consumes an owned enum"), so its `deinit` belongs at the arm's end, where sawc runs it. A user enum with the same shape drops at the arm's end in both compilers. The repro is the Air's `e9_matchconsume.saw` (chat file f22), and the SL-513 ruling (B) puts the destruction of parts no arm binding takes at the match's completion (C11).
 
 **Instead:** none needed in compiler source, which declares no `deinit` (checker rule `deinit-body`), so the timing is unobservable in Stage 1.
 
@@ -770,7 +770,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-427 | S3 and S23 The error around `try`/`catch`, and a cast operand in std | silent, leak only (found by sawtracker's ST-66; the std half fixed under a freeze exception) |
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
-| SL-656 | L29 A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
+| SL-656 | L29 A suspending default value: sawc charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
 | SL-565 | S36 A spawn borrow released by joining a rebound handle variable | silent, a use-after-free (found by the Air reviewing SL-565.p1; no live instance: the compiler spawns no task) |
 | SL-765 | S37 A detached thread that finishes after the detach drops no result | silent, a lost deinit and a leak (found by the Air reviewing SL-765.p3; no live instance: the compiler spawns no thread) |
 | SL-649 | L33 A field read two struct hops away, bound by a `let`, with neither struct type named in the module | loud (Stage 0 reports an undefined variable; one marked instance in `compiler/typecheck/src/conform.saw`) |
