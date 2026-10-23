@@ -85,9 +85,7 @@ func main() {
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
     var target = coro.mono.target_for("arm64-apple-darwin")
     coro_lower_for(&var coro, &var target)
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
-    let first = coro.problems.get(0) ?? ""
-    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     let f = body_of(&coro, "keep")
     assert(f >= 0, "the verifier records no body for `keep`")
     assert(unlink_first_drop(&var coro, f), "`keep`'s lowered body drops nothing")

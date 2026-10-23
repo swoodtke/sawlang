@@ -32,13 +32,9 @@ func first_id(parser: &Parser) -> String {
 // skipped defaults and `initializers` skipped initializers.
 func expect_equivalent(text: String, bodies: Int, defaults: Int, initializers: Int) {
     let full = parse_source("t.saw", text, false)
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(full.diagnostics.len() == 0, "the full parse refuses ({}): {}", first_id(&full), text)
-    let full_id = first_id(&full)
-    assert(full.diagnostics.len() == 0, "the full parse refuses ({}): {}", full_id, text)
+    assert(full.diagnostics.len() == 0, "the full parse refuses ({}): {}", first_id(&full), text)
     let interface = parse_interface("t.saw", text)
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(interface.diagnostics.len() == 0, "the interface parse refuses ({}): {}", first_id(&interface), text)
-    let interface_id = first_id(&interface)
-    assert(interface.diagnostics.len() == 0, "the interface parse refuses ({}): {}", interface_id,
+    assert(interface.diagnostics.len() == 0, "the interface parse refuses ({}): {}", first_id(&interface),
            text)
     if let problem = tree_problem(&interface.builder.tree) {
         panic("the interface breaks the arena's invariants: {}", problem)
@@ -59,9 +55,7 @@ func expect_interface_only(text: String, bodies: Int) {
     let full = parse_source("t.saw", text, false)
     assert(full.diagnostics.len() > 0, "the full parse accepts a refused body")
     let interface = parse_interface("t.saw", text)
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(interface.diagnostics.len() == 0, "the interface parse refuses: {}", first_id(&interface))
-    let interface_id = first_id(&interface)
-    assert(interface.diagnostics.len() == 0, "the interface parse refuses: {}", interface_id)
+    assert(interface.diagnostics.len() == 0, "the interface parse refuses: {}", first_id(&interface))
     assert(interface.dropped_declarations.len() == 0, "the interface drops a declaration")
     let got_bodies = count_shape(&interface.builder.tree, NodeShape.SkippedBody)
     assert(got_bodies == bodies, "skipped bodies: {}", got_bodies)
@@ -72,9 +66,7 @@ func expect_interface_only(text: String, bodies: Int) {
 func expect_dropped(text: String, dropped: Int, id: String) {
     let interface = parse_interface("t.saw", text)
     assert(interface.dropped_declarations.len() == dropped, "dropped declarations")
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(first_id(&interface).equals(id), "the drop's reason: {}", first_id(&interface))
-    let reason = first_id(&interface)
-    assert(reason.equals(id), "the drop's reason: {}", reason)
+    assert(first_id(&interface).equals(id), "the drop's reason: {}", first_id(&interface))
     if let problem = tree_problem(&interface.builder.tree) {
         panic("a dropped declaration breaks the arena's invariants: {}", problem)
     }

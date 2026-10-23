@@ -240,9 +240,8 @@ public func ll_reaches_extern(mono: &MonoProgram, symbol: String) -> Bool {
     while k < mono.items.len() {
         let it = mono.items[k]
         if it.kind == MonoItemKind.Extern {
-            // Stage 0 workaround (SL:hazards L33): canonical: let id = mono.dp.bc.mir.tc.res.decls[it.decl].name
-            let decl = mono.dp.bc.mir.tc.res.decls[it.decl]
-            if mono.dp.bc.mir.tc.res.name_text(decl.name).equals(symbol) {
+            let id = mono.dp.bc.mir.tc.res.decls[it.decl].name
+            if mono.dp.bc.mir.tc.res.name_text(id).equals(symbol) {
                 return true
             }
         }

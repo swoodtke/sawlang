@@ -55,7 +55,9 @@ run of it, built against its own std.
   `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
   `// probe: panics` prints them and then panics with its `// panics:` text,
   `// probe: link-fails` fails to link with each `// undefined:` symbol
-  undefined, and `// ll defines:` and `// ll omits:` hold each build's `.ll`;
+  undefined, `// ll defines:` and `// ll omits:` hold each build's `.ll`, and
+  a stated probe's `// leaks: none` runs each build under `leaks --atExit`
+  on macOS, which must report no leak;
   a `// probe: custom` one is checked by its function in `CUSTOM_PROBES`, a
   `// probe: module` one is imported by another probe and never built alone,
   and a probe stating no kind, or a kind's lines wrongly, fails the lane;
@@ -703,7 +705,7 @@ def long_accessor_source(ifs):
 
 PROBES = os.path.join(HERE, "probes")
 # A probe's header lines, `// NAME: VALUE`, as README.md's "Probes" lists them.
-_DIRECTIVE = re.compile(r"^// (probe|about|stage 0|speeds|prints|panics|undefined|ll defines|ll omits): ?(.*)$")
+_DIRECTIVE = re.compile(r"^// (probe|about|stage 0|speeds|prints|panics|undefined|ll defines|ll omits|leaks): ?(.*)$")
 _ISSUE = re.compile(r"\(SL-\d+\)$")
 SPEEDS = ("-O0", "-O1", "-O2", "-Os", "-Oz")
 # The lines each kind of probe takes, each as (fewest, most), most None for
@@ -712,7 +714,7 @@ SPEEDS = ("-O0", "-O1", "-O2", "-Os", "-Oz")
 _BUILT = {"probe": (1, 1), "about": (1, 1), "stage 0": (1, 1), "speeds": (1, 1),
           "ll defines": (0, None), "ll omits": (0, None)}
 PROBE_LINES = {
-    "stated": dict(_BUILT, prints=(1, None)),
+    "stated": dict(_BUILT, prints=(1, None), leaks=(0, 1)),
     "panics": dict(_BUILT, prints=(0, None), panics=(1, 1)),
     "link-fails": dict(_BUILT, undefined=(1, None)),
     "custom": {"probe": (1, 1), "about": (1, 1)},
@@ -726,6 +728,12 @@ PROBE_COUNTS = {
     "module": "run probe modules imported",
 }
 LL_COUNT = "run programs stating their .ll"
+LEAKS_COUNT = "run programs holding no leak"
+LEAKS_SKIPPED = "run programs whose leak check is skipped off macOS"
+# The leak checker: macOS's `leaks`, which runs the program to its exit and
+# then reports every block no reference reaches.
+LEAKS = "/usr/bin/leaks"
+_LEAK_REPORT = re.compile(r"^Process \d+: (\d+) leaks? for (\d+) total leaked bytes\.$", re.M)
 
 
 def probe_header(path):
@@ -758,6 +766,8 @@ def probe_problems(src, header):
             problems.append("%s: a %s probe states %s `// %s:` line%s, not %d"
                             % (where, kind, "one" if most == 1 else "at least %d" % fewest, name,
                                "" if most == 1 else "s", n))
+    if header.get("leaks", ["none"]) != ["none"]:
+        problems.append("%s: `// leaks:` states `none`, the one leak count the lane holds a probe to" % where)
     about = header.get("about", [])
     if len(about) == 1 and not _ISSUE.search(about[0]):
         problems.append("%s: its `// about:` line ends with its issue, `(SL-N)`" % where)
@@ -810,6 +820,25 @@ def panic_dump_ok(lines):
     return tasks > 0
 
 
+def leak_problems(where, binary):
+    """Failures of `binary` run under `leaks --atExit`: one unless it reports
+    no leak. None off macOS, where the checker does not exist."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        r = subprocess.run([LEAKS, "--atExit", "--", binary], cwd=OUT, capture_output=True, text=True,
+                           timeout=RUN_TIMEOUT * 3)
+    except subprocess.TimeoutExpired:
+        return ["%s: `leaks --atExit` did not finish" % where]
+    m = _LEAK_REPORT.search(r.stdout)
+    if m is None:
+        return ["%s: `leaks --atExit` reports no leak count (exit %d): %s"
+                % (where, r.returncode, (r.stdout + r.stderr)[-300:])]
+    if m.group(1) != "0":
+        return ["%s: `leaks --atExit` finds %s leaks of %s bytes" % (where, m.group(1), m.group(2))]
+    return []
+
+
 def held_probe(src, header):
     """(failures, counts) for a probe of a kind its header states, built by
     sawc2 alone at each of its speeds. Each build is held whole, since a read
@@ -818,6 +847,8 @@ def held_probe(src, header):
     name = os.path.splitext(os.path.basename(src))[0]
     failures = []
     ll_failures = []
+    leak_failures = []
+    leaks_skipped = False
     for speed in header["speeds"][0].split():
         where = "run %s %s" % (rel(src), speed)
         # build_new's naming; a refused build writes no `.ll`, so a stale one
@@ -841,6 +872,12 @@ def held_probe(src, header):
             code, out, _ = execute(binary)
             if code != 0 or out != want:
                 failures.append("%s: exit %s, prints %r, not %r" % (where, code, out[:300], want))
+            elif "leaks" in header:
+                found = leak_problems(where, binary)
+                if found is None:
+                    leaks_skipped = True
+                else:
+                    leak_failures += found
         else:
             want = header.get("prints", [])
             panic = header["panics"][0]
@@ -857,7 +894,9 @@ def held_probe(src, header):
         counts[PROBE_COUNTS[kind]] = 1
     if not ll_failures and (header.get("ll defines") or header.get("ll omits")):
         counts[LL_COUNT] = 1
-    return failures + ll_failures, counts
+    if "leaks" in header and not failures and not leak_failures:
+        counts[LEAKS_SKIPPED if leaks_skipped else LEAKS_COUNT] = 1
+    return failures + ll_failures + leak_failures, counts
 
 
 def check_probe(src):
@@ -1083,13 +1122,37 @@ def check_dump_beside_churn(name):
     return check
 
 
+def check_leak_detection(failures, counts):
+    """The leak check sees a leak: `probes/leaks_check_sees_a_leak.saw`, built
+    at -O0, drops its only pointer to one `malloc`ed block, and `leak_problems`
+    must report that one block, at whatever size the allocator rounds it to."""
+    probe = os.path.join(PROBES, "leaks_check_sees_a_leak.saw")
+    where = "run %s -O0" % rel(probe)
+    ok, binary, log = build_new(probe, "-O0")
+    if not ok or log:
+        failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it", log[:300]))
+        return
+    found = leak_problems(where, binary)
+    if found is None:
+        counts[LEAKS_SKIPPED] = counts.get(LEAKS_SKIPPED, 0) + 1
+        return
+    one = "%s: `leaks --atExit` finds 1 leaks of " % where
+    if len(found) != 1 or not found[0].startswith(one):
+        failures.append("%s: the leak check does not report the one lost block: %s"
+                        % (where, "; ".join(found) if found else "it reports no leak"))
+        return
+    counts["run leak checks reporting a planted leak"] = 1
+
+
 # The custom probes, each checked by its own function. `executable_path.saw`
 # is run through a renamed link on `PATH` from another directory, and what it
 # must print is its binary's real path, which no header line can state. The
 # two `print` probes' output is interleaved by the operating system, and the
 # three dump-churn probes' dumps catch whatever the scheduler has left live.
+# The leak probe's lost block is sized by the allocator.
 CUSTOM_PROBES = {
     "executable_path.saw": check_executable_path,
+    "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,
     "print_beside_a_panic.saw": check_print_beside_a_panic,
     "dump_tasks_beside_recycling_pool_workers.saw": check_dump_beside_churn(

@@ -1,0 +1,168 @@
+// probe: stated
+// about: a getitem's element copy that a part is read through is dropped where the part is a format argument (SL-825)
+// stage 0: leaks the element copy (SL:hazards S23)
+// speeds: -O0 -O2
+// leaks: none
+// prints: alpha1
+// prints: beta2
+// prints: format arg getfield 2
+// prints: alpha1
+// prints: beta2
+// prints: format arg gettuple 2
+// prints: alpha1
+// prints: beta2
+// prints: format arg getforce 2
+// prints: alpha1
+// prints: beta2
+// prints: format arg getindex 2
+// prints: alpha1
+// prints: alpha2
+// prints: format arg getfield2 2
+// Each cell prints a part read through a getitem twice, once per element;
+// the lane runs every build under `leaks --atExit` and requires no leak.
+
+struct Tok {
+    text: String,
+    alias: String?,
+    kind: Int
+}
+
+struct Outer {
+    inner: Tok,
+    tag: String
+}
+
+struct Fixture {
+    toks: Vector<Tok>,
+    outers: Vector<Outer>,
+    pairs: Vector<(String, Int)>,
+    opairs: Vector<(String?, Int)>,
+    somes: Vector<String?>,
+    arrs: Vector<[String; 2]>,
+    names: Vector<String>
+}
+
+extension Fixture: NoCopy {}
+
+enum Bad {
+    case Nope
+}
+
+func make(n: Int) -> String {
+    "alpha{n}"
+}
+
+func nothing(n: Int) -> String? {
+    if n < 0 {
+        return "neg{n}"
+    }
+    None
+}
+
+func fallible(n: Int) -> Result<String, Bad> {
+    if n < 0 {
+        return Bad.Nope
+    }
+    return "alpha{n}"
+}
+
+func mk_tok(n: Int) -> Tok {
+    Tok(text: "alpha{n}", alias: "al{n}", kind: n)
+}
+
+func mk_outer(n: Int) -> Outer {
+    Outer(inner: mk_tok(n), tag: "t{n}")
+}
+
+func consume(s: String) -> Int {
+    s.len()
+}
+
+func fixture() -> Fixture {
+    var toks = Vector<Tok>()
+    try! toks.push(Tok(text: "alpha{1}", alias: "al{1}", kind: 1))
+    try! toks.push(Tok(text: "beta{2}", alias: None, kind: 2))
+    var outers = Vector<Outer>()
+    try! outers.push(mk_outer(1))
+    try! outers.push(mk_outer(2))
+    var pairs = Vector<(String, Int)>()
+    try! pairs.push(("alpha{1}", 1))
+    try! pairs.push(("beta{2}", 2))
+    var opairs = Vector<(String?, Int)>()
+    try! opairs.push(("oa{1}", 1))
+    try! opairs.push((None, 2))
+    var somes = Vector<String?>()
+    try! somes.push("alpha{1}")
+    try! somes.push("beta{2}")
+    var arrs = Vector<[String; 2]>()
+    try! arrs.push(["alpha{1}", "x{1}"])
+    try! arrs.push(["beta{2}", "y{2}"])
+    var names = Vector<String>()
+    try! names.push("alpha{1}")
+    try! names.push("beta{2}")
+    Fixture(toks: move toks, outers: move outers, pairs: move pairs, opairs: move opairs, somes: move somes,
+            arrs: move arrs, names: move names)
+}
+
+func format_arg_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        print("{}", f.toks[i % 2].text)
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+
+func format_arg_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        print("{}", f.pairs[i % 2].0)
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+
+func format_arg_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        print("{}", f.somes[i % 2]!)
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+
+func format_arg_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        print("{}", f.arrs[i % 2][0])
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+
+func format_arg_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        print("{}", f.outers[i % 2].inner.text)
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+func main() {
+    let f = fixture()
+    print("format arg getfield {}", format_arg_getfield(&f, 2, true))
+    print("format arg gettuple {}", format_arg_gettuple(&f, 2, true))
+    print("format arg getforce {}", format_arg_getforce(&f, 2, true))
+    print("format arg getindex {}", format_arg_getindex(&f, 2, true))
+    print("format arg getfield2 {}", format_arg_getfield2(&f, 2, true))
+}

@@ -1,0 +1,452 @@
+// probe: stated
+// about: an owned temporary a builtin comparison borrows is dropped by its statement, at every comparison position (SL-825)
+// stage 0: leaks the temporary (SL:hazards S23)
+// speeds: -O0 -O2
+// leaks: none
+// prints: eq left interp 3
+// prints: eq left coalesced 3
+// prints: eq left propagated 3
+// prints: eq right interp 3
+// prints: eq right coalesced 3
+// prints: eq right propagated 3
+// prints: ne interp 3
+// prints: ne coalesced 3
+// prints: ne propagated 3
+// prints: lt interp 6
+// prints: lt coalesced 6
+// prints: lt propagated 6
+// prints: and rhs interp 3
+// prints: and rhs coalesced 3
+// prints: and rhs propagated 3
+// prints: or first interp 3
+// prints: or first coalesced 3
+// prints: or first propagated 3
+// prints: if cond interp 3
+// prints: if cond coalesced 3
+// prints: if cond propagated 3
+// prints: while cond interp 6
+// prints: while cond coalesced 6
+// prints: while cond propagated 6
+// Each cell evaluates its comparison six times; the lane runs every build
+// under `leaks --atExit` and requires no leak. The operand is a value the
+// lowering makes as an operand rather than a place: an interpolation, a
+// `??` and a propagated `try`.
+
+struct Tok {
+    text: String,
+    alias: String?,
+    kind: Int
+}
+
+struct Outer {
+    inner: Tok,
+    tag: String
+}
+
+struct Fixture {
+    toks: Vector<Tok>,
+    outers: Vector<Outer>,
+    pairs: Vector<(String, Int)>,
+    opairs: Vector<(String?, Int)>,
+    somes: Vector<String?>,
+    arrs: Vector<[String; 2]>,
+    names: Vector<String>
+}
+
+extension Fixture: NoCopy {}
+
+enum Bad {
+    case Nope
+}
+
+func make(n: Int) -> String {
+    "alpha{n}"
+}
+
+func nothing(n: Int) -> String? {
+    if n < 0 {
+        return "neg{n}"
+    }
+    None
+}
+
+func fallible(n: Int) -> Result<String, Bad> {
+    if n < 0 {
+        return Bad.Nope
+    }
+    return "alpha{n}"
+}
+
+func mk_tok(n: Int) -> Tok {
+    Tok(text: "alpha{n}", alias: "al{n}", kind: n)
+}
+
+func mk_outer(n: Int) -> Outer {
+    Outer(inner: mk_tok(n), tag: "t{n}")
+}
+
+func consume(s: String) -> Int {
+    s.len()
+}
+
+func fixture() -> Fixture {
+    var toks = Vector<Tok>()
+    try! toks.push(Tok(text: "alpha{1}", alias: "al{1}", kind: 1))
+    try! toks.push(Tok(text: "beta{2}", alias: None, kind: 2))
+    var outers = Vector<Outer>()
+    try! outers.push(mk_outer(1))
+    try! outers.push(mk_outer(2))
+    var pairs = Vector<(String, Int)>()
+    try! pairs.push(("alpha{1}", 1))
+    try! pairs.push(("beta{2}", 2))
+    var opairs = Vector<(String?, Int)>()
+    try! opairs.push(("oa{1}", 1))
+    try! opairs.push((None, 2))
+    var somes = Vector<String?>()
+    try! somes.push("alpha{1}")
+    try! somes.push("beta{2}")
+    var arrs = Vector<[String; 2]>()
+    try! arrs.push(["alpha{1}", "x{1}"])
+    try! arrs.push(["beta{2}", "y{2}"])
+    var names = Vector<String>()
+    try! names.push("alpha{1}")
+    try! names.push("beta{2}")
+    Fixture(toks: move toks, outers: move outers, pairs: move pairs, opairs: move opairs, somes: move somes,
+            arrs: move arrs, names: move names)
+}
+
+func eq_left_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha{i % 2}" == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_left_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (nothing(i) ?? make(i % 2)) == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_left_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (try fallible(i % 2)) == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func eq_right_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha1" == "alpha{i % 2}"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_right_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha1" == (nothing(i) ?? make(i % 2))
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_right_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha1" == (try fallible(i % 2))
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func ne_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha{i % 2}" != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func ne_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (nothing(i) ?? make(i % 2)) != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func ne_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (try fallible(i % 2)) != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func lt_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha{i % 2}" < "beta"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func lt_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (nothing(i) ?? make(i % 2)) < "beta"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func lt_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (try fallible(i % 2)) < "beta"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func and_rhs_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = flag && "alpha{i % 2}" == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func and_rhs_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = flag && (nothing(i) ?? make(i % 2)) == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func and_rhs_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = flag && (try fallible(i % 2)) == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func or_first_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha{i % 2}" == "alpha1" || not flag
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func or_first_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (nothing(i) ?? make(i % 2)) == "alpha1" || not flag
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func or_first_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = (try fallible(i % 2)) == "alpha1" || not flag
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func if_cond_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if "alpha{i % 2}" == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func if_cond_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if (nothing(i) ?? make(i % 2)) == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func if_cond_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if (try fallible(i % 2)) == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    return hits
+}
+
+func while_cond_interp(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        while "alpha{i % 2}" == "never" {
+            hits = hits + 100
+        }
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+
+func while_cond_coalesced(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        while (nothing(i) ?? make(i % 2)) == "never" {
+            hits = hits + 100
+        }
+        hits = hits + 1
+        i = i + 1
+    }
+    hits
+}
+
+func while_cond_propagated(f: &Fixture, n: Int, flag: Bool) -> Result<Int, Bad> {
+    var hits = 0
+    var i = 0
+    while i < n {
+        while (try fallible(i % 2)) == "never" {
+            hits = hits + 100
+        }
+        hits = hits + 1
+        i = i + 1
+    }
+    return hits
+}
+func main() {
+    let f = fixture()
+    print("eq left interp {}", eq_left_interp(&f, 6, true))
+    print("eq left coalesced {}", eq_left_coalesced(&f, 6, true))
+    print("eq left propagated {}", (try! eq_left_propagated(&f, 6, true)))
+    print("eq right interp {}", eq_right_interp(&f, 6, true))
+    print("eq right coalesced {}", eq_right_coalesced(&f, 6, true))
+    print("eq right propagated {}", (try! eq_right_propagated(&f, 6, true)))
+    print("ne interp {}", ne_interp(&f, 6, true))
+    print("ne coalesced {}", ne_coalesced(&f, 6, true))
+    print("ne propagated {}", (try! ne_propagated(&f, 6, true)))
+    print("lt interp {}", lt_interp(&f, 6, true))
+    print("lt coalesced {}", lt_coalesced(&f, 6, true))
+    print("lt propagated {}", (try! lt_propagated(&f, 6, true)))
+    print("and rhs interp {}", and_rhs_interp(&f, 6, true))
+    print("and rhs coalesced {}", and_rhs_coalesced(&f, 6, true))
+    print("and rhs propagated {}", (try! and_rhs_propagated(&f, 6, true)))
+    print("or first interp {}", or_first_interp(&f, 6, true))
+    print("or first coalesced {}", or_first_coalesced(&f, 6, true))
+    print("or first propagated {}", (try! or_first_propagated(&f, 6, true)))
+    print("if cond interp {}", if_cond_interp(&f, 6, true))
+    print("if cond coalesced {}", if_cond_coalesced(&f, 6, true))
+    print("if cond propagated {}", (try! if_cond_propagated(&f, 6, true)))
+    print("while cond interp {}", while_cond_interp(&f, 6, true))
+    print("while cond coalesced {}", while_cond_coalesced(&f, 6, true))
+    print("while cond propagated {}", (try! while_cond_propagated(&f, 6, true)))
+}

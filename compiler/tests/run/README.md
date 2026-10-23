@@ -604,11 +604,15 @@ among its prose:
 - `// undefined: SYMBOL`, a symbol its link must leave undefined;
 - `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, under
   its plain or quoted name;
-- `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere.
+- `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere;
+- `// leaks: none`, on a `stated` probe: each build, once it prints its
+  lines, is run again under macOS's `leaks --atExit`, which must report
+  `0 leaks`. Off macOS there is no such checker, and the lane says so: the
+  probe counts under "leak check is skipped off macOS" instead.
 
 | kind | sawc2 at each speed | its lines |
 |---|---|---|
-| `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0 | `prints`, at least one |
+| `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0, and with `// leaks: none` leaks nothing | `prints`, at least one; at most one `leaks` |
 | `panics` | builds it with nothing printed; the binary prints exactly its `// prints:` lines on standard output and one `panic at` line holding the `// panics:` text on standard error, followed by nothing or by the panic path's task dump (its header, then each task's line and its frame lines), and aborts | `prints`, any number; one `panics` |
 | `link-fails` | does not link it: the build prints no refusal, and the linker names every `// undefined:` symbol undefined | `undefined`, at least one |
 | `custom` | whatever its function in `run_lane.py`'s `CUSTOM_PROBES` checks | `probe` and `about` alone |
@@ -620,7 +624,11 @@ omits` lines. A probe states one kind, and a line
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are six.
+says why the check cannot be header lines. There are seven.
+`leaks_check_sees_a_leak.saw` drops its only pointer to a block it got from
+C's `malloc`, and the leak check must report exactly that one block: a
+checker that sees nothing would pass every `// leaks: none` probe, and the
+block's size is the allocator's, which no header can state.
 `executable_path.saw` is built by sawc2 and run by a bare name that a
 renamed relative symbolic link on `PATH` resolves, from another working
 directory, and must print its binary's real path, which no header can state:

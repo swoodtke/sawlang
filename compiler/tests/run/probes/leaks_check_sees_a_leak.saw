@@ -1,0 +1,19 @@
+// probe: custom
+// about: the leak check reports a block nothing frees, so a `// leaks: none` probe it passes is clean (SL-825)
+// Allocates one 64-byte block through C's `malloc` and drops the only pointer
+// to it: `leaks --atExit` must report exactly that one leak. A checker that
+// reports none here would pass every `// leaks: none` probe whatever it does.
+
+extern "C" {
+    func malloc(size: UInt) -> UnsafePointer<UInt8>
+}
+
+func lose(n: UInt) unsafe -> Int {
+    let p = malloc(n)
+    p[0] = 7
+    p[0] as Int
+}
+
+func main() {
+    print("{}", lose(64))
+}

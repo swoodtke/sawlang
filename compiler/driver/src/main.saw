@@ -181,8 +181,7 @@ func driver_build(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     if triple.len() > 0 && not target_known(triple) {
-        // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {triple}")
-        print("sawc2: unknown target {}", triple)
+        print("sawc2: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
     if freestanding || runtime {
@@ -433,8 +432,7 @@ func driver_write_file(path: String, text: String) -> Bool {
     var file = match created {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot create {path}: {e}")
-            print("sawc2: cannot create {}: {}", path, e)
+            print("sawc2: cannot create {path}: {e}")
             return false
         }
     }
@@ -442,8 +440,7 @@ func driver_write_file(path: String, text: String) -> Bool {
     let data = match converted {
         case Ok(bytes) -> bytes,
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot write {path}: {e}")
-            print("sawc2: cannot write {}: {}", path, e)
+            print("sawc2: cannot write {path}: {e}")
             return false
         }
     }
@@ -456,8 +453,7 @@ func driver_write_file(path: String, text: String) -> Bool {
             }
         },
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot write {path}: {e}")
-            print("sawc2: cannot write {}: {}", path, e)
+            print("sawc2: cannot write {path}: {e}")
             return false
         }
     }
@@ -466,8 +462,7 @@ func driver_write_file(path: String, text: String) -> Bool {
     match closed {
         case Ok(_) -> true,
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot close {path}: {e}")
-            print("sawc2: cannot close {}: {}", path, e)
+            print("sawc2: cannot close {path}: {e}")
             false
         }
     }
@@ -544,8 +539,7 @@ func driver_clang(command: String, program: String, arguments: &Vector<String>) 
             code as Int
         },
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("{command}: cannot run clang: {e}")
-            print("{}: cannot run clang: {}", command, e)
+            print("{command}: cannot run clang: {e}")
             1
         }
     }
@@ -613,8 +607,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
         }
     }
     if not target_known(host) {
-        // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {host}")
-        print("sawc2: unknown target {}", host)
+        print("sawc2: unknown target {host}")
         return DRIVER_EXIT_USAGE
     }
     let speed = driver_runtime_speed()
@@ -718,9 +711,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     print("clang {}", program)
     k = 0
     while k < objects.len() {
-        // Stage 0 workaround (SL:hazards S23): canonical: print("object {}", objects.get(k) ?? "")
-        let object = objects.get(k) ?? ""
-        print("object {}", object)
+        print("object {}", objects.get(k) ?? "")
         k = k + 1
     }
     0
@@ -782,9 +773,7 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
             j = j + 1
         }
         if not listed {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", definers.get(k) ?? "", seam)
-            let by = definers.get(k) ?? ""
-            print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", by, seam)
+            print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", definers.get(k) ?? "", seam)
             holds = false
         }
         k = k + 1
@@ -898,8 +887,7 @@ func driver_mono(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     if not target_known(triple) {
-        // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {triple}")
-        print("sawc2: unknown target {}", triple)
+        print("sawc2: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
     let options = MonoOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, notes: notes)
@@ -991,8 +979,7 @@ func driver_coro(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     if not target_known(triple) {
-        // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: unknown target {triple}")
-        print("sawc2: unknown target {}", triple)
+        print("sawc2: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
     let options = CoroOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, lowered: lowered,
@@ -1410,8 +1397,7 @@ func driver_read_source(path: String) -> String? {
     var file = match opened {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot open {path}: {e}")
-            print("sawc2: cannot open {}: {}", path, e)
+            print("sawc2: cannot open {path}: {e}")
             return None
         }
     }
@@ -1419,8 +1405,7 @@ func driver_read_source(path: String) -> String? {
     let data = match read {
         case Ok(bytes) -> move bytes,
         case Err(e) -> {
-            // Stage 0 workaround (SL:hazards S23): canonical: print("sawc2: cannot read {path}: {e}")
-            print("sawc2: cannot read {}: {}", path, e)
+            print("sawc2: cannot read {path}: {e}")
             return None
         }
     }

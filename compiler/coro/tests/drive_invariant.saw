@@ -108,9 +108,7 @@ func main() {
     assert(not coro.blocked && coro.diags.len() == 0, "the golden is refused: run from the repository root")
     var target = coro.mono.target_for("arm64-apple-darwin")
     coro_lower_for(&var coro, &var target)
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the golden's lowering is not clean: {}", coro.problems.get(0) ?? "")
-    let first = coro.problems.get(0) ?? ""
-    assert(coro.problems.len() == 0, "the golden's lowering is not clean: {}", first)
+    assert(coro.problems.len() == 0, "the golden's lowering is not clean: {}", coro.problems.get(0) ?? "")
     let k = drive_of(&coro, "label")
     assert(k >= 0, "the golden has no drive of `label`")
     assert(unlink_first_slot_write(&var coro, k), "the drive of `label` writes no frame slot in its block")

@@ -1,0 +1,10 @@
+// The program compiler/mir/tests/verify_operator_operands.saw lowers, then
+// edits: `differs` compares a `String` with an interpolation, which a builtin
+// operator borrows, so the lowering passes the operator a shared reference to
+// the temporary and drops the temporary at the statement's end. The edit
+// moves the temporary into the operator instead, which the MIR verifier must
+// refuse.
+
+func differs(n: Int, s: &String) -> Bool {
+    s != "x{n}"
+}

@@ -289,7 +289,10 @@ whose docstring lists them), each covered by a golden case:
 receiver, a shared `&` argument) moves into a temporary the position borrows
 and its statement drops (`moved_to_temporary`; borrowck's
 `move.use-after.format-argument` and its siblings, SL-643); an owned
-temporary is handed off, and until the instruction that takes it is emitted
+temporary where its position borrows the value (a comparison operand, a
+format argument, an interpolation) is passed by shared reference and dropped
+by its statement, whatever made it, an interpolation, a `??` or a `try`
+among them (SL-825); an owned temporary is otherwise handed off, and until the instruction that takes it is emitted
 its scope holds it, so an exit a later operand takes (a propagating `try`, a
 `return` or `break` in a value `if`) drops it: the funnel and `snapshot` hold
 it, the assignment or call that consumes it relinquishes it, and a construct
@@ -366,7 +369,7 @@ through a reference to stay a reported move.
 | `borrow let e = L { }` on a conditional lend `L`, and `match L { }` | the window opened with no absent edge into `e`'s Optional of the lent reference, its presence local; the body or the arms switch on it and reach its payload through the reference (`payload_place`); every edge out closes the window where `e` is `Some`. A whole-value read of `e`, a reference to it, a whole assignment and `e.is_some()` are refused (Refusals) | conditional_places |
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
 | `borrow v[i]` where its position borrows (a format argument, an interpolation, a comparison operand, a scrutinee, a field read), whole or projected | the place accessor's window, read in place and closed at the statement's end, or once a part is copied out; never a getitem's copy | borrow_reads |
-| `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |
+| `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=`; a getitem's copy that a field, element, payload or index is read through is a value at its place's root, which its scope drops (SL-825) | windows, order |
 | `p[i] = x`, `*p = x` through a raw pointer | a placement store, no drop of the slot first (spec, Placement writes); a fixed array's `a[i] = x` and a `&var` referent's `r = x` drop what they held | placements |
 | `x.f(...)` on a `borrows` accessor | a window on a place, or a copy out of it | windows |
 | a receiver or a subscript's base reached through a `borrows` accessor, chained, through `!`, under a key or an index | its windows opened in receiver position, before the arguments, keys or index (`open_receiver_windows`); a plain receiver's borrow taken just before the call; an assignment's target opens its windows after the right side, a compound one's too | receivers |
@@ -705,6 +708,15 @@ nowhere, and checks, from the MIR alone:
   `compiler/mir/tests/verify_copies.saw` lowers `inject/copies.saw`, finds its
   `String` copy and its tag cast clean, then edits its move of a NoCopy value
   into a copy and requires the one report;
+- no builtin binary operator's operand moves an owning value (SL-825): an
+  operator borrows what it reads and owns neither operand, so an owning
+  value moved into one is dropped by nothing. The operand funnel passes an
+  owned temporary at a borrowing position by shared reference and leaves it
+  to its statement's scope (`transfer`), so the check catches a lowering that
+  bypasses it. The unit program `compiler/mir/tests/verify_operator_operands.saw`
+  lowers `inject/operator_operands.saw`, finds its interpolation passed to
+  `!=` by reference clean, then edits the operator's operand to move the
+  interpolation's temporary itself and requires the one report;
 - every `take(_L, _F)` names a whole local and a take flag, and is typed
   `(&var T, &var Bool)`;
 - every proven payload `(P as CASE)` a statement or terminator uses (read,

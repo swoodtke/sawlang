@@ -1,0 +1,604 @@
+// probe: stated
+// about: a getitem's element copy that a part is read through is dropped, wherever the part is read (SL-825)
+// stage 0: leaks the element copy (SL:hazards S23)
+// speeds: -O0 -O2
+// leaks: none
+// prints: arith len getfield 39
+// prints: arith len gettuple 39
+// prints: arith len getforce 39
+// prints: arith len getindex 39
+// prints: arith len getfield2 42
+// prints: coalesce default getfield 33
+// prints: coalesce default gettuple 33
+// prints: coalesce default getforce 33
+// prints: coalesce default getindex 33
+// prints: coalesce default getfield2 36
+// prints: match getfield 3
+// prints: match gettuple 3
+// prints: match getforce 3
+// prints: match getindex 3
+// prints: match getfield2 3
+// prints: receiver getfield 33
+// prints: receiver gettuple 33
+// prints: receiver getforce 33
+// prints: receiver getindex 33
+// prints: receiver getfield2 36
+// prints: segment getfield 45
+// prints: segment gettuple 45
+// prints: segment getforce 45
+// prints: segment getindex 45
+// prints: segment getfield2 48
+// prints: value arg getfield 33
+// prints: value arg gettuple 33
+// prints: value arg getforce 33
+// prints: value arg getindex 33
+// prints: value arg getfield2 36
+// prints: let bound getfield 33
+// prints: let bound gettuple 33
+// prints: let bound getforce 33
+// prints: let bound getindex 33
+// prints: let bound getfield2 36
+// prints: coalesce left getfield 21
+// prints: coalesce left gettuple 21
+// prints: arith int getfield 15
+// Each cell reads a part through a getitem six times over two elements, as
+// an operand, a `??` operand, a scrutinee, a receiver, a segment, an
+// argument and a binding; the lane runs every build under `leaks --atExit`
+// and requires no leak.
+
+struct Tok {
+    text: String,
+    alias: String?,
+    kind: Int
+}
+
+struct Outer {
+    inner: Tok,
+    tag: String
+}
+
+struct Fixture {
+    toks: Vector<Tok>,
+    outers: Vector<Outer>,
+    pairs: Vector<(String, Int)>,
+    opairs: Vector<(String?, Int)>,
+    somes: Vector<String?>,
+    arrs: Vector<[String; 2]>,
+    names: Vector<String>
+}
+
+extension Fixture: NoCopy {}
+
+enum Bad {
+    case Nope
+}
+
+func make(n: Int) -> String {
+    "alpha{n}"
+}
+
+func nothing(n: Int) -> String? {
+    if n < 0 {
+        return "neg{n}"
+    }
+    None
+}
+
+func fallible(n: Int) -> Result<String, Bad> {
+    if n < 0 {
+        return Bad.Nope
+    }
+    return "alpha{n}"
+}
+
+func mk_tok(n: Int) -> Tok {
+    Tok(text: "alpha{n}", alias: "al{n}", kind: n)
+}
+
+func mk_outer(n: Int) -> Outer {
+    Outer(inner: mk_tok(n), tag: "t{n}")
+}
+
+func consume(s: String) -> Int {
+    s.len()
+}
+
+func fixture() -> Fixture {
+    var toks = Vector<Tok>()
+    try! toks.push(Tok(text: "alpha{1}", alias: "al{1}", kind: 1))
+    try! toks.push(Tok(text: "beta{2}", alias: None, kind: 2))
+    var outers = Vector<Outer>()
+    try! outers.push(mk_outer(1))
+    try! outers.push(mk_outer(2))
+    var pairs = Vector<(String, Int)>()
+    try! pairs.push(("alpha{1}", 1))
+    try! pairs.push(("beta{2}", 2))
+    var opairs = Vector<(String?, Int)>()
+    try! opairs.push(("oa{1}", 1))
+    try! opairs.push((None, 2))
+    var somes = Vector<String?>()
+    try! somes.push("alpha{1}")
+    try! somes.push("beta{2}")
+    var arrs = Vector<[String; 2]>()
+    try! arrs.push(["alpha{1}", "x{1}"])
+    try! arrs.push(["beta{2}", "y{2}"])
+    var names = Vector<String>()
+    try! names.push("alpha{1}")
+    try! names.push("beta{2}")
+    Fixture(toks: move toks, outers: move outers, pairs: move pairs, opairs: move opairs, somes: move somes,
+            arrs: move arrs, names: move names)
+}
+
+func arith_len_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.toks[i % 2].text.len() + 1
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func arith_len_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.pairs[i % 2].0.len() + 1
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func arith_len_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.somes[i % 2]!.len() + 1
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func arith_len_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.arrs[i % 2][0].len() + 1
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func arith_len_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.outers[i % 2].inner.text.len() + 1
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_default_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = nothing(i) ?? f.toks[i % 2].text
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_default_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = nothing(i) ?? f.pairs[i % 2].0
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_default_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = nothing(i) ?? f.somes[i % 2]!
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_default_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = nothing(i) ?? f.arrs[i % 2][0]
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_default_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = nothing(i) ?? f.outers[i % 2].inner.text
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func match_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let m = match f.toks[i % 2].text {
+            case "alpha1" -> 1,
+            case _ -> 0
+        }
+        hits = hits + m
+        i = i + 1
+    }
+    hits
+}
+
+func match_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let m = match f.pairs[i % 2].0 {
+            case "alpha1" -> 1,
+            case _ -> 0
+        }
+        hits = hits + m
+        i = i + 1
+    }
+    hits
+}
+
+func match_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let m = match f.somes[i % 2]! {
+            case "alpha1" -> 1,
+            case _ -> 0
+        }
+        hits = hits + m
+        i = i + 1
+    }
+    hits
+}
+
+func match_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let m = match f.arrs[i % 2][0] {
+            case "alpha1" -> 1,
+            case _ -> 0
+        }
+        hits = hits + m
+        i = i + 1
+    }
+    hits
+}
+
+func match_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let m = match f.outers[i % 2].inner.text {
+            case "alpha1" -> 1,
+            case _ -> 0
+        }
+        hits = hits + m
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.toks[i % 2].text.len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.pairs[i % 2].0.len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.somes[i % 2]!.len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.arrs[i % 2][0].len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.outers[i % 2].inner.text.len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func segment_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{f.toks[i % 2].text}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{f.pairs[i % 2].0}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{f.somes[i % 2]!}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{f.arrs[i % 2][0]}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{f.outers[i % 2].inner.text}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func value_arg_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = consume(f.toks[i % 2].text)
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func value_arg_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = consume(f.pairs[i % 2].0)
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func value_arg_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = consume(f.somes[i % 2]!)
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func value_arg_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = consume(f.arrs[i % 2][0])
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func value_arg_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = consume(f.outers[i % 2].inner.text)
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.toks[i % 2].text
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.pairs[i % 2].0
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_getforce(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.somes[i % 2]!
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_getindex(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.arrs[i % 2][0]
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_getfield2(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.outers[i % 2].inner.text
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_left_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.toks[i % 2].alias ?? "dflt"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func coalesce_left_gettuple(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.opairs[i % 2].0 ?? "dflt"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func arith_int_getfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.toks[i % 2].kind + 1
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+func main() {
+    let f = fixture()
+    print("arith len getfield {}", arith_len_getfield(&f, 6, true))
+    print("arith len gettuple {}", arith_len_gettuple(&f, 6, true))
+    print("arith len getforce {}", arith_len_getforce(&f, 6, true))
+    print("arith len getindex {}", arith_len_getindex(&f, 6, true))
+    print("arith len getfield2 {}", arith_len_getfield2(&f, 6, true))
+    print("coalesce default getfield {}", coalesce_default_getfield(&f, 6, true))
+    print("coalesce default gettuple {}", coalesce_default_gettuple(&f, 6, true))
+    print("coalesce default getforce {}", coalesce_default_getforce(&f, 6, true))
+    print("coalesce default getindex {}", coalesce_default_getindex(&f, 6, true))
+    print("coalesce default getfield2 {}", coalesce_default_getfield2(&f, 6, true))
+    print("match getfield {}", match_getfield(&f, 6, true))
+    print("match gettuple {}", match_gettuple(&f, 6, true))
+    print("match getforce {}", match_getforce(&f, 6, true))
+    print("match getindex {}", match_getindex(&f, 6, true))
+    print("match getfield2 {}", match_getfield2(&f, 6, true))
+    print("receiver getfield {}", receiver_getfield(&f, 6, true))
+    print("receiver gettuple {}", receiver_gettuple(&f, 6, true))
+    print("receiver getforce {}", receiver_getforce(&f, 6, true))
+    print("receiver getindex {}", receiver_getindex(&f, 6, true))
+    print("receiver getfield2 {}", receiver_getfield2(&f, 6, true))
+    print("segment getfield {}", segment_getfield(&f, 6, true))
+    print("segment gettuple {}", segment_gettuple(&f, 6, true))
+    print("segment getforce {}", segment_getforce(&f, 6, true))
+    print("segment getindex {}", segment_getindex(&f, 6, true))
+    print("segment getfield2 {}", segment_getfield2(&f, 6, true))
+    print("value arg getfield {}", value_arg_getfield(&f, 6, true))
+    print("value arg gettuple {}", value_arg_gettuple(&f, 6, true))
+    print("value arg getforce {}", value_arg_getforce(&f, 6, true))
+    print("value arg getindex {}", value_arg_getindex(&f, 6, true))
+    print("value arg getfield2 {}", value_arg_getfield2(&f, 6, true))
+    print("let bound getfield {}", let_bound_getfield(&f, 6, true))
+    print("let bound gettuple {}", let_bound_gettuple(&f, 6, true))
+    print("let bound getforce {}", let_bound_getforce(&f, 6, true))
+    print("let bound getindex {}", let_bound_getindex(&f, 6, true))
+    print("let bound getfield2 {}", let_bound_getfield2(&f, 6, true))
+    print("coalesce left getfield {}", coalesce_left_getfield(&f, 6, true))
+    print("coalesce left gettuple {}", coalesce_left_gettuple(&f, 6, true))
+    print("arith int getfield {}", arith_int_getfield(&f, 6, true))
+}

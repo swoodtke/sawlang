@@ -1763,6 +1763,13 @@ extension MirProgram {
     func transfer(&var self, v: MirVal, u: TcUse, e: Int, want_ref: Bool) -> Int {
         if v.operand >= 0 {
             if not want_ref {
+                // A position that borrows takes no ownership, so an owned
+                // temporary it reads is the statement's to drop, and the
+                // position reads it by reference (spec, Temporaries).
+                if u == TcUse.Borrow && self.borrows_owned_temporary(v.operand) {
+                    let p = self.as_place(v, e)
+                    return self.borrowed_value(p)
+                }
                 return v.operand
             }
             let p = self.as_place(v, e)
@@ -1806,6 +1813,23 @@ extension MirProgram {
                 self.op_copy(p)
             }
         }
+    }
+
+    // Whether operand `o` moves a temporary that `borrowed_value` passes by
+    // shared reference: an owning value no reference or function value is.
+    // A type naming a type parameter owns something only per instantiation,
+    // and a builtin operator over one reads its value, so it stays a move.
+    func borrows_owned_temporary(&var self, o: Int) -> Bool {
+        let info = self.operands[o]
+        if info.kind != MirOperandKind.Move {
+            return false
+        }
+        let l = self.bare_local(info.place)
+        if l < 0 || self.local(l).kind != MirLocalKind.Temp {
+            return false
+        }
+        let kind = self.tc.kind_of(info.ty)
+        kind != TcKind.Func && not self.tc.mentions_param(info.ty) && self.owns(info.ty)
     }
 
     // A value a builtin operator, a format argument or an interpolated
@@ -2597,9 +2621,10 @@ extension MirProgram {
             self.push_step(&var steps, MIR_STEP_INDEX, e, -1, l, t)
             return
         }
+        // A getitem's copy is a value like any other a place projects, owned
+        // by its scope even when the plan reads only a part of it.
         if c.role == TcRole.Getitem {
-            let p = self.getitem(e, &c)
-            self.push_root(&var steps, e, p, true)
+            self.value_root(e, &var steps)
             return
         }
         self.prepare_base(base, &var steps)

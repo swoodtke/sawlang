@@ -32,6 +32,8 @@
 //     each in its one shape;
 //   - no operand copies an owning value whose type does not copy silently,
 //     which would give a NoCopy or ExplicitCopy value a second owner;
+//   - no builtin binary operator's operand moves an owning value, which the
+//     operator would read and nothing would drop;
 //   - every proven payload `(P as CASE)` is used only where every path has
 //     switched `P` to CASE with nothing writing `P` since, which is what lets
 //     a construct drop its leftovers when its body completes.
@@ -148,6 +150,9 @@ extension MirProgram {
                         if not self.reads_tag(&rv, o) {
                             self.check_copy(f, b, o, &var out)
                         }
+                        if rv.kind == MirRvalueKind.Binary {
+                            self.check_operator_operand(f, b, o, &var out)
+                        }
                         k = k + 1
                     }
                 }
@@ -218,6 +223,31 @@ extension MirProgram {
         try! text.append("`, which does not copy silently, `")
         self.append_place(&var text, operand.place)
         try! text.append("`: the copy is a second owner of the value")
+        self.problem(f, &var out, text.build())
+    }
+
+    // Operand `o` of a builtin binary operator in block `b`: an operator
+    // borrows its operands and owns neither, so an owning value moved into
+    // one is dropped by nothing (pinned by
+    // compiler/mir/tests/verify_operator_operands.saw). A type naming a type
+    // parameter is judged per instantiation, where a builtin operator's
+    // operand is a primitive.
+    func check_operator_operand(&var self, f: Int, b: Int, o: Int, out: &var Vector<String>) {
+        if o < 0 || o >= self.operands.len() {
+            return
+        }
+        let operand = self.operands[o]
+        if operand.kind != MirOperandKind.Move || self.tc.mentions_param(operand.ty) || not self.owns(operand.ty) {
+            return
+        }
+        var text = StringBuilder()
+        try! text.append("bb")
+        try! text.append(b)
+        try! text.append(" moves a `")
+        try! text.append(self.tc.type_text(operand.ty))
+        try! text.append("` into a builtin operator, `")
+        self.append_place(&var text, operand.place)
+        try! text.append("`: the operator owns nothing it reads, so nothing drops it")
         self.problem(f, &var out, text.build())
     }
 

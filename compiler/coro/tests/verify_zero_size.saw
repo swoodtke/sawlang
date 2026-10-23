@@ -59,9 +59,7 @@ func lowered() -> CoroProgram {
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
     var target = coro.mono.target_for("arm64-apple-darwin")
     coro_lower_for(&var coro, &var target)
-    // Stage 0 workaround (SL:hazards S23): canonical: assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
-    let first = coro.problems.get(0) ?? ""
-    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", first)
+    assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     move coro
 }
 

@@ -1,0 +1,425 @@
+// probe: stated
+// about: a call result, a literal, a whole getitem and a field read through a call stay clean at a comparison and a binding (SL-825)
+// stage 0: leaks a call result and a subscript it compares or interpolates (SL:hazards S23)
+// speeds: -O0 -O2
+// leaks: none
+// prints: eq left call 3
+// prints: eq left literal 6
+// prints: eq left getitem 3
+// prints: eq left callfield 3
+// prints: ne call 3
+// prints: ne literal 0
+// prints: ne getitem 3
+// prints: ne callfield 3
+// prints: if cond call 3
+// prints: if cond literal 6
+// prints: if cond getitem 3
+// prints: if cond callfield 3
+// prints: receiver call 36
+// prints: receiver literal 36
+// prints: receiver getitem 33
+// prints: receiver callfield 36
+// prints: segment call 48
+// prints: segment literal 48
+// prints: segment getitem 45
+// prints: segment callfield 48
+// prints: let bound call 36
+// prints: let bound literal 36
+// prints: let bound getitem 33
+// prints: let bound callfield 36
+// The controls of the SL-825 matrix, each six evaluations under
+// `leaks --atExit`: the shapes that never leaked, held so they stay so.
+
+struct Tok {
+    text: String,
+    alias: String?,
+    kind: Int
+}
+
+struct Outer {
+    inner: Tok,
+    tag: String
+}
+
+struct Fixture {
+    toks: Vector<Tok>,
+    outers: Vector<Outer>,
+    pairs: Vector<(String, Int)>,
+    opairs: Vector<(String?, Int)>,
+    somes: Vector<String?>,
+    arrs: Vector<[String; 2]>,
+    names: Vector<String>
+}
+
+extension Fixture: NoCopy {}
+
+enum Bad {
+    case Nope
+}
+
+func make(n: Int) -> String {
+    "alpha{n}"
+}
+
+func nothing(n: Int) -> String? {
+    if n < 0 {
+        return "neg{n}"
+    }
+    None
+}
+
+func fallible(n: Int) -> Result<String, Bad> {
+    if n < 0 {
+        return Bad.Nope
+    }
+    return "alpha{n}"
+}
+
+func mk_tok(n: Int) -> Tok {
+    Tok(text: "alpha{n}", alias: "al{n}", kind: n)
+}
+
+func mk_outer(n: Int) -> Outer {
+    Outer(inner: mk_tok(n), tag: "t{n}")
+}
+
+func consume(s: String) -> Int {
+    s.len()
+}
+
+func fixture() -> Fixture {
+    var toks = Vector<Tok>()
+    try! toks.push(Tok(text: "alpha{1}", alias: "al{1}", kind: 1))
+    try! toks.push(Tok(text: "beta{2}", alias: None, kind: 2))
+    var outers = Vector<Outer>()
+    try! outers.push(mk_outer(1))
+    try! outers.push(mk_outer(2))
+    var pairs = Vector<(String, Int)>()
+    try! pairs.push(("alpha{1}", 1))
+    try! pairs.push(("beta{2}", 2))
+    var opairs = Vector<(String?, Int)>()
+    try! opairs.push(("oa{1}", 1))
+    try! opairs.push((None, 2))
+    var somes = Vector<String?>()
+    try! somes.push("alpha{1}")
+    try! somes.push("beta{2}")
+    var arrs = Vector<[String; 2]>()
+    try! arrs.push(["alpha{1}", "x{1}"])
+    try! arrs.push(["beta{2}", "y{2}"])
+    var names = Vector<String>()
+    try! names.push("alpha{1}")
+    try! names.push("beta{2}")
+    Fixture(toks: move toks, outers: move outers, pairs: move pairs, opairs: move opairs, somes: move somes,
+            arrs: move arrs, names: move names)
+}
+
+func eq_left_call(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = make(i % 2) == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_left_literal(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha1" == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_left_getitem(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = f.names[i % 2] == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func eq_left_callfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = mk_tok(i % 2).text == "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func ne_call(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = make(i % 2) != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func ne_literal(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = "alpha1" != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func ne_getitem(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = f.names[i % 2] != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func ne_callfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let b = mk_tok(i % 2).text != "alpha1"
+        if b {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func if_cond_call(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if make(i % 2) == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func if_cond_literal(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if "alpha1" == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func if_cond_getitem(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if f.names[i % 2] == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func if_cond_callfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        if mk_tok(i % 2).text == "alpha1" {
+            hits = hits + 1
+        }
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_call(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = make(i % 2).len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_literal(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = "alpha1".len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_getitem(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = f.names[i % 2].len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func receiver_callfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let got = mk_tok(i % 2).text.len()
+        hits = hits + got
+        i = i + 1
+    }
+    hits
+}
+
+func segment_call(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{make(i % 2)}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_literal(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{"alpha1"}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_getitem(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{f.names[i % 2]}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func segment_callfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "[{mk_tok(i % 2).text}]"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_call(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = make(i % 2)
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_literal(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = "alpha1"
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_getitem(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = f.names[i % 2]
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+
+func let_bound_callfield(f: &Fixture, n: Int, flag: Bool) -> Int {
+    var hits = 0
+    var i = 0
+    while i < n {
+        let s = mk_tok(i % 2).text
+        hits = hits + s.len()
+        i = i + 1
+    }
+    hits
+}
+func main() {
+    let f = fixture()
+    print("eq left call {}", eq_left_call(&f, 6, true))
+    print("eq left literal {}", eq_left_literal(&f, 6, true))
+    print("eq left getitem {}", eq_left_getitem(&f, 6, true))
+    print("eq left callfield {}", eq_left_callfield(&f, 6, true))
+    print("ne call {}", ne_call(&f, 6, true))
+    print("ne literal {}", ne_literal(&f, 6, true))
+    print("ne getitem {}", ne_getitem(&f, 6, true))
+    print("ne callfield {}", ne_callfield(&f, 6, true))
+    print("if cond call {}", if_cond_call(&f, 6, true))
+    print("if cond literal {}", if_cond_literal(&f, 6, true))
+    print("if cond getitem {}", if_cond_getitem(&f, 6, true))
+    print("if cond callfield {}", if_cond_callfield(&f, 6, true))
+    print("receiver call {}", receiver_call(&f, 6, true))
+    print("receiver literal {}", receiver_literal(&f, 6, true))
+    print("receiver getitem {}", receiver_getitem(&f, 6, true))
+    print("receiver callfield {}", receiver_callfield(&f, 6, true))
+    print("segment call {}", segment_call(&f, 6, true))
+    print("segment literal {}", segment_literal(&f, 6, true))
+    print("segment getitem {}", segment_getitem(&f, 6, true))
+    print("segment callfield {}", segment_callfield(&f, 6, true))
+    print("let bound call {}", let_bound_call(&f, 6, true))
+    print("let bound literal {}", let_bound_literal(&f, 6, true))
+    print("let bound getitem {}", let_bound_getitem(&f, 6, true))
+    print("let bound callfield {}", let_bound_callfield(&f, 6, true))
+}
