@@ -1,0 +1,20 @@
+// refuses: slice.not-yet at 19:32
+// a `borrow var` binding of a conditional lend assigned whole: its presence
+// is the accessor's lend, not storage the body may write (SL-835)
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func clear(r: &var Row) {
+    borrow var e = r.find(1) { e = None }
+}

@@ -75,6 +75,10 @@ extension DropsProgram {
                 try! out.append(" record _")
                 try! out.append(w.record)
             }
+            if w.presence >= 0 {
+                try! out.append(" presence _")
+                try! out.append(w.presence)
+            }
             try! out.append(";\n")
             k = k + 1
         }

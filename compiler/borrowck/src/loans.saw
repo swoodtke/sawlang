@@ -1961,8 +1961,10 @@ extension BorrowckProgram {
     }
 
     // The loans created on some path to each block's entry, and the windows
-    // open there: a window opens on its open's present edge and closes at its
-    // close. An epilogue starts with the windows its prologue left open.
+    // open there, over the edges `window_open_after` describes, so a window
+    // holds no loan on its absent edge or on the `None` edge of a switch on
+    // its presence. An epilogue starts with the windows its prologue left
+    // open.
     func loan_forward(&self, f: Int, facts: &var BorrowckLoans) {
         let info = self.mir.funcs[f]
         let lw = facts.loan_words
@@ -2013,18 +2015,22 @@ extension BorrowckProgram {
                     self.step_forward(&facts, f, b, i, &var created, &var open)
                     i = i + 1
                 }
-                let block = self.mir.blocks[info.block_first + b]
                 let succ = self.mir.init_successors(f, b)
+                let switched = self.mir.switched_local(f, b)
                 var j = 0
                 while j < succ.len() {
                     let target = succ[j]
                     j = j + 1
                     var leaving = borrowck_slice(&open, 0, ww)
-                    if block.term == MirTermKind.Call {
-                        let c = self.mir.calls[block.call]
-                        if c.kind == MirCallKind.WindowOpen && c.window >= 0 && target == c.next {
-                            borrowck_set_bit(&var leaving, 0, c.window)
+                    var w = 0
+                    while w < info.window_count {
+                        let was = borrowck_bit(&open, 0, w)
+                        if self.mir.window_open_after(f, b, target, w, was, switched) {
+                            borrowck_set_bit(&var leaving, 0, w)
+                        } else {
+                            borrowck_clear_bit(&var leaving, 0, w)
                         }
+                        w = w + 1
                     }
                     var grew = false
                     if not facts.reached[target] {

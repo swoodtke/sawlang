@@ -1277,7 +1277,7 @@ extension MirProgram {
         let r = self.temp_of(held)
         let held_place = self.place_local(r)
         self.own_temp(held_place)
-        var p = self.realize_all(&steps)
+        var p = self.realize_optional(&steps)
         let skip = self.new_block()
         var window = -1
         if lending {
@@ -1316,7 +1316,7 @@ extension MirProgram {
                 self.switch_cases(p, &cases, &targets, -1)
                 self.enter(present)
                 let payload = self.place_arg(p, 0)
-                p = self.project(p, MirProjKind.Payload, some, 0, payload)
+                p = self.payload_place(p, some, 0, payload)
             }
             let holder = self.place_type(p)
             let member = self.member_step(hop, holder)
@@ -2666,6 +2666,19 @@ extension MirProgram {
     // The place a plan's first `n` steps name, each window opened as the
     // plan reaches it and registered with the innermost scope.
     public func realize(&var self, steps: &Vector<MirStep>, n: Int) -> Int {
+        self.realize_as(&steps, n, false)
+    }
+
+    // The place a whole plan names, which may be a conditional lend's
+    // optional place, held as an Optional of the lent reference, for a
+    // construct that switches on it and reads its payload through
+    // `payload_place`.
+    public func realize_optional(&var self, steps: &Vector<MirStep>) -> Int {
+        let n = steps.len()
+        self.realize_as(&steps, n, true)
+    }
+
+    func realize_as(&var self, steps: &Vector<MirStep>, n: Int, optional_ok: Bool) -> Int {
         var p = -1
         var optional_ref = false
         var k = 0
@@ -2674,6 +2687,9 @@ extension MirProgram {
             k = k + 1
             if s.kind == MIR_STEP_ROOT {
                 p = s.place
+                // Stage 0 workaround (SL:hazards S4): canonical: optional_ref = self.lent_optional(self.place_type(p))
+                let root_type = self.place_type(p)
+                optional_ref = self.lent_optional(root_type)
             } else if p < 0 {
                 return self.dead_place(s.ty)
             } else if s.kind == MIR_STEP_FIELD {
@@ -2708,10 +2724,41 @@ extension MirProgram {
                 self.missing(s.node, "a setitem stands inside a place it does not end")
             }
         }
-        if optional_ref {
+        if optional_ref && not optional_ok {
             self.not_yet(steps[n - 1].node, "a conditional lend's place read other than through `!`")
         }
         p
+    }
+
+    // Whether `t` is an Optional of a reference: a conditional lend's
+    // optional place, a shape only the lowering makes, since no source type
+    // holds a reference in a generic argument.
+    func lent_optional(&self, t: Int) -> Bool {
+        // Stage 0 workaround (SL:hazards S4): canonical: self.tc.is_optional(t) && self.tc.is_reference(self.tc.arg_of(t, 0))
+        if not self.tc.is_optional(t) {
+            return false
+        }
+        let payload = self.tc.arg_of(t, 0)
+        self.tc.is_reference(payload)
+    }
+
+    // THE OPTIONAL-PLACE PAYLOAD FUNNEL: the place `(parent as decl).index`,
+    // of type `t`. A conditional lend's optional place is an Optional of the
+    // lent reference, so its payload is read through that reference.
+    // ENTRY POINTS (payload_place):
+    //     optional_switch
+    //     cached_place
+    //     lower_chain_write
+    func payload_place(&var self, parent: Int, decl: Int, index: Int, t: Int) -> Int {
+        let pt = self.place_type(parent)
+        if not self.lent_optional(pt) {
+            return self.project(parent, MirProjKind.Payload, decl, index, t)
+        }
+        let r = self.tc.arg_of(pt, 0)
+        let lent = self.project(parent, MirProjKind.Payload, decl, index, r)
+        // Stage 0 workaround (SL:hazards S4): canonical: self.project(lent, MirProjKind.Deref, -1, -1, self.tc.referent(r))
+        let referent = self.tc.referent(r)
+        self.project(lent, MirProjKind.Deref, -1, -1, referent)
     }
 
     // The type of what an open window lends: its reference's referent.
@@ -4624,7 +4671,7 @@ extension MirProgram {
         }
         var steps = Vector<MirStep>()
         self.prepare_base(subject, &var steps)
-        var p = self.realize_all(&steps)
+        var p = self.realize_optional(&steps)
         if steps.len() == 1 && steps[0].fresh {
             self.own_temp(p)
         }
@@ -4645,7 +4692,7 @@ extension MirProgram {
         try! targets.push(absent)
         self.switch_cases(p, &cases, &targets, -1)
         let payload_type = self.tc.arg_of(t, 0)
-        let payload = self.project(p, MirProjKind.Payload, some, 0, payload_type)
+        let payload = self.payload_place(p, some, 0, payload_type)
         MirTest(present: present, absent: absent, payload: payload, window: -1, whole: p, consuming: consuming)
     }
 
@@ -5130,9 +5177,8 @@ extension MirProgram {
                 let target = self.tc.res.first_node_child(c)
                 let place = self.tc.res.last_node_child(c)
                 if self.conditional_lend(place) {
-                    self.not_yet(place, "a `borrow` block binding a conditional lend")
-                    self.close_scope()
-                    return
+                    self.bind_optional_place(target, place)
+                    continue
                 }
                 let p = self.place_of(place)
                 let _ = self.bind_one(target, p)
@@ -5142,6 +5188,24 @@ extension MirProgram {
         }
         self.lower_block(block, dest)
         self.close_scope()
+    }
+
+    // A `borrow` binding `target` of conditional lend `place`: the window
+    // opens with no absent edge, and the binding names the Optional of the
+    // lent reference it gives, which the body unwraps. The innermost scope
+    // closes the window where that Optional is `Some` (`close_window`).
+    func bind_optional_place(&var self, target: Int, place: Int) -> Int {
+        let opened = self.open_lend(place, false)
+        self.set_window_presence(opened.window, opened.dest)
+        self.scope_window(opened.window)
+        if target >= 0 && self.tc.expr_use[target] != TcUse.Test {
+            let leaf = self.tc.res.first_leaf(target)
+            let m = self.tc.node_module(target)
+            let name = self.leaf_name(m, leaf)
+            self.name_local(opened.dest, name, leaf)
+            self.bind_leaf(leaf, opened.dest)
+        }
+        opened.dest
     }
 
     // `try e catch { … }`: `e`'s Result switched on. The `Ok` payload is the
@@ -5624,13 +5688,11 @@ extension MirProgram {
     func lower_match(&var self, e: Int, dest: Int) {
         let scrutinee = self.tc.res.first_node_child(e)
         let depth = self.open_scope()
-        if self.conditional_lend(scrutinee) {
-            self.not_yet(scrutinee, "a `match` on a conditional lend")
-            self.close_scope()
-            return
-        }
         var root = -1
-        if self.tc.expr_use[scrutinee] == TcUse.Move {
+        if self.conditional_lend(scrutinee) {
+            let lent = self.bind_optional_place(-1, scrutinee)
+            root = self.place_local(lent)
+        } else if self.tc.expr_use[scrutinee] == TcUse.Move {
             let p = self.place_of(scrutinee)
             if self.through_reference_deref(p) {
                 root = p
@@ -5645,7 +5707,7 @@ extension MirProgram {
         } else {
             var steps = Vector<MirStep>()
             self.prepare_base(scrutinee, &var steps)
-            root = self.realize_all(&steps)
+            root = self.realize_optional(&steps)
             if steps.len() == 1 && steps[0].fresh {
                 self.own_temp(root)
             }
@@ -5853,7 +5915,7 @@ extension MirProgram {
         if decl < 0 {
             p = self.project(parent, MirProjKind.Tuple, -1, index, t)
         } else {
-            p = self.project(parent, MirProjKind.Payload, decl, index, t)
+            p = self.payload_place(parent, decl, index, t)
         }
         try! state.cache_parent.push(parent)
         try! state.cache_decl.push(decl)

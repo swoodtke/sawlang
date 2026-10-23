@@ -151,7 +151,7 @@ extension LlEmitter {
     // spells `ll_symbol` directly, since it defines the plain function, which
     // exists only where there is no frame.
     // ENTRY POINTS:
-    //     call_term
+    //     item_call
     //     call_item_direct
     //     closure_into
     //     string_comparison

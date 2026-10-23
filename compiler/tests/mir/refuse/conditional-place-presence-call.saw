@@ -1,0 +1,21 @@
+// refuses: slice.not-yet at 20:32
+// `is_some()` on a `borrow` binding of a conditional lend: the builtin takes
+// a reference to a `T?`, which no storage holds; `if let _ = e` is the
+// presence test that lowers (SL-835)
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func present(r: &var Row) -> Bool {
+    borrow let e = r.find(1) { e.is_some() }
+}

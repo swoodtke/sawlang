@@ -52,7 +52,7 @@ function it is written in. A function reads:
 ```
 fn NAME -> RESULT {
     let _K: TYPE;  // NOTE
-    window wK: ACCESSOR MODE [conditional] [sync];
+    window wK: ACCESSOR MODE [conditional] [sync] [record _K] [presence _K];
 
     bbK: {
         STATEMENT;
@@ -83,8 +83,13 @@ fn NAME -> RESULT {
   one for a window.
 - Each window the function opens: its accessor's target text, `shared` or
   `exclusive`, `conditional` for a lend that may be absent, `sync` for a
-  `borrows(sync)` accessor, and `record _K` for the local holding its
-  accessor's state record.
+  `borrows(sync)` accessor, `record _K` for the local holding its
+  accessor's state record, and `presence _K` for the local holding the
+  Optional of the lent reference a conditional open with no absent edge
+  writes, which a `borrow` binding names: the window is open exactly where it
+  is `Some`, so the window's close switches on it first, and a switch on it
+  opens the window on its `Some` edge and closes it on its `None` edge for
+  every window dataflow (`window_open_after`, SL-686).
 - Blocks are numbered from 0 in each function, `bb0` the entry. Types print in
   their canonical spelling (`compiler/tests/typecheck/README.md`, "Type
   spellings").
@@ -358,6 +363,7 @@ through a reference to stay a reported move.
 | `a?.b = v`, `a?.b op= v`, their `borrow var` forms, and one as an optional binding's subject | the head's subexpressions, the value into a temporary, the head's borrows, then a discriminant switch per `?.` hop, the absent edges skipping the write, the old value of an owning field dropped before it; a conditional lend's head opens its window after the value, writes on the present edge and closes it there; as a subject, `Void?` into a temporary, `Some(())` where it wrote, switched on | optional_assigns |
 | `match` | a decision tree; a literal test settles a later row testing the same value, however spelled (`pattern_value`), sends one testing a different value down its false edge, and sends a range down both | matches, run match_literal_values |
 | `borrow let x = p { }` | a window, closed on every edge out of the body | windows |
+| `borrow let e = L { }` on a conditional lend `L`, and `match L { }` | the window opened with no absent edge into `e`'s Optional of the lent reference, its presence local; the body or the arms switch on it and reach its payload through the reference (`payload_place`); every edge out closes the window where `e` is `Some`. A whole-value read of `e`, a reference to it, a whole assignment and `e.is_some()` are refused (Refusals) | conditional_places |
 | `borrow var p += v`, `borrow p` | a window closed at the statement's end, or once the value is copied out | windows |
 | `borrow v[i]` where its position borrows (a format argument, an interpolation, a comparison operand, a scrutinee, a field read), whole or projected | the place accessor's window, read in place and closed at the statement's end, or once a part is copied out; never a getitem's copy | borrow_reads |
 | `v[i]` read, `v[i] = x` | a derived getitem or setitem around the place accessor's window, or the declared `[]`, `[]=` | windows, order |
@@ -576,14 +582,13 @@ slice.not-yet at L:C`.
 
 | refused | fixture |
 |---|---|
-| a `match` on a conditional lend | conditional-match |
-| a `borrow` block binding a conditional lend | conditional-block |
+| a conditional lend's optional place, a `borrow` binding of one, read as a whole value, passed by reference, assigned whole, or the receiver of `is_some()`: no `T?` holds it to copy, point at or write (SL-835) | conditional-place-copy, conditional-place-reference, conditional-place-assign, conditional-place-presence-call |
 | a `for` over an iterator held in a place | iterator-place |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
 | a `lend` in the body of a `match`, `if let` or `while let` that holds leftovers: the scrutinee is partly moved out across the `lend`, and the accessor's state record cannot carry a partial value yet (`record_flag_slots` in `compiler/mir/src/split.saw`) | leftover-lend |
-| a `for` head that lends a place; a `borrows` call lending a slice outside a `for` head, or a borrowing struct there, which typecheck's `borrowing.containment` refuses first; a `borrows` function called with no receiver; a setitem derived from a conditional lend; a conditional lend's place read other than through `!` | none: nothing in the slice reaches them |
+| a `for` head that lends a place; a `borrows` call lending a slice outside a `for` head, or a borrowing struct there, which typecheck's `borrowing.containment` refuses first; a `borrows` function called with no receiver; a setitem derived from a conditional lend | none: nothing in the slice reaches them |
 
 Two constructs typecheck refuses before lowering, as `transfer.partial-move`,
 are invariants here rather than refusals: a `consumes` body moving out of

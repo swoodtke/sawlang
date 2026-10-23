@@ -1,0 +1,91 @@
+// probe: stated
+// about: `if borrow` and `else if borrow` over each std conditional lend and a user one, present and absent (SL-686)
+// stage 0: cannot parse a `borrow` unwrap
+// speeds: -O0 -O2
+// prints: prologue 0
+// prints: present 6
+// prints: epilogue 0
+// prints: prologue 1
+// prints: absent
+// prints: prologue 1
+// prints: prologue 0
+// prints: else if 16
+// prints: epilogue 0
+// prints: bag 16 visits 2
+// prints: vector 12
+// prints: vector absent
+// prints: vector [1, 12, 3]
+// prints: map 1
+// prints: map absent
+// prints: lock 6
+// prints: unlocked true
+// prints: held absent
+// prints: unique 4
+// prints: shared
+// prints: arc 4
+// The present path opens the window and runs the epilogue once; the absent
+// path runs the prologue alone, with no window and no epilogue, so the user
+// accessor's `visits` counts the present paths only. `try_lock` on a held lock
+// answers absent without spinning, and `Arc.unique` on a shared handle too.
+import std.spinlock.{SpinLock}
+
+struct Bag {
+    a: Int,
+    visits: Int
+}
+
+extension Bag {
+    func at(&var self, i: Int) borrows -> &var Int? {
+        print("prologue {}", i)
+        if i != 0 {
+            return None
+        }
+        lend self.a
+        print("epilogue {}", i)
+        self.visits = self.visits + 1
+    }
+}
+
+func held(l: &SpinLock<Int>, same: &SpinLock<Int>) {
+    borrow var n = l.lock() {
+        if borrow var m = same.try_lock() {
+            print("held present {}", m)
+        } else {
+            print("held absent")
+        }
+        n += 0
+    }
+}
+
+func main() {
+    var b = Bag(a: 5, visits: 0)
+    if borrow var x = b.at(0) { x += 1; print("present {}", x) } else { print("absent") }
+    if borrow let x = b.at(1) { print("present {}", x) } else { print("absent") }
+    if borrow let x = b.at(1) {
+        print("present {}", x)
+    } else if borrow var y = b.at(0) {
+        y += 10
+        print("else if {}", y)
+    }
+    print("bag {} visits {}", b.a, b.visits)
+
+    var v: Vector<Int> = [1, 2, 3]
+    if borrow var e = v.find(1) { e += 10; print("vector {}", e) } else { print("vector absent") }
+    if borrow let e = v.find(3) { print("vector {}", e) } else { print("vector absent") }
+    print("vector [{}, {}, {}]", v[0], v[1], v[2])
+
+    let m: Map<String, Int> = {"a": 1}
+    if borrow let x = m.find(&"a") { print("map {}", x) } else { print("map absent") }
+    if borrow let x = m.find(&"z") { print("map {}", x) } else { print("map absent") }
+
+    let lock = SpinLock<Int>(value: 5)
+    if borrow var n = lock.try_lock() { n += 1; print("lock {}", n) } else { print("lock absent") }
+    print("unlocked {}", not lock.is_locked())
+    held(&lock, &lock)
+
+    var arc = try! Arc<Int>(value: 3)
+    if borrow var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }
+    let other = arc
+    if borrow var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }
+    print("arc {}", borrow other.value())
+}

@@ -1898,7 +1898,7 @@ func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vec
     if width == 0 || info.block_count == 0 {
         return
     }
-    let entry = coro_verify_window_entry(&coro, b.body)
+    let entry = coro_verify_window_entry(&coro, &b)
     var k = 0
     var bb = 0
     while bb < info.block_count {
@@ -1936,12 +1936,13 @@ func coro_verify_windows(coro: &var CoroProgram, b: &CoroBeforeBody, slots: &Vec
     }
 }
 
-// What each window of function `f` may be at each block's entry, solved to a
+// What each window of body `b` may be at each block's entry, solved to a
 // fixpoint over the body as it is: `entry[b * window_count + w]`, of
-// CORO_WINDOW_OPEN and CORO_WINDOW_CLOSED, 0 at a block no path reaches. A
-// window opens on its open's present edge and closes at its close; an
-// accessor's epilogue starts with the windows its prologue carries open.
-func coro_verify_window_entry(coro: &CoroProgram, f: Int) -> Vector<Int> {
+// CORO_WINDOW_OPEN and CORO_WINDOW_CLOSED, 0 at a block no path reaches,
+// over the edges `window_open_after` describes; an accessor's epilogue starts
+// with the windows its prologue carries open.
+func coro_verify_window_entry(coro: &CoroProgram, b: &CoroBeforeBody) -> Vector<Int> {
+    let f = b.body
     let info = coro.mono.dp.bc.mir.funcs[f]
     let width = info.window_count
     var entry = Vector<Int>()
@@ -1979,25 +1980,7 @@ func coro_verify_window_entry(coro: &CoroProgram, f: Int) -> Vector<Int> {
             if not coro_verify_window_reached(&entry, bb, width) {
                 continue
             }
-            let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-            var state = Vector<Int>()
-            k = 0
-            while k < width {
-                try! state.push(entry[bb * width + k])
-                k = k + 1
-            }
-            var opened = -1
-            var absent = -1
-            if block.term == MirTermKind.Call {
-                let c = coro.mono.dp.bc.mir.calls[block.call]
-                if c.kind == MirCallKind.WindowClose && c.window >= 0 && c.window < width {
-                    state[c.window] = CORO_WINDOW_CLOSED
-                }
-                if c.kind == MirCallKind.WindowOpen && c.window >= 0 && c.window < width {
-                    opened = c.window
-                    absent = c.absent
-                }
-            }
+            let switched = coro_verify_switched_local(&coro, &b, bb)
             let succ = coro.mono.dp.bc.mir.init_successors(f, bb)
             var j = 0
             while j < succ.len() {
@@ -2005,9 +1988,13 @@ func coro_verify_window_entry(coro: &CoroProgram, f: Int) -> Vector<Int> {
                 j = j + 1
                 k = 0
                 while k < width {
-                    var bits = state[k]
-                    if k == opened && target != absent {
-                        bits = CORO_WINDOW_OPEN
+                    let was = entry[bb * width + k]
+                    var bits = 0
+                    if (was & CORO_WINDOW_OPEN) != 0 {
+                        bits |= coro_window_bit(coro.mono.dp.bc.mir.window_open_after(f, bb, target, k, true, switched))
+                    }
+                    if (was & CORO_WINDOW_CLOSED) != 0 {
+                        bits |= coro_window_bit(coro.mono.dp.bc.mir.window_open_after(f, bb, target, k, false, switched))
                     }
                     let at = target * width + k
                     if (entry[at] | bits) != entry[at] {
@@ -2020,6 +2007,32 @@ func coro_verify_window_entry(coro: &CoroProgram, f: Int) -> Vector<Int> {
         }
     }
     move entry
+}
+
+func coro_window_bit(open: Bool) -> Int {
+    if open { CORO_WINDOW_OPEN } else { CORO_WINDOW_CLOSED }
+}
+
+// The local block `bb` of body `b` switches on whole, as the body named it
+// before lowering, which moves a frame value's places into the frame; or -1.
+func coro_verify_switched_local(coro: &CoroProgram, b: &CoroBeforeBody, bb: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[b.body]
+    let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
+    if block.term != MirTermKind.Switch || block.switch_kind != MirSwitchKind.Discriminant || block.place < 0 {
+        return -1
+    }
+    var k = 0
+    while k < b.place_count {
+        if coro.before.place_ids[b.place_first + k] == block.place {
+            let pre = coro.before.places[b.place_first + k]
+            if pre.count != 0 {
+                return -1
+            }
+            return pre.local
+        }
+        k = k + 1
+    }
+    coro.mono.dp.bc.mir.switched_local(b.body, bb)
 }
 
 // Rule 2 at each suspension point in block `here` of framed body `b`: the
@@ -3118,7 +3131,7 @@ func coro_verify_record_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &C
         return
     }
     let values = coro_verify_local_values(&coro, &b, &fv)
-    let entry = coro_verify_window_entry(&coro, b.body)
+    let entry = coro_verify_window_entry(&coro, &b)
     var bb = 0
     while bb < info.block_count {
         let here = bb

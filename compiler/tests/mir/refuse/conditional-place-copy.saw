@@ -1,0 +1,24 @@
+// refuses: slice.not-yet at 21:21
+// a `borrow` binding of a conditional lend read as a whole value: the
+// binding names an Optional of the lent reference, and no `T?` exists to copy
+// (SL-835)
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func present(r: &var Row) -> Bool {
+    borrow let e = r.find(1) {
+        let whole = e
+        whole.is_some()
+    }
+}

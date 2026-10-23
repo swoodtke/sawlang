@@ -1,0 +1,31 @@
+// refuses: loan.window-root at 26:9
+// inside a `borrow` block binding a conditional lend, the root is charged
+// until the body has discriminated the binding: the window may be open
+// (SL-686)
+
+struct Row {
+    cells: [Int; 4],
+    resets: Int
+}
+
+extension Row {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+
+    func reset(&var self) {
+        self.resets = self.resets + 1
+    }
+}
+
+func touch(r: &var Row) {
+    borrow var e = r.find(0) {
+        r.reset()
+        if borrow var x = e {
+            x += 1
+        }
+    }
+}

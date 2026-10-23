@@ -1,0 +1,96 @@
+// probe: stated
+// about: owning and NoCopy payloads of a conditional lend through each form, each dropped once (SL-686)
+// stage 0: cannot parse a `borrow` unwrap or block
+// speeds: -O0 -O2
+// prints: absent
+// prints: block 20
+// prints: match 30
+// prints: direct 40
+// prints: forced 40
+// prints: drop 99
+// prints: absent write
+// prints: drop 3
+// prints: strings bb c
+// prints: lengths 1 1
+// prints: lists 2 0
+// prints: drop 4
+// prints: drop 40
+// prints: drop 2
+// Every form reaches the element where it sits, so a NoCopy payload works at
+// each, and nothing is copied or dropped by the borrow: each `Res` drops once,
+// with its vector. An absent `?` write still evaluates its right side, which
+// drops at the statement's end, once.
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Slot {
+    res: Res
+}
+
+extension Slot: NoCopy {}
+
+func main() {
+    var v = Vector<Res>()
+    try! v.push(Res(id: 1))
+    try! v.push(Res(id: 2))
+    if borrow var r = v.find(0) { r.id = 10 } else { print("absent") }
+    if borrow let r = v.find(5) { print("present {}", r.id) } else { print("absent") }
+    borrow var e = v.find(0) {
+        if borrow var r = e {
+            r.id = 20
+            print("block {}", r.id)
+        }
+    }
+    let m = borrow var e = v.find(0) {
+        match e {
+            case Some(borrow var r) -> {
+                r.id = 30
+                r.id
+            },
+            case None -> -1
+        }
+    }
+    print("match {}", m)
+    let d = match v.find(0) {
+        case Some(borrow var r) -> {
+            r.id = 40
+            r.id
+        },
+        case None -> -1
+    }
+    print("direct {}", d)
+    print("forced {}", borrow v.find(0)!.id)
+    var slots = Vector<Slot>()
+    try! slots.push(Slot(res: Res(id: 3)))
+    borrow var slots.find(7)?.res = Res(id: 99)
+    borrow var w = slots.find(7) {
+        if borrow var s = w { s.res = Res(id: 98) } else { print("absent write") }
+    }
+    borrow var slots.find(0)?.res = Res(id: 4)
+
+    var s: Vector<String> = ["a", "b"]
+    if borrow var t = s.find(1) { t = "bb" }
+    if borrow var t = s.find(9) { t = "z" } else { try! s.push("c") }
+    print("strings {} {}", borrow s.find(1)!, borrow s.find(2)!)
+    let first = borrow s.find(0)
+    let missing = borrow s.find(9)
+    print("lengths {} {}", (first ?? "xyz").len(), (missing ?? "q").len())
+
+    var lists = Vector<Vector<Int>>()
+    try! lists.push([1, 2])
+    let sizes = borrow let e = lists.find(0) {
+        match e {
+            case Some(borrow let l) -> l.len(),
+            case None -> 0
+        }
+    }
+    let none = borrow let e = lists.find(4) { if let _ = e { 1 } else { 0 } }
+    print("lists {} {}", sizes, none)
+}

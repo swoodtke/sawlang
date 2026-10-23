@@ -23,6 +23,8 @@
 //     (initialisation.saw);
 //   - an accessor's epilogue carries exactly its prologue's carried windows,
 //     in order;
+//   - a window's presence local is the Optional its conditional open writes,
+//     an open with no absent edge;
 //   - every cycle the entry reaches passes an op-budget point;
 //   - every statement and terminator the entry reaches carries a source node;
 //   - no operand moves an owning value out through a reference, but for an
@@ -877,6 +879,12 @@ extension MirProgram {
             return
         }
         let w = self.windows[info.window_first + c.window]
+        if w.presence >= 0 && c.kind == MirCallKind.WindowOpen {
+            let named = c.dest >= 0 && self.places[c.dest].local == w.presence && self.places[c.dest].count == 0
+            if not w.conditional || c.absent >= 0 || not named {
+                self.problem(f, &var out, "a window's presence local is not the Optional its conditional open, with no absent edge, writes")
+            }
+        }
         let a = self.accessor_of[c.target]
         if a < 0 {
             if c.half >= 0 || w.record >= 0 {
@@ -1671,9 +1679,8 @@ extension MirProgram {
     }
 
     // Each window's openness at each block's entry, `block * window_count +
-    // window`: a may-dataflow in which a window's open opens it on its
-    // present edge and its close closes it. An epilogue resumes with the
-    // windows its prologue left open.
+    // window`: a may-dataflow over the edges `window_open_after` describes.
+    // An epilogue resumes with the windows its prologue left open.
     func window_entries(&self, f: Int) -> Vector<Bool> {
         let info = self.funcs[f]
         let width = info.window_count
@@ -1727,26 +1734,18 @@ extension MirProgram {
                     k = k + 1
                 }
                 let block = self.blocks[info.block_first + b]
-                if block.term == MirTermKind.Call {
-                    let c = self.calls[block.call]
-                    if c.kind == MirCallKind.WindowClose && c.window >= 0 && c.window < width {
-                        state[c.window] = false
-                    }
-                }
                 var succ = Vector<Int>()
                 var opened = -1
                 self.successors(f, &block, &var succ, &var opened)
+                let switched = self.switched_local(f, b)
                 var j = 0
                 while j < succ.len() {
                     let target = succ[j]
                     var next = Vector<Bool>()
                     k = 0
                     while k < width {
-                        try! next.push(state[k])
+                        try! next.push(self.window_open_after(f, b, target, k, state[k], switched))
                         k = k + 1
-                    }
-                    if opened >= 0 && opened < width && not (block.term == MirTermKind.Call && self.calls[block.call].absent == target) {
-                        next[opened] = true
                     }
                     var grew = false
                     if not reached[target] {

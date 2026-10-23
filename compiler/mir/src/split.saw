@@ -901,6 +901,9 @@ extension MirProgram {
                 if copy.record >= 0 {
                     copy.record = local_map[copy.record]
                 }
+                if copy.presence >= 0 {
+                    copy.presence = local_map[copy.presence]
+                }
                 try! self.windows.push(copy)
                 window_map[k] = id
             }

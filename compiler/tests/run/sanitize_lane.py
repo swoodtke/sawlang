@@ -45,10 +45,11 @@ OUT = os.path.join(REPO, ".build", "sanitize-lane")
 # The run lane's programs that hold a `blocking` extern's offload.
 OFFLOAD_PINS = ("offload_cancel_waits_for_the_call", "offload_start_refused", "suspend_blocking_main")
 PROBE_KINDS = ("stated", "panics")
-# The probes the lane builds: the thread and coroutine probes, and the generic
+# The probes the lane builds: the thread and coroutine probes, the generic
 # defaults, where a value computed at another width than its slot's is a stack
-# overwrite (SL-830).
-PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw")
+# overwrite (SL-830), and the conditional lends, whose lent reference is read
+# out of an Optional only on the present path (SL-686).
+PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw", "conditional_lend_*.saw")
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60

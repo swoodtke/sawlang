@@ -403,6 +403,11 @@ public struct MirWindow {
     record: Int
     // Whether this program lowers the accessor's body, so its halves exist.
     lowered: Bool
+    // A conditional window opened with no absent edge whose lent Optional
+    // reference a `borrow` binding names: the local holding it, or -1. The
+    // window is open exactly where it is `Some`, so its close tests it and a
+    // switch on it closes the window on its `None` edge (`window_open_after`).
+    presence: Int
 }
 
 // A `borrows` accessor lowered as two halves around its `lend`

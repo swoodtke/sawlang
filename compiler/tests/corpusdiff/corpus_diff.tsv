@@ -36,7 +36,7 @@ any_vector_shapes.saw	pass	-	-
 arc_basic.saw	pass	-	-
 arc_forward.saw	pass	-	member.through-pointer: `peek` is a method of the payload, `arc_forward.Counter`, not of the `Arc`; reach it with `borrow ac.value().peek(…)`
 arc_forward_generic_method.saw	pass	-	member.through-pointer: `apply` is a method of the payload, `arc_forward_generic_method.Cell<Int>`, not of the `Arc`; reach it with `borrow cell.value().apply(…)`
-arc_with_unique.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+arc_with_unique.saw	pass	-	-
 arithmetic_no_false_overflow.saw	pass	-	-
 array_const_index_out_of_bounds.saw	wrong	accepts a refusal test	array index 5 out of range for array with 3 elements
 array_dynamic_compound_oob_panic.saw	pass	-	-
@@ -318,8 +318,8 @@ conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	pass	-	effect.
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 conformance/K118_every_shape_splits_hoists_or_refuses.saw	pass	-	-
 conformance/K11_spinlock_captured.saw	pass	-	transfer.implicit-copy: the closure captures `lock` by value, and `std.spinlock.SpinLock<Int>` is NoCopy, which does not copy silently: capture it with `[move lock]`, or copy it into a local the closu
-conformance/K123_every_window_opener_reads_the_declared_mode.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
-conformance/K127_conditional_lend_modes.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+conformance/K123_every_window_opener_reads_the_declared_mode.saw	pass	-	-
+conformance/K127_conditional_lend_modes.saw	pass	-	-
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
 conformance/K133_window_spans_a_suspension.saw	pass	-	-
@@ -338,6 +338,7 @@ conformance/K16_spawn_shared_ref_param_composes.saw	pass	-	-
 conformance/K17_spawn_ref_param_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root:
 conformance/K18_spawn_ref_param_after_group.saw	pass	-	loan.drop-while-borrowed: cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (at 30:9 against 29:9), and destruction is LIFO — `buf` is torn down BEFORE `
 conformance/K19_spawn_ref_param_mt_send.saw	stage0-wrong	annotated SL-788	sawc2 meets its directives
+conformance/K204_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 conformance/K20_spawn_ref_param_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 33:30 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
@@ -371,7 +372,6 @@ conformance/K50_mt_group_progresses_while_main_sleeps.saw	pass	-	-
 conformance/K51_mt_group_progresses_while_main_yields.saw	pass	-	-
 conformance/K52_mt_two_workers_deliver_before_join.saw	pass	-	-
 conformance/K53_driven_for_range_iteration_count.saw	pass	-	-
-conformance/K204_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 conformance/K54_mt_task_receives_what_main_sent.saw	pass	-	-
 conformance/K55_mt_same_group_send_and_receive.saw	pass	-	-
 conformance/K56_thread_engine_feeds_main_receive.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
@@ -596,11 +596,11 @@ conformance/X09_disjoint_tuple_elements.saw	pass	-	-
 conformance/X14_push_inside_with_ref.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 10:13 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is re
 conformance/X17_nested_windows.saw	pass	-	-
 conformance/X33_two_windows_implicitcopy_struct.saw	pass	-	loan.window-root: `r` is borrowed exclusively here while the window of `at` opened at 27:11 holds `r` exclusively until the window closes; a window charges its whole root until it closes, so the root
-conformance/X54_nested_call_ref_overlaps_sibling.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call, at 31:10; a call's references are checked together over the whole c
 conformance/X42_nested_call_ref_disjoint_roots.saw	pass	-	-
 conformance/X43_nested_ref_disjoint_from_every_sibling.saw	pass	-	-
 conformance/X44_nested_call_ref_overlaps_receiver.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also the receiver of the call at 31:11, which borrows it for the whole call; bind the nested call's result in a st
 conformance/X45_two_nested_calls_one_root.saw	pass	-	loan.nested-call: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call, at 28:24; a call's references are checked together over the whole cal
+conformance/X54_nested_call_ref_overlaps_sibling.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call, at 31:10; a call's references are checked together over the whole c
 conformance/Z03_replace_container_during_window.saw	pass	-	loan.nested-call: `v` is borrowed by a nested call in this argument list while `v` is also accessed by reference in the same call, at 17:10; a call's references are checked together over the whole cal
 conformance/Z05_escaping_closure_env_deinit_once.saw	pass	-	-
 conformance/k74_refused_at_the_call.saw	pass	-	type.bound: `k74_refused_at_the_call.Cell` does not satisfy `Sync`, the bound on `T` of `fan_arc`
@@ -1735,8 +1735,8 @@ json_map_keys.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not def
 json_number_edges.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
 json_roundtrip_struct.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
 json_structural_reject.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
-json_value_accessors.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
-json_value_deinit.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+json_value_accessors.saw	pass	-	-
+json_value_deinit.saw	pass	-	-
 json_value_escape_grid.saw	pass	-	-
 json_value_number_edges.saw	pass	-	-
 json_value_object_deinit_no_copy.saw	pass	-	-
@@ -1768,10 +1768,10 @@ labeled_overload_same_type_diff_label.saw	pass	-	-
 lend_accessor_local.saw	pass	-	mutability.immutable: this assignment writes `borrow var c.slot()`, and `c.slot()` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
 lend_rooted_in_receiver.saw	pass	-	-
 lend_var_both_branches.saw	pass	-	-
-lend_var_conditional_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+lend_var_conditional_lend.saw	pass	-	-
 lend_var_coro_and_forwarding.saw	pass	-	-
 lend_var_epilogue_nesting.saw	pass	-	-
-lend_var_generic_and_match.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+lend_var_generic_and_match.saw	pass	-	-
 lend_var_two_specializations.saw	pass	-	-
 lends_is_contextual.saw	refused	typecheck call.not-callable	this is called, and it is a `Int`, not a function
 let_refutable_pattern_error.saw	wrong	accepts a refusal test	refutable pattern in `let`/`var`: only bindings, `_`, and nested tuples are allowed (literals/ranges/variants require `match`/`if let`)
@@ -2038,7 +2038,7 @@ optional_explicit_read_hints_error.saw	pass	-	transfer.implicit-copy: this reads
 optional_field_store_retain.saw	pass	-	-
 optional_force_unwrap_field_store.saw	pass	-	-
 optional_generic_chain_assign_place_head.saw	refused	typecheck mutability.immutable	this assignment writes `m.find(&"x")?.value`, and `m.find(&"x")` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
-optional_generic_concurrency.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+optional_generic_concurrency.saw	stage0-wrong	annotated SL-686	sawc2 meets its directives
 optional_generic_hashable_keys.saw	pass	-	-
 optional_generic_infer_later_arg.saw	pass	-	-
 optional_generic_insert_autowrap.saw	pass	-	-
@@ -2119,13 +2119,13 @@ payload_derived_binding_fills_default_type_args.saw	refused	mir slice.not-yet	a 
 place_abstract_value_read.saw	pass	-	-
 place_assignment_targets.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, Int, std.alloc.GlobalAllocator>` declares or derives no such role)
 place_comparison_operand_is_a_borrow.saw	pass	-	-
-place_conditional_lend_uses.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
-place_cross_module_same_name_type.saw	refused	llvm backend.not-yet	a conditional borrow is not in the backend slice yet
-place_enum_payload_lend.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+place_conditional_lend_uses.saw	pass	-	-
+place_cross_module_same_name_type.saw	pass	-	-
+place_enum_payload_lend.saw	wrong	stdout differs	line 17: sawc2 "8", Stage 0 "epilogue ran"
 place_match_arm_move_in_literal.saw	pass	-	transfer.move-from-borrow: cannot move out of `r`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
 place_nocopy_arg_in_window.saw	pass	-	-
 place_paired_literal_fields.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-place_presence_test_borrows.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+place_presence_test_borrows.saw	pass	-	-
 place_read_retains_owning.saw	pass	-	-
 place_reentry_idempotent.saw	pass	-	-
 place_rendered_frame_local_migrates.saw	pass	-	-

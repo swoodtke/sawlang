@@ -1,0 +1,120 @@
+// probe: stated
+// about: a conditional lend's window spanning a suspension in a task's body, and a `borrows(sync)` one's absent arm suspending (SL-686)
+// stage 0: cannot parse a `borrow` unwrap or block
+// speeds: -O0 -O2
+// prints: vector 102
+// prints: block 203
+// prints: matched 2
+// prints: map 7
+// prints: unique 6
+// prints: lock 5
+// prints: gate shut 0
+// prints: gate open 9
+// prints: after 102 203 6
+// Any borrow may span a suspension but a `borrows(sync)` one, so each window
+// here stays open across a `yield_now()`, its state record held in the task's
+// frame. A `borrows(sync)` lend's present arm may not suspend; its absent arm
+// opened no window, so it may.
+import std.spinlock.{SpinLock}
+import std.task.*
+
+struct Gate {
+    value: Int
+}
+
+extension Gate {
+    func through(&var self, open: Bool) sync borrows(sync) -> &var Int? {
+        if not open {
+            return None
+        }
+        lend self.value
+    }
+}
+
+func bump(v: &var Vector<Int>) -> Int {
+    if borrow var e = v.find(1) {
+        yield_now()
+        e += 100
+        e
+    } else {
+        -1
+    }
+}
+
+func bump_block(v: &var Vector<Int>) -> Int {
+    borrow var e = v.find(2) {
+        yield_now()
+        if borrow var x = e {
+            yield_now()
+            x += 200
+            x
+        } else {
+            -1
+        }
+    }
+}
+
+func matched(v: &var Vector<Int>) -> Int {
+    match v.find(1) {
+        case Some(borrow let x) -> {
+            yield_now()
+            x - 100
+        },
+        case None -> -1
+    }
+}
+
+func looked(m: &Map<String, Int>) -> Int {
+    if borrow let x = m.find(&"k") {
+        yield_now()
+        x
+    } else {
+        0
+    }
+}
+
+func uniquely(a: &var Arc<Int>) -> Int {
+    if borrow var p = a.unique() {
+        yield_now()
+        p += 1
+        p
+    } else {
+        0
+    }
+}
+
+func locked(l: &SpinLock<Int>) -> Int {
+    yield_now()
+    if borrow var n = l.try_lock() {
+        n
+    } else {
+        0
+    }
+}
+
+func shut(g: &var Gate, open: Bool) -> Int {
+    if borrow var x = g.through(open) {
+        x
+    } else {
+        yield_now()
+        0
+    }
+}
+
+func main() {
+    var v: Vector<Int> = [1, 2, 3]
+    let m: Map<String, Int> = {"k": 7}
+    var a = try! Arc<Int>(value: 5)
+    let lock = SpinLock<Int>(value: 5)
+    var g = Gate(value: 9)
+    var group = TaskGroup()
+    print("vector {}", group.spawn(bump(&var v)).join())
+    print("block {}", group.spawn(bump_block(&var v)).join())
+    print("matched {}", group.spawn(matched(&var v)).join())
+    print("map {}", group.spawn(looked(&m)).join())
+    print("unique {}", group.spawn(uniquely(&var a)).join())
+    print("lock {}", group.spawn(locked(&lock)).join())
+    print("gate shut {}", group.spawn(shut(&var g, false)).join())
+    print("gate open {}", group.spawn(shut(&var g, true)).join())
+    print("after {} {} {}", v[1], v[2], borrow a.value())
+}

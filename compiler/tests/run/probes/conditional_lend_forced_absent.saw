@@ -1,0 +1,37 @@
+// probe: panics
+// about: `!` on an absent conditional lend panics with no window opened and no epilogue run (SL-686)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// prints: prologue 0
+// prints: epilogue
+// prints: 2
+// prints: prologue 4
+// panics: force unwrap of None
+// A chain through the place with `!` promised the place is there, so absence
+// is that force-unwrap's panic; the accessor lent nothing, so nothing closes.
+struct Cell {
+    n: Int
+}
+
+struct Row {
+    cells: [Cell; 1]
+}
+
+extension Row {
+    func at(&var self, i: Int) borrows -> &var Cell? {
+        print("prologue {}", i)
+        if i != 0 {
+            return None
+        }
+        lend self.cells[i]
+        print("epilogue")
+    }
+}
+
+func main() {
+    var r = Row(cells: [Cell(n: 1)])
+    borrow var r.at(0)!.n += 1
+    print("{}", r.cells[0].n)
+    borrow var r.at(4)!.n += 1
+    print("unreached")
+}

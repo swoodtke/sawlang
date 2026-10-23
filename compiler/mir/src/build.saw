@@ -56,6 +56,16 @@ extension MirProgram {
         self.locals[base + l].ty
     }
 
+    // Local `l` becomes the binding the source names `name` at leaf `node`.
+    public func name_local(&var self, l: Int, name: Int, node: Int) {
+        let at = self.local_base + l
+        var info = self.locals[at]
+        info.kind = MirLocalKind.User
+        info.name = name
+        info.node = node
+        self.locals[at] = info
+    }
+
     public func mark_reference(&var self, l: Int) {
         let at = self.local_base + l
         var info = self.locals[at]
@@ -1165,8 +1175,18 @@ extension MirProgram {
         let id = self.windows.len() - base
         let lowered = accessor >= 0 && self.accessor_of[accessor] >= 0
         try! self.windows.push(MirWindow(accessor: accessor, exclusive: exclusive, sync: sync,
-                                         conditional: conditional, node: node, record: -1, lowered: lowered))
+                                         conditional: conditional, node: node, record: -1, lowered: lowered,
+                                         presence: -1))
         id
+    }
+
+    // Window `w`'s lent Optional reference is held in local `l`, which a
+    // `borrow` binding names.
+    public func set_window_presence(&var self, w: Int, l: Int) {
+        let at = self.funcs[self.cur].window_first + w
+        var info = self.windows[at]
+        info.presence = l
+        self.windows[at] = info
     }
 
     // Window `w`'s state record is held in local `l`.
@@ -1185,11 +1205,44 @@ extension MirProgram {
     // Closes window `w` on the current path: the accessor's epilogue, at the
     // instantiation its open took, reading the window's record. It is a
     // suspension point when the epilogue may suspend, or, for an accessor
-    // whose body is not lowered here, when the accessor may.
+    // whose body is not lowered here, when the accessor may. A window with a
+    // presence local closes only where it holds `Some`: on `None` the
+    // accessor lent nothing, so there is no epilogue to run (spec,
+    // Conditional lends).
+    //
+    // ENTRY POINTS (close_window):
+    //     emit_exit
+    //     close_windows_since
+    //     bind_test
+    //     copy_out
+    //     lower_chain_write
+    //     store_setitem
     public func close_window(&var self, w: Int) {
         if self.current < 0 {
             return
         }
+        let info = self.window(w)
+        if info.presence < 0 {
+            self.close_window_now(w)
+            return
+        }
+        let lent = self.new_block()
+        let join = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(self.optional_case("Some"))
+        try! cases.push(self.optional_case("None"))
+        var targets = Vector<Int>()
+        try! targets.push(lent)
+        try! targets.push(join)
+        let p = self.place_local(info.presence)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(lent)
+        self.close_window_now(w)
+        self.goto(join)
+        self.enter(join)
+    }
+
+    func close_window_now(&var self, w: Int) {
         let info = self.window(w)
         var c = self.blank_call(MirCallKind.WindowClose, info.node)
         c.target = info.accessor

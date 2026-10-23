@@ -1,0 +1,45 @@
+// probe: stated
+// about: `JsonValue.as_array` and `as_object` unwrapped by `if borrow`, a `borrow` block and a `match`, their owning containers lent in place (SL-686)
+// stage 0: it cannot parse a `borrow` unwrap or block
+// speeds: -O0 -O2
+// prints: array 3
+// prints: not an object
+// prints: object 2
+// prints: not an array
+// prints: grown 4
+// prints: field 1
+// prints: block 4
+// prints: absent block
+// prints: matched 2
+// prints: [1,2,3,4]
+// The accessors lend the tree's own `Vector` and `Map`, so a write through
+// `if borrow var` reaches the tree, and a read through `borrow let` uses the
+// shared twin. A value of another case lends nothing.
+import std.json.{JsonValue}
+
+func main() {
+    var list = try! JsonValue.parse(text: "[1, 2, 3]")
+    var record = try! JsonValue.parse(text: "\{\"a\": 1, \"b\": [true]\}")
+    if borrow let items = list.as_array() { print("array {}", items.len()) } else { print("not an array") }
+    if borrow let fields = list.as_object() { print("object {}", fields.len()) } else { print("not an object") }
+    if borrow let fields = record.as_object() { print("object {}", fields.len()) } else { print("not an object") }
+    if borrow let items = record.as_array() { print("array {}", items.len()) } else { print("not an array") }
+    if borrow var items = list.as_array() {
+        let _ = items.push(JsonValue.Number(value: 4))
+        print("grown {}", items.len())
+    }
+    if borrow let fields = record.as_object() {
+        print("field {}", borrow fields["a"].as_int() ?? -1)
+    }
+    let size = borrow let e = list.as_array() { if borrow let items = e { items.len() } else { 0 } }
+    print("block {}", size)
+    borrow let e = record.as_array() {
+        if let _ = e { print("present block") } else { print("absent block") }
+    }
+    let count = match record.as_object() {
+        case Some(borrow let fields) -> fields.len(),
+        case None -> 0
+    }
+    print("matched {}", count)
+    print(try! list.to_json_string())
+}

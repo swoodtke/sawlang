@@ -1,0 +1,61 @@
+// A conditional lend bound by a `borrow` block, or matched directly: the
+// window opens with no absent edge into the binding's Optional of the lent
+// reference, the body discriminates it, and each exit closes the window only
+// where it is `Some` (SL-686).
+
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        if i < 0 || i >= 4 {
+            return None
+        }
+        lend self.cells[i]
+    }
+}
+
+func unwrapped(r: &var Row) {
+    borrow var e = r.find(1) {
+        if borrow var cell = e {
+            cell += 1
+        }
+    }
+}
+
+func tested(r: &var Row) -> Bool {
+    borrow let e = r.find(9) { if let _ = e { true } else { false } }
+}
+
+func matched(r: &var Row) -> Int {
+    borrow let e = r.find(2) {
+        match e {
+            case Some(borrow let n) -> n,
+            case None -> -1
+        }
+    }
+}
+
+func forced(r: &var Row) -> Int {
+    borrow let e = r.find(0) { e! }
+}
+
+func direct(r: &var Row) -> Int {
+    match r.find(1) {
+        case Some(borrow var n) -> {
+            n += 1
+            n
+        },
+        case None -> 0
+    }
+}
+
+func left(r: &var Row) -> Int {
+    borrow var e = r.find(1) {
+        if borrow var cell = e {
+            return cell
+        }
+    }
+    0
+}

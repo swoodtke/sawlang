@@ -1,0 +1,68 @@
+// probe: stated
+// about: a `borrow` block binding a conditional lend, its body discriminating the binding each way (SL-686)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// prints: unwrap 11 -1 closes 1
+// prints: else if 2 closes 2
+// prints: match 3 true 0 closes 4
+// prints: forced 2 copied 2 written 30 closes 7
+// prints: free root 2
+// The binding is an optional place: the body unwraps it with `if borrow`,
+// `else if borrow`, a `match` binding its payload in place or testing it, a
+// presence test, `!` and a `?.` write. On the absent path the accessor lends
+// nothing, so its epilogue never runs and the root is free inside the block.
+struct Cell {
+    n: Int
+}
+
+struct Grid {
+    cells: [Cell; 3],
+    closes: Int
+}
+
+extension Grid {
+    func at(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 3 {
+            return None
+        }
+        lend self.cells[i]
+        self.closes = self.closes + 1
+    }
+}
+
+func main() {
+    var g = Grid(cells: [Cell(n: 1), Cell(n: 2), Cell(n: 3)], closes: 0)
+    let a = borrow var e = g.at(0) { if borrow var c = e { c.n += 10; c.n } else { -1 } }
+    let b = borrow let e = g.at(7) { if borrow let c = e { c.n } else { -1 } }
+    print("unwrap {} {} closes {}", a, b, g.closes)
+    var h = Grid(cells: [Cell(n: 4), Cell(n: 5), Cell(n: 6)], closes: 0)
+    let c = borrow let e = g.at(1), let f = h.at(8) {
+        if borrow let x = f {
+            x.n
+        } else if borrow let y = e {
+            y.n
+        } else {
+            0
+        }
+    }
+    print("else if {} closes {}", c, g.closes)
+    let d = borrow let e = g.at(2) {
+        match e {
+            case Some(borrow let x) -> x.n,
+            case None -> -1
+        }
+    }
+    let present = borrow let e = g.at(2) { match e { case Some(_) -> true, case None -> false } }
+    let tested = borrow let e = g.at(5) { if let _ = e { 1 } else { 0 } }
+    print("match {} {} {} closes {}", d, present, tested, g.closes)
+    let forced = borrow let e = g.at(1) { e!.n }
+    let copied = borrow let e = g.at(1) { if let x = e { x.n } else { 0 } }
+    borrow var e = g.at(2) { e?.n = 30 }
+    borrow var e = g.at(9) { e?.n = 40 }
+    print("forced {} copied {} written {} closes {}", forced, copied, g.cells[2].n, g.closes)
+    var v: Vector<Int> = [1]
+    borrow var e = v.find(4) {
+        if borrow var x = e { x += 1 } else { try! v.push(2) }
+    }
+    print("free root {}", v.len())
+}

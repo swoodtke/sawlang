@@ -168,6 +168,14 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   convention the target gives; a variadic one through its function type, each
   extra argument by C's default promotions (an integer narrower than 32 bits
   widened to `i32` by its signedness).
+- **Windows.** A window's open calls its accessor's prologue and its close
+  the epilogue, as internal calls. A conditional lend's prologue returns an
+  Optional of the lent reference: an open with an absent edge
+  (`conditional_open` in `compiler/llvm/src/calls.saw`) calls it into a slot
+  of its own, then on `Some` stores the reference into its destination and
+  takes the present edge, and on `None` takes the absent edge with nothing
+  written. An open with no absent edge stores the Optional itself, which MIR
+  then discriminates (SL-686).
 - **noalias.** A reference parameter is `noalias`: an exclusive one always,
   `&var self` and a glue's included, by the Law of Exclusivity; a shared one
   when its referent is not cell-carrying (typecheck's `is_cell_carrying`,
@@ -376,7 +384,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, an offload of a variadic extern or of one returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow through a dispatch, an aggregate crossing the C convention, an offload of a variadic extern or of one returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
@@ -524,9 +532,11 @@ the flag the `.ll` is byte for byte what it was.
 `sanitize_lane.py`, run.py's `sanitize` step, builds each of this directory's
 `coro_*` programs that is not due, the offload pins
 (`offload_cancel_waits_for_the_call`, `offload_start_refused`,
-`suspend_blocking_main`) and each `thread_*`, `coro_*` or `generic_default_*`
-probe that states its output (the last because a default computed at another
-width than its slot's overwrites the stack, SL-830), at
+`suspend_blocking_main`) and each `thread_*`, `coro_*`, `generic_default_*` or
+`conditional_lend_*` probe that states its output (the generic defaults because
+a default computed at another width than its slot's overwrites the stack,
+SL-830; the conditional lends because the lent reference is read out of an
+Optional on the present path alone, SL-686), at
 -O0 plainly and under `--sanitize address`, into `.build/sanitize-lane/`. A
 case passes when the sanitized binary prints the same bytes and exits with the
 same status as the plain one, and AddressSanitizer reports nothing; leak

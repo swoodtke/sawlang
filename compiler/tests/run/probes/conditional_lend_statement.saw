@@ -1,0 +1,50 @@
+// probe: stated
+// about: the statement forms of a conditional lend: `!`, a `?` write, an optional copy and `??` (SL-686)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// prints: loud 7
+// prints: loud 8
+// prints: forced 2
+// prints: copies 1 -1
+// prints: coalesced 1 9
+// prints: after 2 8 closes 3
+// An absent `?` write still evaluates its right side and skips only the
+// write; a present one writes in place. A conditional lend read whole is an
+// optional copy, `None` on the absent path with no window opened.
+struct Cell {
+    n: Int
+}
+
+struct Row {
+    cells: [Cell; 2],
+    closes: Int
+}
+
+extension Row {
+    func at(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 2 {
+            return None
+        }
+        lend self.cells[i]
+        self.closes = self.closes + 1
+    }
+}
+
+func loud(x: Int) -> Int {
+    print("loud {}", x)
+    x
+}
+
+func main() {
+    var r = Row(cells: [Cell(n: 1), Cell(n: 2)], closes: 0)
+    borrow var r.at(0)!.n += 1
+    borrow var r.at(9)?.n = loud(7)
+    borrow var r.at(1)?.n = loud(8)
+    print("forced {}", borrow r.at(0)!.n)
+    var v: Vector<Int> = [1, 2]
+    let a = borrow v.find(0)
+    let b = borrow v.find(9)
+    print("copies {} {}", a ?? -1, b ?? -1)
+    print("coalesced {} {}", borrow v.find(0) ?? 9, borrow v.find(5) ?? 9)
+    print("after {} {} closes {}", r.cells[0].n, r.cells[1].n, r.closes)
+}

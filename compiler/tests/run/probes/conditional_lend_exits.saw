@@ -1,0 +1,152 @@
+// probe: stated
+// about: a conditional lend's epilogue runs on every exit of the present path and never on the absent one (SL-686)
+// stage 0: cannot parse a `borrow` unwrap or block
+// speeds: -O0 -O2
+// prints: epilogue
+// prints: return 1
+// prints: epilogue
+// prints: return block 1
+// prints: absent -1
+// prints: epilogue
+// prints: epilogue
+// prints: loop 2
+// prints: epilogue
+// prints: epilogue
+// prints: block loop 2
+// prints: epilogue
+// prints: try err
+// prints: epilogue
+// prints: try block err
+// prints: epilogue
+// prints: tail 1
+// prints: closes 9
+// Each exit of a window that opened, `return`, `break`, `continue`, a
+// propagating `try` and the block's end, closes it once: the epilogue prints
+// and counts. An absent lend opens nothing, so no exit runs an epilogue there,
+// the block form's included.
+struct Bag {
+    a: Int,
+    closes: Int
+}
+
+struct Bad {
+    code: Int
+}
+
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("bad")
+    }
+}
+
+extension Bad: Error {}
+
+extension Bag {
+    func at(&var self, i: Int) borrows -> &var Int? {
+        if i != 0 {
+            return None
+        }
+        lend self.a
+        print("epilogue")
+        self.closes = self.closes + 1
+    }
+}
+
+func early(b: &var Bag) -> Int {
+    if borrow var x = b.at(0) {
+        return x
+    }
+    -1
+}
+
+func early_block(b: &var Bag) -> Int {
+    borrow var e = b.at(0) {
+        if borrow var x = e {
+            return x
+        }
+    }
+    -1
+}
+
+func absent(b: &var Bag) -> Int {
+    if borrow var x = b.at(1) {
+        return x
+    }
+    borrow var e = b.at(1) {
+        if borrow var x = e {
+            return x
+        }
+    }
+    -1
+}
+
+func fails(n: Int) -> Result<Int, Bad> {
+    if n > 0 {
+        return Bad(code: n)
+    }
+    return 0
+}
+
+func tried(b: &var Bag) -> Result<Int, Bad> {
+    if borrow var x = b.at(0) {
+        let k = try fails(1)
+        x += k
+    }
+    return 0
+}
+
+func tried_block(b: &var Bag) -> Result<Int, Bad> {
+    borrow var e = b.at(0) {
+        let k = try fails(2)
+        if borrow var x = e {
+            x += k
+        }
+    }
+    return 0
+}
+
+func outcome(r: Result<Int, Bad>) -> String {
+    match r {
+        case Ok(_) -> "ok",
+        case Err(_) -> "err"
+    }
+}
+
+func main() {
+    var b = Bag(a: 1, closes: 0)
+    print("return {}", early(&var b))
+    print("return block {}", early_block(&var b))
+    print("absent {}", absent(&var b))
+    var k = 0
+    while k < 3 {
+        k = k + 1
+        if borrow var x = b.at(0) {
+            if k == 1 {
+                continue
+            }
+            if k == 2 {
+                break
+            }
+            x += 1
+        }
+    }
+    print("loop {}", k)
+    k = 0
+    while k < 3 {
+        k = k + 1
+        borrow var e = b.at(0) {
+            if k == 1 {
+                continue
+            }
+            if k == 2 {
+                break
+            }
+        }
+    }
+    print("block loop {}", k)
+    print("try {}", outcome(tried(&var b)))
+    print("try block {}", outcome(tried_block(&var b)))
+    let tail = borrow let e = b.at(0) { if borrow let x = e { x } else { 0 } }
+    print("tail {}", tail)
+    print("closes {}", b.closes)
+}

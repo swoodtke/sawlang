@@ -404,6 +404,78 @@ extension MirProgram {
         move out
     }
 
+    // THE WINDOW-EDGE FUNNEL: whether window `w` of function `f` is open on
+    // the edge from block `b` to block `target`, given `open`, whether it is
+    // open at the end of `b`'s statements, and `switched`, the local `b`'s
+    // discriminant switch reads whole or -1. A close shuts the window and an
+    // open opens it on every edge but its absent one. A switch on its
+    // presence local opens it on the `Some` edge and shuts it on the `None`
+    // edge, since a conditional lend's window is open exactly where that
+    // local is `Some` (spec, Conditional lends).
+    // ENTRY POINTS (window_open_after):
+    //     window_entries
+    //     loan_forward
+    //     coro_windows_open
+    //     coro_verify_window_entry
+    public func window_open_after(&self, f: Int, b: Int, target: Int, w: Int, open: Bool, switched: Int) -> Bool {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            if c.window == w && c.kind == MirCallKind.WindowClose {
+                return false
+            }
+            if c.window == w && c.kind == MirCallKind.WindowOpen {
+                return target != c.absent
+            }
+            return open
+        }
+        if block.term != MirTermKind.Switch || switched < 0 || w < 0 || w >= info.window_count {
+            return open
+        }
+        if self.windows[info.window_first + w].presence != switched {
+            return open
+        }
+        var present = false
+        var absent = false
+        var k = 0
+        while k < block.arm_count {
+            let arm = self.arms[block.arm_first + k]
+            k = k + 1
+            if arm.target == target {
+                let decl = self.tc.res.decls[arm.value]
+                let name = self.tc.name_text(decl.name)
+                if name.equals("Some") {
+                    present = true
+                } else if name.equals("None") {
+                    absent = true
+                }
+            }
+        }
+        if present && not absent {
+            return true
+        }
+        if absent && not present {
+            return false
+        }
+        open
+    }
+
+    // The local block `b` of function `f` switches on whole, or -1: what
+    // `window_open_after` takes as `switched` for a body as lowering wrote it.
+    public func switched_local(&self, f: Int, b: Int) -> Int {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        if block.term != MirTermKind.Switch || block.switch_kind != MirSwitchKind.Discriminant || block.place < 0 {
+            return -1
+        }
+        let p = self.places[block.place]
+        if p.count != 0 {
+            return -1
+        }
+        p.local
+    }
+
     // Statement `s`'s accesses, in evaluation order: an assignment's
     // operands, the place a `ref` borrows, the target's index locals, then
     // the target; a drop's place.

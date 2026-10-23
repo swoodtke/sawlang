@@ -164,6 +164,7 @@ INDEX.md, or when an owner is not one of the words below.
 | X51 | typecheck | `member.through-pointer` (SL-712): `compiler/tests/typecheck/refuse/member.through-pointer.arc.saw`, `.arc-var-self`, `.arc-consumes`, `.arc-borrows`; the accessor's runs, `compiler/tests/run/probes/arc_payload_accessor.saw`, `compiler/tests/run/probes/arc_mutex_accessor.saw` |
 | X52 | typecheck | `member.through-pointer` (SL-712): `compiler/tests/typecheck/refuse/member.through-pointer.saw`, `.var-self`, `.consumes`, `.borrows`, `.reference`, `.string`; the accessor's runs, `compiler/tests/run/probes/box_payload_accessor.saw` |
 | X53 | U6d2 | `loan.window-root` (SL-712): `compiler/tests/borrowck/refuse/loan.window-root.box-accessor.saw` |
+| X55 | U6d2 | `loan.window-root` (SL-686): `compiler/tests/borrowck/refuse/loan.window-root.conditional-present.saw`, `.conditional-undecided`; the absent arm's use of the root, `compiler/tests/run/probes/conditional_lend_block.saw` |
 ## Moves and use-after-move
 
 | Row | Owner | Covered by, or why not |

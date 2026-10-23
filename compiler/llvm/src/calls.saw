@@ -41,6 +41,10 @@ extension LlEmitter {
             case Switch -> self.switch_term(&var mono, &var target, &b),
             case Call -> {
                 let info = mono.dp.bc.mir.calls[b.call]
+                if info.kind == MirCallKind.WindowOpen && info.absent >= 0 {
+                    self.conditional_open(&var mono, &var target, b.call, &info)
+                    return
+                }
                 self.call_term(&var mono, &var target, b.call, &info)
                 if info.next >= 0 {
                     self.jump(ll_block(info.next))
@@ -145,10 +149,6 @@ extension LlEmitter {
                     self.dispatch_call(&var mono, &var target, c, &info)
                     return
                 }
-                if info.kind == MirCallKind.WindowOpen && info.absent >= 0 {
-                    self.refuse_here(&var mono, node, "a conditional borrow is not in the backend slice yet")
-                    return
-                }
                 // A borrowing struct's window runs nothing at its close.
                 if info.kind == MirCallKind.WindowClose && mono.dp.bc.mir.closes_nothing(info.target) {
                     return
@@ -170,38 +170,97 @@ extension LlEmitter {
                     self.builtin_copy(&var mono, &var target, &info)
                     return
                 }
-                let body = callee.body
-                let info_f = mono.dp.bc.mir.funcs[body]
-                var params = Vector<Int>()
-                var j = 1
-                while j <= info_f.param_count {
-                    try! params.push(mono.dp.bc.mir.locals[info_f.local_first + j].ty)
-                    j = j + 1
-                }
-                let result = mono.dp.bc.mir.locals[info_f.local_first].ty
-                let none = Vector<String>()
-                let symbol = self.plain_symbol(&var mono, item)
-                self.call_with(&var mono, &var target, symbol, result, &params, &none, &info)
+                let _ = self.item_call(&var mono, &var target, item, &info, "")
             }
         }
+    }
+
+    // A call of item `item`, a function with a body, its result into `into`
+    // when that is not empty and into the call's destination otherwise;
+    // returns the type of the result, the callee's `_0`.
+    func item_call(&var self, mono: &var MonoProgram, target: &var Target, item: Int, info: &MirCall,
+                   into: String) -> Int {
+        let callee = mono.items[item]
+        let body = callee.body
+        let info_f = mono.dp.bc.mir.funcs[body]
+        var params = Vector<Int>()
+        var j = 1
+        while j <= info_f.param_count {
+            try! params.push(mono.dp.bc.mir.locals[info_f.local_first + j].ty)
+            j = j + 1
+        }
+        let result = mono.dp.bc.mir.locals[info_f.local_first].ty
+        let none = Vector<String>()
+        let symbol = self.plain_symbol(&var mono, item)
+        self.call_with(&var mono, &var target, symbol, result, &params, &none, &info, into)
+        result
+    }
+
+    // THE CONDITIONAL OPEN FUNNEL: a window open with an absent edge. The
+    // prologue gives an Optional of the lent reference; on `Some` the
+    // reference lands in the call's destination and the open takes its
+    // present edge, and on `None` it takes the absent edge with nothing
+    // written, so the absent path opens no window (spec, Conditional lends).
+    // ENTRY POINTS:
+    //     terminator
+    func conditional_open(&var self, mono: &var MonoProgram, target: &var Target, c: Int, info: &MirCall) {
+        let node = info.node
+        if mono.dispatch_slot(c) >= 0 {
+            self.refuse_here(&var mono, node, "a conditional borrow through a dispatch is not in the backend slice yet")
+            return
+        }
+        let item = mono.call_item(c)
+        if item < 0 || mono.items[item].kind == MonoItemKind.Extern || mono.function_value_glue(item) {
+            self.refuse_here(&var mono, node, "a call mono did not resolve")
+            return
+        }
+        let callee = mono.items[item]
+        let info_f = mono.dp.bc.mir.funcs[callee.body]
+        let result = mono.dp.bc.mir.locals[info_f.local_first].ty
+        let rl = self.lay_at(&var mono, &var target, result, node)
+        let scratch = self.slot(rl.size, rl.align)
+        let _ = self.item_call(&var mono, &var target, item, &info, scratch)
+        let some_name = mono.dp.bc.mir.tc.res.intern("Some")
+        let optional = mono.dp.bc.mir.tc.known.optional
+        let some = mono.dp.bc.mir.tc.case_named(optional, some_name)
+        let present_case = target.case_of(&var mono.dp.bc.mir.tc, result, some)
+        let tag = self.tag_of(&var mono, &var target, scratch, result, node)
+        var test = StringBuilder()
+        try! test.append("icmp eq i64 ")
+        try! test.append(tag)
+        try! test.append(", ")
+        try! test.append(present_case.tag)
+        let present = self.assign(test.build())
+        let lent = self.new_label("lent")
+        self.branch(present, lent, ll_block(info.absent))
+        self.put_label(lent)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, result, some, 0)
+        let at = self.offset_addr(scratch, off)
+        let reference = self.load("ptr", at)
+        if info.dest >= 0 {
+            let dest = self.place_addr(&var mono, &var target, info.dest, node)
+            self.store("ptr", reference, dest)
+        }
+        self.jump(ll_block(info.next))
     }
 
     // An internal call of `callee` (an SSA pointer or a symbol) returning
     // `result` and taking `params`, after `leading` arguments already
     // spelled: the call's operands as the parameters' layouts pass them, its
-    // result into its destination.
+    // result into `into` when that is not empty, else into its destination.
     func call_with(&var self, mono: &var MonoProgram, target: &var Target, callee: String, result: Int,
-                   params: &Vector<Int>, leading: &Vector<String>, info: &MirCall) {
+                   params: &Vector<Int>, leading: &Vector<String>, info: &MirCall, into: String) {
         let node = info.node
         let ret = self.lay_at(&var mono, &var target, result, node)
         var args = StringBuilder()
         var first = true
-        var dest = ""
-        if info.dest >= 0 {
+        var dest = into
+        let landing = into.len() > 0 || info.dest >= 0
+        if into.len() == 0 && info.dest >= 0 {
             dest = self.place_addr(&var mono, &var target, info.dest, node)
         }
         if ret.kind == TargetKind.Memory {
-            if info.dest < 0 {
+            if not landing {
                 dest = self.slot(ret.size, ret.align)
             }
             try! args.append("ptr ")
@@ -255,7 +314,7 @@ extension LlEmitter {
         try! call.append(")")
         if ll_is_scalar(&ret) {
             let v = self.assign(call.build())
-            if info.dest >= 0 {
+            if landing {
                 self.store(ll_value_type(&ret), v, dest)
             }
         } else {
@@ -291,7 +350,7 @@ extension LlEmitter {
         try! env_arg.append("ptr ")
         try! env_arg.append(env)
         try! leading.push(env_arg.build())
-        self.call_with(&var mono, &var target, code, shape.b, &params, &leading, &info)
+        self.call_with(&var mono, &var target, code, shape.b, &params, &leading, &info, "")
     }
 
     // A dispatch through `any Trait`: the function in the receiver's vtable
@@ -321,7 +380,7 @@ extension LlEmitter {
         rest.arg_count = info.arg_count - 1
         var leading = Vector<String>()
         try! leading.push(ll_spelled("ptr", data))
-        self.call_with(&var mono, &var target, code, result, &params, &leading, &rest)
+        self.call_with(&var mono, &var target, code, result, &params, &leading, &rest, "")
     }
 
     // Extern `d`'s C signature (`LlExternSig`): its result's class and LLVM

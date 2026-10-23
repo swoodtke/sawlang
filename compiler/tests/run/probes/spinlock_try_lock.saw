@@ -1,0 +1,30 @@
+// probe: stated
+// about: `SpinLock.try_lock` lends the payload when the lock is free, and nothing when it is held, never spinning (SL-686)
+// stage 0: cannot parse a `borrow` unwrap
+// speeds: -O0 -O2
+// prints: try got 5
+// prints: unlocked true
+// prints: held got 0
+// prints: unlocked true
+// `try_lock` lends the payload when the lock is free, and nothing when it is
+// held; it never spins. The held case takes the lock through one name and
+// tries it through another, which the absent path answers at once.
+
+import std.spinlock.{SpinLock}
+
+func held(l: &SpinLock<Int>, same: &SpinLock<Int>) -> Int {
+    borrow var n = l.lock() {
+        let got = if borrow var m = same.try_lock() { m } else { 0 }
+        n += got
+        got
+    }
+}
+
+func main() {
+    let local = SpinLock<Int>(value: 5)
+    let got = if borrow var n = local.try_lock() { n } else { 0 }
+    print("try got {}", got)
+    print("unlocked {}", not local.is_locked())
+    print("held got {}", held(&local, &local))
+    print("unlocked {}", not local.is_locked())
+}

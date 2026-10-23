@@ -335,9 +335,8 @@ func coro_mark_written(coro: &CoroProgram, dest: Int, lt: &var CoroLifetimes, p:
 }
 
 // The windows of function `f` that may be open on entry to each block:
-// `open[b * window_count + w]`. A window opens on its open's present edge and
-// closes on its close's; an accessor's epilogue starts with the windows its
-// prologue carries open.
+// `open[b * window_count + w]`, over the edges `window_open_after` describes;
+// an accessor's epilogue starts with the windows its prologue carries open.
 func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
     let info = coro.mono.dp.bc.mir.funcs[f]
     let width = info.window_count
@@ -377,19 +376,7 @@ func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
             if not reached[bb] {
                 continue
             }
-            let block = coro.mono.dp.bc.mir.blocks[info.block_first + bb]
-            var opened = -1
-            var closed = -1
-            var absent = -1
-            if block.term == MirTermKind.Call {
-                let c = coro.mono.dp.bc.mir.calls[block.call]
-                if c.kind == MirCallKind.WindowOpen {
-                    opened = c.window
-                    absent = c.absent
-                } else if c.kind == MirCallKind.WindowClose {
-                    closed = c.window
-                }
-            }
+            let switched = coro.mono.dp.bc.mir.switched_local(f, bb)
             let succ = coro.mono.dp.bc.mir.init_successors(f, bb)
             var j = 0
             while j < succ.len() {
@@ -401,7 +388,7 @@ func coro_windows_open(coro: &CoroProgram, f: Int) -> Vector<Bool> {
                 }
                 var w = 0
                 while w < width {
-                    let here = (open[bb * width + w] && w != closed) || (w == opened && target != absent)
+                    let here = coro.mono.dp.bc.mir.window_open_after(f, bb, target, w, open[bb * width + w], switched)
                     if here && not open[target * width + w] {
                         open[target * width + w] = true
                         changed = true
