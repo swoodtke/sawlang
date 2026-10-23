@@ -2,7 +2,7 @@
 
 Part of the language lockdown that precedes the self-hosted compiler. The Python
 compiler is frozen, so this describes the language that compiler will
-implement, not what `sawc` does today.
+implement, not what `sawc0` does today.
 
 Each decision below is marked **Ruled** (the user decided), **Proposed** (the
 lead's recommendation, not yet ruled), or **Deferred**. Everything was decided
@@ -364,7 +364,7 @@ lend of §7.
 
   A parameter is refused, `&var` included, even though its referent outlives
   the window. Lending what a caller handed you is a larger promise than lending
-  your own storage, and widening later stays compatible. sawc2's rule is
+  your own storage, and widening later stays compatible. sawc's rule is
   `lend.root` (SL-460).
 - **The lent type picks the forwarded accessor.** A `lend` operand that
   reaches an accessor with both variants reads the outer's lent type as its
