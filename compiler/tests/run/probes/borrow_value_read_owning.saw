@@ -1,0 +1,99 @@
+// probe: stated
+// about: an owned value a call on a statement-form borrow returns closes the window at the read, and drops once, after the epilogue (SL-838)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// prints: discarded U
+// prints: epi U
+// prints: drop x
+// prints: discarded C
+// prints: epi C
+// prints: drop x
+// prints: let U
+// prints: epi U
+// prints: next statement
+// prints: let C
+// prints: epi C
+// prints: next statement
+// prints: arg U
+// prints: epi U
+// prints: loud b
+// prints: pass b
+// prints: arg C
+// prints: epi C
+// prints: loud b
+// prints: pass b
+// prints: tags x x x x
+// prints: drop x
+// prints: drop x
+// prints: drop x
+// prints: drop x
+// A NoCopy `Token` built from the lent place is a value, not the place: the
+// window closes once the call returns it, and the token itself drops where
+// its own scope ends, exactly once.
+struct Res {
+    name: String
+}
+
+struct Token {
+    tag: String
+}
+
+extension Token: NoCopy {
+    func deinit(&var self) { print("drop {self.tag}") }
+}
+
+extension Res {
+    func make(&self) -> Token { Token(tag: self.name) }
+}
+
+struct Holder {
+    r: Res
+}
+
+extension Holder {
+    func get(&self) borrows -> &Res {
+        lend self.r
+        print("epi U")
+    }
+
+    func find(&self, ok: Bool) borrows -> &Res? {
+        if not ok {
+            return None
+        }
+        lend self.r
+        print("epi C")
+    }
+}
+
+func loud(s: String) -> String {
+    print("loud {s}")
+    s
+}
+
+func pass(t: Token, s: String) -> Token {
+    print("pass {s}")
+    move t
+}
+
+func main() {
+    let h = Holder(r: Res(name: "x"))
+
+    print("discarded U")
+    borrow h.get().make()
+    print("discarded C")
+    borrow h.find(true)!.make()
+
+    print("let U")
+    let t1 = borrow h.get().make()
+    print("next statement")
+    print("let C")
+    let t2 = borrow h.find(true)!.make()
+    print("next statement")
+
+    print("arg U")
+    let t3 = pass(borrow h.get().make(), loud("b"))
+    print("arg C")
+    let t4 = pass(borrow h.find(true)!.make(), loud("b"))
+
+    print("tags {} {} {} {}", t1.tag, t2.tag, t3.tag, t4.tag)
+}

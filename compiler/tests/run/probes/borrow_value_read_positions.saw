@@ -1,0 +1,337 @@
+// probe: stated
+// about: a statement-form borrow whose result is only a value closes at the read, in every position; one used by reference keeps its window (SL-838)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// prints: arg U
+// prints: epi U
+// prints: loud b
+// prints: show x b
+// prints: arg C
+// prints: epi C
+// prints: loud b
+// prints: show x b
+// prints: operand U
+// prints: epi U
+// prints: loud 10
+// prints: operand C
+// prints: epi C
+// prints: loud 10
+// prints: operand-method U
+// prints: epi U
+// prints: loud 20
+// prints: operand-method C
+// prints: epi C
+// prints: loud 20
+// prints: interpolation U
+// prints: epi U
+// prints: loud b
+// prints: i x b
+// prints: interpolation C
+// prints: epi C
+// prints: loud b
+// prints: i x b
+// prints: format U
+// prints: epi U
+// prints: loud b
+// prints: f x b
+// prints: format C
+// prints: epi C
+// prints: loud b
+// prints: f x b
+// prints: single print U
+// prints: epi U
+// prints: x
+// prints: single print C
+// prints: epi C
+// prints: x
+// prints: let U
+// prints: epi U
+// prints: next statement
+// prints: let C
+// prints: epi C
+// prints: next statement
+// prints: return U
+// prints: epi U
+// prints: returned
+// prints: return C
+// prints: epi C
+// prints: returned
+// prints: if U
+// prints: epi U
+// prints: then
+// prints: if C
+// prints: epi C
+// prints: then
+// prints: while U
+// prints: epi U
+// prints: body
+// prints: epi U
+// prints: while C
+// prints: epi C
+// prints: body
+// prints: epi C
+// prints: coalesce U
+// prints: epi U
+// prints: loud d
+// prints: coalesce C
+// prints: epi C
+// prints: loud d
+// prints: compare U
+// prints: epi U
+// prints: loud x
+// prints: compare C
+// prints: epi C
+// prints: loud x
+// prints: assign U
+// prints: epi U
+// prints: loud y
+// prints: pair x y
+// prints: assign C
+// prints: epi C
+// prints: loud y
+// prints: pair x y
+// prints: match value U
+// prints: epi U
+// prints: arm one
+// prints: match value C
+// prints: epi C
+// prints: arm one
+// prints: match place U
+// prints: arm zero
+// prints: epi U
+// prints: match place C
+// prints: arm zero
+// prints: epi C
+// prints: by reference U
+// prints: show_ref 0
+// prints: epi U
+// prints: by reference C
+// prints: show_ref 0
+// prints: epi C
+// prints: by reference var
+// prints: touch
+// prints: epi V
+// prints: compare place
+// prints: loud 1
+// prints: epi U
+// prints: interpolation place
+// prints: loud b
+// prints: p 1 b
+// prints: epi U
+// prints: overlap assign
+// prints: epi U
+// prints: epi V
+// prints: overlap arguments
+// prints: epi U
+// prints: touch_with x
+// prints: epi V
+// prints: end 10 10 21 21 x x x x d d true true x x 2
+// Each cell prints its name, then the order of the accessor's epilogue (`epi
+// U` for a plain lend, `epi C` for a conditional one through `!`) against
+// what the statement does next. A result that is only a value, copied out of
+// the place or returned by a call on it, closes its window before anything
+// after it is evaluated; a place passed by reference, rendered, compared or
+// matched keeps its window for that use. The last two cells are accepted only
+// because the first window closes at its read, before the exclusive one opens
+// on the same root.
+struct Res {
+    name: String,
+    n: Int
+}
+
+extension Res {
+    func label(&self) -> String { self.name }
+    func maybe(&self) -> String? { if self.n > 0 { self.name } else { None } }
+}
+
+struct Holder {
+    r: Res
+}
+
+extension Holder {
+    func get(&self) borrows -> &Res {
+        lend self.r
+        print("epi U")
+    }
+
+    func find(&self, ok: Bool) borrows -> &Res? {
+        if not ok {
+            return None
+        }
+        lend self.r
+        print("epi C")
+    }
+
+    func get_var(&var self) borrows -> &var Res {
+        lend self.r
+        print("epi V")
+    }
+}
+
+func loud(s: String) -> String {
+    print("loud {s}")
+    s
+}
+
+func loud_int(x: Int) -> Int {
+    print("loud {}", x)
+    x
+}
+
+func show(a: String, b: String) {
+    print("show {a} {b}")
+}
+
+func pair(a: String, b: String) -> String {
+    print("pair {a} {b}")
+    a
+}
+
+func show_ref(r: &Res) {
+    print("show_ref {}", r.n)
+}
+
+func touch(r: &var Res) {
+    print("touch")
+    r.n = r.n + 1
+}
+
+func touch_with(s: String, r: &var Res) {
+    print("touch_with {s}")
+    r.n = r.n + 1
+}
+
+func returned_u(h: &Holder) -> String {
+    return borrow h.get().label()
+}
+
+func returned_c(h: &Holder) -> String {
+    return borrow h.find(true)!.label()
+}
+
+func main() {
+    var h = Holder(r: Res(name: "x", n: 0))
+
+    print("arg U")
+    show(borrow h.get().label(), loud("b"))
+    print("arg C")
+    show(borrow h.find(true)!.label(), loud("b"))
+
+    print("operand U")
+    let o1 = borrow h.get().n + loud_int(10)
+    print("operand C")
+    let o2 = borrow h.find(true)!.n + loud_int(10)
+    print("operand-method U")
+    let o3 = borrow h.get().label().len() + loud_int(20)
+    print("operand-method C")
+    let o4 = borrow h.find(true)!.label().len() + loud_int(20)
+
+    print("interpolation U")
+    print("i {borrow h.get().label()} {loud("b")}")
+    print("interpolation C")
+    print("i {borrow h.find(true)!.label()} {loud("b")}")
+
+    print("format U")
+    print("f {} {}", borrow h.get().label(), loud("b"))
+    print("format C")
+    print("f {} {}", borrow h.find(true)!.label(), loud("b"))
+
+    print("single print U")
+    print(borrow h.get().label())
+    print("single print C")
+    print(borrow h.find(true)!.label())
+
+    print("let U")
+    let l1 = borrow h.get().label()
+    print("next statement")
+    print("let C")
+    let l2 = borrow h.find(true)!.label()
+    print("next statement")
+
+    print("return U")
+    let r1 = returned_u(&h)
+    print("returned")
+    print("return C")
+    let r2 = returned_c(&h)
+    print("returned")
+
+    print("if U")
+    if borrow h.get().label().len() > 0 {
+        print("then")
+    }
+    print("if C")
+    if borrow h.find(true)!.label().len() > 0 {
+        print("then")
+    }
+
+    print("while U")
+    var i = 0
+    while borrow h.get().label().len() > i {
+        print("body")
+        i = i + 1
+    }
+    print("while C")
+    i = 0
+    while borrow h.find(true)!.label().len() > i {
+        print("body")
+        i = i + 1
+    }
+
+    print("coalesce U")
+    let c1 = borrow h.get().maybe() ?? loud("d")
+    print("coalesce C")
+    let c2 = borrow h.find(true)!.maybe() ?? loud("d")
+
+    print("compare U")
+    let e1 = borrow h.get().label() == loud("x")
+    print("compare C")
+    let e2 = borrow h.find(true)!.label() == loud("x")
+
+    print("assign U")
+    var s = "start"
+    s = pair(borrow h.get().label(), loud("y"))
+    print("assign C")
+    var t = "start"
+    t = pair(borrow h.find(true)!.label(), loud("y"))
+
+    print("match value U")
+    match borrow h.get().label().len() {
+        case 1 -> print("arm one"),
+        case _ -> print("arm other")
+    }
+    print("match value C")
+    match borrow h.find(true)!.label().len() {
+        case 1 -> print("arm one"),
+        case _ -> print("arm other")
+    }
+    print("match place U")
+    match borrow h.get().n {
+        case 0 -> print("arm zero"),
+        case _ -> print("arm other")
+    }
+    print("match place C")
+    match borrow h.find(true)!.n {
+        case 0 -> print("arm zero"),
+        case _ -> print("arm other")
+    }
+
+    print("by reference U")
+    show_ref(borrow h.get())
+    print("by reference C")
+    show_ref(borrow h.find(true)!)
+    print("by reference var")
+    touch(borrow var h.get_var())
+    print("compare place")
+    let e3 = borrow h.get().n == loud_int(1)
+    print("interpolation place")
+    print("p {borrow h.get().n} {loud("b")}")
+
+    print("overlap assign")
+    borrow var h.get_var().n = borrow h.get().label().len()
+    print("overlap arguments")
+    touch_with(borrow h.get().label(), borrow var h.get_var())
+
+    print("end {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}", o1, o2, o3, o4, l1, l2, r1, r2, c1, c2, e1, e2, s, t,
+          h.r.n)
+    let _ = e3
+}

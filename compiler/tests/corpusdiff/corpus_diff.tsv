@@ -2121,7 +2121,7 @@ place_assignment_targets.saw	refused	typecheck subscript.role	this subscript is 
 place_comparison_operand_is_a_borrow.saw	pass	-	-
 place_conditional_lend_uses.saw	pass	-	-
 place_cross_module_same_name_type.saw	pass	-	-
-place_enum_payload_lend.saw	wrong	stdout differs	line 17: sawc2 "8", Stage 0 "epilogue ran"
+place_enum_payload_lend.saw	pass	-	-
 place_match_arm_move_in_literal.saw	pass	-	transfer.move-from-borrow: cannot move out of `r`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
 place_nocopy_arg_in_window.saw	pass	-	-
 place_paired_literal_fields.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet

@@ -532,11 +532,13 @@ the flag the `.ll` is byte for byte what it was.
 `sanitize_lane.py`, run.py's `sanitize` step, builds each of this directory's
 `coro_*` programs that is not due, the offload pins
 (`offload_cancel_waits_for_the_call`, `offload_start_refused`,
-`suspend_blocking_main`) and each `thread_*`, `coro_*`, `generic_default_*` or
-`conditional_lend_*` probe that states its output (the generic defaults because
-a default computed at another width than its slot's overwrites the stack,
-SL-830; the conditional lends because the lent reference is read out of an
-Optional on the present path alone, SL-686), at
+`suspend_blocking_main`) and each `thread_*`, `coro_*`, `generic_default_*`,
+`conditional_lend_*` or `borrow_value_read_*` probe that states its output (the
+generic defaults because a default computed at another width than its slot's
+overwrites the stack, SL-830; the conditional lends because the lent reference
+is read out of an Optional on the present path alone, SL-686; the borrow value
+reads because their windows close before the value they read is used or
+dropped, SL-838), at
 -O0 plainly and under `--sanitize address`, into `.build/sanitize-lane/`. A
 case passes when the sanitized binary prints the same bytes and exits with the
 same status as the plain one, and AddressSanitizer reports nothing; leak

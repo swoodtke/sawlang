@@ -471,6 +471,7 @@ information.
 | chains: an assignment's right side before the target's hops, a field beside the chain's, a read-only chain, a cell accessor's root after its window | chains |
 | a conditional lend's absent edge carrying no loan | windows |
 | a window's loan ending at its close | windows |
+| a statement-form borrow read only as a value, its window closed at the read, before an exclusive borrow of its root later in the statement: an assignment's call-valued right side, a value argument before a `borrow var` one | value_reads |
 | a reference, and a window not `borrows(sync)`, spanning a suspension | windows |
 | a shared window on a `let` root; shared windows rendered and compared side by side | windows |
 | a plain receiver's two-phase borrow: `v.push(v.len())`, `b.add(b.size())` | calls |

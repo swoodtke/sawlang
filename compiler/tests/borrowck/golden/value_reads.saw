@@ -1,0 +1,47 @@
+// A statement-form borrow whose result is only a value closes its window at
+// the read, so a later exclusive borrow of the same root in the same
+// statement is accepted: an assignment whose right side is a call on a shared
+// lend, and a value argument before an exclusive by-reference one. The
+// run lane's `probes/borrow_value_read_positions.saw` pins the order.
+
+struct Res {
+    name: String,
+    n: Int
+}
+
+extension Res {
+    func label(&self) -> String { self.name }
+}
+
+struct Holder {
+    r: Res
+}
+
+extension Holder {
+    func get(&self) borrows -> &Res {
+        lend self.r
+    }
+
+    func get_var(&var self) borrows -> &var Res {
+        lend self.r
+    }
+}
+
+func touch_with(s: String, r: &var Res) {
+    r.n = r.n + s.len()
+}
+
+func assigned(h: &var Holder) {
+    borrow var h.get_var().n = borrow h.get().label().len()
+}
+
+func arguments(h: &var Holder) {
+    touch_with(borrow h.get().label(), borrow var h.get_var())
+}
+
+func main() {
+    var h = Holder(r: Res(name: "x", n: 1))
+    assigned(&var h)
+    arguments(&var h)
+    print(h.r.n)
+}

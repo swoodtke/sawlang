@@ -4567,9 +4567,9 @@ makes conflicts with the write when it is still open as the target's borrow
 opens. A reference the RHS hands to a callee, such as `&var p` passed to
 `bump`, is one such borrow, and on a path overlapping the written root it is
 refused: everything the callee wrote through that borrow would be overwritten
-by the assignment that follows. A borrow whose result is only copied out does
-not conflict, because it closes as soon as the value is read, before the
-target's borrow opens: `borrow var v[i].x = borrow v[j].x` with a copyable `x`,
+by the assignment that follows. A borrow whose result is only a value does not
+conflict, because it closes as soon as the value is read, before the target's
+borrow opens: `borrow var v[i].x = borrow v[j].x` with a copyable `x`,
 and `borrow var v[0].n = v.pop()!.n`, are legal (see
 [Window extent and nesting](#window-extent-and-nesting)).
 
@@ -4838,7 +4838,7 @@ borrow var row = grid[r], var cell = row[c] { cell.weight += bias }
 ```
 
 **The statement form** prefixes the place directly, for in-place work that fits
-in one statement. The borrow lasts exactly that statement:
+in one statement. The borrow lasts at most that statement:
 
 ```saw-fragment
 borrow var grid[r][c].weight += bias
@@ -4864,8 +4864,12 @@ print(borrow doc.section("net").name)
   `borrow var row = grid[r] { borrow var cell = row[c] { … } }`.
 - Several borrows in one statement are checked together, so
   `borrow var a[i].x = borrow b[j].x` is legal.
-- A borrow whose result is only copied closes as soon as the value is read.
-  The right side of an assignment is evaluated before the left side's borrow
+- A borrow whose result is only a value — copied out of the place, or
+  returned by a call on it — closes as soon as the value is read; one used by
+  reference (an argument's borrow, rendering or comparing the place, a `match`
+  on the place) keeps its window for that use. In
+  `show(borrow doc.section("net").title(), next())` the section's borrow
+  closes once `title()` returns, before `next()` runs. The right side of an assignment is evaluated before the left side's borrow
   opens, so `borrow var v[i].x = borrow v[j].x` works when `x` is copyable: the
   right borrow opens, `x` is copied out, the right borrow closes, and only then
   does the left one open. Two borrows are live together only while both are in
@@ -5393,7 +5397,10 @@ exclusive `Data.[]`, which separates first.
 A borrow's **window** is the span in which it is open, and the form that opened
 it says how long that is: a block form's window is its block, a statement
 form's is its statement, and a borrowed argument's is the call. A statement
-form whose result is only copied closes as soon as the value is read. Nothing
+form whose result is only a value — copied out of the place, or returned by a
+call on it — closes as soon as the value is read; one used by reference (an
+argument's borrow, rendering or comparing the place, a `match` on the place)
+keeps its window for that use. Nothing
 outside the window runs with the place lent.
 
 Windows **nest**, which is what orders them. `borrow var b[0][1].count += 1` is

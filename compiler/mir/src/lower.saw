@@ -2224,8 +2224,15 @@ extension MirProgram {
         MirVal(place: self.place_local(l), fresh: true)
     }
 
-    // Closes the windows registered since scope entry `mark`, newest first,
-    // and forgets them.
+    // THE VALUE-READ CLOSE FUNNEL: a statement-form borrow whose result is
+    // only a value closes once the value is read, so the windows registered
+    // since scope entry `mark` close here, newest first, and are forgotten.
+    // One used by reference keeps them for that use (spec, The `borrow`
+    // construct).
+    //
+    // ENTRY POINTS (close_windows_since):
+    //     borrow_place_val
+    //     prepare_borrow
     func close_windows_since(&var self, mark: Int) {
         var k = self.scope.len() - 1
         var closed = Vector<Int>()
@@ -2351,14 +2358,8 @@ extension MirProgram {
             },
             case Expr_Subscript_Single -> self.prepare_subscript(e, &var steps),
             case Expr_Subscript_Multi -> self.prepare_subscript(e, &var steps),
-            case Borrow_Place_Shared -> {
-                let inner = self.tc.res.first_node_child(e)
-                self.prepare_base(inner, &var steps)
-            },
-            case Borrow_Place_Var -> {
-                let inner = self.tc.res.first_node_child(e)
-                self.prepare_base(inner, &var steps)
-            },
+            case Borrow_Place_Shared -> self.prepare_borrow(e, &var steps),
+            case Borrow_Place_Var -> self.prepare_borrow(e, &var steps),
             case _ -> {
                 if self.tc.is_call_alt(e) && self.lends_place(e) {
                     self.prepare_lend(e, &var steps)
@@ -2381,6 +2382,20 @@ extension MirProgram {
             }
             self.push_step(&var steps, MIR_STEP_DEREF, e, -1, -1, adj.to)
             a = adj.next
+        }
+    }
+
+    // The statement form `borrow PLACE…`: its chain prepared, and, when the
+    // chain ends in a value a call returned rather than in the lent place,
+    // its windows closed as soon as that value is complete. Only a `borrows`
+    // function may return a reference, a slice or a borrowing struct, so
+    // such a value holds nothing of the place (SL:borrowing §2.2).
+    func prepare_borrow(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let inner = self.tc.res.first_node_child(e)
+        let mark = self.scope.len()
+        self.prepare_base(inner, &var steps)
+        if steps.len() == 1 && steps[0].fresh {
+            self.close_windows_since(mark)
         }
     }
 

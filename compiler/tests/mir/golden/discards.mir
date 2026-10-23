@@ -134,11 +134,11 @@ fn discards.through_borrow(rows: &var std.vector.Vector<std.vector.Vector<Int, s
     }
 
     bb2: {
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        drop(_5);
         return;
     }
 }
@@ -194,11 +194,11 @@ fn discards.var_discard(rows: &var std.vector.Vector<discards.Bag, std.alloc.Glo
     }
 
     bb2: {
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        drop(_5);
         return;
     }
 }
@@ -224,12 +224,12 @@ fn discards.var_force(rows: &var std.vector.Vector<discards.Bag, std.alloc.Globa
     }
 
     bb2: {
-        _6 = copy (_5 as Ok!).0;
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        _6 = copy (_5 as Ok!).0;
+        drop(_5);
         return;
     }
 }
@@ -285,12 +285,12 @@ fn discards.var_bind(rows: &var std.vector.Vector<discards.Bag, std.alloc.Global
     }
 
     bb2: {
-        _2 = move _6;
-        drop(_6);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        _2 = move _6;
+        drop(_6);
         _7 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _2] -> [return: bb4];
     }
 
@@ -322,16 +322,16 @@ fn discards.var_argument(rows: &var std.vector.Vector<discards.Bag, std.alloc.Gl
     }
 
     bb2: {
-        _6 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _5] -> [return: bb3];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
-        _0 = move _6;
-        drop(_5);
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+        _6 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _5] -> [return: bb4];
     }
 
     bb4: {
+        _0 = move _6;
+        drop(_5);
         return;
     }
 }
@@ -356,12 +356,12 @@ fn discards.var_return(rows: &var std.vector.Vector<discards.Bag, std.alloc.Glob
     }
 
     bb2: {
-        _0 = move _5;
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        _0 = move _5;
+        drop(_5);
         return;
     }
 }
@@ -386,11 +386,11 @@ fn discards.shared_discard(rows: &std.vector.Vector<discards.Bag, std.alloc.Glob
     }
 
     bb2: {
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        drop(_5);
         return;
     }
 }
@@ -418,12 +418,12 @@ fn discards.shared_bind(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalA
     }
 
     bb2: {
-        _2 = move _6;
-        drop(_6);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        _2 = move _6;
+        drop(_6);
         _7 = ref(shared, _2);
         _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb4];
     }
@@ -456,16 +456,16 @@ fn discards.shared_argument(rows: &std.vector.Vector<discards.Bag, std.alloc.Glo
     }
 
     bb2: {
-        _6 = call discards.take_label(s: String) [move _5] -> [return: bb3];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
-        _0 = move _6;
-        drop(_5);
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
+        _6 = call discards.take_label(s: String) [move _5] -> [return: bb4];
     }
 
     bb4: {
+        _0 = move _6;
+        drop(_5);
         return;
     }
 }
@@ -490,12 +490,12 @@ fn discards.shared_return(rows: &std.vector.Vector<discards.Bag, std.alloc.Globa
     }
 
     bb2: {
-        _0 = move _5;
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        _0 = move _5;
+        drop(_5);
         return;
     }
 }
@@ -520,11 +520,11 @@ fn discards.shared_statement(rows: &std.vector.Vector<discards.Bag, std.alloc.Gl
     }
 
     bb2: {
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        drop(_5);
         return;
     }
 }
@@ -562,11 +562,11 @@ fn discards.shared_arm(rows: &std.vector.Vector<discards.Bag, std.alloc.GlobalAl
     }
 
     bb5: {
-        drop(_6);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb6: {
+        drop(_6);
         goto -> bb1;
     }
 }
@@ -599,7 +599,6 @@ fn discards.nested_discard(grid: &var std.vector.Vector<std.vector.Vector<discar
     }
 
     bb3: {
-        drop(_7);
         window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
@@ -608,6 +607,7 @@ fn discards.nested_discard(grid: &var std.vector.Vector<std.vector.Vector<discar
     }
 
     bb5: {
+        drop(_7);
         return;
     }
 }
@@ -641,8 +641,6 @@ fn discards.nested_force(grid: &var std.vector.Vector<std.vector.Vector<discards
     }
 
     bb3: {
-        _8 = copy (_7 as Ok!).0;
-        drop(_7);
         window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
@@ -651,6 +649,8 @@ fn discards.nested_force(grid: &var std.vector.Vector<std.vector.Vector<discards
     }
 
     bb5: {
+        _8 = copy (_7 as Ok!).0;
+        drop(_7);
         return;
     }
 }
@@ -685,8 +685,6 @@ fn discards.nested_bind(grid: &var std.vector.Vector<std.vector.Vector<discards.
     }
 
     bb3: {
-        _2 = move _8;
-        drop(_8);
         window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
@@ -695,6 +693,8 @@ fn discards.nested_bind(grid: &var std.vector.Vector<std.vector.Vector<discards.
     }
 
     bb5: {
+        _2 = move _8;
+        drop(_8);
         _9 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _2] -> [return: bb6];
     }
 
@@ -734,20 +734,20 @@ fn discards.nested_argument(grid: &var std.vector.Vector<std.vector.Vector<disca
     }
 
     bb3: {
-        _8 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _7] -> [return: bb4];
+        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
     bb4: {
-        _0 = move _8;
-        drop(_7);
-        window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb5];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb5];
     }
 
     bb5: {
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb6];
+        _8 = call discards.consume(r: Result<Void, std.alloc.AllocError>) [move _7] -> [return: bb6];
     }
 
     bb6: {
+        _0 = move _8;
+        drop(_7);
         return;
     }
 }
@@ -772,11 +772,11 @@ fn discards.nested_field_discard(rows: &var std.vector.Vector<discards.Bag, std.
     }
 
     bb2: {
-        drop(_5);
         window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb3];
     }
 
     bb3: {
+        drop(_5);
         return;
     }
 }
@@ -809,7 +809,6 @@ fn discards.nested_shared_discard(grid: &std.vector.Vector<std.vector.Vector<dis
     }
 
     bb3: {
-        drop(_7);
         window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<discards.Bag, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
@@ -818,6 +817,7 @@ fn discards.nested_shared_discard(grid: &std.vector.Vector<std.vector.Vector<dis
     }
 
     bb5: {
+        drop(_7);
         return;
     }
 }

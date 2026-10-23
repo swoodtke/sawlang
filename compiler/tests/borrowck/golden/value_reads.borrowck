@@ -1,0 +1,188 @@
+module value_reads
+
+fn value_reads.Res.label() {
+    place _0: String;  // _0
+
+    bb0: {
+        [U] _0 = copy (*_1).name;
+        [W] return;
+    }
+}
+
+fn prologue value_reads.Holder.get() {
+    loan L0: shared (*_1).r;  // ref at 22:9
+
+    bb0: {
+        [] {} _2 = ref(shared, (*_1).r);
+        [] {L0} _0 = move _2;
+        [] {L0} return;
+    }
+}
+
+fn epilogue value_reads.Holder.get() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn prologue value_reads.Holder.get_var() {
+    loan L0: exclusive (*_1).r;  // ref at 26:9
+
+    bb0: {
+        [] {} _2 = ref(exclusive, (*_1).r);
+        [] {L0} _0 = move _2;
+        [] {L0} return;
+    }
+}
+
+fn epilogue value_reads.Holder.get_var() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] return;
+    }
+}
+
+fn value_reads.touch_with(s: String, r: &var value_reads.Res) {
+    place _1: String;  // s
+    loan L0: shared _1;  // argument at 31:17
+
+    bb0: {
+        [W] {} _3 = copy (*_2).n;
+        [W] {} _4 = ref(shared, _1);
+        [W] {L0} _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [W] {} _6 = Add(move _3, move _5);
+        [W] {} (*_2).n = move _6;
+        [W] {} drop(_1);  // static
+        [D] {} return;
+    }
+}
+
+fn value_reads.assigned(h: &var value_reads.Holder) {
+    place _5: String;  // _5
+    loan L0: shared (*_1);  // ref at 35:39
+    loan L1: shared (*_1);  // window w0 at 35:39
+    loan L2: shared (*_2);  // argument at 35:39
+    loan L3: shared _5;  // argument at 35:39
+    loan L4: exclusive (*_1);  // ref at 35:5
+    loan L5: exclusive (*_1);  // window w1 at 35:5
+
+    bb0: {
+        [U] {} _3 = ref(shared, (*_1));
+        [U] {L0} _2 = window_open w0 prologue value_reads.Holder.get() (owner value_reads.Holder) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        [U] {L0 L1} _4 = ref(shared, (*_2));
+        [U] {L0 L1 L2} _5 = call value_reads.Res.label() (owner value_reads.Res) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        [W] {L0 L1} _6 = ref(shared, _5);
+        [W] {L0 L1 L3} _7 = call std.string.String.len() (owner String) [move _6] -> [return: bb3];
+    }
+
+    bb3: {
+        [W] {L0 L1} window_close w0 epilogue value_reads.Holder.get() (owner value_reads.Holder) -> [return: bb4];
+    }
+
+    bb4: {
+        [W] {} _9 = ref(exclusive, (*_1));
+        [W] {L4} _8 = window_open w1 prologue value_reads.Holder.get_var() (owner value_reads.Holder) [move _9] -> [present: bb5];
+    }
+
+    bb5: {
+        [W] {L4 L5} (*_8).n = move _7;
+        [W] {L4 L5} window_close w1 epilogue value_reads.Holder.get_var() (owner value_reads.Holder) -> [return: bb6];
+    }
+
+    bb6: {
+        [W] {} drop(_5);  // static
+        [D] {} return;
+    }
+}
+
+fn value_reads.arguments(h: &var value_reads.Holder) {
+    place _5: String;  // _5
+    loan L0: shared (*_1);  // ref at 39:23
+    loan L1: shared (*_1);  // window w0 at 39:23
+    loan L2: shared (*_2);  // argument at 39:23
+    loan L3: exclusive (*_1);  // ref at 39:40
+    loan L4: exclusive (*_1);  // window w1 at 39:40
+    loan L5: exclusive (*_6);  // argument at 39:40
+
+    bb0: {
+        [U] {} _3 = ref(shared, (*_1));
+        [U] {L0} _2 = window_open w0 prologue value_reads.Holder.get() (owner value_reads.Holder) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        [U] {L0 L1} _4 = ref(shared, (*_2));
+        [U] {L0 L1 L2} _5 = call value_reads.Res.label() (owner value_reads.Res) [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        [W] {L0 L1} window_close w0 epilogue value_reads.Holder.get() (owner value_reads.Holder) -> [return: bb3];
+    }
+
+    bb3: {
+        [W] {} _7 = ref(exclusive, (*_1));
+        [W] {L3} _6 = window_open w1 prologue value_reads.Holder.get_var() (owner value_reads.Holder) [move _7] -> [present: bb4];
+    }
+
+    bb4: {
+        [W] {L3 L4} _8 = ref(exclusive, (*_6));
+        [W] {L3 L4 L5} call value_reads.touch_with(s: String, r: &var value_reads.Res) [move _5, move _8] -> [return: bb5];
+    }
+
+    bb5: {
+        [M] {L3 L4} window_close w1 epilogue value_reads.Holder.get_var() (owner value_reads.Holder) -> [return: bb6];
+    }
+
+    bb6: {
+        [M] {} drop(_5);  // elided
+        [D] {} return;
+    }
+}
+
+fn value_reads.main() {
+    place _1: value_reads.Holder;  // h
+    place _2: value_reads.Res;  // _2
+    place _3: value_reads.Holder;  // _3
+    place _1.r: value_reads.Res;  // h.r
+    loan L0: exclusive _1;  // argument at 44:14
+    loan L1: exclusive _1;  // argument at 45:15
+
+    bb0: {
+        [U U U U] {} _2 = value_reads.Res { name: const "x": String, n: const 1: Int };
+        [U W U U] {} _3 = value_reads.Holder { r: move _2 };
+        [U M W U] {} _1 = move _3;
+        [W M M W] {} _4 = ref(exclusive, _1);
+        [W M M W] {L0} call value_reads.assigned(h: &var value_reads.Holder) [move _4] -> [return: bb1];
+    }
+
+    bb1: {
+        [W M M W] {} _5 = ref(exclusive, _1);
+        [W M M W] {L1} call value_reads.arguments(h: &var value_reads.Holder) [move _5] -> [return: bb2];
+    }
+
+    bb2: {
+        [W M M W] {} call builtin print [copy _1.r.n] -> [return: bb3];
+    }
+
+    bb3: {
+        [W M M W] {} drop(_1);  // static
+        [D M M D] {} return;
+    }
+}

@@ -48,8 +48,10 @@ PROBE_KINDS = ("stated", "panics")
 # The probes the lane builds: the thread and coroutine probes, the generic
 # defaults, where a value computed at another width than its slot's is a stack
 # overwrite (SL-830), and the conditional lends, whose lent reference is read
-# out of an Optional only on the present path (SL-686).
-PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw", "conditional_lend_*.saw")
+# out of an Optional only on the present path (SL-686), and the borrow value
+# reads, whose windows close before the value they read is used or dropped.
+PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw", "conditional_lend_*.saw",
+                  "borrow_value_read_*.saw")
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60

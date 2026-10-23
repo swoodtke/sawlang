@@ -7,7 +7,8 @@
 // form, with a `&var self` callee, a `&self` callee and a nested chain, before
 // each consumer of the call's result: `let _ =`, `try!`, a `Void` result, a
 // `let` binding, an argument, a `return`, an expression statement and a
-// branch's arm.
+// branch's arm. Each window closes once the call returns, before the
+// consumer runs and before the temporary drops (SL-838).
 
 struct Bag {
     items: Vector<Int>
