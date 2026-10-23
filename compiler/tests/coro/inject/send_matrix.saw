@@ -55,6 +55,10 @@ func shown() unsafe -> Box<any Printable> {
     Box<any Printable>.make(value: Code(n: 1))
 }
 
+func erased() unsafe -> Box<any Error> {
+    Box<any Error>.make(value: Code(n: 1))
+}
+
 func raw_box() unsafe -> Box<Raw> {
     try! Box<Raw>.make(value: make_raw())
 }
@@ -305,7 +309,29 @@ func r_pointer_no<F>(form: F) unsafe -> UnsafePointer<Int> {
     0 as UnsafePointer<Int>
 }
 
-func r_error_no<F>(form: F) -> Result<Int, Box<any Error>> {
+// `Error` refines `Send`, so an erased error crosses in every position.
+func p_box_error_ok<F>(x: Box<any Error>, form: F) unsafe -> Int {
+    yield_now()
+    1
+}
+
+func l_box_error_ok<F>(form: F) unsafe -> Int {
+    let x = erased()
+    yield_now()
+    1
+}
+
+func c_box_error_ok_child() unsafe -> Int {
+    let x = erased()
+    yield_now()
+    1
+}
+
+func c_box_error_ok<F>(form: F) unsafe -> Int {
+    c_box_error_ok_child()
+}
+
+func r_error_ok<F>(form: F) -> Result<Int, Box<any Error>> {
     yield_now()
     failed()
 }
@@ -633,14 +659,41 @@ func main() unsafe {
     let h_r_pointer_no_ts = Task.spawn(r_pointer_no(TS()))
     let _ = h_r_pointer_no_ts.join()
 
-    let h_r_error_no_g = g.spawn(r_error_no(G()))
-    let _ = h_r_error_no_g.join()
-    let h_r_error_no_t1 = t1.spawn(r_error_no(T1()))
-    let _ = h_r_error_no_t1.join()
-    let h_r_error_no_t2 = t2.spawn(r_error_no(T2()))
-    let _ = h_r_error_no_t2.join()
-    let h_r_error_no_ts = Task.spawn(r_error_no(TS()))
-    let _ = h_r_error_no_ts.join()
+    let h_p_box_error_ok_g = g.spawn(p_box_error_ok(erased(), G()))
+    let _ = h_p_box_error_ok_g.join()
+    let h_p_box_error_ok_t1 = t1.spawn(p_box_error_ok(erased(), T1()))
+    let _ = h_p_box_error_ok_t1.join()
+    let h_p_box_error_ok_t2 = t2.spawn(p_box_error_ok(erased(), T2()))
+    let _ = h_p_box_error_ok_t2.join()
+    let h_p_box_error_ok_ts = Task.spawn(p_box_error_ok(erased(), TS()))
+    let _ = h_p_box_error_ok_ts.join()
+
+    let h_l_box_error_ok_g = g.spawn(l_box_error_ok(G()))
+    let _ = h_l_box_error_ok_g.join()
+    let h_l_box_error_ok_t1 = t1.spawn(l_box_error_ok(T1()))
+    let _ = h_l_box_error_ok_t1.join()
+    let h_l_box_error_ok_t2 = t2.spawn(l_box_error_ok(T2()))
+    let _ = h_l_box_error_ok_t2.join()
+    let h_l_box_error_ok_ts = Task.spawn(l_box_error_ok(TS()))
+    let _ = h_l_box_error_ok_ts.join()
+
+    let h_c_box_error_ok_g = g.spawn(c_box_error_ok(G()))
+    let _ = h_c_box_error_ok_g.join()
+    let h_c_box_error_ok_t1 = t1.spawn(c_box_error_ok(T1()))
+    let _ = h_c_box_error_ok_t1.join()
+    let h_c_box_error_ok_t2 = t2.spawn(c_box_error_ok(T2()))
+    let _ = h_c_box_error_ok_t2.join()
+    let h_c_box_error_ok_ts = Task.spawn(c_box_error_ok(TS()))
+    let _ = h_c_box_error_ok_ts.join()
+
+    let h_r_error_ok_g = g.spawn(r_error_ok(G()))
+    let _ = h_r_error_ok_g.join()
+    let h_r_error_ok_t1 = t1.spawn(r_error_ok(T1()))
+    let _ = h_r_error_ok_t1.join()
+    let h_r_error_ok_t2 = t2.spawn(r_error_ok(T2()))
+    let _ = h_r_error_ok_t2.join()
+    let h_r_error_ok_ts = Task.spawn(r_error_ok(TS()))
+    let _ = h_r_error_ok_ts.join()
 
     let h_l_group_no_g = g.spawn(l_group_no(G()))
     let _ = h_l_group_no_g.join()

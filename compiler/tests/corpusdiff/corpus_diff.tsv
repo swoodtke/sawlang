@@ -808,7 +808,7 @@ coro_try_catch_suspending.saw	pass	-	-
 coro_try_in_borrowed_place_index.saw	pass	-	-
 coro_try_landing_relinquishes_by_position.saw	stage0-wrong	annotated SL-731	sawc2 meets its directives
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-coro_try_propagate_suspending.saw	refused	coro coro.spawn-not-send	cannot spawn `erased`: its result type `Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>` is not `Send`, so the value cannot travel back from the worker thread to `join()`.
+coro_try_propagate_suspending.saw	pass	-	-
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
 coro_value_inline_catch_hosts_a_move.saw	stage0-wrong	XFAIL SL-231	sawc2 meets its directives
@@ -993,7 +993,7 @@ erased_downcast_nonconforming_error.saw	refused	typecheck slice.not-yet	downcast
 erased_downcast_use_after_take_error.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
 erased_error_across_suspension.saw	pass	-	-
 erased_error_spawned_container_result.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
-erased_error_spawned_task.saw	refused	coro coro.spawn-not-send	cannot spawn `fail`: its result type `Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>` is not `Send`, so the value cannot travel back from the worker thread to `join()`.
+erased_error_spawned_task.saw	pass	-	-
 erased_result_catch.saw	pass	-	-
 erased_result_return.saw	pass	-	-
 erased_result_try.saw	pass	-	-

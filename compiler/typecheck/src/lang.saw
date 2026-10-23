@@ -112,7 +112,7 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
             try! out.push("(requirement format (signature (receiver shared) (params (into &var std.stringbuilder.StringBuilder exclusive)) -> Void))")
             try! out.push("(requirement to_string (signature (receiver shared) (params) -> String default-body))")
         },
-        case ErrorTrait -> try! out.push("trait (parents Printable)"),
+        case ErrorTrait -> try! out.push("trait (parents Printable Send)"),
         case SendTrait -> try! out.push("trait"),
         case SyncTrait -> try! out.push("trait"),
         case UnsafeSendTrait -> try! out.push("trait (parents Send)"),
@@ -213,12 +213,12 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
 }
 
 // Whether `found` is the one other shape `role` may have: `Error` refining
-// `Send` as well as `Printable`. The seed checks the tree's std against its
-// own copy of this table, so the table holds both shapes while std moves from
-// one to the other (SL-815).
+// `Printable` alone. The frozen std, `sawc/builtin.saw`, keeps that older
+// shape, and the checks over the `sawc` std root read it; the alternative
+// goes with `sawc/` (SL-667).
 func tc_lang_alternative(role: ResLang, found: &Vector<String>) -> Bool {
     match role {
-        case ErrorTrait -> found.len() == 1 && (found.get(0) ?? "").equals("trait (parents Printable Send)"),
+        case ErrorTrait -> found.len() == 1 && (found.get(0) ?? "").equals("trait (parents Printable)"),
         case _ -> false
     }
 }

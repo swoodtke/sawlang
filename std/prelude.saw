@@ -160,8 +160,13 @@ public trait Printable {
     }
 }
 
-/// An error: a value that renders itself as text.
-public trait Error: Printable {
+/// An error: a value that renders itself as text, and that may move to
+/// another thread.
+///
+/// An erased `Box<any Error>` can be the result of any spawned task, so every
+/// error type is `Send`: a type holding a value that may not leave its
+/// thread can't conform.
+public trait Error: Printable, Send {
 }
 
 /// A type whose values may move to another thread, derived from its members.

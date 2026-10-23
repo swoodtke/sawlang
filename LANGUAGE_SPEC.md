@@ -2951,11 +2951,19 @@ try! sb.append(104)           // "104"    — a literal is an Int
 
 #### `Error` and erased Results
 
-**Status: implemented.** An error type is a Printable value:
+**Status: implemented.** An error type is a Printable value that may move to
+another thread:
 
 ```saw-fragment
-trait Error: Printable {}
+trait Error: Printable, Send {}
 ```
+
+`Error` refines `Send` because an erased error crosses into any spawned task.
+A spawned task's frame must be `Send` whatever group it runs in, and a task
+whose result is `Result<T, Box<any Error>>` holds the box in that frame, so
+`any Error` has to be `Send` for such a task to be spawned at all. A type
+whose members are not all `Send` (an `UnsafePointer` field, say) cannot
+conform to `Error`; the conformance is refused, naming the member.
 
 Both conformance spellings are legal: a one-shot `extension E: Error { func
 format(...) {...} }` (format is inherited from `Printable`), or a split

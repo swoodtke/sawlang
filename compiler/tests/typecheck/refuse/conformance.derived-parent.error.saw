@@ -1,0 +1,17 @@
+// refuses: conformance.derived-parent at 9:22
+// flags: --std-root std
+// an error type whose payload holds a raw pointer: `Error` refines `Send`, which the payload does not derive
+
+struct ReadFault {
+    at: UnsafePointer<UInt8>
+}
+
+extension ReadFault: Error {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("read fault")
+    }
+}
+
+func main() {
+    print("ok")
+}
