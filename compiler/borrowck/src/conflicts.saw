@@ -28,15 +28,32 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
-// A written `&` or `&var` in a call's access set (spec, Nested calls), with
-// the calls whose argument lists hold it, innermost first: a run of the
-// check's chains.
+// How a statement holds the borrow a `ref` makes (`held_reference`).
+enum BorrowckHeld {
+    // A receiver the statement borrows implicitly, or no `ref` at all.
+    case Unheld,
+    // A written `&` or `&var`, or a `borrow` place passed by reference: held
+    // for the whole call or assignment it stands in.
+    case Reference,
+    // The receiver of a window MIR closed at its value read: held from its
+    // open to that close, and by nothing after it.
+    case ValueRead
+}
+
+// A held borrow in a call's access set (spec, Nested calls), with the calls
+// whose argument lists hold it, innermost first: a run of the check's chains.
+// `stmt` is its `ref`, instruction `i` of block `b`; a value read's window is
+// `window`, -1 for a reference.
 struct BorrowckMember {
     node: Int
     exclusive: Bool
     path: BorrowckPath
     chain_first: Int
     chain_count: Int
+    stmt: Int
+    b: Int
+    i: Int
+    window: Int
 }
 
 // An instruction of a function: its block, and its index there.
@@ -788,9 +805,12 @@ extension BorrowckProgram {
     // nested inside, as a shared reservation. Two that overlap, one of them
     // exclusive and one inside a nested call, conflict whatever order the
     // calls run in. A receiver joins only through a written reference, so
-    // `v.push(v.len())` and `combine(n.get(), bump(&var n))` stay legal.
-    // References that are arguments of one call side by side are the loan
-    // walk's (`check_block`).
+    // `v.push(v.len())` and `combine(n.get(), bump(&var n))` stay legal. A
+    // `borrow` whose result is only a value holds its root from its open to
+    // its read, so it meets a reference made after that read nowhere, while
+    // a reference made before it extends over the whole call. References
+    // that are arguments of one call side by side are the loan walk's
+    // (`check_block`).
     func check_call_sets(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
         let info = self.mir.funcs[f]
         var members = Vector<BorrowckMember>()
@@ -799,15 +819,20 @@ extension BorrowckProgram {
         while b < info.block_count {
             let block = self.mir.blocks[info.block_first + b]
             var s = block.first
+            var i = -1
             while s >= 0 {
+                let at = s
                 let stmt = self.mir.stmts[s]
                 s = stmt.next
-                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 || not self.written_reference(stmt.node) {
+                i = i + 1
+                let held = self.held_reference(f, at)
+                if held == BorrowckHeld.Unheld {
                     continue
                 }
                 let rv = self.mir.rvalues[stmt.rvalue]
-                if rv.kind != MirRvalueKind.Ref || rv.place < 0 {
-                    continue
+                var window = -1
+                if held == BorrowckHeld.ValueRead {
+                    window = self.receiver_window(f, at)
                 }
                 let calls = self.enclosing_calls(stmt.node)
                 if calls.len() == 0 {
@@ -822,21 +847,25 @@ extension BorrowckProgram {
                     k = k + 1
                 }
                 try! members.push(BorrowckMember(node: stmt.node, exclusive: rv.exclusive, path: path,
-                                                 chain_first: first, chain_count: calls.len()))
+                                                 chain_first: first, chain_count: calls.len(), stmt: at, b: b,
+                                                 i: i, window: window))
             }
             b = b + 1
         }
         var i = 0
         while i < members.len() {
             let x = members[i]
-            // Two written references: nested is relative to the innermost
-            // call both stand in.
+            // Two held borrows: nested is relative to the innermost call both
+            // stand in.
             var j = i + 1
             while j < members.len() {
                 let y = members[j]
                 j = j + 1
                 let common = borrowck_common_call(&chains, &x, &y)
                 if common < 0 || not (x.exclusive || y.exclusive) {
+                    continue
+                }
+                if self.closed_before(f, &x, &y, &var facts) || self.closed_before(f, &y, &x, &var facts) {
                     continue
                 }
                 let x_nested = chains[x.chain_first] != common
@@ -883,6 +912,96 @@ extension BorrowckProgram {
             }
             i = i + 1
         }
+    }
+
+    // THE HELD-BORROW FUNNEL: how statement `s`'s `ref`, if it is one, is
+    // held by the call or assignment it stands in. The receiver of a window
+    // MIR closed at its value read (`MirWindow.value_read`, set by the
+    // value-read close funnel) is held only until that read, whatever node
+    // it lowers; otherwise a written reference is held for the whole call or
+    // assignment, and an implicit receiver is not held.
+    //
+    // ENTRY POINTS (held_reference):
+    //     check_call_sets
+    //     check_assignment
+    func held_reference(&self, f: Int, s: Int) -> BorrowckHeld {
+        let stmt = self.mir.stmts[s]
+        if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 || stmt.place < 0 {
+            return BorrowckHeld.Unheld
+        }
+        let rv = self.mir.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Ref || rv.place < 0 {
+            return BorrowckHeld.Unheld
+        }
+        let w = self.receiver_window(f, s)
+        if w >= 0 && self.mir.windows[self.mir.funcs[f].window_first + w].value_read {
+            return BorrowckHeld.ValueRead
+        }
+        if self.written_reference(stmt.node) {
+            return BorrowckHeld.Reference
+        }
+        BorrowckHeld.Unheld
+    }
+
+    // The window whose open takes statement `s`'s destination as an
+    // argument, or -1.
+    func receiver_window(&self, f: Int, s: Int) -> Int {
+        let l = self.bare_local_of(self.mir.stmts[s].place)
+        if l < 0 {
+            return -1
+        }
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let c = self.mir.calls[block.call]
+            if c.kind != MirCallKind.WindowOpen || c.window < 0 {
+                continue
+            }
+            var k = 0
+            while k < c.arg_count {
+                let o = self.mir.operands[self.mir.lists[c.arg_first + k]]
+                if o.place >= 0 && self.bare_local_of(o.place) == l {
+                    return c.window
+                }
+                k = k + 1
+            }
+        }
+        -1
+    }
+
+    // Whether member `v`, a value read, has been made and its window closed
+    // where member `r`'s borrow is made, so the two are never held together.
+    func closed_before(&self, f: Int, v: &BorrowckMember, r: &BorrowckMember, facts: &var BorrowckLoans) -> Bool {
+        if v.window < 0 || not facts.reached[r.b] {
+            return false
+        }
+        var n = 0
+        var loan = -1
+        while n < facts.loan_count() {
+            let candidate = facts.loans[n]
+            if candidate.kind == BorrowckLoanKind.Ref && candidate.stmt == v.stmt {
+                loan = n
+            }
+            n = n + 1
+        }
+        if loan < 0 {
+            return false
+        }
+        let lw = facts.loan_words
+        let ww = facts.window_words
+        var created = borrowck_slice(&facts.created_in, r.b * lw, lw)
+        var open = borrowck_slice(&facts.open_in, r.b * ww, ww)
+        var i = 0
+        while i < r.i {
+            self.step_forward(&facts, f, r.b, i, &var created, &var open)
+            i = i + 1
+        }
+        borrowck_bit(&created, 0, loan) && not borrowck_bit(&open, 0, v.window)
     }
 
     // Whether source node `node` is a written reference: `&x`, `&var x`, or
@@ -1000,7 +1119,8 @@ extension BorrowckProgram {
     // first, so what it writes through the borrow is overwritten. Shared
     // reads are fine, `v[0] += v.len()` included, and so is a receiver the
     // right side borrows without writing it, as the call sets count only a
-    // written reference.
+    // written reference, and a `borrow` whose result is only a value, which
+    // closes at its read, before the target's borrow opens.
     func check_assignments(&var self, f: Int, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
         let info = self.mir.funcs[f]
         var seen = Vector<Int>()
@@ -1060,12 +1180,13 @@ extension BorrowckProgram {
             let block = self.mir.blocks[info.block_first + b]
             var s = block.first
             while s >= 0 {
+                let at = s
                 let stmt = self.mir.stmts[s]
                 s = stmt.next
                 if stmt.kind != MirStmtKind.Assign || not self.node_within(stmt.node, value) {
                     continue
                 }
-                if stmt.rvalue < 0 || not self.written_reference(stmt.node) {
+                if self.held_reference(f, at) != BorrowckHeld.Reference {
                     continue
                 }
                 let rv = self.mir.rvalues[stmt.rvalue]

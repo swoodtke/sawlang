@@ -1,0 +1,30 @@
+// refuses: loan.nested-call at 29:21
+// a later argument's `borrow` of a root an earlier nested call's `&var`
+// reaches: that reference extends over the whole call, so the value read
+// overlaps it (conformance X57)
+
+struct Cell { n: Int }
+
+struct Holder { a: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    @synthesize(shared)
+    func at(&var self) borrows -> &var Cell {
+        lend self.a
+    }
+}
+
+func bump(c: &var Cell) -> Int {
+    c.n = c.n + 100
+    c.n
+}
+
+func pair(x: Int, y: Int) -> Int {
+    x * 100 + y
+}
+
+func main() {
+    var h = Holder(a: Cell(n: 1), k: 3)
+    print(pair(bump(&var h.a), borrow h.at().n))
+}

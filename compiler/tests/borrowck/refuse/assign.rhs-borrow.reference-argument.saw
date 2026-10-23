@@ -1,0 +1,27 @@
+// refuses: assign.rhs-borrow at 25:5
+// an assignment whose right side hands a callee the accessor's `&var Cell`,
+// a reference into the root it writes: not a value read, so it stays refused
+// whatever the accessor charges (conformance X56)
+
+struct Cell { n: Int }
+
+struct Holder { a: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    @synthesize(shared)
+    func at(&var self) borrows -> &var Cell {
+        lend self.a
+    }
+}
+
+func bump(c: &var Cell) -> Int {
+    c.n = c.n + 100
+    c.n
+}
+
+func main() {
+    var h = Holder(a: Cell(n: 1), k: 3)
+    borrow var h.at().n = bump(borrow var h.at()) + 10
+    print(h.k)
+}

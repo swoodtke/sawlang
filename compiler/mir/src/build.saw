@@ -1176,8 +1176,16 @@ extension MirProgram {
         let lowered = accessor >= 0 && self.accessor_of[accessor] >= 0
         try! self.windows.push(MirWindow(accessor: accessor, exclusive: exclusive, sync: sync,
                                          conditional: conditional, node: node, record: -1, lowered: lowered,
-                                         presence: -1))
+                                         presence: -1, value_read: false))
         id
+    }
+
+    // Window `w` is closed where its value is read (`close_windows_since`).
+    public func set_window_value_read(&var self, w: Int) {
+        let at = self.funcs[self.cur].window_first + w
+        var info = self.windows[at]
+        info.value_read = true
+        self.windows[at] = info
     }
 
     // Window `w`'s lent Optional reference is held in local `l`, which a

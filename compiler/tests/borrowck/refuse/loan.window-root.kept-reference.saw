@@ -1,0 +1,23 @@
+// refuses: loan.window-root at 20:9
+// an assignment inside a `borrow` block on the same root: the block keeps
+// its window open across the target's borrow, so this is no value read
+// (conformance X56)
+
+struct Cell { n: Int }
+
+struct Holder { a: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self) borrows -> &var Cell {
+        lend self.a
+    }
+}
+
+func main() {
+    var h = Holder(a: Cell(n: 1), k: 3)
+    borrow let r = h.at() {
+        h.k = r.n + 10
+    }
+    print(h.k)
+}

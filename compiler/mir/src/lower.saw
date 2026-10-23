@@ -2254,7 +2254,8 @@ extension MirProgram {
     // since scope entry `mark` close here, newest first, and are forgotten.
     // One used by reference keeps them for that use, unless the reference
     // reaches into a value a call returned, which holds nothing of the place
-    // (spec, The `borrow` construct).
+    // (spec, The `borrow` construct). Each window closed here is marked
+    // `value_read`, the one record of that answer the borrow check reads.
     //
     // ENTRY POINTS (close_windows_since):
     //     borrow_place_val
@@ -2267,6 +2268,7 @@ extension MirProgram {
             let entry = self.scope[k]
             if entry.window {
                 self.close_window(entry.index)
+                self.set_window_value_read(entry.index)
                 try! closed.push(entry.index)
             }
             k = k - 1

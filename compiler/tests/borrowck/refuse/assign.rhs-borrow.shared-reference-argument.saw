@@ -1,0 +1,25 @@
+// refuses: assign.rhs-borrow at 23:5
+// an assignment to a sibling field whose right side hands a callee a
+// read-only lend from an accessor that charges the root exclusively: a
+// reference handed on, not a value read (conformance X56)
+
+struct Cell { n: Int }
+
+struct Holder { a: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self) borrows -> &var Cell {
+        lend self.a
+    }
+}
+
+func peek(c: &Cell) -> Int {
+    c.n
+}
+
+func main() {
+    var h = Holder(a: Cell(n: 1), k: 3)
+    h.k = peek(borrow h.at()) + 10
+    print(h.k)
+}

@@ -1,0 +1,254 @@
+// probe: stated
+// about: a `borrow` whose result is only a value closes at its read, so an assignment's target or a later argument may borrow the same root again (SL-857)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// prints: same N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: a 11 b 2 k 3
+// prints: same C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: a 11 b 2 k 3
+// prints: sibling N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: a 1 b 2 k 11
+// prints: sibling C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: a 1 b 2 k 11
+// prints: other N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: pro 1 N
+// prints: epi 1 N
+// prints: a 1 b 11 k 3
+// prints: other C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: pro 1 C
+// prints: epi 1 C
+// prints: a 1 b 11 k 3
+// prints: compound same N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: a 2 b 2 k 3
+// prints: compound other N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: pro 1 N
+// prints: epi 1 N
+// prints: a 1 b 3 k 3
+// prints: compound sibling N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: a 1 b 2 k 4
+// prints: compound same C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: a 2 b 2 k 3
+// prints: compound sibling C
+// prints: pro 0 C
+// prints: epi 0 C
+// prints: a 1 b 2 k 4
+// prints: then a reference N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: bump
+// prints: pair 1 101
+// prints: a 101 b 2 k 3
+// prints: then a reference S
+// prints: pro 0 S
+// prints: epi 0 S
+// prints: bump
+// prints: pair 1 101
+// prints: a 101 b 2 k 3
+// prints: then a lend N
+// prints: pro 0 N
+// prints: epi 0 N
+// prints: pro 1 N
+// prints: bump
+// prints: pair 1 102
+// prints: epi 1 N
+// prints: a 1 b 102 k 3
+// prints: then a lend S
+// prints: pro 0 S
+// prints: epi 0 S
+// prints: pro 1 S
+// prints: bump
+// prints: pair 1 102
+// prints: epi 1 S
+// prints: a 1 b 102 k 3
+// Each cell prints its name, then the accessor's prologue and epilogue around
+// what the statement does. `at` takes `&var self` with no shared twin, so
+// every use charges the root exclusively, a read included; a `borrow` whose
+// result is only a value still closes before the target's borrow opens, on
+// the same place, a sibling field and another element of the root, and
+// before a later argument's reference to it. `Shared` gives `at` a shared
+// twin, the control. A `NoCopy` root (`N`) and a Copy-tier one (`C`) behave
+// alike.
+struct Cell { n: Int }
+
+struct Holder { a: Cell, b: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self, i: Int) borrows -> &var Cell {
+        print("pro {i} N")
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+        print("epi {i} N")
+    }
+
+    func show(&var self) {
+        let a = self.a.n
+        let b = self.b.n
+        print("a {a} b {b} k {self.k}")
+    }
+}
+
+struct Plain { a: Cell, b: Cell, k: Int }
+
+extension Plain {
+    func at(&var self, i: Int) borrows -> &var Cell {
+        print("pro {i} C")
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+        print("epi {i} C")
+    }
+
+    func show(&var self) {
+        let a = self.a.n
+        let b = self.b.n
+        print("a {a} b {b} k {self.k}")
+    }
+}
+
+struct Shared { a: Cell, b: Cell, k: Int }
+extension Shared: NoCopy {}
+
+extension Shared {
+    @synthesize(shared)
+    func at(&var self, i: Int) borrows -> &var Cell {
+        print("pro {i} S")
+        if i == 0 {
+            lend self.a
+        } else {
+            lend self.b
+        }
+        print("epi {i} S")
+    }
+
+    func show(&var self) {
+        let a = self.a.n
+        let b = self.b.n
+        print("a {a} b {b} k {self.k}")
+    }
+}
+
+func pair(x: Int, y: Int) -> Int {
+    print("pair {x} {y}")
+    x * 100 + y
+}
+
+func bump(c: &var Cell) -> Int {
+    print("bump")
+    c.n = c.n + 100
+    c.n
+}
+
+func holder() -> Holder {
+    Holder(a: Cell(n: 1), b: Cell(n: 2), k: 3)
+}
+
+func plain() -> Plain {
+    Plain(a: Cell(n: 1), b: Cell(n: 2), k: 3)
+}
+
+func shared() -> Shared {
+    Shared(a: Cell(n: 1), b: Cell(n: 2), k: 3)
+}
+
+func main() {
+    print("same N")
+    var h1 = holder()
+    borrow var h1.at(0).n = borrow h1.at(0).n + 10
+    h1.show()
+    print("same C")
+    var p1 = plain()
+    borrow var p1.at(0).n = borrow p1.at(0).n + 10
+    p1.show()
+
+    print("sibling N")
+    var h2 = holder()
+    h2.k = borrow h2.at(0).n + 10
+    h2.show()
+    print("sibling C")
+    var p2 = plain()
+    p2.k = borrow p2.at(0).n + 10
+    p2.show()
+
+    print("other N")
+    var h3 = holder()
+    borrow var h3.at(1).n = borrow h3.at(0).n + 10
+    h3.show()
+    print("other C")
+    var p3 = plain()
+    borrow var p3.at(1).n = borrow p3.at(0).n + 10
+    p3.show()
+
+    print("compound same N")
+    var h4 = holder()
+    borrow var h4.at(0).n += borrow h4.at(0).n
+    h4.show()
+    print("compound other N")
+    var h5 = holder()
+    borrow var h5.at(1).n += borrow h5.at(0).n
+    h5.show()
+    print("compound sibling N")
+    var h6 = holder()
+    h6.k += borrow h6.at(0).n
+    h6.show()
+    print("compound same C")
+    var p4 = plain()
+    borrow var p4.at(0).n += borrow p4.at(0).n
+    p4.show()
+    print("compound sibling C")
+    var p5 = plain()
+    p5.k += borrow p5.at(0).n
+    p5.show()
+
+    print("then a reference N")
+    var h7 = holder()
+    let r1 = pair(borrow h7.at(0).n, bump(&var h7.a))
+    h7.show()
+    print("then a reference S")
+    var s1 = shared()
+    let r2 = pair(borrow s1.at(0).n, bump(&var s1.a))
+    s1.show()
+
+    print("then a lend N")
+    var h8 = holder()
+    let r3 = pair(borrow h8.at(0).n, bump(borrow var h8.at(1)))
+    h8.show()
+    print("then a lend S")
+    var s2 = shared()
+    let r4 = pair(borrow s2.at(0).n, bump(borrow var s2.at(1)))
+    s2.show()
+    let _ = r1 + r2 + r3 + r4
+}

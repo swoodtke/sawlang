@@ -1,0 +1,36 @@
+// refuses: loan.nested-call at 35:21
+// the same with the value returned by a call on the place rather than copied
+// out of it: a value read either way, which the earlier `&var` still
+// overlaps (conformance X57)
+
+struct Cell { n: Int }
+
+extension Cell {
+    func get(&self) -> Int {
+        self.n
+    }
+}
+
+struct Holder { a: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    @synthesize(shared)
+    func at(&var self) borrows -> &var Cell {
+        lend self.a
+    }
+}
+
+func bump(c: &var Cell) -> Int {
+    c.n = c.n + 100
+    c.n
+}
+
+func pair(x: Int, y: Int) -> Int {
+    x * 100 + y
+}
+
+func main() {
+    var h = Holder(a: Cell(n: 1), k: 3)
+    print(pair(bump(&var h.a), borrow h.at().get()))
+}

@@ -2132,7 +2132,7 @@ place_rendered_frame_local_migrates.saw	pass	-	-
 place_rendering_operand_is_a_borrow.saw	pass	-	-
 place_shared_accessor_flavors.saw	pass	-	-
 place_shared_window_readonly.saw	pass	-	-
-place_two_windows_one_nocopy_root.saw	refused	borrowck assign.rhs-borrow	`h` is written by this assignment while its right-hand side borrows `h` exclusively at 57:27; the right-hand side runs first, so what it writes through that borrow is overwritten by the assignment. Bi
+place_two_windows_one_nocopy_root.saw	pass	-	-
 place_use_sites.saw	pass	-	-
 place_value_read_retain_oracle.saw	pass	-	-
 place_window_borrows_enclosing_locals.saw	pass	-	-

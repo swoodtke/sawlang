@@ -1,0 +1,34 @@
+// refuses: loan.nested-call at 33:29
+// an exclusive value read of the receiver's root, nested in the receiver's
+// call: the receiver is borrowed for the whole call, so the window overlaps
+// it whether its value is copied out or returned by a call (conformance X57)
+
+struct Cell { n: Int }
+
+extension Cell {
+    func get(&self) -> Int {
+        self.n
+    }
+}
+
+struct Holder { a: Cell, k: Int }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self) borrows -> &var Cell {
+        lend self.a
+    }
+
+    func total(&self, x: Int) -> Int {
+        self.k + x
+    }
+}
+
+func id(x: Int) -> Int {
+    x
+}
+
+func main() {
+    var h = Holder(a: Cell(n: 1), k: 3)
+    print(h.total(id(borrow h.at().get())))
+}

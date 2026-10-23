@@ -408,6 +408,11 @@ public struct MirWindow {
     // window is open exactly where it is `Some`, so its close tests it and a
     // switch on it closes the window on its `None` edge (`window_open_after`).
     presence: Int
+    // Whether the value-read close funnel (`close_windows_since`) closed it:
+    // its borrow's result is only a value, read before anything after it in
+    // the statement runs, so nothing later holds the place through it. The
+    // borrow check's `held_reference` reads it.
+    value_read: Bool
 }
 
 // A `borrows` accessor lowered as two halves around its `lend`
