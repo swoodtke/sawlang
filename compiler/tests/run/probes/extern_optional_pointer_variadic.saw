@@ -1,0 +1,27 @@
+// probe: stated
+// about: an optional raw pointer passes a variadic extern as C's nullable pointer (SL-848)
+// stage 0: links no C helper, so it cannot build this program
+// speeds: -O0 -O2
+// c helper: extern_optional_pointer_variadic.c
+// prints: 101
+// prints: 1
+//
+// A variadic argument crosses by the parameter rule: `None` is NULL and
+// `Some(p)` is `p`.
+
+extern "C" {
+    func probe_null_digits(count: Int64, ...) -> Int64
+}
+
+func run() unsafe {
+    var bytes: [UInt8; 1] = [7]
+    let p = (&bytes) as UnsafePointer<UInt8>
+    let some: UnsafePointer<UInt8>? = p
+    let none: UnsafeConstPointer<UInt8>? = None
+    print(probe_null_digits(3, some, none, p))
+    print(probe_null_digits(1, some))
+}
+
+func main() {
+    run()
+}

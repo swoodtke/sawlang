@@ -385,7 +385,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow through a dispatch, an aggregate crossing the C convention, an offload of a variadic extern or of one returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow through a dispatch, a by-value aggregate crossing the C convention (a `UnsafePointer<any Trait>` among them, two words, and its optional), an offload of a variadic extern or of one passing or returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
@@ -606,6 +606,14 @@ among its prose:
 - `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, under
   its plain or quoted name;
 - `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere;
+- `// c helper: NAME.c`, a C file in `probes/` linked into each build, for a
+  probe that needs C on the other side of an `extern` or an `@export`. sawc2
+  writes the `.ll` (`sawc2 build --emit-ll`), the clang the target's runtime
+  manifest names compiles the helper at -O2, so the helper reads the C
+  convention as strictly as optimized C does, and the same clang links the two
+  as `sawc2 build` would, at the probe's speed, with the manifest's runtime
+  objects and the target's libraries. A `.c` file no probe names fails the
+  lane;
 - `// leaks: none`, on a `stated` probe: each build, once it prints its
   lines, is run again under macOS's `leaks --atExit`, which must report
   `0 leaks`. Off macOS there is no such checker, and the lane says so: the
@@ -620,8 +628,8 @@ among its prose:
 | `module` | never builds it alone: it is a module another probe imports, as `import NAME`, and one that no probe imports fails | `probe` and `about` alone |
 
 Every kind takes one `about` line, and every kind but `custom` and `module`
-also takes one `stage 0` and `speeds` line and any `ll defines` and `ll
-omits` lines. A probe states one kind, and a line
+also takes one `stage 0` and `speeds` line, any `ll defines` and `ll
+omits` lines, and at most one `c helper` line. A probe states one kind, and a line
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry

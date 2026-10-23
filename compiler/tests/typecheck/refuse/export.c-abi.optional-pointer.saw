@@ -1,0 +1,12 @@
+// refuses: export.c-abi at 6:17
+// an exported function's optional pointer parameter: an `extern` passes one
+// as C's nullable pointer, but an export's signature admits no optional
+
+@export("take_maybe")
+func take_maybe(p: UnsafePointer<Int8>?) unsafe -> Int {
+    0
+}
+
+func main() {
+    print(0)
+}

@@ -14010,6 +14010,15 @@ struct CStruct {
 }
 ```
 
+An optional pointer, `UnsafePointer<T>?` or `UnsafeConstPointer<T>?`, crosses an
+`extern` as C's nullable pointer in both directions: `None` is NULL and
+`Some(p)` is `p`. So `malloc` above returns `None` when C returns NULL, and an
+`extern "C" func fflush(stream: UnsafePointer<Int8>?) -> Int32` called as
+`fflush(None)` passes NULL. No other optional has a C spelling, and neither does
+a pointer to `any Trait`, which is two words. An integer narrower than 32 bits
+crosses extended by its signedness wherever the target's C convention extends
+one, so C reads the value Saw passed.
+
 A handful of C symbols the compiler declares for its own lowering — `printf`,
 `snprintf`, `strcpy`, `strcat`, `abort` — may be declared here too, and the two
 declarations share one symbol when they agree:

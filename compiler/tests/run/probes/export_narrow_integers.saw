@@ -1,0 +1,69 @@
+// probe: stated
+// about: an export's narrow integers are extended as the target's C convention extends them (SL-848)
+// stage 0: links no C helper, so it cannot build this program
+// speeds: -O0 -O2
+// c helper: export_narrow_integers.c
+// prints: -1 -2 200 40000
+// prints: -128 -32768 255 65535
+//
+// The export side of `extern_narrow_integers`: C calls each export with an
+// argument cut from a wider value, which AAPCS64 on Linux passes with the
+// register's upper bits still set, so the export extends it itself there;
+// Darwin's arm64 and x86_64's System V extend it at the caller. Each narrow
+// result is extended for the C caller where the convention asks it.
+
+extern "C" {
+    func probe_call_i8(wide: Int64) -> Int64
+    func probe_call_i16(wide: Int64) -> Int64
+    func probe_call_u8(wide: Int64) -> Int64
+    func probe_call_u16(wide: Int64) -> Int64
+    func probe_read_i8() -> Int64
+    func probe_read_i16() -> Int64
+    func probe_read_u8() -> Int64
+    func probe_read_u16() -> Int64
+}
+
+@export
+func probe_export_i8(v: Int8) -> Int64 {
+    v as Int64
+}
+
+@export
+func probe_export_i16(v: Int16) -> Int64 {
+    v as Int64
+}
+
+@export
+func probe_export_u8(v: UInt8) -> Int64 {
+    v as Int64
+}
+
+@export
+func probe_export_u16(v: UInt16) -> Int64 {
+    v as Int64
+}
+
+@export
+func probe_export_give_i8() -> Int8 {
+    -128
+}
+
+@export
+func probe_export_give_i16() -> Int16 {
+    -32768
+}
+
+@export
+func probe_export_give_u8() -> UInt8 {
+    255
+}
+
+@export
+func probe_export_give_u16() -> UInt16 {
+    65535
+}
+
+func main() {
+    print("{} {} {} {}", probe_call_i8(511), probe_call_i16(131070), probe_call_u8(456), probe_call_u16(105536))
+    print("{} {} {} {}", probe_read_i8(), probe_read_i16(), probe_read_u8(), probe_read_u16())
+}

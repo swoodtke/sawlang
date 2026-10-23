@@ -1,0 +1,46 @@
+// probe: stated
+// about: a narrow integer crosses an extern extended as the target's C convention extends it (SL-848)
+// stage 0: links no C helper, so it cannot build this program
+// speeds: -O0 -O2
+// c helper: extern_narrow_integers.c
+// prints: -1 -128
+// prints: -2 -32768
+// prints: 255 200
+// prints: 65535 40000
+// prints: -1 -128
+// prints: -2 -32768
+// prints: 200 255
+// prints: 40000 65535
+//
+// Darwin's arm64 and x86_64's System V conventions have the caller extend a
+// narrow parameter and the callee a narrow result, and the receiving side
+// reads the whole register, so a missing extension shows as the wrong value
+// at -O2. AAPCS64 on Linux extends neither, and the receiving side extends.
+// The helper's results are cut from wider values, so the register's upper
+// bits are left set where the convention allows it.
+
+extern "C" {
+    func probe_take_i8(v: Int8) -> Int64
+    func probe_take_i16(v: Int16) -> Int64
+    func probe_take_u8(v: UInt8) -> Int64
+    func probe_take_u16(v: UInt16) -> Int64
+    func probe_give_i8(wide: Int64) -> Int8
+    func probe_give_i16(wide: Int64) -> Int16
+    func probe_give_u8(wide: Int64) -> UInt8
+    func probe_give_u16(wide: Int64) -> UInt16
+}
+
+func main() {
+    let a: Int8 = -1
+    let b: Int16 = -2
+    let c: UInt8 = 255
+    let d: UInt16 = 65535
+    print("{} {}", probe_take_i8(a), probe_take_i8(-128))
+    print("{} {}", probe_take_i16(b), probe_take_i16(-32768))
+    print("{} {}", probe_take_u8(c), probe_take_u8(200))
+    print("{} {}", probe_take_u16(d), probe_take_u16(40000))
+    print("{} {}", probe_give_i8(511) as Int, probe_give_i8(384) as Int)
+    print("{} {}", probe_give_i16(131070) as Int, probe_give_i16(98304) as Int)
+    print("{} {}", probe_give_u8(456) as Int, probe_give_u8(-1) as Int)
+    print("{} {}", probe_give_u16(105536) as Int, probe_give_u16(-1) as Int)
+}

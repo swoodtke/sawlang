@@ -1,0 +1,21 @@
+// due: a pointer to `any Trait` is two words, no C pointer, so its optional is no nullable pointer (SL-848)
+// refuses: backend.not-yet at 13:16
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+extern "C" {
+    func calloc(count: Int, size: Int) -> UnsafePointer<any Shape>?
+}
+
+func found() unsafe -> Bool {
+    if let _ = calloc(1, 16) {
+        return true
+    }
+    false
+}
+
+func main() {
+    print(found())
+}

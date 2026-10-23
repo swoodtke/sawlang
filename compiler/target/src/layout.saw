@@ -77,7 +77,8 @@ public enum TargetCClass {
     case Direct,
     // No value: `Void` or `Never` returned.
     case Nothing,
-    // `UnsafePointer<T>?` returned as a nullable pointer, null meaning `None`.
+    // `UnsafePointer<T>?` or `UnsafeConstPointer<T>?`, passed or returned as
+    // C's nullable pointer: null is `None`, and any other address `Some`.
     case NullablePointer,
     // Not in the slice: an aggregate by value.
     case Refused
@@ -113,7 +114,8 @@ extension Target: NoCopy {}
 
 // The triples this description answers for, the default first. All are
 // LP64; they differ only in how an aggregate crosses the C convention, which
-// this slice refuses.
+// this slice refuses, and in whether a narrow integer crosses it extended
+// (`c_extends_narrow`).
 public func target_triples() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("arm64-apple-darwin")
@@ -645,8 +647,15 @@ extension Target {
         self.offsets[c.first + k]
     }
 
-    // How a value of type `t` crosses the C convention as a parameter
-    // (`result` false) or a result.
+    // THE C-CONVENTION FUNNEL: how a value of type `t` crosses the C
+    // convention of an `extern` as a parameter (`result` false) or a
+    // result. An optional raw pointer is C's nullable pointer either way,
+    // which holds only while its payload is one machine pointer: a pointer
+    // to `any Trait` is two words, and is refused with every other
+    // aggregate.
+    // ENTRY POINTS:
+    //     extern_signature
+    //     extern_call
     public func c_class(&var self, tc: &var TcProgram, t: Int, result: Bool) -> TargetCClass {
         let l = self.layout(&var tc, t)
         if l.kind == TargetKind.Zero {
@@ -658,14 +667,24 @@ extension Target {
         if l.kind == TargetKind.Int || l.kind == TargetKind.Float || l.kind == TargetKind.Pointer {
             return TargetCClass.Direct
         }
-        if result && tc.is_optional(t) {
+        if tc.is_optional(t) {
             let payload = tc.types.arg(t, 0)
             let d = tc.nominal_decl(payload)
-            if d >= 0 && (d == tc.known.unsafe_pointer || d == tc.known.unsafe_const_pointer) {
+            let raw = d >= 0 && (d == tc.known.unsafe_pointer || d == tc.known.unsafe_const_pointer)
+            if raw && self.layout(&var tc, payload).kind == TargetKind.Pointer {
                 return TargetCClass.NullablePointer
             }
         }
         TargetCClass.Refused
+    }
+
+    // Whether this target's C convention extends an integer narrower than
+    // 32 bits to 32 bits by its signedness, as a parameter and as a result,
+    // so the side receiving it may read the whole register. Darwin's arm64
+    // convention and x86_64's System V do; AAPCS64 on Linux does not, and
+    // there the receiving side extends it itself.
+    public func c_extends_narrow(&self) -> Bool {
+        not self.triple.equals("aarch64-unknown-linux-gnu")
     }
 
     // One line describing `t`'s layout, for the layout goldens:

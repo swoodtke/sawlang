@@ -74,7 +74,7 @@ extension LlEmitter {
         }
         if ll_is_scalar(&ret) {
             if exported {
-                let widened = self.c_extension(&mono, ret_type, &ret)
+                let widened = self.c_extension(&mono, &target, ret_type, &ret)
                 if widened.len() > 0 {
                     try! head.append(widened)
                     try! head.append(" ")
@@ -119,7 +119,7 @@ extension LlEmitter {
                 let name = ll_param_name(j)
                 if ll_is_scalar(&l) {
                     try! head.append(ll_value_type(&l))
-                    let widened = if exported { self.c_extension(&mono, t, &l) } else { "" }
+                    let widened = if exported { self.c_extension(&mono, &target, t, &l) } else { "" }
                     if widened.len() > 0 {
                         try! head.append(" ")
                         try! head.append(widened)
@@ -556,18 +556,6 @@ extension LlEmitter {
         try! line.append("ret i32 ")
         try! line.append(poll)
         self.put(line.build())
-    }
-
-    // The attribute a C signature gives an integer narrower than 32 bits of
-    // type `t`, extended by its signedness, or "" for any other value.
-    func c_extension(&self, mono: &MonoProgram, t: Int, l: &TargetLayout) -> String {
-        if l.kind != TargetKind.Int || l.bits >= 32 {
-            return ""
-        }
-        if self.signed_type(&mono, t) {
-            return "signext"
-        }
-        "zeroext"
     }
 
     // A statement: an assignment writes its rvalue into its place; a drop

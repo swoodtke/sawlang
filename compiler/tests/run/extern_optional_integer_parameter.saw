@@ -1,0 +1,10 @@
+// due: only an optional raw pointer has C's null to stand for `None`; an optional integer is a flag and a payload (SL-848)
+// refuses: backend.not-yet at 9:11
+
+extern "C" {
+    func probe_maybe(v: Int32?) -> Int32
+}
+
+func main() {
+    print(probe_maybe(None))
+}

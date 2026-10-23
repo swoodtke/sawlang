@@ -1,0 +1,15 @@
+// due: a struct crosses the C convention by pointer, never by value (SL-848)
+// refuses: backend.not-yet at 14:11
+
+struct Pair {
+    a: Int32
+    b: Int32
+}
+
+extern "C" {
+    func probe_pair_sum(p: Pair) -> Int32
+}
+
+func main() {
+    print(probe_pair_sum(Pair(a: 1, b: 2)))
+}

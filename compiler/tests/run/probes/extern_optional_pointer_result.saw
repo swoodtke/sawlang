@@ -1,0 +1,44 @@
+// probe: stated
+// about: an optional raw pointer result crosses an extern as C's nullable pointer (SL-848)
+// stage 0: links no C helper, so it cannot build this program
+// speeds: -O0 -O2
+// c helper: extern_optional_pointer_result.c
+// prints: None
+// prints: Some 66
+// prints: None
+// prints: Some 66
+//
+// NULL arrives as `None`, and any other address as `Some` of it, for
+// `UnsafePointer<T>?` and `UnsafeConstPointer<T>?`.
+
+extern "C" {
+    func probe_pointer_or_null(null: Int64) -> UnsafePointer<UInt8>?
+    func probe_const_pointer_or_null(null: Int64) -> UnsafeConstPointer<UInt8>?
+}
+
+func show(o: UnsafePointer<UInt8>?) unsafe {
+    if let p = o {
+        print("Some {}", *p)
+    } else {
+        print("None")
+    }
+}
+
+func show_const(o: UnsafeConstPointer<UInt8>?) unsafe {
+    if let p = o {
+        print("Some {}", *p)
+    } else {
+        print("None")
+    }
+}
+
+func run() unsafe {
+    show(probe_pointer_or_null(1))
+    show(probe_pointer_or_null(0))
+    show_const(probe_const_pointer_or_null(1))
+    show_const(probe_const_pointer_or_null(0))
+}
+
+func main() {
+    run()
+}

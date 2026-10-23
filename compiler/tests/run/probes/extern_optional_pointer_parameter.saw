@@ -1,0 +1,46 @@
+// probe: stated
+// about: an optional raw pointer parameter crosses an extern as C's nullable pointer (SL-848)
+// stage 0: links no C helper, so it cannot build this program
+// speeds: -O0 -O2
+// c helper: extern_optional_pointer_parameter.c
+// prints: -1
+// prints: 65
+// prints: -1
+// prints: 66
+// prints: -1
+// prints: 65
+// prints: 0
+// prints: true
+//
+// `None` arrives as NULL and `Some(p)` as `p`, for `UnsafePointer<T>?` and
+// `UnsafeConstPointer<T>?`, whether the argument is a literal `None`, a
+// pointer the optional wraps, or a local optional. libc's NULL-taking calls
+// work too: `fflush(NULL)` flushes every stream, and `time(NULL)` only
+// returns the time.
+
+extern "C" {
+    func probe_first_byte(p: UnsafePointer<UInt8>?) -> Int64
+    func probe_first_byte_const(p: UnsafeConstPointer<UInt8>?) -> Int64
+    func fflush(stream: UnsafePointer<Int8>?) -> Int32
+    func time(out: UnsafePointer<Int>?) -> Int
+}
+
+func run() unsafe {
+    var bytes: [UInt8; 2] = [65, 66]
+    let p = (&bytes) as UnsafePointer<UInt8>
+    print(probe_first_byte(None))
+    print(probe_first_byte(p))
+    let none: UnsafePointer<UInt8>? = None
+    print(probe_first_byte(none))
+    let second: UnsafePointer<UInt8>? = ((p as Int) + 1) as UnsafePointer<UInt8>
+    print(probe_first_byte(second))
+    let c = (p as Int) as UnsafeConstPointer<UInt8>
+    print(probe_first_byte_const(None))
+    print(probe_first_byte_const(c))
+    print(fflush(None))
+    print(time(None) > 0)
+}
+
+func main() {
+    run()
+}

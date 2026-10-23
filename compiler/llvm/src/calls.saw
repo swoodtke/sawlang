@@ -383,11 +383,29 @@ extension LlEmitter {
         self.call_with(&var mono, &var target, code, result, &params, &leading, &rest, "")
     }
 
-    // Extern `d`'s C signature (`LlExternSig`): its result's class and LLVM
-    // type, and each declared parameter's layout, refused at `node` when its
-    // result or a parameter crosses the C convention as an aggregate. Both
-    // the extern's own calls and an offload's thunk read it, so the two
-    // declare and call the extern alike.
+    // THE NARROW-INTEGER EXTENSION FUNNEL: the attribute a C signature gives
+    // an integer narrower than 32 bits of type `t`, extended by its
+    // signedness, on a target whose convention extends one; "" for any other
+    // value or target. An export's parameters and result and an extern's
+    // both carry it, so the two sides of one C call agree.
+    // ENTRY POINTS:
+    //     emit_function
+    //     extern_signature
+    public func c_extension(&self, mono: &MonoProgram, target: &Target, t: Int, l: &TargetLayout) -> String {
+        if l.kind != TargetKind.Int || l.bits >= 32 || not target.c_extends_narrow() {
+            return ""
+        }
+        if self.signed_type(&mono, t) {
+            return "signext"
+        }
+        "zeroext"
+    }
+
+    // Extern `d`'s C signature (`LlExternSig`): its result's class, LLVM
+    // type and extension, and each declared parameter's layout, class and
+    // spelling, refused at `node` when its result or a parameter crosses the
+    // C convention as an aggregate. Both the extern's own calls and an
+    // offload's thunk read it, so the two declare and call the extern alike.
     func extern_signature(&var self, mono: &var MonoProgram, target: &var Target, d: Int, node: Int) -> LlExternSig {
         let s = mono.dp.bc.mir.tc.sigs[d]
         let name_id = mono.dp.bc.mir.tc.res.decls[d].name
@@ -395,43 +413,106 @@ extension LlEmitter {
         let result_class = target.c_class(&var mono.dp.bc.mir.tc, s.result, true)
         let rl = self.lay(&var mono, &var target, s.result)
         var out = LlExternSig(ok: false, name: name, variadic: (s.flags & TC_FLAG_VARIADIC) != 0, result: s.result,
-                              result_class: result_class, ret: rl, ret_type: "void", params: Vector<TargetLayout>(),
-                              types: "")
+                              result_class: result_class, ret: rl, ret_type: "void", ret_extension: "",
+                              params: Vector<TargetLayout>(), classes: Vector<TargetCClass>(),
+                              spelled: Vector<String>(), types: "", declared: "")
         if result_class == TargetCClass.Direct {
             out.ret_type = ll_value_type(&rl)
+            out.ret_extension = self.c_extension(&mono, &target, s.result, &rl)
         } else if result_class == TargetCClass.NullablePointer {
             out.ret_type = "ptr"
         } else if result_class == TargetCClass.Refused {
-            self.refuse_here(&var mono, node, "an extern whose result crosses the C convention as an aggregate is not in the backend slice yet")
+            self.refuse_aggregate(&var mono, node, "an extern result", s.result)
             return move out
         }
         var types = StringBuilder()
+        var declared = StringBuilder()
         var k = 0
         while k < s.param_count {
             let pt = mono.dp.bc.mir.tc.params[s.param_first + k].ty
             let passing = target.c_class(&var mono.dp.bc.mir.tc, pt, false)
-            if passing != TargetCClass.Direct {
-                self.refuse_here(&var mono, node, "an extern parameter that crosses the C convention as an aggregate is not in the backend slice yet")
+            if passing == TargetCClass.Refused {
+                self.refuse_aggregate(&var mono, node, "an extern parameter", pt)
                 return move out
             }
             let pl = self.lay(&var mono, &var target, pt)
+            var ty = "ptr"
+            var spelled = "ptr"
+            if passing == TargetCClass.Direct {
+                ty = ll_value_type(&pl)
+                spelled = ty
+                let widened = self.c_extension(&mono, &target, pt, &pl)
+                if widened.len() > 0 {
+                    spelled = ll_spelled(ty, widened)
+                }
+            }
             if k > 0 {
                 try! types.append(", ")
+                try! declared.append(", ")
             }
-            try! types.append(ll_value_type(&pl))
+            try! types.append(ty)
+            try! declared.append(spelled)
             try! out.params.push(pl)
+            try! out.classes.push(passing)
+            try! out.spelled.push(spelled)
             k = k + 1
         }
         out.types = types.build()
+        out.declared = declared.build()
         out.ok = true
         move out
     }
 
-    // An extern call by the C convention: scalars direct, a nullable pointer
-    // result made an Optional, anything else refused. A variadic extern's
-    // extra arguments pass by C's default promotions, an integer narrower
-    // than 32 bits widened to `i32` by its signedness, and the call names the
-    // callee's function type, as LLVM requires of a variadic one.
+    // The refusal of a value of type `t` that would cross the C convention
+    // as a by-value aggregate, at `node`; `what` names its position.
+    func refuse_aggregate(&var self, mono: &var MonoProgram, node: Int, what: String, t: Int) {
+        var msg = StringBuilder()
+        try! msg.append(what)
+        try! msg.append(" of type `")
+        try! msg.append(mono.dp.bc.mir.tc.type_text(t))
+        try! msg.append("` crosses the C convention as a by-value aggregate, which is not in the backend slice yet")
+        self.refuse_here(&var mono, node, msg.build())
+    }
+
+    // THE C ARGUMENT FUNNEL: operand `o`, of type `t`, as a C call passes it
+    // by its class `passing`: a scalar as itself, and an optional pointer as
+    // its payload when present and null when not. The payload is read either
+    // way and discarded by the select when absent, so no branch is needed.
+    // ENTRY POINTS:
+    //     extern_call
+    func c_argument(&var self, mono: &var MonoProgram, target: &var Target, o: Int, t: Int, passing: TargetCClass,
+                    node: Int) -> String {
+        if passing != TargetCClass.NullablePointer {
+            return self.operand_value(&var mono, &var target, o, node)
+        }
+        let addr = self.operand_addr(&var mono, &var target, o, t, node)
+        let some = target.present_case(&var mono.dp.bc.mir.tc, t)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, some.decl, 0)
+        let flag = self.load("i8", addr)
+        var test = StringBuilder()
+        try! test.append("icmp eq i8 ")
+        try! test.append(flag)
+        try! test.append(", ")
+        try! test.append(some.tag)
+        let present = self.assign(test.build())
+        let at = self.offset_addr(addr, off)
+        let payload = self.load("ptr", at)
+        var pick = StringBuilder()
+        try! pick.append("select i1 ")
+        try! pick.append(present)
+        try! pick.append(", ptr ")
+        try! pick.append(payload)
+        try! pick.append(", ptr null")
+        self.assign(pick.build())
+    }
+
+    // An extern call by the C convention (`c_class`): scalars direct, with a
+    // narrow integer extended as the target's C does, and an optional
+    // pointer as a nullable one in either direction; anything else refused.
+    // A variadic extern's extra arguments pass by C's default promotions, an
+    // integer narrower than 32 bits widened to `i32` by its signedness, and
+    // the call names the callee's function type, as LLVM requires of a
+    // variadic one.
     func extern_call(&var self, mono: &var MonoProgram, target: &var Target, d: Int, info: &MirCall) {
         let node = info.node
         let sig = self.extern_signature(&var mono, &var target, d, node)
@@ -444,16 +525,18 @@ extension LlEmitter {
         let ret_type = sig.ret_type
         var types = StringBuilder()
         try! types.append(sig.types)
+        var declared = StringBuilder()
+        try! declared.append(sig.declared)
         var args = StringBuilder()
         var k = 0
         while k < sig.params.len() {
-            let pl = sig.params[k]
             if k > 0 {
                 try! args.append(", ")
             }
             let o = mono.dp.bc.mir.lists[info.arg_first + k]
-            let v = self.operand_value(&var mono, &var target, o, node)
-            try! args.append(ll_value_type(&pl))
+            let at = mono.dp.bc.mir.operands[o].ty
+            let v = self.c_argument(&var mono, &var target, o, at, sig.classes[k], node)
+            try! args.append(sig.spelled[k])
             try! args.append(" ")
             try! args.append(v)
             k = k + 1
@@ -461,23 +544,29 @@ extension LlEmitter {
         if variadic {
             if k > 0 {
                 try! types.append(", ")
+                try! declared.append(", ")
             }
             try! types.append("...")
+            try! declared.append("...")
             while k < info.arg_count {
                 let o = mono.dp.bc.mir.lists[info.arg_first + k]
                 let at = mono.dp.bc.mir.operands[o].ty
-                if target.c_class(&var mono.dp.bc.mir.tc, at, false) != TargetCClass.Direct {
-                    self.refuse_here(&var mono, node, "a variadic argument that crosses the C convention as an aggregate is not in the backend slice yet")
+                let passing = target.c_class(&var mono.dp.bc.mir.tc, at, false)
+                if passing == TargetCClass.Refused {
+                    self.refuse_aggregate(&var mono, node, "a variadic argument", at)
                     return
                 }
-                let al = self.lay(&var mono, &var target, at)
-                var ty = ll_value_type(&al)
-                var v = self.operand_value(&var mono, &var target, o, node)
-                if al.kind == TargetKind.Int && al.bits < 32 {
-                    // Stage 0 workaround (SL:hazards S4): canonical: v = self.int_convert(v, al.bits, 32, self.signed_type(&mono, at))
-                    let signed = self.signed_type(&mono, at)
-                    v = self.int_convert(v, al.bits, 32, signed)
-                    ty = "i32"
+                var ty = "ptr"
+                var v = self.c_argument(&var mono, &var target, o, at, passing, node)
+                if passing == TargetCClass.Direct {
+                    let al = self.lay(&var mono, &var target, at)
+                    ty = ll_value_type(&al)
+                    if al.kind == TargetKind.Int && al.bits < 32 {
+                        // Stage 0 workaround (SL:hazards S4): canonical: v = self.int_convert(v, al.bits, 32, self.signed_type(&mono, at))
+                        let signed = self.signed_type(&mono, at)
+                        v = self.int_convert(v, al.bits, 32, signed)
+                        ty = "i32"
+                    }
                 }
                 if k > 0 {
                     try! args.append(", ")
@@ -489,9 +578,14 @@ extension LlEmitter {
             }
         }
         let params = types.build()
-        self.declare_extern(&sig, params)
+        let declared_params = declared.build()
+        self.declare_extern(&sig, declared_params)
         var call = StringBuilder()
         try! call.append("call ")
+        if sig.ret_extension.len() > 0 {
+            try! call.append(sig.ret_extension)
+            try! call.append(" ")
+        }
         try! call.append(ret_type)
         if variadic {
             try! call.append(" (")
@@ -531,9 +625,11 @@ extension LlEmitter {
 }
 
 // An extern's C signature: whether the backend lowers it, its symbol,
-// whether it is variadic, its result's type, class, layout and LLVM type,
-// each declared parameter's layout, and those parameters' LLVM types,
-// comma-separated.
+// whether it is variadic, its result's type, class, layout, LLVM type and
+// extension attribute, each declared parameter's layout, class and spelling
+// (its LLVM type and any extension attribute), and those parameters
+// comma-separated, as plain LLVM types for a call's function type and as
+// spelled for the declaration.
 struct LlExternSig {
     ok: Bool
     name: String
@@ -542,17 +638,26 @@ struct LlExternSig {
     result_class: TargetCClass
     ret: TargetLayout
     ret_type: String
+    ret_extension: String
     params: Vector<TargetLayout>
+    classes: Vector<TargetCClass>
+    spelled: Vector<String>
     types: String
+    declared: String
 }
 
 extension LlExternSig: NoCopy {}
 
 extension LlEmitter {
-    // Declares the extern `sig` describes once, with parameter types `params`.
+    // Declares the extern `sig` describes once, with parameters `params`
+    // spelled as the declaration spells them.
     func declare_extern(&var self, sig: &LlExternSig, params: String) {
         var decl = StringBuilder()
         try! decl.append("declare ")
+        if sig.ret_extension.len() > 0 {
+            try! decl.append(sig.ret_extension)
+            try! decl.append(" ")
+        }
         try! decl.append(sig.ret_type)
         try! decl.append(" @")
         try! decl.append(sig.name)
@@ -716,16 +821,26 @@ extension LlEmitter {
     }
 
     // Extern item `ext`'s signature as an offload carries it: its result
-    // nothing or one value, its parameters fixed in number, on a target whose
-    // word is the runtime's 64-bit slot; refused at `node` otherwise.
+    // nothing or one value, its parameters fixed in number and each a
+    // scalar, on a target whose word is the runtime's 64-bit slot; refused
+    // at `node` otherwise. Typecheck already keeps an optional out of a
+    // `blocking` signature (`extern.offload-c-abi`).
     func offload_signature(&var self, mono: &var MonoProgram, target: &var Target, ext: Int, node: Int) -> LlExternSig {
         let d = mono.items[ext].decl
         var sig = self.extern_signature(&var mono, &var target, d, node)
         if not sig.ok {
             return move sig
         }
-        if sig.variadic || sig.result_class == TargetCClass.NullablePointer || target.word != 8 {
-            self.refuse_here(&var mono, node, "an offload of a variadic extern, of one returning an optional pointer, or on a target whose word is not 64 bits is not in the backend slice yet")
+        var nullable = sig.result_class == TargetCClass.NullablePointer
+        var k = 0
+        while k < sig.classes.len() {
+            if sig.classes[k] == TargetCClass.NullablePointer {
+                nullable = true
+            }
+            k = k + 1
+        }
+        if sig.variadic || nullable || target.word != 8 {
+            self.refuse_here(&var mono, node, "an offload of a variadic extern, of one passing or returning an optional pointer, or on a target whose word is not 64 bits is not in the backend slice yet")
             sig.ok = false
         }
         move sig
@@ -753,9 +868,9 @@ extension LlEmitter {
             k = k + 1
         }
         try! self.declared.push(name)
-        // Stage 0 workaround (SL:hazards S4): canonical: self.declare_extern(&sig, sig.types)
-        let types = sig.types
-        self.declare_extern(&sig, types)
+        // Stage 0 workaround (SL:hazards S4): canonical: self.declare_extern(&sig, sig.declared)
+        let declared = sig.declared
+        self.declare_extern(&sig, declared)
         var text = StringBuilder()
         try! text.append("define internal i64 ")
         try! text.append(name)
@@ -786,7 +901,7 @@ extension LlEmitter {
             if k > 0 {
                 try! args.append(", ")
             }
-            try! args.append(ll_value_type(&pl))
+            try! args.append(sig.spelled[k])
             try! args.append(" ")
             try! args.append(narrowed.value)
             k = k + 1
@@ -796,6 +911,10 @@ extension LlEmitter {
             try! text.append("%result = ")
         }
         try! text.append("call ")
+        if sig.ret_extension.len() > 0 {
+            try! text.append(sig.ret_extension)
+            try! text.append(" ")
+        }
         try! text.append(sig.ret_type)
         try! text.append(" @")
         try! text.append(sig.name)

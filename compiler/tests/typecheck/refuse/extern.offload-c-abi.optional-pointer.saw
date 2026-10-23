@@ -1,0 +1,10 @@
+// refuses: extern.offload-c-abi at 7:30
+// flags: --std-root std
+// a `blocking` extern taking an optional pointer: a plain extern passes one
+// as C's nullable pointer, but the offload carries only C-ABI words
+
+extern "C" {
+    blocking func slow_flush(stream: UnsafePointer<Int8>?) -> Int32
+}
+
+func main() {}

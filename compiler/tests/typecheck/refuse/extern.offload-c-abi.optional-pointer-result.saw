@@ -1,0 +1,10 @@
+// refuses: extern.offload-c-abi at 7:19
+// flags: --std-root std
+// a `blocking` extern returning an optional pointer: a plain extern returns
+// one as C's nullable pointer, but the offload carries only C-ABI words
+
+extern "C" {
+    blocking func slow_lookup(key: Int) -> UnsafePointer<Int8>?
+}
+
+func main() {}

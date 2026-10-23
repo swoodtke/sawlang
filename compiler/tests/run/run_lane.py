@@ -55,7 +55,9 @@ run of it, built against its own std.
   `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
   `// probe: panics` prints them and then panics with its `// panics:` text,
   `// probe: link-fails` fails to link with each `// undefined:` symbol
-  undefined, `// ll defines:` and `// ll omits:` hold each build's `.ll`, and
+  undefined, `// ll defines:` and `// ll omits:` hold each build's `.ll`, a
+  `// c helper: NAME.c` line links that C file of `probes/` into each build
+  (and a `.c` file there no probe names fails the lane), and
   a stated probe's `// leaks: none` runs each build under `leaks --atExit`
   on macOS, which must report no leak;
   a `// probe: custom` one is checked by its function in `CUSTOM_PROBES`, a
@@ -224,15 +226,54 @@ def ll_rules():
     return _RULE.findall(body)
 
 
-def build_new(src, speed="-O0"):
+def build_new(src, speed="-O0", helper=None):
     """sawc2's build of `src` at `speed`: whether it linked, the binary, and
     what it printed. The runtime it links is built at the module's own target,
-    so a build that links prints nothing."""
+    so a build that links prints nothing. A probe's C helper, the path
+    `helper`, is linked in beside it (`build_with_helper`)."""
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
+    if helper is not None:
+        return build_with_helper(src, speed, helper, out)
     r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std"] + target_flags() + [rel(src), "-o", out],
                        cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
+
+
+def build_with_helper(src, speed, helper, out):
+    """sawc2's build of `src` at `speed` with the C file `helper` linked in,
+    as `build_new` returns it. sawc2 writes the `.ll` (`--emit-ll`) into
+    `OUT.ll`, where `sawc2 build` would. The clang the target's runtime
+    manifest records (`choose_clang`'s choice) compiles the helper at -O2, so
+    it reads the C convention as strictly as optimized C does, and links the
+    two with the manifest's runtime objects and the libraries `sawc2 build`
+    links (`build.link_module`'s line, at `speed`)."""
+    triple = TARGET or build.host_triple()
+    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std"] + target_flags()
+                       + ["--emit-ll", rel(src)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0 or r.stderr.strip():
+        return False, out, (r.stderr or r.stdout).strip()
+    with open(out + ".ll", "w") as fh:
+        fh.write(r.stdout)
+    clang, objects = None, []
+    with open(build.runtime_manifest(triple)) as fh:
+        for line in fh.read().splitlines():
+            if line.startswith("clang "):
+                clang = line[len("clang "):]
+            elif line.startswith("object "):
+                objects.append(line[len("object "):])
+    if clang is None:
+        return False, out, "%s names no clang" % build.runtime_manifest(triple)
+    clang_target = ["-target", build.clang_triple(triple)]
+    helper_object = out + ".helper.o"
+    c = subprocess.run([clang] + clang_target + ["-O2", "-c", helper, "-o", helper_object],
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if c.returncode != 0 or (c.stdout + c.stderr).strip():
+        return False, out, "the C helper %s: %s" % (rel(helper), (c.stdout + c.stderr).strip())
+    link = subprocess.run([clang] + clang_target + [speed, "-x", "ir", out + ".ll", "-x", "none"] + objects
+                          + [helper_object] + build.link_libraries(triple) + ["-o", out],
+                          capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    return link.returncode == 0, out, (link.stdout + link.stderr).strip()
 
 
 def stage0_command(names=()):
@@ -778,14 +819,17 @@ def long_accessor_source(ifs):
 
 PROBES = os.path.join(HERE, "probes")
 # A probe's header lines, `// NAME: VALUE`, as README.md's "Probes" lists them.
-_DIRECTIVE = re.compile(r"^// (probe|about|stage 0|speeds|prints|panics|undefined|ll defines|ll omits|leaks): ?(.*)$")
+_DIRECTIVE = re.compile(
+    r"^// (probe|about|stage 0|speeds|prints|panics|undefined|ll defines|ll omits|leaks|c helper): ?(.*)$")
+# A C helper's name: a `.c` file in `probes/` itself.
+_C_HELPER = re.compile(r"^[A-Za-z0-9_]+\.c$")
 _ISSUE = re.compile(r"\(SL-\d+\)$")
 SPEEDS = ("-O0", "-O1", "-O2", "-Os", "-Oz")
 # The lines each kind of probe takes, each as (fewest, most), most None for
 # any number. A line its kind does not list is refused, so no header states
 # what the lane does not check.
 _BUILT = {"probe": (1, 1), "about": (1, 1), "stage 0": (1, 1), "speeds": (1, 1),
-          "ll defines": (0, None), "ll omits": (0, None)}
+          "ll defines": (0, None), "ll omits": (0, None), "c helper": (0, 1)}
 PROBE_LINES = {
     "stated": dict(_BUILT, prints=(1, None), leaks=(0, 1)),
     "panics": dict(_BUILT, prints=(0, None), panics=(1, 1)),
@@ -848,7 +892,26 @@ def probe_problems(src, header):
         speeds = header["speeds"][0].split()
         if not speeds or len(set(speeds)) != len(speeds) or any(s not in SPEEDS for s in speeds):
             problems.append("%s: `// speeds:` lists distinct levels of %s" % (where, " ".join(SPEEDS)))
+    for named in header.get("c helper", []):
+        if not _C_HELPER.match(named) or not os.path.isfile(os.path.join(PROBES, named)):
+            problems.append("%s: `// c helper:` names a `.c` file in %s, not %r" % (where, rel(PROBES), named))
     return problems
+
+
+def c_helper(header):
+    """The path of the C helper a probe's `// c helper:` line names, or None."""
+    named = header.get("c helper", [])
+    return os.path.join(PROBES, named[0]) if named else None
+
+
+def orphan_helpers():
+    """Failures for each `.c` file of `probes/` no probe names as its C
+    helper, which nothing would compile."""
+    named = set()
+    for src in probes():
+        named.update(probe_header(src).get("c helper", []))
+    return ["run %s: a C helper no probe's `// c helper:` line names" % rel(path)
+            for path in sorted(glob.glob(os.path.join(PROBES, "*.c"))) if os.path.basename(path) not in named]
 
 
 def ll_problems(where, ll, header):
@@ -929,7 +992,7 @@ def held_probe(src, header):
         ll = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]) + ".ll")
         if os.path.exists(ll):
             os.remove(ll)
-        ok, binary, log = build_new(src, speed)
+        ok, binary, log = build_new(src, speed, c_helper(header))
         if kind == "link-fails":
             symbols = header["undefined"]
             if ok or first_error(log) is not None or "ndefined" not in log or any(s not in log for s in symbols):
@@ -1249,6 +1312,7 @@ def check_probes(failures, counts, names=None):
     srcs = probes(names)
     custom = [src for src in srcs if probe_header(src).get("probe") == ["custom"]]
     if not names:
+        failures.extend(orphan_helpers())
         for base in CUSTOM_PROBES:
             if os.path.join(PROBES, base) not in custom:
                 failures.append("run %s: `CUSTOM_PROBES` names it, but no such `// probe: custom` probe exists"
