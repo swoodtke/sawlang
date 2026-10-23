@@ -158,8 +158,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `tools/suite_lock.sh`, `.sawtracker/`), or when the changed paths are
   unknown. The parts: the `fixpoint` lane
   (`compiler/tests/fixpoint/fixpoint_lane.py`) over `compiler/`, `std/`,
-  `runtime/`, `tests/corpus/` and `sawc/` (its std is the one sawc2
-  compiles when no `--std-root` names another); the full `grammarcorpus` over
+  `runtime/`, `tests/corpus/` and `sawc/` (the lanes it replays name Stage
+  0's frozen std, `--std-root sawc`, explicitly); the full `grammarcorpus` over
   `GRAMMAR.md`, `LANGUAGE_SPEC.md`, `compiler/tests/grammar/` and what sawc2's
   token dump and parser come from (`compiler/lex/`, `compiler/parse/`,
   `compiler/driver/`, `compiler/tools/build.py`, `compiler/seed/`) — without

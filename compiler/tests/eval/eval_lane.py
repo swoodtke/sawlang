@@ -62,6 +62,11 @@ def sawc2(args):
     return r.returncode, r.stdout
 
 
+# Stage 0's frozen std, which this lane's golden and refusal fixtures and its
+# corpus reading are written against. sawc2's own default is the new std.
+FROZEN_STD_ROOT = "sawc"
+
+
 def package_args():
     args = []
     for name, directory in build.STAGE_PACKAGES:
@@ -101,7 +106,7 @@ def first_difference(expected, got):
 def check_golden(failures, counts, write):
     cases = [(src, os.path.splitext(src)[0] + ".eval")
              for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
-    code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+    code, out = sawc2(["--dump", "--std-root", FROZEN_STD_ROOT] + [rel(src) for src, _ in cases])
     got = records(out)
     for src, exp in cases:
         record = got.get(rel(src))
@@ -157,7 +162,7 @@ def evaluator_rules():
 
 def check_refusals(failures, counts, fill):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
+    code, out = sawc2(["--check", "--std-root", FROZEN_STD_ROOT] + [rel(p) for p in cases])
     got = records(out)
     covered = set()
     for path in cases:
@@ -222,7 +227,7 @@ def check_acceptance(failures, counts):
         for line in lines:
             failures.append("eval acceptance %s: %s" % (entry, line))
         counts["evaluated compiler programs"] = counts.get("evaluated compiler programs", 0) + 1
-    code, out = sawc2(["--dump"] + package_args() + [entries[0]])
+    code, out = sawc2(["--dump", "--std-root", "std"] + package_args() + [entries[0]])
     counts["compiler constants evaluated"] = sum(
         1 for l in out.split("\n") if " = " in l and not l.startswith(("ERROR", "INVARIANT")))
 
@@ -236,7 +241,7 @@ def evaluate_all(rels, listing):
     while pending:
         with open(listing, "w") as fh:
             fh.write("".join(p + "\n" for p in pending))
-        r = subprocess.run([build.SAWC2, "eval", "--dump", "@" + rel(listing)], cwd=REPO,
+        r = subprocess.run([build.SAWC2, "eval", "--dump", "--std-root", FROZEN_STD_ROOT, "@" + rel(listing)], cwd=REPO,
                            capture_output=True, text=True, timeout=TIMEOUT)
         found = records(r.stdout)
         if r.returncode in (0, 1):

@@ -64,6 +64,10 @@ run of it, built against its own std.
 - `probes/executable_path.saw`, the custom probe, built by sawc2 and run
   through a renamed symbolic link on `PATH` from another directory, prints its
   binary's real path;
+- with no `--std-root`, `sawc2 build` and `sawc2 runtime`, run from another
+  directory, compile against the new std of the tree sawc2 was built in; a
+  copy of sawc2 in a tree with no `std/`, and an explicit root holding no
+  std, each refuse with exit status 2, naming the path;
 - a generated accessor with a local live across its `lend` and 1100 `if`s
   after it, which Stage 0 cannot parse, is held as a stated probe to the `42`
   and `5` it prints;
@@ -684,6 +688,75 @@ def check_executable_path(failures, counts):
         counts["run executable paths resolved"] = counts.get("run executable paths resolved", 0) + 1
 
 
+# A program that builds against the new std alone: Stage 0's frozen `Path`
+# has no `canonical`.
+DEFAULT_STD_SOURCE = """import std.path.{Path}
+
+func main() {
+    match Path(s: ".").canonical() {
+        case Ok(_) -> print("the new std"),
+        case Err(e) -> print("canonical failed: {e}")
+    }
+}
+"""
+
+
+def stage_binary():
+    """The stage binary itself, never a runner's wrapper around it (the
+    fixpoint lane's twin is a script that runs both stages from theirs), for
+    a check that copies the compiler somewhere else."""
+    return build.STAGE1 if build.selected_stage() == 1 else build.STAGE2
+
+
+def check_default_std_root(failures, counts):
+    """With no `--std-root`, sawc2 compiles against the `std/` of the tree its
+    binary was built in, from any working directory, `sawc2 runtime`
+    included; a copy of the binary in a tree with no `std/` refuses naming the
+    path it looked at, and so does an explicit root holding no std, each
+    with exit status 2 (SL-818)."""
+    work = os.path.join(OUT, "default-std")
+    shutil.rmtree(work, ignore_errors=True)
+    elsewhere = os.path.join(work, "elsewhere")
+    os.makedirs(elsewhere)
+    src = os.path.join(work, "main.saw")
+    with open(src, "w") as fh:
+        fh.write(DEFAULT_STD_SOURCE)
+    exe = os.path.join(work, "main")
+    r = subprocess.run([build.SAWC2, "build"] + target_flags() + [src, "-o", exe], cwd=elsewhere,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run default std: a build from another directory with no --std-root fails: %s"
+                        % (r.stdout + r.stderr).strip()[:300])
+    else:
+        code, out, _ = execute(exe)
+        if code != 0 or out != b"the new std\n":
+            failures.append("run default std: the program built with no --std-root prints %r, exit %s"
+                            % (out[:200], code))
+    mem = os.path.join(build.RT_ROOT, "common", "mem.saw")
+    r = subprocess.run([build.SAWC2, "runtime", "--target", TARGET or build.host_triple(), "--emit-ll", mem],
+                       cwd=elsewhere, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run default std: `sawc2 runtime --emit-ll` from another directory with no --std-root "
+                        "fails: %s" % r.stdout.strip()[:300])
+    nostd = os.path.join(work, "nostd")
+    os.makedirs(os.path.join(nostd, ".build"))
+    copy = os.path.join(nostd, ".build", os.path.basename(stage_binary()))
+    shutil.copy2(stage_binary(), copy)
+    want = "sawc2 resolve: no std at %s: " % os.path.join(os.path.realpath(nostd), "std")
+    r = subprocess.run([copy, "resolve", "--check", src], cwd=elsewhere, capture_output=True, text=True,
+                       timeout=BUILD_TIMEOUT)
+    if r.returncode != 2 or not r.stdout.startswith(want):
+        failures.append("run default std: a binary in a tree with no std/ exits %d printing %r, not 2 and %r"
+                        % (r.returncode, r.stdout[:300], want))
+    want = "sawc2 typecheck: --std-root %s holds no std: " % elsewhere
+    r = subprocess.run([build.SAWC2, "typecheck", "--check", "--std-root", elsewhere, src], cwd=elsewhere,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 2 or not r.stdout.startswith(want):
+        failures.append("run default std: an explicit root holding no std exits %d printing %r, not 2 and %r"
+                        % (r.returncode, r.stdout[:300], want))
+    counts["run default std cases"] = 4
+
+
 # The `if`s after the long accessor's `lend`: past the round count a capped
 # dataflow over a join numbered below its arms stops at (SL-610).
 LONG_ACCESSOR_IFS = 1100
@@ -1224,6 +1297,7 @@ def run(names=None, write=False):
         check_noalias(failures, counts, write)
         check_foreign_targets(failures, counts)
         check_runtime(failures, counts)
+        check_default_std_root(failures, counts)
         check_long_accessor(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

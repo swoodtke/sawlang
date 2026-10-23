@@ -163,8 +163,13 @@ compiler/
 ```
 
 The new std, the std sawc2 compiles from Stage 1 on, is the top-level `std/`
-(SL-456): `sawc2 resolve`, `typecheck` and `mir` take it with `--std-root std`,
-and compile each of its modules whole. Its prelude module declares what Stage
+(SL-456), and every command compiles each of its modules whole. It is the
+default: with no `--std-root`, a command compiles against the `std/` of the
+tree its binary was built in, which is the parent of the directory holding
+the binary, whatever the working directory, and `sawc2 runtime` reads that
+tree's `runtime/` the same way. A root holding no std is refused, naming the
+path. `--std-root sawc` names Stage 0's frozen std, which the lanes'
+fixtures written against it pass explicitly. Its prelude module declares what Stage
 0's builtin module synthesizes, and resolve's lang-item table (resolve/README.md)
 binds the compiler's vocabulary to it.
 
@@ -196,8 +201,8 @@ and only a snapshot's regeneration runs it. A record does not name the Stage
 .build/sawc2 lex @LIST                                 # both dumps of each listed file, framed
 .build/sawc2 parse --dump FILE...                      # each file's canonical AST dump
 .build/sawc2 parse --check FILE...                     # each file's diagnostics
-.build/sawc2 build --std-root std FILE -o OUT          # FILE compiled and linked by clang
-.build/sawc2 build --std-root std --emit-ll FILE       # FILE's `.ll` on standard output
+.build/sawc2 build FILE -o OUT                         # FILE compiled and linked by clang
+.build/sawc2 build --emit-ll FILE                      # FILE's `.ll` on standard output
 .build/sawc2 runtime --out DIR                         # the host's runtime objects, into DIR
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT   # another program
 ```

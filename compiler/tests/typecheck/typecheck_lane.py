@@ -10,8 +10,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, checks to
   exactly the record in `golden/NAME.typecheck` or `multi/NAME.typecheck`;
-  a first line `// flags: ...` passes those flags, and under `--std-root`
-  the record leaves out the `std.` modules' dumps;
+  a first line `// flags: ...` passes those flags, and under a std root
+  other than the frozen one the record leaves out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names, checked with the flags a second
@@ -55,9 +55,26 @@ def rel(path):
 
 
 def sawc2(args):
-    r = subprocess.run([build.SAWC2, "typecheck"] + args, cwd=REPO, capture_output=True,
+    r = subprocess.run([build.SAWC2, "typecheck"] + with_std_root(args), cwd=REPO, capture_output=True,
                        text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
+
+
+# The std a call names when its arguments name none: Stage 0's frozen one,
+# which this lane's fixtures are written against unless a `// flags:` line
+# names another. sawc2's own default is the new std.
+FROZEN_STD_ROOT = "sawc"
+
+
+def with_std_root(args):
+    """`args`, naming the frozen std when they name no `--std-root`."""
+    return list(args) if "--std-root" in args else ["--std-root", FROZEN_STD_ROOT] + list(args)
+
+
+def std_root_of(args):
+    """The std root a call with `args` compiles against."""
+    full = with_std_root(args)
+    return full[full.index("--std-root") + 1]
 
 
 def package_args():
@@ -121,8 +138,8 @@ def golden_flags(src):
 
 
 def without_std_modules(record):
-    """The record with each `std.` module's dump left out. Under `--std-root`
-    the std modules are dumped beside the program's, and they are std's
+    """The record with each `std.` module's dump left out. Under the new std
+    its modules are dumped beside the program's, and they are std's
     lane's to hold. A line outside every module, an `ERROR` or `INVARIANT`
     among them, is kept."""
     out = []
@@ -148,7 +165,7 @@ def check_golden(failures, counts, write):
 def check_golden_group(failures, counts, write, flags, cases):
     code, out = sawc2(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
     got = records(out)
-    if "--std-root" in flags:
+    if std_root_of(flags) != FROZEN_STD_ROOT:
         got = {path: without_std_modules(record) for path, record in got.items()}
     for src, exp in cases:
         record = got.get(rel(src))

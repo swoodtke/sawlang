@@ -4,7 +4,8 @@ nothing.
 
     python compiler/tests/mir/corpus_info.py [-v]
 
-Each corpus file is the entry of its own program. A record counts as lowered
+Each corpus file is the entry of its own program, lowered against the new
+std, as corpusdiff builds it. A record counts as lowered
 when it has no ERROR and no INVARIANT line, as refused by the lowering when
 it carries a lowering's `slice.not-yet`, and as refused earlier when only an
 earlier stage refuses it (typecheck's own `slice.not-yet` included). The
@@ -35,7 +36,7 @@ def lower_all(rels, listing):
     while pending:
         with open(listing, "w") as fh:
             fh.write("".join(p + "\n" for p in pending))
-        r = subprocess.run([mir_lane.build.SAWC2, "mir", "--check", "@" + mir_lane.rel(listing)],
+        r = subprocess.run([mir_lane.build.SAWC2, "mir", "--check", "--std-root", "std", "@" + mir_lane.rel(listing)],
                            cwd=mir_lane.REPO, capture_output=True, text=True, timeout=3600)
         records = mir_lane.records(r.stdout)
         if r.returncode in (0, 1):

@@ -27,7 +27,8 @@ resolve/
 
 Each FILE is the entry of its own program, which is resolved with every module
 it imports. `--std-root` names the directory that holds `std/` and
-`builtin.saw` (default `sawc`); `--module-path` maps a package to its
+`builtin.saw` (by default the checkout's own `std/`, found from the binary's
+location; the lane's fixtures name the frozen `sawc` explicitly); `--module-path` maps a package to its
 directory, as the frozen compiler's flag does. `@LIST` names a file of entry
 paths, one per line. Each entry gets one record, starting with the line
 `FILE<TAB>path`, holding in order:

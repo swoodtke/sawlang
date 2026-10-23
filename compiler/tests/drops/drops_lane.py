@@ -11,8 +11,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw`, elaborates to exactly the record in
   `golden/NAME.drops`, which carries no `ERROR` or `INVARIANT` line; a first
-  line `// flags: ...` passes those flags, and under `--std-root` the record
-  keeps the entry module's dump alone;
+  line `// flags: ...` passes those flags, and under a std root other than
+  the frozen one the record keeps the entry module's dump alone;
 - each fixture in `refuse/` is refused first at its header's position: by its
   rule, or, for a due row, by the refusal standing in its way, until that one
   is lifted, checked with the flags a `// flags: ...` line after its header
@@ -66,7 +66,8 @@ def rel(path):
 
 
 def sawc2(args):
-    r = subprocess.run([build.SAWC2, "drops"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+    r = subprocess.run([build.SAWC2, "drops"] + borrowck_lane.with_std_root(args), cwd=REPO, capture_output=True,
+                       text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -99,7 +100,7 @@ def check_golden(failures, counts, write):
             if record is None:
                 failures.append("drops golden %s: no record" % rel(src))
                 continue
-            if "--std-root" in flags:
+            if borrowck_lane.std_root_of(flags) != borrowck_lane.FROZEN_STD_ROOT:
                 record = entry_module_only(record, os.path.splitext(os.path.basename(src))[0])
             if write:
                 with open(exp, "w") as fh:
@@ -207,7 +208,7 @@ def check_acceptance(failures, counts):
         for line in lines:
             failures.append("drops acceptance %s: %s" % (entry, line))
         counts["elaborated compiler programs"] = counts.get("elaborated compiler programs", 0) + 1
-    code, out = sawc2(["--dump"] + borrowck_lane.package_args() + [entries[0]])
+    code, out = sawc2(["--dump", "--std-root", "std"] + borrowck_lane.package_args() + [entries[0]])
     count_flags(out, counts, "compiler")
     code, out = sawc2(["--check", "--std-root", "std", rel(STD_ENTRY)])
     for line in out.split("\n"):

@@ -44,7 +44,9 @@
 // compiler/tests/coro/README.md.
 // A lex error prints one ERROR record and
 // exits 1, and so does a file a later stage refuses; a usage or I/O failure
-// prints a message and exits 2.
+// prints a message and exits 2. With no `--std-root`, a command compiles
+// against the `std/` of the sawlang tree this binary was built in
+// (`driver_std_root`), whatever the working directory.
 
 import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
@@ -124,7 +126,7 @@ func driver_speed_level(flag: String) -> String {
 // `--runtime` name a profile sawc2 checks but does not build
 // (`driver_check_profile`).
 func driver_build(args: &Vector<String>) -> Int {
-    var std_root = "sawc"
+    var std_root = ""
     var triple = ""
     var speed = "-O0"
     var names = Vector<String>()
@@ -182,6 +184,10 @@ func driver_build(args: &Vector<String>) -> Int {
     }
     if triple.len() > 0 && not target_known(triple) {
         print("sawc2: unknown target {triple}")
+        return DRIVER_EXIT_USAGE
+    }
+    std_root = driver_std_root("sawc2 build", std_root)
+    if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
     if freestanding || runtime {
@@ -366,23 +372,103 @@ func driver_beside_binary(command: String, name: String) -> String {
             return ""
         }
     }
+    driver_path(driver_parent(binary), name, "")
+}
+
+// The std root a command compiles against: `given`, the `--std-root` it was
+// handed, as written; with none, the `std/` of the sawlang tree this binary
+// was built in, so the default never depends on the working directory. Either
+// must hold a std (`prelude.saw` for the new std, `builtin.saw` for Stage 0's
+// frozen one), since a root holding neither would compile against no std at
+// all. "" once the refusal is printed, headed by `command`.
+// ENTRY POINTS:
+//     driver_build
+//     driver_resolve
+//     driver_mono
+//     driver_coro
+//     driver_runtime
+func driver_std_root(command: String, given: String) -> String {
+    if given.len() > 0 {
+        let new_std = driver_file_exists(driver_path(given, "prelude.saw", ""))
+        let frozen_std = driver_file_exists(driver_path(given, "builtin.saw", ""))
+        if new_std || frozen_std {
+            return given
+        }
+        print("{}: --std-root {} holds no std: neither prelude.saw (the new std) nor builtin.saw (Stage 0's frozen std) is there", command, given)
+        return ""
+    }
+    let root = driver_sawlang_root(command)
+    if root.len() == 0 {
+        return ""
+    }
+    let found = driver_path(root, "std", "")
+    if not driver_file_exists(driver_path(found, "prelude.saw", "")) {
+        print("{}: no std at {}: the sawlang tree this binary was built in holds no std/prelude.saw; pass --std-root DIR", command, found)
+        return ""
+    }
+    found
+}
+
+// The runtime root `sawc2 runtime` reads its sources from: `given`, the
+// `--rt-root` it was handed, as written; with none, the `runtime/` of the
+// sawlang tree this binary was built in. "" once the reason is printed.
+func driver_rt_root(command: String, given: String) -> String {
+    if given.len() > 0 {
+        return given
+    }
+    let root = driver_sawlang_root(command)
+    if root.len() == 0 {
+        return ""
+    }
+    driver_path(root, "runtime", "")
+}
+
+// The sawlang tree this binary was built in: the parent of the directory
+// holding the executable's real path, since build.py links each stage into
+// the `.build/` of the tree it builds. "" once the reason it cannot be found
+// is printed, headed by `command`.
+// ENTRY POINTS:
+//     driver_std_root
+//     driver_rt_root
+func driver_sawlang_root(command: String) -> String {
+    let found = Env.executable_path()
+    let binary = match found {
+        case Ok(path) -> path,
+        case Err(e) -> {
+            print("{}: cannot find this executable's path: {}", command, e)
+            return ""
+        }
+    }
+    driver_parent(driver_parent(binary))
+}
+
+// `path` without its last `/` and what follows it: "." when it has none, and
+// "/" for a name directly under the root.
+func driver_parent(path: String) -> String {
     var slash = 0 - 1
     var i = 0
-    while i < binary.len() {
-        if (binary.byte_at(i) as Int) == DRIVER_SLASH {
+    while i < path.len() {
+        if (path.byte_at(i) as Int) == DRIVER_SLASH {
             slash = i
         }
         i = i + 1
     }
-    var manifest = StringBuilder()
     if slash < 0 {
-        try! manifest.append(".")
-    } else {
-        try! manifest.append(binary.substring(0, slash))
+        return "."
     }
-    try! manifest.append("/")
-    try! manifest.append(name)
-    manifest.build()
+    if slash == 0 {
+        return "/"
+    }
+    path.substring(0, slash)
+}
+
+// Whether the file at `path` opens for reading.
+func driver_file_exists(path: String) -> Bool {
+    let opened = File.open(Path(s: path))
+    match opened {
+        case Ok(_) -> true,
+        case Err(_) -> false
+    }
 }
 
 // The target a runtime manifest's `text`, read from `at`, names, its clang
@@ -556,10 +642,8 @@ func driver_clang(command: String, program: String, arguments: &Vector<String>) 
 // caching would need directory operations std lacks (SL:open-questions D41).
 // With `--emit-ll FILE`, that one source's `.ll` goes to standard output.
 func driver_runtime(args: &Vector<String>) -> Int {
-    // The runtime sources are written against the new std's `Atomic` and cell,
-    // so they build against `std/` alone, unlike every other subcommand.
-    var std_root = "std"
-    var rt_root = "runtime"
+    var std_root = ""
+    var rt_root = ""
     var out_dir = ""
     var emit = ""
     var host = ""
@@ -590,6 +674,14 @@ func driver_runtime(args: &Vector<String>) -> Int {
     }
     if (out_dir.len() == 0) == (emit.len() == 0) {
         return driver_usage()
+    }
+    std_root = driver_std_root("sawc2 runtime", std_root)
+    if std_root.len() == 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    rt_root = driver_rt_root("sawc2 runtime", rt_root)
+    if rt_root.len() == 0 {
+        return DRIVER_EXIT_USAGE
     }
     if host.len() == 0 || (program.len() == 0 && out_dir.len() > 0) {
         var unused = Vector<String>()
@@ -837,7 +929,7 @@ func driver_mono(args: &Vector<String>) -> Int {
     var check = false
     var notes = false
     var counted = false
-    var std_root = "sawc"
+    var std_root = ""
     var triple = "arm64-apple-darwin"
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -890,6 +982,10 @@ func driver_mono(args: &Vector<String>) -> Int {
         print("sawc2: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
+    std_root = driver_std_root("sawc2 mono", std_root)
+    if std_root.len() == 0 {
+        return DRIVER_EXIT_USAGE
+    }
     let options = MonoOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, notes: notes)
     var status = 0
     var k = 0
@@ -926,7 +1022,7 @@ func driver_coro(args: &Vector<String>) -> Int {
     var bt_table = false
     var check = false
     var notes = false
-    var std_root = "sawc"
+    var std_root = ""
     var triple = "arm64-apple-darwin"
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -980,6 +1076,10 @@ func driver_coro(args: &Vector<String>) -> Int {
     }
     if not target_known(triple) {
         print("sawc2: unknown target {triple}")
+        return DRIVER_EXIT_USAGE
+    }
+    std_root = driver_std_root("sawc2 coro", std_root)
+    if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
     let options = CoroOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, lowered: lowered,
@@ -1073,7 +1173,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var runtime = false
     var freestanding = false
     var counted = false
-    var std_root = "sawc"
+    var std_root = ""
     var names = Vector<String>()
     var dirs = Vector<String>()
     var inputs = Vector<DriverInput>()
@@ -1125,6 +1225,13 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     }
     if dump == check {
         return driver_usage()
+    }
+    var command = StringBuilder()
+    try! command.append("sawc2 ")
+    try! command.append(args.get(1) ?? "")
+    std_root = driver_std_root(command.build(), std_root)
+    if std_root.len() == 0 {
+        return DRIVER_EXIT_USAGE
     }
     let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
     let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,

@@ -10,8 +10,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, resolves to
   exactly the record in `golden/NAME.resolve` or `multi/NAME.resolve`, with
-  the flags a first line `// flags: ...` passes, and under `--std-root` the
-  record leaves out the `std.` modules' dumps;
+  the flags a first line `// flags: ...` passes, and under a std root other
+  than the frozen one the record leaves out the `std.` modules' dumps;
 - each package entry, `package/NAME/src/main.saw` or `package/NAME/tests/*.saw`,
   resolved with `--module-path NAME=package/NAME/src`, resolves to exactly the
   record in the `.resolve` file beside it;
@@ -91,9 +91,26 @@ def rel(path):
 
 
 def sawc2(args):
-    r = subprocess.run([build.SAWC2, "resolve"] + args, cwd=REPO, capture_output=True,
+    r = subprocess.run([build.SAWC2, "resolve"] + with_std_root(args), cwd=REPO, capture_output=True,
                        text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
+
+
+# The std a call names when its arguments name none: Stage 0's frozen one,
+# which this lane's fixtures are written against unless a `// flags:` line
+# names another. sawc2's own default is the new std.
+FROZEN_STD_ROOT = "sawc"
+
+
+def with_std_root(args):
+    """`args`, naming the frozen std when they name no `--std-root`."""
+    return list(args) if "--std-root" in args else ["--std-root", FROZEN_STD_ROOT] + list(args)
+
+
+def std_root_of(args):
+    """The std root a call with `args` compiles against."""
+    full = with_std_root(args)
+    return full[full.index("--std-root") + 1]
 
 
 def package_args():
@@ -172,8 +189,8 @@ def check_golden(failures, counts, write):
 
 
 def without_std_modules(record):
-    """The record with each `std.` module's dump left out. Under `--std-root`
-    the new std's modules are resolved in full and dumped beside the
+    """The record with each `std.` module's dump left out. Under the new std
+    its modules are resolved in full and dumped beside the
     program's, and they are std's lane's to hold, so an edit to std moves no
     golden of this lane. A line outside every module, an `ERROR` or
     `INVARIANT` among them, is kept."""
@@ -192,7 +209,7 @@ def without_std_modules(record):
 def compare_records(failures, counts, write, cases, args):
     code, out = sawc2(["--dump"] + args + [rel(src) for src, _ in cases])
     got = records(out)
-    if "--std-root" in args:
+    if std_root_of(args) != FROZEN_STD_ROOT:
         got = {path: without_std_modules(record) for path, record in got.items()}
     for src, exp in cases:
         record = got.get(rel(src))

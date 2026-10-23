@@ -104,10 +104,11 @@ SL:open-questions D41) into `DIR`, which must exist: sawc2 has no API to
 create a directory, so a missing one is refused, saying so. The target is
 `--target`, else the host the manifest names, and the clang is `--clang`,
 else the manifest's; with neither flag and no manifest the command is
-refused. The sources are compiled against the new std, `--std-root std` by
-default, the one std they are written for. The ABI table
-(`compiler/typecheck/src/runtimeabi.saw`) lists the target's sources under the
-runtime root (`--rt-root`, `runtime` by default): every `.saw` of `common/`,
+refused. The sources are compiled against the new std (by default the
+checkout's `std/`, found from the binary's location), the one std they are
+written for. The ABI table (`compiler/typecheck/src/runtimeabi.saw`) lists the
+target's sources under the runtime root (`--rt-root`, by default the checkout's
+`runtime/`): every `.saw` of `common/`,
 then of `host_macos/` or `host_linux/`; a target the table has no row for is
 refused. Each is compiled as a runtime source to `DIR/NAME.ll`,
 unbuffered and closed explicitly, and by `CLANG -c -target TRIPLE -O2 -x ir`

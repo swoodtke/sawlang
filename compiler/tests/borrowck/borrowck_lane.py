@@ -135,9 +135,26 @@ def rel(path):
 
 
 def sawc2(args, stage="borrowck"):
-    r = subprocess.run([build.SAWC2, stage] + args, cwd=REPO, capture_output=True, text=True,
+    r = subprocess.run([build.SAWC2, stage] + with_std_root(args), cwd=REPO, capture_output=True, text=True,
                        timeout=TIMEOUT)
     return r.returncode, r.stdout
+
+
+# The std a call names when its arguments name none: Stage 0's frozen one,
+# which this lane's and the drops lane's fixtures are written against unless
+# a `// flags:` line names another. sawc2's own default is the new std.
+FROZEN_STD_ROOT = "sawc"
+
+
+def with_std_root(args):
+    """`args`, naming the frozen std when they name no `--std-root`."""
+    return list(args) if "--std-root" in args else ["--std-root", FROZEN_STD_ROOT] + list(args)
+
+
+def std_root_of(args):
+    """The std root a call with `args` compiles against."""
+    full = with_std_root(args)
+    return full[full.index("--std-root") + 1]
 
 
 def package_args():
@@ -462,7 +479,7 @@ def check_acceptance(failures, counts):
         for line in lines:
             failures.append("borrowck acceptance %s: %s" % (entry, line))
         counts["borrow-checked compiler programs"] = counts.get("borrow-checked compiler programs", 0) + 1
-    code, out = sawc2(["--dump"] + package_args() + [entries[0]])
+    code, out = sawc2(["--dump", "--std-root", "std"] + package_args() + [entries[0]])
     count_labels(out, counts, "compiler")
     code, out = sawc2(["--check", "--std-root", "std", rel(STD_ENTRY)])
     for line in out.split("\n"):
@@ -596,8 +613,8 @@ def check_corpus(failures, counts):
     os.makedirs(os.path.dirname(listing), exist_ok=True)
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
-    r = subprocess.run([build.SAWC2, "borrowck", "--dump", "@" + rel(listing)], cwd=REPO,
-                       capture_output=True, text=True, timeout=TIMEOUT)
+    r = subprocess.run([build.SAWC2, "borrowck", "--dump", "--std-root", FROZEN_STD_ROOT, "@" + rel(listing)],
+                       cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     got = records(r.stdout)
     if r.returncode not in (0, 1):
         failures.append("borrowck corpus: sawc2 exited %d" % r.returncode)

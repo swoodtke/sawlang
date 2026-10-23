@@ -49,6 +49,11 @@ def sawc2(args):
     return r.returncode, r.stdout
 
 
+# Stage 0's frozen std, which this lane's golden and refusal fixtures are
+# written against. sawc2's own default is the new std.
+FROZEN_STD_ROOT = "sawc"
+
+
 def package_args():
     args = []
     for name, directory in build.STAGE_PACKAGES:
@@ -98,11 +103,11 @@ def check_golden(failures, counts, write, spans=False):
     if spans:
         cases = [(src, os.path.splitext(src)[0] + ".mir")
                  for src in sorted(glob.glob(os.path.join(SPANS, "*.saw")))]
-        code, out = sawc2(["--dump", "--spans"] + [rel(src) for src, _ in cases])
+        code, out = sawc2(["--dump", "--spans", "--std-root", FROZEN_STD_ROOT] + [rel(src) for src, _ in cases])
         key = "mir span golden cases"
     else:
         cases = golden_cases()
-        code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+        code, out = sawc2(["--dump", "--std-root", FROZEN_STD_ROOT] + [rel(src) for src, _ in cases])
         key = "mir golden cases"
     got = records(out)
     for src, exp in cases:
@@ -153,7 +158,7 @@ def check_refusals(failures, counts, fill):
     cases = refusal_cases()
     if not cases:
         return
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
+    code, out = sawc2(["--check", "--std-root", FROZEN_STD_ROOT] + [rel(p) for p in cases])
     got = records(out)
     for path in cases:
         record = got.get(rel(path), "")
@@ -203,7 +208,7 @@ def check_acceptance(failures, counts):
         for line in lines:
             failures.append("mir acceptance %s: %s" % (entry, line))
         counts["lowered compiler programs"] = counts.get("lowered compiler programs", 0) + 1
-    code, out = sawc2(["--dump"] + package_args() + [entries[0]])
+    code, out = sawc2(["--dump", "--std-root", "std"] + package_args() + [entries[0]])
     counts["lowered compiler functions"] = sum(1 for l in out.split("\n") if l.startswith("fn "))
 
 

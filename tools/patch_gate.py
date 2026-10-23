@@ -42,7 +42,7 @@ SUITE_INPUTS = {
     "fixpoint": (
         "compiler/",                # the compiler the stages are built from, and the seed
         "std/",                     # the std the seed and Stage 1 build against
-        "sawc/",                    # the default std sawc2 compiles, which replayed lanes read
+        "sawc/",                    # the frozen std the replayed lanes name with --std-root sawc
         "runtime/",                 # the runtime Stage 1 builds, which every later link takes
         "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
         "compiler/tools/build.py",  # which builds both stages
