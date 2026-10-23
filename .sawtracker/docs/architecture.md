@@ -1155,6 +1155,11 @@ compiler and its std may use the full new language, and the intersection rule
 lifts. Until then, the compiler's own source stays in the intersection, since
 Stage 0 builds it. The new std stays in the bootstrap language (the subset plus
 the named low-level features), since only the new compiler builds it.
+**Lifted (the user, Oct 23 2026):** the seed, sawc2's own IR, now builds Stage 1, so
+nothing compiles the compiler's source with the frozen Python compiler. The
+intersection rule no longer applies; the constraint is what the pinned seed
+compiles, which the bootstrap build enforces. SL-839 retires the subset checker's
+Stage-0-only rules.
 
 **Where the compiler lives** (Ruled). The new compiler is the top-level
 `compiler/` directory, one directory per stage (`lex/`, `parse/`, and so on,
