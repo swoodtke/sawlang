@@ -120,8 +120,13 @@ def restore_body(text, struct):
     return text[at:at + len(RESTORE) + end.start()] if end else text[at:]
 
 
+def read(path):
+    """`path` as sawc2 reads it (`sawc2_reading.py`)."""
+    return subset_check.read_sources([path])[path]
+
+
 def failures_of(path, struct):
-    src = subset_check.SourceFile(path)
+    src = read(path)
     rel = os.path.relpath(path, REPO)
     structs = structs_of(src)
     if structs is None or struct not in structs:
@@ -208,7 +213,7 @@ def run():
     fields = 0
     for target in TARGETS:
         failures += failures_of(target.path, target.struct)
-        structs = structs_of(subset_check.SourceFile(target.path)) or {}
+        structs = structs_of(read(target.path)) or {}
         fields += len(structs.get(target.struct, []))
     failures += injected_failures()
     return failures, {"speculation ledger fields": fields,

@@ -1,11 +1,9 @@
-// An import and std calls off the allowlists, inside an inline module, which is
-// itself refused.
-module probe_tools {   // refuses: inline-module
-    import std.time.{Instant}   // refuses: import-allowlist
+// An import inside an inline module is checked as one at the file's top is.
+module probe_tools {
+    import blade.manifest.{Manifest}   // refuses: import-allowlist
+    import std.time.{Instant}
 
     public func get(n: Int) -> Int {
-        let start = Instant.now()   // refuses: std-api
-        let _ = start.elapsed()   // refuses: std-api
         n
     }
 }

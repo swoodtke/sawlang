@@ -12,8 +12,7 @@ Stage 2; `--stage 1`, or `SAWC2_STAGE=1`, runs them on Stage 1 instead, for
 bisecting. Builds the unit programs with sawc2 and runs them;
 compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
-compiler source and its own fixtures in `subset/`; recomputes the std cone of
-sawc2's build and compares it with `tools/std_cone.txt`, and the std suspension
+compiler source and its own fixtures in `subset/`; compares the std suspension
 table with `tools/std_suspension.txt`; holds the seed's fetch funnel to its
 cases against a local blob host (`seed/`); compares the runtime ABI table compiled
 into sawc2 with `runtime/ABI.md` and the runtime's sources, and Stage 0's copy of
@@ -45,8 +44,7 @@ to be reported at its access; and checks that the Stage 0
 snapshot in `coro/stage0/` is whole and prints the coroutine census, which
 gates nothing; and checks that a serial and a parallel run print the same
 (`parallel_order.py`). The lanes' oracles are Stage 0's recorded snapshots
-(`oracle.py`); no step runs Stage 0 but `subset` and `std_cone`, which
-compile the compiler's own source with it.
+(`oracle.py`); no step runs Stage 0 over the compiler's own source.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
 
@@ -79,11 +77,11 @@ import comma_funnel  # noqa: E402
 import depth_funnel  # noqa: E402
 import grammar_tables  # noqa: E402
 import speculation_ledger  # noqa: E402
-import std_cone  # noqa: E402
 import runtime_table  # noqa: E402
 import std_suspension  # noqa: E402
 import subset_check  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
+import sawc2_reading  # noqa: E402
+import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
 import line_length  # noqa: E402
 import parse_lane  # noqa: E402
 import test_lint  # noqa: E402
@@ -132,7 +130,6 @@ import sanitize_lane  # noqa: E402
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
 SUBSET_FIXTURES = os.path.join(HERE, "subset")
-SUBSET_GENERATED = os.path.join(SUBSET_FIXTURES, "generated")
 GRAMMAR_FIXTURES = os.path.join(HERE, "grammar", "fixtures")
 PARSE_CORPUS = os.path.join(HERE, "parse")
 RESOLVE_CORPUS = os.path.join(HERE, "resolve")
@@ -149,11 +146,6 @@ LEXER_SOURCE = os.path.join(COMPILER, "lex", "src", "lib.saw")
 RUN_TIMEOUT = 60
 
 _MARKER = re.compile(r"//\s*refuses:\s*(.+)$")
-
-# Stage 1 tolerates leaks only while every std `deinit` the compiler reaches
-# frees memory or closes a descriptor, so widening the std cone fails here until
-# that is re-checked and the pin updated (SL:hazards, leak tolerance).
-PINNED_STD_MODULES = ("data", "env", "file", "path", "process")
 
 
 class Run:
@@ -224,10 +216,9 @@ def run_fixture_whitespace(run):
     """No fixture line ends in whitespace, and no fixture ends in a blank line.
     `git apply --whitespace=fix` (the patch server's setting) and editors strip
     both, which would change a fixture on its way into the tree."""
-    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES, SUBSET_GENERATED, FUNNEL_FIXTURES)
+    paths = [p for d in (LEX_FIXTURES, SUBSET_FIXTURES, FUNNEL_FIXTURES)
              for p in glob.glob(os.path.join(d, "*")) if os.path.isfile(p)]
     paths.append(parse_lane.CLAIMS)
-    paths.append(std_cone.CONE_FILE)
     paths.append(std_suspension.TABLE_FILE)
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
@@ -322,10 +313,12 @@ def _first_difference(expected, got):
 
 
 def lexer_program():
-    src = subset_check.SourceFile(LEXER_SOURCE)
-    if src.program is None:
-        raise RuntimeError("cannot parse %s" % os.path.relpath(LEXER_SOURCE, REPO))
-    return src.program
+    """The lexer's source as sawc2 reads it (`sawc2_reading.py`)."""
+    reading = sawc2_reading.read_files([LEXER_SOURCE])[LEXER_SOURCE]
+    if reading.program is None:
+        raise RuntimeError("cannot parse %s: %s" % (os.path.relpath(LEXER_SOURCE, REPO),
+                                                    reading.error))
+    return reading.program
 
 
 def check_kind_coverage(run, kinds_seen):
@@ -371,30 +364,16 @@ def run_subset(run):
         run.fail("subset: " + d.render())
     run.count("checked source files", len(files))
     run.inventory = subset_check.workaround_inventory(files)
-    allowed, pinned = sorted(subset_check.ALLOWED_STD_MODULES), sorted(PINNED_STD_MODULES)
-    if allowed != pinned:
-        run.fail("subset: ALLOWED_STD_MODULES is %s, pinned as %s; check that every std "
-                 "`deinit` it reaches only frees memory or closes a descriptor, then update "
-                 "PINNED_STD_MODULES" % (", ".join(allowed), ", ".join(pinned)))
     fixtures = sorted(glob.glob(os.path.join(SUBSET_FIXTURES, "*.saw")))
     names = {_fixture_rule(p) for p in fixtures}
     for rule in sorted(subset_check.RULES):
         if rule not in names:
             run.fail("subset: rule %s has no fixture" % rule)
-    # One call checks each fixture as its own build and compiles them together.
     reported = collections.defaultdict(list)
     for d in subset_check.check_files(fixtures):
         reported[d.path].append(d)
     for path in fixtures:
         check_subset_fixture(run, path, reported[os.path.relpath(path, REPO)])
-        run.count("checker fixtures")
-    # An `owned-operand` position that only refused source can reach is asked of
-    # Stage 0 directly: the checker never compiles a build another rule refuses.
-    for path in sorted(glob.glob(os.path.join(SUBSET_GENERATED, "*.saw"))):
-        rel = os.path.relpath(path, REPO)
-        diags = subset_check.check_generated([(path, [subset_check.SourceFile(path)])],
-                                             {path: rel})
-        check_subset_fixture(run, path, diags)
         run.count("checker fixtures")
 
 
@@ -431,16 +410,6 @@ def check_subset_fixture(run, path, diags):
         elif want != have:
             run.fail("subset fixture %s:%d: expected %s %d times, reported %d"
                      % (rel, line, name, want, have))
-
-
-def run_std_cone(run):
-    """The std cone of Stage 0's build of sawc2 against `tools/std_cone.txt`,
-    failing in either direction (SL:architecture §4, the bootstrap std)."""
-    failures, counts = std_cone.check()
-    for failure in failures:
-        run.fail(failure)
-    for key, n in counts.items():
-        run.count(key, n)
 
 
 def run_std_suspension(run):
@@ -687,8 +656,7 @@ STEPS = (
     Step("units", "built", calls_overlap=True),
     Step("fixture_whitespace", "always"),
     Step("golden", "built"),
-    Step("subset", "always", calls_overlap=True),
-    Step("std_cone", "built", calls_overlap=True),
+    Step("subset", "built"),
     Step("std_suspension", "after build"),
     Step("seed", "always"),
     Step("runtime_table", "after build"),
@@ -715,7 +683,7 @@ STEP_BY_NAME = {step.name: step for step in STEPS}
 
 # The longest steps start first, so that the short ones fill in around them;
 # the rest start in `STEPS` order. Only the wall time depends on this.
-LONG_STEPS = ("units", "subset", "drops", "borrowck", "grammar_parse", "eval", "std_cone", "programs",
+LONG_STEPS = ("units", "subset", "drops", "borrowck", "grammar_parse", "eval", "programs",
               "std", "typechecker", "parser", "migrate", "parallel_order")
 
 STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")

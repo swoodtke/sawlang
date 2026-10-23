@@ -48,8 +48,9 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # its pin; README.md "The seed" is the bump, a manifest and
                    # pin diff), tools/ (build.py builds the seed with clang,
                    # Stage 1 with the seed, Stage 2 with Stage 1; no sawc/;
-                   # subset_check.py enforces the subset its source is written
-                   # in) and tests/ (run.py: unit programs, golden fixtures,
+                   # the source may use the whole language, and
+                   # subset_check.py keeps its hygiene rules, read with
+                   # sawc2) and tests/ (run.py: unit programs, golden fixtures,
                    # the checker's fixtures). prototypes/ holds the paused
                    # minivm and the parser prototype that seeds its parser.
   tests/grammar/   # The tools over GRAMMAR.md (SL-406): extract.py (one model),
@@ -228,7 +229,7 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   ```
   Stages: `compiler` (`compiler/tests/run.py`: the self-hosted compiler's
   unit programs, its golden token fixtures with their kind coverage, the
-  subset checker over its source and its own fixtures, and the grammar lint
+  subset checker's hygiene rules over its source and its own fixtures, and the grammar lint
   and recognizer tests), `fixpoint` (full mode), `grammarcorpus`
   (`compiler/tests/grammar/corpus.py`: every tracked .saw recognized with
   GRAMMAR.md, its verdict compared with `corpus_expected.tsv`, and exactly

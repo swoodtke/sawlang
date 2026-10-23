@@ -1,5 +1,5 @@
-// A `Thread.spawn` brace's capture list, accepted by the std profile: the
-// brace captures nothing implicitly and takes no parameters, so the list is
+// A `Thread.spawn` brace's capture list, read and accepted: the brace
+// captures nothing implicitly and takes no parameters, so the list is
 // its parameter list, and a captured name is the brace's own binding.
 
 func add_one(n: Int) -> Int {

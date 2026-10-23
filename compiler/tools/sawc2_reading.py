@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """sawc2's reading of Saw source, as the frozen parser's tree and tokens.
 
-The subset checker's rules are written over the frozen parser's tree, and the
-std profile reads `std/` with sawc2: tokens from `sawc2 lex`, the tree from
-`sawc2 parse --dump`, rebuilt as the frozen parser builds it. A form the frozen
+The subset checker's rules and the parser's lanes are written over the frozen
+parser's tree, and read Saw source with sawc2: tokens from `sawc2 lex`, the
+tree from `sawc2 parse --dump`, rebuilt as the frozen parser builds it. A form the frozen
 tree lacks gets a node here, a subclass of the frozen kind it stands nearest.
 The dump records no positions, so its leaves, each a token in source order, are
 matched to the tokens, and a node's line is that of the token the frozen parser
@@ -228,7 +228,7 @@ def parse_tokens(text):
 
 def _sawc2(args, cwd=REPO):
     if not os.path.exists(build.SAWC2):
-        raise ReadingError("the std profile reads std/ with sawc2, and %s is not built; build it "
+        raise ReadingError("the reading runs sawc2, and %s is not built; build it "
                            "with compiler/tools/build.py" % os.path.relpath(build.SAWC2, REPO))
     r = subprocess.run([build.SAWC2] + list(args), cwd=cwd, capture_output=True, timeout=TIMEOUT)
     return r.returncode, r.stdout.decode("utf-8")
@@ -442,9 +442,6 @@ class Reader:
         self.gap = {}              # id(node) -> token index after the leaf before it
         self.cursor = 0            # where the next leading-keyword search starts
         self.interp = None         # the segment line while inside an interpolation
-        # (line, what) for each form of the new language this reading met that
-        # the frozen tree has no field for, which a profile may refuse.
-        self.features = []
         self._align()
 
     # -- alignment ---------------------------------------------------------
@@ -801,14 +798,11 @@ class Reader:
             return "[]", words[2:], static
         return words[0], words[1:], static
 
-    def effects(self, n, line):
-        """The effect words of a declaration on `line`. `constexpr` has no
-        field on the frozen node, so it is recorded as a feature."""
+    def effects(self, n):
+        """The effect words of a declaration."""
         _, words, static = self.head(n)
         fx = {w: (w in words) for w in ("consumes", "unsafe", "sync", "borrows")}
         fx["static"] = static
-        if "constexpr" in words:
-            self.features.append((line, "a `constexpr` function"))
         return fx
 
     def body(self, n):
@@ -819,7 +813,7 @@ class Reader:
         line = self.anchor(n, "FUNC")
         type_params = self.type_params(n)
         params, _, _ = self.parameters(n)
-        fx = self.effects(n, line)
+        fx = self.effects(n)
         return_type = self.return_type(n)
         return A.Function(name=unescape_leaf(leaves(n)[0]), parameters=params,
                           return_type=return_type, body=self.body(n), type_params=type_params,
@@ -839,7 +833,7 @@ class Reader:
             name = self.method_name(n)
             type_params = self.type_params(n)
         params, self_mutable, self_is_reference = self.parameters(n)
-        fx = self.effects(n, line)
+        fx = self.effects(n)
         is_static = not (params and params[0].name == "self")
         return_type = self.return_type(n)
         return A.Method(name=name, parameters=params, return_type=return_type,
@@ -911,7 +905,7 @@ class Reader:
                 rline = self.anchor(k, "FUNC")
                 self.type_params(k)
                 params, self_mutable, self_is_reference = self.parameters(k)
-                fx = self.effects(k, rline)
+                fx = self.effects(k)
                 return_type = self.return_type(k)
                 methods.append(TraitRequirement(
                     name=self.method_name(k), parameters=params, return_type=return_type,
@@ -1032,9 +1026,6 @@ class Reader:
             return A.SawType(A.TypeKind.EXISTENTIAL, existential_trait=name, written_name=name,
                              written_file=self.path, written_line=self.leaf_line(nodes(n)[0], 0))
         if b == "SliceType":
-            first = self.first.get(id(n))
-            line = self.interp or (self.tokens[first].line if first is not None else 0)
-            self.features.append((line, "a slice type `&[T]`"))
             return SliceType(A.TypeKind.REFERENCE, inner_type=self.type(nodes(n)[0]),
                              reference_mutable=n.kind == "SliceType.exclusive")
         raise ReadingError("%s: no reading of the type %s" % (self.path, n.kind))
@@ -1757,14 +1748,12 @@ def _legacy_arm_shape(pattern):
 
 
 class Reading:
-    """One file as sawc2 reads it: its tokens, the frozen-shaped Program and
-    the new-language forms it holds (`Reader.features`), or sawc2's first
-    refusal, (line, message)."""
+    """One file as sawc2 reads it: its tokens and the frozen-shaped Program,
+    or sawc2's first refusal, (line, message)."""
 
-    def __init__(self, tokens=None, program=None, features=(), error=None):
+    def __init__(self, tokens=None, program=None, error=None):
         self.tokens = tokens
         self.program = program
-        self.features = list(features)
         self.error = error
 
 
@@ -1782,7 +1771,7 @@ def read_files(paths):
             raise ReadingError("%s: sawc2 parses it but `sawc2 lex` refuses it: %s"
                                % (path, error[1]))
         reader = Reader(path, tokens, verdict[1])
-        out[path] = Reading(tokens=tokens, program=reader.program(), features=reader.features)
+        out[path] = Reading(tokens=tokens, program=reader.program())
     return out
 
 

@@ -1,5 +1,0 @@
-// A type parameter spelled like a declared type.
-enum Cmd { case Go }
-
-struct Tray<Cmd> { v: Int }   // refuses: name-collision
-struct Shelf<Item> { v: Int }

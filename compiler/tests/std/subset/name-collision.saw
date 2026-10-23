@@ -1,6 +1,0 @@
-// A declaration's own type parameter list declares parameters, so one spelled
-// like a type is refused there; only an extension head reads it as an argument.
-
-public struct Box2<String> { // refuses: name-collision
-    held: String
-}

@@ -386,8 +386,9 @@ The compiler written in Saw (`compiler/`, epic SL-398) has its own tests until
 it can run its own `@test` sidecars. `compiler/README.md` describes them in
 full; in short, the runner:
 
-- builds `sawc2` and every unit program (`compiler/<stage>/tests/*.saw`) with the
-  frozen compiler, and runs each unit program: exit 0 is a pass;
+- builds `sawc2` (the seed builds Stage 1, Stage 1 builds Stage 2) and every
+  unit program (`compiler/<stage>/tests/*.saw`) with sawc2, and runs each unit
+  program: exit 0 is a pass;
 - compares `sawc2 lex` with each golden fixture in `compiler/tests/lex/`
   (`NAME.saw` beside its expected `NAME.tokens`, and `NAME.docs` for doc
   trivia), byte for byte;
@@ -396,9 +397,10 @@ full; in short, the runner:
   `git apply --whitespace=fix`, which strips both;
 - fails if a token kind the lexer declares, or a kind of lex error it reports,
   appears in no fixture;
-- runs the subset checker (`compiler/tools/subset_check.py`) over the compiler's
-  own source, and over its fixtures in `compiler/tests/subset/`, whose
-  `// refuses: RULE` markers name exactly what each must report;
+- runs the subset checker (`compiler/tools/subset_check.py`), whose hygiene
+  rules read each file with sawc2, over the compiler's own source, and over its
+  fixtures in `compiler/tests/subset/`, whose `// refuses: RULE` markers name
+  exactly what each must report;
 - runs the grammar lint (`compiler/tests/grammar/lint.py`) over `GRAMMAR.md`,
   and each lint check's fixture, which injects one defect into a small grammar
   and names the line the check must report;

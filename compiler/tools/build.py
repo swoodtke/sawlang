@@ -119,15 +119,6 @@ def handed_down():
     return bool(os.environ.get("SAWC2_BINARY"))
 
 
-def sawc_arguments(entry, out):
-    """The frozen compiler's command-line arguments for building `entry` to
-    `out`, which `std_cone.py` runs in-process."""
-    args = [entry, "-o", out]
-    for name, rel in STAGE_PACKAGES:
-        args += ["--module-path", "%s=%s" % (name, os.path.join(REPO, rel))]
-    return args
-
-
 def package_arguments(root):
     """`--module-path` for every stage package, under the tree at `root`."""
     args = []

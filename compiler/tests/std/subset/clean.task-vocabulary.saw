@@ -1,5 +1,5 @@
-// The std profile's cooperative-task feature, accepted: a std module declares
-// the task vocabulary over a park point, and another names it.
+// Cooperative tasks, read and accepted: a std module declares the task
+// vocabulary over a park point, and another names it.
 
 import std.task.{yield_now}
 

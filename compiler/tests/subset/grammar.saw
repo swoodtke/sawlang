@@ -1,0 +1,4 @@
+// sawc2's lexer refuses an unknown escape, so nothing else is checked.
+func lex_fixture() -> String {
+    "a\qb"   // refuses: grammar
+}

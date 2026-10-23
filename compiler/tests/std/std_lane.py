@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The std lane: the new std in `std/` under sawc2, the subset checker's std
-profile, the lang-item table, and the API equivalence of the two stds.
+profile, and the lang-item table.
 
     python compiler/tests/std/std_lane.py            # check
     python compiler/tests/std/std_lane.py --write    # rewrite the lang dumps and the cones
@@ -12,19 +12,13 @@ profile, the lang-item table, and the API equivalence of the two stds.
   constants evaluated with sawc2, with no refusal and no invariant;
 - the std profile of compiler/tools/subset_check.py accepts `std/`, and refuses
   each fixture in `subset/` exactly where its `// refuses:` markers say;
-- each `lang/` program types the same against `std/` as against `sawc/`: its
-  module's typecheck dump is byte-equal under the two roots, but for the
-  new std's `(string-positions ...)` section, and to `NAME.typecheck`, and its
-  MIR is equal under the two, a refusal's records too. `optional_methods` and
-  `string_positions` are checked against `std/` alone, `user_optional` is
-  refused as a prelude name while `Optional` stays the prelude's, and a
-  program on `MIR_DUE` may be refused in MIR by its one rule alone;
+- each `lang/` program typechecks and lowers against `std/` with no refusal,
+  its module's typecheck dump equal to `NAME.typecheck`; `missing_case` is
+  refused, and `user_optional` is refused as a prelude name while `Optional`
+  stays the prelude's;
 - the std prelude's Optional has one `take`, `is_some` and `is_none` each;
 - each `shape/NAME.fixture` edit of a copy of `std/` is refused first by the
   rule the fixture names, with its message;
-- the API-equivalence of `equivalence.tsv`, under `equivalence_exceptions.tsv`:
-  signature records, String's layout, and the conformance sets of String and
-  Vector, read off which trait bounds each type meets under each root;
 - each `pairs/` program exits 0 in Stage 0's recorded run of it, built
   against `sawc/std` (`stage0/HOST/NAME.stage0`, which `--stage0` writes
   through the v0 compiler and which is stale once the pair or the file
@@ -86,7 +80,6 @@ import subset_check  # noqa: E402
 # triple.
 STAGE0 = os.path.join(HERE, "stage0")
 NEW_ROOT = "std"
-STAGE0_ROOT = "sawc"
 ENTRY = os.path.join(HERE, "entry.saw")
 LANG = os.path.join(HERE, "lang")
 SHAPE = os.path.join(HERE, "shape")
@@ -100,27 +93,13 @@ PARKS_TAIL = os.path.join(HERE, "parks", "task_tail.saw")
 PARK_EXEC_PREFIX = "park_"
 CONE = os.path.join(HERE, "cone")
 MIR = os.path.join(HERE, "mir")
-MEMBERS = os.path.join(HERE, "equivalence.tsv")
-EXCEPTIONS = os.path.join(HERE, "equivalence_exceptions.tsv")
 OUT = os.path.join(REPO, ".build", "std-lane")
 PARK_STD = os.path.join(OUT, "park-std")
 TIMEOUT = 300
 RUN_TIMEOUT = 60
 
-# The units whose std declarations have landed: SL-456's, SL-522's file
-# writing and process waiting, SL-563's `TaskGroup`, SL-672's locks and
-# `Once`, SL-571's `Channel`, SL-570's sockets, SL-575's signal watch and
-# SL-765's `Thread`. A member row of a landed unit is compared, and an
-# exception due by one fails until it is resolved.
-LANDED_UNITS = ("U5b1", "U5b2", "U5b3", "SL-522", "SL-563", "SL-570", "SL-571", "SL-575",
-                "SL-672", "SL-765")
-# The programs of `lang/` checked against the new std only, or refused.
-NEW_ONLY = ("optional_methods", "string_positions")
-REFUSED_PAIRED = ("missing_case",)
-# The programs of `lang/` whose MIR the bootstrap slice cannot lower yet, by
-# the one rule each is refused at there: typed like any other, their MIR
-# refusals must agree under the two roots, and nothing else may be refused.
-MIR_DUE = {}
+# The programs of `lang/` the new std must refuse.
+REFUSED = ("missing_case",)
 USER_OPTIONAL = "user_optional"
 OPTIONAL_METHODS = ("take", "is_some", "is_none")
 # The cones that must reach no allocator: a program using only Optional and
@@ -139,15 +118,6 @@ BUILDER_CONE = "interpolation"
 DRIVER_STAGES = ("typecheck", "mir", "borrowck", "drops")
 DRIVER_CONE = os.path.join(CONE, "sawc2.cone")
 DRIVER_CONE_EXCLUDED = ("rt.", "std.task", "std.net")
-# The conformance probe: the traits whose bounds each type's set is read off,
-# and an expression of the type for the probe to pass.
-PROBE_TRAITS = ("Copy", "ExplicitCopy", "NoCopy", "Equatable", "Comparable", "Hashable",
-                "Printable", "Error", "Send", "Sync")
-PROBE_VALUES = {"String": "\"probe\"", "Vector": "Vector<Int>()"}
-# String's layout under the new std: its declaration's fields, which the
-# `string_layout` pair holds to Stage 0's size and alignment.
-LAYOUT_FIELDS = {"String": {"std.string field String.bytes -": " private UnsafePointer<Int8>"}}
-LAYOUT_PAIR = "string_layout"
 # The functions each `mir/` pin holds, and String's refcount hooks, which read
 # the count with a relaxed atomic load and compare it with the immortal
 # sentinel before any atomic read-modify-write (SL:open-questions D24).
@@ -176,9 +146,6 @@ FILE_FIXTURES = {
 FILES = os.path.join(OUT, "files")
 _REFUSES = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _PIN_FUNCTION = re.compile(r"^// function: (.+)$")
-_DECLARATION = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
-_CONFORMANCE = re.compile(r"^    \((\S+) (\S+) \d+:\d+(.*)\)$")
-_BLOCKING_EFFECT = re.compile(r"\(effects [^()]*\bblocking\b")
 
 
 def rel(path):
@@ -204,25 +171,6 @@ def section(output, name, header="(Module "):
         if on:
             out.append(line)
     return "\n".join(out).rstrip("\n") + "\n" if out else ""
-
-
-def without_string_positions(text):
-    """A new-std module dump without its `(string-positions ...)` section,
-    which only the new std's dump prints: under Stage 0's std the String
-    positions lower through what its compiler synthesizes."""
-    out, inside = [], False
-    for line in text.split("\n"):
-        if line == "  (string-positions":
-            inside = True
-            out[-1] = out[-1] + ")"
-            continue
-        if inside:
-            if not line.startswith("    "):
-                inside = False
-            else:
-                continue
-        out.append(line)
-    return "\n".join(out)
 
 
 def module_name(path):
@@ -269,53 +217,27 @@ def check_lang(failures, counts, write):
         if name == USER_OPTIONAL:
             check_user_optional(failures, path)
             continue
-        roots = (NEW_ROOT,) if name in NEW_ONLY else (STAGE0_ROOT, NEW_ROOT)
-        dumps, lowered = {}, {}
-        for root in roots:
-            _, dumps[root] = sawc2("typecheck", "--dump", "--std-root", root, rel(path))
-            _, lowered[root] = sawc2("mir", "--dump", "--std-root", root, rel(path))
-        if name in REFUSED_PAIRED:
-            records = {root: "\n".join(problems_of(dumps[root])) for root in roots}
-            if not records[NEW_ROOT]:
+        _, dump = sawc2("typecheck", "--dump", "--std-root", NEW_ROOT, rel(path))
+        _, lowered = sawc2("mir", "--dump", "--std-root", NEW_ROOT, rel(path))
+        counts["lang cases"] = counts.get("lang cases", 0) + 1
+        if name in REFUSED:
+            if not problems_of(dump):
                 failures.append("std lang %s: nothing refused" % rel(path))
-            if records[STAGE0_ROOT] != records[NEW_ROOT]:
-                failures.append("std lang %s: the two roots refuse it differently" % rel(path))
-            counts["lang cases"] = counts.get("lang cases", 0) + 1
             continue
-        refusals = {}
-        for root in roots:
-            due = [l for l in problems_of(lowered[root])
-                   if name in MIR_DUE and l.split("\t")[1] == MIR_DUE[name]]
-            refusals[root] = due
-            if name in MIR_DUE and not due:
-                failures.append("std lang %s (%s): its MIR lowers; take it off MIR_DUE"
-                                % (rel(path), root))
-            for line in problems_of(dumps[root]) + problems_of(lowered[root]):
-                if line not in due:
-                    failures.append("std lang %s (%s): %s" % (rel(path), root, line))
-        if len(roots) == 2 and refusals[STAGE0_ROOT] != refusals[NEW_ROOT]:
-            failures.append("std lang %s: the two roots refuse its MIR differently" % rel(path))
-        texts = {root: section(dumps[root], name) for root in roots}
-        if len(roots) == 2:
-            if texts[STAGE0_ROOT] != without_string_positions(texts[NEW_ROOT]):
-                failures.append("std lang %s: its typecheck dump differs between %s and %s"
-                                % (rel(path), STAGE0_ROOT, NEW_ROOT))
-            mirs = {root: section(lowered[root], name, "module ") for root in roots}
-            if mirs[STAGE0_ROOT] != mirs[NEW_ROOT]:
-                failures.append("std lang %s: its MIR differs between %s and %s"
-                                % (rel(path), STAGE0_ROOT, NEW_ROOT))
+        for line in problems_of(dump) + problems_of(lowered):
+            failures.append("std lang %s: %s" % (rel(path), line))
+        text = section(dump, name)
         expectation = os.path.splitext(path)[0] + ".typecheck"
         if write:
             with open(expectation, "w", encoding="utf-8") as fh:
-                fh.write(texts[NEW_ROOT])
+                fh.write(text)
         elif not os.path.exists(expectation):
             failures.append("std lang %s: no %s" % (rel(path), rel(expectation)))
         else:
             with open(expectation, encoding="utf-8") as fh:
-                if fh.read() != texts[NEW_ROOT]:
+                if fh.read() != text:
                     failures.append("std lang %s: its dump differs from %s"
                                     % (rel(path), rel(expectation)))
-        counts["lang cases"] = counts.get("lang cases", 0) + 1
     check_optional_members(failures)
 
 
@@ -399,249 +321,6 @@ def check_shapes(failures, counts):
             failures.append("std shape %s: the message does not say `%s`: %s"
                             % (rel(path), fields.get("message"), first[3]))
         counts["lang shape fixtures"] = counts.get("lang shape fixtures", 0) + 1
-
-
-# ------------------------------------------------------------ equivalence
-
-def balanced(text):
-    """`text` without the closers of the sections a dump line ends."""
-    while text.endswith(")") and text.count(")") > text.count("("):
-        text = text[:-1]
-    return text
-
-
-def params_of(rest):
-    """A signature record's parameters as `name:Type`, comma-joined, or `-`."""
-    at = rest.find("(params")
-    if at < 0:
-        return "-"
-    names, depth, k, start = [], 0, at + len("(params"), None
-    while k < len(rest):
-        c = rest[k]
-        if c == "(":
-            depth += 1
-            if depth == 1:
-                start = k + 1
-        elif c == ")":
-            if depth == 0:
-                break
-            if depth == 1 and start is not None:
-                words = rest[start:k].split(" ")
-                while len(words) > 2 and words[-1] in ("owned", "shared", "exclusive", "default"):
-                    words.pop()
-                names.append("%s:%s" % (words[0], " ".join(words[1:])))
-            depth -= 1
-        k += 1
-    return ",".join(names) or "-"
-
-
-def signature_records(output):
-    """{declaration key: record}: each declaration and conformance of every
-    module, its position and summary left out.
-
-    A pair is one entry, its default's: a `blocking` twin shares its default's
-    key, and its record never replaces the default's, in either order. The
-    twin's identity with its default is the compiler's `effect.blocking-twin`
-    check, so the lane compares only the default. A lone `blocking` function,
-    with no default under its key, keeps its own record."""
-    out = {}
-    module = part = None
-    for line in output.split("\n"):
-        if line.startswith("(Module "):
-            module, part = line[len("(Module "):], None
-            continue
-        if line.startswith("  (") and module:
-            part = line.strip("( ").split(" ")[0]
-            continue
-        if part == "declarations":
-            m = _DECLARATION.match(line)
-            if m and m.group(1) != "extension":
-                rest = balanced(m.group(3)).split(" (summary ")[0]
-                key = "%s %s %s %s" % (module, m.group(1), m.group(2), params_of(rest))
-                if key in out and _BLOCKING_EFFECT.search(rest) and not _BLOCKING_EFFECT.search(out[key]):
-                    continue
-                out[key] = rest
-        elif part == "conformances":
-            m = _CONFORMANCE.match(line)
-            if m:
-                owner, trait = m.group(1).split(".")[-1], m.group(2).split(".")[-1]
-                out["%s conformance %s %s" % (module, owner, trait)] = balanced(m.group(3))
-    return out
-
-
-def check_pair_records(failures, counts):
-    """`signature_records` over a dump holding a pair, in each order, and a
-    lone `blocking` function: the pair's record is its default's, and the lone
-    function's is its own."""
-    default = "    (method Inbox.take 3:17 public (signature (receiver shared) (params) -> Int) (summary body))"
-    twin = "    (method Inbox.take 4:17 public (signature (receiver shared) (params) (effects blocking) -> Int) (summary body))"
-    lone = "    (func settle 6:6 public (signature (params) (effects blocking) -> Int) (summary body))"
-    want_default = " public (signature (receiver shared) (params) -> Int)"
-    want_lone = " public (signature (params) (effects blocking) -> Int)"
-    for order in ((default, twin), (twin, default)):
-        dump = "\n".join(["(Module probe", "  (declarations"] + list(order) + [lone])
-        got = signature_records(dump)
-        if got.get("probe method Inbox.take -") != want_default:
-            failures.append("std equivalence: a pair's record is not its default's: %r"
-                            % got.get("probe method Inbox.take -"))
-        if got.get("probe func settle -") != want_lone:
-            failures.append("std equivalence: a lone `blocking` function's record is not its own: %r"
-                            % got.get("probe func settle -"))
-    counts["pair record checks"] = 2
-
-
-def read_rows(path, width):
-    rows = []
-    with open(path, encoding="utf-8") as fh:
-        for lineno, line in enumerate(fh, 1):
-            if line.startswith("#") or not line.strip():
-                continue
-            fields = line.rstrip("\n").split("\t")
-            rows.append((lineno, fields + [""] * (width - len(fields))))
-    return rows
-
-
-def check_equivalence(failures, counts):
-    records = {}
-    for root in (STAGE0_ROOT, NEW_ROOT):
-        _, out = sawc2("typecheck", "--dump", "--interfaces", "--std-root", root, rel(ENTRY))
-        records[root] = signature_records(out)
-    _, resolved = sawc2("resolve", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
-    # The table's last row also closes the table and its module.
-    roles = set(re.findall(r"^    \((\w+) [\w.]+\)\)*$", resolved, re.M))
-    members = read_rows(MEMBERS, 3)
-    exceptions = {fields[0]: (lineno, fields[1], fields[2])
-                  for lineno, fields in read_rows(EXCEPTIONS, 3)}
-    entries = {fields[0] for _, fields in members}
-    for entry in sorted(subset_check.STD_API):
-        if entry not in entries:
-            failures.append("std equivalence: the allowlist's `%s` has no row in %s"
-                            % (entry, rel(MEMBERS)))
-    used = set()
-    pending = collections.Counter()
-    probed = []
-    for lineno, (entry, declaration, unit) in members:
-        where = "%s:%d" % (rel(MEMBERS), lineno)
-        if entry not in subset_check.STD_API and entry != "(api)":
-            failures.append("std equivalence %s: `%s` is not on the allowlist" % (where, entry))
-        if unit not in LANDED_UNITS:
-            pending[unit] += 1
-            continue
-        if declaration.startswith("lang "):
-            if declaration[len("lang "):] not in roles:
-                failures.append("std equivalence %s: `%s` is no lang item" % (where, declaration))
-            counts["equivalent members"] = counts.get("equivalent members", 0) + 1
-            continue
-        if declaration.startswith("layout "):
-            check_layout(failures, where, declaration[len("layout "):], records[NEW_ROOT])
-            counts["equivalent layouts"] = counts.get("equivalent layouts", 0) + 1
-            continue
-        if declaration.startswith("conformances "):
-            probed.append((where, declaration[len("conformances "):]))
-            continue
-        if declaration.startswith("paired "):
-            name = declaration[len("paired "):]
-            if name in NEW_ONLY or not os.path.exists(os.path.join(LANG, name + ".saw")):
-                failures.append("std equivalence %s: no paired program lang/%s.saw" % (where, name))
-            counts["equivalent members"] = counts.get("equivalent members", 0) + 1
-            continue
-        old = records[STAGE0_ROOT].get(stage0_key(declaration))
-        new = records[NEW_ROOT].get(new_key(declaration))
-        if old is None and new is None:
-            failures.append("std equivalence %s: neither std declares `%s`" % (where, declaration))
-            continue
-        if declaration in exceptions:
-            used.add(declaration)
-            if old == new:
-                failures.append("std equivalence: the exception for `%s` is stale; the two "
-                                "stds agree" % declaration)
-            continue
-        if old != new:
-            failures.append("std equivalence %s: `%s` differs: %s has `%s`, %s has `%s`"
-                            % (where, declaration, STAGE0_ROOT, old, NEW_ROOT, new))
-        counts["equivalent members"] = counts.get("equivalent members", 0) + 1
-    for declaration, (lineno, due, reason) in sorted(exceptions.items()):
-        where = "%s:%d" % (rel(EXCEPTIONS), lineno)
-        if declaration not in used:
-            failures.append("std equivalence %s: the exception names no compared member" % where)
-        if due in LANDED_UNITS:
-            failures.append("std equivalence %s: `%s` was due by %s, which has landed"
-                            % (where, declaration, due))
-        if not reason:
-            failures.append("std equivalence %s: the exception gives no reason" % where)
-        if due != "-":
-            counts["exceptions due by %s" % due] = counts.get("exceptions due by %s" % due, 0) + 1
-    for unit, n in pending.items():
-        counts["members pending %s" % unit] = n
-    if probed:
-        sets = conformance_sets([name for _, name in probed], failures)
-        for where, name in probed:
-            old, new = sets.get((STAGE0_ROOT, name)), sets.get((NEW_ROOT, name))
-            if old != new:
-                failures.append("std equivalence %s: %s's conformances differ: %s meets %s, %s meets %s"
-                                % (where, name, STAGE0_ROOT, sorted(old or ()), NEW_ROOT,
-                                   sorted(new or ())))
-            counts["equivalent conformance sets"] = counts.get("equivalent conformance sets", 0) + 1
-
-
-# A member row may name the vocabulary module, which is `builtin` under Stage
-# 0's std and the prelude under the new one.
-def stage0_key(declaration):
-    if declaration.startswith("vocabulary "):
-        return "builtin " + declaration[len("vocabulary "):]
-    return declaration
-
-
-def new_key(declaration):
-    if declaration.startswith("vocabulary "):
-        return "std.prelude " + declaration[len("vocabulary "):]
-    return declaration
-
-
-def check_layout(failures, where, name, records):
-    """The new std's declaration of `name` holds exactly the fields
-    LAYOUT_FIELDS names, and the pair that holds Stage 0's size to them runs."""
-    prefix = "std.string field %s." % name
-    found = {key: rest for key, rest in records.items() if key.startswith(prefix)}
-    if found != LAYOUT_FIELDS.get(name):
-        failures.append("std equivalence %s: %s's fields are %s, not one pointer: %s"
-                        % (where, name, sorted(found.items()), LAYOUT_FIELDS.get(name)))
-    if not os.path.exists(os.path.join(PAIRS, LAYOUT_PAIR + ".saw")):
-        failures.append("std equivalence %s: no pair pairs/%s.saw holds %s's size to Stage 0's"
-                        % (where, LAYOUT_PAIR, name))
-
-
-def conformance_sets(names, failures):
-    """{(root, type): the PROBE_TRAITS whose bound a value of the type meets},
-    each trait one probe program, all of a root's probes in one sawc2 run."""
-    probe_dir = os.path.join(OUT, "probe")
-    shutil.rmtree(probe_dir, ignore_errors=True)
-    os.makedirs(probe_dir)
-    paths = {}
-    for name in names:
-        for trait in PROBE_TRAITS:
-            path = os.path.join(probe_dir, "%s_%s.saw" % (name.lower(), trait.lower()))
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write("func probe<T: %s>(value: &T) -> Int {\n    0\n}\n\n"
-                         "func main() -> Int {\n    let value = %s\n    probe(&value)\n}\n"
-                         % (trait, PROBE_VALUES[name]))
-            paths[rel(path)] = (name, trait)
-    sets = {}
-    for root in (STAGE0_ROOT, NEW_ROOT):
-        _, out = sawc2("typecheck", "--check", "--std-root", root, *sorted(paths))
-        refused, current = set(), None
-        for line in out.split("\n"):
-            if line.startswith("FILE\t"):
-                current = line.split("\t", 1)[1]
-            elif line.startswith("INVARIANT\t"):
-                failures.append("std conformance probe %s (%s): %s" % (current, root, line))
-            elif line.startswith("ERROR\t") and current is not None:
-                refused.add(current)
-        for path, (name, trait) in paths.items():
-            if path not in refused:
-                sets.setdefault((root, name), set()).add(trait)
-            sets.setdefault((root, name), set())
-    return sets
 
 
 # ---------------------------------------------------------------- the pairs
@@ -1132,8 +811,6 @@ def run(write=False):
     check_profile(failures, counts)
     check_lang(failures, counts, write)
     check_shapes(failures, counts)
-    check_pair_records(failures, counts)
-    check_equivalence(failures, counts)
     check_pairs(failures, counts)
     check_calls(failures, counts)
     check_exec(failures, counts)

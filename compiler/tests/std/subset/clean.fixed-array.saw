@@ -1,5 +1,4 @@
-// Fixed-size arrays are a std feature: a constant table a static holds, and
-// stack scratch. An element of an array literal whose written element type is
+// Fixed-size arrays: a constant table a static holds, and stack scratch. An element of an array literal whose written element type is
 // `UInt64` adopts it, so a constant past `Int.max` there needs no suffix.
 
 static WIDE_TABLE: [UInt64; 3] = [

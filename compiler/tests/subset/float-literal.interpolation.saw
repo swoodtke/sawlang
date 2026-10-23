@@ -1,4 +1,0 @@
-// A float literal inside an interpolation.
-func main() {
-    print("float {1.5}")   // refuses: float-literal
-}

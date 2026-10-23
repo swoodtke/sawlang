@@ -16,12 +16,6 @@ typecheck/
   inject/            NAME.saw, a program a unit program checks, then edits, to
                      prove the body verifier reports a record no check makes,
                      or asks a predicate no refusal shows of each row
-  frozen_check.py    signatures, Copy tiers, call targets and binding types against
-                     the frozen compiler's
-  frozen_effects.py  exhaustiveness, discarded-Result and suspension verdicts
-                     against the frozen compiler's
-  FROZEN_CHECK.md    the record of those checks
-  cone_coverage.py   how much of the std cone gets a fully bound signature
   corpus_info.py     how much of tests/corpus/ checks, for information
 ```
 
@@ -1940,24 +1934,9 @@ so only the refusal fixtures and this invariant show those two checks exist.
 In the builtin module it also checks that every row of the std suspension
 table names a std function.
 
-## The one-time checks
+## For information
 
-- `frozen_check.py` observes the frozen typechecker in-process, as
-  `compiler/tests/resolve/frozen_check.py` does, and compares each struct's
-  field types, each function's and method's parameter and result types, and
-  each struct's and enum's Copy tier over the sawc2 build; and, for the body
-  half, each call's chosen target and instantiation and each `let` and `var`
-  binding's type. `FROZEN_CHECK.md` records what it found.
-- `frozen_effects.py` compares the exhaustiveness and discarded-`Result`
-  verdicts over the sawc2 build and the corpus's refusal programs for those
-  rules, and, over the corpus programs that park through `yield_now` alone,
-  the functions the frozen coroutine transform frames with those sawc2 finds
-  may suspend. `FROZEN_CHECK.md` records what it found.
-- `cone_coverage.py` counts the std cone declarations that get a fully bound
-  signature, and lists the rest with the reason.
-- `corpus_info.py` checks every file of `tests/corpus/` and prints how many
-  check with no refusal, and the rules the rest are refused by; a program
-  whose check crashes the process is counted as such, and the rest are
-  checked in a fresh process.
-
-None of them gates; each is kept runnable.
+`corpus_info.py` checks every file of `tests/corpus/` and prints how many
+check with no refusal, and the rules the rest are refused by; a program whose
+check crashes the process is counted as such, and the rest are checked in a
+fresh process. It gates nothing, and is kept runnable.

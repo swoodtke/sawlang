@@ -18,8 +18,8 @@ The lane requires:
 - **the fixpoint**: Stage 2's `.ll` of the driver is Stage 1's, byte for byte,
   and Stage 3 links into Stage 2's bytes;
 - **the lanes**: every `sawc2` invocation that `compiler/tests/run.py`'s
-  sawc2-driven lanes make (the lex fixtures, the recognizer's token dumps,
-  parse, resolve, typecheck, MIR, eval, std, borrowck, drops, mono and the run
+  sawc2-driven lanes make (the lex fixtures, the subset checker's readings,
+  the recognizer's token dumps, parse, resolve, typecheck, MIR, eval, std, borrowck, drops, mono and the run
   lane's builds) runs under Stage 1 and Stage 2 through `twin.py`, which hands
   the lane Stage 1's answer and records whether Stage 2's standard output,
   standard error and exit status are the same bytes. The lanes run as
@@ -71,7 +71,7 @@ LOG = os.path.join(OUT, "invocations")
 TIMEOUT = 1800
 
 # The steps of run.py that drive sawc2, in run.py's order.
-LANES = ("golden", "grammar_lint", "recognizer", "grammar_parse", "parser", "resolver", "typechecker", "mir",
+LANES = ("golden", "subset", "grammar_lint", "recognizer", "grammar_parse", "parser", "resolver", "typechecker", "mir",
          "eval", "std", "borrowck", "drops", "mono", "coro", "programs")
 
 

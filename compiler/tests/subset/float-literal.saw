@@ -1,6 +1,0 @@
-// Any float literal.
-func float_fixture() -> Int {
-    let f = 1.5   // refuses: float-literal
-    let n = 1
-    n
-}

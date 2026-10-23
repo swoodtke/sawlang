@@ -1,6 +1,6 @@
 // A `borrow var` payload pattern: an accessor lends a case's payload in place,
 // as LANGUAGE_SPEC's "Lending an enum payload" writes it. The frozen parser
-// reads `borrow` as a name, and the compiler profile refuses it.
+// reads `borrow` as a name; the reading takes it as the binding's form.
 
 enum Slot {
     case Empty

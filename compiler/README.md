@@ -1,14 +1,16 @@
 # compiler/: the self-hosted Saw compiler
 
-The Saw compiler written in Saw (epic SL-398). Until it builds itself, the
-frozen Python compiler in `sawc/` builds it: that is bootstrap Stage 0. The
-design lives in the tracker's docs, which `~/bin/sawtracker doc show NAME`
-prints:
+The Saw compiler written in Saw (epic SL-398). The seed, its own IR, builds
+Stage 1, so the compiler and its std may use the whole language; the
+constraint is what the pinned seed compiles, which the bootstrap build
+enforces. The frozen Python compiler in `sawc/`, Stage 0, stays only as the
+oracle whose recorded runs the lanes compare with. The design lives in the
+tracker's docs, which `~/bin/sawtracker doc show NAME` prints:
 
 - **SL:architecture**: the stages and their contracts (§3), the shared
-  representation (§3.0), and the bootstrap and the subset (§4).
-- **SL:hazards**: the shapes Stage 0 mishandles, and which of them the subset
-  checker refuses.
+  representation (§3.0), and the bootstrap (§4).
+- **SL:hazards**: the shapes Stage 0 mishandles, which the remaining workaround
+  markers cite.
 - **SL:testing** and **SL:borrowing**: the locked-down language the compiler
   implements.
 
@@ -78,17 +80,16 @@ compiler/
     build.py          builds the seed binary, Stage 1 and Stage 2, and then any
                       program over the stage packages (by sawc2); fetches the seed
     seed.py           writes the seed (a bump), publishes it, and checks it
-    subset_check.py   the subset checker
+    subset_check.py   the subset checker: the source rules over compiler/ and std/
     sawc2_reading.py  sawc2's reading of a file in the frozen parser's tree, which
-                      the subset checker's std profile reads std/ through
+                      the subset checker and the parser's lanes read source through
     grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
     depth_funnel.py   the parser's depth-funnel lane
     comma_funnel.py   the parser's comma-list-funnel lane
     frozen_compare.py the one-time comparison with the frozen parser, not a lane;
                       sawc2_reading.py reads sawc2's dumps with its reader
-    std_cone.py       the std cone of sawc2's Stage 0 build, recorded in std_cone.txt
-                      and reviewed against SL:hazards in std_cone_review.md; with
-                      --std-root, a program's cone against the new std
+    std_cone.py       a program's cone against the new std, which the std lane's
+                      recorded cones hold (tests/std/cone/)
     std_suspension.py each std function's suspension verdict from Stage 0's std
                       check, recorded in std_suspension.txt by --write (the v0
                       compiler) and compiled into typecheck/src/stdsuspension.saw
@@ -114,12 +115,9 @@ compiler/
     resolve/          the resolve lane (resolve_lane.py): the dump's specification
                       (README.md), golden dumps, refusal fixtures, the interface
                       parse's equivalence pin over std (interface_pin.py), and the
-                      one-time frozen-compiler check (frozen_check.py, FROZEN_CHECK.md)
+                      one-time frozen-compiler check (prelude_check.py, FROZEN_CHECK.md)
     typecheck/        the typecheck lane (typecheck_lane.py): the dump's
-                      specification (README.md), golden dumps, refusal fixtures,
-                      the one-time frozen-compiler check (frozen_check.py,
-                      FROZEN_CHECK.md) and the std cone's coverage
-                      (cone_coverage.py)
+                      specification (README.md), golden dumps and refusal fixtures
     mir/              the MIR lane (mir_lane.py): the dump's specification
                       (README.md), golden dumps, refusal fixtures, and how much
                       of tests/corpus/ lowers (corpus_info.py, for information)
@@ -127,9 +125,8 @@ compiler/
                       (README.md), golden records, refusal fixtures, and the
                       evaluator's agreement with typecheck's fold over tests/corpus/
     std/              the std lane (std_lane.py) over the new std in `std/`: the
-                      subset profile's fixtures, the lang items' paired dumps
-                      and shape fixtures, the API-equivalence members and
-                      exceptions, the behaviour pairs and Stage 0's recorded runs
+                      std profile's fixtures, the lang items' dumps and shape
+                      fixtures, the behaviour pairs and Stage 0's recorded runs
                       of them (stage0/), the call programs, the MIR pins and the
                       cones
     borrowck/         the borrowck lane (borrowck_lane.py): the dump's
@@ -313,12 +310,11 @@ The runner prints each failure on its own line, then one summary line, and exits
 runs it, and so does every per-patch gate run (`./build.sh test`). Every lane
 below that runs sawc2 runs Stage 2. It checks these things.
 
-- **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs in
-  the subset, built by sawc2 against the new std and the stage packages
-  (`build.py`'s `build_program`); the subset checker still compiles each with
-  the frozen compiler, as it does all of `compiler/`. Each passes by exiting 0. Until the compiler builds itself, these and the golden
-  dumps are its only tests. At self-hosting, `*.test.saw` sidecars take over
-  (SL:testing §4).
+- **Unit programs**: `compiler/<stage>/tests/*.saw`. These are small programs
+  built by sawc2 against the new std and the stage packages (`build.py`'s
+  `build_program`). Each passes by exiting 0. Until `*.test.saw` sidecars take
+  over (SL:testing §4), these and the golden dumps are the compiler's own
+  tests.
 - **Golden token fixtures**: `tests/lex/NAME.saw`, with the expected
   `sawc2 lex` output in `NAME.tokens`. Where doc trivia matter, `NAME.docs` holds
   the expected `sawc2 lex --docs` output. Each fixture's first line names its
@@ -332,19 +328,9 @@ below that runs sawc2 runs Stage 2. It checks these things.
   from the lexer itself: `sawc2 lex --kinds` prints `token_kinds()`, and the
   runner checks its length against the `TokenKind` cases as declared. Every kind
   of lex error appears too, taken from the messages of the lexer's own
-  `err`/`err_at` calls.
+  `err`/`err_at` calls, as sawc2 reads the lexer's source (`tools/sawc2_reading.py`).
 - **The subset checker**, over the compiler's source and over its own fixtures
   (below).
-- **The std cone**: `tools/std_cone.py` recomputes, from a real Stage 0 build
-  of the driver, every std and runtime declaration that build reaches, and
-  fails when that differs from `tools/std_cone.txt` in either direction. No
-  stage is that build since the seed, but it is the one build of the whole
-  driver by Stage 0, whose language `compiler/` stays in until `sawc/` is
-  deleted. After a change that moves the
-  cone, review the difference (`--why TEXT` shows how the build reaches a
-  declaration), rerun it with `--write`, and commit the file. A declaration new
-  to the cone is also reviewed against SL:hazards, as `tools/std_cone_review.md`
-  records for the rest.
 - **The std suspension table**: `tools/std_suspension.txt` is the frozen
   compiler's std check, recorded with the triple it was observed on, and
   `tools/std_suspension.py` fails when its compiled form
@@ -415,12 +401,10 @@ below that runs sawc2 runs Stage 2. It checks these things.
 - **The new std** (`tests/std/std_lane.py`): every module of `std/` resolves,
   typechecks, lowers and has its constants evaluated with no refusal and no
   invariant; the subset checker's std profile accepts it; each lang-item
-  program types the same against `std/` and `sawc/`; each lang item keeps its
-  shape; the std API allowlist's members match in the two stds (below); each
-  behaviour pair's recorded run under Stage 0 (`tests/std/stage0/`) exits 0,
-  or panics as its `// expect-panic:` line says, and the pair checks, lowers
-  and evaluates against
-  `std/`; each call program (`tests/std/calls/`), which only the new std can
+  program checks against `std/` with its recorded typecheck dump; each lang
+  item keeps its shape; each behaviour pair's recorded run under Stage 0
+  (`tests/std/stage0/`) exits 0, or panics as its `// expect-panic:` line says,
+  and the pair checks, lowers and evaluates against `std/`; each call program (`tests/std/calls/`), which only the new std can
   type, checks clean through drop elaboration, or is refused first where its
   `// refuses:` header says; each MIR pin (`tests/std/mir/`) holds, String's
   retain and release reading the count with a relaxed atomic load and comparing
@@ -485,157 +469,52 @@ the fixpoint lane when `compiler/` (the seed included), `std/`, `runtime/` or
   under Stage 2 as under Stage 1, but for the mismatches
   `tests/fixpoint/mismatches.tsv` adjudicates.
 
-## The std profile
+## The subset checker
 
-`tools/subset_check.py --std` holds `std/` to the subset with exactly the
-low-level features SL:architecture §4 names: `raw-pointer` (raw memory and
-pointers), `borrows-accessor` and `borrow-syntax` (`borrows`, `lend`, and the
-`borrow` that takes a lent place), `deinit-body` (a type owning a buffer frees
-it), `box-type` (allocator parameters: `Box<T, A>`), `cell-type` (the
-prelude's `UnsafeMutableInterior` and the `Atomic` over it, SL:open-questions
-D38) and `sync-only` (`std.task`'s park points and the modules that call them)
-are dropped. The prelude may declare the vocabulary's alias `Byte` and
-no other (`type-alias`), and a std module imports only std modules
-(`import-allowlist`). `std-api` holds the compiler to std, so the profile
-drops it too, and `compile` and `owned-operand`, which
-ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
-
-No stage compiles `std/` with Stage 0, so the profile reads it with sawc2
-(`tools/sawc2_reading.py`), not the frozen parser: `sawc2 lex` gives the tokens
-and `sawc2 parse --dump` the tree, rebuilt in the frozen parser's shapes so
-that every rule reads `std/` as it reads the compiler's source. GRAMMAR.md
-therefore decides what parses, and a file sawc2 refuses is refused as
-`grammar` with sawc2's diagnostic, where the compiler's source gets `lex` and
-`parse`. A form of the new language that the profile names no feature for is
-refused as `new-feature`: a slice type, or a `constexpr` function. The reading
-refuses to guess: a dump whose leaves do not line up with the tokens, or a node
-it has no reading for, stops the check (`ReadingError`). Its fixtures are
-`tests/std/subset/`, and the profile needs a built sawc2.
-
-## API equivalence
-
-`STD_API` in `tools/subset_check.py` carries each allowlisted member's
-contract, and `tests/std/equivalence.tsv` maps each to the declarations that
-answer it, with the unit of SL-456 that writes them. Once a unit has landed,
-the lane compares each of its declarations' signature record, from sawc2's
-dump of `sawc/std` and of `std/`, effects, receiver, lend, parameters and
-result. A lang item's members are held by the shape check instead. A
-difference fails unless `tests/std/equivalence_exceptions.tsv` lists it with a
-reason and the unit it is due by; an exception whose unit has landed fails.
-Three rows compare more than a record: `layout String` holds the new std's
-String to one `UnsafePointer<Int8>` field, which the `string_layout` pair holds
-to Stage 0's size and alignment; `conformances TYPE` compares the traits whose
-bounds a value of the type meets under each root, one probe program per
-trait; and `paired NAME` names a conversion no declaration writes, held by the
-paired program `lang/NAME.saw`.
-
-## The subset
-
-The compiler's own source is written in the subset of SL:architecture §4. It is
-the intersection of today's Saw and the locked-down language, with the shapes
-Stage 0 mishandles taken out. `tools/subset_check.py` enforces it over every
-`compiler/**/*.saw` except `compiler/tests/**` (fixtures hold arbitrary Saw) and
-`*.test.saw` (sidecars, which only Stage 1 builds). It reads the source through
-the frozen compiler's own lexer and parser, so it checks exactly what Stage 0
-reads. A build those rules accept is then compiled by the frozen compiler itself,
-in a child process and without emitting code, for the rules only its code
-generator can answer.
+The compiler and its std may use the whole language: the seed builds Stage 1,
+so nothing compiles the compiler's source with Stage 0, and the constraint is
+what the pinned seed compiles, which the bootstrap build enforces
+(SL:architecture §4). `tools/subset_check.py` keeps the source rules that hold
+for reasons of their own, over every `compiler/**/*.saw` except
+`compiler/tests/**` (fixtures hold arbitrary Saw), and with `--std`, over
+`std/`.
 
 ```sh
 ./.venv/bin/python compiler/tools/subset_check.py              # the tree
 ./.venv/bin/python compiler/tools/subset_check.py FILE...      # these files
+./.venv/bin/python compiler/tools/subset_check.py --std        # std/
 ```
 
-A diagnostic reads `file:line: rule: message (source)`. The driver and the stage
-packages form one build, and each unit program is a build of its own over the
-stage packages. That matters for the rules that compare declarations across a
-build. The rules read every region of a file: inline `module m { ... }` bodies
-(`inline-module` refuses the module itself), trait default bodies, `init`
-bodies, `static` initializers, `static_assert` conditions, and the text of each
-interpolation.
+It reads each file with sawc2 (`tools/sawc2_reading.py`): `sawc2 lex` gives the
+tokens and `sawc2 parse --dump` the tree, rebuilt in the frozen parser's shapes
+the rules are written over. GRAMMAR.md therefore decides what parses, and a file
+sawc2 refuses is refused as `grammar` with sawc2's diagnostic. The reading
+refuses to guess: a dump whose leaves do not line up with the tokens, or a node
+it has no reading for, stops the check (`ReadingError`). The checker needs a
+built sawc2. A diagnostic reads `file:line: rule: message (source)`, and the
+rules read every region of a file, inline `module m { ... }` bodies included.
+
+| Rule | Refuses | Source |
+|---|---|---|
+| `grammar` | a file sawc2's lexer or parser refuses | GRAMMAR.md |
+| `import-allowlist` | in the compiler, a path headed by `src`, or by a package that is neither std, a compiler stage, nor package-relative; in std, an import of anything but a std module | the spec, S27 |
+| `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
+| `redundant-visibility` | a field marked with its struct's own tier, `public` in a `public struct` or `public(package)` in a `public(package) struct`; a field inherits that tier, so only a narrowing `private` is written | the spec |
+
+"The spec" is LANGUAGE_SPEC.md: its Package Structure, where a package's module
+root is its `src/`, and its member visibility, which states a field's tier once,
+on its type. S27 is the SL:hazards entry for a bare import searched from the
+entry file, where one file reached by two spellings is two modules; the compiler
+writes only the self-named `import <stage>.x`, which `build.py` maps with
+`--module-path`, until SL-826 fixes it.
 
 Each rule has at least one fixture, `tests/subset/RULE.saw` or
 `tests/subset/RULE.VARIANT.saw`, whose `// refuses: RULE...` markers name
 exactly the lines and rules the checker must report; a rule named twice on a line
-expects two findings of it there, each with its own message. The `clean`
-fixtures, which hold the spellings SL:hazards recommends and ordinary subset
-code, must report nothing. The runner fails for a rule with no fixture. A
-fixture in `tests/subset/generated/` holds an `owned-operand` position that
-only code another rule refuses can reach, such as a `String` cast to a pointer,
-so it is compiled by itself, without the source rules.
-
-| Rule | Refuses | Source |
-|---|---|---|
-| `lex`, `parse` | a file the frozen lexer or parser rejects | §4 |
-| `compile` | a build the frozen compiler rejects, when every other rule accepts it | §4 |
-| `sync-only` | tasks, threads, channels, `sleep`, a `blocking` extern | §4 |
-| `closure-capture` | a closure naming an enclosing binding or `self`, a capture list | §4 |
-| `type-alias` | any `type` alias | §4, S9 |
-| `import-allowlist` | a std module off `ALLOWED_STD_MODULES`, a package that is not a compiler stage, or a path headed by `src` | §4 |
-| `std-api` | a std call off `STD_API`; `m[k]` on a Map; a write, a mutating method or a presence test through `get`; `m[k]! = v`; `with_ref`, `with_var_ref`, `with_unique`, a closure-taking `lock` | §4 |
-| `borrows-accessor` | `borrows`, `lend`, `lends`, and a `borrows struct` | §4 |
-| `any-type` | `any` in a type | §4, S12 |
-| `box-type` | `Box` | §4 |
-| `cell-type` | `Mutex`, `SpinLock`, `Once`, `UnsafeMutableInterior`, `Atomic`, `Arc` | §4 |
-| `raw-pointer` | pointer types, std's `unsafe struct`s, `unsafe`, `*p`, `move *p` | §4 |
-| `fixed-array` | `[T; N]` types, repeat literals, and an array literal with no written type to adopt | §4 |
-| `value-loop` | `break` with an operand | §4, L11 |
-| `borrow-syntax` | `borrow` as a name | §4 |
-| `test-directive` | `@test` | §4 |
-| `deinit-body` | a `deinit` in an extension, a conformance or a trait body | leak tolerance |
-| `root-reuse` | an argument reading the receiver's or a `&` argument's root; an index write whose right side reads its root | S4 |
-| `float-literal` | any float literal | §4, S20 |
-| `inline-module` | every inline `module name { }` | S22 |
-| `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, or the operand of an `as` cast that builds a new value rather than forwarding it, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
-| `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
-| `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
-| `optional-shaping` | `== None`, a method directly on a `get` result, a collection literal returned as a `Result` | L4 |
-| `name-collision` | a type parameter spelled like a type | L9 |
-| `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
-| `redundant-visibility` | a field marked with its struct's own tier, `public` in a `public struct` or `public(package)` in a `public(package) struct`; a field inherits that tier, so only a narrowing `private` is written | the spec |
-
-§4 is SL:architecture §4; "the spec" is LANGUAGE_SPEC.md's member visibility,
-which states a field's tier once, on its type; the other codes are SL:hazards
-entries, and "leak tolerance" is its introduction's "Leaks are tolerated in
-Stage 1". A hazard that
-only leaks has no rule: Stage 1 is replaced after it compiles the source, so a
-leak costs it memory, never output. That holds while no skipped drop has an
-effect, which is why the source declares no `deinit` and why
-`ALLOWED_STD_MODULES` is pinned in `tests/run.py`: adding a std module means
-checking that every `deinit` it reaches only frees memory or closes a
-descriptor (SL:hazards S28: a write is unbuffered and a child is waited for
-explicitly, so no `deinit` flushes or waits). S13, a nested generic with defaulted parameters, only leaks, so it
-has no rule. S23 only leaks too, and has one anyway: a parser comparing token
-text, or a diagnostic interpolating it, would leak once per token of every file
-Stage 1 compiles.
-
-`owned-operand` asks the compiler, not the source: its code generator's
-predicate judges each operand of the build Stage 0 is given, generic bodies at
-each instantiation, and every body is generated, reached or not. A build that
-another rule refuses is not compiled, so its `owned-operand` findings wait until
-the others are fixed.
-
-Several checks are syntactic, so they are partial. What they cannot see stays a
-trust obligation, as SL:hazards describes:
-
-- `std-api` traces a receiver's type through written types: bindings, fields,
-  the build's function and method returns (of the overloads a call's argument
-  count and labels can bind to, untraced when those return different types,
-  since argument types are not traced), `get` and
-  subscripts, `self` in an extension or a trait default body, a match-arm
-  binding (from the scrutinee's enum, `Optional` or `Result` payload), and a
-  destructured tuple's elements. A
-  method on a traced receiver is the owning type's. A type parameter's methods
-  are its bounds': one a build trait declares is the build's. On an untraced
-  receiver, a name std declares counts as std's, even when a compiler type
-  declares it too, so an instance method on the allowlist is allowed on every
-  untraced receiver. `m[k]` is caught when the receiver traces to `Map`, or when
-  the subscript is used as an optional.
-- `closure-capture` and `root-reuse` resolve names through lexical scopes. They
-  do not follow values. A path headed by an inline module's name, such as
-  `m.inner.NAME`, is followed through the module bodies it names, and `std-api`
-  knows a call through `m.inner.f(...)` is the build's own.
-- SL:hazards S16 and L15 have no check.
+expects two findings of it there. The `clean` fixtures must report nothing. The
+runner fails for a rule with no fixture. The std profile's fixtures are
+`tests/std/subset/`, which the std lane checks the same way; its `clean`
+fixtures hold the low-level forms std writes, which the reading must take.
 
 ## Constructors
 
@@ -647,10 +526,6 @@ fields is the memberwise construction itself, so it is not written. A function
 that computes something and returns it as a struct stays a function named for
 what it computes, `coro_edges(coro)` or `parse_source(path, text, unit)`, and so
 do the stage entry points such as `mir_program(tc)`.
-
-One limit applies in this source: no `init` whose labels and types are exactly
-the fields'. Under SL-648 that is an override of the memberwise construction,
-which Stage 0 refuses, so it waits until the compiler builds itself.
 
 Some older factory functions predate this rule. SL-652 converts them, and new
 code doesn't copy them.
@@ -668,14 +543,13 @@ print("sawc2: cannot open {}: {}", path, e)
 ```
 
 The id names the SL:hazards entry the code works around. `canonical:` gives the
-spelling the workaround replaced, so undoing it after self-hosting is mechanical.
-A short reason may follow after ` — `. A marked site is not an idiom to copy: it
-exists for Stage 0 only, and is reverted to its canonical spelling once the
-compiler builds itself.
+spelling the workaround replaced, so undoing it is mechanical. A short reason
+may follow after ` — `. A marked site is not an idiom to copy: Stage 0 no longer
+builds the compiler, and each site is reverted to its canonical spelling once
+sawc2 and the seed handle what its canonical form needs (SL-425).
 
 The `workaround-marker` rule refuses a marker in any other spelling, one with no
 `canonical:` part, and one whose id is not an S or L entry of the tracked copy of
 SL:hazards, `.sawtracker/docs/hazards.md`. `tools/subset_check.py` over the tree,
 and `tests/run.py`, print the inventory: the count per entry, then each marker's
-entry, `file:line` and canonical spelling. A rule whose fix is a workaround asks
-for the marker in its message.
+entry, `file:line` and canonical spelling.

@@ -86,10 +86,8 @@ compiler/tests/lex/unicode_escape_oversized_error.saw	LEXERR	a-error: 8:12 refus
 compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: 8:12 refused by syntax.lex.escape: Unicode escape is a surrogate code point
 compiler/tests/lex/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 compiler/tests/std/subset/grammar.saw	FAIL	a-removed: syntax.decl.refused-static
-compiler/tests/subset/borrow-syntax.saw	FAIL	a-error: 3:9 near BORROW 'borrow'
-compiler/tests/subset/lex.saw	LEXERR	a-error: 3:7 refused by syntax.lex.escape: unknown escape in a string literal
-compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character
-compiler/tests/subset/parse.saw	FAIL	a-error: 3:9 near ASSIGN '='
+compiler/tests/subset/grammar.parse.saw	FAIL	a-error: 3:9 near ASSIGN '='
+compiler/tests/subset/grammar.saw	LEXERR	a-error: 3:7 refused by syntax.lex.escape: unknown escape in a string literal
 examples/array_no_extension_error.saw	FAIL	a-removed: syntax.decl.refused-array-extension
 examples/attr_bad_arity_error.saw	FAIL	a-error: 5:9 refused by syntax.rule.attribute-position
 examples/attr_duplicate_error.saw	FAIL	a-error: 6:1 refused by syntax.rule.attribute-position

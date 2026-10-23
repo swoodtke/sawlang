@@ -1,24 +1,8 @@
-# The one-time checks against the frozen compiler
+# The one-time check against the frozen compiler
 
-The record of `frozen_check.py` and `prelude_check.py`, run once for SL-445
-(SL:open-questions D12). The frozen compiler's answers are checked and
-recorded here; they are never the definition of what resolve must answer.
-
-## Call heads and import bindings (`frozen_check.py`)
-
-Over the sawc2 build, the driver and the lex, parse and resolve packages, as
-they stood when SL-445 was revised:
-
-- **6323 call heads agree**, line by line, and no line differs.
-- **248 selective import bindings agree** on the kind of declaration each name
-  binds.
-
-Two translations make the two comparable, and the script applies both. The
-frozen compiler rewrites a subscript into a call of its accessor (`[]`,
-`__lend_var_[]`), which is no call in the source, so those are left out. Its
-parser guesses that `name(label: ...)` builds a struct and its typechecker
-turns the guess back into a call where it was one (`as_function_call`); the
-call's final reading is what is compared.
+The record of `prelude_check.py`, run for SL-445 (SL:open-questions D12). The
+frozen compiler's answers are checked and recorded here; they are never the
+definition of what resolve must answer.
 
 ## The tables (`prelude_check.py`)
 
@@ -34,17 +18,6 @@ call's final reading is what is compared.
   typechecker knows without a declaration: the primitive types, `Void`,
   `Never`, `Optional`, the pointer types and the builtin functions.
 
-## Rerun for SL-447
-
-Resolve now walks the signatures of std and builtin modules. Both checks were
-run again over the sawc2 build with that change, and both are unchanged: 6346
-call heads agree with no line differing, 249 import bindings agree, and the
-prelude check finds no unexplained difference. The counts grew with the
-source, not with a disagreement.
-
-## Rerun for SL-448
-
-Std and builtin modules are now parsed as interfaces, so `std/data.saw`
-loads. Both checks were run again over the sawc2 build: 8067 call heads agree
-with no line differing, 504 import bindings agree, and the prelude check finds
-no unexplained difference.
+The check was run again for SL-447, when resolve began walking the signatures
+of std and builtin modules, and for SL-448, when they began to be parsed as
+interfaces; both times it found no unexplained difference.

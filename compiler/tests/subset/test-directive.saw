@@ -1,3 +1,0 @@
-// `@test` belongs in a `*.test.saw` sidecar. The frozen parser refuses it too.
-@test   // refuses: test-directive parse
-func sample_fixture() -> Int { 1 }

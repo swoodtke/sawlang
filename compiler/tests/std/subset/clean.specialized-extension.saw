@@ -1,5 +1,4 @@
-// A specialized extension: a head argument that names a type is a type
-// argument, so it is no type parameter spelled like a type.
+// Specialized extensions, whose head arguments name types.
 
 public struct Pair<T> {
     first: T

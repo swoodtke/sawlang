@@ -15,8 +15,7 @@ resolve/
                      tests/*.saw, each with its expected record beside it
   refuse/            RULE[.VARIANT].saw, or RULE[.VARIANT]/main.saw and its modules
   prelude_check.py   the prelude and std tables against the frozen compiler's
-  frozen_check.py    call heads and import bindings against the frozen compiler's
-  FROZEN_CHECK.md    the record of the two checks above
+  FROZEN_CHECK.md    the record of the check above
   corpus_info.py     how much of tests/corpus/ resolves, for information
 ```
 
@@ -307,12 +306,8 @@ declaration its module does not have. `prelude_check.py` covers the tables.
 - `prelude_check.py` compares resolve's three tables, the synthetic builtin
   declarations, the std modules and the prelude, with the frozen compiler's
   view of today's std, and prints every difference.
-- `frozen_check.py` hooks the frozen typechecker in-process, as
-  `compiler/tools/std_cone.py` hooks its code generator, and compares what each
-  call head and import binding resolved to over a program the two compilers
-  both accept.
 - `corpus_info.py` resolves every file of `tests/corpus/` and prints how many
   resolve with no refusal, and the rules the rest are refused by.
 
-None of them gates; each is kept runnable. `FROZEN_CHECK.md` records what the
-first two found.
+Neither gates; each is kept runnable. `FROZEN_CHECK.md` records what the
+first found.

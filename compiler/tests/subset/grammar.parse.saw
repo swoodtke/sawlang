@@ -1,0 +1,4 @@
+// sawc2's parser refuses a `let` with no name, with its diagnostic.
+func parse_fixture() {
+    let = 5   // refuses: grammar
+}

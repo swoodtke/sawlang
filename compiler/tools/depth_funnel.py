@@ -9,8 +9,8 @@
 256-deep budget (SL-424, contract item 5), and this lane holds the parser to it.
 
 STATICALLY, every recursion in `compiler/parse/src` passes through a charge.
-The call graph's nodes are the package's free functions and methods, read with
-the frozen compiler's own parser. An edge is a call: a free function by name,
+The call graph's nodes are the package's free functions and methods, as sawc2
+reads them (`sawc2_reading.py`). An edge is a call: a free function by name,
 and a method through `self` or through a receiver whose type the lane follows
 from written types (fields, parameters, annotated or initialized locals, a
 return type), or, where it cannot, every package method of that name. A call is
@@ -42,7 +42,7 @@ sys.path.insert(0, HERE)
 
 import build  # noqa: E402
 import subset_check  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through subset_check)
+import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
 
 PACKAGE = os.path.join(REPO, "compiler", "parse", "src")
 FUNNEL_FILE = os.path.join(PACKAGE, "parser.saw")
@@ -301,7 +301,7 @@ def static_failures(sources, show_cycles=False):
 
 def package_sources(paths=None):
     paths = paths or sorted(glob.glob(os.path.join(PACKAGE, "*.saw")))
-    return [subset_check.SourceFile(p) for p in paths]
+    return list(subset_check.read_sources(paths).values())
 
 
 # ---- the lane's own evidence ------------------------------------------------------
@@ -311,8 +311,9 @@ def fixture_failures():
     each a substring of one failure; a fixture with none must pass."""
     out = []
     paths = sorted(glob.glob(os.path.join(FIXTURES, "*.saw")))
+    sources = subset_check.read_sources(paths)
     for path in paths:
-        src = subset_check.SourceFile(path)
+        src = sources[path]
         expects = [m.group(1) for m in map(_EXPECT.match, src.text.split("\n")) if m]
         got, _, _ = static_failures([src])
         rel = os.path.relpath(path, REPO)
