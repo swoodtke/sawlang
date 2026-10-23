@@ -1,9 +1,9 @@
-# SL-722: Float in sawc2's backend, a staged plan
+# SL-722: Float in sawc's backend, a staged plan
 
 Planning sweep p722, Oct 16. Read-only: no tracked file changed.
 
 - **Measured at:** main `64f7f4caf`. The baseline is `compiler/tests/corpusdiff/corpus_diff.tsv`; the six rows it changed since `f433ef5cb` are SL-717's, and none is in this census.
-- **sawc2:** `.build/sawc2-stage2`, rebuilt by `compiler/tools/build.py` at the start of the sweep (key `45a72be5…`). The binary on disk was older than 59 changed source files.
+- **sawc:** `.build/sawc-stage2`, rebuilt by `compiler/tools/build.py` at the start of the sweep (key `45a72be5…`). The binary on disk was older than 59 changed source files.
 - **Stage 0:** `./.venv/bin/python sawc/sawc.py`.
 - **Evidence files:** every probe is under `.build/scratch/p722/`. The probe programs are in `probes/`, the transcripts in `probes.txt` and `typecheck_probes.txt`, and the census tools are `probe_census.py`, `probe_statics.py` and `probe_run.py`.
 
@@ -44,12 +44,12 @@ Two Float rows already pass, and they must stay passing: bitwise_requires_intege
 
 | module | blocked by (probe evidence) |
 |---|---|
-| **std.float** | I copied `sawc/std/float.saw` into a user module (`probes/modules/sfloat.saw`, programs `r01`/`r03`). It **resolves, typechecks, lowers to MIR, borrow-checks and drop-elaborates clean under sawc2.** The backend has only two gaps: (1) Float `!=` in `is_nan` (sfloat.saw:1402); (2) the four aggregate static tables `FLOAT_POW5_INV_SPLIT [UInt64; 584]`, `FLOAT_POW5_SPLIT [UInt64; 652]`, `FLOAT_POW5_TRUNCATED [UInt64; 1302]` and `FLOAT_POWER_TABLE [Int; 9]` (eval: `an aggregate in static … is not evaluated`; backend: refusals at sfloat.saw:1586, 1988 and 2314). It needs no Float literal, no Float arithmetic and no conversion. `to_bits`/`from(bits:)` reinterpret through a pointer, which already works (probe `s01`). |
+| **std.float** | I copied `sawc/std/float.saw` into a user module (`probes/modules/sfloat.saw`, programs `r01`/`r03`). It **resolves, typechecks, lowers to MIR, borrow-checks and drop-elaborates clean under sawc.** The backend has only two gaps: (1) Float `!=` in `is_nan` (sfloat.saw:1402); (2) the four aggregate static tables `FLOAT_POW5_INV_SPLIT [UInt64; 584]`, `FLOAT_POW5_SPLIT [UInt64; 652]`, `FLOAT_POW5_TRUNCATED [UInt64; 1302]` and `FLOAT_POWER_TABLE [Int; 9]` (eval: `an aggregate in static … is not evaluated`; backend: refusals at sfloat.saw:1586, 1988 and 2314). It needs no Float literal, no Float arithmetic and no conversion. `to_bits`/`from(bits:)` reinterpret through a pointer, which already works (probe `s01`). |
 | **numeric (Float half)** | Float values in the backend (constants, arithmetic), the libm externs (the C ABI with `double` already works, probe `s07`), and `-lm` on Linux (finding F5). |
 | **json** | std.float, then SL-596 S11's own gaps (`any Trait` calls, `Vector.each` and others). |
 | **fixedbuf** | **Not Float.** `N` as a value (SL-548), `StringBuilder.rebind`, `append(value: UInt)` (probe `r02`). |
 
-## 2. What exists in sawc2 today
+## 2. What exists in sawc today
 
 | layer | state |
 |---|---|
@@ -60,11 +60,11 @@ Two Float rows already pass, and they must stay passing: bitwise_requires_intege
 | mono | THE SCALAR HOOK TABLE (`mono/src/glue.saw` `scalar_refusal`) refuses every Floating cell, `copy()` included, with "the backend lowers no Float operation". |
 | llvm | `const_value` refuses a Float constant. `binary_into`/`unary_into` refuse a non-Int, non-Pointer layout. `comparable_bits` refuses Float, so `==` on a struct, tuple or Optional holding a Float is refused (s11–s13). `convert_into` refuses every non-Int pair. `static_global` lowers Int, Bool and `Atomic(<int>)` only. |
 
-**What already works** (built by sawc2, bit-identical to Stage 0; probes `s01`, `s04`–`s07`, `s09`, `s10`): a Float value obtained without a literal or operator can be bound, moved and copied, and stored in a struct field, an array, a `Vector`, an Optional and an enum payload. It can be passed to and returned from an `extern "C"` function, and reinterpreted to and from `UInt64` through a pointer.
+**What already works** (built by sawc, bit-identical to Stage 0; probes `s01`, `s04`–`s07`, `s09`, `s10`): a Float value obtained without a literal or operator can be bound, moved and copied, and stored in a struct field, an array, a `Vector`, an Optional and an enum payload. It can be passed to and returned from an `extern "C"` function, and reinterpreted to and from `UInt64` through a pointer.
 
-### The probe verdicts (sawc2 / Stage 0)
+### The probe verdicts (sawc / Stage 0)
 
-| probe | Stage 0 | sawc2 first refusal |
+| probe | Stage 0 | sawc first refusal |
 |---|---|---|
 | p01 `let x = 1.5` | builds | Float constant `1.5` |
 | p02 arithmetic, p20 compound assignment, p04 unary `-` | builds | Float constant |
@@ -97,7 +97,7 @@ Two Float rows already pass, and they must stay passing: bitwise_requires_intege
 
 ## 3. The semantics, cell by cell
 
-| construct | spec / ruling (quoted) | Stage 0 does | sawc2 needs | status |
+| construct | spec / ruling (quoted) | Stage 0 does | sawc needs | status |
 |---|---|---|---|---|
 | **constant materialisation** | SL:architecture §3.1: "literals keep their text … float text converts to a value through the bit-exact routine of design 253". GRAMMAR §2.1: "`FLOAT ::= decimal-run "." decimal-run`" with `_` separators, "There is no exponent and no suffix." | Python `float()` (correctly rounded, ties-to-even), emitted as llvmlite's hex `double` | correctly rounded binary64 bits from the text with `_` removed; emit `double 0x%016X` | **DECIDED** (§3.1). Emitting the decimal text to LLVM would also match (§2), but it gives eval no value and leaves the range check nowhere to live. |
 | literal out of range | SL-68's title: "Diagnose unrepresentable float literals instead of producing infinity or zero" (an imported TODO record, closed as "oracle known wrong", aspect `literal.float.range`). SL-393: "float-literal underflow: is a literal that rounds to 0.0 or to a subnormal an error? (SL-68)", listed under "Rules the spec is silent on". | silent `inf` / `0.0` | a diagnostic, if ruled | **OPEN (Q2)** |
@@ -107,7 +107,7 @@ Two Float rows already pass, and they must stay passing: bitwise_requires_intege
 | `==` / `!=` | spec: "**Float keeps IEEE semantics** — `NaN != NaN`"; "`!=` is always the negation of `==`"; "primitives keep direct `icmp`/`fcmp`" | `fcmp oeq`, `!=` = `not oeq` | `fcmp oeq` / `fcmp une` | **DECIDED** |
 | `< <= > >=`, concrete | spec: "**Float NaN:** a `NaN` is unordered, so every ordering operator involving it is `false` (matching the primitive `fcmp`)" | `fcmp olt/ole/ogt/oge` | the same | **DECIDED** |
 | `Comparable.compare` | spec: "in a three-way `compare`, an unordered pair yields `Equal` (there is no total order over NaN — documented)" | `lt ? Less : (gt ? Greater : Equal)` (`_emit_float_compare`); `+0.0` vs `-0.0` is `Equal` | the Float cell must test `<` then `>` and fall to `Equal`. The integer builder (`<`, then `==`, else `Greater`) would answer `Greater` for NaN. | **DECIDED** |
-| `<=` / `>=` in a **generic** body over NaN | the spec says both "`a <= b` is `!= .Greater`" (the desugaring) and "every ordering operator involving it is `false`". The two contradict each other for NaN. | **false** (each instance lowers to `fcmp`, probe g01) | sawc2's MIR desugars to `compare != Greater`, so it would answer **true** | **OPEN (Q3)** |
+| `<=` / `>=` in a **generic** body over NaN | the spec says both "`a <= b` is `!= .Greater`" (the desugaring) and "every ordering operator involving it is `false`". The two contradict each other for NaN. | **false** (each instance lowers to `fcmp`, probe g01) | sawc's MIR desugars to `compare != Greater`, so it would answer **true** | **OPEN (Q3)** |
 | `Hashable.hash` | spec: "`Float` normalizes `-0.0`/`+0.0` so they hash alike; NaN bit patterns are not normalized" | `f == 0.0 ? 0 : bitcast(f)`, then `write_int` | the same word, through `write_int(n:)` | **DECIDED** |
 | `copy()` | Float is in the Copy tier | bitwise | bitwise; today the hook table refuses it too | **DECIDED** |
 | `==` on a struct, tuple or Optional holding a Float | spec (design 32): memberwise `&&`; the Optional rule | memberwise `fcmp oeq` (s11–s13) | `equal_at` gains a Float arm. `comparable_bits` must admit Float, which is no longer a bit comparison. | **DECIDED** |
@@ -322,7 +322,7 @@ The run lane's `float_field.saw` loses its `// due:` line.
 - p05, p06, p38 and p43: Stage 0 refuses every spelling today.
 - Spec: "Saturating conversion is not offered. Clamping is a value-domain policy". This rules out Rust's saturating `as`.
 - Design 173 was "APPROVED direction" on Aug 7, with these shapes "recommended, veto-able"; Aug 20 overruled only its `Float64` decision.
-- *Until ruled:* U1 refuses `as`, as Stage 0 does. sawc2 accepts it today (F2).
+- *Until ruled:* U1 refuses `as`, as Stage 0 does. sawc accepts it today (F2).
 
 **Q2 (SL-68, SL-393). Is a float literal that cannot be represented a compile error?**
 
@@ -342,7 +342,7 @@ The run lane's `float_field.saw` loses its `// due:` line.
 
 *Evidence:*
 - g01: Stage 0 prints `false false false false false true false`.
-- sawc2's MIR for `le<T>` is `Ne(compare(a, b), Greater)`.
+- sawc's MIR for `le<T>` is `Ne(compare(a, b), Greater)`.
 - The alternative leaves `nan <= 1.0` true in generic code and false in concrete code.
 
 **Q4. What may a Float static's initializer be?**
@@ -360,9 +360,9 @@ The run lane's `float_field.saw` loses its `// due:` line.
 
 ## 6. Side findings
 
-- **F1.** sawc2 accepts `&+`, `&-` and `&*` on Float (t01, t02). The spec says the wrapping operators take "**integer operands only** (a `Float` operand is a type error)", and Stage 0 refuses. Today this is masked in wrapping_requires_integers by the mono Format gap; it becomes `wrong: accepts a refusal test` the day Format lands. U1 fixes it.
-- **F2.** sawc2 accepts `as` between Float and every integer type (`cast_allowed`: `is_numeric` on both sides). Stage 0 refuses with `cannot cast`; the spec has no such conversion (Q1). It is refused later only by the backend's `this conversion` gap. The `type.mismatch` hint for `Float * Int` teaches `as` for that pair. U1 fixes it.
-- **F3.** `sawc2 build` does not surface eval's `slice.not-yet` for a static it cannot evaluate (p09, p33). `eval --check` refuses at the initializer, but `build` refuses later, at the static's use, with the backend's message. It is not unsound; it is a weaker location.
-- **F4 (not Float).** sawc2 builds `Wide.Big as UInt8` for a `UInt16`-backed case with value 300, and the program panics at run time (q02). Stage 0 refuses at compile time. The spec says the constant fold "sees through const arithmetic and a raw-backed enum's case value". errors/cast170_const_out_of_range is already `wrong`. File it separately.
-- **F5.** sawc2's driver links no `-lm`, but Stage 0 does off Apple (`sawc.py` `math_libs`). The first libm call on Linux, from numeric's Float half or an `extern sqrt`, would fail to link in the linux lane. Covered by U5.
+- **F1.** sawc accepts `&+`, `&-` and `&*` on Float (t01, t02). The spec says the wrapping operators take "**integer operands only** (a `Float` operand is a type error)", and Stage 0 refuses. Today this is masked in wrapping_requires_integers by the mono Format gap; it becomes `wrong: accepts a refusal test` the day Format lands. U1 fixes it.
+- **F2.** sawc accepts `as` between Float and every integer type (`cast_allowed`: `is_numeric` on both sides). Stage 0 refuses with `cannot cast`; the spec has no such conversion (Q1). It is refused later only by the backend's `this conversion` gap. The `type.mismatch` hint for `Float * Int` teaches `as` for that pair. U1 fixes it.
+- **F3.** `sawc build` does not surface eval's `slice.not-yet` for a static it cannot evaluate (p09, p33). `eval --check` refuses at the initializer, but `build` refuses later, at the static's use, with the backend's message. It is not unsound; it is a weaker location.
+- **F4 (not Float).** sawc builds `Wide.Big as UInt8` for a `UInt16`-backed case with value 300, and the program panics at run time (q02). Stage 0 refuses at compile time. The spec says the constant fold "sees through const arithmetic and a raw-backed enum's case value". errors/cast170_const_out_of_range is already `wrong`. File it separately.
+- **F5.** sawc's driver links no `-lm`, but Stage 0 does off Apple (`sawc.py` `math_libs`). The first libm call on Linux, from numeric's Float half or an `extern sqrt`, would fail to link in the linux lane. Covered by U5.
 - **F6 (UNVERIFIED).** NaN bit patterns differ by target and between constant folding and run time. No matrix row prints a NaN's bits.
