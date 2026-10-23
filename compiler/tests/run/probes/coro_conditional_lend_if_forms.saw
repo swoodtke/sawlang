@@ -1,0 +1,319 @@
+// probe: stated
+// about: `if borrow var`, `if borrow let` and `else if borrow` over a conditional lend whose prologue suspends, or prologue and epilogue, present and absent, a suspension in either arm included (SL-860)
+// stage 0: cannot parse a `borrow` unwrap
+// speeds: -O0 -O2
+// prints: pro find 0
+// prints: body 10
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: if_borrow_var P present 11
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_borrow_var P absent -1
+// prints: pro find 0
+// prints: body 10
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: if_borrow_var B present 11
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_borrow_var B absent -1
+// prints: pro find 0
+// prints: body 11
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: if_borrow_var_body_yield P present 12
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_borrow_var_body_yield P absent -1
+// prints: pro find 0
+// prints: body 11
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: if_borrow_var_body_yield B present 12
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_borrow_var_body_yield B absent -1
+// prints: pro look 0
+// prints: body 12
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: if_borrow_let P present 12
+// prints: pro look 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_borrow_let P absent -1
+// prints: pro look 0
+// prints: body 12
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: if_borrow_let B present 12
+// prints: pro look 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_borrow_let B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: else_if_borrow P present 13
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: else_if_borrow P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: else_if_borrow B present 13
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: else_if_borrow B absent -1
+// prints: end P 13 20 1 2
+// prints: end B 13 20 1 2
+// leaks: none
+// Each spelling runs over two holders, one whose accessors suspend in the
+// prologue and one whose accessors suspend in the prologue and the
+// epilogue. The lines are those of the same program over accessors that
+// do not suspend: the present path runs the epilogue once, after the
+// body, and the absent path runs the prologue alone, its local dropped at
+// the `return None`, with no window and no epilogue.
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Pt { n: Int }
+
+struct HolderP { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderP: NoCopy {}
+
+extension HolderP {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        print("epi end sub {}", i)
+    }
+}
+
+struct HolderB { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderB: NoCopy {}
+
+extension HolderB {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        yield_now()
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        yield_now()
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        yield_now()
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        yield_now()
+        print("epi end sub {}", i)
+    }
+}
+
+func if_borrow_var_P(h: &var HolderP, i: Int) -> Int {
+    if borrow var c = h.find(i) {
+        print("body {}", c)
+        c += 1
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func if_borrow_var_B(h: &var HolderB, i: Int) -> Int {
+    if borrow var c = h.find(i) {
+        print("body {}", c)
+        c += 1
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func if_borrow_var_body_yield_P(h: &var HolderP, i: Int) -> Int {
+    if borrow var c = h.find(i) {
+        print("body {}", c)
+        yield_now()
+        c += 1
+        c
+    } else {
+        print("absent")
+        yield_now()
+        -1
+    }
+}
+
+func if_borrow_var_body_yield_B(h: &var HolderB, i: Int) -> Int {
+    if borrow var c = h.find(i) {
+        print("body {}", c)
+        yield_now()
+        c += 1
+        c
+    } else {
+        print("absent")
+        yield_now()
+        -1
+    }
+}
+
+func if_borrow_let_P(h: &var HolderP, i: Int) -> Int {
+    if borrow let c = h.look(i) {
+        print("body {}", c)
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func if_borrow_let_B(h: &var HolderB, i: Int) -> Int {
+    if borrow let c = h.look(i) {
+        print("body {}", c)
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func else_if_borrow_P(h: &var HolderP, i: Int) -> Int {
+    if i < 0 {
+        -2
+    } else if borrow var c = h.find(i) {
+        c += 1
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func else_if_borrow_B(h: &var HolderB, i: Int) -> Int {
+    if i < 0 {
+        -2
+    } else if borrow var c = h.find(i) {
+        c += 1
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func main() {
+    var hP = HolderP(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var hB = HolderB(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var group = TaskGroup()
+    print("if_borrow_var P present {}", group.spawn(if_borrow_var_P(&var hP, 0)).join())
+    print("if_borrow_var P absent {}", group.spawn(if_borrow_var_P(&var hP, 9)).join())
+    print("if_borrow_var B present {}", group.spawn(if_borrow_var_B(&var hB, 0)).join())
+    print("if_borrow_var B absent {}", group.spawn(if_borrow_var_B(&var hB, 9)).join())
+    print("if_borrow_var_body_yield P present {}", group.spawn(if_borrow_var_body_yield_P(&var hP, 0)).join())
+    print("if_borrow_var_body_yield P absent {}", group.spawn(if_borrow_var_body_yield_P(&var hP, 9)).join())
+    print("if_borrow_var_body_yield B present {}", group.spawn(if_borrow_var_body_yield_B(&var hB, 0)).join())
+    print("if_borrow_var_body_yield B absent {}", group.spawn(if_borrow_var_body_yield_B(&var hB, 9)).join())
+    print("if_borrow_let P present {}", group.spawn(if_borrow_let_P(&var hP, 0)).join())
+    print("if_borrow_let P absent {}", group.spawn(if_borrow_let_P(&var hP, 9)).join())
+    print("if_borrow_let B present {}", group.spawn(if_borrow_let_B(&var hB, 0)).join())
+    print("if_borrow_let B absent {}", group.spawn(if_borrow_let_B(&var hB, 9)).join())
+    print("else_if_borrow P present {}", group.spawn(else_if_borrow_P(&var hP, 0)).join())
+    print("else_if_borrow P absent {}", group.spawn(else_if_borrow_P(&var hP, 9)).join())
+    print("else_if_borrow B present {}", group.spawn(else_if_borrow_B(&var hB, 0)).join())
+    print("else_if_borrow B absent {}", group.spawn(else_if_borrow_B(&var hB, 9)).join())
+    print("end P {} {} {} {}", hP.cells[0], hP.cells[1], hP.pts[0].n, hP.pts[1].n)
+    print("end B {} {} {} {}", hB.cells[0], hB.cells[1], hB.pts[0].n, hB.pts[1].n)
+}

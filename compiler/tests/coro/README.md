@@ -24,7 +24,9 @@ coro/
                           it to the backend past the verifier; and
                           NAME.saw, a program a unit program lowers, then
                           edits, to prove the verifier refuses a shape no
-                          lowering emits; and send_matrix.saw, whose
+                          lowering emits, or, for not_yet.saw, that a
+                          refusal no source program reaches still fires;
+                          and send_matrix.saw, whose
                           refusals a unit program counts
   modules/                packages a fixture imports, one directory each
   parks/task_tail.saw     what the park goldens' copy of std adds to task.saw
@@ -309,10 +311,9 @@ lowers:
   among them when the accessor's prologue or epilogue suspends: the half is
   the child, and the window's record is in the caller's frame while it runs.
 
-and none is the open of a conditional window, one with an absent edge, whose drive would continue on one edge where the window
-has two. Children are decided before their callers. Every other
-item that needs a frame keeps `coro.not-yet` (Rules, below), so the backend
-only meets lowered frames.
+Children are decided before their callers. Every other item that needs a
+frame keeps `coro.not-yet` (Rules, below), so the backend only meets lowered
+frames.
 
 A lowered item's concrete body is rewritten in place: it gains one local,
 the frame pointer `_F`, a `&var Int` pointing at the frame's state word, and
@@ -334,7 +335,14 @@ block `bbB`, whose child slot is at offset S, is rewritten too (SL:coroutines
 - when the call has a destination, its return edge goes to a new block,
   numbered after the body's own, `dest = move (*_F).[S + R: T]; goto ->
   bbN`, which moves the child's result out once it is `Ready` and continues
-  where the call returned.
+  where the call returned;
+- a conditional window's open, whose call also has an absent edge, loses
+  that edge: a drive continues on one. Its new block moves the prologue's
+  Optional into a new stack local `_p`, which becomes the window's presence
+  local, as a `match` on the lend has it, and ends in `switch
+  discriminant(_p) -> [Some: bbS, None: bbA]`, `bbA` the absent edge's
+  target; another new block, `bbS`, is `dest = move (_p as Some).0; goto ->
+  bbN` (the run lane's `coro_conditional_lend_*`).
 
 A park's call `__saw_park_R(args)` in block `bbB` is rewritten so that the
 park records itself in the task's context before it arms anything
@@ -799,7 +807,7 @@ their lowering is verified with every build.
 | `coro.closure-drop-blocks` | a closure body, a `Thread.spawn` brace excepted, whose drops reach a `blocking` `deinit` through the blocking-drop funnel, at the closure's construction, once per site, the message naming the path to the drop: a call through a closure's function value adds no edge to the walk, so a closure built in thread context and called in a task would otherwise drop the value unrefused (spec, "A closure body may not block") | `coro.closure-drop-blocks`, a closure built in a `main` declared `blocking` and called by a group task; `thread`, the same built in a `Thread.spawn` body that hosts the group (K182); the run probe `blocking_drop_closure_moves_it_out` is the accepted control |
 | `coro.drive-in-suspending` | a drive site (`__saw_drive` or `__saw_drive_steps`) in an item that has a frame: one that suspends, as Stage 0 refuses it (DF-218n), or a task root, which runs inside an executor too; at the site, with Stage 0's message naming the root to call directly, where it embeds | `coro.drive-in-suspending`, from `tests/corpus/drive_site_in_suspending_body`; `function`, from `drive_site_in_suspending_function`; and `task-root`, a spawned body that never suspends |
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
-| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a conditional window among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the conditional window that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, a conditional window two calls down; `beside-a-lowered-park`, the drive of a child holding one beside a ready park; and `conditional-window`, a conditional window whose prologue suspends |
+| `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source that ends it, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one. No source program reaches it: each suspension typecheck admits is a shape this compiler lowers, so it is a backstop | no fixture: the unit program `compiler/coro/tests/refuse_not_yet.saw` leaves a decided `inject/not_yet.saw`'s drive reaching no item, beside a ready park, and decides again (the lane's `INJECTED_RULES`) |
 | `coro.spawn-not-send` | the Send-on-frames gate (spec, Multi-threaded execution): a task root that a `group.spawn` site, into any group, or a `Task.spawn` site spawns, whose frame carries a value that is not `Send`. A reference is judged by Rust's rule at every depth, `&T` by `T: Sync` and `&var T` by `T: Send`, so a borrowing struct crosses when each reference it holds does. A function-typed parameter is judged by the closure its call passes, the spawn site's for a root's and the embedding call's for a child's, where the argument is a closure written there or the caller's own parameter so judged; any other function value keeps its written type. Refused once per root and site passing a closure, naming the first of its parameters, then its resident locals, then each embedded child's parameters and resident locals, then its result, at the declaration holding the value, or at the closure for a closure's capture, in sawc's spelling with Stage 0's sentence | `coro.spawn-not-send`, a `&TaskGroup` parameter into `TaskGroup()`; `local`, a resident local (K02); `callee`, a child's resident local; `result`, the root's result; `group`, a group held across a suspension; `closure-capture`, the closure a root's parameter holds; `closure-chain`, the closure a child's parameter holds, written at the root's call of it; `closure-field`, a function value held in a field; and `join-inversion`, a spawned joiner holding its group across the suspension a join inversion needs, which makes the inversion unreachable from a spawned task (K196, K200). The unit program `compiler/coro/tests/send_matrix.saw` judges the position matrix over `inject/send_matrix.saw` in every spawn form (K196) |
 | `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 | `coro.format-suspends` | a written `Printable.format` (an `Error` conformance's included) that suspends at its instantiation, at its declaration's name, naming the instance and the path (`` `Wrapper<Yielder>`'s does: `Wrapper.format` → `Yielder.name` → `yield_now` (parks the task) ``): a render calls `format` into stack scratch where nothing may suspend, so `format` is `sync` (spec, Printable). Typecheck refuses one that suspends at every instantiation (`effect.format-suspends`); this is the instantiation's half, decided per item, so it reaches an explicit `format(into:)` or `to_string()` as it does a render | `coro.format-suspends`, an interpolation in a task beside the `Wrapper<Plain>` it does not refuse; and one variant per render-site row: `print-argument`, `panic`, `assert`, `print-single`, `to-string`, `explicit`, `closure`, `thread`, `sync` and `main`; the run lane's `format_generic_sync_instance` is the program built at `Plain` (SL-781) |

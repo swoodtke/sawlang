@@ -134,6 +134,16 @@ extension DropsProgram {
                     k = k + 1
                 }
                 if live {
+                    let unwritten = self.bc.mir.init_unwritten_edge(f, b)
+                    var skipped = Vector<Int>()
+                    if unwritten >= 0 {
+                        k = 0
+                        while k < n {
+                            try! skipped.push(state[k])
+                            k = k + 1
+                        }
+                        self.bc.mir.init_walk_unwritten(f, b, &facts, &var skipped)
+                    }
                     self.bc.mir.init_walk_block(f, b, &facts, &var state)
                     let block = self.bc.mir.blocks[info.block_first + b]
                     let succ = self.bc.mir.init_successors(f, b)
@@ -153,7 +163,7 @@ extension DropsProgram {
                         var edge = Vector<Int>()
                         k = 0
                         while k < n {
-                            var c = state[k]
+                            var c = if target == unwritten { skipped[k] } else { state[k] }
                             if target == unflagged && q >= 0 && drops_within(&facts, k, q) && (c & MIR_INIT_WHOLE) != 0 {
                                 c = c - MIR_INIT_WHOLE
                             }

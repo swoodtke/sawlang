@@ -66,9 +66,8 @@ public static CORO_BUDGET: Int = 128
 // an offloaded `blocking` extern call,
 // an op-budget point, an effect-only suspension or the drive of a lowered
 // child (a window's open or close among them, driving the accessor half that
-// suspends), and none is the open of a conditional window. Children are
-// decided before their callers; once frames are found the suspending call
-// graph is acyclic.
+// suspends). Children are decided before their callers; once frames are
+// found the suspending call graph is acyclic.
 public func coro_decide_lowering(coro: &var CoroProgram) {
     coro.lowered = Vector<Bool>()
     coro.unlowered = Vector<CoroUnlowered>()
@@ -126,7 +125,7 @@ func coro_children_decided(coro: &CoroProgram, decided: &Vector<Bool>, f: Int) -
 }
 
 // Frame `f`'s decision: its first suspending call this compiler does not
-// lower, else its first suspending open of a conditional window.
+// lower.
 func coro_decide_frame(coro: &var CoroProgram, f: Int) {
     let frame = coro.frames[f]
     var why = CoroUnlowered(suspend: -1, what: CoroUnloweredKind.Lowered)
@@ -140,15 +139,6 @@ func coro_decide_frame(coro: &var CoroProgram, f: Int) {
             if what != CoroUnloweredKind.Lowered {
                 why = CoroUnlowered(suspend: s, what: what)
             }
-        }
-    }
-    j = 0
-    while j < frame.suspend_count && why.what == CoroUnloweredKind.Lowered {
-        let s = frame.suspend_first + j
-        j = j + 1
-        let call = coro.suspends[s].call
-        if coro_conditional_open(&coro, call) {
-            why = CoroUnlowered(suspend: s, what: CoroUnloweredKind.Window)
         }
     }
     coro.unlowered[frame.item] = why
@@ -313,16 +303,6 @@ func coro_forwards_call_of(coro: &CoroProgram, f: Int, role: Int) -> Bool {
     }
     let from = coro.mono.dp.bc.mir.places[o.place]
     from.local == local && from.count == 0
-}
-
-// Whether call `c` opens a conditional window, one with an absent edge: its
-// drive would continue to the present edge alone, so it is not lowered.
-func coro_conditional_open(coro: &CoroProgram, c: Int) -> Bool {
-    if c < 0 {
-        return false
-    }
-    let info = coro.mono.dp.bc.mir.calls[c]
-    info.kind == MirCallKind.WindowOpen && info.absent >= 0
 }
 
 // Whether call `c` is the test intrinsic `__saw_test_suspend`, a suspension
@@ -661,12 +641,7 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
     } else {
         try! msg.append(coro_cause_chain(&coro, item))
     }
-    try! msg.append("), so it needs a coroutine frame, ")
-    if why.what == CoroUnloweredKind.Window {
-        try! msg.append("and a conditional borrow whose accessor suspends is not lowered yet (SL-545)")
-    } else {
-        try! msg.append("which is not lowered yet (SL-545)")
-    }
+    try! msg.append("), so it needs a coroutine frame, which is not lowered yet (SL-545)")
     var node = coro.mono.items[item].origin_node
     if call >= 0 {
         node = coro.mono.dp.bc.mir.calls[call].node
@@ -675,8 +650,7 @@ func coro_refuse_item(coro: &var CoroProgram, item: Int) {
 }
 
 // Item `item`'s chain through the suspensions that are not lowered: each
-// child driven at one, then the source or the child that ends it. A child
-// refused for a shape of its own ends the chain.
+// child driven at one, then the source that ends it.
 func coro_unlowered_chain(coro: &CoroProgram, item: Int) -> String {
     var out = StringBuilder()
     try! out.append(coro.item_label(item))
@@ -695,9 +669,6 @@ func coro_unlowered_chain(coro: &CoroProgram, item: Int) -> String {
         }
         let child = coro_driven_child(&coro, c)
         try! out.append(coro.item_label(child))
-        if why.what != CoroUnloweredKind.Child {
-            return out.build()
-        }
         at = child
     }
     out.build()
@@ -1374,8 +1345,9 @@ struct CoroDrive {
 // `(*_F).[slot + P: T] = arg`, then the call, with no arguments and no
 // destination, which the drive resumes; and, on its return edge, a new block
 // `dest = move (*_F).[slot + R: T]`, the child's result moved out, then a
-// goto where the call returned. Each argument moves or copies as the call
-// passed it, so the rewrite adds no ownership operation.
+// goto where the call returned; a conditional open's result is moved out as
+// `coro_lower_conditional_result` says. Each argument moves or copies as the
+// call passed it, so the rewrite adds no ownership operation.
 func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, child: Int, slot: Int) -> CoroDrive {
     let block = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b]
     let c = block.call
@@ -1410,7 +1382,12 @@ func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, 
         try! coro.mono.dp.bc.mir.lists.push(o)
         let rv = coro_use_rvalue(&var coro, ty, first)
         let moved = coro_add_goto_block(&var coro, f, call.next, call.node)
-        coro_append_stmt(&var coro, f, moved, call.dest, rv, call.node)
+        if call.kind == MirCallKind.WindowOpen && call.absent >= 0 {
+            coro_lower_conditional_result(&var coro, f, moved, &call, rv, ty)
+            call.absent = -1
+        } else {
+            coro_append_stmt(&var coro, f, moved, call.dest, rv, call.node)
+        }
         call.next = moved
         out.result_block = moved
     }
@@ -1418,6 +1395,58 @@ func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, 
     call.dest = -1
     coro.mono.dp.bc.mir.calls[c] = call
     out
+}
+
+// The move-out of a driven conditional open, one with an absent edge, as
+// block `b` of function `f`, `rv` moving the child's result of type `ty`. A
+// drive continues on one edge, so the open takes the shape a `match` on the
+// lend has: the prologue's Optional lands in a new local, the window's
+// presence local, and a switch on it takes the absent edge on `None`, where
+// no window opened:
+//
+//   bbM    _p = move (*_F).[slot + R: (&T)?]
+//          switch discriminant(_p) -> [Some: bbS, None: absent]
+//   bbS    dest = move (_p as Some).0
+//          goto -> next
+//
+// No suspension falls between the move and its uses, so `_p` stays on the
+// resume function's stack.
+func coro_lower_conditional_result(coro: &var CoroProgram, f: Int, b: Int, call: &MirCall, rv: Int, ty: Int) {
+    let held = coro_add_local(&var coro, f, ty)
+    let into = coro_whole_place(&var coro, held, ty)
+    coro_append_stmt(&var coro, f, b, into, rv, call.node)
+    let some = coro.mono.dp.bc.mir.optional_case("Some")
+    let none = coro.mono.dp.bc.mir.optional_case("None")
+    let lent = coro.mono.dp.bc.mir.places[call.dest].ty
+    let first = coro.mono.dp.bc.mir.projs.len()
+    try! coro.mono.dp.bc.mir.projs.push(MirProj(kind: MirProjKind.Payload, decl: some, index: 0, ty: lent))
+    let payload = coro.mono.dp.bc.mir.places.len()
+    try! coro.mono.dp.bc.mir.places.push(MirPlace(local: held, static_decl: -1, first: first, count: 1, ty: lent))
+    let o = coro.mono.dp.bc.mir.operands.len()
+    try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Move, place: payload, ty: lent,
+                                                      const_kind: MirConstKind.Unit, text: -1))
+    let taken = coro_operand_rvalue(&var coro, lent, o)
+    let present = coro_add_goto_block(&var coro, f, call.next, call.node)
+    coro_append_stmt(&var coro, f, present, call.dest, taken, call.node)
+    let arm_first = coro.mono.dp.bc.mir.arms.len()
+    try! coro.mono.dp.bc.mir.arms.push(MirArm(value: some, target: present))
+    try! coro.mono.dp.bc.mir.arms.push(MirArm(value: none, target: call.absent))
+    let switched = coro_whole_place(&var coro, held, ty)
+    let at = coro.mono.dp.bc.mir.funcs[f].block_first + b
+    var ends = coro.mono.dp.bc.mir.blocks[at]
+    ends.term = MirTermKind.Switch
+    ends.target = -1
+    ends.switch_kind = MirSwitchKind.Discriminant
+    ends.operand = -1
+    ends.place = switched
+    ends.arm_first = arm_first
+    ends.arm_count = 2
+    ends.otherwise = -1
+    coro.mono.dp.bc.mir.blocks[at] = ends
+    let w = coro.mono.dp.bc.mir.funcs[f].window_first + call.window
+    var window = coro.mono.dp.bc.mir.windows[w]
+    window.presence = held
+    coro.mono.dp.bc.mir.windows[w] = window
 }
 
 // Ends block `b` of function `f`, whose call is an effect-only suspension,
@@ -1768,7 +1797,8 @@ public func coro_add_block(coro: &var CoroProgram, f: Int, block: MirBlock) -> I
 // arguments and no destination; its block writes each of the child's
 // parameters exactly once into its slot, `(*_F).[slot + P: T] = ...`; and
 // when the call had a destination, the block it returns to is the move-out,
-// `dest = move (*_F).[slot + R: T]` then a goto. The slots are read from the
+// `dest = move (*_F).[slot + R: T]` then a goto, or a conditional open's
+// switch on its presence local. The slots are read from the
 // child's frame, not from the lowering. A broken one is an `INVARIANT` line.
 public func coro_check_drives(coro: &var CoroProgram) {
     var r = 0
@@ -1819,27 +1849,77 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
     }
     let off = point.slot + coro_child_offset(&coro, &cf, CoroValueKind.Result, 0)
     let result_ty = coro.mono.dp.bc.mir.locals[child_info.local_first].ty
-    var moves = point.result_block >= 0 && call.next == point.result_block
-    if moves {
+    var moves = false
+    if point.result_block >= 0 && call.next == point.result_block {
         let after = coro.mono.dp.bc.mir.blocks[info.block_first + point.result_block]
-        moves = after.term == MirTermKind.Goto && after.first >= 0 && after.first == after.last
-        if moves {
-            let stmt = coro.mono.dp.bc.mir.stmts[after.first]
-            moves = stmt.kind == MirStmtKind.Assign && stmt.place == point.dest && stmt.rvalue >= 0
-            if moves {
-                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
-                moves = rv.kind == MirRvalueKind.Use && rv.count == 1
-                if moves {
-                    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
-                    moves = o.kind == MirOperandKind.Move && coro_is_frame_slot(&coro, o.place, frame_local, off,
-                                                                                result_ty)
-                }
-            }
+        let m = coro_single_move(&coro, &after)
+        let from_slot = m.from >= 0 && coro_is_frame_slot(&coro, m.from, frame_local, off, result_ty)
+        if after.term == MirTermKind.Goto {
+            moves = from_slot && m.into == point.dest
+        } else if after.term == MirTermKind.Switch {
+            moves = from_slot && coro_presence_moves(&coro, f, call.window, &after, m.into, point.dest)
         }
     }
     if not moves {
         coro_drive_problem(&var coro, item, &point, "the block its call returns to does not move the child's result out into the call's destination")
     }
+}
+
+// The two places of `block`'s one statement when it is `into = move from`,
+// else both -1.
+struct CoroMove {
+    into: Int
+    from: Int
+}
+
+func coro_single_move(coro: &CoroProgram, block: &MirBlock) -> CoroMove {
+    let none = CoroMove(into: -1, from: -1)
+    if block.first < 0 || block.first != block.last {
+        return none
+    }
+    let stmt = coro.mono.dp.bc.mir.stmts[block.first]
+    if stmt.kind != MirStmtKind.Assign || stmt.place < 0 || stmt.rvalue < 0 {
+        return none
+    }
+    let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+    if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+        return none
+    }
+    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
+    if o.kind != MirOperandKind.Move {
+        return none
+    }
+    CoroMove(into: stmt.place, from: o.place)
+}
+
+// Whether `test` is a conditional open's move-out after the move of the
+// child's result into place `held` (`coro_lower_conditional_result`): `held`
+// is a whole local, window `w`'s presence local, switched on, and its `Some`
+// edge moves its payload into `dest` and goes on.
+func coro_presence_moves(coro: &CoroProgram, f: Int, w: Int, test: &MirBlock, held: Int, dest: Int) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    if held < 0 || test.switch_kind != MirSwitchKind.Discriminant || test.place < 0 || test.arm_count != 2 {
+        return false
+    }
+    let local = coro.mono.dp.bc.mir.places[held].local
+    let on = coro.mono.dp.bc.mir.places[test.place]
+    if coro.mono.dp.bc.mir.places[held].count != 0 || on.local != local || on.count != 0 {
+        return false
+    }
+    if w < 0 || w >= info.window_count || coro.mono.dp.bc.mir.windows[info.window_first + w].presence != local {
+        return false
+    }
+    let some = coro.mono.dp.bc.mir.arms[test.arm_first]
+    let present = coro.mono.dp.bc.mir.blocks[info.block_first + some.target]
+    let m = coro_single_move(&coro, &present)
+    if present.term != MirTermKind.Goto || m.into != dest || m.from < 0 {
+        return false
+    }
+    let payload = coro.mono.dp.bc.mir.places[m.from]
+    if payload.local != local || payload.count != 1 {
+        return false
+    }
+    coro.mono.dp.bc.mir.projs[payload.first].kind == MirProjKind.Payload
 }
 
 // Whether place `p` is the frame slot `(*_F).[offset: ty]` through local

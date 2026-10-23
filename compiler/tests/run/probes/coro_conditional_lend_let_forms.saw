@@ -1,0 +1,271 @@
+// probe: stated
+// about: `if let`, `guard let` and `while let` copying out of a conditional lend whose prologue suspends, or prologue and epilogue, present and absent (SL-860)
+// stage 0: refuses reading a holder that a joined task borrowed, as an exclusive access violation
+// speeds: -O0 -O2
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: body 10
+// prints: if_let_copy P present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_let_copy P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: body 10
+// prints: if_let_copy B present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: if_let_copy B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: body 10
+// prints: guard_let_copy P present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: guard_let_copy P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: body 10
+// prints: guard_let_copy B present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: guard_let_copy B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: pro find 1
+// prints: epi find 1 t=1
+// prints: epi end find 1
+// prints: drop tr 1
+// prints: pro find 2
+// prints: drop tr 2
+// prints: while_let_copy P present 30
+// prints: pro find 9
+// prints: drop tr 9
+// prints: while_let_copy P absent 0
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: pro find 1
+// prints: epi find 1 t=1
+// prints: epi end find 1
+// prints: drop tr 1
+// prints: pro find 2
+// prints: drop tr 2
+// prints: while_let_copy B present 30
+// prints: pro find 9
+// prints: drop tr 9
+// prints: while_let_copy B absent 0
+// prints: end P 10 20 1 2
+// prints: end B 10 20 1 2
+// leaks: none
+// Each spelling runs over two holders, one whose accessors suspend in the
+// prologue and one whose accessors suspend in the prologue and the
+// epilogue. The lines are those of the same program over accessors that
+// do not suspend: the present path runs the epilogue once, after the
+// body, and the absent path runs the prologue alone, its local dropped at
+// the `return None`, with no window and no epilogue.
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Pt { n: Int }
+
+struct HolderP { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderP: NoCopy {}
+
+extension HolderP {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        print("epi end sub {}", i)
+    }
+}
+
+struct HolderB { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderB: NoCopy {}
+
+extension HolderB {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        yield_now()
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        yield_now()
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        yield_now()
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        yield_now()
+        print("epi end sub {}", i)
+    }
+}
+
+func if_let_copy_P(h: &var HolderP, i: Int) -> Int {
+    if let c = h.find(i) {
+        print("body {}", c)
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func if_let_copy_B(h: &var HolderB, i: Int) -> Int {
+    if let c = h.find(i) {
+        print("body {}", c)
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func guard_let_copy_P(h: &var HolderP, i: Int) -> Int {
+    guard let c = h.find(i) else {
+        print("absent")
+        return -1
+    }
+    print("body {}", c)
+    c
+}
+
+func guard_let_copy_B(h: &var HolderB, i: Int) -> Int {
+    guard let c = h.find(i) else {
+        print("absent")
+        return -1
+    }
+    print("body {}", c)
+    c
+}
+
+func while_let_copy_P(h: &var HolderP, i: Int) -> Int {
+    var k = i
+    var sum = 0
+    while let c = h.find(k) {
+        sum = sum + c
+        k = k + 1
+    }
+    sum
+}
+
+func while_let_copy_B(h: &var HolderB, i: Int) -> Int {
+    var k = i
+    var sum = 0
+    while let c = h.find(k) {
+        sum = sum + c
+        k = k + 1
+    }
+    sum
+}
+
+func main() {
+    var hP = HolderP(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var hB = HolderB(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var group = TaskGroup()
+    print("if_let_copy P present {}", group.spawn(if_let_copy_P(&var hP, 0)).join())
+    print("if_let_copy P absent {}", group.spawn(if_let_copy_P(&var hP, 9)).join())
+    print("if_let_copy B present {}", group.spawn(if_let_copy_B(&var hB, 0)).join())
+    print("if_let_copy B absent {}", group.spawn(if_let_copy_B(&var hB, 9)).join())
+    print("guard_let_copy P present {}", group.spawn(guard_let_copy_P(&var hP, 0)).join())
+    print("guard_let_copy P absent {}", group.spawn(guard_let_copy_P(&var hP, 9)).join())
+    print("guard_let_copy B present {}", group.spawn(guard_let_copy_B(&var hB, 0)).join())
+    print("guard_let_copy B absent {}", group.spawn(guard_let_copy_B(&var hB, 9)).join())
+    print("while_let_copy P present {}", group.spawn(while_let_copy_P(&var hP, 0)).join())
+    print("while_let_copy P absent {}", group.spawn(while_let_copy_P(&var hP, 9)).join())
+    print("while_let_copy B present {}", group.spawn(while_let_copy_B(&var hB, 0)).join())
+    print("while_let_copy B absent {}", group.spawn(while_let_copy_B(&var hB, 9)).join())
+    print("end P {} {} {} {}", hP.cells[0], hP.cells[1], hP.pts[0].n, hP.pts[1].n)
+    print("end B {} {} {} {}", hB.cells[0], hB.cells[1], hB.pts[0].n, hB.pts[1].n)
+}

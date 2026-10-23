@@ -273,6 +273,12 @@ extension MirProgram {
                 left = left - 1
                 var state = facts.entry_state(b)
                 self.init_walk_block(f, b, &facts, &var state)
+                let unwritten = self.init_unwritten_edge(f, b)
+                var skipped = Vector<Int>()
+                if unwritten >= 0 {
+                    skipped = facts.entry_state(b)
+                    self.init_walk_unwritten(f, b, &facts, &var skipped)
+                }
                 let succ = self.init_successors(f, b)
                 var j = 0
                 while j < succ.len() {
@@ -286,7 +292,8 @@ extension MirProgram {
                     var q = 0
                     while q < n {
                         let at = target * n + q
-                        let joined = facts.entry[at] | state[q]
+                        let out = if target == unwritten { skipped[q] } else { state[q] }
+                        let joined = facts.entry[at] | out
                         if joined != facts.entry[at] {
                             facts.entry[at] = joined
                             grew = true
@@ -374,6 +381,51 @@ extension MirProgram {
         }
         let accesses = self.init_term_accesses(f, b, &facts)
         mir_init_apply_all(&facts, &var state, &accesses)
+    }
+
+    // THE ABSENT-EDGE FUNNEL: a call writes its destination on its return
+    // edge alone. On a conditional open's absent edge the accessor lent
+    // nothing and nothing is written (the backend's `conditional_open`), so
+    // that edge carries the block's conditions with every access applied but
+    // the destination's write. `init_unwritten_edge` names the edge and
+    // `init_walk_unwritten` gives its conditions.
+    // ENTRY POINTS (init_unwritten_edge):
+    //     init_analysis
+    //     refined_entries (compiler/drops/src/verify.saw)
+    public func init_unwritten_edge(&self, f: Int, b: Int) -> Int {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        if block.term != MirTermKind.Call {
+            return -1
+        }
+        let c = self.calls[block.call]
+        if c.absent < 0 || c.dest < 0 || c.absent == c.next {
+            return -1
+        }
+        c.absent
+    }
+
+    // Applies every access of block `b` to `state` but its call's write of
+    // its destination: the conditions `init_unwritten_edge`'s edge carries.
+    public func init_walk_unwritten(&self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>) {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let accesses = self.init_stmt_accesses(f, s, &facts)
+            mir_init_apply_all(&facts, &var state, &accesses)
+            s = self.stmts[s].next
+        }
+        let dest = self.calls[block.call].dest
+        let accesses = self.init_term_accesses(f, b, &facts)
+        var k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            k = k + 1
+            if not (a.kind == MirAccessKind.Write && a.place == dest) {
+                facts.apply(&var state, &a)
+            }
+        }
     }
 
     // Block `b`'s successors, a call's return edge and its absent edge.

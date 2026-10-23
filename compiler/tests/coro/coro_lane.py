@@ -24,7 +24,8 @@ directory specifies:
 - each fixture in `refuse/` is refused first at its header's position by the
   rule its name starts with, that refusal's message holds each of its
   `// message:` lines, and every rule coroutine lowering refuses by
-  (`coro_rules` in `compiler/coro/src/suspends.saw`) has a fixture;
+  (`coro_rules` in `compiler/coro/src/suspends.saw`) has a fixture, or, for
+  a rule no source program reaches (`INJECTED_RULES`), a unit program;
 - over every program of this lane, of the mono lane's goldens and of the run
   lane, coroutine lowering's frame decisions agree with typecheck's
   summaries wherever a summary is unconditional, and every frame is laid
@@ -66,6 +67,10 @@ BT_PREFIX = "bt_table_"
 # `--bt-table` goldens are laid out for.
 SNAPSHOT = os.path.join(HERE, "stage0", "arm64-apple-darwin")
 TIMEOUT = 600
+# A rule no source program reaches, kept as a backstop, by the unit program
+# that reaches it by editing a decided program instead of a refusal fixture;
+# `units` runs it.
+INJECTED_RULES = {"coro.not-yet": os.path.join(COMPILER, "coro", "tests", "refuse_not_yet.saw")}
 
 _HEADER = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _STAGE0 = re.compile(r"^// stage0: (\S+)\.saw$")
@@ -75,6 +80,11 @@ _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 
 def rel(path):
     return os.path.relpath(path, REPO)
+
+
+def read_text(path):
+    with open(path) as fh:
+        return fh.read()
 
 
 def module_args():
@@ -361,6 +371,14 @@ def check_refusals(failures, counts, rules):
                                     % (rel(path), text, found[0][2]))
         check_invariants(failures, "refusal", path, record)
         counts["coro refusal fixtures"] = counts.get("coro refusal fixtures", 0) + 1
+    for rule, unit in sorted(INJECTED_RULES.items()):
+        if rule in covered:
+            failures.append("coro rule %s: a refusal fixture reaches it, so its injection %s is owed no longer"
+                            % (rule, rel(unit)))
+        elif not os.path.exists(unit) or rule not in read_text(unit):
+            failures.append("coro rule %s: its injection %s is missing or does not name it" % (rule, rel(unit)))
+        else:
+            covered.add(rule)
     for rule in rules:
         if rule not in covered:
             failures.append("coro rule %s: no refusal fixture names it" % rule)

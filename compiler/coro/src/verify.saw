@@ -1677,7 +1677,10 @@ func coro_verify_child_slot(coro: &CoroProgram, b: &CoroBeforeBody, c: Int) -> I
 // A drive's result: the call has no destination after lowering; when it had
 // one and returns, the block it returns to holds one statement moving the
 // child's result slot, at `result`, into that destination, then goes where
-// the call returned.
+// the call returned. A conditional open's drive has no absent edge after
+// lowering: its block moves the slot into the window's presence local and
+// switches on it, `None` to where the absent edge went and `Some` to one
+// move of the payload into the destination, then where the call returned.
 func coro_verify_move_out(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, pre: &MirCall, frame: Int,
                           result: Int, allowed: &var Vector<Int>) {
     let post = coro.mono.dp.bc.mir.calls[c]
@@ -1688,6 +1691,13 @@ func coro_verify_move_out(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, pr
         try! what.append(" still writes a destination, which its child's frame holds until the move-out")
         coro_verify_problem(&var coro, 2, b.item, what.build())
     }
+    if post.absent >= 0 {
+        var what = StringBuilder()
+        try! what.append("the drive of ")
+        coro_verify_append_callee(&coro, &var what, c)
+        try! what.append(" keeps an absent edge, which a drive does not take")
+        coro_verify_problem(&var coro, 2, b.item, what.build())
+    }
     if pre.dest < 0 || pre.next < 0 {
         return
     }
@@ -1695,21 +1705,16 @@ func coro_verify_move_out(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, pr
     var moves = post.next >= 0 && post.next < info.block_count
     if moves {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + post.next]
-        moves = block.term == MirTermKind.Goto && block.target == pre.next && block.first >= 0 && block.first == block.last
-        if moves {
+        let from = coro_verify_one_move(&coro, &block)
+        moves = from >= 0 && coro_verify_slot_offset(&coro, from, frame) == result
+        if moves && pre.absent >= 0 {
+            moves = coro_verify_presence_test(&coro, b.body, &pre, &block)
+        } else if moves {
             let stmt = coro.mono.dp.bc.mir.stmts[block.first]
-            moves = stmt.kind == MirStmtKind.Assign && stmt.place == pre.dest && stmt.rvalue >= 0
-            if moves {
-                let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
-                moves = rv.kind == MirRvalueKind.Use && rv.count == 1
-                if moves {
-                    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
-                    moves = o.kind == MirOperandKind.Move && coro_verify_slot_offset(&coro, o.place, frame) == result
-                    if moves {
-                        try! allowed.push(o.place)
-                    }
-                }
-            }
+            moves = block.term == MirTermKind.Goto && block.target == pre.next && stmt.place == pre.dest
+        }
+        if moves {
+            try! allowed.push(from)
         }
     }
     if not moves {
@@ -1721,6 +1726,76 @@ func coro_verify_move_out(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, pr
         try! what.append("], into its destination before going where the call returned")
         coro_verify_problem(&var coro, 2, b.item, what.build())
     }
+}
+
+// The place `block`'s one statement moves from when that statement is a
+// whole move, `x = move p`, else -1.
+func coro_verify_one_move(coro: &CoroProgram, block: &MirBlock) -> Int {
+    if block.first < 0 || block.first != block.last {
+        return -1
+    }
+    let stmt = coro.mono.dp.bc.mir.stmts[block.first]
+    if stmt.kind != MirStmtKind.Assign || stmt.place < 0 || stmt.rvalue < 0 {
+        return -1
+    }
+    let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+    if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+        return -1
+    }
+    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
+    if o.kind != MirOperandKind.Move {
+        return -1
+    }
+    o.place
+}
+
+// Whether `block`, whose one statement moves a conditional open's result,
+// writes it whole into its window's presence local and switches on that
+// local: `Some` to a block moving the payload into `pre`'s destination and
+// going to its return edge, `None` to its absent edge.
+func coro_verify_presence_test(coro: &CoroProgram, f: Int, pre: &MirCall, block: &MirBlock) -> Bool {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    let into = coro.mono.dp.bc.mir.places[coro.mono.dp.bc.mir.stmts[block.first].place]
+    if into.count != 0 || pre.window < 0 || pre.window >= info.window_count {
+        return false
+    }
+    let held = into.local
+    if coro.mono.dp.bc.mir.windows[info.window_first + pre.window].presence != held {
+        return false
+    }
+    if block.term != MirTermKind.Switch || block.switch_kind != MirSwitchKind.Discriminant || block.place < 0 {
+        return false
+    }
+    let on = coro.mono.dp.bc.mir.places[block.place]
+    if on.local != held || on.count != 0 || block.arm_count != 2 || block.otherwise >= 0 {
+        return false
+    }
+    var present = -1
+    var absent = -1
+    var k = 0
+    while k < block.arm_count {
+        let arm = coro.mono.dp.bc.mir.arms[block.arm_first + k]
+        k = k + 1
+        let name = coro.mono.dp.bc.mir.tc.name_text(coro.mono.dp.bc.mir.tc.res.decls[arm.value].name)
+        if name.equals("Some") {
+            present = arm.target
+        } else if name.equals("None") {
+            absent = arm.target
+        }
+    }
+    if absent != pre.absent || present < 0 || present >= info.block_count {
+        return false
+    }
+    let some = coro.mono.dp.bc.mir.blocks[info.block_first + present]
+    let from = coro_verify_one_move(&coro, &some)
+    if from < 0 || some.term != MirTermKind.Goto || some.target != pre.next {
+        return false
+    }
+    if coro.mono.dp.bc.mir.stmts[some.first].place != pre.dest {
+        return false
+    }
+    let payload = coro.mono.dp.bc.mir.places[from]
+    payload.local == held && payload.count == 1 && coro.mono.dp.bc.mir.projs[payload.first].kind == MirProjKind.Payload
 }
 
 // Every place lowering added through frame pointer `frame` inside a child's

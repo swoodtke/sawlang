@@ -1,0 +1,207 @@
+// probe: stated
+// about: a `?.` write through a conditional lend whose prologue suspends, or prologue and epilogue, as a statement and as an `if let` head, present and absent (SL-860)
+// stage 0: refuses reading a holder that a joined task borrowed, as an exclusive access violation
+// speeds: -O0 -O2
+// prints: pro pt 0
+// prints: epi pt 0 t=0
+// prints: epi end pt 0
+// prints: drop tr 0
+// prints: chain_write P present 7
+// prints: pro pt 9
+// prints: drop tr 9
+// prints: chain_write P absent -1
+// prints: pro pt 0
+// prints: epi pt 0 t=0
+// prints: epi end pt 0
+// prints: drop tr 0
+// prints: chain_write B present 7
+// prints: pro pt 9
+// prints: drop tr 9
+// prints: chain_write B absent -1
+// prints: pro pt 0
+// prints: epi pt 0 t=0
+// prints: epi end pt 0
+// prints: drop tr 0
+// prints: wrote
+// prints: chain_write_iflet P present 7
+// prints: pro pt 9
+// prints: drop tr 9
+// prints: absent
+// prints: chain_write_iflet P absent -1
+// prints: pro pt 0
+// prints: epi pt 0 t=0
+// prints: epi end pt 0
+// prints: drop tr 0
+// prints: wrote
+// prints: chain_write_iflet B present 7
+// prints: pro pt 9
+// prints: drop tr 9
+// prints: absent
+// prints: chain_write_iflet B absent -1
+// prints: end P 10 20 7 2
+// prints: end B 10 20 7 2
+// leaks: none
+// Each spelling runs over two holders, one whose accessors suspend in the
+// prologue and one whose accessors suspend in the prologue and the
+// epilogue. The lines are those of the same program over accessors that
+// do not suspend: the present path runs the epilogue once, after the
+// body, and the absent path runs the prologue alone, its local dropped at
+// the `return None`, with no window and no epilogue.
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Pt { n: Int }
+
+struct HolderP { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderP: NoCopy {}
+
+extension HolderP {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        print("epi end sub {}", i)
+    }
+}
+
+struct HolderB { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderB: NoCopy {}
+
+extension HolderB {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        yield_now()
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        yield_now()
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        yield_now()
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        yield_now()
+        print("epi end sub {}", i)
+    }
+}
+
+func chain_write_P(h: &var HolderP, i: Int) -> Int {
+    h.pt(i)?.n = 7
+    if i < h.pts.len() { h.pts[i].n } else { -1 }
+}
+
+func chain_write_B(h: &var HolderB, i: Int) -> Int {
+    h.pt(i)?.n = 7
+    if i < h.pts.len() { h.pts[i].n } else { -1 }
+}
+
+func chain_write_iflet_P(h: &var HolderP, i: Int) -> Int {
+    if let _ = h.pt(i)?.n = 7 {
+        print("wrote")
+        h.pts[i].n
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func chain_write_iflet_B(h: &var HolderB, i: Int) -> Int {
+    if let _ = h.pt(i)?.n = 7 {
+        print("wrote")
+        h.pts[i].n
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func main() {
+    var hP = HolderP(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var hB = HolderB(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var group = TaskGroup()
+    print("chain_write P present {}", group.spawn(chain_write_P(&var hP, 0)).join())
+    print("chain_write P absent {}", group.spawn(chain_write_P(&var hP, 9)).join())
+    print("chain_write B present {}", group.spawn(chain_write_B(&var hB, 0)).join())
+    print("chain_write B absent {}", group.spawn(chain_write_B(&var hB, 9)).join())
+    print("chain_write_iflet P present {}", group.spawn(chain_write_iflet_P(&var hP, 0)).join())
+    print("chain_write_iflet P absent {}", group.spawn(chain_write_iflet_P(&var hP, 9)).join())
+    print("chain_write_iflet B present {}", group.spawn(chain_write_iflet_B(&var hB, 0)).join())
+    print("chain_write_iflet B absent {}", group.spawn(chain_write_iflet_B(&var hB, 9)).join())
+    print("end P {} {} {} {}", hP.cells[0], hP.cells[1], hP.pts[0].n, hP.pts[1].n)
+    print("end B {} {} {} {}", hB.cells[0], hB.cells[1], hB.pts[0].n, hB.pts[1].n)
+}

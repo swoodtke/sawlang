@@ -1,0 +1,355 @@
+// probe: stated
+// about: the block form, `match` and `!` over a conditional lend whose prologue suspends, or prologue and epilogue, present and absent (`!` present only) (SL-860)
+// stage 0: cannot parse a `borrow` block or a `borrow` pattern
+// speeds: -O0 -O2
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: block_form P present 11
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: block_form P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: block_form B present 11
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: block_form B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: match_borrow_var P present 12
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: match_borrow_var P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: match_borrow_var B present 12
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: match_borrow_var B absent -1
+// prints: pro look 0
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: match_borrow_let P present 12
+// prints: pro look 9
+// prints: drop tr 9
+// prints: absent
+// prints: match_borrow_let P absent -1
+// prints: pro look 0
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: match_borrow_let B present 12
+// prints: pro look 9
+// prints: drop tr 9
+// prints: absent
+// prints: match_borrow_let B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: match_copy P present 12
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: match_copy P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: match_copy B present 12
+// prints: pro find 9
+// prints: drop tr 9
+// prints: absent
+// prints: match_copy B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: force_stmt P present 17
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: force_stmt B present 17
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: force_read P present 17
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: force_read B present 17
+// prints: end P 17 20 1 2
+// prints: end B 17 20 1 2
+// leaks: none
+// Each spelling runs over two holders, one whose accessors suspend in the
+// prologue and one whose accessors suspend in the prologue and the
+// epilogue. The lines are those of the same program over accessors that
+// do not suspend: the present path runs the epilogue once, after the
+// body, and the absent path runs the prologue alone, its local dropped at
+// the `return None`, with no window and no epilogue.
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Pt { n: Int }
+
+struct HolderP { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderP: NoCopy {}
+
+extension HolderP {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        print("epi end sub {}", i)
+    }
+}
+
+struct HolderB { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderB: NoCopy {}
+
+extension HolderB {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        yield_now()
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        yield_now()
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        yield_now()
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        yield_now()
+        print("epi end sub {}", i)
+    }
+}
+
+func block_form_P(h: &var HolderP, i: Int) -> Int {
+    borrow var c = h.find(i) {
+        if borrow var x = c {
+            x += 1
+            x
+        } else {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func block_form_B(h: &var HolderB, i: Int) -> Int {
+    borrow var c = h.find(i) {
+        if borrow var x = c {
+            x += 1
+            x
+        } else {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func match_borrow_var_P(h: &var HolderP, i: Int) -> Int {
+    match h.find(i) {
+        case Some(borrow var c) -> {
+            c += 1
+            c
+        },
+        case None -> {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func match_borrow_var_B(h: &var HolderB, i: Int) -> Int {
+    match h.find(i) {
+        case Some(borrow var c) -> {
+            c += 1
+            c
+        },
+        case None -> {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func match_borrow_let_P(h: &var HolderP, i: Int) -> Int {
+    match h.look(i) {
+        case Some(borrow let c) -> c,
+        case None -> {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func match_borrow_let_B(h: &var HolderB, i: Int) -> Int {
+    match h.look(i) {
+        case Some(borrow let c) -> c,
+        case None -> {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func match_copy_P(h: &var HolderP, i: Int) -> Int {
+    match h.find(i) {
+        case Some(c) -> c,
+        case None -> {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func match_copy_B(h: &var HolderB, i: Int) -> Int {
+    match h.find(i) {
+        case Some(c) -> c,
+        case None -> {
+            print("absent")
+            -1
+        }
+    }
+}
+
+func force_stmt_P(h: &var HolderP, i: Int) -> Int {
+    borrow var h.find(i)! += 5
+    h.cells[i]
+}
+
+func force_stmt_B(h: &var HolderB, i: Int) -> Int {
+    borrow var h.find(i)! += 5
+    h.cells[i]
+}
+
+func force_read_P(h: &var HolderP, i: Int) -> Int {
+    let c = borrow h.find(i)!
+    c
+}
+
+func force_read_B(h: &var HolderB, i: Int) -> Int {
+    let c = borrow h.find(i)!
+    c
+}
+
+func main() {
+    var hP = HolderP(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var hB = HolderB(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var group = TaskGroup()
+    print("block_form P present {}", group.spawn(block_form_P(&var hP, 0)).join())
+    print("block_form P absent {}", group.spawn(block_form_P(&var hP, 9)).join())
+    print("block_form B present {}", group.spawn(block_form_B(&var hB, 0)).join())
+    print("block_form B absent {}", group.spawn(block_form_B(&var hB, 9)).join())
+    print("match_borrow_var P present {}", group.spawn(match_borrow_var_P(&var hP, 0)).join())
+    print("match_borrow_var P absent {}", group.spawn(match_borrow_var_P(&var hP, 9)).join())
+    print("match_borrow_var B present {}", group.spawn(match_borrow_var_B(&var hB, 0)).join())
+    print("match_borrow_var B absent {}", group.spawn(match_borrow_var_B(&var hB, 9)).join())
+    print("match_borrow_let P present {}", group.spawn(match_borrow_let_P(&var hP, 0)).join())
+    print("match_borrow_let P absent {}", group.spawn(match_borrow_let_P(&var hP, 9)).join())
+    print("match_borrow_let B present {}", group.spawn(match_borrow_let_B(&var hB, 0)).join())
+    print("match_borrow_let B absent {}", group.spawn(match_borrow_let_B(&var hB, 9)).join())
+    print("match_copy P present {}", group.spawn(match_copy_P(&var hP, 0)).join())
+    print("match_copy P absent {}", group.spawn(match_copy_P(&var hP, 9)).join())
+    print("match_copy B present {}", group.spawn(match_copy_B(&var hB, 0)).join())
+    print("match_copy B absent {}", group.spawn(match_copy_B(&var hB, 9)).join())
+    print("force_stmt P present {}", group.spawn(force_stmt_P(&var hP, 0)).join())
+    print("force_stmt B present {}", group.spawn(force_stmt_B(&var hB, 0)).join())
+    print("force_read P present {}", group.spawn(force_read_P(&var hP, 0)).join())
+    print("force_read B present {}", group.spawn(force_read_B(&var hB, 0)).join())
+    print("end P {} {} {} {}", hP.cells[0], hP.cells[1], hP.pts[0].n, hP.pts[1].n)
+    print("end B {} {} {} {}", hB.cells[0], hB.cells[1], hB.pts[0].n, hB.pts[1].n)
+}

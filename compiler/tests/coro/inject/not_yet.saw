@@ -1,0 +1,20 @@
+// The program compiler/coro/tests/refuse_not_yet.saw decides, then edits:
+// `main` parks ready, then drives `caller`, which drives `poke`, which parks.
+// Every frame here is lowered as written. The edit leaves `caller`'s call of
+// `poke` reaching no item, a suspending call no source program makes, and
+// the refusal must name that call, not `main`'s park.
+import std.task.{yield_now}
+
+func poke(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func caller(n: Int) -> Int {
+    poke(n) + 41
+}
+
+func main() {
+    yield_now()
+    print("{}", caller(1))
+}

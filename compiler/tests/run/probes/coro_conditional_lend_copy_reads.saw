@@ -1,0 +1,319 @@
+// probe: stated
+// about: a copy read and `??` of a conditional lend whose prologue suspends, or prologue and epilogue, a method's and a subscript's, present and absent (SL-860)
+// stage 0: cannot parse a `borrow` copy read
+// speeds: -O0 -O2
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: copy_read_borrow P present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: copy_read_borrow P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: copy_read_borrow B present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: copy_read_borrow B absent -1
+// prints: pro look 0
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: copy_read_plain P present 10
+// prints: pro look 9
+// prints: drop tr 9
+// prints: copy_read_plain P absent -1
+// prints: pro look 0
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: copy_read_plain B present 10
+// prints: pro look 9
+// prints: drop tr 9
+// prints: copy_read_plain B absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: coalesce_borrow P present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: coalesce_borrow P absent -1
+// prints: pro find 0
+// prints: epi find 0 t=0
+// prints: epi end find 0
+// prints: drop tr 0
+// prints: coalesce_borrow B present 10
+// prints: pro find 9
+// prints: drop tr 9
+// prints: coalesce_borrow B absent -1
+// prints: pro look 0
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: coalesce_plain P present 10
+// prints: pro look 9
+// prints: drop tr 9
+// prints: coalesce_plain P absent -1
+// prints: pro look 0
+// prints: epi look 0 t=0
+// prints: epi end look 0
+// prints: drop tr 0
+// prints: coalesce_plain B present 10
+// prints: pro look 9
+// prints: drop tr 9
+// prints: coalesce_plain B absent -1
+// prints: pro sub 0
+// prints: epi sub 0 t=0
+// prints: epi end sub 0
+// prints: drop tr 0
+// prints: subscript_if_borrow P present 11
+// prints: pro sub 9
+// prints: drop tr 9
+// prints: absent
+// prints: subscript_if_borrow P absent -1
+// prints: pro sub 0
+// prints: epi sub 0 t=0
+// prints: epi end sub 0
+// prints: drop tr 0
+// prints: subscript_if_borrow B present 11
+// prints: pro sub 9
+// prints: drop tr 9
+// prints: absent
+// prints: subscript_if_borrow B absent -1
+// prints: pro sub 0
+// prints: epi sub 0 t=0
+// prints: epi end sub 0
+// prints: drop tr 0
+// prints: subscript_copy P present 11
+// prints: pro sub 9
+// prints: drop tr 9
+// prints: subscript_copy P absent -1
+// prints: pro sub 0
+// prints: epi sub 0 t=0
+// prints: epi end sub 0
+// prints: drop tr 0
+// prints: subscript_copy B present 11
+// prints: pro sub 9
+// prints: drop tr 9
+// prints: subscript_copy B absent -1
+// prints: end P 11 20 1 2
+// prints: end B 11 20 1 2
+// leaks: none
+// Each spelling runs over two holders, one whose accessors suspend in the
+// prologue and one whose accessors suspend in the prologue and the
+// epilogue. The lines are those of the same program over accessors that
+// do not suspend: the present path runs the epilogue once, after the
+// body, and the absent path runs the prologue alone, its local dropped at
+// the `return None`, with no window and no epilogue.
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Pt { n: Int }
+
+struct HolderP { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderP: NoCopy {}
+
+extension HolderP {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        print("epi end sub {}", i)
+    }
+}
+
+struct HolderB { cells: Vector<Int>, pts: Vector<Pt> }
+extension HolderB: NoCopy {}
+
+extension HolderB {
+    func find(&var self, i: Int) borrows -> &var Int? {
+        print("pro find {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi find {} t={}", i, t.id)
+        yield_now()
+        print("epi end find {}", i)
+    }
+    func look(&self, i: Int) borrows -> &Int? {
+        print("pro look {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi look {} t={}", i, t.id)
+        yield_now()
+        print("epi end look {}", i)
+    }
+    func pt(&var self, i: Int) borrows -> &var Pt? {
+        print("pro pt {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.pts.len() {
+            return None
+        }
+        lend self.pts[i]
+        print("epi pt {} t={}", i, t.id)
+        yield_now()
+        print("epi end pt {}", i)
+    }
+    func [](&var self, i: Int) borrows -> &var Int? {
+        print("pro sub {}", i)
+        let t = Tr(id: i)
+        yield_now()
+        if i >= self.cells.len() {
+            return None
+        }
+        lend self.cells[i]
+        print("epi sub {} t={}", i, t.id)
+        yield_now()
+        print("epi end sub {}", i)
+    }
+}
+
+func copy_read_borrow_P(h: &var HolderP, i: Int) -> Int {
+    let c = borrow h.find(i)
+    c ?? -1
+}
+
+func copy_read_borrow_B(h: &var HolderB, i: Int) -> Int {
+    let c = borrow h.find(i)
+    c ?? -1
+}
+
+func copy_read_plain_P(h: &var HolderP, i: Int) -> Int {
+    let c = h.look(i)
+    c ?? -1
+}
+
+func copy_read_plain_B(h: &var HolderB, i: Int) -> Int {
+    let c = h.look(i)
+    c ?? -1
+}
+
+func coalesce_borrow_P(h: &var HolderP, i: Int) -> Int {
+    borrow h.find(i) ?? -1
+}
+
+func coalesce_borrow_B(h: &var HolderB, i: Int) -> Int {
+    borrow h.find(i) ?? -1
+}
+
+func coalesce_plain_P(h: &var HolderP, i: Int) -> Int {
+    h.look(i) ?? -1
+}
+
+func coalesce_plain_B(h: &var HolderB, i: Int) -> Int {
+    h.look(i) ?? -1
+}
+
+func subscript_if_borrow_P(h: &var HolderP, i: Int) -> Int {
+    if borrow var c = h[i] {
+        c += 1
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func subscript_if_borrow_B(h: &var HolderB, i: Int) -> Int {
+    if borrow var c = h[i] {
+        c += 1
+        c
+    } else {
+        print("absent")
+        -1
+    }
+}
+
+func subscript_copy_P(h: &var HolderP, i: Int) -> Int {
+    borrow h[i] ?? -1
+}
+
+func subscript_copy_B(h: &var HolderB, i: Int) -> Int {
+    borrow h[i] ?? -1
+}
+
+func main() {
+    var hP = HolderP(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var hB = HolderB(cells: [10, 20], pts: [Pt(n: 1), Pt(n: 2)])
+    var group = TaskGroup()
+    print("copy_read_borrow P present {}", group.spawn(copy_read_borrow_P(&var hP, 0)).join())
+    print("copy_read_borrow P absent {}", group.spawn(copy_read_borrow_P(&var hP, 9)).join())
+    print("copy_read_borrow B present {}", group.spawn(copy_read_borrow_B(&var hB, 0)).join())
+    print("copy_read_borrow B absent {}", group.spawn(copy_read_borrow_B(&var hB, 9)).join())
+    print("copy_read_plain P present {}", group.spawn(copy_read_plain_P(&var hP, 0)).join())
+    print("copy_read_plain P absent {}", group.spawn(copy_read_plain_P(&var hP, 9)).join())
+    print("copy_read_plain B present {}", group.spawn(copy_read_plain_B(&var hB, 0)).join())
+    print("copy_read_plain B absent {}", group.spawn(copy_read_plain_B(&var hB, 9)).join())
+    print("coalesce_borrow P present {}", group.spawn(coalesce_borrow_P(&var hP, 0)).join())
+    print("coalesce_borrow P absent {}", group.spawn(coalesce_borrow_P(&var hP, 9)).join())
+    print("coalesce_borrow B present {}", group.spawn(coalesce_borrow_B(&var hB, 0)).join())
+    print("coalesce_borrow B absent {}", group.spawn(coalesce_borrow_B(&var hB, 9)).join())
+    print("coalesce_plain P present {}", group.spawn(coalesce_plain_P(&var hP, 0)).join())
+    print("coalesce_plain P absent {}", group.spawn(coalesce_plain_P(&var hP, 9)).join())
+    print("coalesce_plain B present {}", group.spawn(coalesce_plain_B(&var hB, 0)).join())
+    print("coalesce_plain B absent {}", group.spawn(coalesce_plain_B(&var hB, 9)).join())
+    print("subscript_if_borrow P present {}", group.spawn(subscript_if_borrow_P(&var hP, 0)).join())
+    print("subscript_if_borrow P absent {}", group.spawn(subscript_if_borrow_P(&var hP, 9)).join())
+    print("subscript_if_borrow B present {}", group.spawn(subscript_if_borrow_B(&var hB, 0)).join())
+    print("subscript_if_borrow B absent {}", group.spawn(subscript_if_borrow_B(&var hB, 9)).join())
+    print("subscript_copy P present {}", group.spawn(subscript_copy_P(&var hP, 0)).join())
+    print("subscript_copy P absent {}", group.spawn(subscript_copy_P(&var hP, 9)).join())
+    print("subscript_copy B present {}", group.spawn(subscript_copy_B(&var hB, 0)).join())
+    print("subscript_copy B absent {}", group.spawn(subscript_copy_B(&var hB, 9)).join())
+    print("end P {} {} {} {}", hP.cells[0], hP.cells[1], hP.pts[0].n, hP.pts[1].n)
+    print("end B {} {} {} {}", hB.cells[0], hB.cells[1], hB.pts[0].n, hB.pts[1].n)
+}
