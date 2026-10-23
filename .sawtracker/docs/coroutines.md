@@ -1,4 +1,4 @@
-# sawc2 coroutines: the implementation plan (SL-545)
+# sawc coroutines: the implementation plan (SL-545)
 
 **Status: APPROVED by the user (Oct 12), with §5 ruled (below and in SL:open-questions, "Q-coro1 to Q-coro7"). The heap-frame word is `frame_alloc`, not the draft's `indirect`.** Every §4 unit is filed as a child of SL-545; the unit-to-issue map is on SL-545. The plan text is authoritative over the issues.
 
@@ -12,9 +12,9 @@ Probes cited as `.build/scratch/coroplan/...` live in the planning worktree (`.c
 
 ## 1. Scope and non-goals
 
-**"sawc2 coroutines done" means:** every program in `tests/corpus/` that Stage 0 compiles into a coroutine builds with sawc2 and behaves as its `EXPECT` directives say. That target has two levels (settled in t1):
+**"sawc coroutines done" means:** every program in `tests/corpus/` that Stage 0 compiles into a coroutine builds with sawc and behaves as its `EXPECT` directives say. That target has two levels (settled in t1):
 - **Plan-complete, which closes SL-545:** the 490 minus a *gated* list, the programs that also need a std port this plan leaves out (`std.net` past A12b's slice, `Arc`, `Map`, `json`, `mutex`, `directory`, …). The census lane (A0b) generates that list from each program's missing names, so it cannot drift. The plan's last check is the census green over the plan-complete set.
-- **Fully done:** each gated program flips when its port lands, tracked by that port's issue, not by SL-545. "A coroutine" here means one or more framed functions in Stage 0's frame ledger (`--emit-frame-ledger`); §3.2's census counts 490 such programs and 93 coroutine refusal tests. **Every language refusal Stage 0 makes is matched:** the same programs are refused, under a sawc2 rule ID, with a message that names the same limit. Stage 0's *implementation limits* (the spec's "Not yet supported" list) are lifted, since MIR lowering has nothing to refuse there (§3.3). The mechanism is SL:architecture §3.9's, not Stage 0's:
+- **Fully done:** each gated program flips when its port lands, tracked by that port's issue, not by SL-545. "A coroutine" here means one or more framed functions in Stage 0's frame ledger (`--emit-frame-ledger`); §3.2's census counts 490 such programs and 93 coroutine refusal tests. **Every language refusal Stage 0 makes is matched:** the same programs are refused, under a sawc rule ID, with a message that names the same limit. Stage 0's *implementation limits* (the spec's "Not yet supported" list) are lifted, since MIR lowering has nothing to refuse there (§3.3). The mechanism is SL:architecture §3.9's, not Stage 0's:
 - a post-mono *definitely suspends* fixpoint;
 - by-value frames, packed by storage lifetime;
 - teardown keyed by state;
@@ -50,9 +50,9 @@ Two requirements from the user (SL-545 c2) are in scope beyond Stage 0:
 - design 152's frame-size warning. It can hang off `--emit-frame-layout` later;
 - a VM backend. The lowered MIR is target-independent, so a VM inherits the state machines, but no VM unit is planned here.
 
-## 2. What sawc2 has today
+## 2. What sawc has today
 
-**In short:** sawc2 *knows* what suspends, and nothing after the borrow check *does* anything about it. Typecheck solves may-suspend and sync-callable to a fixpoint. MIR marks suspension points and places classified budget points, and the borrow check refuses a `borrows(sync)` loan across either. From mono on, the flags pass through unevaluated, and the backend emits a suspending call as a plain call (SL-546). Under `--std-root std` the new std has no task, time, channel, net or frame module, so the only suspension source a program can reach today is a `blocking` extern.
+**In short:** sawc *knows* what suspends, and nothing after the borrow check *does* anything about it. Typecheck solves may-suspend and sync-callable to a fixpoint. MIR marks suspension points and places classified budget points, and the borrow check refuses a `borrows(sync)` loan across either. From mono on, the flags pass through unevaluated, and the backend emits a suspending call as a plain call (SL-546). Under `--std-root std` the new std has no task, time, channel, net or frame module, so the only suspension source a program can reach today is a `blocking` extern.
 
 The probes behind this section are under `.build/scratch/coroplan/sawc2/` in the coroplan worktree: the programs `pNN_*.saw`, and each stage's output in `out/<stage>_<probe>_{new,s0}.txt`, under the new std and under Stage 0's std.
 
@@ -141,7 +141,7 @@ The probes behind this section are under `.build/scratch/coroplan/sawc2/` in the
 
 ### 2.6 The LLVM backend and the run lane
 - **Has:**
-  - The runtime objects a coroutine needs are already built and linked into every hosted program: `sawc2 runtime` builds `reactor.o`, `offload.o` and `op_budget.o` from `sawc/rt/` (`.build/sawc2-runtime.txt`). Nothing calls them yet.
+  - The runtime objects a coroutine needs are already built and linked into every hosted program: `sawc runtime` builds `reactor.o`, `offload.o` and `op_budget.o` from `sawc/rt/` (`.build/sawc-runtime.txt`). Nothing calls them yet.
   - The backtrace table's slot exists: the README notes a runtime source gets "no backtrace table", so a program does get one, empty today.
 - **Missing:**
   - **Every coroutine construct.** `bodies.saw` emits nothing for `Budget` (`case Budget -> {}`), and nothing in `compiler/llvm/src/` reads `suspend`.
@@ -167,7 +167,7 @@ The probes behind this section are under `.build/scratch/coroplan/sawc2/` in the
 
   SL-355's R5 (an atomic wake word with a CAS latch, and a `register` that returns a status) is not in `sawc/rt/` yet. Its reviewed runtime half is preserved on SL-355 (c20). Unit A12a decides where it lands.
 
-### 2.8 Open sawc2 issues in this area
+### 2.8 Open sawc issues in this area
 - **SL-546** (filed by this plan): suspending calls compile as plain calls; cycles are accepted.
 - **SL-526:** mono prints unevaluated suspension conditions.
 - **SL-510:** no object-safety check. It touches `any`, not suspension.
@@ -179,7 +179,7 @@ The probes behind this section are under `.build/scratch/coroplan/sawc2/` in the
 This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9 leaves open, it says so, and those details are for the Air to check.
 
 - **A new stage, `compiler/coro` (package `sawcoro`), between mono and the backend.** Its input is mono's concrete items. Its output is lowered MIR, which the backend consumes, and nothing earlier.
-  - `sawc2 coro (--dump | --layouts | --check)` gives it a test surface, and a `tests/coro/` lane holds its goldens, refusals and verifier injections, the way `tests/mir/` and `tests/mono/` do.
+  - `sawc coro (--dump | --layouts | --check)` gives it a test surface, and a `tests/coro/` lane holds its goldens, refusals and verifier injections, the way `tests/mir/` and `tests/mono/` do.
   - The stage owns three things: the *definitely suspends* fixpoint, frame layout, and the state machine.
 - **The ABI is uniform from the first unit:** `resume(frame: ptr, cx: ptr) -> Poll`, where `Poll` is `Ready` or `Pending`.
   - `cx` is the task's context record. It holds:
@@ -235,9 +235,9 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
 
 **Probe:** `probe_census.py` and `probe_census_sub.py` in `.build/scratch/coroplan/`. They ran over all 2,584 files of `tests/corpus/` (top level, `conformance/`, `errors/`) on the coroplan worktree at 39759790f. For each file:
 - Stage 0's `--emit-frame-ledger` ran over its `examples/` twin;
-- `sawc2-stage2 build --std-root std --emit-ll` ran over the corpus file.
+- `sawc-stage2 build --std-root std --emit-ll` ran over the corpus file.
 
-**A program needs coroutines when Stage 0 frames at least one function for it.** The full list is chat file **f24** (`coro_programs.txt`), with each program's first sawc2 refusal.
+**A program needs coroutines when Stage 0 frames at least one function for it.** The full list is chat file **f24** (`coro_programs.txt`), with each program's first sawc refusal.
 
 | | top level | `conformance/` | `errors/` | total |
 |---|---|---|---|---|
@@ -245,7 +245,7 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
 | ... that need coroutines | 392 | 97 | 1 | **490** (30%) |
 | coroutine refusal tests (`EXPECT: error` naming a coroutine rule) | 19 | 24 | 50 | **93** |
 
-**The 490 by the first refusal sawc2 gives today:**
+**The 490 by the first refusal sawc gives today:**
 
 | first refusal | programs | what it is |
 |---|---|---|
@@ -253,7 +253,7 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
 | `slice.not-yet` | 72 | resolve's refusal of a `__saw_*` intrinsic: `__saw_drive`, `__saw_drive_steps`, `__saw_suspend` |
 | `name.undefined` | 38 | `yield_now`, `TaskGroup`, `sleep`, `Duration`, `Channel` |
 | `member.unknown` | 6 | std members the new std lacks |
-| a sawc2 crash | 6 | `panic at vector.saw:68: index out of range: -1` in typecheck. It is not coroutine-specific: the same crash hits 25 programs with a `Map` or `Set` literal under the new std. Reported to the lead, not filed by this plan |
+| a sawc crash | 6 | `panic at vector.saw:68: index out of range: -1` in typecheck. It is not coroutine-specific: the same crash hits 25 programs with a `Map` or `Set` literal under the new std. Reported to the lead, not filed by this plan |
 
 **What stands between the 392 top-level programs and a build:**
 - **234 lack only coroutine vocabulary:** `std.task`, `yield_now`, `TaskGroup`, `sleep`, `Duration`, `Channel` and the test intrinsics. These are this plan's direct targets.
@@ -262,7 +262,7 @@ This is the shape every unit in §4 builds toward. Where it fixes a detail §3.9
 - **13 lack only non-coroutine names.**
 - **5 crash.**
 
-**Test entries.** 143 of the 392 use `__saw_drive`, `__saw_drive_steps` or `__saw_suspend`, and 125 are driven *only* that way, with no group and no spawn. **Decided (reversible):** sawc2 supports the three as test-only lang intrinsics, with Stage 0's meaning, so that those pins keep testing the shapes they were written for. The alternative is migrating 125 files to `Task.spawn(...).join()`, which would change what they measure (`__saw_drive_steps` counts `Pending`s).
+**Test entries.** 143 of the 392 use `__saw_drive`, `__saw_drive_steps` or `__saw_suspend`, and 125 are driven *only* that way, with no group and no spawn. **Decided (reversible):** sawc supports the three as test-only lang intrinsics, with Stage 0's meaning, so that those pins keep testing the shapes they were written for. The alternative is migrating 125 files to `Task.spawn(...).join()`, which would change what they measure (`__saw_drive_steps` counts `Pending`s).
 
 **Feature use among the 392:** `yield_now` 229, `TaskGroup` 206, `__saw_drive` 137, `__saw_suspend` 65, `sleep` 39, `TcpStream` 36, `borrow` 27, `TaskGroup(threads:)` 25, `__saw_drive_steps` 20, `receive` 18, `io_wait` 17, `cancelled()` 16, `Command` 15, `TcpListener` 13, `blocking` externs 11, `Task.spawn` 3, `dump_tasks` 3.
 
@@ -278,7 +278,7 @@ Stage 0's ledger frames 1 function in 99 of the programs, 2–3 in 162, 4–9 in
 
 | rule | tests |
 |---|---|
-| a suspension in a `sync` context | 27 (4 already refused by sawc2 as `effect.sync`) |
+| a suspension in a `sync` context | 27 (4 already refused by sawc as `effect.sync`) |
 | suspending recursion | 8 |
 | a closure body | 6, plus 4 citing a driven function by name |
 | spawn borrow extents | 6 |
@@ -296,7 +296,7 @@ The list is chat file **f25** (`coro_refusal_tests.txt`).
 
 ### 3.3 The shape matrix
 
-**One fact collapses most of Stage 0's table.** Stage 0 rewrote source, so each syntactic slot needed its own disposition (SPLIT / HOIST / INLINE / EMBED / REFUSE). sawc2's MIR already fixes evaluation order, puts every suspending call in its own call terminator at any expression depth, and makes every control-flow construct plain blocks (SL:architecture §3.5). So in MIR:
+**One fact collapses most of Stage 0's table.** Stage 0 rewrote source, so each syntactic slot needed its own disposition (SPLIT / HOIST / INLINE / EMBED / REFUSE). sawc's MIR already fixes evaluation order, puts every suspending call in its own call terminator at any expression depth, and makes every control-flow construct plain blocks (SL:architecture §3.5). So in MIR:
 - **every SPLIT row** is "the CFG is the state machine";
 - **every HOIST row** is "already a temporary";
 - **INLINE and EMBED** become `park` and child driving.
@@ -305,7 +305,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 
 **Containers** (a suspension inside a construct's block):
 
-| row (Stage 0) | sawc2 lowering | pin | unit |
+| row (Stage 0) | sawc lowering | pin | unit |
 |---|---|---|---|
 | `if` / `else` (SPLIT) | blocks; the arms are exclusive, so their resident values overlay (B2) | `coro_suspend_in_if_branch` | A6 |
 | `if let` (SPLIT, guarded) | blocks; the binding is a local like any other | `coro_iflet_over_suspending` | A6 |
@@ -332,7 +332,7 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 
 **Statements and expressions:**
 
-| row (Stage 0) | sawc2 lowering | pin | unit |
+| row (Stage 0) | sawc lowering | pin | unit |
 |---|---|---|---|
 | `let x = g()`, bare `g()`, `return g()` (EMBED) | child driving (§3.1) | `coro_nested_suspend_two_deep`, `expr_suspend_return` | A4 |
 | suspend primitive (INLINE) | `park(ready)` or `park(timer)` | `async_main_sleep_yield` | A3b, A11 |
@@ -340,17 +340,17 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | blocking extern (INLINE offload) | `park(offload)`: start the job, park on its pipe, take it | `expr_suspend_blocking` | A14a, A14b |
 | any operand, argument, receiver, interpolation or short-circuit right side (HOIST, the ANF pass) | MIR temporaries in evaluation order; a short-circuit right side is its own branch (§3.5) | `expr_suspend_{arg,binop,andor,interp,coalesce,chain_head}` | A6 |
 
-**Stage 0's implementation limits, lifted.** The spec's "Not yet supported" list exists because a source rewrite could not express these shapes. In MIR each is ordinary blocks, so sawc2 builds them rather than copy the refusal, and each pin flips from `error` to a run program:
+**Stage 0's implementation limits, lifted.** The spec's "Not yet supported" list exists because a source rewrite could not express these shapes. In MIR each is ordinary blocks, so sawc builds them rather than copy the refusal, and each pin flips from `error` to a run program:
 - a value-producing `break` out of a spanning loop;
 - a tuple-pattern `if let` or `while let` over a suspension (`while_let_tuple_over_suspension_refused`);
 - a multi-hop `?.` assignment with a suspending right side;
 - a suspending `try { } catch { }` raising two error types (`coro_try_block_two_error_types`, which is already `refuses:`-pinned).
 
-**Settled with the Air (t5):** this is a "language changed" annotation under SL:architecture §5, and the spec's list shrinks in the same unit (A6). The decision is reversible: if lifting is wrong, sawc2 refuses the same four. **These four pins have no behavioural oracle,** since Stage 0 refuses them. Each expected output is derived from the spec by hand, marked `spec-derived expectation (no oracle)` in its file, and reviewed as part of A6's review, the way an "oracle known wrong" entry is adjudicated.
+**Settled with the Air (t5):** this is a "language changed" annotation under SL:architecture §5, and the spec's list shrinks in the same unit (A6). The decision is reversible: if lifting is wrong, sawc refuses the same four. **These four pins have no behavioural oracle,** since Stage 0 refuses them. Each expected output is derived from the spec by hand, marked `spec-derived expectation (no oracle)` in its file, and reviewed as part of A6's review, the way an "oracle known wrong" entry is adjudicated.
 
 **Spawn, drive and park forms:**
 
-| row | sawc2 lowering | pin | unit |
+| row | sawc lowering | pin | unit |
 |---|---|---|---|
 | suspending `main` | an entry executor drives `main`'s frame through the std executor | `async_main_sleep_yield` | A3b |
 | `__saw_drive(f(…))`, `__saw_drive_steps`, `__saw_suspend` | test intrinsics: a sync driver loop over a stack-allocated frame that never parks; `__saw_suspend` is `park(ready)` with no wake | `coro_drive_void_body` | A4 |
@@ -375,9 +375,9 @@ The matrix stays, as the **test plan**: each row is a lowering claim plus the St
 | offload job | an fd park on the job's pipe; take (join) before leaving, cancelled or not. Spec, offload "Cancellation": a cancelled task waits for its C call, and its frame keeps the call's storage until the join (t4; risk R6) | can run | `offload_seam_first_tick`, plus A14b's cancel-during-call pin | A14a, A14b |
 | signal watch | an fd park inside `SignalWatch.next` | can run (it counts as I/O) | `conformance/K98_signal_wakes_a_parked_watcher` | A15 |
 
-**Language refusals Stage 0 makes and sawc2 matches:**
+**Language refusals Stage 0 makes and sawc matches:**
 
-| refusal | sawc2 rule | pin | unit |
+| refusal | sawc rule | pin | unit |
 |---|---|---|---|
 | suspending recursion, naming the cycle | `coro.suspending-cycle` (new), after mono | `errors/coro_mutual_suspending_recursion` and 7 more | A1 |
 | K37, `any` dispatch to a suspending implementation | `effect.any-suspends` (exists) | `conformance/K37_existential_dispatch_suspending_impl_refused` | in place |
@@ -433,7 +433,7 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
   - **Each row records its target triple.** Frame sizes and backtrace offsets depend on pointer width and alignment, and SL-536 brings Linux and an x86_64 cross target. B4 compares only rows of the same triple.
   - **A0b is a hard prerequisite of removing `sawc/`.** Once Stage 0 is gone, nothing can regenerate its outputs, sizes or table shapes, and B4 and every "against Stage 0" pin rest on them. So A0b lands first: it has no dependencies. SL-539's removal checklist should name it (merged, with all 490 snapshotted) as a precondition, which is for the lead to add.
 
-  `compiler/tests/coro/census.py` (informational, like `mir/corpus_info.py`) counts how many of the 490 programs and the 93 refusal tests sawc2 builds and passes, by first refusal. It also generates §1's *gated* list: the programs whose missing names include a std module or type outside this plan. The rest is the plan-complete set.
+  `compiler/tests/coro/census.py` (informational, like `mir/corpus_info.py`) counts how many of the 490 programs and the 93 refusal tests sawc builds and passes, by first refusal. It also generates §1's *gated* list: the programs whose missing names include a std module or type outside this plan. The rest is the plan-complete set.
 - **Depends on:** nothing.
 - **Files:** `compiler/tests/coro/` only.
 - **Pins:** the census lane prints today's 0 / 490.
@@ -444,7 +444,7 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
 
 **A1. The `compiler/coro` stage, and the *definitely suspends* fixpoint.**
 - **Scope:**
-  - A new package, `sawcoro`, in `STAGE_PACKAGES`, between mono and the backend, with `sawc2 coro (--dump | --check)`.
+  - A new package, `sawcoro`, in `STAGE_PACKAGES`, between mono and the backend, with `sawc coro (--dump | --check)`.
   - A worklist fixpoint over mono's items and their static call edges (principle 6: identity-based cycle detection, no depth bound). An item suspends if it contains a park or calls one that suspends.
   - Each item's frame decision and its cause chain in the dump, such as `(frame yes (via p21.slow -> usleep))`. `run<Fast>` prints `(frame no)` (this closes SL-526's visible half).
   - The cycle refusal `coro.suspending-cycle`, naming the cycle (`ping -> pong -> ping`) with Stage 0's pending note citing SL-322.
@@ -477,7 +477,7 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
   - The resident set: the values whose lifetime contains a suspension point.
   - One layout entry, `assign(values, interference) -> offsets`, here with the *no-sharing* policy, so that B2 changes the policy and nothing else.
   - A new MIR projection, the frame slot `(*frame).[off: T]`, with its dump spelling and verifier rule.
-  - `sawc2 coro --layouts`.
+  - `sawc coro --layouts`.
 
   The frame has no drop glue (§3.1).
 - **Depends on:** A1.
@@ -718,7 +718,7 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
 **A16a. The backtrace table** (back track).
 - **Scope:**
   - `__saw_bt_table` built from the final layouts: per frame, its state word's offset, and per state its line and the offset of the child it drives.
-  - `sawc2 coro --bt-table` decodes it.
+  - `sawc coro --bt-table` decodes it.
   - It keeps Stage 0's blob format, so `tools/lldb_saw.py` keeps working.
 - **Depends on:** B2, since offsets are final only after packing.
 - **Files:** `compiler/coro/src/bttable.saw` (new), `compiler/llvm/src/module.saw`.
@@ -801,7 +801,7 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
 **B3. The verifier's no-intersecting-lifetimes check.**
 - **Scope:**
   - **The static check:** recompute storage lifetimes *from the lowered MIR's frame-slot accesses*, not from B1's sets, over parked states and the resume transitions. Then check that no two values sharing bytes intersect.
-  - **Its dynamic twin** (t10, risk R2): a sawc2 sanitize flag that stamps `sanitize_address` on every function, plus, under it, `__asan_unpoison_memory_region` / `__asan_poison_memory_region` on each frame value's slot where its storage lifetime starts and ends. The run lane builds the coroutine programs once with it.
+  - **Its dynamic twin** (t10, risk R2): a sawc sanitize flag that stamps `sanitize_address` on every function, plus, under it, `__asan_unpoison_memory_region` / `__asan_poison_memory_region` on each frame value's slot where its storage lifetime starts and ends. The run lane builds the coroutine programs once with it.
 - **Depends on:** B2.
 - **Files:** `compiler/coro/src/{verify,lower}.saw`, `compiler/llvm/src/module.saw` and `compiler/driver/src/main.saw` (the flag), `compiler/tests/coro/inject/`, `compiler/tests/run/`.
 - **Pins:**
@@ -812,7 +812,7 @@ Pins are named by their `tests/corpus/` program: each becomes a run-lane copy co
 - **Estimate:** 1.5.
 
 **B4. Frame sizes against Stage 0.**
-- **Scope:** a lane over every corpus frame: sawc2's extent against Stage 0's snapshot. It fails on a frame larger than Stage 0's unless an exception with a reason is recorded (such as a resident value Stage 0 got wrong), and it reports the total saving.
+- **Scope:** a lane over every corpus frame: sawc's extent against Stage 0's snapshot. It fails on a frame larger than Stage 0's unless an exception with a reason is recorded (such as a resident value Stage 0 got wrong), and it reports the total saving.
 - **Depends on:** B2, A0b.
 - **Files:** `compiler/tests/coro/`.
 - **Pins:** the lane itself.
@@ -864,7 +864,7 @@ These units start after A and B. Q1–Q4 in §5 are their rulings.
 
 **C5. Suspending `any Trait` dispatch (K37 lifted).**
 - **Scope:** per §5 Q5, a suspending requirement's vtable entry carries a frame descriptor and an init thunk, and the caller's storage is the union slot or a heap box. K37's refusal becomes a run program.
-- **Depends on:** C2. Outside this plan, it needs sawc2 to call methods through `any` at all; today that is `slice.not-yet`.
+- **Depends on:** C2. Outside this plan, it needs sawc to call methods through `any` at all; today that is `slice.not-yet`.
 - **Files:** `compiler/coro/`, `compiler/mono/src/` (method tables).
 - **Pins:** `conformance/K37_existential_dispatch_suspending_impl_refused`, flipped.
 - **Done when:** it runs.
@@ -1023,7 +1023,7 @@ These are DF-223b's options:
 - **(b) A union slot.** The caller embeds storage sized to the largest frame among the conformers coerced to that `any`. Mono sees the whole program, so the set is known, and the static size is kept with no allocation;
 - **(c) Keep it refused,** and say a suspending method cannot be reached through `any`.
 
-**Recommendation: (b),** falling back to (a) for a conformer that is itself `indirect`. One caveat: this cannot start before sawc2 calls methods through `any` at all, which today is `slice.not-yet`.
+**Recommendation: (b),** falling back to (a) for a conformer that is itself `indirect`. One caveat: this cannot start before sawc calls methods through `any` at all, which today is `slice.not-yet`.
 
 ### Q6. Suspending closures: which design?
 - **(a) A heap frame per call,** through the descriptor and init thunk the closure value carries.
@@ -1035,8 +1035,8 @@ These are DF-223b's options:
 ### Q7. Where does SL-355's runtime half (R5) land?
 R5 is the ruled atomic wake word with its CAS(-1 → 0) latch, plus a `register` that returns a status. It is in neither runtime yet, and `sawc/rt/` is shared by both compilers.
 - **(a) Land it at A12a in `sawc/rt/` and both stds.** `sawc/std/taskgroup.saw`'s change is the maintenance fix SL:architecture §4 names for exactly this seam. It breaks the ABI for runtime providers (the 0.12.0 cut the user ruled); sawos follows in SO-18 when it resumes.
-- **(b) sawc2 takes R1–R4 now, on the compiler side, and the runtime half waits for Stage 0's retirement.** Until then, SL-353's lost wake stays latent in `threads: N` groups.
-- **(c) Give sawc2 its own reactor copy.** Two runtimes is what §3.11 avoids.
+- **(b) sawc takes R1–R4 now, on the compiler side, and the runtime half waits for Stage 0's retirement.** Until then, SL-353's lost wake stays latent in `threads: N` groups.
+- **(c) Give sawc its own reactor copy.** Two runtimes is what §3.11 avoids.
 
 **Recommendation: (a).** The code is already reviewed (SL-355 c20), and without it A17a's multi-threaded pool inherits a known hang. It needs the user because it touches the frozen tree and sawos's ABI.
 
@@ -1080,10 +1080,10 @@ Each risk names what could blow up the estimate, then the unit that retires it, 
   - B1 takes loans from the borrow check's own facts, not a second analysis;
   - B3 recomputes lifetimes from the *lowered* MIR's frame-slot accesses and fails on any intersection, with injections proving it can fail;
   - B3 adds a *dynamic* twin of that check (settled with the Air, t10; probe `air-review/coro/asan/`). Plain ASan can't see R2 for two reasons:
-    - clang instruments only functions carrying `sanitize_address`, and sawc2's `.ll` has none;
+    - clang instruments only functions carrying `sanitize_address`, and sawc's `.ll` has none;
     - R2 is two values overlapping inside one live frame allocation, which whole-allocation tracking never reports.
 
-    So sawc2 gains a sanitize flag that stamps the attribute, a small backend change useful beyond coroutines. Under that flag, coro emits `__asan_unpoison_memory_region` where each value's storage lifetime starts and `__asan_poison_memory_region` where it ends. An access through a lifetime B1 computed too short then reports at the access. Normal builds pay nothing. The run lane builds coroutine programs once with the flag.
+    So sawc gains a sanitize flag that stamps the attribute, a small backend change useful beyond coroutines. Under that flag, coro emits `__asan_unpoison_memory_region` where each value's storage lifetime starts and `__asan_poison_memory_region` where it ends. An access through a lifetime B1 computed too short then reports at the access. Normal builds pay nothing. The run lane builds coroutine programs once with the flag.
 
 **R3. Cancellation** (A10, A12a, A14b).
 - **The risk:** cancellation is cooperative, so correctness lives in each std park (record, arm, observe the cancel word, unregister on the way out). That is the SL-353 family: a wake lost between arming and recording.
@@ -1110,8 +1110,8 @@ Each risk names what could blow up the estimate, then the unit that retires it, 
 - **The risk:** the seed ruling retires `sawc/` once a seed bootstraps (SL-539), and the run lane's oracle is Stage 0's live binary.
 - **How it is retired:** A0b snapshots the 490 programs' outputs, frame sizes and table shapes first, so the plan never depends on Stage 0 surviving.
 
-**R8. The std porting volume, and sawc2 gaps met inside it** (A7b, A11–A15, A17a).
-- **The risk:** a third of phase A is std code that Stage 0 already had, written in the bootstrap language. It will meet sawc2 gaps that nobody has needed yet. Two are already known:
+**R8. The std porting volume, and sawc gaps met inside it** (A7b, A11–A15, A17a).
+- **The risk:** a third of phase A is std code that Stage 0 already had, written in the bootstrap language. It will meet sawc gaps that nobody has needed yet. Two are already known:
   - a method call through `any` is `slice.not-yet`, so the executor cannot use Stage 0's `Box<any Resumable>`;
   - a static that is not an integer or a Bool is `backend.not-yet`.
 
@@ -1120,7 +1120,7 @@ Each risk names what could blow up the estimate, then the unit that retires it, 
 
 **R9. Compile time on large frames** (A6, B4).
 - **The risk:** Stage 0's frames drove LLVM into quadratic time and an aggregate limit (SL-230, SL-232, SL-336), because a frame was a first-class aggregate.
-- **How it is retired:** in sawc2 a frame is bytes addressed by `getelementptr`, with no `insertvalue` and no frame-sized SSA values, so that class cannot recur. A resume function's state switch still grows with its state count, so B4's lane records compile time on the largest corpus frames alongside sizes.
+- **How it is retired:** in sawc a frame is bytes addressed by `getelementptr`, with no `insertvalue` and no frame-sized SSA values, so that class cannot recur. A resume function's state switch still grows with its state count, so B4's lane records compile time on the largest corpus frames alongside sizes.
 
 **R10. Heap-frame depth** (C3; Q4).
 - **The risk:** recursive driving costs O(depth) native stack per poll.
