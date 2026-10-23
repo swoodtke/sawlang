@@ -23,6 +23,7 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_open", "word, word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_opendir", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_read", "word, word, word", "word", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_realpath", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_rename", "word, word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_rmdir", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_fs_unlink", "word", "word", "runtime")

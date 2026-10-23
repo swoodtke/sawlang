@@ -1,0 +1,56 @@
+// probe: stated
+// about: `Path.canonical` resolves a file's real path over `__saw_rt_fs_realpath`: a symbolic link to its target, `..` collapsed, a missing file `NotFound`, and a NUL byte refused before the call (SL-826)
+// stage 0: cannot build it, since its `std.path` has no `Path.canonical`
+// speeds: -O0 -O2
+// prints: absolute: true
+// prints: ends with the file's name: true
+// prints: link resolves to its target: true
+// prints: `..` collapses: true
+// prints: realpath failed (not found)
+// prints: realpath failed (invalid argument)
+//
+// The probe makes its own files in the directory it runs in, so the paths it
+// compares are relative and the lines it prints hold on every host.
+
+import std.directory.{Directory}
+import std.file.{File}
+import std.path.{Path}
+import std.process.{Command}
+
+func canonical_text(p: String) -> String {
+    match Path(s: p).canonical() {
+        case Ok(found) -> found.as_string(),
+        case Err(e) -> "{e}"
+    }
+}
+
+func clear() {
+    let _ = File.remove(Path(s: "path_canonical_link.txt"))
+    let _ = File.remove(Path(s: "path_canonical_target.txt"))
+    let _ = Directory.remove(Path(s: "path_canonical_dir"))
+}
+
+func main() {
+    clear()
+    var made = try! File.create(Path(s: "path_canonical_target.txt"))
+    try! made.close()
+    try! Directory.create(Path(s: "path_canonical_dir"))
+    var link = Command(program: "/bin/ln")
+    try! link.arg("-s")
+    try! link.arg("path_canonical_target.txt")
+    try! link.arg("path_canonical_link.txt")
+    let _ = try! link.wait()
+
+    let target = canonical_text("path_canonical_target.txt")
+    print("absolute: {Path(s: target).is_absolute()}")
+    print("ends with the file's name: {target.ends_with("/path_canonical_target.txt")}")
+    print("link resolves to its target: {canonical_text("path_canonical_link.txt") == target}")
+    print("`..` collapses: {canonical_text("path_canonical_dir/../path_canonical_target.txt") == target}")
+    print(canonical_text("path_canonical_missing.txt"))
+    var with_nul = StringBuilder()
+    try! with_nul.append("path_canonical")
+    try! with_nul.append(0 as Byte)
+    try! with_nul.append(".txt")
+    print(canonical_text(with_nul.build()))
+    clear()
+}

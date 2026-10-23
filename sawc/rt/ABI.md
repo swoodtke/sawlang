@@ -639,6 +639,15 @@ captured right after). C-string args.
   `getcwd(NULL, 0)`, which allocates a buffer sized to the path (POSIX leaves
   that call unspecified; macOS and glibc define it), so no path is cut short
   and no buffer size is guessed. The pointer comes back raw, as opendir's does.
+- `__saw_rt_fs_realpath(path: i8*, status_out: word*) -> i8*` — `path` with
+  every symbolic link, `.` and `..` resolved, as an absolute NUL-terminated
+  string the caller frees, or NULL. The status goes to the out-parameter as
+  `__saw_rt_fs_getcwd`'s does: `0` on success, the POSITIVE tag on failure (a
+  missing component is `NotFound`). The hosted body calls `realpath(path,
+  NULL)`, which allocates the result (POSIX.1-2008), so no `PATH_MAX` buffer
+  is guessed. macOS's result spells each component as the directory stores
+  it, which on a case-insensitive volume may differ from `path`'s spelling;
+  glibc's keeps the spelling it was given.
 - `__saw_rt_fs_dirent_name(entry: i8*) -> i8*` — **OS-divergent** (design 122).
   The NUL-terminated name inside a `struct dirent` returned by `readdir`: the
   `d_name` offset is 21 on macOS and 19 on Linux, and it is the only divergent
@@ -1265,6 +1274,7 @@ a flag bit.
 | SL-768 (c1) | for sawc 0.16.0: `__saw_rt_write_error`, one new symbol, standard error, unbuffered and best-effort. `__saw_rt_panic` **changed** contract with the same signature: it writes the message to standard error through `__saw_rt_write_error` where it wrote standard output through `__saw_rt_write`. A freestanding runtime supplies the new seam when a program links the executor |
 | SL-768 (c2) | sawc 0.16.0: standard output reports and serializes. **Changed** signatures: `__saw_rt_write` returns `0`/`-tag` where it returned `void`, and `__saw_rt_executable_path` takes `status_out` and reports a positive tag with its NULL. **New:** `__saw_rt_write_line` (the line `print` writes, its parts and line break under the output lock), `__saw_rt_output_lock`/`_unlock` (the recursive output lock, around a dump) and `__saw_rt_tcp_socketpair`. **Changed** contracts with the same signature: `__saw_rt_write` and `__saw_rt_panic` take the output lock; `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` report `EAGAIN` as `Exhausted` (SL-783). Every runtime provider follows it |
 | SL-793 | `__saw_rt_thread_executor` and `__saw_rt_set_thread_executor`: two new symbols, the per-thread word std's executor keeps its record's address in, so a cooperative group's tasks run only on the thread that drives it. No existing signature moved. A freestanding runtime supplies both when a program links the executor; a single-threaded one keeps a static word |
+| SL-826 | `__saw_rt_fs_realpath`: one new symbol, status-carrying like `__saw_rt_fs_getcwd`, so `Path.canonical` reports the cause realpath gave. No existing signature moved |
 
 ## The compiler → executor boundary (design 118)
 

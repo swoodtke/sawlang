@@ -31,6 +31,7 @@ extern "C" {
     func rmdir(path: UnsafePointer<Int8>) -> Int32
     func chdir(path: UnsafePointer<Int8>) -> Int32
     func getcwd(buffer: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
+    func realpath(path: UnsafePointer<Int8>, resolved: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
     // Hostname resolution; see `rt_resolve_ipv4` for why it may block.
     func getaddrinfo(node: UnsafePointer<Int8>, service: UnsafePointer<Int8>,
                      hints: UnsafePointer<Int8>, res: UnsafePointer<Int8>) -> Int32
@@ -562,6 +563,19 @@ func rt_fs_getcwd(status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> 
     if let path = getcwd(0 as UnsafePointer<Int8>, 0) {
         status_out[0] = 0
         return path
+    }
+    status_out[0] = __saw_rt_last_syserror()
+    return 0 as UnsafePointer<Int8>
+}
+
+// realpath(path, NULL) allocates the resolved path, so no PATH_MAX buffer is
+// guessed (POSIX.1-2008 defines the NULL form). The status goes out as
+// getcwd's does, and the caller frees the returned string.
+@export("__saw_rt_fs_realpath")
+func rt_fs_realpath(path: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) unsafe -> UnsafePointer<Int8> {
+    if let resolved = realpath(path, 0 as UnsafePointer<Int8>) {
+        status_out[0] = 0
+        return resolved
     }
     status_out[0] = __saw_rt_last_syserror()
     return 0 as UnsafePointer<Int8>
