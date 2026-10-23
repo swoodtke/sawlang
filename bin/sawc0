@@ -1,0 +1,37 @@
+#!/bin/sh
+# `sawc0` on a $PATH: Stage 0, the frozen Python compiler in `sawc/`.
+#
+# `sawc` names the sawlang toolchain, whichever compiler that is; `sawc0`
+# names Stage 0 and nothing else, for a caller that needs Stage 0 itself
+# (Blade's build, the frozen sources' recipes). Like `bin/sawc`, it execs the
+# checkout it lives in, and `make install` symlinks it onto a prefix.
+set -eu
+
+# Resolve this script through any symlinks before taking the directory above
+# it. `dirname $0` alone would name the PREFIX rather than the checkout once
+# `make install` has linked it, and `readlink -f` is not portable to macOS.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+# `SAWLANG_ROOT` wins, matching `bin/sawc` and the resolver's own precedence
+# (design 238 D-b): what the operator named beats what was inferred.
+ROOT=${SAWLANG_ROOT:-$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)}
+
+# The checkout's venv is where llvmlite lives. A machine that installed it
+# globally instead is served by the fallback; a machine with neither is told
+# so rather than left to fail somewhere deeper.
+PY="$ROOT/.venv/bin/python"
+if [ ! -x "$PY" ]; then
+    PY=$(command -v python3 || true)
+fi
+if [ -z "$PY" ]; then
+    echo "sawc0: no Python found — expected $ROOT/.venv/bin/python or python3" >&2
+    exit 1
+fi
+
+exec "$PY" "$ROOT/sawc/sawc.py" "$@"

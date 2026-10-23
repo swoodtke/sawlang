@@ -60,7 +60,6 @@ if os.path.join(REPO, "tools") not in sys.path:
 import build  # noqa: E402
 import child_groups  # noqa: E402
 import expect  # noqa: E402
-import toolchain  # noqa: E402
 import twin  # noqa: E402
 
 RUNS = 2
@@ -119,15 +118,16 @@ def twin_of(path):
 
 # --- Stage 0 -----------------------------------------------------------------
 
-# The checkout whose `sawc/sawc.py` is the v0 compiler. This tree holds it
-# until `sawc/` is deleted; then this one line names SAWLANG_V0_ROOT (SL-668).
+# The checkout whose `sawc/sawc.py` is `sawc0`, the v0 compiler. This tree
+# holds it until `sawc/` is deleted; then this one line names SAWLANG_V0_ROOT
+# (SL-667).
 V0_ROOT = REPO
 
 
 def v0_root():
-    """The v0 compiler's checkout, `V0_ROOT`, or an exit naming why there is
-    none. Every regeneration of a Stage 0 snapshot reaches Stage 0 through
-    here, and nothing else runs it.
+    """The checkout of `sawc0`, the v0 compiler: `V0_ROOT`, or an exit naming
+    why it holds none. Every regeneration of a Stage 0 snapshot reaches Stage
+    0 through here, and nothing else runs it.
 
     ENTRY POINTS
         v0_compiler
@@ -136,21 +136,24 @@ def v0_root():
         std_suspension.use_v0_checkout
         migrate/instrument.py
     """
-    if not toolchain._looks_like_sawlang(V0_ROOT):
+    if not os.path.isfile(os.path.join(V0_ROOT, "sawc", "sawc.py")):
         raise SystemExit("oracle: %s holds no v0 compiler (sawc/sawc.py), and regenerating a Stage 0 "
                          "snapshot needs one" % V0_ROOT)
     return V0_ROOT
 
 
 def v0_compiler():
-    """The argv prefix that runs the v0 compiler, with its checkout's venv."""
-    return toolchain._sawc_from_root(v0_root())
+    """The argv prefix that runs `sawc0`, with its checkout's venv. It is
+    built here, not by the toolchain resolver, whose compiler is whichever
+    one `sawc` names."""
+    return [v0_python(), os.path.join(v0_root(), "sawc", "sawc.py")]
 
 
 def v0_python():
-    """The Python of the v0 compiler's checkout, for an observer that runs
-    its passes in-process."""
-    return v0_compiler()[0]
+    """The Python of the v0 compiler's checkout, its venv's where there is
+    one, for an observer that runs its passes in-process."""
+    venv_py = os.path.join(v0_root(), ".venv", "bin", "python")
+    return venv_py if os.path.isfile(venv_py) else sys.executable
 
 
 def stage0(src, out, args, timeout=STAGE0_TIMEOUT, cwd=REPO):

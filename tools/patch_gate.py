@@ -69,7 +69,6 @@ SUITE_INPUTS = {
         "compiler/tests/coro/expect.py", # the directives
         # The modules oracle.py imports.
         "compiler/tests/fixpoint/twin.py",
-        "tools/toolchain.py",
         "tools/child_groups.py",
         "tools/gate_jobs.py",            # its worker budget
     ),

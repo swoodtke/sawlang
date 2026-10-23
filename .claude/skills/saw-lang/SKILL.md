@@ -4047,7 +4047,7 @@ Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
 value; an exported return may not be optional — a seam returns a raw
 `UnsafePointer<T>`, the `?`-wrapping is the caller's `extern` decl).
 `@export` of a reserved runtime symbol (`main`, `saw_*`, `__saw_*`) is an
-error — EXCEPT in a runtime build (`sawc2 runtime`, or Stage 0's `sawc
+error — EXCEPT in a runtime build (`sawc2 runtime`, or Stage 0's `sawc0
 --runtime-build`; design 113b), which lets the per-host runtime under
 `runtime/` export exactly the frozen `__saw_rt_*` ABI (sync-only; a non-ABI
 `__saw_rt_*` name / a suspending body is a clean error). You only touch this
@@ -4775,7 +4775,7 @@ construct in the owner and lend `&driver` down.
   ```
   Copy-tier elements are unaffected, and member hops off a plain subscript
   (`v[0].id`, `v[0].m()`) are getitems too.
-  STAGE 0: sawc still treats rendering and comparison positions as an in-place
+  STAGE 0: sawc0 still treats rendering and comparison positions as an in-place
   borrow, so a plain `print(v[0])` of a move-only element compiles there.
   GOTCHA (Stage 0): the window spans the whole expression that asks for the borrow, so
   anything else in it is inside the window — an `assert` condition naming the

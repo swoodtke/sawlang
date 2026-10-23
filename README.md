@@ -955,19 +955,20 @@ python3 -m venv .venv
 
 ### Putting `sawc` and `blade` on your PATH
 
-`make install` builds Blade and symlinks two shims onto a prefix
-(`~/.local/bin` by default):
+`make install` builds Blade and symlinks three shims, `sawc`, `sawc0` and
+`blade`, onto a prefix (`~/.local/bin` by default):
 
 ```bash
 make install                        # -> ~/.local/bin
 make install PREFIX=/usr/local/bin  # -> somewhere else
 ```
 
-Both shims exec this checkout, so an installed `sawc` is always the compiler
+The shims exec this checkout, so an installed `sawc` is always the compiler
 you have — editing it changes what the name means with no reinstall. `blade`
-finds the `sawc` beside it, so `blade build` needs no `SAWC` set. If you would
-rather install nothing, put `<checkout>/bin` on your `PATH` instead; the shims
-work either way.
+finds the `sawc` beside it, so `blade build` needs no `SAWC` set. `sawc0`
+always runs the Python compiler in `sawc/`, whatever `sawc` names. If you
+would rather install nothing, put `<checkout>/bin` on your `PATH` instead; the
+shims work either way.
 
 `sawc --version` prints the compiler's version. Bumping it is part of shipping
 a user-visible change, because a consumer that pins a toolchain has only this
@@ -1140,7 +1141,7 @@ sawc/                  # Compiler implementation
   namespace.py         # Module/symbol resolution
   builtin.saw          # Built-in traits
   std/                 # Standard library (.saw files)
-bin/                   # `sawc` and `blade` shims (see `make install`)
+bin/                   # `sawc`, `sawc0` and `blade` shims (see `make install`)
 examples/              # Example programs (also the compiler test suite)
 blade/                 # Blade package manager (written in Saw)
 libs/                  # Real Saw library packages (semver, toml, imgformat)

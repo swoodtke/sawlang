@@ -22,23 +22,25 @@ test-filter:
 blade-bootstrap:
 	@python3 tools/blade_bootstrap.py
 
-# The install story (design 238 unit 3, D-b1): put `sawc` and `blade` on a
-# $PATH. There is nothing to package — the compiler is a Python entry point and
-# Blade is built from Saw source — so `bin/` holds two shims into this checkout
-# and `install` symlinks them onto a prefix. An installed name therefore always
-# means THIS tree, and re-installing after a `git pull` is unnecessary.
+# The install story (design 238 unit 3, D-b1): put `sawc`, `sawc0` and `blade`
+# on a $PATH. There is nothing to package — the compiler is a Python entry point
+# and Blade is built from Saw source — so `bin/` holds three shims into this
+# checkout and `install` symlinks them onto a prefix. An installed name
+# therefore always means THIS tree, and re-installing after a `git pull` is
+# unnecessary. `sawc0` is Stage 0 by name, whatever `sawc` names.
 #
 #   make install                    # -> ~/.local/bin
 #   make install PREFIX=/usr/local/bin
 #
 # Blade is built first because its shim execs a binary rather than a script.
-# The build goes through `bin/sawc`, which finds `.venv/bin/python` itself —
-# so this target, unlike `make test`, does not need the venv activated.
+# Blade is written in Stage 0's language, so the build goes through
+# `bin/sawc0`. That shim finds `.venv/bin/python` itself, so this target,
+# unlike `make test`, does not need the venv activated.
 PREFIX ?= $(HOME)/.local/bin
 BLADE_BIN := .build/blade
 
 blade:
-	@bin/sawc blade/src/main.saw -o $(BLADE_BIN) \
+	@bin/sawc0 blade/src/main.saw -o $(BLADE_BIN) \
 		--module-path blade=blade/src \
 		--module-path toml=libs/toml/src \
 		--module-path semver=libs/semver/src \
@@ -47,8 +49,9 @@ blade:
 install: blade
 	@mkdir -p $(PREFIX)
 	@ln -sf $(abspath bin/sawc) $(PREFIX)/sawc
+	@ln -sf $(abspath bin/sawc0) $(PREFIX)/sawc0
 	@ln -sf $(abspath bin/blade) $(PREFIX)/blade
-	@echo "Installed sawc and blade -> $(PREFIX)"
+	@echo "Installed sawc, sawc0 and blade -> $(PREFIX)"
 	@echo "  (add it to your PATH if it is not already there)"
 
 # The freestanding QEMU suite (design 238 unit 1): tiny programs that name the
@@ -208,7 +211,7 @@ help:
 	@echo "  make test-filter     - Run tests matching FILTER pattern"
 	@echo "                         Example: make test-filter FILTER=enum"
 	@echo "  make blade           - Build the package manager into .build/blade"
-	@echo "  make install         - Put sawc + blade on a PATH (PREFIX=~/.local/bin)"
+	@echo "  make install         - Put sawc, sawc0 + blade on a PATH (PREFIX=~/.local/bin)"
 	@echo "  make freestanding-test - Build + run the freestanding feature suite under QEMU (riscv32 AND arm64)"
 	@echo "  make compiler-test   - The self-hosted compiler's tests (compiler/)"
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"

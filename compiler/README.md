@@ -4,7 +4,8 @@ The Saw compiler written in Saw (epic SL-398). The seed, its own IR, builds
 Stage 1, so the compiler and its std may use the whole language; the
 constraint is what the pinned seed compiles, which the bootstrap build
 enforces. The frozen Python compiler in `sawc/`, Stage 0, stays only as the
-oracle whose recorded runs the lanes compare with. The design lives in the
+oracle whose recorded runs the lanes compare with; by name it is `sawc0`
+(`bin/sawc0`). The design lives in the
 tracker's docs, which `~/bin/sawtracker doc show NAME` prints:
 
 - **SL:architecture**: the stages and their contracts (§3), the shared

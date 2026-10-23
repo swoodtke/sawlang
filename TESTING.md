@@ -104,7 +104,7 @@ The rest constrain what the run must show:
 | `// EXPECT-NO-WARNINGS` | The compile must emit no warning at all |
 | `// EXPECT-SYMBOL-UNDEFINED: sym` | `nm` must report `sym` as undefined in the object |
 | `// EXPECT-OBJECT-MAX-BYTES: n` | The emitted object must be at most `n` bytes |
-| `// COMPILE-FLAGS: ...` | Extra `sawc` flags for this test; `{TESTDIR}` expands to the file's directory |
+| `// COMPILE-FLAGS: ...` | Extra `sawc0` flags for this test; `{TESTDIR}` expands to the file's directory |
 | `// XFAIL: reason` | Known-broken test: failure is expected, does not break the build |
 
 ### Known Failures (XFAIL)
@@ -1264,11 +1264,12 @@ own `Saw.toml` and `blade test` suite:
   header/segment rules a loader judges by.
 
 Run a package's own tests by pointing Blade at its directory
-(`blade test` from inside `libs/toml`, `libs/semver` or `libs/imgformat`) —
-nothing but `blade test` is needed once `sawc` is installed or `SAWC` is set.
-On a clean in-tree checkout (no installed `sawc`) the bootstrap sets `SAWC` for
-you: the loop runs every lib suite as a standard bar (design 97), so they are
-actually validated on every `make blade-bootstrap` and cannot silently rot.
+(`blade test` from inside `libs/toml`, `libs/semver` or `libs/imgformat`).
+The packages are written in Stage 0's language, so name Stage 0 with `SAWC`:
+`SAWC=sawc0 blade test` once `make install` has run, or `SAWC` set to the
+checkout's `bin/sawc0`. The bootstrap sets `SAWC` to Stage 0 itself: the loop
+runs every lib suite as a standard bar (design 97), so they are actually
+validated on every `make blade-bootstrap` and cannot silently rot.
 
 Blade is an application, so its `Saw.lock` is committed. The library packages'
 are not: `blade build` writes no lock in a library, and each ships a one-line
@@ -1279,8 +1280,9 @@ Because Blade's own `Saw.toml` depends on `libs/toml`, **every Blade build runs
 the resolver, writes/uses `Saw.lock`, and passes `--module-path`** — the dep
 features cannot rot without breaking Blade's own build. The bootstrap loop
 (`make blade-bootstrap`, or `python tools/blade_bootstrap.py`) proves it end to
-end: the in-tree `sawc` builds Blade (stage0); that Blade builds Blade through
-its own resolve/lock/module-path/incremental pipeline (stage1); the self-built
+end: the in-tree Stage 0 (`sawc/sawc.py`, which `sawc0` runs) builds Blade
+(stage0); that Blade builds Blade through its own
+resolve/lock/module-path/incremental pipeline (stage1); the self-built
 binary runs Blade's full suite; a second build reports "up to date"; `--force`
 rebuilds (stage2); and the stage2 binary re-runs the suite.
 

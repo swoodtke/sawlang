@@ -106,6 +106,8 @@ the clang, which must compile opaque-pointer IR; Debian's default clang 14
 cannot. `build.py --runtime TRIPLE` configures another target's runtime.
 
 ## Compiler usage (dev)
+Stage 0 is `sawc0`: `bin/sawc0` (installed by `make install`) runs the
+command below, whatever `sawc` names.
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all]
@@ -609,7 +611,7 @@ Qualifier bindings are WEAK — locals -> module decls -> imported bare
 names -> qualifiers last — so a local `data`/`path`/`time` shadows one
 lexically with no error, and the member-lookup failure names the
 shadowing decl + three outs. Two imports on one qualifier error at the
-import. Every form is a design-142 direct import. sawc gained `-W <name>`
+import. Every form is a design-142 direct import. sawc0 gained `-W <name>`
 / `-W all` (design 150 4b): warnings OFF by default, never affect exit
 code, no -Werror; first category `shadowed-qualifier`, emitted at the
 declaration. Unsafe surface (design 130 + 136, superseding 81's marking rules):
