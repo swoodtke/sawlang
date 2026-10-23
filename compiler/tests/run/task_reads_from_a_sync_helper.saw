@@ -1,0 +1,36 @@
+// `dump_tasks()` and `Task.spawn` read no current task, so from a task's
+// `sync` helper the dump is the body's, and a background task spawned there
+// joins as one the body spawns does: the controls of conformance row K201
+// (SL-810).
+import std.task.*
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func dump_sync() sync {
+    print("-- dump from the sync helper")
+    dump_tasks()
+}
+
+func spawn_sync() sync -> Int {
+    let t = Task.spawn(square(5))
+    t.join()
+}
+
+func body() -> Int {
+    yield_now()
+    print("-- dump from the body")
+    dump_tasks()
+    dump_sync()
+    let a = Task.spawn(square(4)).join()
+    print("body's Task.spawn joined {}", a)
+    print("sync helper's Task.spawn joined {}", spawn_sync())
+    0
+}
+
+func main() {
+    let t = Task.spawn(body())
+    print("joined {}", t.join())
+}

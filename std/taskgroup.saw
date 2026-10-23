@@ -626,6 +626,11 @@ struct ExecutorRecord {
     // thread alone: a walk that sees any record's count move did not read
     // one moment (`quiescent_now`).
     turns: Int
+    // The address of the context of the task whose turn this thread is
+    // running, or 0 outside every turn: the task `cancelled()` answers for
+    // in code no frame lowers. Only the record's own thread reads or writes
+    // it (`begin_turn`).
+    current: Int
 }
 
 // A walk's mark in a latch, which is no record's address.
@@ -807,7 +812,7 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     let raw = exec_alloc(size, align, "executor")
     let fresh = raw as UnsafePointer<ExecutorRecord>
     fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1, latch: 0,
-                              turns: 0)
+                              turns: 0, current: 0)
     var linked = false
     while not linked {
         let head = EXEC_RECORDS.load()
@@ -1392,6 +1397,46 @@ func resume_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePoint
     resume(frame, context)
 }
 
+// Opens a turn of the task whose context is at `context` on `record`'s
+// thread, the calling one: until the matching `end_turn`, `cancelled()` in
+// code no frame lowers answers for that task. Returns the task the thread
+// named before, which `end_turn` restores. A drive made inside the turn opens
+// and ends turns of its own before it returns, so the turns nest as the
+// thread's waits do and each end restores the task its caller is running. A
+// turn covers the resume and, when the task finished, its completion's
+// bookkeeping, since an unclaimed result dropped there is the finished
+// task's own teardown. A panic aborts, so no turn is ever left open past one.
+//
+// ENTRY POINTS:
+//   resume_slot
+//   worker_resume
+//   drive_frame
+func begin_turn(record: UnsafePointer<ExecutorRecord>, context: UnsafePointer<TaskContext>) unsafe -> Int {
+    let outer = record[0].current
+    record[0].current = context as Int
+    outer
+}
+
+func end_turn(record: UnsafePointer<ExecutorRecord>, outer: Int) unsafe {
+    record[0].current = outer
+}
+
+// Whether the task whose turn the calling thread is running has been asked
+// to stop: false outside every turn, a thread that never drove a task's
+// included. The body of `__saw_cancel_requested`, which a lowered frame reads
+// through its own context instead.
+public(package) func __saw_exec_cancel_requested() unsafe -> Bool {
+    let r = __saw_rt_thread_executor()
+    if r == 0 {
+        return false
+    }
+    let cx = (r as UnsafePointer<ExecutorRecord>)[0].current
+    if cx == 0 {
+        return false
+    }
+    (cx as UnsafePointer<TaskContext>)[0].cancel[0]
+}
+
 // Resumes `slot` of the group at `g` once, then records what it reported.
 //
 // Nothing is borrowed from the group across the resume: the frame may spawn,
@@ -1416,6 +1461,7 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     cell[0].park = PARK_UNSET
     unlock_queue(at)
     let context = (&cell[0].context) as UnsafePointer<TaskContext>
+    let outer = begin_turn(record, context)
     let poll = resume_frame(cell[0].descriptor, frame, context)
     lock_queue(at)
     count_turn(record)
@@ -1435,6 +1481,7 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     }
     unlock_queue(at)
     retire(retired)
+    end_turn(record, outer)
 }
 
 // Whether the sweep `sweep` was asked for is finished: with `waiter` nonzero,
@@ -2279,6 +2326,7 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointe
         let context = (&cell[0].context) as UnsafePointer<TaskContext>
         let descriptor = cell[0].descriptor
         unlock_queue(at)
+        let outer = begin_turn(record, context)
         let poll = resume_frame(descriptor, frame, context)
         lock_queue(at)
         count_turn(record)
@@ -2306,6 +2354,7 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointe
                 }
             }
         }
+        end_turn(record, outer)
         // A join waits for a completion on the condition variable, and a
         // peer that saw this frame active waits there for its outcome. A
         // stopping pool's last completion is what its polling workers leave
@@ -2594,8 +2643,17 @@ func drive_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePointe
                               task: frame as Int, deadline: 0)
     let cx = (&context) as UnsafePointer<TaskContext>
     let word = cx[0].park
+    let record = this_executor()
     var steps = 0
-    while resume_frame(descriptor, frame, cx) == Poll.Pending {
+    while true {
+        // A turn per resume, so the sweep below runs as the drive's caller,
+        // not as the driven frame.
+        let outer = begin_turn(record, cx)
+        let poll = resume_frame(descriptor, frame, cx)
+        end_turn(record, outer)
+        if poll == Poll.Ready {
+            return steps
+        }
         steps = steps + 1
         let parked = word[0]
         if parked == PARK_UNSET {

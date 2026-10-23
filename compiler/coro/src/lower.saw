@@ -236,8 +236,8 @@ public func coro_call_decl(coro: &CoroProgram, c: Int) -> Int {
 // frame reads through its context in place of the call: a call of
 // `__saw_cancel_requested`, by its lang role, or of a std function with no
 // parameters that returns that call's result and does nothing else, as
-// `cancelled()` does. Outside a frame the call runs, and the body answers
-// `false`, since no task is running there.
+// `cancelled()` does. Outside a lowered frame the call runs, and the body
+// answers for the calling thread's current task.
 public func coro_cancel_read(coro: &CoroProgram, c: Int) -> Bool {
     let role = coro.mono.dp.bc.mir.tc.res.lang_item(ResLang.CancelRequestedFunction)
     if role < 0 || c < 0 || coro.mono.dp.bc.mir.calls[c].kind != MirCallKind.Function {

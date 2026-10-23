@@ -9190,6 +9190,20 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   normal control flow — frame locals drop exactly once. There is no forced
   destroy and no implicit cancellation at suspension points. Cancelling a task
   that already finished and was reclaimed is a defined no-op.
+  - **`cancelled()` answers for the task whose code is running.** That holds
+    in the task's body and in every function it calls, suspending or `sync`,
+    a `deinit` the task's code runs included. Each thread's executor record
+    names the task it is running a turn of; the executor sets that name around
+    each resume and restores the previous one after it. A helper that waits
+    for other tasks (a group's teardown, a `join()` of a cooperative or a pool
+    task) runs their turns inside its own, so each of those tasks answers for
+    itself, and the helper's answer is its own task's again once the wait
+    returns, however deeply waits nest. An unclaimed result dropped at its
+    task's completion (its handle was dropped or detached first) is that
+    task's teardown and answers for it; a result dropped through its handle
+    answers for the code that drops the handle. Outside every task, in `main`
+    (suspending or not), in a `Thread.spawn` body and in their helpers, the
+    answer is `false`. A panic aborts, so no turn outlives one.
 - **Implicit yield + the cooperative fairness budget (designs 89-b/89-c/127).** A
   suspending call IS a yield point: when a read / accept / sleep / channel-receive
   PARKS (would-block / empty / deadline-not-reached) it cedes to the scheduler

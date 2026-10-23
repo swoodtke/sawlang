@@ -1,0 +1,69 @@
+// probe: stated
+// about: two drives deep, each helper reads its own task's `cancelled()` on both sides of the drive it opens: a cancelled task's helper drops a group whose uncancelled task's helper drops a group whose task is cancelled, conformance row K201 (SL-810)
+// stage 0: reads `false` in every helper, since only a lowered frame reaches the task's cancel word there
+// speeds: -O0 -O2
+// prints: outer body: true
+// prints: outer helper before its drive: true
+// prints: middle body: false
+// prints: middle helper before its drive: false
+// prints: inner body: true
+// prints: inner helper: true
+// prints: middle helper after its drive: false
+// prints: middle body after: false
+// prints: outer helper after its drive: true
+// prints: outer body after: true
+import std.task.*
+
+func read_sync() sync -> Bool {
+    cancelled()
+}
+
+func inner() -> Int {
+    yield_now()
+    print("inner body: {}", cancelled())
+    print("inner helper: {}", read_sync())
+    2
+}
+
+func drive_inner() sync {
+    let group = TaskGroup()
+    let h = group.spawn(inner())
+    h.cancel()
+}
+
+func middle_helper() sync {
+    print("middle helper before its drive: {}", cancelled())
+    drive_inner()
+    print("middle helper after its drive: {}", cancelled())
+}
+
+func middle() -> Int {
+    yield_now()
+    print("middle body: {}", cancelled())
+    middle_helper()
+    print("middle body after: {}", cancelled())
+    1
+}
+
+func drive_middle() sync {
+    let group = TaskGroup()
+    let h = group.spawn(middle())
+}
+
+func outer_helper() sync {
+    print("outer helper before its drive: {}", cancelled())
+    drive_middle()
+    print("outer helper after its drive: {}", cancelled())
+}
+
+func outer() {
+    yield_now()
+    print("outer body: {}", cancelled())
+    outer_helper()
+    print("outer body after: {}", cancelled())
+}
+
+func main() {
+    let t = Task.spawn(outer())
+    t.cancel()
+}

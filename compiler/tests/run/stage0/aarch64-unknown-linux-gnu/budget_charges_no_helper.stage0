@@ -1,0 +1,15 @@
+program	compiler/tests/run/budget_charges_no_helper.saw
+triple	aarch64-unknown-linux-gnu
+source	7467a657ddfdecec
+build	ok
+exit	0
+stdout	"spinner 0 done 2997"
+stdout	"tick"
+stdout	"tick"
+stdout	"spinner 1 done 2997"
+stdout	"tick"
+stdout	"tick"
+stdout	"tick"
+stdout	"tick"
+stdout	"spinner 2 done 2997"
+stdout	""

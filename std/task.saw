@@ -15,7 +15,8 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
-import std.taskgroup.{__saw_exec_close_background, __saw_exec_dump_tasks, __saw_exec_join_park}
+import std.taskgroup.{__saw_exec_cancel_requested, __saw_exec_close_background, __saw_exec_dump_tasks}
+import std.taskgroup.{__saw_exec_join_park}
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_exiting, __saw_exec_thread_finished}
 
 extern "C" {
@@ -354,7 +355,12 @@ public func sleep(duration: Duration) {
 /// Returns whether the running task has been asked to stop.
 ///
 /// Cancellation is cooperative: nothing stops a task but its own code, which
-/// asks here where it chooses to. Outside a task the answer is `false`.
+/// asks here where it chooses to. The running task is the one whose code
+/// calls this, so any function the task calls answers for the task, a `sync`
+/// helper and a `deinit` the task's code runs included. A task the helper
+/// starts and waits for, by joining it or dropping its group, answers for
+/// itself, and the helper's own answer is unchanged once the wait returns.
+/// Outside a task, in `main` or a `Thread.spawn` body, the answer is `false`.
 public func cancelled() -> Bool {
     __saw_cancel_requested()
 }
@@ -453,11 +459,12 @@ public(package) func __saw_park_thread(word: Int) {
     panic("std.task: a thread park reached code generation unlowered")
 }
 
-// Whether the running task's cancel word is set. It parks nothing; inside a
-// coroutine frame the lowering reads the word, and outside one no task is
-// running, so the answer is this body's.
+// Whether the running task's cancel word is set. It parks nothing. Inside a
+// coroutine frame the lowering reads the word through the frame's context;
+// elsewhere this body asks the executor which task the calling thread is
+// running a turn of, so a helper the task calls answers for it too.
 public(package) func __saw_cancel_requested() -> Bool {
-    false
+    __saw_exec_cancel_requested()
 }
 
 // The entry executor (SL:coroutines §3.1, runtime/ABI.md "The compiler →

@@ -1,0 +1,39 @@
+// probe: stated
+// about: a `main` that never suspends, outside every task, and its helpers read `cancelled()` as `false`, again once a join of a cancelled task returns, while that task's `sync` helper reads `true`, conformance row K201 (SL-810)
+// stage 0: reads `false` in the cancelled task's helper, since only a lowered frame reaches the task's cancel word there
+// speeds: -O0 -O2
+// prints: main: false
+// prints: main's sync helper: false
+// prints: main's plain helper: false
+// prints: cancelled task's sync helper: true
+// prints: joined 4
+// prints: main after the join: false
+// prints: main's sync helper after the join: false
+import std.task.*
+
+func read_sync() sync -> Bool {
+    cancelled()
+}
+
+func read_plain() -> Bool {
+    cancelled()
+}
+
+func cancelled_task() -> Int {
+    while not cancelled() {
+        yield_now()
+    }
+    print("cancelled task's sync helper: {}", read_sync())
+    4
+}
+
+func main() {
+    print("main: {}", cancelled())
+    print("main's sync helper: {}", read_sync())
+    print("main's plain helper: {}", read_plain())
+    let t = Task.spawn(cancelled_task())
+    t.cancel()
+    print("joined {}", t.join())
+    print("main after the join: {}", cancelled())
+    print("main's sync helper after the join: {}", read_sync())
+}

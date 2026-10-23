@@ -1,0 +1,40 @@
+// probe: stated
+// about: a cancelled task's `sync` helper reads `cancelled()` as `true` before and after it drops a `TaskGroup()` whose one uncancelled task runs to its end in the teardown's drive, and that task reads its own `false`, conformance row K201 (SL-810)
+// stage 0: reads `false` in the helper on both sides of the drive, since only a lowered frame reaches the task's cancel word there
+// speeds: -O0 -O2
+// prints: body before: true
+// prints: helper before the drive: true
+// prints: inner task: false
+// prints: helper after the drive: true
+// prints: body after: true
+import std.task.*
+
+func inner() -> Int {
+    yield_now()
+    print("inner task: {}", cancelled())
+    1
+}
+
+// The handle goes first, then the group's teardown drives the task.
+func drive_a_group() sync {
+    let group = TaskGroup()
+    let h = group.spawn(inner())
+}
+
+func sync_helper() sync {
+    print("helper before the drive: {}", cancelled())
+    drive_a_group()
+    print("helper after the drive: {}", cancelled())
+}
+
+func body() {
+    yield_now()
+    print("body before: {}", cancelled())
+    sync_helper()
+    print("body after: {}", cancelled())
+}
+
+func main() {
+    let t = Task.spawn(body())
+    t.cancel()
+}

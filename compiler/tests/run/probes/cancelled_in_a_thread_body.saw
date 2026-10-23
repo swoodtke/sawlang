@@ -1,0 +1,41 @@
+// probe: stated
+// about: a `Thread.spawn` body, outside every task, and its helper read `cancelled()` as `false`, again once its join of a cancelled background task returns, while that task's `sync` helper reads `true`, conformance row K201 (SL-810)
+// stage 0: refuses `try! Thread.spawn` at parse (SL-765 Q1 (b))
+// speeds: -O0 -O2
+// prints: thread body: false
+// prints: thread body's sync helper: false
+// prints: thread's cancelled task body: true
+// prints: thread's cancelled task sync helper: true
+// prints: thread body after the join: false
+// prints: thread body's sync helper after the join: false
+// prints: joined thread 4
+import std.task.*
+
+func read_sync() sync -> Bool {
+    cancelled()
+}
+
+func cancelled_task() -> Int {
+    while not cancelled() {
+        yield_now()
+    }
+    print("thread's cancelled task body: {}", cancelled())
+    print("thread's cancelled task sync helper: {}", read_sync())
+    4
+}
+
+func thread_body() -> Int {
+    print("thread body: {}", cancelled())
+    print("thread body's sync helper: {}", read_sync())
+    let t = Task.spawn(cancelled_task())
+    t.cancel()
+    let r = t.join()
+    print("thread body after the join: {}", cancelled())
+    print("thread body's sync helper after the join: {}", read_sync())
+    r
+}
+
+func main() {
+    var th = try! Thread.spawn { thread_body() }
+    print("joined thread {}", th.join())
+}

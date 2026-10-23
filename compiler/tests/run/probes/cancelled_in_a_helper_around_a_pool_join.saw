@@ -1,0 +1,45 @@
+// probe: stated
+// about: a cancelled task's `sync` helper reads `cancelled()` as `true` before and after a `join()` of an uncancelled `TaskGroup(threads: 2)` task, a wait that drives the helper's thread, and the pool's task reads its own `false`, conformance row K201 (SL-810)
+// stage 0: reads `false` in the helper on both sides of the join, since only a lowered frame reaches the task's cancel word there
+// speeds: -O0 -O2
+// prints: body before: true
+// prints: helper before the join: true
+// prints: pool task: false
+// prints: joined 1
+// prints: helper after the join: true
+// prints: body after: true
+import std.task.*
+
+func inner() -> Int {
+    yield_now()
+    print("pool task: {}", cancelled())
+    1
+}
+
+func join_a_pool_task() sync {
+    match TaskGroup(threads: 2) {
+        case Ok(group) -> {
+            let h = group.spawn(inner())
+            print("joined {}", h.join())
+        },
+        case Err(e) -> print("no group: {}", e)
+    }
+}
+
+func sync_helper() sync {
+    print("helper before the join: {}", cancelled())
+    join_a_pool_task()
+    print("helper after the join: {}", cancelled())
+}
+
+func body() {
+    yield_now()
+    print("body before: {}", cancelled())
+    sync_helper()
+    print("body after: {}", cancelled())
+}
+
+func main() {
+    let t = Task.spawn(body())
+    t.cancel()
+}

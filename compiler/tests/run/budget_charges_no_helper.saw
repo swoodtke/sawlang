@@ -1,0 +1,62 @@
+// The op budget lives in a task's frame, so it charges the body's own loop
+// back edges and no helper's, `sync` or not: a sibling ticks beside the
+// body's loop and never beside a helper's. A control of conformance row K201
+// (SL-810).
+import std.task.*
+
+func spin_sync(n: Int) sync -> Int {
+    var i = 0
+    var acc = 0
+    while i < n {
+        acc = acc + i % 7
+        i = i + 1
+    }
+    acc
+}
+
+func spin_plain(n: Int) -> Int {
+    var i = 0
+    var acc = 0
+    while i < n {
+        acc = acc + i % 7
+        i = i + 1
+    }
+    acc
+}
+
+func ticker(rounds: Int) {
+    var i = 0
+    while i < rounds {
+        print("tick")
+        yield_now()
+        i = i + 1
+    }
+}
+
+// Spinner 2's loop is its own body's, past the budget, so its ticker runs
+// beside it; the other two spin in a helper and finish first.
+func spinner(kind: Int) {
+    var r = 0
+    if kind == 0 {
+        r = spin_sync(1000)
+    } else if kind == 1 {
+        r = spin_plain(1000)
+    } else {
+        var i = 0
+        while i < 1000 {
+            r = r + i % 7
+            i = i + 1
+        }
+    }
+    print("spinner {} done {}", kind, r)
+}
+
+func main() {
+    var k = 0
+    while k < 3 {
+        let group = TaskGroup()
+        let a = group.spawn(spinner(k))
+        let b = group.spawn(ticker(2))
+        k = k + 1
+    }
+}

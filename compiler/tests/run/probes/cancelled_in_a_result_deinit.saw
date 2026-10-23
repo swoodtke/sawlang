@@ -1,0 +1,82 @@
+// probe: stated
+// about: a task's unclaimed result, dropped at the task's completion, is the finished task's teardown and reads its `cancelled()`, whoever drives it; a result dropped through its handle reads the dropper's, conformance row K201 (SL-810)
+// stage 0: reads `false` in every destructor, since only a lowered frame reaches a task's cancel word
+// speeds: -O0 -O2
+// prints: result 1 dropped, cancelled() reads true
+// prints: result 2 dropped, cancelled() reads false
+// prints: result 3 dropped, cancelled() reads true
+// Result 1's task is cancelled and its handle is gone before it finishes, in
+// an uncancelled task's drive. Result 2's task is cancelled and finishes while
+// its handle is live; an uncancelled task drops the handle. Result 3's task is
+// not cancelled; a cancelled task drops its handle.
+import std.task.*
+
+struct Noisy {
+    tag: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("result {} dropped, cancelled() reads {}", self.tag, cancelled())
+    }
+}
+
+func until_cancelled(tag: Int) -> Noisy {
+    while not cancelled() {
+        yield_now()
+    }
+    Noisy(tag: tag)
+}
+
+func after_a_yield(tag: Int) -> Noisy {
+    yield_now()
+    Noisy(tag: tag)
+}
+
+func ticks() {
+    yield_now()
+    yield_now()
+}
+
+// The handle goes first, so the task finishes unclaimed, in the teardown.
+func unclaimed_at_completion() sync {
+    let group = TaskGroup()
+    let h = group.spawn(until_cancelled(1))
+    h.cancel()
+}
+
+// The sibling's join drives the group until the task has finished, and the
+// handle's drop then drops the result.
+func dropped_through_the_handle_of_a_cancelled_task() sync {
+    let group = TaskGroup()
+    let h = group.spawn(until_cancelled(2))
+    h.cancel()
+    group.spawn(ticks()).join()
+}
+
+func dropped_through_the_handle_of_an_uncancelled_task() sync {
+    let group = TaskGroup()
+    let h = group.spawn(after_a_yield(3))
+    group.spawn(ticks()).join()
+}
+
+func uncancelled_dropper() {
+    yield_now()
+    unclaimed_at_completion()
+    dropped_through_the_handle_of_a_cancelled_task()
+}
+
+func cancelled_dropper() {
+    while not cancelled() {
+        yield_now()
+    }
+    dropped_through_the_handle_of_an_uncancelled_task()
+}
+
+func main() {
+    let a = Task.spawn(uncancelled_dropper())
+    a.join()
+    let b = Task.spawn(cancelled_dropper())
+    b.cancel()
+    b.join()
+}

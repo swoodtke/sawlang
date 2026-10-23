@@ -1,0 +1,17 @@
+program	compiler/tests/run/task_reads_from_a_sync_helper.saw
+triple	aarch64-unknown-linux-gnu
+source	e21a5fa81013edeb
+build	ok
+exit	0
+stdout	"-- dump from the body"
+stdout	"saw tasks: 1 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 running"
+stdout	"    at task_reads_from_a_sync_helper.saw:23 in body"
+stdout	"-- dump from the sync helper"
+stdout	"saw tasks: 1 live (unsynchronized snapshot)"
+stdout	"  task group 1 slot 0 gen 1 running"
+stdout	"    at task_reads_from_a_sync_helper.saw:23 in body"
+stdout	"body's Task.spawn joined 16"
+stdout	"sync helper's Task.spawn joined 25"
+stdout	"joined 0"
+stdout	""

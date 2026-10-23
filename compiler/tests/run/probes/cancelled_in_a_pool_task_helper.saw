@@ -1,0 +1,48 @@
+// probe: stated
+// about: a cancelled `TaskGroup(threads: 2)` task's `sync` and non-suspending helpers read `cancelled()` as `true` on its worker, and an uncancelled pool task's helper reads `false`, conformance row K201 (SL-810)
+// stage 0: reads `false` in the cancelled task's helpers, since only a lowered frame reaches the task's cancel word there
+// speeds: -O0 -O2
+// prints: pool task body: true
+// prints: pool task sync helper: true
+// prints: pool task plain helper: true
+// prints: joined 3
+// prints: uncancelled pool task sync helper: false
+// prints: joined 4
+import std.task.*
+
+func read_sync() sync -> Bool {
+    cancelled()
+}
+
+func read_plain() -> Bool {
+    cancelled()
+}
+
+func pooled() -> Int {
+    while not cancelled() {
+        yield_now()
+    }
+    print("pool task body: {}", cancelled())
+    print("pool task sync helper: {}", read_sync())
+    print("pool task plain helper: {}", read_plain())
+    3
+}
+
+func sibling() -> Int {
+    yield_now()
+    print("uncancelled pool task sync helper: {}", read_sync())
+    4
+}
+
+func main() {
+    match TaskGroup(threads: 2) {
+        case Ok(group) -> {
+            let h = group.spawn(pooled())
+            h.cancel()
+            print("joined {}", h.join())
+            let s = group.spawn(sibling())
+            print("joined {}", s.join())
+        },
+        case Err(e) -> print("no group: {}", e)
+    }
+}

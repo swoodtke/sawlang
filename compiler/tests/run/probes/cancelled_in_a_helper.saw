@@ -1,0 +1,40 @@
+// probe: stated
+// about: `cancelled()` answers for the task whose code is running: a cancelled task's body, a `sync` helper and a non-suspending helper it calls, and a destructor its own code runs all read `true`, conformance row K201 (SL-810)
+// stage 0: reads `false` in both helpers and in the destructor, since only a lowered frame reaches the task's cancel word there
+// speeds: -O0 -O2
+// prints: body: true
+// prints: sync helper: true
+// prints: plain helper: true
+// prints: local dropped, cancelled() reads true
+import std.task.*
+
+struct Noisy {
+    tag: Int
+}
+
+extension Noisy: NoCopy {
+    func deinit(&var self) {
+        print("local dropped, cancelled() reads {}", cancelled())
+    }
+}
+
+func sync_helper() sync -> Bool {
+    cancelled()
+}
+
+func plain_helper() -> Bool {
+    cancelled()
+}
+
+func body() {
+    let local = Noisy(tag: 1)
+    yield_now()
+    print("body: {}", cancelled())
+    print("sync helper: {}", sync_helper())
+    print("plain helper: {}", plain_helper())
+}
+
+func main() {
+    let t = Task.spawn(body())
+    t.cancel()
+}
