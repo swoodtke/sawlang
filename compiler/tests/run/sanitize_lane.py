@@ -50,9 +50,10 @@ PROBE_KINDS = ("stated", "panics")
 # overwrite (SL-830), and the conditional lends, whose lent reference is read
 # out of an Optional only on the present path (SL-686), and the borrow value
 # reads, whose windows close before the value they read is used or dropped,
-# and the parts read out of a temporary, whose rest drops apart from them.
+# the parts read out of a temporary, whose rest drops apart from them, and the
+# temporaries a `match` arm binds whole, which the binding alone releases.
 PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw", "conditional_lend_*.saw",
-                  "borrow_value_read_*.saw", "temporary_part_*.saw")
+                  "borrow_value_read_*.saw", "temporary_part_*.saw", "match_whole_binding_*.saw")
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60

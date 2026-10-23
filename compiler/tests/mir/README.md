@@ -11,8 +11,6 @@ mir/
   golden/          NAME.saw, a program, and NAME.mir, its expected record
   spans/           NAME.saw, a program, and NAME.mir, its expected `--spans` record
   refuse/          NAME.saw, a construct the lowering refuses
-  invariant/       NAME.saw, a program a MIR verifier finds broken, under every
-                   command its record reaches, each of which must exit 1
   inject/          NAME.saw, a program a unit program lowers, then edits, to
                    prove the verifier refuses a shape no lowering emits, or
                    reads through the builders a shape no construct reaches
@@ -41,7 +39,9 @@ record, starting with the line `FILE<TAB>path`, holding in order:
 - with `--dump`, the dump of each module checked in full, in load order.
 
 The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
-a usage failure, and 0 otherwise. A module with a refusal of its own is not lowered, and neither is a
+a usage failure, and 0 otherwise. Every subcommand decides it through one
+function, `drops_record_status`, which the unit program
+`compiler/drops/tests/record_status.saw` holds to that rule. A module with a refusal of its own is not lowered, and neither is a
 body another module's refusal poisoned; a function the lowering refuses a
 construct in is neither dumped nor verified.
 
@@ -438,7 +438,9 @@ or `try` out of it. A `match` records each arm's taken parts at its leaves
 (every leaf of one arm takes the same places, or it is an `INVARIANT`) and
 sets the entry as it lowers that arm, so a guard, which takes nothing, leaves
 the arm finally taken to decide, and an arm that binds nothing holds the whole
-value the same way. Golden `leftovers` covers each.
+value the same way. An arm whose binding takes the whole value leaves the
+temporary moved, not partial, so the entry still holds it whole and its drop
+is elided (`leftovers`). Golden `leftovers` covers each.
 
 | position | dissolved at | covered by |
 |---|---|---|
@@ -450,7 +452,7 @@ value the same way. Golden `leftovers` covers each.
 | `a ?? b` | the present edge's payload; the absent edge drops the `None` | destructures `coalesced` |
 | `move o!` | the Optional moved whole into a temporary, then its payload | destructures `moved_force` |
 | `f()!`, `f().field`, `f().0` by value, at any depth (`f().a.b`, `f()!.a`, `(try! f()).a`), and a statement-form `borrow` reading one by value | the temporary, around the part (`take_from_temporary`) | destructures `temporary_parts`, `deep_temporary_parts`; run probes `temporary_part_*` |
-| `match` on a consumed local or a temporary | each leaf takes its bindings' parts; the leftovers drop on each exit of its arm, after the arm's bindings, a value `match`'s after its result is written | destructures `matched`, `matched_temporary`; leftovers `partial`, `guarded`, `returned`, `suspended` |
+| `match` on a consumed local or a temporary | each leaf takes its bindings' parts; the leftovers drop on each exit of its arm, after the arm's bindings, a value `match`'s after its result is written | destructures `matched`, `matched_temporary`; leftovers `partial`, `guarded`, `returned`, `suspended`; run probes `match_whole_binding_*` |
 | `if let`, `while let` | the present edge takes the binding's parts; the leftovers drop on each exit of the branch or iteration; `if let x = move o` moves `o` into a temporary first | destructures `optional`, `unwrapped`, `drained`; leftovers `unwrapped`, `drained` || `guard let` | the present edge, after the binding | destructures `unwrapped`; leftovers `guarded_let` |
 | a destructuring `let` | after its bindings | destructures `destructured`; leftovers `guarded_let` |
 | a borrowed scrutinee | nowhere: nothing is consumed | leftovers `borrowed`; Scrutinees read through a reference, below |

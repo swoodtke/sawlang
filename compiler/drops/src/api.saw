@@ -120,6 +120,17 @@ public func drops_record(out: &var StringBuilder, path: String, options: &DropsO
 
 static DROPS_NEWLINE: Int = 10
 
+// The exit status of a finished record whose stage returned `status`: that
+// status, raised to 1 when the record holds an `INVARIANT` line. A broken
+// invariant is a compiler bug, which a command never reports as a success;
+// a refusal's or a usage error's status stands.
+public func drops_record_status(text: String, status: Int) -> Int {
+    if status == 0 && drops_has_invariant(text) {
+        return 1
+    }
+    status
+}
+
 // Whether record text `text` holds an `INVARIANT` line.
 public func drops_has_invariant(text: String) -> Bool {
     let n = text.len()

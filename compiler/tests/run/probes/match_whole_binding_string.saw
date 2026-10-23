@@ -1,0 +1,436 @@
+// probe: stated
+// about: a `match` whose arm binds all of an owned scrutinee, a String, hands it to the binding and leaks nothing (SL-852)
+// stage 0: releases a call's result its arm binds whole and consumes a second time, and dies
+// speeds: -O0 -O2
+// leaks: none
+// prints: call bare consumed t1
+// prints: call bare borrowed t2
+// prints: call bare unused none
+// prints: call literal consumed t4
+// prints: call literal borrowed t5
+// prints: call literal unused none
+// prints: call guard consumed t7
+// prints: call guard borrowed t8
+// prints: call guard unused none
+// prints: move local bare consumed t10
+// prints: move local bare borrowed t11
+// prints: move local bare unused none
+// prints: move local literal consumed t13
+// prints: move local literal borrowed t14
+// prints: move local literal unused none
+// prints: move local guard consumed t16
+// prints: move local guard borrowed t17
+// prints: move local guard unused none
+// prints: coalesce bare consumed t19
+// prints: coalesce bare borrowed t20
+// prints: coalesce bare unused none
+// prints: coalesce literal consumed t22
+// prints: coalesce literal borrowed t23
+// prints: coalesce literal unused none
+// prints: coalesce guard consumed t25
+// prints: coalesce guard borrowed t26
+// prints: coalesce guard unused none
+// prints: force bare consumed t28
+// prints: force bare borrowed t29
+// prints: force bare unused none
+// prints: force literal consumed t31
+// prints: force literal borrowed t32
+// prints: force literal unused none
+// prints: force guard consumed t34
+// prints: force guard borrowed t35
+// prints: force guard unused none
+// prints: try bare consumed t37
+// prints: try bare borrowed t38
+// prints: try bare unused none
+// prints: try literal consumed t40
+// prints: try literal borrowed t41
+// prints: try literal unused none
+// prints: try guard consumed t43
+// prints: try guard borrowed t44
+// prints: try guard unused none
+// Each function matches an owned scrutinee, a temporary the match holds,
+// with an arm that binds all of it, after a literal or under a guard too,
+// and consumes, borrows or ignores the binding. The binding takes the
+// temporary whole, so the value is released once, by the binding or by
+// the call it moved into, and never by the match.
+
+enum Refused {
+    case Never
+}
+
+func make(n: Int) -> String {
+    "t{n}"
+}
+
+func maybe(n: Int) -> String? {
+    make(n)
+}
+
+func fallible(n: Int) -> Result<String, Refused> {
+    make(n)
+}
+
+func take(x: String) -> String {
+    "{x}"
+}
+
+func look(x: &String) -> String {
+    "{x}"
+}
+
+func call_bare_consumed(n: Int) -> String {
+    match make(n) {
+        case x -> take(move x)
+    }
+}
+
+func call_bare_borrowed(n: Int) -> String {
+    match make(n) {
+        case x -> look(&x)
+    }
+}
+
+func call_bare_unused(n: Int) -> String {
+    match make(n) {
+        case x -> "none"
+    }
+}
+
+func call_literal_consumed(n: Int) -> String {
+    match make(n) {
+        case "zz" -> "zz",
+        case x -> take(move x)
+    }
+}
+
+func call_literal_borrowed(n: Int) -> String {
+    match make(n) {
+        case "zz" -> "zz",
+        case x -> look(&x)
+    }
+}
+
+func call_literal_unused(n: Int) -> String {
+    match make(n) {
+        case "zz" -> "zz",
+        case x -> "none"
+    }
+}
+
+func call_guard_consumed(n: Int) -> String {
+    match make(n) {
+        case x if n > 0 -> take(move x),
+        case _ -> "other"
+    }
+}
+
+func call_guard_borrowed(n: Int) -> String {
+    match make(n) {
+        case x if n > 0 -> look(&x),
+        case _ -> "other"
+    }
+}
+
+func call_guard_unused(n: Int) -> String {
+    match make(n) {
+        case x if n > 0 -> "none",
+        case _ -> "other"
+    }
+}
+
+func move_local_bare_consumed(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case x -> take(move x)
+    }
+}
+
+func move_local_bare_borrowed(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case x -> look(&x)
+    }
+}
+
+func move_local_bare_unused(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case x -> "none"
+    }
+}
+
+func move_local_literal_consumed(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case "zz" -> "zz",
+        case x -> take(move x)
+    }
+}
+
+func move_local_literal_borrowed(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case "zz" -> "zz",
+        case x -> look(&x)
+    }
+}
+
+func move_local_literal_unused(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case "zz" -> "zz",
+        case x -> "none"
+    }
+}
+
+func move_local_guard_consumed(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case x if n > 0 -> take(move x),
+        case _ -> "other"
+    }
+}
+
+func move_local_guard_borrowed(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case x if n > 0 -> look(&x),
+        case _ -> "other"
+    }
+}
+
+func move_local_guard_unused(n: Int) -> String {
+    let s = make(n)
+    match move s {
+        case x if n > 0 -> "none",
+        case _ -> "other"
+    }
+}
+
+func coalesce_bare_consumed(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case x -> take(move x)
+    }
+}
+
+func coalesce_bare_borrowed(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case x -> look(&x)
+    }
+}
+
+func coalesce_bare_unused(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case x -> "none"
+    }
+}
+
+func coalesce_literal_consumed(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case "zz" -> "zz",
+        case x -> take(move x)
+    }
+}
+
+func coalesce_literal_borrowed(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case "zz" -> "zz",
+        case x -> look(&x)
+    }
+}
+
+func coalesce_literal_unused(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case "zz" -> "zz",
+        case x -> "none"
+    }
+}
+
+func coalesce_guard_consumed(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case x if n > 0 -> take(move x),
+        case _ -> "other"
+    }
+}
+
+func coalesce_guard_borrowed(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case x if n > 0 -> look(&x),
+        case _ -> "other"
+    }
+}
+
+func coalesce_guard_unused(n: Int) -> String {
+    match maybe(n) ?? make(0) {
+        case x if n > 0 -> "none",
+        case _ -> "other"
+    }
+}
+
+func force_bare_consumed(n: Int) -> String {
+    match maybe(n)! {
+        case x -> take(move x)
+    }
+}
+
+func force_bare_borrowed(n: Int) -> String {
+    match maybe(n)! {
+        case x -> look(&x)
+    }
+}
+
+func force_bare_unused(n: Int) -> String {
+    match maybe(n)! {
+        case x -> "none"
+    }
+}
+
+func force_literal_consumed(n: Int) -> String {
+    match maybe(n)! {
+        case "zz" -> "zz",
+        case x -> take(move x)
+    }
+}
+
+func force_literal_borrowed(n: Int) -> String {
+    match maybe(n)! {
+        case "zz" -> "zz",
+        case x -> look(&x)
+    }
+}
+
+func force_literal_unused(n: Int) -> String {
+    match maybe(n)! {
+        case "zz" -> "zz",
+        case x -> "none"
+    }
+}
+
+func force_guard_consumed(n: Int) -> String {
+    match maybe(n)! {
+        case x if n > 0 -> take(move x),
+        case _ -> "other"
+    }
+}
+
+func force_guard_borrowed(n: Int) -> String {
+    match maybe(n)! {
+        case x if n > 0 -> look(&x),
+        case _ -> "other"
+    }
+}
+
+func force_guard_unused(n: Int) -> String {
+    match maybe(n)! {
+        case x if n > 0 -> "none",
+        case _ -> "other"
+    }
+}
+
+func try_bare_consumed(n: Int) -> String {
+    match try! fallible(n) {
+        case x -> take(move x)
+    }
+}
+
+func try_bare_borrowed(n: Int) -> String {
+    match try! fallible(n) {
+        case x -> look(&x)
+    }
+}
+
+func try_bare_unused(n: Int) -> String {
+    match try! fallible(n) {
+        case x -> "none"
+    }
+}
+
+func try_literal_consumed(n: Int) -> String {
+    match try! fallible(n) {
+        case "zz" -> "zz",
+        case x -> take(move x)
+    }
+}
+
+func try_literal_borrowed(n: Int) -> String {
+    match try! fallible(n) {
+        case "zz" -> "zz",
+        case x -> look(&x)
+    }
+}
+
+func try_literal_unused(n: Int) -> String {
+    match try! fallible(n) {
+        case "zz" -> "zz",
+        case x -> "none"
+    }
+}
+
+func try_guard_consumed(n: Int) -> String {
+    match try! fallible(n) {
+        case x if n > 0 -> take(move x),
+        case _ -> "other"
+    }
+}
+
+func try_guard_borrowed(n: Int) -> String {
+    match try! fallible(n) {
+        case x if n > 0 -> look(&x),
+        case _ -> "other"
+    }
+}
+
+func try_guard_unused(n: Int) -> String {
+    match try! fallible(n) {
+        case x if n > 0 -> "none",
+        case _ -> "other"
+    }
+}
+
+func main() {
+    print("call bare consumed {}", call_bare_consumed(1))
+    print("call bare borrowed {}", call_bare_borrowed(2))
+    print("call bare unused {}", call_bare_unused(3))
+    print("call literal consumed {}", call_literal_consumed(4))
+    print("call literal borrowed {}", call_literal_borrowed(5))
+    print("call literal unused {}", call_literal_unused(6))
+    print("call guard consumed {}", call_guard_consumed(7))
+    print("call guard borrowed {}", call_guard_borrowed(8))
+    print("call guard unused {}", call_guard_unused(9))
+    print("move local bare consumed {}", move_local_bare_consumed(10))
+    print("move local bare borrowed {}", move_local_bare_borrowed(11))
+    print("move local bare unused {}", move_local_bare_unused(12))
+    print("move local literal consumed {}", move_local_literal_consumed(13))
+    print("move local literal borrowed {}", move_local_literal_borrowed(14))
+    print("move local literal unused {}", move_local_literal_unused(15))
+    print("move local guard consumed {}", move_local_guard_consumed(16))
+    print("move local guard borrowed {}", move_local_guard_borrowed(17))
+    print("move local guard unused {}", move_local_guard_unused(18))
+    print("coalesce bare consumed {}", coalesce_bare_consumed(19))
+    print("coalesce bare borrowed {}", coalesce_bare_borrowed(20))
+    print("coalesce bare unused {}", coalesce_bare_unused(21))
+    print("coalesce literal consumed {}", coalesce_literal_consumed(22))
+    print("coalesce literal borrowed {}", coalesce_literal_borrowed(23))
+    print("coalesce literal unused {}", coalesce_literal_unused(24))
+    print("coalesce guard consumed {}", coalesce_guard_consumed(25))
+    print("coalesce guard borrowed {}", coalesce_guard_borrowed(26))
+    print("coalesce guard unused {}", coalesce_guard_unused(27))
+    print("force bare consumed {}", force_bare_consumed(28))
+    print("force bare borrowed {}", force_bare_borrowed(29))
+    print("force bare unused {}", force_bare_unused(30))
+    print("force literal consumed {}", force_literal_consumed(31))
+    print("force literal borrowed {}", force_literal_borrowed(32))
+    print("force literal unused {}", force_literal_unused(33))
+    print("force guard consumed {}", force_guard_consumed(34))
+    print("force guard borrowed {}", force_guard_borrowed(35))
+    print("force guard unused {}", force_guard_unused(36))
+    print("try bare consumed {}", try_bare_consumed(37))
+    print("try bare borrowed {}", try_bare_borrowed(38))
+    print("try bare unused {}", try_bare_unused(39))
+    print("try literal consumed {}", try_literal_consumed(40))
+    print("try literal borrowed {}", try_literal_borrowed(41))
+    print("try literal unused {}", try_literal_unused(42))
+    print("try guard consumed {}", try_guard_consumed(43))
+    print("try guard borrowed {}", try_guard_borrowed(44))
+    print("try guard unused {}", try_guard_unused(45))
+}

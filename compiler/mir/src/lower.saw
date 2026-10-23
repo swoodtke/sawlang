@@ -5483,16 +5483,19 @@ extension MirProgram {
     // What a destructure of `whole` leaves over once the places in `taken`
     // have moved out: its owned parts no taken place reaches, in the order
     // they drop, reverse declaration order (spec, Synthesized destruction);
-    // `whole` itself when nothing is taken and it owns something. A value
-    // whose type writes its own `deinit` is refused: the spec does not say
-    // whether dissolving one skips that body.
+    // `whole` itself when nothing is taken and it owns something. A binding
+    // that took `whole` itself leaves it moved, not partial, and a moved owned
+    // local still needs its holder's drop, which drop elaboration elides, so
+    // `whole` is what is left over then too. A value whose type writes its
+    // own `deinit` is refused: the spec does not say whether dissolving one
+    // skips that body.
     //
     // ENTRY POINTS (leftovers):
     //     dissolve
     //     hold_parts
     func leftovers(&var self, whole: Int, taken: &Vector<Int>, node: Int) -> Vector<Int> {
         var out = Vector<Int>()
-        if taken.len() == 0 {
+        if taken.len() == 0 || self.takes_whole(whole, &taken) {
             let t = self.place_type(whole)
             if self.owns(t) {
                 try! out.push(whole)
@@ -5501,6 +5504,20 @@ extension MirProgram {
         }
         self.drop_rest(whole, &taken, node, &var out)
         move out
+    }
+
+    // Whether a place in `taken` is `whole` itself.
+    func takes_whole(&self, whole: Int, taken: &Vector<Int>) -> Bool {
+        let count = self.places[whole].count
+        var k = 0
+        while k < taken.len() {
+            let t = taken[k]
+            if self.places[t].count == count && self.place_within(t, whole) {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     // A construct that completes after its body, `match`, `if let` or `while

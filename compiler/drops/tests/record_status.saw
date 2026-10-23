@@ -1,0 +1,25 @@
+// A command's exit status for a finished record (`drops_record_status`, which
+// the driver's record funnel returns): a record holding an `INVARIANT` line
+// exits 1 where its stage reported success, and any other status stands. Each
+// record here is written out as a stage prints one.
+import sawdrops.api.{drops_record_status}
+
+func main() {
+    let broken = "FILE\tbroken.saw\nINVARIANT\tbroken\t3:5 broken.main(): owned local _2 may still be live at a `return` in bb1: a scope exit does not drop it\n"
+    assert(drops_record_status(broken, 0) == 1, "a record with an INVARIANT line exits 0")
+    let first = "INVARIANT\tbroken\t3:5 broken.main(): a problem\n"
+    assert(drops_record_status(first, 0) == 1, "an INVARIANT on the record's first line exits 0")
+    let last = "FILE\tbroken.saw\nINVARIANT\tbroken\t3:5 broken.main(): a problem"
+    assert(drops_record_status(last, 0) == 1, "an INVARIANT on an unterminated last line exits 0")
+    let clean = "FILE\tclean.saw\nfn clean.main() -> Void \{\n\}\n"
+    assert(drops_record_status(clean, 0) == 0, "a clean record does not exit 0")
+    let quoted = "FILE\tquoted.saw\nNOTE\tquoted\t1:1 the word INVARIANT\tinside a line\n"
+    assert(drops_record_status(quoted, 0) == 0, "an INVARIANT that starts no line raises the status")
+    let refused = "FILE\trefused.saw\nERROR\tslice.not-yet\trefused.saw:2:3\ta construct is not lowered\n"
+    assert(drops_record_status(refused, 1) == 1, "a refusal's status 1 does not stand")
+    let both = "FILE\tboth.saw\nERROR\tslice.not-yet\tboth.saw:2:3\tnot lowered\nINVARIANT\tboth\t4:1 both.f(): a problem\n"
+    assert(drops_record_status(both, 1) == 1, "a refusal with an INVARIANT line does not exit 1")
+    let usage = "FILE\tmissing.saw\n"
+    assert(drops_record_status(usage, 2) == 2, "a usage error's status 2 does not stand")
+    assert(drops_record_status(broken, 2) == 2, "a usage error's status 2 does not stand beside an INVARIANT")
+}

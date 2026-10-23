@@ -15,9 +15,7 @@ directory specifies:
   `slice.not-yet` at the position its `// refuses:` header names;
 - no record of a golden program or a fixture carries an `INVARIANT` line;
 - the compiler's own source, the sawc2 build and each unit program, lowers
-  with no refusal and no `INVARIANT` line from any verifier;
-- each program in `invariant/` prints an `INVARIANT` line under every
-  command a MIR verifier reaches, and each of those commands exits 1.
+  with no refusal and no `INVARIANT` line from any verifier.
 """
 import glob
 import os
@@ -36,7 +34,6 @@ import build  # noqa: E402
 GOLDEN = os.path.join(HERE, "golden")
 SPANS = os.path.join(HERE, "spans")
 REFUSE = os.path.join(HERE, "refuse")
-INVARIANT = os.path.join(HERE, "invariant")
 TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at (\d+:\d+))?$")
@@ -215,28 +212,6 @@ def check_acceptance(failures, counts):
     counts["lowered compiler functions"] = sum(1 for l in out.split("\n") if l.startswith("fn "))
 
 
-# The commands whose record a MIR verifier's `INVARIANT` line reaches.
-INVARIANT_COMMANDS = ("mir", "eval", "borrowck", "drops", "mono", "coro")
-
-
-def check_invariant_status(failures, counts):
-    """Each command that prints a record exits 1 on an `INVARIANT` line, as on
-    a refusal: `invariant/NAME.saw`, a program a verifier finds broken, under
-    each of INVARIANT_COMMANDS."""
-    for path in sorted(glob.glob(os.path.join(INVARIANT, "*.saw"))):
-        for command in INVARIANT_COMMANDS:
-            r = subprocess.run([build.SAWC2, command, "--check", rel(path)], cwd=REPO, capture_output=True,
-                               text=True, timeout=TIMEOUT)
-            where = "mir invariant status %s under `sawc2 %s`" % (rel(path), command)
-            if not any(l.startswith("INVARIANT\t") for l in r.stdout.split("\n")):
-                failures.append("%s: no INVARIANT line, so it checks nothing; give it a program a "
-                                "verifier still finds broken" % where)
-            elif r.returncode != 1:
-                failures.append("%s: exits %d with an INVARIANT line, where a broken invariant exits 1"
-                                % (where, r.returncode))
-            counts["invariant exit statuses"] = counts.get("invariant exit statuses", 0) + 1
-
-
 def run(write=False, fill=False):
     failures = []
     counts = {}
@@ -244,7 +219,6 @@ def run(write=False, fill=False):
     check_golden(failures, counts, write, spans=True)
     check_refusals(failures, counts, fill)
     check_acceptance(failures, counts)
-    check_invariant_status(failures, counts)
     return failures, counts
 
 

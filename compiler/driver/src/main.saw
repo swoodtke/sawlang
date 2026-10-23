@@ -52,7 +52,7 @@ import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
 import sawcoro.api.{CoroOptions, coro_record}
 import sawcoro.bttable.{coro_bt_record}
-import sawdrops.api.{DropsOptions, drops_has_invariant, drops_record}
+import sawdrops.api.{DropsOptions, drops_record, drops_record_status}
 import saweval.api.{EvalOptions, eval_record}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting}
@@ -1416,10 +1416,9 @@ func driver_parse_one(input: &DriverInput, dump: Bool, reread: Bool, alternative
     DRIVER_EXIT_USAGE
 }
 
-// THE RECORD STATUS FUNNEL: prints a finished record and returns its
-// stage's exit status, raised to 1 when the record holds an `INVARIANT`
-// line. A broken invariant is a compiler bug, which a command never reports
-// as a success.
+// THE RECORD STATUS FUNNEL: prints a finished record and returns its exit
+// status, as `drops_record_status` decides it from the record and its
+// stage's status, so a record holding an `INVARIANT` line never exits 0.
 //
 // ENTRY POINTS (driver_print_record):
 //     driver_parse_one
@@ -1429,10 +1428,7 @@ func driver_parse_one(input: &DriverInput, dump: Bool, reread: Bool, alternative
 func driver_print_record(out: &var StringBuilder, status: Int) -> Int {
     let text = out.build()
     print(text)
-    if status == 0 && drops_has_invariant(text) {
-        return 1
-    }
-    status
+    drops_record_status(text, status)
 }
 
 // `sawc2 lex`: the arguments after the subcommand name one file or one `@LIST`,
