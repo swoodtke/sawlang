@@ -1,0 +1,21 @@
+// probe: panics
+// about: `SpinLock.try_lock` through a second reference to a lock the calling thread holds panics naming the lock, rather than answering absent (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: SpinLock.try_lock: this thread already holds the lock
+// Absent means another thread holds the lock, so the holder's own `try_lock`
+// is a re-entry like its `lock`.
+import std.spinlock.{SpinLock}
+
+func held(l: &SpinLock<Int>, same: &SpinLock<Int>) -> Int {
+    borrow var n = l.lock() {
+        let got = if borrow var m = same.try_lock() { m } else { 0 }
+        n += got
+        got
+    }
+}
+
+func main() {
+    let local = SpinLock<Int>(value: 5)
+    print("held got {}", held(&local, &local))
+}

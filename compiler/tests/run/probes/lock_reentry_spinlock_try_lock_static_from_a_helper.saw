@@ -1,0 +1,22 @@
+// probe: panics
+// about: `SpinLock.try_lock` on a static lock, from a helper called inside that lock's own window, panics naming the lock (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: SpinLock.try_lock: this thread already holds the lock
+// The helper names the static itself, so nothing at the window's site says
+// the lock is reached again: it is the run-time owner check that catches it.
+import std.spinlock.{SpinLock}
+
+static G: SpinLock<Int>
+
+func helper() -> Int {
+    if borrow var g = G.try_lock() { g = g + 1; g } else { -1 }
+}
+
+func main() {
+    let r = borrow var o = G.lock() {
+        o = 10
+        helper()
+    }
+    print("reentered {}", r)
+}

@@ -1,17 +1,30 @@
 // probe: stated
-// about: a compute loop inside a `Mutex` window in a task takes no op-budget yield, so a sibling task taking the lock runs after the window, through `lock` and `get` (SL-843)
+// about: a compute loop inside a `Mutex` or `SpinLock` window in a task takes no op-budget yield, so a sibling task taking the lock runs after the window, through `lock`, `get` and `try_lock` (SL-843)
 // stage 0: cannot parse a `borrow` block, and its std's locks check no owner
 // speeds: -O0 -O2
 // prints: mutex lock: looper 100000 take 100001
 // prints: mutex get: looper 200001 take 200001
+// prints: spinlock lock: looper 100000 take 100001
+// prints: spinlock try_lock: looper 200001 take 200002
 // Outside a window the same loop yields to the sibling; inside one a yield
 // would run the sibling on the thread that holds the lock.
 import std.mutex.{Mutex}
+import std.spinlock.{SpinLock}
 
 static M: Mutex<Int>
+static S: SpinLock<Int>
 
 func loop_in_mutex() -> Int {
     borrow var o = M.lock() {
+        var i = 0
+        while i < 100000 { i = i + 1 }
+        o = o + i
+        o
+    }
+}
+
+func loop_in_spinlock() -> Int {
+    borrow var o = S.lock() {
         var i = 0
         while i < 100000 { i = i + 1 }
         o = o + i
@@ -25,6 +38,14 @@ func mutex_lock() -> Int {
 
 func mutex_get() -> Int {
     M.get()
+}
+
+func spinlock_lock() -> Int {
+    borrow var g = S.lock() { g = g + 1; g }
+}
+
+func spinlock_try_lock() -> Int {
+    if borrow var g = S.try_lock() { g = g + 1; g } else { -1 }
 }
 
 func round_mutex_lock() {
@@ -43,7 +64,25 @@ func round_mutex_get() {
     print("mutex get: looper {} take {}", x, b.join())
 }
 
+func round_spinlock_lock() {
+    var group = TaskGroup()
+    let a = group.spawn(loop_in_spinlock())
+    let b = group.spawn(spinlock_lock())
+    let x = a.join()
+    print("spinlock lock: looper {} take {}", x, b.join())
+}
+
+func round_spinlock_try_lock() {
+    var group = TaskGroup()
+    let a = group.spawn(loop_in_spinlock())
+    let b = group.spawn(spinlock_try_lock())
+    let x = a.join()
+    print("spinlock try_lock: looper {} take {}", x, b.join())
+}
+
 func main() {
     round_mutex_lock()
     round_mutex_get()
+    round_spinlock_lock()
+    round_spinlock_try_lock()
 }

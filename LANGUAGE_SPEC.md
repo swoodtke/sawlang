@@ -11892,12 +11892,14 @@ NoCopy static is legal, and every atomic operation takes `&self`.
 
 ### `SpinLock<T>`
 
-**Status: implemented (design 149); the `lock()` and `try_lock()` accessors,
-the re-entry panic and its freestanding owner seam are planned.**
-`import std.spinlock`. A value guarded by an atomic word: one word plus the
-payload, no allocation, and no operating system, so it works in the
-freestanding profile where [`Mutex<T>`](#synchronized-access) — which needs a
-host lock — does not.
+**Status: implemented (design 149), with the `lock()` and `try_lock()`
+accessors and the re-entry panic; the freestanding owner seam's contract is
+planned.**
+`import std.spinlock`. A value guarded by an atomic word: a lock word and an
+owner word plus the payload, no allocation, and no operating system. The owner
+is the one thing it asks the runtime for, so it serves the freestanding
+profile, where [`Mutex<T>`](#synchronized-access) — which needs a host lock —
+does not.
 
 ```saw-fragment
 import std.spinlock.*
@@ -11936,8 +11938,8 @@ UnsafeSync {}` — on the same terms as `Mutex`: handing out a `&var T` under
 mutual exclusion is safe to share exactly when moving a `T` between threads is.
 
 A bare `static` of one is legal because `SpinLock` declares `extension
-SpinLock<T: ZeroInit>: ZeroInit {}`: zero is unlocked, the conformance vouches
-for the private lock word, and the payload is checked at the static from the
+SpinLock<T: ZeroInit>: ZeroInit {}`: zero is unlocked with no owner, the
+conformance vouches for the private lock and owner words, and the payload is checked at the static from the
 static's module. `Counters` above needs no declaration, since that module sees
 its fields; a payload of another module's type with private fields needs that
 type's own `ZeroInit` (see [Module-level statics](#module-level-statics),
@@ -11950,14 +11952,16 @@ re-entrant lock would hand out two live `&var T` to one payload.
   the lock is held exclusively for the window, and a second `STATS.lock()` or
   `STATS.try_lock()` inside it is refused.
 - Re-entry through another name panics at run time, from `lock` and `try_lock`
-  alike: the lock word records its owner, and acquiring panics when it finds
-  its own. `try_lock` answers `None` only when another owner holds the lock.
-- A freestanding runtime has no thread id to record, so the owner comes from a
-  runtime seam that answers who holds the lock. For a kernel the owner is the
-  CPU or hart plus the interrupt context, because the re-entry that matters
-  there is an interrupt handler taking a lock its own core already holds. The
-  seam's signature goes into `rt/ABI.md` with the contract, so a
-  `--runtime-provider` implements a checked signature.
+  alike: the lock records its owner, and acquiring panics when it finds its
+  own, before it would spin. `try_lock` answers `None` only when another owner
+  holds the lock. A hosted owner is the calling thread.
+- The owner comes from a runtime seam, `__saw_rt_lock_owner()`, that answers
+  who is asking; its signature is in `rt/ABI.md`, so a `--runtime-provider`
+  implements a checked signature. A hosted runtime answers with the calling
+  thread. A freestanding runtime has no thread id to give, and for a kernel the
+  owner is the CPU or hart plus the interrupt context, because the re-entry
+  that matters there is an interrupt handler taking a lock its own core
+  already holds; that contract is planned.
 
 Two constraints are enforced, not documented:
 

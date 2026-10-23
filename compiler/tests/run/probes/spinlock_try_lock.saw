@@ -1,23 +1,39 @@
 // probe: stated
-// about: `SpinLock.try_lock` lends the payload when the lock is free, and nothing when it is held, never spinning (SL-686)
+// about: `SpinLock.try_lock` lends the payload when the lock is free, and nothing when another thread holds it, never spinning (SL-686)
 // stage 0: cannot parse a `borrow` unwrap
 // speeds: -O0 -O2
 // prints: try got 5
 // prints: unlocked true
 // prints: held got 0
 // prints: unlocked true
-// `try_lock` lends the payload when the lock is free, and nothing when it is
-// held; it never spins. The held case takes the lock through one name and
-// tries it through another, which the absent path answers at once.
+// `try_lock` lends the payload when the lock is free, and nothing when another
+// thread holds it; it never spins. The held case tries the lock from a pool
+// thread while `main` holds it, and `main` keeps the window open until the
+// answer is in. The calling thread's own `try_lock` of a lock it holds is a
+// re-entry, `lock_reentry_spinlock_try_lock_two_references.saw`.
 
 import std.spinlock.{SpinLock}
 
-func held(l: &SpinLock<Int>, same: &SpinLock<Int>) -> Int {
-    borrow var n = l.lock() {
-        let got = if borrow var m = same.try_lock() { m } else { 0 }
-        n += got
-        got
+static SHARED: SpinLock<Int>
+static HOLDING: Atomic<Int> = Atomic(0)
+static TRIED: Atomic<Int> = Atomic(0)
+
+func try_held() -> Int {
+    while HOLDING.load() == 0 { }
+    let got = if borrow var m = SHARED.try_lock() { m + 100 } else { 0 }
+    TRIED.store(1)
+    got
+}
+
+func held() -> Int {
+    var pool = try! TaskGroup(threads: 2)
+    let h = pool.spawn(try_held())
+    borrow var n = SHARED.lock() {
+        HOLDING.store(1)
+        while TRIED.load() == 0 { }
+        n += 1
     }
+    h.join()
 }
 
 func main() {
@@ -25,6 +41,6 @@ func main() {
     let got = if borrow var n = local.try_lock() { n } else { 0 }
     print("try got {}", got)
     print("unlocked {}", not local.is_locked())
-    print("held got {}", held(&local, &local))
-    print("unlocked {}", not local.is_locked())
+    print("held got {}", held())
+    print("unlocked {}", not SHARED.is_locked())
 }

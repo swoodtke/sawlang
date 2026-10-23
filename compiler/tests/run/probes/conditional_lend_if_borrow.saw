@@ -25,8 +25,9 @@
 // prints: arc 4
 // The present path opens the window and runs the epilogue once; the absent
 // path runs the prologue alone, with no window and no epilogue, so the user
-// accessor's `visits` counts the present paths only. `try_lock` on a held lock
-// answers absent without spinning, and `Arc.unique` on a shared handle too.
+// accessor's `visits` counts the present paths only. `try_lock` on a lock
+// another thread holds answers absent without spinning, and `Arc.unique` on a
+// shared handle too.
 import std.spinlock.{SpinLock}
 
 struct Bag {
@@ -46,15 +47,32 @@ extension Bag {
     }
 }
 
-func held(l: &SpinLock<Int>, same: &SpinLock<Int>) {
-    borrow var n = l.lock() {
-        if borrow var m = same.try_lock() {
-            print("held present {}", m)
-        } else {
-            print("held absent")
-        }
+static SHARED: SpinLock<Int>
+static HOLDING: Atomic<Int> = Atomic(0)
+static TRIED: Atomic<Int> = Atomic(0)
+
+// Runs on a pool thread while `main` holds `SHARED`, so the lock has another
+// owner when it is tried.
+func try_held() -> Int {
+    while HOLDING.load() == 0 { }
+    if borrow var m = SHARED.try_lock() {
+        print("held present {}", m)
+    } else {
+        print("held absent")
+    }
+    TRIED.store(1)
+    0
+}
+
+func held_by_another_thread() {
+    var pool = try! TaskGroup(threads: 2)
+    let h = pool.spawn(try_held())
+    borrow var n = SHARED.lock() {
+        HOLDING.store(1)
+        while TRIED.load() == 0 { }
         n += 0
     }
+    h.join()
 }
 
 func main() {
@@ -81,7 +99,7 @@ func main() {
     let lock = SpinLock<Int>(value: 5)
     if borrow var n = lock.try_lock() { n += 1; print("lock {}", n) } else { print("lock absent") }
     print("unlocked {}", not lock.is_locked())
-    held(&lock, &lock)
+    held_by_another_thread()
 
     var arc = try! Arc<Int>(value: 3)
     if borrow var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }

@@ -1,0 +1,23 @@
+// probe: panics
+// about: `SpinLock.try_lock` on a lock the calling thread holds through another `Arc` copy panics naming the lock, rather than waiting for itself (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: SpinLock.try_lock: this thread already holds the lock
+// Two copies of one `Arc` are two names for one lock, so the window on
+// `a`'s lock does not refuse the acquisition through `b`: it is the run-time
+// owner check that catches it.
+import std.spinlock.{SpinLock}
+
+func reenter(l: &SpinLock<Int>) -> Int {
+    if borrow var g = l.try_lock() { g = g + 1; g } else { -1 }
+}
+
+func main() {
+    let a = try! Arc<SpinLock<Int>>(value: SpinLock<Int>(value: 0))
+    let b = a.copy()
+    let r = borrow var o = a.value().lock() {
+        o = 10
+        reenter(borrow b.value())
+    }
+    print("reentered {}", r)
+}

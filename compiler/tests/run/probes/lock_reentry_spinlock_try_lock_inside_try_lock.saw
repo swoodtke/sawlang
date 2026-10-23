@@ -1,0 +1,22 @@
+// probe: panics
+// about: a window opened by `SpinLock.try_lock` records its owner as `lock`'s does, so a `try_lock` through another `Arc` copy inside it panics naming the lock (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: SpinLock.try_lock: this thread already holds the lock
+import std.spinlock.{SpinLock}
+
+func reenter(l: &SpinLock<Int>) -> Int {
+    if borrow var g = l.try_lock() { g = g + 1; g } else { -1 }
+}
+
+func main() {
+    let a = try! Arc<SpinLock<Int>>(value: SpinLock<Int>(value: 0))
+    let b = a.copy()
+    let r = if borrow var o = a.value().try_lock() {
+        o = 10
+        reenter(borrow b.value())
+    } else {
+        -2
+    }
+    print("reentered {}", r)
+}

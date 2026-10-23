@@ -3859,16 +3859,17 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
     Statics are unaffected and `move` still works: `NoCopy`, not
     `NoMove`, since nothing pins an atomic's address.
   - **`SpinLock<T>`** (`import std.spinlock.*`) — state several THREADS or
-    cores genuinely share where there is no OS: one word + the payload, no
-    allocation, so it works FREESTANDING. `static LOCK: SpinLock<Counters>`
+    cores genuinely share where there is no OS: a lock word + an owner word +
+    the payload, no allocation, so it works FREESTANDING. `static LOCK: SpinLock<Counters>`
     (NO initializer — zero IS unlocked + zeroed payload). Ruled language:
     `lock()` is a `sync borrows(sync) -> &var T` accessor
     (`borrow var c = LOCK.lock() { … }`, the block's tail is the value) and
     `try_lock()` its conditional lend (`-> &var T?`, absent when ANOTHER
     owner holds it); suspending inside the window is a compile error.
     RE-ENTRY: through the same name a compile error, through another name a
-    run-time PANIC (from `try_lock` too), never a spin-forever; freestanding
-    owners come from a runtime seam (CPU/hart + interrupt context). STAGE 0
+    run-time PANIC (from `try_lock` too), never a spin-forever (SL-843); the
+    owner comes from the `__saw_rt_lock_owner()` seam, the calling thread
+    hosted and (planned) the CPU/hart + interrupt context freestanding. STAGE 0
     spells them `lock({ c in ... })` / `try_lock({ … })` with a `sync`-ENFORCED
     body returning its own result, and taking the lock while holding it
     spins forever. NoCopy, so it cannot be captured into

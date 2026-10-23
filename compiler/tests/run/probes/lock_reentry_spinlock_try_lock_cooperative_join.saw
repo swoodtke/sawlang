@@ -1,0 +1,24 @@
+// probe: panics
+// about: a cooperative task that `SpinLock.try_lock`s a lock its thread holds, run inside the window by a `join()`, panics naming the lock (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: SpinLock.try_lock: this thread already holds the lock
+// A non-suspending `main` never yields, so the task first runs at the join,
+// which drives it on `main`'s own thread, inside the window.
+import std.spinlock.{SpinLock}
+
+static G: SpinLock<Int>
+
+func take() -> Int {
+    if borrow var g = G.try_lock() { g = g + 1; g } else { -1 }
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(take())
+    let r = borrow var o = G.lock() {
+        o = 10
+        h.join()
+    }
+    print("joined {}", r)
+}

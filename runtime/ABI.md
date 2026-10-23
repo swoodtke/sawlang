@@ -1113,11 +1113,11 @@ little-endian) but must accept all-zero as the initial unlocked state.
 
 `acquire` blocks the calling thread until the lock is held; `release` hands it
 on. Neither is recursive, and neither has to detect a re-entry: `std/mutex.saw`
-records the holding thread in an owner word beside this one, and panics before
-it calls `acquire` on a lock the calling thread already holds. The hosted
-bodies do not survive one (`os_unfair_lock` kills the process with no message,
-and the futex waits forever), so the check stays in std, where the panic has a
-message and the task dump. Stage 0's std keeps no owner. Both are `sync` (a
+records the holding thread (`__saw_rt_lock_owner`, below) in an owner word
+beside this one, and panics before it calls `acquire` on a lock the calling
+thread already holds. The hosted bodies do not survive one (`os_unfair_lock`
+kills the process with no message, and the futex waits forever), so the check
+stays in std, where the panic has a message and the task dump. Stage 0's std keeps no owner. Both are `sync` (a
 seam never suspends a task), which is why a `Mutex` window cannot suspend.
 
 Host bodies: macOS is `os_unfair_lock_lock`/`_unlock` in Saw
@@ -1133,8 +1133,8 @@ that finds its own identity recorded is being re-entered, and panics. `sync`,
 and it allocates nothing, since a lock's panic path must not allocate.
 
 The hosted body is the calling thread's `pthread_self()`, in Saw
-(`rt/common/pthread.saw`). No std code calls the seam yet; `SpinLock`, which
-has no host lock to ask, is its intended caller. A freestanding provider's
+(`rt/common/pthread.saw`). std's `Mutex` and `SpinLock` call it before each
+acquisition and record the answer as the owner. A freestanding provider's
 owner is the CPU or hart plus the interrupt context, since the re-entry that
 matters in a kernel is an interrupt handler taking a lock its own core holds;
 that contract is planned.

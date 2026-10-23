@@ -1,6 +1,6 @@
 // A program that locks a static `SpinLock` and a local one, tries one, and
-// counts with an `Atomic`: a spin lock needs no operating system and no
-// allocator (SL-672), so its cone holds no runtime seam and no allocator.
+// counts with an `Atomic`: a spin lock needs no operating system, no
+// allocator (SL-672), and one owner seam the runtime answers (SL-843).
 
 import std.spinlock.{SpinLock}
 

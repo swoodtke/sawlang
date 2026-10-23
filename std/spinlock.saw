@@ -1,8 +1,9 @@
-//! `SpinLock<T>`: a lock that costs one word and needs no operating system.
+//! `SpinLock<T>`: a lock that costs two words and needs no operating system.
 //!
-//! It guards a value behind an atomic word, so it can live anywhere its
-//! payload can: a local, a field, or a `static`. Unlike `Mutex<T>` it needs no
-//! runtime lock seam, which is the point: it works on a freestanding target.
+//! It guards a value behind an atomic lock word and an owner word, so it can
+//! live anywhere its payload can: a local, a field, or a `static`. Unlike
+//! `Mutex<T>` it needs no runtime lock seam, only the runtime's answer to who
+//! the caller is, which is the point: it works on a freestanding target.
 //!
 //! ```saw-fragment
 //! import std.spinlock.{SpinLock}
@@ -23,6 +24,12 @@
 //!
 //! Hold it briefly. A waiter burns its core until the lock is free.
 
+extern "C" {
+    // The calling context's identity: nonzero, and distinct between any two
+    // contexts that can hold a lock at once (runtime/ABI.md).
+    func __saw_rt_lock_owner() -> Int
+}
+
 // Unlocked must be zero: that is what lets a `static SpinLock<T>` go without
 // an initializer. `Atomic<Int>` is the only atomic, so each use site projects
 // with `as Int`.
@@ -36,17 +43,21 @@ enum LockState: Int {
 /// `lock()` lends the payload for a `borrow` window and releases the lock
 /// when the window closes. The window cannot suspend: `lock` is
 /// `borrows(sync)`, so a task cannot be switched out while it holds the lock,
-/// and contention always means another thread or another core.
+/// and contention means another thread or another core.
 ///
 /// `SpinLock` is `NoCopy`: a copied lock is two locks guarding two payloads.
 /// It is `Sync` when `T` is `Send`, and a bare `static` of one is legal when
 /// `T` is valid at zero.
 ///
-/// Locking is not reentrant. Taking the lock again through another name while
-/// holding it spins forever, since the thread that would release it is the
-/// one spinning.
+/// Locking is not reentrant. A thread that takes the lock again through
+/// another name while holding it, with `lock` or `try_lock`, panics rather
+/// than spinning for itself.
 public struct SpinLock<T> {
     private state: Atomic<Int>,
+    // The holder's identity, or zero. Only the holder writes its own
+    // identity here, and it clears it before releasing, so a thread that
+    // finds its own identity holds the lock.
+    private owner: Atomic<Int>,
     private value: UnsafeMutableInterior<T>
 }
 
@@ -54,7 +65,7 @@ public struct SpinLock<T> {
 // exactly when moving a `T` between threads is.
 extension SpinLock<T: Send>: UnsafeSync {}
 
-// Zero is an unlocked word over a zeroed payload.
+// Zero is an unlocked word with no owner over a zeroed payload.
 extension SpinLock<T: ZeroInit>: ZeroInit {}
 
 extension SpinLock<T>: NoCopy {}
@@ -65,28 +76,40 @@ extension SpinLock<T> {
     /// A `static` does not need this: declare it without an initializer and
     /// the zero pattern is already an unlocked lock over a zeroed payload.
     public init(value: T) unsafe -> SpinLock<T> {
-        SpinLock<T>(state: Atomic(LockState.Unlocked as Int),
+        SpinLock<T>(state: Atomic(LockState.Unlocked as Int), owner: Atomic(0),
                     value: UnsafeMutableInterior(move value))
     }
 
     /// Spins until the lock is free, then lends the payload for the window.
     ///
-    /// The lock is released when the window closes, on every way out.
+    /// The lock is released when the window closes, on every way out. Panics
+    /// when the calling thread already holds the lock.
     public func lock(&self) unsafe sync borrows(sync) -> &var T {
+        let caller = __saw_rt_lock_owner()
+        if self.owner.load() == caller {
+            panic("SpinLock.lock: this thread already holds the lock — a lock is not reentrant, and it was reached again through another name or by a task run inside its window")
+        }
         self.acquire()
+        self.owner.store(caller)
         lend self.value.ptr()[0]
         self.release()
     }
 
-    /// Lends the payload if the lock is free, and nothing if it was held.
+    /// Lends the payload if the lock is free, and nothing if another thread
+    /// holds it.
     ///
     /// Never spins: one compare-and-swap decides it. Absent means another
-    /// holder had the lock at that instant, and says nothing about whether it
-    /// still does.
+    /// thread had the lock at that instant, and says nothing about whether it
+    /// still does. Panics when the calling thread already holds the lock.
     public func try_lock(&self) unsafe sync borrows(sync) -> &var T? {
+        let caller = __saw_rt_lock_owner()
+        if self.owner.load() == caller {
+            panic("SpinLock.try_lock: this thread already holds the lock — a lock is not reentrant, and it was reached again through another name or by a task run inside its window")
+        }
         if not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
             return None
         }
+        self.owner.store(caller)
         lend self.value.ptr()[0]
         self.release()
     }
@@ -99,12 +122,16 @@ extension SpinLock<T> {
         self.state.load() != (LockState.Unlocked as Int)
     }
 
+    // The caller checks the owner first, with a message of its own: a thread
+    // spinning on a lock it holds would never stop. The message is a literal
+    // so that the panic path allocates nothing.
     func acquire(&self) sync {
         while not self.state.compare_exchange(LockState.Unlocked as Int, LockState.Held as Int) {
         }
     }
 
     func release(&self) sync {
+        self.owner.store(0)
         self.state.store(LockState.Unlocked as Int)
     }
 }

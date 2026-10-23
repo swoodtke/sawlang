@@ -1,0 +1,34 @@
+// probe: stated
+// about: a `Thread.spawn` body whose `SpinLock.lock` meets the lock `main` holds waits for it, and is never taken for a re-entry (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// prints: worker 11 done 1
+// `main` holds the window open until the worker is about to take the lock,
+// and a while after, so the worker's acquisition meets another owner.
+import std.spinlock.{SpinLock}
+
+static G: SpinLock<Int>
+static HELD: Atomic<Int> = Atomic(0)
+static STARTED: Atomic<Int> = Atomic(0)
+static DONE: Atomic<Int> = Atomic(0)
+static SPIN: Atomic<Int> = Atomic(0)
+
+func worker() -> Int {
+    while HELD.load() == 0 { }
+    STARTED.store(1)
+    let r = borrow var g = G.lock() { g = g + 1; g }
+    DONE.store(1)
+    r
+}
+
+func main() blocking {
+    var t = try! Thread.spawn { worker() }
+    borrow var o = G.lock() {
+        HELD.store(1)
+        while STARTED.load() == 0 { }
+        while SPIN.fetch_add(1) < 1_000_000 { }
+        o = 10
+    }
+    let r = t.join()
+    print("worker {} done {}", r, DONE.load())
+}

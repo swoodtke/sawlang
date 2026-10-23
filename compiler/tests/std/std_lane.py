@@ -105,10 +105,12 @@ OPTIONAL_METHODS = ("take", "is_some", "is_none")
 # The cones that must reach no allocator: a program using only Optional and
 # Result, and one whose only Strings are literals.
 NO_ALLOCATOR_CONES = ("optional_result", "literal_only", "spinlock")
-# The cones that must reach no runtime seam but the panic sink, which every
-# runtime provides, a freestanding one included: a program locking a
-# `SpinLock`, which needs no operating system.
-SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic",)}
+# The cones that must reach no runtime seam but the panic sink and the lock
+# owner, which every runtime provides, a freestanding one included: a program
+# locking a `SpinLock`, which needs no operating system. `__saw_rt_dealloc` is
+# reached only by `String.deinit` of a literal panic message, which never runs,
+# since a literal is immortal (SL-850).
+SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic", "__saw_rt_lock_owner", "__saw_rt_dealloc")}
 # The cone of a program that interpolates, which reaches the builder and the
 # allocator.
 BUILDER_CONE = "interpolation"

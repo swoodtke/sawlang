@@ -26,7 +26,7 @@ extern "C" {
     func __saw_rt_lock_release(state: UnsafePointer<Int>)
     // The calling thread's identity: nonzero, and distinct between any two
     // threads alive at once.
-    func pthread_self() -> Int
+    func __saw_rt_lock_owner() -> Int
 }
 
 /// A value guarded by a lock.
@@ -83,7 +83,7 @@ extension Mutex<T> {
     /// waiting on the blocked thread's tasks. Panics when the calling thread
     /// already holds the lock.
     public func lock(&self) unsafe sync borrows(sync) -> &var T {
-        let caller = pthread_self()
+        let caller = __saw_rt_lock_owner()
         if self.owner.load() == caller {
             panic("Mutex.lock: this thread already holds the lock — a lock is not reentrant, and it was reached again through another name or by a task run inside its window")
         }
@@ -111,7 +111,7 @@ extension Mutex<T: ExplicitCopy> {
     ///
     /// Panics when the calling thread already holds the lock.
     public func get(&self) unsafe -> T {
-        let caller = pthread_self()
+        let caller = __saw_rt_lock_owner()
         if self.owner.load() == caller {
             panic("Mutex.get: this thread already holds the lock — a lock is not reentrant, and it was reached again through another name or by a task run inside its window")
         }
