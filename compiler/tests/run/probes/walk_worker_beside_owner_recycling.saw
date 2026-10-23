@@ -1,0 +1,38 @@
+// probe: stated
+// about: the deadlock walk a pool worker makes while its only task waits on a channel reads the owner thread's cooperative group only under that thread's latch, while the owner completes the group's unclaimed tasks and frees their cells, conformance row K192 (SL-808)
+// stage 0: runs it alike, but on its own std's executor, so a recorded run says nothing about these walks (SL-808)
+// speeds: -O0 -O2
+// prints: total 4950
+import std.channel.{Channel}
+
+func send_one(a: Channel<Int>, v: Int) -> Int {
+    try! a.send(v)
+    0
+}
+
+func recv_one(b: Channel<Int>) -> Int {
+    try! b.receive()
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    var total = 0
+    var i = 0
+    while i < 100 {
+        let c = try! Channel<Int>()
+        let p = pool.spawn(recv_one(c))
+        var k = 0
+        while k < 8 {
+            let x = try! Channel<Int>()
+            let _ = group.spawn(recv_one(x))
+            let _ = group.spawn(send_one(x, k))
+            k = k + 1
+        }
+        let last = group.spawn(send_one(c, i))
+        let _ = last.join()
+        total = total + p.join()
+        i = i + 1
+    }
+    print("total {}", total)
+}

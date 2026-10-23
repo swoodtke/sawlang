@@ -1,0 +1,39 @@
+// probe: panics
+// about: the panic path's task dump reads a `TaskGroup(threads: 2)` a pool task keeps making, registered in a worker's executor record, only under that record's latch, while the task tears it down and its lock and slots are freed, round after round, conformance row K192 (SL-808)
+// stage 0: runs it alike, but on its own std's executor, so a recorded run says nothing about these walks (SL-808)
+// speeds: -O0 -O2
+// panics: the dump walks a pool being torn down
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+// How many pools the pool task has made and torn down.
+static CHURNED: Atomic<Int> = Atomic(0)
+
+func quick(n: Int) -> Int {
+    n + 1
+}
+
+func churn_a_pool(n: Int) -> Int {
+    var inner = try! TaskGroup(threads: 2)
+    let h = inner.spawn(quick(n))
+    h.join()
+}
+
+// Runs until the process ends.
+func keep_churning() -> Int {
+    while CHURNED.load() >= 0 {
+        let _ = churn_a_pool(1)
+        let _ = CHURNED.fetch_add(1)
+    }
+    0
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    let _ = pool.spawn(keep_churning())
+    while CHURNED.load() < 3 {
+        __saw_rt_sleep_ns(100_000)
+    }
+    panic("the dump walks a pool being torn down")
+}

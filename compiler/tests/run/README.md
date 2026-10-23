@@ -606,7 +606,7 @@ omits` lines. A probe states one kind, and a line
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are three.
+says why the check cannot be header lines. There are six.
 `executable_path.saw` is built by sawc2 and run by a bare name that a
 renamed relative symbolic link on `PATH` resolves, from another working
 directory, and must print its binary's real path, which no header can state:
@@ -616,7 +616,13 @@ atomic write, must all come back whole and in each thread's order, an
 interleaving no header can state. `print_beside_a_panic.saw` must end by
 SIGABRT with its panic beside a thread printing in a loop, once with both
 streams merged and drained (every line whole, the panic between lines) and
-once with standard output a pipe nobody reads.
+once with standard output a pipe nobody reads. The three `dump_tasks_beside_*`
+probes call `dump_tasks()` while another thread recycles a pool's cells, grows
+a group past its capacity or tears pools down, and are run 10 times at -O0 and
+at -O2: each run must exit 0, each dump's header must count the task lines
+under it and name both tasks `main` holds, and the final dump, made once the
+churn has stopped, must name those alone and no group it could not read. Which
+churned tasks a dump catches is the scheduler's, so no header can state it.
 
 `run_lane.py NAME` runs the programs and probes named `NAME`.
 

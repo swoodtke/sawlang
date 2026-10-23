@@ -24,7 +24,7 @@ frame #35: std.task.sleep(duration: std.duration.Duration)  (size 16 align 8, lo
     (*frame).[16: Void]  size 0 align 1  _0 result
     (*frame).[8: std.duration.Duration]  size 8 align 8  _1 param duration  (across 1)
     stack: _2 _3
-frame #54: bt_table_nested_drives.leaf(n: Int)  (size 32 align 8, lower bound 32)
+frame #55: bt_table_nested_drives.leaf(n: Int)  (size 32 align 8, lower bound 32)
     suspend 1: bb1 call sleep
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result

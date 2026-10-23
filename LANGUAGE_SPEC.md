@@ -9321,10 +9321,14 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   The report is decided by elimination, never by counting resumes: design 127's
   op budget force-yields a long computation exactly the way a permanent wait
   presents, so a "resumed N times with no progress" heuristic would abort correct
-  programs. The state is read twice with a nap between, because the walk is
-  unsynchronized and an abort is not a diagnostic. `close()` is the cooperative
-  path and this is the backstop; a program that closes its channels never reaches
-  it.
+  programs. The walk reads every thread's groups, each one under its own lock,
+  so a task it sees parked stays parked while it looks. It reads them one after
+  another, though, and a task could run between two of them; every thread counts
+  the resumes it makes, and a walk across which any count moved, or one that met
+  a lock it could not take, finds code that can run and reports nothing. The
+  state is read twice with a nap between, because an abort is not a diagnostic.
+  `close()` is the cooperative path and this is the backstop; a program that
+  closes its channels never reaches it.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2, rebuilt as a
 live pool by design 225).** By default a `TaskGroup()` runs its children on ONE
@@ -10459,14 +10463,26 @@ Reconstruction is a walk of static tables, not an unwind. A task's frames are
 embedded by value inside one allocation at compile-time-known offsets, each
 carrying a state word naming its resume point, and the compiler records what
 those states mean in a read-only table linked into every binary
-(`__saw_bt_table`). So the dump allocates nothing and needs no runtime support:
-it works under an exhausted allocator, in the freestanding profile, and inside a
-panic handler. `sawc --emit-bt-table` decodes the table as JSON, and
-`tools/test_bt_table.py --sizes` reports what it costs.
+(`__saw_bt_table`). So the dump needs no runtime support: it works in the
+freestanding profile and inside a panic handler. `sawc --emit-bt-table` decodes
+the table as JSON, and `tools/test_bt_table.py --sizes` reports what it costs.
 
-The walk reads task slots without cross-thread synchronization. In a
-multi-threaded group that is a best-effort snapshot and the header says so; a
-single-threaded group is exact, since nothing else is running.
+The dump lists every thread's groups. It reads each one under that group's
+lock into a buffer and writes nothing until it holds no lock, so a blocked
+standard output never stalls another thread's spawn, and the header's count is
+the number of task lines that follow. A task running on the thread that dumps
+shows its frames as of its last suspension; one another thread is running is
+listed as `running` with no frame lines, since its frames change as the dump
+would read them. Each group is read at its own moment, which is why the header
+calls the snapshot unsynchronized; a single-threaded group is exact, since
+nothing else is running. A group whose
+lock the dump cannot take within about 10 ms is one line,
+`task group G not read: busy on another thread`, and on the panic path a group
+whose lock the panicking thread itself holds, mid-change, is
+`task group G not read: busy on this thread`. When the allocator refuses the
+buffer, the dump counts in one walk and writes in another, so the count may
+disagree with the lines, and the header says
+`(unsynchronized snapshot; counted apart from the lines)`.
 
 **Under a debugger.** `tools/lldb_saw.py` reads the same table out of a stopped
 process:

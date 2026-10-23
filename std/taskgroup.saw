@@ -27,6 +27,7 @@ extern "C" {
     func __saw_rt_pthread_cond_init_default(c: UnsafePointer<UInt8>) -> Int
     func pthread_mutex_lock(m: UnsafePointer<UInt8>) -> Int32
     func pthread_mutex_unlock(m: UnsafePointer<UInt8>) -> Int32
+    func pthread_mutex_trylock(m: UnsafePointer<UInt8>) -> Int32
     func pthread_mutex_destroy(m: UnsafePointer<UInt8>) -> Int32
     func pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>) -> Int32
     func pthread_cond_broadcast(c: UnsafePointer<UInt8>) -> Int32
@@ -106,6 +107,7 @@ enum ParkReason {
 //   park_wakes
 //   idle
 //   channel_parked
+//   group_parks
 //   worker_turn
 //   dump_status
 func park_reason(park: Int) -> ParkReason {
@@ -285,6 +287,9 @@ struct TaskSlot {
     generation: Int
     done: Bool
     active: Bool
+    // While `active`, the executor record of the thread resuming the frame,
+    // set with the claim: the dump reads no frame another thread is changing.
+    runner: Int
     // A frame the executor allocated and frees; `main`'s frame is the
     // entry's own.
     owned: Bool
@@ -333,8 +338,13 @@ public struct TaskGroup {
     // The pool's worker count; 1 for the cooperative engine.
     private threads: Int
     // The address of the pool's run-queue lock and condition variable, or 0
-    // for the cooperative engine, which takes no lock (`queue_mutex`).
+    // for the cooperative engine, whose run queue its owner record's latch
+    // guards instead (`lock_queue`).
     private lock: Int
+    // The executor word of the thread holding the pool's lock, 0 while it is
+    // free: how the panic path's dump tells a lock its own thread holds from
+    // one another thread does. Read and written atomically.
+    private holder: Int
     // Set under the lock: `started` by the first spawn, which then starts the
     // workers, and `stopping` once, by the teardown, after which a worker
     // leaves as soon as no task is live.
@@ -358,8 +368,8 @@ extension TaskGroup {
     /// scheduler.
     public init() -> TaskGroup {
         TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false, owner: 0,
-                  outstanding: 0, threads: 1, lock: 0, started: false, stopping: false, pollers: 0,
-                  drained: 0, crew: Vector<Thread<Void>>())
+                  outstanding: 0, threads: 1, lock: 0, holder: 0, started: false, stopping: false,
+                  pollers: 0, drained: 0, crew: Vector<Thread<Void>>())
     }
 
     /// Creates an empty group whose tasks run on a pool of `threads` worker
@@ -392,8 +402,9 @@ extension TaskGroup {
                   __saw_rt_last_raw_code())
         }
         return TaskGroup(slots: Vector<TaskSlot>(), free: Vector<Int>(), next: 0, registered: false,
-                         owner: 0, outstanding: 0, threads: threads, lock: raw as Int, started: false,
-                         stopping: false, pollers: 0, drained: 0, crew: Vector<Thread<Void>>())
+                         owner: 0, outstanding: 0, threads: threads, lock: raw as Int, holder: 0,
+                         started: false, stopping: false, pollers: 0, drained: 0,
+                         crew: Vector<Thread<Void>>())
     }
 
     /// Returns the number of task slots the group holds: its live tasks, plus
@@ -428,25 +439,54 @@ func queue_cond(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
     (at[0].lock + QUEUE_GATE_SLOT) as UnsafePointer<UInt8>
 }
 
-// Takes the run-queue lock of the group at `at`; nothing on the cooperative
-// engine, which has no second thread to take it against. Every read and write
-// of a pool's slots, free list, `started`, `stopping` and `pollers` is made
-// with it held, except the deadlock walk's, which says so.
+// Takes the run-queue lock of the group at `at`: a pool's own mutex, or, for
+// a cooperative group, its owner record's latch (`ExecutorRecord.latch`),
+// which another thread's walk takes before it reads the group. Every write of
+// a pool's slots, free list, `started`, `stopping` and `pollers` is made with
+// it held, and every write of a registered cooperative group's slots, and
+// every free of a cell or frame either reaches, too: the one funnel the
+// cross-thread walks rely on (`walk_take`).
+//
+// A cooperative group's section holds bookkeeping only. A resume, a result's
+// drop and any I/O run outside it, so a walk never waits on user code, and a
+// drop that reaches another group's lock cannot meet this one. The latch is
+// not recursive: no section calls another.
 //
 // A pool's state is reached through the group's address, never through a
 // `&TaskGroup` or `&var TaskGroup` parameter whose call spans a lock: such a
 // parameter promises that nothing else writes the group while the call runs,
 // and a worker does. A run-queue write that takes one (`place`, `complete`,
 // `recycle`) is called with the lock already held.
+//
+// ENTRY POINTS:
+//   enqueue_pooled
+//   enqueue
+//   resume_slot
+//   queue_count
+//   drain_pool
+//   shutdown_crew
+//   await_task
+//   exec_worker (and worker_turn, worker_resume, which drop and retake it)
+//   Task.join
+//   Task.cancel_addr
+//   Task.cancel
+//   Task.detach
+//   Task.deinit
 func lock_queue(at: UnsafePointer<TaskGroup>) unsafe {
     if at[0].lock != 0 {
         let _ = pthread_mutex_lock(queue_mutex(at))
+        store_word((&at[0].holder) as UnsafePointer<Int>, __saw_rt_thread_executor())
+    } else if at[0].owner != 0 {
+        latch_take(at[0].owner as UnsafePointer<ExecutorRecord>)
     }
 }
 
 func unlock_queue(at: UnsafePointer<TaskGroup>) unsafe {
     if at[0].lock != 0 {
+        store_word((&at[0].holder) as UnsafePointer<Int>, 0)
         let _ = pthread_mutex_unlock(queue_mutex(at))
+    } else if at[0].owner != 0 {
+        latch_give(at[0].owner as UnsafePointer<ExecutorRecord>)
     }
 }
 
@@ -538,8 +578,9 @@ extension TaskGroup: NoMove {}
 // One thread's executor state. A cooperative group belongs to the thread
 // that registers it, at its first spawn, and that thread's sweeps read only
 // its own record's groups, so a frame runs only on the thread that drives its
-// group. The fields another thread reads, the deadlock walk's, are read and
-// written atomically through their addresses.
+// group. The fields another thread reads, the walks', are read and written
+// atomically through their addresses, and its groups are read only under its
+// `latch`.
 //
 // A record is never freed: a walk on another thread may be reading it at any
 // time. Once its thread ends it is reusable, and a later thread claims it.
@@ -570,6 +611,143 @@ struct ExecutorRecord {
     next: Int
     // 1 while a running thread owns the record, 0 once it may be claimed.
     live: Int
+    // The lock over the record's group list, the lifetime of every group on
+    // it and each cooperative group's run queue (`lock_queue`): 0 while free,
+    // otherwise the holder's mark, which is the record's own address while a
+    // section holds it, and `WALK_HOLDER` while a walk does.
+    latch: Int
+    // How many resumes this record's thread has finished, written by that
+    // thread alone: a walk that sees any record's count move did not read
+    // one moment (`quiescent_now`).
+    turns: Int
+}
+
+// A walk's mark in a latch, which is no record's address.
+static WALK_HOLDER: Int = -1
+
+// How many tries a walk makes at a lock before it naps, and how many naps of
+// `WALK_NAP_NANOS` before it gives the lock up as busy: a bound far past any
+// section's bookkeeping, which never waits on anything.
+static WALK_SPINS: Int = 64
+static WALK_NAPS: Int = 100
+static WALK_NAP_NANOS: UInt64 = 100_000
+
+// Takes `record`'s latch for a section of `lock_queue`, waiting while a walk
+// or another section holds it. A walk holds it for a bounded read and never
+// for I/O, so the wait is short. The mark is the record's address whichever
+// thread takes it, which costs no thread-local lookup, so a section that
+// nested would wait on itself: none does.
+//
+// ENTRY POINTS:
+//   lock_queue (a cooperative group's sections)
+//   register
+//   unregister
+func latch_take(record: UnsafePointer<ExecutorRecord>) unsafe {
+    let word = (&record[0].latch) as UnsafePointer<Int>
+    let mark = record as Int
+    var tries = 0
+    while not __saw_atomic_cmpxchg_i64_seq_cst(word, 0, mark) {
+        tries = tries + 1
+        if tries >= WALK_SPINS {
+            __saw_rt_sleep_ns(WALK_NAP_NANOS)
+            tries = 0
+        }
+    }
+}
+
+func latch_give(record: UnsafePointer<ExecutorRecord>) unsafe {
+    store_word((&record[0].latch) as UnsafePointer<Int>, 0)
+}
+
+// The outcome of a walk's attempt at a lock.
+enum WalkLock {
+    // Held now, until the walk gives it back.
+    case Taken,
+    // Held by the walking thread itself, mid-section: never read.
+    case Mine,
+    // Held by another thread past the walk's bound.
+    case Busy
+}
+
+// The cross-thread walks' one way into another thread's memory: `record`'s
+// latch, tried WALK_SPINS times between naps, at most WALK_NAPS naps, and
+// never while the walk holds another lock. A latch the calling thread's own
+// section holds is `Mine` at once: the panic path's dump reaches it when a
+// section panics, and the record is mid-change. A walk that holds the latch
+// takes a pool's lock on it only through `walk_take_pool`, which never waits.
+//
+// ENTRY POINTS:
+//   quiescent_now
+//   dump_walk
+func walk_take(record: UnsafePointer<ExecutorRecord>) unsafe -> WalkLock {
+    let word = (&record[0].latch) as UnsafePointer<Int>
+    let me = __saw_rt_thread_executor()
+    var naps = 0
+    while naps <= WALK_NAPS {
+        var tries = 0
+        while tries < WALK_SPINS {
+            if __saw_atomic_cmpxchg_i64_seq_cst(word, 0, WALK_HOLDER) {
+                return WalkLock.Taken
+            }
+            if me != 0 && load_word(word) == me {
+                return WalkLock.Mine
+            }
+            tries = tries + 1
+        }
+        if naps < WALK_NAPS {
+            __saw_rt_sleep_ns(WALK_NAP_NANOS)
+        }
+        naps = naps + 1
+    }
+    WalkLock.Busy
+}
+
+func walk_give(record: UnsafePointer<ExecutorRecord>) unsafe {
+    store_word((&record[0].latch) as UnsafePointer<Int>, 0)
+}
+
+// A walk's try at the lock of the pool at `g`, made while it holds the latch
+// of the record the pool is registered in, so it never waits: a pool lock is
+// held across a result's drop, which may reach a cooperative group's latch.
+// The deadlock walk reads a busy pool as one whose workers are acting; the
+// dump retries the record with no lock held (`dump_record`).
+func walk_take_pool(g: UnsafePointer<TaskGroup>) unsafe -> WalkLock {
+    var tries = 0
+    while tries < WALK_SPINS {
+        if pthread_mutex_trylock(queue_mutex(g)) == 0 {
+            store_word((&g[0].holder) as UnsafePointer<Int>, __saw_rt_thread_executor())
+            return WalkLock.Taken
+        }
+        tries = tries + 1
+    }
+    let me = __saw_rt_thread_executor()
+    if me != 0 && load_word((&g[0].holder) as UnsafePointer<Int>) == me {
+        return WalkLock.Mine
+    }
+    WalkLock.Busy
+}
+
+func walk_give_pool(g: UnsafePointer<TaskGroup>) unsafe {
+    store_word((&g[0].holder) as UnsafePointer<Int>, 0)
+    let _ = pthread_mutex_unlock(queue_mutex(g))
+}
+
+// Counts one finished resume on `record`, the resuming thread's own.
+func count_turn(record: UnsafePointer<ExecutorRecord>) unsafe {
+    let word = (&record[0].turns) as UnsafePointer<Int>
+    store_word(word, load_word(word) + 1)
+}
+
+// The sum of every record's resume count.
+func turns_now() unsafe -> Int {
+    var n = 0
+    var at = EXEC_RECORDS.load()
+    while at != 0 {
+        let r = at as UnsafePointer<ExecutorRecord>
+        n = n + load_word((&r[0].turns) as UnsafePointer<Int>)
+        at = r[0].next
+    }
+    n
 }
 
 // Every executor record the process has made, newest first, threaded through
@@ -622,7 +800,8 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     let align = alignof<ExecutorRecord>()
     let raw = exec_alloc(size, align, "executor")
     let fresh = raw as UnsafePointer<ExecutorRecord>
-    fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1)
+    fresh[0] = ExecutorRecord(groups: 0, waiting: 0, sweeps: 0, background: 0, next: 0, live: 1, latch: 0,
+                              turns: 0)
     var linked = false
     while not linked {
         let head = EXEC_RECORDS.load()
@@ -759,6 +938,32 @@ func free_cell(cell: UnsafePointer<TaskCell>) unsafe {
     GlobalAllocator().dealloc(cell as UnsafePointer<Int8>, bytes, align)
 }
 
+// What a run-queue write gave up and its caller finishes once the lock is
+// released (`retire`): a result's drop runs user code, which must not run
+// under a cooperative group's latch. `cell` is 0 for nothing; with `free`
+// the cell is unlinked from its slot and freed whole, without it the slot
+// keeps the cell (a pinned one) and only its result is dropped.
+struct Retired {
+    cell: Int
+    free: Bool
+}
+
+func retired_none() -> Retired {
+    Retired(cell: 0, free: false)
+}
+
+func retire(r: Retired) unsafe {
+    if r.cell == 0 {
+        return
+    }
+    let cell = r.cell as UnsafePointer<TaskCell>
+    if r.free {
+        free_cell(cell)
+    } else {
+        drop_held_result(cell)
+    }
+}
+
 extension TaskGroup {
     // Whether (`slot`, `generation`) no longer names the task it was minted
     // for. Every handle operation asks first, so a stale handle never reaches
@@ -831,11 +1036,18 @@ func enqueue(group: &var TaskGroup, descriptor: UnsafePointer<FrameDescriptor>,
              frame: UnsafePointer<UInt8>, owned: Bool) unsafe -> TaskTicket {
     register(&var group)
     let cell = new_cell(descriptor)
+    let at = (&group) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
     if group.lock == 0 {
-        return place(&var group, frame, cell, owned)
+        // Under the latch: a growth frees the old `slots` buffer, which a
+        // walk on another thread may be reading.
+        var g = at
+        lock_queue(at)
+        // Stage 0 workaround (SL:hazards S15): canonical: g[0].place(frame, cell, owned)
+        let ticket = place(&var g[0], frame, cell, owned)
+        unlock_queue(at)
+        return ticket
     }
-    enqueue_pooled((&group) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>, frame, cell,
-                   owned)
+    enqueue_pooled(at, frame, cell, owned)
 }
 
 // A pool's enqueue: the slot is placed under the lock, the workers are told,
@@ -883,43 +1095,44 @@ func place(group: &var TaskGroup, frame: UnsafePointer<UInt8>, cell: UnsafePoint
         // The free list never outgrows the slots, so reserving here is what
         // keeps `recycle` from needing to allocate.
         alloc_or_fault(group.free.reserve(slot + 1), "Task.spawn")
-        let fresh = TaskSlot(frame: None, cell: None, generation: 1, done: true, active: false,
+        let fresh = TaskSlot(frame: None, cell: None, generation: 1, done: true, active: false, runner: 0,
                              owned: false, pinned: false)
         alloc_or_fault(group.slots.push(fresh), "Task.spawn")
     }
     let generation = group.slots[slot].generation
     let entry = TaskSlot(frame: frame, cell: cell, generation: generation, done: false,
-                         active: false, owned: owned, pinned: false)
+                         active: false, runner: 0, owned: owned, pinned: false)
     group.slots[slot] = entry
     TaskTicket(slot: slot, generation: generation)
 }
 
 // Retires `slot`: its generation advances, so every handle to the task that
-// left goes stale, and its cell is freed for the next spawn. A pinned slot
-// keeps its cell, its result dropped, and is never reused: a peer may still
-// write the cancel word whose address it was handed (`Task.cancel_addr`).
-func recycle(group: &var TaskGroup, slot: Int) unsafe {
+// left goes stale, and its cell is unlinked for the caller to free (`retire`)
+// and the slot freed for the next spawn. A pinned slot keeps its cell, whose
+// result the caller drops, and is never reused: a peer may still write the
+// cancel word whose address it was handed (`Task.cancel_addr`).
+func recycle(group: &var TaskGroup, slot: Int) unsafe -> Retired {
     let cell = group.cell_at(slot)
     let next = group.slots[slot].generation + 1
     group.slots[slot].generation = next
     if group.slots[slot].pinned {
-        drop_held_result(cell)
-        return
+        return Retired(cell: cell as Int, free: false)
     }
-    free_cell(cell)
     group.slots[slot].cell = None
     alloc_or_fault(group.free.push(slot), "Task.spawn")
+    Retired(cell: cell as Int, free: true)
 }
 
 // The root of `slot` returned `Ready`. Its result moves into the cell and the
 // frame's storage is released, the one place a frame is. The cell holds the
 // result while a handle may still join it, whatever its size, `Void` included,
 // so "holds a result" never depends on the result's bytes. A task no handle
-// claims drops its result here and gives up its slot, which keeps a group's
-// slots bounded by its live tasks and the finished ones a live handle still
-// claims. A frame has no drop glue, so only a frame whose own code reached its end
-// holds nothing that still needs destroying (SL:coroutines §3.1).
-func complete(group: &var TaskGroup, slot: Int) unsafe {
+// claims gives up its slot here, its result dropped by the caller (`retire`),
+// which keeps a group's slots bounded by its live tasks and the finished ones
+// a live handle still claims. A frame has no drop glue, so only a frame whose
+// own code reached its end holds nothing that still needs destroying
+// (SL:coroutines §3.1).
+func complete(group: &var TaskGroup, slot: Int) unsafe -> Retired {
     let s = group.slots[slot]
     let cell = group.cell_at(slot)
     let descriptor = cell[0].descriptor
@@ -938,31 +1151,30 @@ func complete(group: &var TaskGroup, slot: Int) unsafe {
     // again (`quiescent_now`).
     let _ = __saw_atomic_add_i64_seq_cst((&cell[0].finished) as UnsafePointer<Int>, 1)
     group.slots[slot].done = true
-    if cell[0].unclaimed {
-        drop_held_result(cell)
+    if cell[0].unclaimed || not cell[0].holding {
+        return recycle(&var group, slot)
     }
-    if not cell[0].holding {
-        recycle(&var group, slot)
-    }
+    retired_none()
 }
 
 // The handle to `slot` lets go of the task's result without taking it. A task
-// that has finished drops its result and gives up its slot now; a live one is
-// marked, and `complete` does both when it finishes. A stale handle's slot has
-// moved on, and nothing is done.
+// that has finished gives up its slot now, its result dropped by the caller
+// (`retire`); a live one is marked, and `complete` does both when it
+// finishes. A stale handle's slot has moved on, and nothing is done.
 //
 // ENTRY POINTS:
 //   Task.detach
 //   Task.deinit
-func unclaim_slot(group: &var TaskGroup, slot: Int, generation: Int) unsafe {
+func unclaim_slot(group: &var TaskGroup, slot: Int, generation: Int) unsafe -> Retired {
     if group.stale(slot, generation) {
-        return
+        return retired_none()
     }
     let cell = group.cell_at(slot)
     cell[0].unclaimed = true
     if group.slots[slot].done {
-        recycle(&var group, slot)
+        return recycle(&var group, slot)
     }
+    retired_none()
 }
 
 // Asks every live task in `group` to stop.
@@ -1056,7 +1268,13 @@ func monotonic_now() -> UInt64 {
 
 // Releases every slot's cell, dropping any result nobody took. A slot still
 // holding a frame means a frame would be released before its root returned
-// `Ready`, which would lose that frame's live values unseen.
+// `Ready`, which would lose that frame's live values unseen. It runs once the
+// group is unlinked (`unregister`), so no walk can reach a cell it frees, and
+// a result's drop runs under no lock.
+//
+// ENTRY POINTS:
+//   TaskGroup.deinit
+//   __saw_exec_close_background
 func release_slots(group: &var TaskGroup) unsafe {
     var i = 0
     while i < group.slots.len() {
@@ -1081,21 +1299,32 @@ func register(group: &var TaskGroup) unsafe {
     }
     let record = this_executor()
     let head = (&record[0].groups) as UnsafePointer<Int>
+    latch_take(record)
     group.owner = record as Int
     group.next = load_word(head)
     store_word(head, (&group) as UnsafePointer<TaskGroup> as Int)
     group.registered = true
+    latch_give(record)
 }
 
-// Unlinks `group` from its owner's list, fixing its predecessor's `next`.
+// Unlinks `group` from its owner's list, fixing its predecessor's `next`,
+// under the owner's latch: once it returns, no walk is reading the group or
+// can reach it, so its storage may go.
 func unregister(group: &var TaskGroup) unsafe {
     if not group.registered {
         return
     }
+    let record = group.owner as UnsafePointer<ExecutorRecord>
+    latch_take(record)
     group.registered = false
-    let me = (&group) as UnsafePointer<TaskGroup> as Int
-    let after_me = group.next
-    let list = (&(group.owner as UnsafePointer<ExecutorRecord>)[0].groups) as UnsafePointer<Int>
+    unlink_group(record, (&group) as UnsafePointer<TaskGroup> as Int, group.next)
+    latch_give(record)
+}
+
+// Removes the group at `me`, whose successor is `after_me`, from `record`'s
+// list, with its latch held.
+func unlink_group(record: UnsafePointer<ExecutorRecord>, me: Int, after_me: Int) unsafe {
+    let list = (&record[0].groups) as UnsafePointer<Int>
     let head = load_word(list)
     if head == me {
         store_word(list, after_me)
@@ -1129,26 +1358,44 @@ func resume_frame(descriptor: UnsafePointer<FrameDescriptor>, frame: UnsafePoint
 // Nothing is borrowed from the group across the resume: the frame may spawn,
 // which grows `slots`, and a join inside it runs a nested sweep over this
 // same group. `active` keeps that sweep off this frame.
-func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int) unsafe {
+//
+// The claim and the outcome are each a section of the group's latch, and the
+// resume runs between them with no lock held: a walk on another thread sees
+// the slot parked, with its park word and the word it names alive, or active.
+// `record` is the sweeping thread's, which counts the resume.
+func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<ExecutorRecord>) unsafe {
     var g = at
+    lock_queue(at)
     let s = g[0].slots[slot]
     let cell = g[0].cell_at(slot)
-    if let frame = s.frame {
-        g[0].slots[slot].active = true
-        cell[0].park = PARK_UNSET
-        let context = (&cell[0].context) as UnsafePointer<TaskContext>
-        let poll = resume_frame(cell[0].descriptor, frame, context)
-        g[0].slots[slot].active = false
-        match poll {
-            // Stage 0 workaround (SL:hazards S15): canonical: g[0].complete(slot)
-            case Ready -> complete(&var g[0], slot),
-            case Pending -> {
-                if cell[0].park == PARK_UNSET {
-                    panic("executor: a task reported Pending without recording a park")
-                }
+    guard let frame = s.frame else {
+        unlock_queue(at)
+        return
+    }
+    g[0].slots[slot].active = true
+    g[0].slots[slot].runner = record as Int
+    cell[0].park = PARK_UNSET
+    unlock_queue(at)
+    let context = (&cell[0].context) as UnsafePointer<TaskContext>
+    let poll = resume_frame(cell[0].descriptor, frame, context)
+    lock_queue(at)
+    count_turn(record)
+    g[0].slots[slot].active = false
+    var retired = retired_none()
+    match poll {
+        // Stage 0 workaround (SL:hazards S15): canonical: g[0].complete(slot)
+        case Ready -> { retired = complete(&var g[0], slot) },
+        case Pending -> {
+            if cell[0].park == PARK_UNSET {
+                // The section's writes are done, so the latch goes back first
+                // and the panic's dump names this task.
+                unlock_queue(at)
+                panic("executor: a task reported Pending without recording a park")
             }
         }
     }
+    unlock_queue(at)
+    retire(retired)
 }
 
 // Whether the sweep `sweep` was asked for is finished: with `waiter` nonzero,
@@ -1214,7 +1461,7 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
             var i = 0
             while g[0].lock == 0 && i < g[0].slots.len() {
                 if g[0].runnable(i) {
-                    resume_slot(g, i)
+                    resume_slot(g, i, record)
                     resumed = true
                     if should_stop(term_group, term_slot, term_gen, waiter, record) {
                         return
@@ -1385,9 +1632,10 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 //     ready, latched, cancelled, a deadline passed, a set readiness word);
 //   * a frame parked on a timer or a descriptor, since its deadline or the
 //     reactor can wake it;
-//   * any other park that is not a channel's, a join among them: its thread
-//     sets the word before it lowers `LIVE_THREADS`, so a join is either
-//     woken or waiting on a running thread, and never waits for good;
+//   * any other park that is not a channel's, a join and an offload among
+//     them: a joined thread sets its word before it lowers `LIVE_THREADS`,
+//     and an offloaded call ends on its own thread, so neither waits for
+//     good, and the walk reads neither's object;
 //   * a frame a pool worker is resuming, or a cooperative frame active on
 //     another thread's stack;
 //   * from a pool worker, a thread outside the executor (a live record that
@@ -1405,8 +1653,13 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 // set at that second read.
 //
 // The walk reads every thread's groups, since a task on any of them may be
-// the sender. A pool's slots are read without its lock, as every other
-// group's are: the walk is a report, read twice.
+// the sender, each record under its latch and each pool under its own lock
+// (`walk_take`), so nothing it reads can be freed under it and no parked task
+// can be resumed while it looks. A lock it cannot take counts as code that
+// can run: its holder is acting. Groups are read one after another, so a task
+// could run between two of them and the walk see it parked in both; every
+// resume is counted in its thread's record, and a walk across which any
+// count moved counts as code that ran.
 //
 // ENTRY POINTS:
 //   check_quiescent
@@ -1417,6 +1670,7 @@ func quiescent_now(waiter: Int, on_worker: Bool, walker: UnsafePointer<ExecutorR
     if on_worker && some_thread_runs() {
         return false
     }
+    let turns = turns_now()
     var parked = false
     if waiter != 0 {
         let w = waiter as UnsafePointer<TaskContext>
@@ -1428,36 +1682,97 @@ func quiescent_now(waiter: Int, on_worker: Bool, walker: UnsafePointer<ExecutorR
     var at = EXEC_RECORDS.load()
     while at != 0 {
         let record = at as UnsafePointer<ExecutorRecord>
-        let mine = at == walker as Int
-        var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
-        while cur != 0 {
-            let g = cur as UnsafePointer<TaskGroup>
-            let pooled = g[0].lock != 0
-            var i = 0
-            while i < g[0].slots.len() {
-                let s = g[0].slots[i]
-                if not s.done {
-                    if s.active && (pooled || not mine) {
-                        return false
-                    }
-                    if not s.active {
-                        let cell = g[0].cell_at(i)
-                        if not channel_parked((&cell[0].context) as UnsafePointer<TaskContext>) {
-                            return false
-                        }
-                        parked = true
-                    }
-                }
-                i = i + 1
-            }
-            cur = g[0].next
+        if walk_take(record) != WalkLock.Taken {
+            return false
+        }
+        let found = record_parks(record, at == walker as Int)
+        walk_give(record)
+        if found == RecordParks.Runs {
+            return false
+        }
+        if found == RecordParks.Channel {
+            parked = true
         }
         at = record[0].next
     }
     if waiter != 0 && park_wakes(waiter as UnsafePointer<TaskContext>) {
         return false
     }
+    if turns_now() != turns {
+        return false
+    }
     parked
+}
+
+// What one record's groups say to the deadlock walk.
+enum RecordParks {
+    // A task can run, or a lock was busy.
+    case Runs,
+    // No live task.
+    case Empty,
+    // Every live task is parked on a clear channel word, or active on the
+    // walking thread's own stack, and one at least is parked.
+    case Channel
+}
+
+// The deadlock walk over `record`'s groups, with its latch held; `mine` when
+// it is the walking thread's own.
+func record_parks(record: UnsafePointer<ExecutorRecord>, mine: Bool) unsafe -> RecordParks {
+    var parked = false
+    var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
+    while cur != 0 {
+        let g = cur as UnsafePointer<TaskGroup>
+        let pooled = g[0].lock != 0
+        if pooled && walk_take_pool(g) != WalkLock.Taken {
+            return RecordParks.Runs
+        }
+        let found = group_parks(g, pooled || not mine)
+        if pooled {
+            walk_give_pool(g)
+        }
+        if found == RecordParks.Runs {
+            return RecordParks.Runs
+        }
+        if found == RecordParks.Channel {
+            parked = true
+        }
+        cur = g[0].next
+    }
+    if parked {
+        return RecordParks.Channel
+    }
+    RecordParks.Empty
+}
+
+// The deadlock walk over the group at `g`, its lock held; `foreign` when an
+// active slot is on another thread, where it runs.
+func group_parks(g: UnsafePointer<TaskGroup>, foreign: Bool) unsafe -> RecordParks {
+    var parked = false
+    var i = 0
+    while i < g[0].slots.len() {
+        let s = g[0].slots[i]
+        if not s.done {
+            if s.active && foreign {
+                return RecordParks.Runs
+            }
+            if not s.active {
+                let cell = g[0].cell_at(i)
+                let cx = (&cell[0].context) as UnsafePointer<TaskContext>
+                // Every reason but a channel's is a wait that ends without a
+                // send (a join's thread or an offload's call finishes), so it
+                // counts as code that can run, and its object is never read.
+                if park_reason(park_word(cx)) != ParkReason.Channel || not channel_parked(cx) {
+                    return RecordParks.Runs
+                }
+                parked = true
+            }
+        }
+        i = i + 1
+    }
+    if parked {
+        return RecordParks.Channel
+    }
+    RecordParks.Empty
 }
 
 // Whether a thread that owns an executor record is running code of its own
@@ -1491,9 +1806,9 @@ func channel_parked(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
 static DEADLOCK_REPORTED: Atomic<Int> = Atomic(0)
 
 // The deadlock report: panics when the walk finds the process quiescent
-// twice, a nap apart, and returns otherwise. The walk reads unsynchronized
-// state, which is fine for a report and not for an abort, so a real deadlock
-// costs one more look and a false one would need the same misreading twice.
+// twice, a nap apart, and returns otherwise. The second look costs a real
+// deadlock a nap and confirms what the first saw: a word set or a thread
+// started between them, which no count of resumes records, ends it.
 //
 // ENTRY POINTS:
 //   idle
@@ -1837,15 +2152,15 @@ func exec_worker(addr: Int) unsafe {
     let record = this_executor()
     enter_executor(record)
     lock_queue(at)
-    while worker_turn(at) {}
+    while worker_turn(at, record) {}
     unlock_queue(at)
     leave_executor(record)
 }
 
 // One look at the run queue, with the lock held: resumes the first frame
 // whose park wakes, or waits for one to, and answers false once the worker
-// is to leave.
-func worker_turn(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
+// is to leave. `record` is the worker's own.
+func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     var g = at
     let lead = "TaskGroup(threads:)"
     var live = false
@@ -1864,7 +2179,7 @@ func worker_turn(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
                 let cell = g[0].cell_at(i)
                 let cx = (&cell[0].context) as UnsafePointer<TaskContext>
                 if park_wakes(cx) {
-                    worker_resume(at, i)
+                    worker_resume(at, i, record)
                     return true
                 }
                 let park = park_word(cx)
@@ -1910,19 +2225,22 @@ func worker_turn(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
 }
 
 // Resumes `slot` of the pool at `at`, claimed under the lock, which is
-// released for the resume and held again when this returns.
-func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int) unsafe {
+// released for the resume and held again when this returns. The worker's own
+// `record` counts the resume, with the lock held again.
+func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<ExecutorRecord>) unsafe {
     var g = at
     let s = g[0].slots[slot]
     let cell = g[0].cell_at(slot)
     if let frame = s.frame {
         g[0].slots[slot].active = true
+        g[0].slots[slot].runner = record as Int
         cell[0].park = PARK_UNSET
         let context = (&cell[0].context) as UnsafePointer<TaskContext>
         let descriptor = cell[0].descriptor
         unlock_queue(at)
         let poll = resume_frame(descriptor, frame, context)
         lock_queue(at)
+        count_turn(record)
         g[0].slots[slot].active = false
         var finished = false
         match poll {
@@ -1932,12 +2250,17 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int) unsafe {
                 if g[0].stopping && not g[0].live_besides(slot) {
                     store_word((&g[0].drained) as UnsafePointer<Int>, 1)
                 }
-                // Stage 0 workaround (SL:hazards S15): canonical: g[0].complete(slot)
-                complete(&var g[0], slot)
+                // A pool's walk only tries its lock, so an unclaimed result
+                // may be dropped with it held.
+                // Stage 0 workaround (SL:hazards S15): canonical: retire(g[0].complete(slot))
+                retire(complete(&var g[0], slot))
                 finished = true
             },
             case Pending -> {
                 if cell[0].park == PARK_UNSET {
+                    // As the cooperative resume does: the lock goes back
+                    // first, so the panic's dump names this task.
+                    unlock_queue(at)
                     panic("executor: a task reported Pending without recording a park")
                 }
             }
@@ -2156,10 +2479,11 @@ public func __saw_exec_close_background() unsafe {
     // Stage 0 workaround (SL:hazards S15): canonical: g[0].cancel_every_live()
     cancel_every_live(&var g[0])
     exec_run(addr, -1, 0)
-    // Stage 0 workaround (SL:hazards S15): canonical: g[0].release_slots()
-    release_slots(&var g[0])
+    // Unlinked first, so no walk reads a cell the release frees.
     // Stage 0 workaround (SL:hazards S15): canonical: g[0].unregister()
     unregister(&var g[0])
+    // Stage 0 workaround (SL:hazards S15): canonical: g[0].release_slots()
+    release_slots(&var g[0])
     // Its storage stays with the record (`ExecutorRecord.background`); only
     // its run queue is given back.
     drop_in_place(g)
@@ -2366,11 +2690,15 @@ extension Task<T> {
         } else {
             await_task(g, self.slot, self.generation)
         }
+        // Each refusal gives the lock back first, so the panic's dump reads
+        // this thread's groups.
         lock_queue(g)
         if g[0].stale(self.slot, self.generation) {
+            unlock_queue(g)
             panic("Task.join: this task's result was already joined")
         }
         if not g[0].is_done(self.slot) {
+            unlock_queue(g)
             panic("Task.join: the task cannot finish while this join waits for it")
         }
         let cell = g[0].cell_at(self.slot)
@@ -2378,8 +2706,9 @@ extension Task<T> {
         let at = cell[0].result as UnsafePointer<T>
         let value = move at[0]
         // Stage 0 workaround (SL:hazards S15): canonical: g[0].recycle(self.slot)
-        recycle(&var g[0], self.slot)
+        let retired = recycle(&var g[0], self.slot)
         unlock_queue(g)
+        retire(retired)
         move value
     }
 
@@ -2399,6 +2728,7 @@ extension Task<T> {
         var g = self.group
         lock_queue(g)
         if g[0].stale(self.slot, self.generation) {
+            unlock_queue(g)
             panic("Task.cancel_addr: this task's result was already joined")
         }
         g[0].slots[self.slot].pinned = true
@@ -2447,8 +2777,9 @@ extension Task<T> {
         var g = self.group
         lock_queue(g)
         // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
-        unclaim_slot(&var g[0], self.slot, self.generation)
+        let retired = unclaim_slot(&var g[0], self.slot, self.generation)
         unlock_queue(g)
+        retire(retired)
     }
 }
 
@@ -2472,8 +2803,9 @@ extension Task<T>: NoCopy {
         var g = self.group
         lock_queue(g)
         // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
-        unclaim_slot(&var g[0], self.slot, self.generation)
+        let retired = unclaim_slot(&var g[0], self.slot, self.generation)
         unlock_queue(g)
+        retire(retired)
     }
 }
 
@@ -2578,23 +2910,47 @@ struct DumpSink {
     // 0, or the negated tag of the first write standard output refused,
     // after which nothing more is written.
     status: Int
+    // Whether bytes collect in `buf` rather than reach the output: the walk
+    // writes nothing while it holds a lock, so a blocked output never stalls
+    // the thread whose latch it holds.
+    buffered: Bool
+    // The collecting buffer's address, length and capacity, 0 before the
+    // first byte.
+    buf: Int
+    len: Int
+    cap: Int
+    // The allocator refused the buffer's growth: what it holds is short.
+    refused: Bool
 }
+
+// The buffer's first capacity, in bytes.
+static DUMP_FIRST_BYTES: Int = 4096
 
 // Writes the dump: on standard error from the panic path, where nothing is
 // written when no task is live, and on standard output otherwise. Returns 0,
 // or the negated tag of the first write standard output refused.
 //
-// The walk takes no lock: a pool's worker may be resuming a frame while this
-// reads it, so a multi-threaded group's lines are a best-effort snapshot, and
-// the header says so.
+// One walk collects every group's lines into a buffer, each record under its
+// latch, and counts them, and only then is the header written, with the
+// count of the lines that follow, and the buffer after it. Each group is read
+// at its own moment, which is why the header still says the snapshot is
+// unsynchronized. When the allocator refuses the
+// buffer, the dump streams instead: a counting walk and a writing walk, so
+// the count may disagree with the lines, and the header says so.
 func write_task_dump(to_error: Bool) unsafe -> Int {
     let table = __saw_bt_table_address()
-    var sink = DumpSink(to_error: to_error, status: 0)
-    let live = dump_walk(&var sink, table, false)
-    if live == 0 {
+    var sink = DumpSink(to_error: to_error, status: 0, buffered: true, buf: 0, len: 0, cap: 0, refused: false)
+    let live = dump_walk(&var sink, table, true)
+    if sink.refused {
+        dump_buffer_free(&var sink)
+        return stream_task_dump(&var sink, table)
+    }
+    sink.buffered = false
+    if live == 0 && sink.len == 0 {
         if not to_error {
             dump_text(&var sink, "saw tasks: none live\n")
         }
+        dump_buffer_free(&var sink)
         return sink.status
     }
     dump_text(&var sink, "saw tasks: ")
@@ -2604,14 +2960,49 @@ func write_task_dump(to_error: Bool) unsafe -> Int {
     } else {
         dump_text(&var sink, " live (unsynchronized snapshot)\n")
     }
+    let collected = sink.buf
+    let length = sink.len
+    if length > 0 {
+        dump_write(&var sink, collected as UnsafePointer<Int8>, length)
+    }
+    dump_buffer_free(&var sink)
+    sink.status
+}
+
+// The dump with no buffer to collect in: a counting walk, then the header,
+// then a walk that writes each group's lines with that group's lock held.
+func stream_task_dump(sink: &var DumpSink, table: UnsafePointer<UInt8>) unsafe -> Int {
+    sink.buffered = false
+    let live = dump_walk(&var sink, table, false)
+    if live == 0 {
+        if not sink.to_error {
+            dump_text(&var sink, "saw tasks: none live\n")
+        }
+        return sink.status
+    }
+    dump_text(&var sink, "saw tasks: ")
+    dump_int(&var sink, live)
+    if sink.to_error {
+        dump_text(&var sink, " live (as-of panic, unsynchronized; counted apart from the lines)\n")
+    } else {
+        dump_text(&var sink, " live (unsynchronized snapshot; counted apart from the lines)\n")
+    }
     let _ = dump_walk(&var sink, table, true)
     sink.status
 }
 
+func dump_buffer_free(sink: &var DumpSink) unsafe {
+    if sink.buf != 0 {
+        GlobalAllocator().dealloc(sink.buf as UnsafePointer<Int8>, sink.cap, 1)
+    }
+    sink.buf = 0
+    sink.len = 0
+    sink.cap = 0
+}
+
 // Counts the live tasks of every executor record's groups, the registry the
 // deadlock walk reads, writing each one's lines when `emit` is set. Groups are
-// numbered from 1 in walk order, newest-registered first, so the count and
-// the lines agree on the bound, the live test and the order.
+// numbered from 1 in walk order, newest-registered first.
 func dump_walk(sink: &var DumpSink, table: UnsafePointer<UInt8>, emit: Bool) unsafe -> Int {
     let entry = ENTRY_GROUP.load()
     var live = 0
@@ -2620,20 +3011,82 @@ func dump_walk(sink: &var DumpSink, table: UnsafePointer<UInt8>, emit: Bool) uns
     var at = EXEC_RECORDS.load()
     while at != 0 && visited < BT_MAX_GROUPS {
         let record = at as UnsafePointer<ExecutorRecord>
-        var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
-        while cur != 0 && visited < BT_MAX_GROUPS {
-            visited = visited + 1
-            let g = cur as UnsafePointer<TaskGroup>
-            if cur != entry {
-                number = number + 1
-                live = live + dump_group(&var sink, table, g, number, emit)
-            }
-            cur = g[0].next
-        }
+        live = live + dump_record(&var sink, table, record, entry, &var number, &var visited, emit)
         visited = visited + 1
         at = record[0].next
     }
     live
+}
+
+// The live tasks of `record`'s groups, read with its latch held, each group
+// numbered from `number` on. A record whose latch the dump cannot take is one
+// line, numbered as a group. A pool whose lock is busy while the dump
+// collects makes it give the record back, nap and read it again from the
+// start, so no latch is held while it waits; past the walk's bound, or while
+// streaming, where written lines cannot be taken back, the pool is one line.
+func dump_record(sink: &var DumpSink, table: UnsafePointer<UInt8>, record: UnsafePointer<ExecutorRecord>,
+                 entry: Int, number: &var Int, visited: &var Int, emit: Bool) unsafe -> Int {
+    var naps = 0
+    while true {
+        let taken = walk_take(record)
+        if taken != WalkLock.Taken {
+            number = number + 1
+            if emit {
+                dump_not_read(&var sink, number, taken)
+            }
+            return 0
+        }
+        let mark_len = sink.len
+        let mark_number = number
+        let mark_visited = visited
+        let retry = sink.buffered && naps < WALK_NAPS
+        var live = 0
+        var again = false
+        var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
+        while not again && cur != 0 && visited < BT_MAX_GROUPS {
+            visited = visited + 1
+            let g = cur as UnsafePointer<TaskGroup>
+            if cur != entry {
+                number = number + 1
+                if g[0].lock == 0 {
+                    live = live + dump_group(&var sink, table, g, number, emit)
+                } else {
+                    let pool = walk_take_pool(g)
+                    if pool == WalkLock.Taken {
+                        live = live + dump_group(&var sink, table, g, number, emit)
+                        walk_give_pool(g)
+                    } else if pool == WalkLock.Busy && retry {
+                        again = true
+                    } else if emit {
+                        dump_not_read(&var sink, number, pool)
+                    }
+                }
+            }
+            cur = g[0].next
+        }
+        walk_give(record)
+        if not again {
+            return live
+        }
+        sink.len = mark_len
+        number = mark_number
+        visited = mark_visited
+        __saw_rt_sleep_ns(WALK_NAP_NANOS)
+        naps = naps + 1
+    }
+    0
+}
+
+// The line for group `number`, which the dump could not read: its lock was
+// held past the walk's bound by another thread, or by this one mid-change.
+func dump_not_read(sink: &var DumpSink, number: Int, lock: WalkLock) unsafe {
+    dump_text(&var sink, "  task group ")
+    dump_int(&var sink, number)
+    if lock == WalkLock.Mine {
+        dump_text(&var sink, " not read: busy on this thread\n")
+    } else {
+        dump_text(&var sink, " not read: busy on another thread\n")
+    }
 }
 
 // The live tasks of the group at `g`, numbered `number`, each one's lines
@@ -2656,8 +3109,10 @@ func dump_group(sink: &var DumpSink, table: UnsafePointer<UInt8>, g: UnsafePoint
 }
 
 // One task's line, then its stack, innermost frame first: a reader looks for
-// where a task is stopped, not where it started. A running task's frames show
-// its last suspension.
+// where a task is stopped, not where it started. A task running on the
+// dumping thread is suspended further up its stack, and its frames show its
+// last suspension; one running on another thread has no stack here, since
+// its frames change as the dump would read them.
 func dump_task(sink: &var DumpSink, table: UnsafePointer<UInt8>, number: Int, slot: Int, s: &TaskSlot) unsafe {
     dump_text(&var sink, "  task group ")
     dump_int(&var sink, number)
@@ -2672,6 +3127,9 @@ func dump_task(sink: &var DumpSink, table: UnsafePointer<UInt8>, number: Int, sl
     }
     dump_status(&var sink, s.active, cell)
     dump_text(&var sink, "\n")
+    if s.active && s.runner != __saw_rt_thread_executor() {
+        return
+    }
     if let frame = s.frame {
         bt_write_stack(&var sink, table, cell[0].descriptor[0].backtrace, frame as Int)
     }
@@ -2698,13 +3156,42 @@ func dump_status(sink: &var DumpSink, active: Bool, cell: UnsafePointer<TaskCell
     }
 }
 
-// Writes `length` bytes of the dump.
+// Writes `length` bytes of the dump, or collects them while the sink is
+// buffered.
 func dump_write(sink: &var DumpSink, ptr: UnsafePointer<Int8>, length: Int) unsafe {
-    if sink.to_error {
+    if sink.buffered {
+        dump_collect(&var sink, ptr, length)
+    } else if sink.to_error {
         __saw_rt_write_error(ptr, length)
     } else if sink.status == 0 {
         sink.status = __saw_rt_write(ptr, length)
     }
+}
+
+// Appends `length` bytes to the sink's buffer, doubling it as it fills; a
+// growth the allocator refuses marks the sink, and nothing more collects.
+func dump_collect(sink: &var DumpSink, ptr: UnsafePointer<Int8>, length: Int) unsafe {
+    if sink.refused {
+        return
+    }
+    if sink.len + length > sink.cap {
+        var target = if sink.cap == 0 { DUMP_FIRST_BYTES } else { sink.cap * 2 }
+        while target < sink.len + length {
+            target = target * 2
+        }
+        guard let fresh = GlobalAllocator().alloc(target, 1) else {
+            sink.refused = true
+            return
+        }
+        if sink.buf != 0 {
+            copy_bytes(sink.buf as UnsafePointer<Int8>, fresh, sink.len)
+            GlobalAllocator().dealloc(sink.buf as UnsafePointer<Int8>, sink.cap, 1)
+        }
+        sink.buf = fresh as Int
+        sink.cap = target
+    }
+    copy_bytes(ptr, (sink.buf + sink.len) as UnsafePointer<Int8>, length)
+    sink.len = sink.len + length
 }
 
 func dump_text(sink: &var DumpSink, text: String) unsafe {

@@ -322,17 +322,21 @@ public func yield_now() {
 /// ```
 ///
 /// The last word of a task's line is `running`, `ready`, `sleeping`,
-/// `io-parked`, `channel-parked` or `joining` (a thread's exit). A running
-/// task's frames show its last suspension, not where it is executing.
+/// `io-parked`, `channel-parked` or `joining` (a thread's exit). A task
+/// running on the calling thread shows its frames as of its last suspension,
+/// not where it is executing; one another thread is running has no frame
+/// lines.
 ///
-/// Allocates nothing, so it works under an exhausted allocator. The panic
-/// path calls it for you: a program that dies with tasks in flight writes
-/// this dump after its panic line, on standard error.
+/// The panic path calls it for you: a program that dies with tasks in flight
+/// writes this dump after its panic line, on standard error.
 ///
-/// The walk is unsynchronized. A multi-threaded group's worker may be
-/// resuming a frame while this reads it, so treat its lines as a best-effort
-/// snapshot; a single-threaded group's are exact. Panics if standard output
-/// refuses the dump, as `print` does.
+/// Each group is read under its own lock and its lines collected first, so
+/// the header's count matches the lines that follow. Each group is read at
+/// its own moment, so a multi-threaded program's lines are a snapshot that
+/// may already be stale; a single-threaded group's are exact. A group whose lock stays busy is one `not read` line. Under an
+/// exhausted allocator the dump streams instead, and its header says the
+/// count was taken apart from the lines. Panics if standard output refuses
+/// the dump, as `print` does.
 public func dump_tasks() {
     __saw_exec_dump_tasks()
 }

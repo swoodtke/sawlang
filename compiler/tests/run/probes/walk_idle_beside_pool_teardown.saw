@@ -1,0 +1,51 @@
+// probe: stated
+// about: the deadlock walk a sync `main` makes in its idle wait reads a `TaskGroup(threads: 2)` a pool task made, registered in a worker's executor record, only under that record's latch, while the task tears the pool down and its lock and slots are freed, conformance row K192 (SL-808)
+// stage 0: runs it alike, but on its own std's executor, so a recorded run says nothing about these walks (SL-808)
+// speeds: -O0 -O2
+// prints: total 5050
+import std.channel.{Channel}
+
+func quick(n: Int) -> Int {
+    n + 1
+}
+
+func send_one(a: Channel<Int>, v: Int) -> Int {
+    try! a.send(v)
+    0
+}
+
+func recv_one(b: Channel<Int>) -> Int {
+    try! b.receive()
+}
+
+// Starts a pool, runs one task on it and tears it down, on this worker.
+func churn_a_pool(n: Int) -> Int {
+    var inner = try! TaskGroup(threads: 2)
+    let h = inner.spawn(quick(n))
+    h.join()
+}
+
+func churner(a: Channel<Int>, b: Channel<Int>) -> Int {
+    let v = try! a.receive()
+    let w = churn_a_pool(v)
+    try! b.send(w)
+    0
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    var total = 0
+    var i = 0
+    while i < 100 {
+        let a = try! Channel<Int>()
+        let b = try! Channel<Int>()
+        let _ = pool.spawn(churner(a, b))
+        let s = group.spawn(send_one(a, i))
+        let r = group.spawn(recv_one(b))
+        total = total + r.join()
+        let _ = s.join()
+        i = i + 1
+    }
+    print("total {}", total)
+}

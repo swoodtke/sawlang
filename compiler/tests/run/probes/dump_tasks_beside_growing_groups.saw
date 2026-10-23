@@ -1,0 +1,75 @@
+// probe: custom
+// about: `dump_tasks()` reads a cooperative group a pool task keeps growing past its capacity and tearing down, registered in a worker's executor record, only under that record's latch, and every dump counts the task lines it prints and names the tasks `main` holds, conformance rows K192 and K194 (SL-808)
+// A pool task grows a fresh group by 64 spawns, so its `slots` buffer is
+// reallocated several times, and drops it, round after round, while `main`
+// dumps; then the task is stopped and joined, and `main` prints `quiescent`
+// and dumps once more. The lane runs it many times at each level and reads
+// every dump back (`check_dump_beside_churn`): what a dump catches of the
+// growing group is the scheduler's, so no header line can state the output.
+import std.task.{dump_tasks}
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static DUMPS: Int = 50
+static GROWTH: Int = 64
+static NAP_NANOS: UInt64 = 100_000
+// How many groups the pool task has grown and torn down.
+static GROWN: Atomic<Int> = Atomic(0)
+// Set once `main` has dumped, which ends the pool task.
+static STOP: Atomic<Int> = Atomic(0)
+
+func quick(n: Int) -> Int {
+    n + 1
+}
+
+func grow_a_group() -> Int {
+    var g = TaskGroup()
+    var k = 0
+    while k < GROWTH {
+        let _ = g.spawn(quick(k))
+        k = k + 1
+    }
+    k
+}
+
+func keep_growing() -> Int {
+    while STOP.load() == 0 {
+        let _ = grow_a_group()
+        let _ = GROWN.fetch_add(1)
+    }
+    0
+}
+
+// Never resumed before the last dump: `main` is sync, so its group runs only
+// at the joins after it.
+func held_for_the_dump(gate: Channel<Int>) -> Int {
+    try! gate.receive()
+}
+
+func main() {
+    let gate = try! Channel<Int>()
+    var held = TaskGroup()
+    let first = held.spawn(held_for_the_dump(gate.copy()))
+    let second = held.spawn(held_for_the_dump(gate.copy()))
+    var pool = try! TaskGroup(threads: 2)
+    let grower = pool.spawn(keep_growing())
+    while GROWN.load() < 1 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    var i = 0
+    while i < DUMPS {
+        dump_tasks()
+        i = i + 1
+    }
+    STOP.store(1)
+    let _ = grower.join()
+    print("quiescent")
+    dump_tasks()
+    try! gate.send(1)
+    try! gate.send(2)
+    let _ = first.join() + second.join()
+    print("done")
+}

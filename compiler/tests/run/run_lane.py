@@ -996,14 +996,106 @@ def check_print_beside_a_panic(failures, counts):
         counts["run panics beside a printer"] = counts.get("run panics beside a printer", 0) + 1
 
 
+# The lines of a `dump_tasks()` dump beyond a task's and a frame's: its
+# header, the header when nothing is live, and a group it could not read.
+_STDOUT_DUMP_HEADER = re.compile(r"saw tasks: (\d+) live \(unsynchronized snapshot\)$")
+_STDOUT_DUMP_NONE = "saw tasks: none live"
+_DUMP_NOT_READ = re.compile(r"  task group \d+ not read: busy on (another|this) thread$")
+# How often each dump-churn probe runs at each level, and the tasks its `main`
+# holds through every dump, by the function each is parked in.
+DUMP_CHURN_RUNS = 10
+DUMP_CHURN_HELD = 2
+DUMP_CHURN_HELD_IN = " in held_for_the_dump"
+
+
+def dump_churn_problem(out):
+    """The first way a dump-churn probe's standard output breaks the dump's
+    invariants, or None: it is dumps, then `quiescent` and one more dump,
+    then `done`; each dump's header counts the task lines under it and names
+    both tasks `main` holds; and the quiescent dump names those alone, with no
+    group it could not read."""
+    lines = lines_of(out)
+    if not lines or lines[-1] != "done":
+        return "it does not end with `done`"
+    dumps = []
+    quiescent = False
+    current = None
+    for line in lines[:-1]:
+        m = _STDOUT_DUMP_HEADER.match(line)
+        if m or line == _STDOUT_DUMP_NONE:
+            current = {"count": int(m.group(1)) if m else 0, "tasks": [], "not_read": 0, "quiescent": quiescent}
+            dumps.append(current)
+            quiescent = False
+        elif line == "quiescent":
+            quiescent = True
+            current = None
+        elif current is not None and _DUMP_TASK.match(line):
+            current["tasks"].append([])
+        elif current is not None and current["tasks"] and _DUMP_FRAME.match(line):
+            current["tasks"][-1].append(line)
+        elif current is not None and _DUMP_NOT_READ.match(line):
+            current["not_read"] += 1
+        else:
+            return "a line that is no dump's: %r" % line[:100]
+    if not dumps or not dumps[-1]["quiescent"]:
+        return "no dump follows `quiescent`"
+    for k, dump in enumerate(dumps):
+        held = sum(1 for frames in dump["tasks"] if any(DUMP_CHURN_HELD_IN in f for f in frames))
+        if dump["count"] != len(dump["tasks"]):
+            return "dump %d of %d counts %d live and prints %d task lines" % (k + 1, len(dumps), dump["count"],
+                                                                             len(dump["tasks"]))
+        if held != DUMP_CHURN_HELD:
+            return "dump %d of %d names %d of the %d tasks `main` holds" % (k + 1, len(dumps), held,
+                                                                           DUMP_CHURN_HELD)
+    last = dumps[-1]
+    if last["not_read"] or last["count"] != DUMP_CHURN_HELD:
+        return "the quiescent dump prints %d tasks and %d groups not read" % (last["count"], last["not_read"])
+    return None
+
+
+def check_dump_beside_churn(name):
+    """The check of dump-churn probe `name`: built at -O0 and -O2, each run
+    `DUMP_CHURN_RUNS` times, every run exiting 0 with nothing on standard
+    error and its dumps holding `dump_churn_problem`'s invariants. Which of
+    the churned tasks a dump catches live is the scheduler's, so no header
+    line can state the output."""
+    def check(failures, counts):
+        probe = os.path.join(PROBES, name)
+        for speed in ("-O0", "-O2"):
+            where = "run %s %s" % (rel(probe), speed)
+            ok, binary, log = build_new(probe, speed)
+            if not ok or log:
+                failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+                                                      log[:300]))
+                continue
+            for k in range(DUMP_CHURN_RUNS):
+                code, out, err = execute(binary)
+                problem = None
+                if code != 0 or err:
+                    problem = "exit %s, %r on standard error" % (code, err[:300])
+                else:
+                    problem = dump_churn_problem(out.decode("utf-8", "replace"))
+                if problem:
+                    failures.append("%s: run %d of %d: %s" % (where, k + 1, DUMP_CHURN_RUNS, problem))
+                    break
+                counts["run dumps beside churn holding their count"] = (
+                    counts.get("run dumps beside churn holding their count", 0) + 1)
+    return check
+
+
 # The custom probes, each checked by its own function. `executable_path.saw`
 # is run through a renamed link on `PATH` from another directory, and what it
 # must print is its binary's real path, which no header line can state. The
-# two `print` probes' output is interleaved by the operating system.
+# two `print` probes' output is interleaved by the operating system, and the
+# three dump-churn probes' dumps catch whatever the scheduler has left live.
 CUSTOM_PROBES = {
     "executable_path.saw": check_executable_path,
     "print_lines_stay_whole.saw": check_print_lines,
     "print_beside_a_panic.saw": check_print_beside_a_panic,
+    "dump_tasks_beside_recycling_pool_workers.saw": check_dump_beside_churn(
+        "dump_tasks_beside_recycling_pool_workers.saw"),
+    "dump_tasks_beside_growing_groups.saw": check_dump_beside_churn("dump_tasks_beside_growing_groups.saw"),
+    "dump_tasks_beside_pool_teardowns.saw": check_dump_beside_churn("dump_tasks_beside_pool_teardowns.saw"),
 }
 
 

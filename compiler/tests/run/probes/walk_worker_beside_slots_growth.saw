@@ -1,0 +1,47 @@
+// probe: stated
+// about: the deadlock walk a pool worker makes while its only task waits on a channel reads a cooperative group's `slots` only under its owner's latch, while a task on the owner thread spawns into it past its capacity, so the buffer is reallocated, and the group is then torn down, conformance row K192 (SL-808)
+// stage 0: runs it alike, but on its own std's executor, so a recorded run says nothing about these walks (SL-808)
+// speeds: -O0 -O2
+// prints: total 3340
+import std.channel.{Channel}
+
+func recv_one(b: Channel<Int>) -> Int {
+    try! b.receive()
+}
+
+func send_one(a: Channel<Int>, v: Int) -> Int {
+    try! a.send(v)
+    0
+}
+
+func spawner(target: &TaskGroup, n: Int) -> Int {
+    var k = 0
+    while k < n {
+        let x = try! Channel<Int>()
+        let _ = target.spawn(recv_one(x))
+        try! x.send(k)
+        k = k + 1
+    }
+    n
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var total = 0
+    var i = 0
+    while i < 40 {
+        let c = try! Channel<Int>()
+        let p = pool.spawn(recv_one(c))
+        // A fresh group per round, grown from one slot past several
+        // capacities while the worker's walk may read it, then torn down.
+        var grown = TaskGroup()
+        var driver = TaskGroup()
+        let s = driver.spawn(spawner(&grown, 64))
+        total = total + s.join()
+        let last = driver.spawn(send_one(c, i))
+        let _ = last.join()
+        total = total + p.join()
+        i = i + 1
+    }
+    print("total {}", total)
+}

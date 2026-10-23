@@ -1,0 +1,70 @@
+// probe: custom
+// about: `dump_tasks()` reads a `TaskGroup(threads: 2)` a pool task keeps making and tearing down, registered in a worker's executor record, only under that record's latch, and every dump counts the task lines it prints and names the tasks `main` holds, conformance rows K192 and K194 (SL-808)
+// A pool task starts a fresh pool, runs a task on it and tears it down,
+// round after round, while `main` dumps; then the task is stopped and
+// joined, and `main` prints `quiescent` and dumps once more. The lane runs it
+// many times at each level and reads every dump back
+// (`check_dump_beside_churn`): what a dump catches of the churned pools is
+// the scheduler's, so no header line can state the output.
+import std.task.{dump_tasks}
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static DUMPS: Int = 50
+static NAP_NANOS: UInt64 = 100_000
+// How many pools the pool task has made and torn down.
+static CHURNED: Atomic<Int> = Atomic(0)
+// Set once `main` has dumped, which ends the pool task.
+static STOP: Atomic<Int> = Atomic(0)
+
+func quick(n: Int) -> Int {
+    n + 1
+}
+
+func churn_a_pool(n: Int) -> Int {
+    var inner = try! TaskGroup(threads: 2)
+    let h = inner.spawn(quick(n))
+    h.join()
+}
+
+func keep_churning() -> Int {
+    while STOP.load() == 0 {
+        let _ = churn_a_pool(1)
+        let _ = CHURNED.fetch_add(1)
+    }
+    0
+}
+
+// Never resumed before the last dump: `main` is sync, so its group runs only
+// at the joins after it.
+func held_for_the_dump(gate: Channel<Int>) -> Int {
+    try! gate.receive()
+}
+
+func main() {
+    let gate = try! Channel<Int>()
+    var held = TaskGroup()
+    let first = held.spawn(held_for_the_dump(gate.copy()))
+    let second = held.spawn(held_for_the_dump(gate.copy()))
+    var pool = try! TaskGroup(threads: 2)
+    let churner = pool.spawn(keep_churning())
+    while CHURNED.load() < 1 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    var i = 0
+    while i < DUMPS {
+        dump_tasks()
+        i = i + 1
+    }
+    STOP.store(1)
+    let _ = churner.join()
+    print("quiescent")
+    dump_tasks()
+    try! gate.send(1)
+    try! gate.send(2)
+    let _ = first.join() + second.join()
+    print("done")
+}

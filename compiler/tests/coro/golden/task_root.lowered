@@ -14,7 +14,7 @@ fn task_root.double(n: Int) -> Int {
 }
 resume #11: task_root.hello(name: String) task root  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #43 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #44 std.task.yield_now() at (*frame).[16]
 fn task_root.hello(name: String) -> Void {
     let _0: Void;  // return
     let _1: String;  // param name
@@ -37,7 +37,7 @@ fn task_root.hello(name: String) -> Void {
 }
 resume #14: task_root.twice() task root  (frame size 32 align 8, pointer _1)
     state 0: bb0
-    state 1: bb0 drive #48 task_root.hello(name: String) at (*frame).[8]
+    state 1: bb0 drive #49 task_root.hello(name: String) at (*frame).[8]
 fn task_root.twice() -> Void {
     let _0: Void;  // return
     let _1: &var Int;
@@ -51,7 +51,7 @@ fn task_root.twice() -> Void {
         return;
     }
 }
-resume #43: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #44: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {
@@ -68,9 +68,9 @@ fn std.task.yield_now() -> Void {
         return;
     }
 }
-resume #48: task_root.hello(name: String)  (frame size 24 align 8, pointer _3)
+resume #49: task_root.hello(name: String)  (frame size 24 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #43 std.task.yield_now() at (*frame).[16]
+    state 1: bb0 drive #44 std.task.yield_now() at (*frame).[16]
 fn task_root.hello(name: String) -> Void {
     let _0: Void;  // return
     let _1: String;  // param name

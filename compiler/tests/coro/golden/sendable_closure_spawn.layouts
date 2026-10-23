@@ -1,14 +1,14 @@
-frame #0: sendable_closure_spawn.main()  (size 424 align 8, lower bound 424)
+frame #0: sendable_closure_spawn.main()  (size 440 align 8, lower bound 440)
     suspend 1: bb2 call yield_now
     (*frame).[0: Int]  size 8 align 8  state
-    (*frame).[424: Void]  size 0 align 1  _0 result
-    (*frame).[400: Int]  size 8 align 8  _1 n  (across 1)
-    (*frame).[408: Int]  size 8 align 8  _2 base  (across 1)
-    (*frame).[184: std.taskgroup.TaskGroup]  size 168 align 8  _3 group  (across 1)
-    (*frame).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>]  size 176 align 8  _4  (across 1)
-    (*frame).[352: std.taskgroup.Task<Int>]  size 32 align 8  _6 h  (across 1)
-    (*frame).[384: (&Int, &Int)]  size 16 align 8  _9 environment  (across 1)
-    (*frame).[416: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
+    (*frame).[440: Void]  size 0 align 1  _0 result
+    (*frame).[416: Int]  size 8 align 8  _1 n  (across 1)
+    (*frame).[424: Int]  size 8 align 8  _2 base  (across 1)
+    (*frame).[192: std.taskgroup.TaskGroup]  size 176 align 8  _3 group  (across 1)
+    (*frame).[8: Result<std.taskgroup.TaskGroup, std.alloc.AllocError>]  size 184 align 8  _4  (across 1)
+    (*frame).[368: std.taskgroup.Task<Int>]  size 32 align 8  _6 h  (across 1)
+    (*frame).[400: (&Int, &Int)]  size 16 align 8  _9 environment  (across 1)
+    (*frame).[432: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
     stack: _5 _7 _8 _10 _11 _12 _13 _14 _15
 frame #7: sendable_closure_spawn.run(f: () -> Int) task root  (size 40 align 8, lower bound 40)
     suspend 1: bb0 call yield_now

@@ -1,0 +1,56 @@
+// probe: custom
+// about: `dump_tasks()` reads a pool only under its lock while the pool's workers complete short tasks and free their cells and frames, and every dump counts the task lines it prints and names the tasks `main` holds, conformance rows K192 and K194 (SL-808)
+// Each round spawns short pool tasks whose handles are dropped, so the
+// worker that completes one frees its cell, and dumps while they run; then,
+// with the pool idle, it prints `quiescent` and dumps once more. The lane
+// runs it many times at each level and reads every dump back
+// (`check_dump_beside_churn`): which pool tasks a dump catches live is the
+// scheduler's, so no header line can state the output.
+import std.task.{dump_tasks}
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static ROUNDS: Int = 100
+static PER_ROUND: Int = 4
+static NAP_NANOS: UInt64 = 100_000
+
+func quick(n: Int) -> Int {
+    n * 2
+}
+
+// Never resumed before the last dump: `main` is sync, so its group runs only
+// at the joins after it.
+func held_for_the_dump(gate: Channel<Int>) -> Int {
+    try! gate.receive()
+}
+
+func main() {
+    let gate = try! Channel<Int>()
+    var held = TaskGroup()
+    let first = held.spawn(held_for_the_dump(gate.copy()))
+    let second = held.spawn(held_for_the_dump(gate.copy()))
+    var pool = try! TaskGroup(threads: 2)
+    var round = 0
+    while round < ROUNDS {
+        var k = 0
+        while k < PER_ROUND {
+            let _ = pool.spawn(quick(round))
+            k = k + 1
+        }
+        dump_tasks()
+        round = round + 1
+    }
+    // A dropped handle's task gives its slot back when it completes.
+    while pool.count() != 0 {
+        __saw_rt_sleep_ns(NAP_NANOS)
+    }
+    print("quiescent")
+    dump_tasks()
+    try! gate.send(1)
+    try! gate.send(2)
+    let _ = first.join() + second.join()
+    print("done")
+}

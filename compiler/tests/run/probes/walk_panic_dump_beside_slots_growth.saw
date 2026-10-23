@@ -1,0 +1,43 @@
+// probe: panics
+// about: the panic path's task dump reads a cooperative group a pool task keeps growing, registered in a worker's executor record, only under that record's latch, while the task spawns into it past its capacity and tears it down, round after round, conformance row K192 (SL-808)
+// stage 0: runs it alike, but on its own std's executor, so a recorded run says nothing about these walks (SL-808)
+// speeds: -O0 -O2
+// panics: the dump walks a group whose slots grow
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+// How many groups the pool task has grown and torn down.
+static GROWN: Atomic<Int> = Atomic(0)
+
+func quick(n: Int) -> Int {
+    n + 1
+}
+
+func grow_a_group() -> Int {
+    var g = TaskGroup()
+    var k = 0
+    while k < 64 {
+        let _ = g.spawn(quick(k))
+        k = k + 1
+    }
+    k
+}
+
+// Runs until the process ends.
+func keep_growing() -> Int {
+    while GROWN.load() >= 0 {
+        let _ = grow_a_group()
+        let _ = GROWN.fetch_add(1)
+    }
+    0
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    let _ = pool.spawn(keep_growing())
+    while GROWN.load() < 3 {
+        __saw_rt_sleep_ns(100_000)
+    }
+    panic("the dump walks a group whose slots grow")
+}

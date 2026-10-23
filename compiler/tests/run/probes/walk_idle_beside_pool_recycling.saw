@@ -1,0 +1,40 @@
+// probe: stated
+// about: the deadlock walk a sync `main` makes in its idle wait reads the pool it owns only under the pool's lock, while the pool's workers complete unclaimed tasks and free their cells, conformance row K192 (SL-808)
+// stage 0: runs it alike, but on its own std's executor, so a recorded run says nothing about these walks (SL-808)
+// speeds: -O0 -O2
+// prints: total 19900
+import std.channel.{Channel}
+
+func relay(a: Channel<Int>, b: Channel<Int>) -> Int {
+    let v = try! a.receive()
+    try! b.send(v)
+    0
+}
+
+func send_one(a: Channel<Int>, v: Int) -> Int {
+    try! a.send(v)
+    0
+}
+
+func recv_one(b: Channel<Int>) -> Int {
+    try! b.receive()
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    var total = 0
+    var i = 0
+    while i < 200 {
+        let a = try! Channel<Int>()
+        let b = try! Channel<Int>()
+        // Dropped at once, so the worker that completes it frees its cell.
+        let _ = pool.spawn(relay(a, b))
+        let s = group.spawn(send_one(a, i))
+        let r = group.spawn(recv_one(b))
+        total = total + r.join()
+        let _ = s.join()
+        i = i + 1
+    }
+    print("total {}", total)
+}
