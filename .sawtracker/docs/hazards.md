@@ -73,8 +73,7 @@ verdict is in SL-425 c7.
 
 **The checker today (SL-839, Oct 23).** The intersection rule is lifted:
 nothing runs Stage 0 over the compiler's source, and `subset_check.py` keeps
-only `grammar`, `import-allowlist` (its hygiene part, plus S27's until
-SL-826), `workaround-marker` and `redundant-visibility`. An entry's
+only `grammar`, `import-allowlist` (its hygiene part), `workaround-marker` and `redundant-visibility`. An entry's
 **Checker** line naming any other rule records a retired rule. The entry stays
 while a marker, an oracle annotation or an open defect still cites it.
 
@@ -416,19 +415,6 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 **Instead:** call such a member only on an argument that meets the bound.
 
 **Checker:** yes: `bounded-extension` refuses every bound on an extension in compiler source, so the shape cannot arise there, and the new std is compiled by sawc2 alone.
-
-### S27. Bare imports inside a package: searched from the entry file, keyed by their text (SL-531, SL-532)
-
-**Shape (silent: a different module binds, or one file loads as two modules):** Stage 0 resolves every bare import against the ENTRY file. `_prepare_codegen` in `sawc/sawc.py` passes the entry's path to `resolver.resolve_module` for each pending import, whichever module wrote it, and `ModuleResolver._file_relative_dirs` searches the entry's directory and the entry's `Saw.toml` directory, never the importing module's own. Module identity is keyed by the import's text (`_cache`, `module_map`). One rule avoids all three faces, so they are one entry:
-- **A different module binds (silent, SL-532).** A dependency's bare `import util`, written in `libpkg/src/sub/a.saw`, binds the `util.saw` beside the program compiling it, not `libpkg/src/util.saw`. With the application's `tag()` returning 1 and the library's returning 2, Stage 0's binary prints 1 (the Air's repro in the SL-519.p1 review, re-run for this entry). Nothing reports it, and a library's meaning depends on its client.
-- **A sibling is not found (loud, SL-531).** The spec's in-package bare spelling resolves only when the importing file sits beside the entry. Changing `blade/src/resolver.saw`'s import to a bare `import manifest.*` and building any Blade test fails with ``module `manifest` not found``; building `blade/src/main.saw` works, since that importer and the entry share `blade/src/`.
-- **One file, two modules (silent for state, loud for types, SL-531).** A bare `import layout` and a self-named `import ident.layout` load one file twice. A type declared there becomes two types (``argument `s` expects `&Slot` but got `&Slot` ``), and a `static` becomes two statics: an `Atomic<Int>` counter bumped once through each spelling reads 1, not 2.
-
-sawc2 searches the importing file's own directory, then its package root, and nothing else (LANGUAGE_SPEC, Qualifier collisions), and gives a file one identity whatever spelling reaches it. `compiler/tests/resolve/package/hijackapp/` pins the first face.
-
-**Instead:** inside a package, name its own modules by the package's name, `import <pkg>.x`, through the package's own `--module-path <pkg>=<root>/src`, as Blade does (`import blade.layout`), and spell each module the same way throughout a program. Don't rely on a file beside the entry to satisfy a bare import written elsewhere. A loose program (no `Saw.toml`) whose modules sit in a subdirectory is the one place the two compilers need different text: Stage 0 needs the entry-relative `import modules.x` inside `modules/`, which sawc2 refuses, and sawc2 needs the sibling `import x`. So `examples/` keeps the first and its `tests/corpus/` twin writes the second.
-
-**Checker:** yes, for the compiler source: `import-allowlist` refuses any import that is neither std's nor a compiler stage's, so the source writes only the self-named `import <stage>.x`, which `compiler/tools/build.py` maps with `--module-path`. Blade and `libs/` are not checked; they write the self-named spelling by convention (SL-519).
 
 ### S28. A `deinit` with an observable effect in the compiler's cone (SL-522)
 
@@ -784,8 +770,6 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-427 | S3 and S23 The error around `try`/`catch`, and a cast operand in std | silent, leak only (found by sawtracker's ST-66; the std half fixed under a freeze exception) |
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
-| SL-531 | S27 Bare imports inside a package | silent and loud (found by SL-519) |
-| SL-532 | S27 Bare imports inside a package | silent (found in the Air's SL-519.p1 review) |
 | SL-656 | L29 A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
 | SL-565 | S36 A spawn borrow released by joining a rebound handle variable | silent, a use-after-free (found by the Air reviewing SL-565.p1; no live instance: the compiler spawns no task) |
 | SL-765 | S37 A detached thread that finishes after the detach drops no result | silent, a lost deinit and a leak (found by the Air reviewing SL-765.p3; no live instance: the compiler spawns no thread) |
