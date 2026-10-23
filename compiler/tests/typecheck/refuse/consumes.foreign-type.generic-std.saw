@@ -1,0 +1,27 @@
+// refuses: consumes.foreign-type at 17:10
+// flags: --std-root std
+// a generic extension of std's `Vector` declaring a `consumes` method, which
+// would end a `Vector<Res>` without either element's `deinit` running (SL-832)
+
+struct Res {
+    n: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("res {}", self.n)
+    }
+}
+
+extension Vector<T, A> {
+    func forget_all(&var self) consumes -> Int {
+        0
+    }
+}
+
+func main() {
+    var v = Vector<Res>()
+    try! v.push(Res(n: 1))
+    try! v.push(Res(n: 2))
+    print("{}", (move v).forget_all())
+}

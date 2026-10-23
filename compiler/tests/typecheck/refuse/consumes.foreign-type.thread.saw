@@ -1,0 +1,17 @@
+// refuses: consumes.foreign-type at 9:10
+// flags: --std-root std
+// a `consumes` method on std's `Thread` from an importer, which would write a
+// thread's fate outside `std.task` (SL-832)
+
+import std.task.{Thread}
+
+extension Thread<T> {
+    func steal(&var self) consumes -> Int {
+        0
+    }
+}
+
+func main() {
+    var t = try! Thread.spawn { 5 }
+    print("{}", (move t).steal())
+}

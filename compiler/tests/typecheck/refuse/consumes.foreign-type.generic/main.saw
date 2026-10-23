@@ -1,0 +1,16 @@
+// refuses: consumes.foreign-type at 8:10
+// a generic extension in an importer declaring a `consumes` method on every
+// `Holder<T>` (SL-832)
+
+import holder.{Holder}
+
+extension Holder<T> {
+    func forget(&var self) consumes -> Int {
+        0
+    }
+}
+
+func main() {
+    var h = Holder<Int>(item: 3)
+    print("{}", (move h).forget())
+}

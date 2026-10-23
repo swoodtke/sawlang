@@ -15,7 +15,8 @@ directory specifies:
   record in the `.resolve` file beside it;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
-  position its `// refuses:` header names;
+  position its `// refuses:` header names, checked with the flags a second
+  line `// flags: ...` passes (`--std-root std`, for the new std);
 - every rule resolve refuses by has a fixture, unless `WAIVED` says why not;
 - the compiler's own source, the sawc2 build and each unit program, resolves
   with no refusal;
@@ -48,6 +49,7 @@ RESOLVE_SOURCE = os.path.join(COMPILER, "resolve", "src")
 TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
+_FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE_ID = re.compile(r'"((?:name|import|visibility|conformance|test|slice|resolve)\.[a-z-]+)"')
 
 # Rules no tracked fixture can reach, each with the reason. A rule the lane
@@ -206,10 +208,23 @@ def first_error(record, entry=None):
     return None
 
 
+def refusal_flags(path):
+    """The flags a refusal fixture's second line `// flags: ...` passes."""
+    with open(path) as fh:
+        fh.readline()
+        m = _FLAGS.match(fh.readline().rstrip("\n"))
+    return tuple(m.group(1).split()) if m else ()
+
+
 def check_refusals(failures, counts, fill):
     cases = refusal_cases()
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
-    got = records(out)
+    groups = {}
+    for path in cases:
+        groups.setdefault(refusal_flags(path), []).append(path)
+    got = {}
+    for flags, paths in sorted(groups.items()):
+        code, out = sawc2(["--check"] + list(flags) + [rel(p) for p in paths])
+        got.update(records(out))
     named = set()
     for path in cases:
         record = got.get(rel(path), "")

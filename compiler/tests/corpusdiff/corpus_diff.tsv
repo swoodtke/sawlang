@@ -637,7 +637,7 @@ const_static_static_assert_error.saw	refused	typecheck slice.not-yet	a constant 
 constructor_infers_type_arguments.saw	pass	-	-
 consumes_cross_module_call.saw	pass	-	-
 consumes_field_extraction.saw	pass	-	-
-consumes_foreign_module_declaration_error.saw	wrong	accepts a refusal test	`leak` cannot be declared `consumes` here: a consuming method replaces `Handle`'s teardown, and this module does not define `Handle`
+consumes_foreign_module_declaration_error.saw	pass	-	consumes.foreign-type: `leak` cannot be declared `consumes` here: a consuming method replaces `Handle`'s teardown, and this module does not define `Handle`; declare it in `consumes260` (which defines
 consumes_is_a_contextual_word.saw	pass	-	-
 consumes_receiver_forms.saw	pass	-	-
 consumes_suspending_method.saw	pass	-	-

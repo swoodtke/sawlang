@@ -11,7 +11,7 @@ import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
-import sawtypecheck.model.{TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
+import sawtypecheck.model.{TC_EFFECT_CONSUMES, TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
                                TcReceiver, TcSig, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
@@ -46,10 +46,12 @@ public func tc_check_policy_placement(p: &var TcProgram) {
     p.check_policy_placement()
 }
 
-// What an `init` returns, and where `Deinit`'s body may be written.
+// What an `init` returns, and where `Deinit`'s body, or a consuming body in
+// its place, may be written.
 public func tc_check_inits(p: &var TcProgram) {
     p.check_inits()
     p.check_deinit_placement()
+    p.check_consumes_placement()
 }
 
 static TC_MASK_UNSEEN: Int = 0
@@ -1034,6 +1036,71 @@ extension TcProgram {
             try! msg.append(" `NoCopy`, `ExplicitCopy` or `Copy` conformance")
             self.refuse_in(info.module, info.leaf, "deinit.outside-policy", msg.build())
         }
+    }
+
+    // A `consumes` method is declared only in its receiver type's defining
+    // module (spec, "The callee is the release point"): its body takes the
+    // place of the type's `deinit` body, and overriding a type's teardown is
+    // its author's privilege. Only an extension member reaches this: the
+    // grammar refuses `consumes` on a trait requirement or default body
+    // (`syntax.rule.requirement-borrows`). The thread-fate rule rests on it:
+    // only `std.task` can give `Thread` or `Task` a consuming method, which is
+    // why drops counts one as writing the handle's fate (`is_fate_method`).
+    public func check_consumes_placement(&var self) {
+        var d = 0
+        while d < self.res.decls.len() {
+            let m = d
+            d = d + 1
+            let info = self.res.decls[m]
+            if info.kind != ResDeclKind.Method || info.parent < 0 || info.leaf < 0 {
+                continue
+            }
+            if (self.sigs[m].effects & TC_EFFECT_CONSUMES) == 0 {
+                continue
+            }
+            let ext = info.parent
+            if self.res.decls[ext].kind != ResDeclKind.Extension {
+                continue
+            }
+            let target = self.consumes_receiver(ext)
+            if target < 0 {
+                continue
+            }
+            let owner = self.res.decls[target].module
+            if owner == info.module {
+                continue
+            }
+            let type_name = self.res.decl_path(target)
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.res.name_text(info.name))
+            try! msg.append("` cannot be declared `consumes` here: a consuming method replaces `")
+            try! msg.append(type_name)
+            try! msg.append("`'s teardown, and this module does not define `")
+            try! msg.append(type_name)
+            try! msg.append("`; declare it in `")
+            try! msg.append(self.res.module_name(owner))
+            try! msg.append("` (which defines `")
+            try! msg.append(type_name)
+            try! msg.append("`), or take the value by value in a free function instead")
+            self.refuse_in(info.module, info.leaf, "consumes.foreign-type", msg.build())
+        }
+    }
+
+    // The type whose teardown a consuming method of extension `ext` replaces:
+    // the extended type, read through any alias to the type it stands for,
+    // since an alias's module defines no teardown. -1 when the head names
+    // no nominal type.
+    func consumes_receiver(&var self, ext: Int) -> Int {
+        var d = self.ext_head_decl(ext)
+        var hops = 0
+        while d >= 0 && self.res.decls[d].kind == ResDeclKind.Alias && hops < self.res.decls.len() {
+            let stands_for = self.alias_type(d, -1)
+            let ty = self.types.ty(stands_for)
+            d = if ty.kind == TcKind.Nominal { ty.decl } else { -1 }
+            hops = hops + 1
+        }
+        if self.is_nominal(d) { d } else { -1 }
     }
 
     // Whether extension `ext` declares a copy policy, or `Deinit`, which

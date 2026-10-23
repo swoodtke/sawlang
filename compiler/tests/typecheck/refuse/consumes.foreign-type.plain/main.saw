@@ -1,0 +1,16 @@
+// refuses: consumes.foreign-type at 8:10
+// a plain extension in an importer declaring a `consumes` method on `Conn`,
+// which would end a `Conn` without its `deinit` running (SL-832)
+
+import conn.{Conn}
+
+extension Conn {
+    func into_fd(&var self) consumes -> Int {
+        self.fd
+    }
+}
+
+func main() {
+    var c = Conn(fd: 7)
+    print("{}", (move c).into_fd())
+}

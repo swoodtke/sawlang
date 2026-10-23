@@ -1,0 +1,25 @@
+// refuses: consumes.foreign-type at 17:10
+// a `consumes` method beside the members of a conformance the orphan rule
+// allows here, since this module defines the trait: the conformance places
+// nothing about `Conn`'s teardown in this module (SL-832)
+
+import conn.{Conn}
+
+trait Named {
+    func name(&self) -> String
+}
+
+extension Conn: Named {
+    func name(&self) -> String {
+        "conn"
+    }
+
+    func leak(&var self) consumes -> Int {
+        self.fd
+    }
+}
+
+func main() {
+    var c = Conn(fd: 7)
+    print("{}", (move c).leak())
+}

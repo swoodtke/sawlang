@@ -114,6 +114,16 @@ extension TcProgram {
     // The type an extension extends: the declaration its head's last segment
     // is bound to, or -1 when that is not a nominal type.
     public func ext_target(&self, ext: Int) -> Int {
+        let d = self.ext_head_decl(ext)
+        if self.is_nominal(d) {
+            return d
+        }
+        return -1
+    }
+
+    // The declaration an extension's head's last segment is bound to, of
+    // any kind, or -1.
+    public func ext_head_decl(&self, ext: Int) -> Int {
         let info = self.res.decls[ext]
         let head = self.res.first_node_child(info.node)
         if head < 0 {
@@ -121,7 +131,7 @@ extension TcProgram {
         }
         let leaf = self.res.last_leaf_of(head)
         let b = self.binding_at(leaf)
-        if b.kind == ResBindKind.Decl && self.is_nominal(b.decl) {
+        if b.kind == ResBindKind.Decl {
             return b.decl
         }
         return -1

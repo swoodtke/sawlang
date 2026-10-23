@@ -785,7 +785,8 @@ extension DropsProgram {
                    reported: &var Vector<Int>) {
         let c = self.bc.mir.calls[at]
         let receiver = self.receiver_place(&c, &refs)
-        if receiver >= 0 && self.is_fate_method(&c) {
+        let fate = self.is_fate_method(&c)
+        if receiver >= 0 && fate {
             let l = self.owing_local(receiver)
             if l >= 0 {
                 state[l] = -1
@@ -794,12 +795,17 @@ extension DropsProgram {
         var k = 0
         while k < c.arg_count {
             let m = self.fate_source(c.arg_first + k, &var state)
+            let first = k == 0
             k = k + 1
             if m < 0 || state[m] < 0 {
                 continue
             }
             let site = state[m]
             state[m] = -1
+            // A consuming fate method takes the handle itself as its receiver.
+            if first && fate {
+                continue
+            }
             let stored = receiver >= 0 && self.owner_declares_deinit(f, receiver)
             if not stored && report {
                 self.refuse_fate(f, site, m, DropsEscape.Argument, at, &var reported)
@@ -947,7 +953,11 @@ extension DropsProgram {
     }
 
     // Whether call `c` is `join`, `detach` or `cancel` of a handle a
-    // cooperative spawn form mints, or `join` or `detach` of a `Thread`.
+    // cooperative spawn form mints, `join` or `detach` of a `Thread`, or a
+    // `consumes` method of either. A consuming method ends the handle and its
+    // body stands in for the handle's `deinit`, and only the defining module
+    // can declare one (`consumes.foreign-type`), so only `std.task` adds a
+    // fate this way.
     func is_fate_method(&self, c: &MirCall) -> Bool {
         if c.owner < 0 {
             return false
@@ -958,6 +968,9 @@ extension DropsProgram {
         let thread = d >= 0 && d == self.bc.mir.tc.known.thread
         if d < 0 || (d != self.bc.mir.tc.known.task && not thread) {
             return false
+        }
+        if (self.bc.mir.tc.sigs[c.target].effects & TC_EFFECT_CONSUMES) != 0 {
+            return true
         }
         // Stage 0 workaround (SL:hazards S4): canonical: let name = self.bc.mir.tc.name_text(self.bc.mir.tc.res.decls[c.target].name)
         let interned = self.bc.mir.tc.res.decls[c.target].name

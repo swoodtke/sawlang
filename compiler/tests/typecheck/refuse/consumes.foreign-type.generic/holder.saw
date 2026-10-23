@@ -1,0 +1,9 @@
+public struct Holder<T> {
+    item: T
+}
+
+extension Holder<T>: NoCopy {
+    func deinit(&var self) {
+        print("releasing the holder")
+    }
+}

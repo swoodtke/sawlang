@@ -1,0 +1,9 @@
+public struct Conn {
+    fd: Int
+}
+
+extension Conn: NoCopy {
+    func deinit(&var self) {
+        print("closing {}", self.fd)
+    }
+}

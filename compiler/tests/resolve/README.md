@@ -238,7 +238,8 @@ whose `main.saw` is the entry (SL:testing §5). A fixture's first line is
 
 and its first `ERROR` must carry that rule at that position; a position in
 another module of the fixture is written `FILE.saw:L:C`. The second line says
-what the fixture shows.
+what the fixture shows, unless it is `// flags: ...`, whose flags the fixture
+is resolved with (`--std-root std`, for the new std).
 
 | rule | refuses |
 |---|---|

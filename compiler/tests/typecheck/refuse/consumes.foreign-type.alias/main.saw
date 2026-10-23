@@ -1,0 +1,22 @@
+// refuses: slice.not-yet at 13:11
+// a `consumes` method on an alias this module declares for `Conn`. An alias
+// extension is outside the slice today, so that refusal comes first; the
+// record also carries `consumes.foreign-type` at 14:10, read through the
+// alias to `Conn`, which this header names once alias extensions open (SL-832)
+
+import conn.{Conn}
+
+type MyConn = Conn
+
+// The alias's module is this one, and `Conn`'s teardown is `conn`'s: the
+// rule reads the type the alias stands for.
+extension MyConn {
+    func into_fd(&var self) consumes -> Int {
+        self.fd
+    }
+}
+
+func main() {
+    var c = Conn(fd: 7)
+    print("{}", (move c).into_fd())
+}
