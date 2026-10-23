@@ -5,7 +5,7 @@
 
 Each program at the top of tests/corpus/ is resolved as an entry against the
 new std, as corpusdiff builds it, in one
-`sawc2 resolve --check` process. A program that expects a refusal (an
+`sawc resolve --check` process. A program that expects a refusal (an
 `EXPECT-ERROR` directive) is counted apart: resolving it clean says nothing.
 The rest are sorted into the ones that resolve with no refusal and the ones
 refused, by the rule of their first refusal. A program the parser refuses has
@@ -43,8 +43,8 @@ def module_paths(path):
 
 
 def first_refusals(rels, flags):
-    """{path: the rule of its first refusal, or None} for one sawc2 process."""
-    r = subprocess.run([build.SAWC2, "resolve", "--check", "--std-root", "std"] + list(flags) + rels, cwd=REPO,
+    """{path: the rule of its first refusal, or None} for one sawc process."""
+    r = subprocess.run([build.SAWC, "resolve", "--check", "--std-root", "std"] + list(flags) + rels, cwd=REPO,
                        capture_output=True, text=True)
     first = {}
     current = None

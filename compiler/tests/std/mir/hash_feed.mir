@@ -1,4 +1,4 @@
-// The Hasher feed as sawc2 lowers it against std/. A behaviour pair runs
+// The Hasher feed as sawc lowers it against std/. A behaviour pair runs
 // under Stage 0 alone, so this pin holds the new std's side until a backend
 // runs the pair on both. `String.hash` must match Stage 0's
 // (sawc/std/string.saw): a byte loop calling `h.write_int(byte as Int)` once

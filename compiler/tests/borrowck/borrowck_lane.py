@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The borrowck lane: `sawc2 borrowck` against its golden records, refusal
+"""The borrowck lane: `sawc borrowck` against its golden records, refusal
 fixtures, conformance matrix and the move-error differential.
 
     python compiler/tests/borrowck/borrowck_lane.py            # check
@@ -21,13 +21,13 @@ directory specifies:
   `golden/NAME.borrowck`, which carries no `ERROR` or `INVARIANT` line;
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
   refused first by RULE at the position its `// refuses:` header names, with
-  no `INVARIANT` line under `sawc2 borrowck` nor under `sawc2 mir`, and every
+  no `INVARIANT` line under `sawc borrowck` nor under `sawc mir`, and every
   rule the borrow check refuses by (`borrowck_rules` in
   `compiler/borrowck/src/check.saw`) has a fixture; a due fixture, headed
   `// due: RULE when ...`, is held to the refusal standing in its way;
 - each premise program, `premise/NAME.saw`, is refused first by the earlier
   stage's rule its header names;
-- the compiler's own source, the sawc2 build and each unit program, and the
+- the compiler's own source, the sawc build and each unit program, and the
   new std under `--std-root std`, check with no refusal and no `INVARIANT`;
 - each generated program of `LONG_PROGRAMS`, deeper than any fixed budget of
   the loan analysis would reach, is refused first by its rule, or by none;
@@ -134,15 +134,15 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def sawc2(args, stage="borrowck"):
-    r = subprocess.run([build.SAWC2, stage] + with_std_root(args), cwd=REPO, capture_output=True, text=True,
+def sawc(args, stage="borrowck"):
+    r = subprocess.run([build.SAWC, stage] + with_std_root(args), cwd=REPO, capture_output=True, text=True,
                        timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
 # The std a call names when its arguments name none: Stage 0's frozen one,
 # which this lane's and the drops lane's fixtures are written against unless
-# a `// flags:` line names another. sawc2's own default is the new std.
+# a `// flags:` line names another. sawc's own default is the new std.
 FROZEN_STD_ROOT = "sawc"
 
 
@@ -313,7 +313,7 @@ def check_conformance(failures, counts):
 def check_golden(failures, counts, write):
     cases = [(src, os.path.splitext(src)[0] + ".borrowck")
              for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
-    code, out = sawc2(["--dump"] + [rel(src) for src, _ in cases])
+    code, out = sawc(["--dump"] + [rel(src) for src, _ in cases])
     got = records(out)
     for src, exp in cases:
         record = got.get(rel(src))
@@ -369,9 +369,9 @@ def borrowck_rules():
 
 def check_refusals(failures, counts, fill):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
+    code, out = sawc(["--check"] + [rel(p) for p in cases])
     got = records(out)
-    code, lowered_out = sawc2(["--check"] + [rel(p) for p in cases], stage="mir")
+    code, lowered_out = sawc(["--check"] + [rel(p) for p in cases], stage="mir")
     lowered = records(lowered_out)
     covered = set()
     for path in cases:
@@ -410,10 +410,10 @@ def check_refusals(failures, counts, fill):
         # accept the fixture, and no verifier finds a problem in it.
         for line in record.split("\n"):
             if line.startswith("INVARIANT\t"):
-                failures.append("borrowck refusal %s: under sawc2 borrowck: %s" % (rel(path), line))
+                failures.append("borrowck refusal %s: under sawc borrowck: %s" % (rel(path), line))
         for line in lowered.get(rel(path), "").split("\n"):
             if line.startswith("INVARIANT\t") or (line.startswith("ERROR\t") and not due):
-                failures.append("borrowck refusal %s: under sawc2 mir: %s" % (rel(path), line))
+                failures.append("borrowck refusal %s: under sawc mir: %s" % (rel(path), line))
         key = "borrowck due fixtures" if due else "borrowck refusal fixtures"
         counts[key] = counts.get(key, 0) + 1
     rules = borrowck_rules()
@@ -431,7 +431,7 @@ def check_premise(failures, counts):
     if not cases:
         failures.append("borrowck premise %s: no premise program" % rel(PREMISE))
         return
-    code, out = sawc2(["--check"] + [rel(p) for p in cases])
+    code, out = sawc(["--check"] + [rel(p) for p in cases])
     got = records(out)
     rules = borrowck_rules()
     for path in cases:
@@ -461,12 +461,12 @@ def count_labels(record, counts, prefix):
 
 
 def check_acceptance(failures, counts):
-    """The compiler's own source checks whole: the sawc2 build, then each unit
+    """The compiler's own source checks whole: the sawc build, then each unit
     program, with no refusal and no invariant, and so does the new std. A
     unit program the parser refuses has nothing to check and is counted
     apart."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc2(["--check", "--std-root", "std"] + package_args() + entries)
+    code, out = sawc(["--check", "--std-root", "std"] + package_args() + entries)
     got = records(out)
     for entry in entries:
         record = got.get(entry)
@@ -479,9 +479,9 @@ def check_acceptance(failures, counts):
         for line in lines:
             failures.append("borrowck acceptance %s: %s" % (entry, line))
         counts["borrow-checked compiler programs"] = counts.get("borrow-checked compiler programs", 0) + 1
-    code, out = sawc2(["--dump", "--std-root", "std"] + package_args() + [entries[0]])
+    code, out = sawc(["--dump", "--std-root", "std"] + package_args() + [entries[0]])
     count_labels(out, counts, "compiler")
-    code, out = sawc2(["--check", "--std-root", "std", rel(STD_ENTRY)])
+    code, out = sawc(["--check", "--std-root", "std", rel(STD_ENTRY)])
     for line in out.split("\n"):
         if line.startswith(("ERROR\t", "INVARIANT\t")):
             failures.append("borrowck acceptance std: %s" % line)
@@ -570,7 +570,7 @@ def check_long_programs(failures, counts):
         with open(path, "w") as fh:
             fh.write(source)
         paths.append(rel(path))
-    code, out = sawc2(["--check", "--std-root", "std"] + paths)
+    code, out = sawc(["--check", "--std-root", "std"] + paths)
     got = records(out)
     for path, (name, _, rule) in zip(paths, LONG_PROGRAMS):
         record = got.get(path)
@@ -613,11 +613,11 @@ def check_corpus(failures, counts):
     os.makedirs(os.path.dirname(listing), exist_ok=True)
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
-    r = subprocess.run([build.SAWC2, "borrowck", "--dump", "--std-root", FROZEN_STD_ROOT, "@" + rel(listing)],
+    r = subprocess.run([build.SAWC, "borrowck", "--dump", "--std-root", FROZEN_STD_ROOT, "@" + rel(listing)],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     got = records(r.stdout)
     if r.returncode not in (0, 1):
-        failures.append("borrowck corpus: sawc2 exited %d" % r.returncode)
+        failures.append("borrowck corpus: sawc exited %d" % r.returncode)
     reasons = read_differential()
     rules = borrowck_rules()
     loan_reasons = read_loan_differential(failures)
@@ -667,7 +667,7 @@ def check_fixture_divergence(path, row, failures, counts):
     if row[0] != "refuses":
         failures.append("borrowck loan differential %s: a fixture's line must be `refuses`" % path)
         return
-    code, out = sawc2(["--check", path])
+    code, out = sawc(["--check", path])
     record = records(out).get(path, "")
     found = first_error(record)
     if found is None or not found[0].startswith(LOAN_RULE_PREFIXES):

@@ -1,7 +1,7 @@
 # compiler/tests/resolve: the resolver's corpus
 
 The corpus the resolve stage (`compiler/resolve`, SL-445) is held to. This file
-specifies `sawc2 resolve`'s records and dump, the position matrix the corpus
+specifies `sawc resolve`'s records and dump, the position matrix the corpus
 covers, and the rules resolve refuses by.
 
 ```
@@ -19,10 +19,10 @@ resolve/
   corpus_info.py     how much of tests/corpus/ resolves, for information
 ```
 
-## `sawc2 resolve`
+## `sawc resolve`
 
 ```sh
-.build/sawc2 resolve (--dump | --check) [--notes] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
+.build/sawc-stage1 resolve (--dump | --check) [--notes] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
 Each FILE is the entry of its own program, which is resolved with every module
@@ -281,7 +281,7 @@ declaration its module does not have. `prelude_check.py` covers the tables.
 
 ## The lane
 
-`resolve_lane.py` runs one `sawc2 resolve` process per group and checks:
+`resolve_lane.py` runs one `sawc resolve` process per group and checks:
 
 - each golden program's record equals its `.resolve` file byte for byte;
   `--write` rewrites them after a deliberate change, for review;
@@ -294,7 +294,7 @@ declaration its module does not have. `prelude_check.py` covers the tables.
 - a std signature outside the slice is a `NOTE` with its rule, never an
   `ERROR` or an `INVARIANT`: the lane copies the std root under `.build`, adds
   `-> T.Item.Key?` to `std/path.saw`, and resolves a golden program against it;
-- the compiler's own source resolves with no refusal: the sawc2 build, with
+- the compiler's own source resolves with no refusal: the sawc build, with
   the stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;
 - no record carries an `INVARIANT` line;

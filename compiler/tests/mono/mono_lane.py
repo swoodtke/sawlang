@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The mono lane: `sawc2 mono` against its golden item dumps and layout
+"""The mono lane: `sawc mono` against its golden item dumps and layout
 tables, its refusal fixtures, and Stage 0's layouts.
 
     python compiler/tests/mono/mono_lane.py            # check
@@ -74,15 +74,15 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def sawc2(args):
-    r = subprocess.run([build.SAWC2, "mono"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+def sawc(args):
+    r = subprocess.run([build.SAWC, "mono"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
 def check_golden(failures, counts, write):
     cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))
     for mode, suffix in (("--dump", ".mono"), ("--layouts", ".layouts")):
-        code, out = sawc2([mode, "--std-root", "std"] + [rel(s) for s in cases])
+        code, out = sawc([mode, "--std-root", "std"] + [rel(s) for s in cases])
         got = borrowck_lane.records(out)
         for src in cases:
             exp = os.path.splitext(src)[0] + suffix
@@ -118,7 +118,7 @@ def mono_rules():
 
 def check_refusals(failures, counts):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc2(["--check", "--std-root", "std"] + [rel(p) for p in cases])
+    code, out = sawc(["--check", "--std-root", "std"] + [rel(p) for p in cases])
     got = borrowck_lane.records(out)
     rules = mono_rules()
     covered = set()
@@ -166,7 +166,7 @@ def read_exceptions():
 
 
 def stage0_spelling(text):
-    """The source spelling Stage 0 reads `text` (a sawc2 type) as, or None
+    """The source spelling Stage 0 reads `text` (a sawc type) as, or None
     for a type no probe can name: a reference, a function type, and the two
     zero-sized ones (Stage 0's `alignof<Void>()` is an internal error)."""
     if "&" in text or "->" in text or text in ("Never", "Void"):
@@ -294,7 +294,7 @@ def check_lowerings(failures, counts):
     evaluator and the stages after it read one lowering, and never before."""
     cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw"))) + LOWERING_PROGRAMS
     for command, want in LOWERING_COMMANDS:
-        r = subprocess.run([build.SAWC2, command, "--check", "--lowerings", "--std-root", "std"]
+        r = subprocess.run([build.SAWC, command, "--check", "--lowerings", "--std-root", "std"]
                            + [rel(p) for p in cases], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
         got = borrowck_lane.records(r.stdout)
         for path in cases:

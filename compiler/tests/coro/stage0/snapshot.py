@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Stage 0's behaviour on the coroutine programs, recorded so the lanes that
-compare sawc2 with it never run Stage 0 (SL:coroutines §4, unit A0b).
+compare sawc with it never run Stage 0 (SL:coroutines §4, unit A0b).
 
     python compiler/tests/coro/stage0/snapshot.py            # check the snapshot is whole
     python compiler/tests/coro/stage0/snapshot.py --write    # rerun Stage 0, rewrite it

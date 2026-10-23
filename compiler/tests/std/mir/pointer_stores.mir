@@ -1,4 +1,4 @@
-// The std's stores through a raw pointer as sawc2 lowers them against std/
+// The std's stores through a raw pointer as sawc lowers them against std/
 // (SL-512). A whole pointer slot tracks no occupancy, so each store is a
 // placement that drops nothing first: `Box.make` and `Vector.push` write a
 // fresh slot, and `Vector.set` and `Optional.take_payload` write one their

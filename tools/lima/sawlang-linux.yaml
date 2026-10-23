@@ -57,7 +57,7 @@ provision:
         gcc-x86-64-linux-gnu=4:12.2.0-3 \
         libc6-dev-amd64-cross=2.36-8cross1 \
         libc6:amd64=2.36-9+deb12u14
-      # sawc2 emits opaque-pointer IR (`ptr`), which needs LLVM 15 or later, and
+      # sawc emits opaque-pointer IR (`ptr`), which needs LLVM 15 or later, and
       # bookworm's default clang 14 refuses it. Bookworm's own archive carries
       # clang 19, which a pin can name for as long as Debian keeps it, unlike
       # apt.llvm.org's rolling snapshots. The default clang stays for Stage 0,

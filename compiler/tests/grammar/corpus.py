@@ -9,7 +9,7 @@ The record, corpus_expected.tsv, is a statement about GRAMMAR.md: it lists each
 file the grammar refuses, with its verdict and a classified reason, and an
 unlisted file must be accepted with exactly one tree. `a-removed` names the
 removed productions whose enabling alone makes the file parse; otherwise
-`a-error` means sawc2's parser refuses the file too, and `c-conflict` that it
+`a-error` means sawc's parser refuses the file too, and `c-conflict` that it
 accepts what the grammar refuses, which a ruling or a filed finding must
 explain. A file refused by a
 rule the recognizer does not model yet is listed by hand as UNMODELLED, with the
@@ -107,9 +107,9 @@ class Classifier:
 
 
 def parser_accepts(path):
-    """Whether sawc2's parser takes the file: `parse --check` exits 0 and
+    """Whether sawc's parser takes the file: `parse --check` exits 0 and
     reports no error. A crash is no acceptance."""
-    r = subprocess.run([recognize.lexdump.ensure_sawc2(), "parse", "--check", path], cwd=REPO,
+    r = subprocess.run([recognize.lexdump.ensure_sawc(), "parse", "--check", path], cwd=REPO,
                        capture_output=True, text=True)
     return r.returncode == 0 and not any(line.startswith("ERROR\t") for line in r.stdout.split("\n"))
 

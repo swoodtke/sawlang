@@ -1,7 +1,7 @@
 # compiler/tests/eval: the constant evaluator's corpus
 
 The corpus the constant evaluator (`compiler/eval`, package `saweval`,
-SL-452) is held to. This file specifies `sawc2 eval`'s records and dump, the
+SL-452) is held to. This file specifies `sawc eval`'s records and dump, the
 positions the evaluator covers, and the rules it refuses by.
 
 ```
@@ -54,10 +54,10 @@ run of `EvalProgram.parts`, which mono takes whole with the values
 (`compiler/tests/run/README.md`, "Strings and statics"). A static with no
 initializer has no MIR function and no value: it is zero.
 
-## `sawc2 eval`
+## `sawc eval`
 
 ```sh
-.build/sawc2 eval (--dump | --check) [--notes] [--std-root DIR]
+.build/sawc-stage1 eval (--dump | --check) [--notes] [--std-root DIR]
                   [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -65,7 +65,7 @@ Each FILE is the entry of its own program, resolved, type checked, lowered to
 MIR and its constants evaluated. The flags are resolve's. Each entry's record
 starts with `FILE<TAB>path` and holds, in order:
 
-- every line `sawc2 mir --check` prints for it (`compiler/tests/mir/README.md`);
+- every line `sawc mir --check` prints for it (`compiler/tests/mir/README.md`);
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal the
   evaluator makes, in the order it evaluates, at the constant's expression;
 - one `INVARIANT<TAB>module<TAB>message` line per problem the evaluator's
@@ -128,7 +128,7 @@ The evaluator's verifier checks, per lowered module:
 
 ## The lane
 
-`eval_lane.py` runs one `sawc2 eval` process per group and checks that each
+`eval_lane.py` runs one `sawc eval` process per group and checks that each
 golden program's record equals its `.eval` file byte for byte (`--write`
 rewrites them), that each refusal fixture is refused first by the rule its
 header names at its position (`--fill` writes a `// refuses: TODO` header),

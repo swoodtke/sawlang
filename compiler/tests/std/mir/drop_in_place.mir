@@ -1,4 +1,4 @@
-// The new std's in-place drop as sawc2 lowers it against std/ (SL-662): the
+// The new std's in-place drop as sawc lowers it against std/ (SL-662): the
 // intrinsic it is written over is a drop of the pointee's place, `(*_2)`, so
 // the value's glue runs at the address it lives at. A move out into a
 // temporary first would destroy a `NoMove` value away from its home.

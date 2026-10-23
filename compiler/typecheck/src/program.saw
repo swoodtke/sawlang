@@ -348,7 +348,7 @@ public struct TcProgram {
     pending_constants: Vector<TcPendingConstant>
     constants_final: Bool
     // Whether the program is a runtime, whose `@export`s may be the frozen
-    // `__saw_rt_*` seams, as `sawc2 runtime` checks one (design 149).
+    // `__saw_rt_*` seams, as `sawc runtime` checks one (design 149).
     runtime_build: Bool
     // Whether the program is built for the freestanding profile: no hosted
     // runtime under it, so no background task group and no offload thread

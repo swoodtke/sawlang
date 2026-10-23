@@ -4,7 +4,7 @@
     python compiler/tools/std_suspension.py          # fails if the Saw form is not the table's
     python compiler/tools/std_suspension.py --write  # observes Stage 0, rewrites both
 
-sawc2 reads std as interfaces and checks no std body, so its phase 2 cannot
+sawc reads std as interfaces and checks no std body, so its phase 2 cannot
 infer whether a std function suspends. Until the new std's bodies are checked,
 it takes each std function's verdict from this table, a recorded snapshot:
 the frozen compiler's own std check, observed by `--write` in a child process
@@ -25,20 +25,20 @@ first source that is not `blocking`, as Stage 0's diagnostic path names it:
 a `Thread.spawn` body permits the `blocking` cause alone, and its refusal
 names what it struck on (`io_wait`).
 
-A row is keyed as sawc2 names the declaration: its module, its path, and its
+A row is keyed as sawc names the declaration: its module, its path, and its
 parameters' names, `self` left out. Overloads sharing a key take the worst
 verdict and the union of their causes. `std_suspension.txt` is the record, with the triple it was observed
 on; `compiler/typecheck/src/stdsuspension.saw` is the same rows compiled into
-sawc2, and the check holds the two equal.
+sawc, and the check holds the two equal.
 
 `--write` also derives, from the source alone, the std modules whose bodies
 spell a parking primitive, closed over the std modules that import them (a
 selective import counting only when it brings a name that parks), and refuses
 to write unless that set equals the modules holding a `suspends` row. The new
-std in `std/` needs no table, since sawc2 checks its bodies, and the check
+std in `std/` needs no table, since sawc checks its bodies, and the check
 gives it the same cross-check: the modules spelling one of its park points
 (`std.task`'s lang items), closed over their importers, against the modules
-holding a function sawc2's summaries say suspends.
+holding a function sawc's summaries say suspends.
 """
 import argparse
 import glob
@@ -64,7 +64,7 @@ TIMEOUT = 600
 VERDICTS = ("sync", "nonsync", "suspends")
 SAW_CODES = {"sync": "TC_STD_SYNC", "nonsync": "TC_STD_NONSYNC", "suspends": "TC_STD_SUSPENDS"}
 # Stage 0's cause bits, by the names its `SuspendCause.NAMES` gives them; the
-# Saw form writes the bits, which sawc2's `TC_CAUSE_*` constants share.
+# Saw form writes the bits, which sawc's `TC_CAUSE_*` constants share.
 CAUSE_BITS = (("cooperative", 1), ("blocking", 2), ("test_suspend", 4),
               ("existential_dispatch", 8), ("closure_call", 16), ("unclassified", 32))
 BLOCKING_BIT = 2
@@ -135,7 +135,7 @@ def observe(out_path):
     # The declarations are listed before the check runs: it synthesizes
     # methods the source does not write (a policy's `deinit`, a default body
     # copied into each conformer, a place accessor's twin) and adds a window
-    # parameter to each place accessor, and sawc2 sees none of that.
+    # parameter to each place accessor, and sawc sees none of that.
     written = []
     for fn in ast.functions:
         module = module_of(fn.source_file)
@@ -243,7 +243,7 @@ HEADER = """\
 # framing nothing) or `sync`; then its cause set and the label of its first
 # source that is not `blocking`, `-` for none. Written by
 # compiler/tools/std_suspension.py --write through the v0 compiler;
-# compiler/tests/run.py fails when the Saw form differs. sawc2's phase 2 reads
+# compiler/tests/run.py fails when the Saw form differs. sawc's phase 2 reads
 # these rows, compiled in as compiler/typecheck/src/stdsuspension.saw, for the
 # std functions whose bodies it does not check.
 """
@@ -516,15 +516,15 @@ def _known_modules():
     return _MODULES
 
 
-def new_std_suspending_modules(sawc2):
-    """The new-std modules holding a function sawc2's summaries say suspends,
+def new_std_suspending_modules(sawc):
+    """The new-std modules holding a function sawc's summaries say suspends,
     or None with the reason the check could not run."""
-    if not os.path.exists(sawc2):
-        return None, "%s is not built" % os.path.relpath(sawc2, REPO)
-    r = subprocess.run([sawc2, "typecheck", "--check", "--summaries", "--std-root", NEW_STD,
+    if not os.path.exists(sawc):
+        return None, "%s is not built" % os.path.relpath(sawc, REPO)
+    r = subprocess.run([sawc, "typecheck", "--check", "--summaries", "--std-root", NEW_STD,
                         NEW_STD_ENTRY], capture_output=True, text=True, timeout=TIMEOUT, cwd=REPO)
     if r.returncode != 0:
-        return None, "sawc2 refuses the new std: %s" % (r.stdout.strip() or r.stderr.strip())
+        return None, "sawc refuses the new std: %s" % (r.stdout.strip() or r.stderr.strip())
     modules = {new_module_of(p) for p in glob.glob(os.path.join(NEW_STD, "**", "*.saw"),
                                                     recursive=True)}
     holding = set()
@@ -542,21 +542,21 @@ def new_std_suspending_modules(sawc2):
     return holding, None
 
 
-def check_new_std(sawc2):
+def check_new_std(sawc):
     """Failures of the new std's cross-check: the modules spelling a park
-    point, closed over their importers, against the modules sawc2 finds a
+    point, closed over their importers, against the modules sawc finds a
     suspending function in."""
-    holding, problem = new_std_suspending_modules(sawc2)
+    holding, problem = new_std_suspending_modules(sawc)
     if holding is None:
         return ["std suspension: the new std's cross-check cannot run: %s" % problem]
     parks = parking_modules(NEW_STD, NEW_PARK_SPELLINGS, new_module_of)
     failures = []
     for module in sorted(holding - parks):
-        failures.append("std suspension: sawc2 finds a suspending function in %s, but no body of "
+        failures.append("std suspension: sawc finds a suspending function in %s, but no body of "
                         "it calls a park point or imports a module that does" % module)
     for module in sorted(parks - holding):
         failures.append("std suspension: %s calls a park point, or imports a module that does, "
-                        "but sawc2 finds no suspending function in it" % module)
+                        "but sawc finds no suspending function in it" % module)
     return failures
 
 
@@ -571,7 +571,7 @@ def check():
         failures.append("std suspension: %s holds no rows or no `%s` line; rerun "
                         "compiler/tools/std_suspension.py --write" % (os.path.relpath(TABLE_FILE, REPO),
                                                                        _TRIPLE.strip()))
-    failures += check_new_std(build.SAWC2)
+    failures += check_new_std(build.SAWC)
     try:
         with open(SAW_FILE) as fh:
             current = fh.read()

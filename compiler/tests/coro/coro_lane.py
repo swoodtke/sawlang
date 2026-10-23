@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The coro lane: `sawc2 coro` against its golden frame decisions, frame
+"""The coro lane: `sawc coro` against its golden frame decisions, frame
 layouts and refusal fixtures, and its decisions against typecheck's
 summaries.
 
@@ -28,7 +28,7 @@ directory specifies:
 - over every program of this lane, of the mono lane's goldens and of the run
   lane, coroutine lowering's frame decisions agree with typecheck's
   summaries wherever a summary is unconditional, and every frame is laid
-  out: `sawc2 coro --layouts` gives each a record with no `INVARIANT` line;
+  out: `sawc coro --layouts` gives each a record with no `INVARIANT` line;
 - each unit program under `parks/`, a verifier injection over a fixture of
   `inject/` that needs the park std, builds and exits 0 once that std is
   made.
@@ -62,7 +62,7 @@ PARK_ROOT = os.path.join(REPO, ".build", "coro-lane")
 RULES_SOURCE = os.path.join(COMPILER, "coro", "src", "suspends.saw")
 AGREEMENT = (os.path.join(TESTS, "mono", "golden"), os.path.join(TESTS, "run"))
 BT_PREFIX = "bt_table_"
-# The snapshot's records for `sawc2 coro`'s default target, which the
+# The snapshot's records for `sawc coro`'s default target, which the
 # `--bt-table` goldens are laid out for.
 SNAPSHOT = os.path.join(HERE, "stage0", "arm64-apple-darwin")
 TIMEOUT = 600
@@ -87,8 +87,8 @@ def module_args():
     return args
 
 
-def sawc2(args):
-    r = subprocess.run([build.SAWC2, "coro"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+def sawc(args):
+    r = subprocess.run([build.SAWC, "coro"] + args, cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -181,9 +181,9 @@ def check_golden(failures, counts, write, rules, mode, suffix, park_root, prefix
     cases = sorted(glob.glob(os.path.join(GOLDEN, prefix + "*.saw")))
     parks = [s for s in cases if os.path.basename(s).startswith("park_")]
     plain = [s for s in cases if s not in parks]
-    code, out = sawc2([mode, "--std-root", "std"] + module_args() + [rel(s) for s in plain])
+    code, out = sawc([mode, "--std-root", "std"] + module_args() + [rel(s) for s in plain])
     got = borrowck_lane.records(out)
-    code, out = sawc2([mode, "--std-root", park_root] + module_args() + [rel(s) for s in parks])
+    code, out = sawc([mode, "--std-root", park_root] + module_args() + [rel(s) for s in parks])
     got.update(borrowck_lane.records(out))
     for src in cases:
         exp = os.path.splitext(src)[0] + suffix
@@ -214,7 +214,7 @@ def check_golden(failures, counts, write, rules, mode, suffix, park_root, prefix
 
 
 def bt_frames(lines):
-    """The `btframe` lines of a decoded table, sawc2's or the snapshot's, as
+    """The `btframe` lines of a decoded table, sawc's or the snapshot's, as
     (name, states) in table order, each state (line, child index or -1)."""
     frames = []
     for line in lines:
@@ -236,7 +236,7 @@ def bt_parked(frames):
     """By frame name, the sorted states it can be parked in, each (line, the
     child's frame name or None): every state past the entry but one with no
     line and no child, which Stage 0 numbers for the block after a drive and
-    sawc2 for a suspension lowered to nothing, and neither ever parks in."""
+    sawc for a suspension lowered to nothing, and neither ever parks in."""
     out = {}
     for name, states in frames:
         parked = [(line, frames[child][0] if 0 <= child < len(frames) else None)
@@ -299,7 +299,7 @@ def check_bt_ir(failures, counts):
         index = {line.split("\t")[1]: k for k, line in enumerate(l for l in lines if l.startswith("btframe\t"))}
         for triple, section in BT_SECTIONS:
             where = "coro backtrace table %s %s" % (rel(src), triple)
-            r = subprocess.run([build.SAWC2, "build", "--std-root", "std", "--target", triple, "--emit-ll", rel(src)],
+            r = subprocess.run([build.SAWC, "build", "--std-root", "std", "--target", triple, "--emit-ll", rel(src)],
                                cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
             if r.returncode != 0:
                 failures.append("%s: does not build: %s" % (where, first_line(r.stdout)))
@@ -323,7 +323,7 @@ def check_bt_ir(failures, counts):
 
 def check_refusals(failures, counts, rules):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc2(["--check", "--std-root", "std"] + module_args() + [rel(p) for p in cases])
+    code, out = sawc(["--check", "--std-root", "std"] + module_args() + [rel(p) for p in cases])
     got = borrowck_lane.records(out)
     covered = set()
     for path in cases:
@@ -369,11 +369,11 @@ def check_refusals(failures, counts, rules):
 
 def check_agreement(failures, counts):
     """Typecheck's summaries and the frame decisions, over programs other
-    lanes hold: a disagreement is an `INVARIANT` line of `sawc2 coro`."""
+    lanes hold: a disagreement is an `INVARIANT` line of `sawc coro`."""
     cases = []
     for directory in AGREEMENT:
         cases += sorted(glob.glob(os.path.join(directory, "*.saw")))
-    code, out = sawc2(["--layouts", "--std-root", "std"] + [rel(p) for p in cases])
+    code, out = sawc(["--layouts", "--std-root", "std"] + [rel(p) for p in cases])
     got = borrowck_lane.records(out)
     for path in cases:
         record = got.get(rel(path))
@@ -386,7 +386,7 @@ def check_agreement(failures, counts):
 
 def check_park_injections(failures, counts):
     """Each unit program under `parks/`, which lowers a fixture of `inject/`
-    under the park std and needs it made first: built by sawc2 and run from
+    under the park std and needs it made first: built by sawc and run from
     the repository root, as compiler/tests/run.py runs the stages' own."""
     for src in sorted(glob.glob(os.path.join(PARKS, "*.saw"))):
         if src == PARKS_TAIL:

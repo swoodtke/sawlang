@@ -33,7 +33,7 @@ see [TESTING.md](TESTING.md).
 - **Allocation is visible in the type.** The allocating containers carry their
   allocator as a type parameter, and the only implicit copies are cheap ones: a
   bitwise copy or a refcount bump. No assignment is secretly O(n). Duplicating
-  a `Vector` is a visible `.copy()`. `sawc --no-hidden-alloc` turns this into a
+  a `Vector` is a visible `.copy()`. `sawc0 --no-hidden-alloc` turns this into a
   check: every allocation must be named by code you wrote, and the compiler
   allocating on its own authority is a compile error. An allocation that fails
   is reported, not survived: `push`, `insert`, `append` and the allocating
@@ -908,7 +908,7 @@ Cross-compiling to a bare-metal target takes a triple and, where the part has
 optional extensions, a feature list:
 
 ```bash
-sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
+sawc0 kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
     --target riscv32-unknown-none-elf --target-features +m,+a,+c
 ```
 
@@ -963,20 +963,22 @@ make install                        # -> ~/.local/bin
 make install PREFIX=/usr/local/bin  # -> somewhere else
 ```
 
-The shims exec this checkout, so an installed `sawc` is always the compiler
-you have — editing it changes what the name means with no reinstall. `blade`
-finds the `sawc` beside it, so `blade build` needs no `SAWC` set. `sawc0`
-always runs the Python compiler in `sawc/`, whatever `sawc` names. If you
-would rather install nothing, put `<checkout>/bin` on your `PATH` instead; the
-shims work either way.
+The shims exec this checkout. `sawc` is the self-hosted compiler: before each
+run it has `compiler/tools/build.py` bring its build up to date, so the first
+run builds it (which needs clang, and HTTPS to the seed's blob host) and an edit or a `git pull` changes what the name means with no
+reinstall. A tree whose compiler does not build makes `sawc` fail with
+build.py's reason. `sawc0` runs Stage 0, the Python compiler in `sawc/`.
+Blade is written in Stage 0's language, so `blade` runs the `sawc0` beside it
+unless `SAWC` names another compiler. If you would rather install nothing,
+put `<checkout>/bin` on your `PATH` instead; the shims work either way.
 
-`sawc --version` prints the compiler's version. Bumping it is part of shipping
-a user-visible change, because a consumer that pins a toolchain has only this
-string to check an installed compiler against.
+`sawc --version` and `sawc0 --version` print the same release. Bumping it is
+part of shipping a user-visible change, because a consumer that pins a
+toolchain has only this string to check an installed compiler against.
 
 ### Linux
 
-The self-hosted compiler, `sawc2`, builds and runs on Linux aarch64, and it
+The self-hosted compiler, `sawc`, builds and runs on Linux aarch64, and it
 cross-builds for Linux x86_64. On a Mac the Linux builds run in a Debian 12
 Lima VM. `tools/lima/sawlang-linux.yaml` pins its image and toolchain, and
 `tools/linux.py` drives it:
@@ -987,12 +989,16 @@ limactl start --name=sawlang-linux tools/lima/sawlang-linux.yaml   # once
 ./.venv/bin/python tools/linux.py run-lane --arch aarch64   # or x86_64, under Rosetta
 ```
 
-`sawc2`'s LLVM IR needs a clang with opaque pointers (LLVM 15 or later).
-`compiler/tools/build.py` picks `SAWC2_CLANG` if it is set, else the first
+`sawc`'s LLVM IR needs a clang with opaque pointers (LLVM 15 or later).
+`compiler/tools/build.py` picks `SAWC_CLANG` if it is set, else the first
 `clang-19` … `clang` that compiles a test module, and refuses by name a clang
 that cannot.
 
 ### Compiler options
+
+These are Stage 0's options, which `sawc0` takes. `sawc --help` lists the
+self-hosted compiler's subcommands and flags; `sawc FILE.saw -o OUT` is its
+`sawc build`.
 
 ```bash
 ./.venv/bin/python sawc/sawc.py <source.saw> [options]

@@ -79,7 +79,7 @@ jobs:
           (cd libs/toml && "$BLADE" test)
           (cd libs/imgformat && "$BLADE" test)
 
-  # The self-hosted compiler (compiler/README.md): sawc2 and its unit programs
+  # The self-hosted compiler (compiler/README.md): sawc and its unit programs
   # built by the frozen compiler, the golden token fixtures, and the subset
   # checker over the compiler's own source.
   compiler:
@@ -93,7 +93,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      # sawc links sawc2 and the unit programs with clang.
+      # clang links sawc and the unit programs.
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install -y clang
 

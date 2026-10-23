@@ -45,7 +45,7 @@ never printed: the token dump already pins positions, and repeating them here
 would make every dump churn on unrelated edits.
 
 **`node_id` is not in the dump** unless `--ids` is passed (`tools/dump_ast.py
---ids`, `sawc --emit-ast --ids`), which appends ` #N` to each node header. Ids
+--ids`, `sawc0 --emit-ast --ids`), which appends ` #N` to each node header. Ids
 are stable within a run and are the compiler's internal node identity, but they
 number nodes in construction order — an implementation detail a second parser
 has no reason to reproduce. The oracle omits them.
@@ -68,7 +68,7 @@ a rendered `SawType` — shows the short name alone.
 
 The field is absent for the entire corpus `astdiff` sweeps, and that is not an
 accident: `tools/dump_ast.py` parses ONE file with no module context, and
-`sawc --emit-ast` type-checks a single file, whose module is the root — neither
+`sawc0 --emit-ast` type-checks a single file, whose module is the root — neither
 qualifies anything. So the format grew a field that a module-aware producer can
 fill, and the oracle's output did not change by a byte. A port that never emits
 `module=` matches today's corpus exactly.

@@ -23,7 +23,7 @@ extern "C" {
 static DIRECTORY_MODE: Int = 493
 
 // Copies `path`'s text into `buffer` as a C string. The buffer's 4096 bytes
-// are written out because sawc2 does not yet take a static as an array length.
+// are written out because sawc does not yet take a static as an array length.
 func fill(buffer: &var [Int8; 4096], path: Path) {
     let text = path.as_string()
     let length = text.len()

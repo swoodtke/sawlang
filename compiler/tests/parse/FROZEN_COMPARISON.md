@@ -21,8 +21,8 @@ Python API (`Lexer(source).tokenize()`, then `Parser(...).parse()`), so a file
 is refused only when it fails to lex or parse. It does not use
 `sawc.py --emit-ast`, which dumps the typed tree and would count a file that
 fails to typecheck as refused. A `SyntaxError` is a refusal, and any other
-exception would be counted apart as a crash. sawc2 runs once, as
-`sawc2 parse --dump`, over the whole list.
+exception would be counted apart as a crash. sawc runs once, as
+`sawc parse --dump`, over the whole list.
 
 **The shape.** Where both parsers accept a file, the script compares a shape
 both trees hold, not the whole tree:
@@ -77,7 +77,7 @@ against GRAMMAR.md.
 | accepted by both, shape differs | 0 |
 | refused by both | 85 |
 | accepted by the frozen parser only | 3 |
-| accepted by sawc2 only | 27 |
+| accepted by sawc only | 27 |
 
 Where both accept, the shape covered 12,660 items and 9,305 functions. The
 frozen parser crashed on no file.
@@ -88,13 +88,13 @@ Every disagreement is in the verdict, and each is one of these kinds:
 
 - (a) a ruled grammar change, with its GRAMMAR.md §16 row or ruling;
 - (b) a frozen-parser defect, with its §16 `defect` row;
-- (c) a sawc2 bug.
+- (c) a sawc bug.
 
 There are 29 of kind (a), 1 of kind (b) and none of kind (c).
 
 ### (a) Ruled grammar changes
 
-**References outside a parameter: 21 files, accepted by sawc2 only.** The
+**References outside a parameter: 21 files, accepted by sawc only.** The
 §16 row is syntax.type.ref (`later`, Reference passing; SL:borrowing §2.6). The
 grammar parses `&T` wherever a type goes, and a later stage refuses it. The
 frozen parser refuses the reference type while parsing, with "... may not
@@ -122,7 +122,7 @@ return a reference" or "a generic argument may not be a reference".
 - `tests/corpus/errors/ref_type_arg_generic_func.saw`, at 17:17
 - `tests/corpus/errors/ref_type_arg_generic_struct.saw`, at 13:19
 
-**Other files accepted by sawc2 only, 5:**
+**Other files accepted by sawc only, 5:**
 
 | file | frozen refusal | §16 row |
 |---|---|---|
@@ -134,7 +134,7 @@ return a reference" or "a generic argument may not be a reference".
 
 **Accepted by the frozen parser only, 3:**
 
-| file | sawc2 refusal | §16 row |
+| file | sawc refusal | §16 row |
 |---|---|---|
 | `tests/corpus/export_outside_init_error.saw` | syntax.decl.refused-export at 5:1 | syntax.decl.refused-export (`ruled`, SL-400 c6); marked `grammar-flip` |
 | `tests/corpus/try_routing_clause_refusals.saw` | syntax.expr.refused-try-route at 63:9 | syntax.expr.refused-try-route (`earlier`, Error routing at `try`); marked `grammar-flip` |
@@ -152,9 +152,9 @@ changed.
 
 The file is the XFAIL pin of DF-259c in `examples/`, where the frozen parser
 reads no trailing closure inside a `try` operand. GRAMMAR.md attaches one
-there as anywhere else, and sawc2 parses the file with `map` taking the
+there as anywhere else, and sawc parses the file with `map` taking the
 closure. LANGUAGE_SPEC.md's `Vector.each` section notes the same defect.
 
-### (c) sawc2 bugs
+### (c) sawc bugs
 
 None.

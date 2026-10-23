@@ -1,6 +1,6 @@
 // Monomorphization's entry points: a program checked, lowered, borrow
 // checked and elaborated, its constants evaluated, then monomorphized from
-// its roots; and the record `sawc2 mono` prints for it.
+// its roots; and the record `sawc mono` prints for it.
 
 import sawborrowck.check.{borrowck_rules}
 import sawborrowck.program.{BorrowckProgram, borrowck_program}
@@ -20,7 +20,7 @@ import sawasserts.layout.{AssertsVerdict, asserts_verdict}
 import sawtarget.layout.{Target}
 import sawtypecheck.bodies.{tc_check_bodies}
 
-// How `sawc2 mono` treats one entry file.
+// How `sawc mono` treats one entry file.
 public struct MonoOptions {
     std_root: String
     target: String
@@ -33,7 +33,7 @@ public struct MonoOptions {
 
 // The program whose entry file is `path`, brought through every stage
 // before mono, then monomorphized. Everything the stages before it report
-// (as `sawc2 drops --check` prints it) is appended to `out`; when any of it
+// (as `sawc drops --check` prints it) is appended to `out`; when any of it
 // is a refusal or a broken invariant, the program comes back blocked and
 // nothing is instantiated. A `runtime` program is checked and rooted as a
 // runtime: its roots are its exports, and it has no `main`. The file is
@@ -111,7 +111,7 @@ func mono_check_layout_asserts(mono: &var MonoProgram) {
     if mono.dp.bc.mir.tc.layout_asserts.len() == 0 {
         return
     }
-    // Every target sawc2 describes is LP64 with natural alignment, so one
+    // Every target sawc describes is LP64 with natural alignment, so one
     // answers for all of them, as the layout-assert funnel's does.
     var target = Target(triple: "arm64-apple-darwin")
     var k = 0
@@ -218,7 +218,7 @@ func mono_take_statics(mono: &var MonoProgram, ev: &EvalProgram) {
 }
 
 // The record of one program, after its `FILE` line: everything
-// `sawc2 drops --check` prints for it, then mono's refusals, each an `ERROR`
+// `sawc drops --check` prints for it, then mono's refusals, each an `ERROR`
 // line, and an `INVARIANT` line per problem it met; then, as asked, each
 // item's dump or the layout table. Returns 0 when nothing was refused and 1
 // otherwise. The program's lowerings are added to `lowerings`.

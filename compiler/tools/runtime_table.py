@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The runtime ABI table sawc2 checks a runtime against, read from `runtime/`.
+"""The runtime ABI table sawc checks a runtime against, read from `runtime/`.
 
     python compiler/tools/runtime_table.py          # fails if the table is stale
     python compiler/tools/runtime_table.py --write  # rewrites it
@@ -7,7 +7,7 @@
 `sawc/runtime_abi.py` holds the frozen `__saw_rt_*` symbol set. This reads each
 seam's signature out of `runtime/ABI.md` as machine classes (`word`, `i64`,
 `i32`, `void`, `noreturn`) and writes the rows into
-`compiler/typecheck/src/runtimeabi.saw`, so the table sawc2 compiles in
+`compiler/typecheck/src/runtimeabi.saw`, so the table sawc compiles in
 outlives Stage 0 (SL:open-questions D41). Beside each seam goes its owner: the
 program, for the argument accessors the compiler emits into every program
 (ABI.md, "Program arguments"), else the runtime.
@@ -15,7 +15,7 @@ program, for the argument accessors the compiler emits into every program
 Per host it also records the runtime's sources, every `.saw` file of
 `runtime/common/` and the host's directory, and the seams `runtime/shim.c`
 defines for that host, read from the C source under its `__linux__` and
-`__APPLE__` conditionals. `sawc2 runtime` compiles exactly those sources and
+`__APPLE__` conditionals. `sawc runtime` compiles exactly those sources and
 requires their exports and the shim's seams to be the runtime's seams, each
 once; this tool requires the same of the sources' `@export` spellings, so the
 table cannot describe a runtime the tree does not hold.
@@ -43,7 +43,7 @@ SAW_FILE = os.path.join(REPO, "compiler", "typecheck", "src", "runtimeabi.saw")
 # arguments").
 PROGRAM_SEAMS = ("__saw_rt_get_argc", "__saw_rt_get_argv")
 
-# (sawc2 target, its runtime directory under runtime/, the C macro its clang
+# (sawc target, its runtime directory under runtime/, the C macro its clang
 # defines and the one it does not).
 HOSTS = (
     ("arm64-apple-darwin", "host_macos", "__APPLE__", "__linux__"),
@@ -115,7 +115,7 @@ def abi_signatures(path=ABI_DOC):
 def copy_drift():
     """Every way Stage 0's copy of the runtime differs from `runtime/`, file by
     file, and how many files `runtime/` holds. The oracles compare programs
-    Stage 0 links against its copy with programs sawc2 links against the one
+    Stage 0 links against its copy with programs sawc links against the one
     Stage 1 builds from `runtime/`, so both must be one runtime."""
     def files(root):
         out = {}

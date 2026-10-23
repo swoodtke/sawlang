@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The drops lane: `sawc2 drops` against its golden records, refusal and due
+"""The drops lane: `sawc drops` against its golden records, refusal and due
 fixtures, the compiler's own source, the new std, tests/corpus and the
 conformance rows drop elaboration owns.
 
@@ -18,11 +18,11 @@ directory specifies:
   is lifted, checked with the flags a `// flags: ...` line after its header
   passes; every rule drop elaboration refuses by (`drops_rules` in
   `compiler/drops/src/elaborate.saw`) has a fixture;
-- the compiler's own source, the sawc2 build and each unit program, and the
+- the compiler's own source, the sawc build and each unit program, and the
   new std's entry under `--std-root std`, elaborate with no refusal and no
   `INVARIANT`;
 - every tests/corpus program that elaborates does so with no `INVARIANT`, so
-  the verifier after elaboration is clean over it; the flags over the sawc2
+  the verifier after elaboration is clean over it; the flags over the sawc
   build and over the corpus are counted;
 - each conformance row CONFORMANCE.md gives drop elaboration (owner `§3.7`)
   names a fixture of this directory, and `conformance.tsv` holds each row's
@@ -65,8 +65,8 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def sawc2(args):
-    r = subprocess.run([build.SAWC2, "drops"] + borrowck_lane.with_std_root(args), cwd=REPO, capture_output=True,
+def sawc(args):
+    r = subprocess.run([build.SAWC, "drops"] + borrowck_lane.with_std_root(args), cwd=REPO, capture_output=True,
                        text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
@@ -92,7 +92,7 @@ def check_golden(failures, counts, write):
         flags = tuple(m.group(1).split()) if m else ()
         groups.setdefault(flags, []).append(src)
     for flags, srcs in sorted(groups.items()):
-        code, out = sawc2(["--dump"] + list(flags) + [rel(s) for s in srcs])
+        code, out = sawc(["--dump"] + list(flags) + [rel(s) for s in srcs])
         got = borrowck_lane.records(out)
         for src in srcs:
             exp = os.path.splitext(src)[0] + ".drops"
@@ -146,7 +146,7 @@ def check_refusals(failures, counts):
         groups.setdefault(refusal_flags(path), []).append(path)
     got = {}
     for flags, paths in sorted(groups.items()):
-        code, out = sawc2(["--check"] + list(flags) + [rel(p) for p in paths])
+        code, out = sawc(["--check"] + list(flags) + [rel(p) for p in paths])
         got.update(borrowck_lane.records(out))
     rules = drops_rules()
     covered = set()
@@ -195,7 +195,7 @@ def count_flags(record, counts, prefix):
 
 def check_acceptance(failures, counts):
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in borrowck_lane.unit_programs()]
-    code, out = sawc2(["--check", "--std-root", "std"] + borrowck_lane.package_args() + entries)
+    code, out = sawc(["--check", "--std-root", "std"] + borrowck_lane.package_args() + entries)
     got = borrowck_lane.records(out)
     for entry in entries:
         record = got.get(entry)
@@ -208,9 +208,9 @@ def check_acceptance(failures, counts):
         for line in lines:
             failures.append("drops acceptance %s: %s" % (entry, line))
         counts["elaborated compiler programs"] = counts.get("elaborated compiler programs", 0) + 1
-    code, out = sawc2(["--dump", "--std-root", "std"] + borrowck_lane.package_args() + [entries[0]])
+    code, out = sawc(["--dump", "--std-root", "std"] + borrowck_lane.package_args() + [entries[0]])
     count_flags(out, counts, "compiler")
-    code, out = sawc2(["--check", "--std-root", "std", rel(STD_ENTRY)])
+    code, out = sawc(["--check", "--std-root", "std", rel(STD_ENTRY)])
     for line in out.split("\n"):
         if line.startswith(("ERROR\t", "INVARIANT\t")):
             failures.append("drops acceptance std: %s" % line)
@@ -222,7 +222,7 @@ def corpus_records():
     os.makedirs(os.path.dirname(listing), exist_ok=True)
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
-    code, out = sawc2(["--dump", "@" + rel(listing)])
+    code, out = sawc(["--dump", "@" + rel(listing)])
     return code, rels, borrowck_lane.records(out)
 
 
@@ -305,7 +305,7 @@ def run(write=False):
     check_acceptance(failures, counts)
     code, rels, got = corpus_records()
     if code not in (0, 1):
-        failures.append("drops corpus: sawc2 exited %d" % code)
+        failures.append("drops corpus: sawc exited %d" % code)
     check_corpus(failures, counts, got, rels)
     check_conformance(failures, counts, got)
     return failures, counts

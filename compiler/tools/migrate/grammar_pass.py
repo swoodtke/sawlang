@@ -2,9 +2,9 @@
 grammar flips.
 
 A ruling that changes how an accepted text parses would change a migrated
-file's meaning silently. Each detector finds the sawc AST shapes a ruling
-reads differently, and proposes the parentheses that spell sawc's reading.
-A candidate becomes a site only when two checks agree: sawc's AST is the same
+file's meaning silently. Each detector finds the sawc0 AST shapes a ruling
+reads differently, and proposes the parentheses that spell sawc0's reading.
+A candidate becomes a site only when two checks agree: sawc0's AST is the same
 with the parentheses (they spell its reading), and the reference recognizer's
 tree is not (the grammar read the original differently). Parentheses are
 transparent in both trees, so the second check is exact.
@@ -44,14 +44,14 @@ RULINGS = {
 }
 
 
-# ------------------------------------------------------------------ sawc trees
+# ------------------------------------------------------------------ sawc0 trees
 def sawc_parse(text, path="x.saw"):
     lexer = Lexer(text)
     return Parser(lexer.tokenize(), source_file=path, doc_comments=lexer.doc_comments).parse()
 
 
 def shape(value, seen=None):
-    """A position-free serialization of a sawc AST value."""
+    """A position-free serialization of a sawc0 AST value."""
     if isinstance(value, SawType):
         return ("T", str(value))
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
@@ -68,7 +68,7 @@ def shape(value, seen=None):
 def text_shape(text):
     try:
         return shape(sawc_parse(text))
-    except Exception:  # noqa: BLE001 - a text sawc refuses has no shape
+    except Exception:  # noqa: BLE001 - a text sawc0 refuses has no shape
         return None
 
 
@@ -90,7 +90,7 @@ def walk(node):
 
 
 def leftmost(node):
-    """The node a sawc expression's first token belongs to. A prefix
+    """The node a sawc0 expression's first token belongs to. A prefix
     operator's node is anchored at its own token, so the walk stops there."""
     while True:
         if isinstance(node, CastExpr):
@@ -145,7 +145,7 @@ def span_end(src, start_i, node):
 
 
 def wrap(src, start_i, node):
-    """Parentheses around the tokens that spell `node`. Its first sawc node may
+    """Parentheses around the tokens that spell `node`. Its first sawc0 node may
     sit inside parentheses the node starts with, so each opener just before
     it is a candidate start too."""
     i = start_i
@@ -162,7 +162,7 @@ def wrap(src, start_i, node):
 
 # ------------------------------------------------------------------ detectors
 def candidates(program, src):
-    """[(ruling, line, col, edits or None)] proposed from sawc's AST."""
+    """[(ruling, line, col, edits or None)] proposed from sawc0's AST."""
     out = []
     for n in walk(program):
         if isinstance(n, (UnaryOp, ReferenceExpr)) and isinstance(
@@ -190,7 +190,7 @@ def candidates(program, src):
 
 
 def one_tuple_types(src, program):
-    """Q5: a `(T)` type sawc reads as a one-element tuple, as `(T,)` edits.
+    """Q5: a `(T)` type sawc0 reads as a one-element tuple, as `(T,)` edits.
     The type has no position, so the parenthesized spans in type position
     are found by tokens and confirmed by the shape checks."""
     found = []
@@ -276,11 +276,11 @@ class MeaningSite:
 
 def meaning_sites(text):
     """([MeaningSite], note): the sites whose reading differs, with the
-    parentheses that keep sawc's, plus flags where a check cannot decide."""
+    parentheses that keep sawc0's, plus flags where a check cannot decide."""
     try:
         program = sawc_parse(text)
-    except Exception:  # noqa: BLE001 - a text sawc refuses has no reading to keep
-        return [], "sawc refuses the text"
+    except Exception:  # noqa: BLE001 - a text sawc0 refuses has no reading to keep
+        return [], "sawc0 refuses the text"
     if verify.verdict(text) != "OK":
         return [], "the grammar refuses the text"
     src = edits.Source(text)
@@ -291,16 +291,16 @@ def meaning_sites(text):
     for ruling, line, col, eds in candidates(program, src) + one_tuple_types(src, program) + spaced_calls(src):
         name = RULINGS[ruling]
         if eds is None:
-            sites.append(MeaningSite(name, line, col, "flagged", [], "the span of sawc's reading was not found"))
+            sites.append(MeaningSite(name, line, col, "flagged", [], "the span of sawc0's reading was not found"))
             continue
         new = edits.apply(text, eds)
         if text_shape(new) != base_shape:
             if ruling == "spaced":
                 sites.append(MeaningSite(name, line, col, "flagged", [],
-                                         "removing the space changes sawc's reading"))
+                                         "removing the space changes sawc0's reading"))
             else:
                 sites.append(MeaningSite(name, line, col, "flagged", [],
-                                         "the explicit spelling changes sawc's reading"))
+                                         "the explicit spelling changes sawc0's reading"))
             continue
         tree, why = verify.tree(new)
         if tree is None:

@@ -394,7 +394,7 @@ func coro_bt_string(bytes: &Vector<Int>, at: Int, off: Int) -> String {
     text.build()
 }
 
-// `sawc2 coro --bt-table`'s record of one program, after its `FILE` line:
+// `sawc coro --bt-table`'s record of one program, after its `FILE` line:
 // what `--check` prints, then, once the program is lowered for the options'
 // target, an `INVARIANT` line per problem the lowering meets, and the table
 // it gives, decoded. Returns 0 when nothing was refused or broken and 1

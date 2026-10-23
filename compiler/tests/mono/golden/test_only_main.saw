@@ -1,7 +1,7 @@
 // stage 0: cannot parse `@test`
 // A program whose only `main` is test-only has no entry point in a normal
 // build (SL-698): mono roots no `main`, so the items start at the lang
-// functions, as for a program that declares no `main` at all, and `sawc2
+// functions, as for a program that declares no `main` at all, and `sawc
 // build` refuses it alike. Both spellings: `@test func main` here, and a
 // `main` overload inside an `@test { }` group.
 

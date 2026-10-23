@@ -1,5 +1,5 @@
 // The borrow check's entry point: a program checked, lowered, borrow
-// checked, and the record `sawc2 borrowck` prints for it.
+// checked, and the record `sawc borrowck` prints for it.
 
 import sawborrowck.check.{borrowck_rules}
 import sawborrowck.dump.{borrowck_conditions_text}
@@ -10,7 +10,7 @@ import sawmir.program.{MirProgram}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram}
 
-// How `sawc2 borrowck` treats one entry file.
+// How `sawc borrowck` treats one entry file.
 public struct BorrowckOptions {
     std_root: String
     // Print each checked module's dump.
@@ -19,7 +19,7 @@ public struct BorrowckOptions {
 }
 
 // The record of one program borrow checked, after its `FILE` line:
-// everything `sawc2 mir --check` prints, then the borrow check's refusals,
+// everything `sawc mir --check` prints, then the borrow check's refusals,
 // each an `ERROR` line, then an `INVARIANT` line per problem its verifier
 // finds, and with `dump` each checked module's dump. Returns 0 when nothing
 // was refused and 1 otherwise. The lowering is counted in `lowerings`.

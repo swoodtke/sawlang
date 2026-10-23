@@ -9,7 +9,7 @@
 // prints: 2
 // A tuple pattern in an `if let` and a `guard let` whose subject suspends, with
 // a suspension inside the bound scope too: one of the spec's "Not yet
-// supported" limits, which Stage 0 refuses and sawc2 lowers as ordinary blocks
+// supported" limits, which Stage 0 refuses and sawc lowers as ordinary blocks
 // (SL:coroutines §3.3, A6). Spec-derived expectation (no oracle): `pair(n)`
 // is `(n, 2n)` for a positive `n` and `None` otherwise, so `tuple_iflet(3)`
 // is 3 + 6, `tuple_guardlet(4)` is 4 * 8, a zero takes the fallback, and

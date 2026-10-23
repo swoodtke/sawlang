@@ -1,6 +1,6 @@
 // probe: stated
 // about: a fallible `NoMove` init's `Result` is handled where it is made, by a `match` on the call or an inline catch, and the payload lives and dies where it was built (SL-778)
-// stage 0: accepts the bound `Result` this program never writes (`transfer.no-move` refuses it in sawc2)
+// stage 0: accepts the bound `Result` this program never writes (`transfer.no-move` refuses it in sawc)
 // speeds: -O0 -O2
 // The two legal spellings, each on the success and the refused path. The
 // bound form is the typecheck fixture `transfer.no-move.result-binding`.

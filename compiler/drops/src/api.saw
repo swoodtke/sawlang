@@ -1,6 +1,6 @@
 // Drop elaboration's entry point: a program checked, lowered, borrow checked,
 // then elaborated once the borrow check accepts it, and the record
-// `sawc2 drops` prints for it.
+// `sawc drops` prints for it.
 
 import sawborrowck.check.{borrowck_rules}
 import sawborrowck.program.{BorrowckProgram, borrowck_program}
@@ -14,7 +14,7 @@ import sawmir.program.{MirProgram}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram}
 
-// How `sawc2 drops` treats one entry file.
+// How `sawc drops` treats one entry file.
 public struct DropsOptions {
     std_root: String
     // Print each elaborated module's dump.
@@ -23,7 +23,7 @@ public struct DropsOptions {
 }
 
 // The record of one program, after its `FILE` line: everything
-// `sawc2 borrowck --check` prints; then, when nothing was refused and no
+// `sawc borrowck --check` prints; then, when nothing was refused and no
 // verifier found a problem, drop elaboration's refusals, each an `ERROR`
 // line, an `INVARIANT` line per problem elaboration met or its verifier
 // finds, and with `dump` each elaborated module's dump. Returns 0 when

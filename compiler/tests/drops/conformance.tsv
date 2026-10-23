@@ -1,5 +1,5 @@
 # The conformance rows drop elaboration owns (CONFORMANCE.md, owner §3.7): each
-# row's migrated program in tests/corpus/, and what `sawc2 drops --dump` gives
+# row's migrated program in tests/corpus/, and what `sawc drops --dump` gives
 # it: `drops N, flags M` over its elaborated dump, or the refusal standing first.
 # A count changes only on purpose: review the program's dump, then this line.
 row	path	summary	reading

@@ -9,7 +9,7 @@ Checks, with nothing built or run:
 - `patch_gate.plan` over representative changed-path sets: which parts run,
   and why;
 - no part's command names the frozen Python compiler or a runner of it, and
-  every directory sawc2 is built from is an input of the corpus differential;
+  every directory sawc is built from is an input of the corpus differential;
 - `corpusdiff.regressions`, the baseline's rule, over synthetic rows: a new
   bucket or key fails, an improvement included, as does a new detail inside
   `stage0-wrong`, a program the baseline lacks and a baseline row nothing
@@ -18,7 +18,7 @@ Checks, with nothing built or run:
 - a refusal test that annotations.tsv marks `stage0-wrong` is built and run
   rather than judged as a refusal, and its detail says what the run did;
 - an unknown target is a driver refusal, and a usage refusal names a flag by
-  the spelling `sawc2 build` is given;
+  the spelling `sawc build` is given;
 - measuring threads that key refusals at once agree on the stage, since a
   gate that flips a key by thread timing fails patches for nothing.
 """
@@ -96,7 +96,7 @@ def check_no_python_compiler():
         check(part in names, "SUITE_INPUTS names %s, which is no part" % part)
     for _, directory in patch_gate.build.STAGE_PACKAGES:
         check(directory + "/" in patch_gate.SUITE_INPUTS["corpusdiff"],
-              "%s builds sawc2 but is no corpusdiff input" % directory)
+              "%s builds sawc but is no corpusdiff input" % directory)
 
 
 def row(path, bucket, key="-", detail="-", **extra):
@@ -105,7 +105,7 @@ def row(path, bucket, key="-", detail="-", **extra):
 
 def check_regressions():
     base = [row("a.saw", "pass"), row("b.saw", "refused", "resolve name.undefined", "`x` is not defined"),
-            row("c.saw", "stage0-wrong", "annotated SL-283", "sawc2 meets its directives"),
+            row("c.saw", "stage0-wrong", "annotated SL-283", "sawc meets its directives"),
             row("d.saw", "wrong", "stdout differs", "line 3")]
     same = [dict(r) for r in base]
     check(corpusdiff.regressions(same, base) == [], "an unmoved run reports moves")
@@ -124,7 +124,7 @@ def check_regressions():
     moved({1: dict(bucket="pass", key="-")}, 1)
     moved({1: dict(detail="`y` is not defined")}, 0)
     moved({3: dict(detail="line 4")}, 0)
-    got = moved({2: dict(detail="sawc2: exit 1")}, 1)
+    got = moved({2: dict(detail="sawc: exit 1")}, 1)
     check(got and "inside `stage0-wrong" in got[0], "a stage0-wrong detail move is not named as one: %s" % got)
     got = corpusdiff.regressions(same + [row("e.saw", "pass")], base)
     check(len(got) == 1 and "e.saw is not in the baseline" in got[0], "a new program is not reported: %s" % got)
@@ -150,30 +150,30 @@ def check_wrong_refusal():
     check(corpusdiff.build_verdict(src, d, rec, 0, [], "", wrong_refusal=True) is None,
           "an annotated refusal test that builds is not run")
     got = corpusdiff.run_verdict(path, d, rec, 0, "66\n", "", annotations)
-    check(got == ("stage0-wrong", "annotated SL-566", "sawc2 builds it, and its run exits 0"),
+    check(got == ("stage0-wrong", "annotated SL-566", "sawc builds it, and its run exits 0"),
           "an annotated refusal test's run: %s" % (got,))
 
 
 def check_driver_refusals():
-    """A target sawc2 has no layout for is a driver refusal, not a crash; a
-    usage refusal names only the flags sawc2 does not take, as `sawc2 build`
+    """A target sawc has no layout for is a driver refusal, not a crash; a
+    usage refusal names only the flags sawc does not take, as `sawc build`
     spells them."""
     path = "static_zero_bss.saw"
     d = corpusdiff.expect.read(os.path.join(corpusdiff.CORPUS, path))
     rec = corpusdiff.load()[path]
     src = os.path.join(corpusdiff.CORPUS, path)
-    got = corpusdiff.build_verdict(src, d, rec, 2, [], "sawc2: unknown target riscv32-unknown-none-elf\n")
-    check(got == ("refused", "driver driver.unknown-target", "sawc2: unknown target riscv32-unknown-none-elf"),
+    got = corpusdiff.build_verdict(src, d, rec, 2, [], "sawc: unknown target riscv32-unknown-none-elf\n")
+    check(got == ("refused", "driver driver.unknown-target", "sawc: unknown target riscv32-unknown-none-elf"),
           "an unknown target's exit: %s" % (got,))
     check("driver.unknown-target" in corpusdiff._NAMED_DETAILS, "an unknown target's details are grouped by shape")
     path = "runtime_build_suspending_body_error.saw"
     d = corpusdiff.expect.read(os.path.join(corpusdiff.CORPUS, path))
     rec = corpusdiff.load()[path]
     src = os.path.join(corpusdiff.CORPUS, path)
-    usage = "usage: sawc2 lex [--docs] <file.saw>\n       sawc2 build [--runtime] (FILE [-o OUT])\n"
+    usage = "usage: sawc lex [--docs] <file.saw>\n       sawc build [--runtime] (FILE [-o OUT])\n"
     got = corpusdiff.build_verdict(src, d, rec, 2, [], usage)
-    check(got == ("refused", "driver driver.usage", "sawc2 build takes no such arguments"),
-          "a usage refusal names a Stage 0 spelling sawc2 maps: %s" % (got,))
+    check(got == ("refused", "driver driver.usage", "sawc build takes no such arguments"),
+          "a usage refusal names a Stage 0 spelling sawc maps: %s" % (got,))
 
 
 def check_stage_table_threads():

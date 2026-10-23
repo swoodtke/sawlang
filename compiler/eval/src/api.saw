@@ -1,5 +1,5 @@
 // The evaluator's entry point: a program checked, lowered, its constants
-// evaluated, and the record `sawc2 eval` prints for it.
+// evaluated, and the record `sawc eval` prints for it.
 
 import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_dumps, mir_append_invariants,
                        mir_lower_file}
@@ -9,7 +9,7 @@ import saweval.interp.{eval_step_budget}
 import saweval.program.{EvalProgram, eval_program}
 import saweval.report.{eval_rules}
 
-// How `sawc2 eval` treats one entry file.
+// How `sawc eval` treats one entry file.
 public struct EvalOptions {
     std_root: String
     // Print each module's constants and their values.
@@ -18,7 +18,7 @@ public struct EvalOptions {
 }
 
 // The record of one program evaluated, after its `FILE` line: everything
-// `sawc2 mir --check` prints, then the evaluator's refusals, each an `ERROR`
+// `sawc mir --check` prints, then the evaluator's refusals, each an `ERROR`
 // line, then an `INVARIANT` line per problem its verifier finds, and with
 // `dump` each lowered module's constants. Returns 0 when nothing was refused
 // and 1 otherwise. The lowering is counted in `lowerings`.

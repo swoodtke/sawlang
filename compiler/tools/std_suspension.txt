@@ -3,7 +3,7 @@
 # framing nothing) or `sync`; then its cause set and the label of its first
 # source that is not `blocking`, `-` for none. Written by
 # compiler/tools/std_suspension.py --write through the v0 compiler;
-# compiler/tests/run.py fails when the Saw form differs. sawc2's phase 2 reads
+# compiler/tests/run.py fails when the Saw form differs. sawc's phase 2 reads
 # these rows, compiled in as compiler/typecheck/src/stdsuspension.saw, for the
 # std functions whose bodies it does not check.
 # observed on arm64-apple-darwin

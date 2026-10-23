@@ -1,7 +1,7 @@
-# compiler/tests/run: the backend and `sawc2 build`, against Stage 0
+# compiler/tests/run: the backend and `sawc build`, against Stage 0
 
 The programs the LLVM backend (`compiler/llvm`, package `sawllvm`, SL-505)
-and `sawc2 build` are held to: each is built by sawc2 against the new std and
+and `sawc build` are held to: each is built by sawc against the new std and
 run, and its output compared with Stage 0's recorded run of it, built against
 Stage 0's own std ("The oracle").
 
@@ -12,37 +12,37 @@ run/
   sanitize_lane.py  the sanitizer lane, run.py's `sanitize` step ("The sanitizer lane")
   NAME.saw       a program
   stage0/TRIPLE/NAME.stage0  Stage 0's recorded run of NAME.saw on host TRIPLE
-  hello.ll       the `.ll` sawc2 writes for hello.saw, pinned
-  noalias.defines  the `define` lines sawc2 writes for noalias.saw's own functions, pinned
-  runtime_dirent.ll  the `.ll` `sawc2 runtime` writes for runtime/host_macos/dirent.saw, pinned
+  hello.ll       the `.ll` sawc writes for hello.saw, pinned
+  noalias.defines  the `define` lines sawc writes for noalias.saw's own functions, pinned
+  runtime_dirent.ll  the `.ll` `sawc runtime` writes for runtime/host_macos/dirent.saw, pinned
   frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
   probes/        programs held to what their own headers state ("Probes")
   modules/       packages a program imports as `modules.NAME`, never run alone
 ```
 
-## `sawc2 build`
+## `sawc build`
 
 ```sh
-.build/sawc2 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
+.build/sawc-stage1 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
                    [--sanitize address] [--module-path NAME=DIR]... FILE [-o OUT]
-.build/sawc2 build [...] --emit-ll FILE
-.build/sawc2 build [...] (--freestanding | --runtime) FILE
+.build/sawc-stage1 build [...] --emit-ll FILE
+.build/sawc-stage1 build [...] (--freestanding | --runtime) FILE
 ```
 
-`--freestanding` and `--runtime` name a profile sawc2 checks and does not
-build: the program goes through typecheck under it, as `sawc2 typecheck
+`--freestanding` and `--runtime` name a profile sawc checks and does not
+build: the program goes through typecheck under it, as `sawc typecheck
 --freestanding` or `--runtime` takes it, and its refusals print as a record
 does. With none, the record's one refusal is `driver.not-yet`, at the entry
-file's first line, and the exit status is 1: sawc2 links only a hosted
-program, and `sawc2 runtime` builds a runtime, so neither profile ever emits
+file's first line, and the exit status is 1: sawc links only a hosted
+program, and `sawc runtime` builds a runtime, so neither profile ever emits
 a hosted image in its place. Nothing is written.
 
-`sawc2 build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
+`sawc build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs
 `clang -target TRIPLE SPEED [-fsanitize=address] -x ir OUT.ll -x none RUNTIME... [-lm] -o OUT`,
 blocking until clang exits. `-lm` is there for a Linux target only, since
 glibc keeps the math functions in libm, apart from libc, while macOS's
-libSystem carries them. A refusal prints its record (as `sawc2 coro
+libSystem carries them. A refusal prints its record (as `sawc coro
 --check` prints one), writes nothing and exits 1; a failure to write the
 `.ll` or to start clang prints why and exits 1; otherwise the exit status
 is clang's. The `.ll` is written unbuffered and closed explicitly, and clang
@@ -52,7 +52,7 @@ S28, whose workaround markers name the canonical buffered form). With
 The `.ll` opens with its link manifest, as comment lines:
 
 ```
-; sawc2 link manifest
+; sawc link manifest
 ; target arm64-apple-darwin
 ; speed -O0
 ; runtime hosted
@@ -67,21 +67,21 @@ with a warning, and learning that version would take capturing clang's
 output.
 
 A hosted build links for the host alone, since the runtime objects are the
-host's. They are named by the runtime manifest, `sawc2-runtime.txt` in the
+host's. They are named by the runtime manifest, `sawc-runtime.txt` in the
 directory of the executable that runs: its real path, from
 `Env.executable_path()` (the runtime's `__saw_rt_executable_path`), so a
-sawc2 run by a bare name through `PATH`, or through a symbolic link, finds the
+sawc run by a bare name through `PATH`, or through a symbolic link, finds the
 manifest beside the file it really is. The manifest is a `target TRIPLE` line
-naming the sawc2 target the objects are built for, a `clang PATH` line naming
+naming the sawc target the objects are built for, a `clang PATH` line naming
 the clang that compiles and links for it, then an `object PATH` line per
-object, which is what `sawc2 runtime` prints; `compiler/tools/build.py`
-writes it beside Stage 1 and Stage 2 from Stage 1's `sawc2 runtime` (below).
-The manifest is how sawc2 knows its host: its `target` is the default of
-`sawc2 build`, of `--emit-ll` and of `sawc2 runtime`, so a sawc2 built on
+object, which is what `sawc runtime` prints; `compiler/tools/build.py`
+writes it beside Stage 1 and Stage 2 from Stage 1's `sawc runtime` (below).
+The manifest is how sawc knows its host: its `target` is the default of
+`sawc build`, of `--emit-ll` and of `sawc runtime`, so a sawc built on
 Linux aarch64 builds for `aarch64-unknown-linux-gnu`, and the link runs the
 manifest's clang, never a `clang` found on `PATH`.
 A `--target` naming another target links against that target's own runtime,
-named by `sawc2-runtime-TRIPLE.txt` beside the binary, which
+named by `sawc-runtime-TRIPLE.txt` beside the binary, which
 `compiler/tools/build.py --runtime TRIPLE` writes only once its clang passes
 the opaque-pointer check for that target (below) and the runtime, shim.c and
 its C headers included, builds for it. A target with no such
@@ -92,15 +92,15 @@ is configured that way, and Rosetta runs what it links. The runtime is built at 
 link prints nothing. The speed flag passes through the driver's one
 `driver_speed_level` funnel (design 265); `-O0` is the default.
 
-## `sawc2 runtime`
+## `sawc runtime`
 
 ```sh
-.build/sawc2 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH] --out DIR
-.build/sawc2 runtime [--std-root DIR] [--target TRIPLE] --emit-ll FILE
+.build/sawc-stage1 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH] --out DIR
+.build/sawc-stage1 runtime [--std-root DIR] [--target TRIPLE] --emit-ll FILE
 ```
 
-`sawc2 runtime --out DIR` builds a target's runtime (designs 113b and 149,
-SL:open-questions D41) into `DIR`, which must exist: sawc2 has no API to
+`sawc runtime --out DIR` builds a target's runtime (designs 113b and 149,
+SL:open-questions D41) into `DIR`, which must exist: sawc has no API to
 create a directory, so a missing one is refused, saying so. The target is
 `--target`, else the host the manifest names, and the clang is `--clang`,
 else the manifest's; with neither flag and no manifest the command is
@@ -128,22 +128,22 @@ once. A seam no object defines, one two objects define, and an export that is
 no runtime seam are each printed, and the command exits 1 with no manifest, so
 a runtime missing a seam never links. Otherwise it prints the runtime
 manifest naming the target, the clang and the objects. A refused source prints
-its record, as `sawc2 build` does; a clang that fails gives its exit status.
+its record, as `sawc build` does; a clang that fails gives its exit status.
 Nothing is cached here: `build.py` keys and caches the directory (D41's
 ruling). Two builds into two directories write the same bytes. With
 `--emit-ll FILE`, that one runtime source's `.ll` goes to standard output.
 
 ## The clang
 
-sawc2's `.ll` uses opaque pointers (`ptr`) throughout, which LLVM 15 made the
+sawc's `.ll` uses opaque pointers (`ptr`) throughout, which LLVM 15 made the
 default and Debian 12's own `clang` (14) refuses. `build.py`'s `choose_clang`
-is the one place a clang is chosen: `SAWC2_CLANG` if it is set, else the
+is the one place a clang is chosen: `SAWC_CLANG` if it is set, else the
 first of `clang-19`, `clang-18`, … `clang-15`, `clang` on `PATH`, and the
 choice must compile the two-line module `define ptr @f(ptr %p) { ret ptr %p }`
 for the target. The capability is tested rather than a version read, since
 Apple's clang numbers its versions apart from LLVM's. A clang that fails it
 is refused by name with the requirement, and none at all stops the build
-before `sawc2 runtime` runs. The chosen clang's absolute path goes into the
+before `sawc runtime` runs. The chosen clang's absolute path goes into the
 manifest's `clang` line, and its `--version` into the runtime's and Stage 2's
 cache keys.
 
@@ -190,7 +190,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   the entry point and accessors, the formatting and failure helpers, and a
   runtime source's) names the module's one attribute group, `#0`, written
   last from the target's frame pointer policy (`Target.frame_pointer` in
-  `compiler/target`): `"frame-pointer"="non-leaf"` on every target sawc2
+  `compiler/target`): `"frame-pointer"="non-leaf"` on every target sawc
   knows, so profilers, lldb and crash reports can walk the frame chain.
   Darwin's arm64 convention requires the frame record, and clang keeps it in
   every non-leaf C function there; Linux requires none, and keeps the same
@@ -457,11 +457,11 @@ what Stage 0 is no oracle for.
 
 ## The lane
 
-`run_lane.py` builds every program with sawc2, eight at a time, under
-`.build/run-lane/`: `sawc2 build` run by the binary the runner selected
+`run_lane.py` builds every program with sawc, eight at a time, under
+`.build/run-lane/`: `sawc build` run by the binary the runner selected
 (Stage 2 by default, `compiler/tools/build.py`). The lane compares:
 
-- a plain program passes when sawc2's binary, built at -O0 and again at -O2,
+- a plain program passes when sawc's binary, built at -O0 and again at -O2,
   writes the same bytes as Stage 0's recorded run and exits with the same
   status, a panic's abort included;
 - a `// differs: REASON` program compares its exit status and every line
@@ -470,29 +470,29 @@ what Stage 0 is no oracle for.
 - a `// differs:` program whose REASON cites an SL:hazards entry is one whose
   output Stage 0 orders wrongly, a destruction timing it gets wrong (C10,
   C11): its `// prints: LINE` headers, one per line of output, are the
-  oracle in Stage 0's place. sawc2 must print exactly them, Stage 0 the same
+  oracle in Stage 0's place. sawc must print exactly them, Stage 0 the same
   lines in another order, since such a hazard moves a line and never adds or
   loses one, and both must exit alike; a Stage 0 that prints them in order
   fails the program too, so the line comes off when the hazard no longer
   shows there, and a Stage 0 whose order varied between its recorded runs is
   not compared;
 - a `// due: REASON` program, with `// refuses: RULE at L:C` after it, must
-  be refused there by that rule; once sawc2 builds it the lane fails, so the
+  be refused there by that rule; once sawc builds it the lane fails, so the
   lines come off as the slice grows; every rule of `ll_rules` has one;
 - a build that links prints nothing, standard output or standard error: the
   linker has no object built for another macOS to warn about;
-- `hello.saw`'s `.ll`, as `sawc2 build --emit-ll --target arm64-apple-darwin`
+- `hello.saw`'s `.ll`, as `sawc build --emit-ll --target arm64-apple-darwin`
   writes it, equals `hello.ll` byte for byte, and `runtime/host_macos/dirent.saw`'s,
-  as `sawc2 runtime --emit-ll` writes it for the same target,
+  as `sawc runtime --emit-ll` writes it for the same target,
   `runtime_dirent.ll` (`--write` rewrites both); naming the target keeps the
   pins one pair of files on every host;
 - every `define` in those two `.ll` files, and in `frame_pointers.saw`'s
   (one function of each kind the backend writes), carries
   `"frame-pointer"="non-leaf"`, itself or through its attribute group;
-- `sawc2 build --target` links for the host and every configured target, and
+- `sawc build --target` links for the host and every configured target, and
   refuses every other target, saying so, leaving no binary and no `.ll`;
 - with `--target TRIPLE` (`tools/linux.py run-lane --arch x86_64`), every
-  program's sawc2 side is built for TRIPLE and held to Stage 0's host build:
+  program's sawc side is built for TRIPLE and held to Stage 0's host build:
   the expected output is the same on every target;
 - `noalias.saw`'s own `define` lines (its functions, its closure and its
   glue) equal `noalias.defines` (`--write` rewrites it), so each parameter
@@ -500,11 +500,11 @@ what Stage 0 is no oracle for.
   `&self` carry `noalias`, a cell-carrying `&`, a raw pointer, a by-value
   aggregate, a function value, a closure's environment and `%ret` do not.
   Then the lane copies `compiler/llvm/src`, replaces the funnel's
-  cell-carrying test with `false`, builds a sawc2 from the copy at -O0 with
+  cell-carrying test with `false`, builds a sawc from the copy at -O0 with
   the selected binary, and requires its `define` lines to fail that
   comparison at `bump(gauge: &noalias.Gauge)`: the injection proves the pin
   catches a funnel that drops the exemption;
-- `sawc2 runtime --out` writes the same files, byte for byte, into two
+- `sawc runtime --out` writes the same files, byte for byte, into two
   directories, and refuses a copy of `runtime/` that leaves a seam undefined
   (`sleep.saw` without its `@export`) or defines one twice (the host's
   `dirent.saw` exporting `os_ops.saw`'s `__saw_rt_fs_chdir`), naming the seam and printing
@@ -517,7 +517,7 @@ what Stage 0 is no oracle for.
 - every program of `probes/` is held to what its header states (below);
 - no record under `stage0/` names a program that is gone.
 
-Stage 0 is the oracle: a difference is a sawc2 bug until shown otherwise
+Stage 0 is the oracle: a difference is a sawc bug until shown otherwise
 (SL:architecture §5).
 
 ## The sanitizer lane
@@ -550,11 +550,11 @@ detection is off, since the lane checks frame accesses, and stack-use-after-
 return detection is on, since a resume function's own stack slots die each
 time it returns `Pending`, so a read of one after a suspension is a frame
 access gone wrong (`probes/coro_closure_environment_*`, SL-805). Then the injection:
-`compiler/tests/coro/inject/asan_inject.saw`, built by sawc2 and run, lowers
+`compiler/tests/coro/inject/asan_inject.saw`, built by sawc and run, lowers
 `asan_overlap.saw` for a sanitizing build, moves `late` onto the offset of
 `early`, which dies first, requires the verifier's rule-5 reports, and writes
-the refused program's `.ll` anyway, which no `sawc2 build` can do.
-`build.link_module` links it as a hosted `sawc2 build` would, under
+the refused program's `.ll` anyway, which no `sawc build` can do.
+`build.link_module` links it as a hosted `sawc build` would, under
 AddressSanitizer, and it must abort with a `use-after-poison` read of 8 bytes
 in `keep`'s resume function before the print that read feeds.
 
@@ -574,7 +574,7 @@ also for its x86_64 cross-built side.
 A plain program whose record is missing, made for another triple or made from
 other bytes fails, naming the command that records it:
 `run_lane.py --stage0 [NAME...]` builds each program that is not due with
-Stage 0 and runs it as the lane runs sawc2's, and writes its record for this
+Stage 0 and runs it as the lane runs sawc's, and writes its record for this
 host; over every program it also removes a record that names none. That and
 `--bench` are the lane's only runs of Stage 0, and both take the v0 compiler
 from `oracle.v0_compiler`, which names its checkout in one place: this tree
@@ -602,7 +602,7 @@ among its prose:
 - `// about: WHAT IT PINS (SL-N)`, one line ending with its issue;
 - `// stage 0: WHAT STAGE 0 DOES WITH IT`, why Stage 0's output is no oracle
   here;
-- `// speeds: -O0 -O2`, the levels sawc2 builds it at, each a build held whole
+- `// speeds: -O0 -O2`, the levels sawc builds it at, each a build held whole
   (a read of an uninitialised local can pass at one level and not another);
 - `// prints: LINE`, a line of its standard output, in order;
 - `// panics: TEXT`, text its panic line on standard error holds;
@@ -611,11 +611,11 @@ among its prose:
   its plain or quoted name;
 - `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere;
 - `// c helper: NAME.c`, a C file in `probes/` linked into each build, for a
-  probe that needs C on the other side of an `extern` or an `@export`. sawc2
-  writes the `.ll` (`sawc2 build --emit-ll`), the clang the target's runtime
+  probe that needs C on the other side of an `extern` or an `@export`. sawc
+  writes the `.ll` (`sawc build --emit-ll`), the clang the target's runtime
   manifest names compiles the helper at -O2, so the helper reads the C
   convention as strictly as optimized C does, and the same clang links the two
-  as `sawc2 build` would, at the probe's speed, with the manifest's runtime
+  as `sawc build` would, at the probe's speed, with the manifest's runtime
   objects and the target's libraries. A `.c` file no probe names fails the
   lane;
 - `// leaks: none`, on a `stated` probe: each build, once it prints its
@@ -623,7 +623,7 @@ among its prose:
   `0 leaks`. Off macOS there is no such checker, and the lane says so: the
   probe counts under "leak check is skipped off macOS" instead.
 
-| kind | sawc2 at each speed | its lines |
+| kind | sawc at each speed | its lines |
 |---|---|---|
 | `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0, and with `// leaks: none` leaks nothing | `prints`, at least one; at most one `leaks` |
 | `panics` | builds it with nothing printed; the binary prints exactly its `// prints:` lines on standard output and one `panic at` line holding the `// panics:` text on standard error, followed by nothing or by the panic path's task dump (its header, then each task's line and its frame lines), and aborts | `prints`, any number; one `panics` |
@@ -642,7 +642,7 @@ says why the check cannot be header lines. There are seven.
 C's `malloc`, and the leak check must report exactly that one block: a
 checker that sees nothing would pass every `// leaks: none` probe, and the
 block's size is the allocator's, which no header can state.
-`executable_path.saw` is built by sawc2 and run by a bare name that a
+`executable_path.saw` is built by sawc and run by a bare name that a
 renamed relative symbolic link on `PATH` resolves, from another working
 directory, and must print its binary's real path, which no header can state:
 what the manifest lookup rests on. `print_lines_stay_whole.saw` is run 50
@@ -663,7 +663,7 @@ churned tasks a dump catches is the scheduler's, so no header can state it.
 
 ## The timing report
 
-`run_lane.py --bench` builds each kernel of `bench/` with `sawc2 build -O2`
+`run_lane.py --bench` builds each kernel of `bench/` with `sawc build -O2`
 and with Stage 0 (the v0 compiler, since a time is no record), runs each
 binary once to warm it, then five times, and prints the best time of each and
 their ratio:
@@ -681,7 +681,7 @@ never runs it.
 
 ## The self-build census
 
-What stood between `sawc2 build` of sawc2's own driver and a working Stage 2
+What stood between `sawc build` of sawc's own driver and a working Stage 2
 (SL-398, U7b), class by class, in the order met. Mono stops at its refusals,
 so the backend's classes were counted with mono's set aside, and the backend
 reports only the first refusal in each function, so its counts are functions
@@ -700,8 +700,8 @@ refused, not sites.
 | clang: `__saw_rt_get_argc` declared by std's `extern` and defined by the entry point | 1 | the entry point's definitions stand for the declaration | `program_arguments` |
 | Stage 2 wrong: every token's text lexed as decimal byte values | the lexer's every token | the new std lacked `StringBuilder.append(b: Byte)`, so a `Byte` argument widened into `append(value: Int)` (SL-529) | `byte_append` |
 
-With these, sawc2 builds its driver with no refusal, clang accepts the
-module, and the link is `.build/sawc2-stage2`, which the fixpoint lane
+With these, sawc builds its driver with no refusal, clang accepts the
+module, and the link is `.build/sawc-stage2`, which the fixpoint lane
 (`compiler/tests/fixpoint/fixpoint_lane.py`) holds to Stage 1.
 
 Building the runtime (SL-522, U7c M2) met seven classes. The first six were
@@ -709,6 +709,6 @@ the new std's cell and `Atomic`, its sequentially consistent atomic
 intrinsics, layout `static_assert`s, pointer-integer casts, variadic extern
 calls and pointer arithmetic (SL:open-questions D38 to D40), pinned by
 `atomic_ops`, `layout_asserts`, `pointer_address`, `variadic_extern` and
-`pointer_offset`; the seventh was the runtime-build mode itself, `sawc2
+`pointer_offset`; the seventh was the runtime-build mode itself, `sawc
 runtime` above (D41). With it, every source of `runtime/common/` and
 `runtime/host_macos/` builds with no refusal.

@@ -384,7 +384,7 @@ extension ResProgram {
                     package: String) -> Int {
         let m = self.modules.len()
         // The new std's modules are compiled whole; Stage 0's std is read for
-        // its interface only, since sawc2 never compiles its bodies.
+        // its interface only, since sawc never compiles its bodies.
         let interface = (kind == ResModuleKind.Std && not self.std_new) || kind == ResModuleKind.Builtin
         let dir_text = res_dir_of(&path)
         let dir = self.intern(dir_text)

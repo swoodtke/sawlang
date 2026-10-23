@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ownership and concurrency oracles, built by sawc2, run under Guard Malloc.
+"""Ownership and concurrency oracles, built by sawc, run under Guard Malloc.
 
 A surplus release is invisible to an ordinary run: it lands in a block
 libmalloc has freed but not unmapped, so the program reads correct values and
@@ -18,15 +18,15 @@ rather than the same trace, and each is slower.
 THE LISTS. Each lane is a list of categories, each category the shape its
 programs police. A category names three kinds of program:
   twins      tests/corpus twins of the programs the lane ran on Stage 0;
-  stand-ins  other programs sawc2 builds that police the same shape, held
+  stand-ins  other programs sawc builds that police the same shape, held
              until a blocked twin builds;
-  blocked    twins sawc2 refuses today, each with the rule of its first
+  blocked    twins sawc refuses today, each with the rule of its first
              refusal and the unit that clears it (or `unfiled`).
 A tests/corpus program is judged by its own directives; a compiler/tests/run
 program by Stage 0's recorded run of it, as the run lane judges it, and a
 stated probe there by the lines its header states. Every
 run of every program must meet its oracle: a fault, a signal or wrong output
-fails. A blocked program is still built, and fails the lane once sawc2 builds
+fails. A blocked program is still built, and fails the lane once sawc builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
 COVERAGE: ownership runs a program in 6 of its 6 categories, and 24 of its 26
@@ -432,14 +432,14 @@ def binary_of(path):
     return os.path.join(OUT_DIR, os.path.splitext(path)[0].replace("/", "__"))
 
 
-def sawc2_build(path):
-    """sawc2's build of `path`: (binary or None, the first refusal (rule,
+def sawc_build(path):
+    """sawc's build of `path`: (binary or None, the first refusal (rule,
     position, message) or None, what it printed)."""
     src = os.path.join(REPO, path)
     out = binary_of(path)
     if os.path.exists(out):
         os.remove(out)
-    code, found, log, _ = oracle.sawc2_build(src, out, expect.read(src).flags)
+    code, found, log, _ = oracle.sawc_build(src, out, expect.read(src).flags)
     return (out if code == 0 else None), (found[0] if found else None), log
 
 
@@ -489,10 +489,10 @@ def judge(path, code, stdout, stderr):
 def check_run(item):
     """One listed program: (path, failures, how many runs were clean)."""
     path, runs = item
-    binary, refusal, log = sawc2_build(path)
+    binary, refusal, log = sawc_build(path)
     if binary is None:
         first = "%s at %s: %s" % refusal if refusal else oracle.first_error(log)
-        return path, ["sawc2 does not build it: %s" % first], 0
+        return path, ["sawc does not build it: %s" % first], 0
     failures = []
     for k in range(runs):
         why = judge(path, *run(binary, guarded=True))
@@ -502,15 +502,15 @@ def check_run(item):
 
 
 def check_blocked(b):
-    """A blocked twin: (path, failures). It fails once sawc2 builds it or
+    """A blocked twin: (path, failures). It fails once sawc builds it or
     refuses it first by a rule other than the one listed."""
-    binary, refusal, log = sawc2_build(b.path)
+    binary, refusal, log = sawc_build(b.path)
     if binary is not None:
-        return b.path, ["sawc2 builds it now (listed as blocked on %s): move it to the category's twins" % b.unit]
+        return b.path, ["sawc builds it now (listed as blocked on %s): move it to the category's twins" % b.unit]
     if refusal is None:
-        return b.path, ["sawc2 refuses it with no ERROR line: %s" % oracle.first_error(log)]
+        return b.path, ["sawc refuses it with no ERROR line: %s" % oracle.first_error(log)]
     if refusal[0] != b.rule:
-        return b.path, ["sawc2 refuses it first by %s at %s, not %s: update its reason and unit"
+        return b.path, ["sawc refuses it first by %s at %s, not %s: update its reason and unit"
                         % (refusal[0], refusal[1], b.rule)]
     return b.path, []
 
@@ -518,9 +518,9 @@ def check_blocked(b):
 def self_test():
     """The failures of the surplus-release probe: it must meet its
     directives natively and fault under Guard Malloc."""
-    binary, refusal, log = sawc2_build(SELF_TEST)
+    binary, refusal, log = sawc_build(SELF_TEST)
     if binary is None:
-        return ["sawc2 does not build it: %s" % ("%s at %s: %s" % refusal if refusal else oracle.first_error(log))]
+        return ["sawc does not build it: %s" % ("%s at %s: %s" % refusal if refusal else oracle.first_error(log))]
     failures = []
     native = judge(SELF_TEST, *run(binary, guarded=False))
     if native is not None:
@@ -550,7 +550,7 @@ def main():
     ap.add_argument("-n", "--runs", type=int, default=None,
                     help="runs per program, overriding each lane's own (ownership 10, concurrency 5)")
     ap.add_argument("--lane", choices=sorted(LANES) + ["all"], default="all", help="which lane to run (default all)")
-    ap.add_argument("--no-build", action="store_true", help="use the sawc2 already built")
+    ap.add_argument("--no-build", action="store_true", help="use the sawc already built")
     ap.add_argument("--list", action="store_true", help="print the lists and check them, building nothing")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -568,10 +568,10 @@ def main():
         print("gmgate: SKIPPED: Guard Malloc is a macOS facility (%s not present)" % GMALLOC)
         return 0
     if not args.no_build and not build.handed_down():
-        ok, output = build.build_sawc2()
+        ok, output = build.build_sawc()
         if not ok:
             print(output)
-            print("gmgate: sawc2 did not build")
+            print("gmgate: sawc did not build")
             return 1
 
     start = time.monotonic()

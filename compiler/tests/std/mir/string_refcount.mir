@@ -1,4 +1,4 @@
-// String's retain and release hooks as sawc2 lowers them against std/. Each
+// String's retain and release hooks as sawc lowers them against std/. Each
 // reads the refcount with a plain load and compares it with the immortal
 // sentinel `-1` before any atomic operation, so a literal's static block,
 // which may sit in read-only memory, is never written. They must match Stage

@@ -13,16 +13,16 @@
   step's budget), print the same bytes, with a failure injected into one case
   of the coro lane appearing in both at the same place, and each writes one
   progress line as it starts and one as it ends, outside those bytes;
-- `run.py --only coro`, its sawc2 missing until the build makes it, builds
+- `run.py --only coro`, its sawc missing until the build makes it, builds
   first, exits 1 on that failure and prints exactly coro's part of that run;
-  `--only` over a step that needs no sawc2 builds nothing, and an unknown
+  `--only` over a step that needs no sawc builds nothing, and an unknown
   step name is refused with the list of steps;
 - a small fixpoint replay, serial and parallel, judges the same, with a
   difference injected into one Stage 2 invocation reported in both;
-- the recognizer's worker processes run the sawc2 their parent chose (a
+- the recognizer's worker processes run the sawc their parent chose (a
   logging wrapper here, the twin under the fixpoint lane), and never rebuild
   one handed down to them, however stale it looks;
-- `sawc2 lex @LIST` frames each listed file exactly as the single-file
+- `sawc lex @LIST` frames each listed file exactly as the single-file
   commands print it, and under the twin a difference in one listed file is
   reported naming it;
 - in the fixpoint lane's default mode the generator's and mutator's
@@ -35,7 +35,7 @@ beside other steps, with nothing injected, for a step too long to run twice in
 every gate (`programs`).
 
 Each injection goes through a wrapper written under `.build/`, put where the
-lanes expect sawc2 or where the twin expects Stage 2; nothing tracked changes.
+lanes expect sawc or where the twin expects Stage 2; nothing tracked changes.
 """
 import glob
 import io
@@ -62,7 +62,7 @@ MARK = "INJECTED\tparallel-order"
 STAGE_STEPS = ("golden", "grammar_lint", "coro")
 STAGE_INJECTED = ("coro", "--dump")
 # The step `--only` runs, compared with its section of the run of STAGE_STEPS,
-# and one that needs no sawc2.
+# and one that needs no sawc.
 ONLY_STEP = "coro"
 ONLY_UNBUILT = "fixture_whitespace"
 # The fixpoint replay's lanes, and the Stage 2 call the wrapper alters.
@@ -169,7 +169,7 @@ def write_wrapper():
     script = os.path.join(OUT, "inject.py")
     with open(script, "w") as fh:
         fh.write(WRAPPER)
-    wrapper = os.path.join(OUT, "sawc2-inject")
+    wrapper = os.path.join(OUT, "sawc-inject")
     with open(wrapper, "w") as fh:
         fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, script))
     os.chmod(wrapper, 0o755)
@@ -201,7 +201,7 @@ def stage_output(failures, R, wrapper, budget):
     results by step name."""
     steps = [R.STEP_BY_NAME[name] for name in STAGE_STEPS]
     progress = io.StringIO()
-    _, results = R.run_steps(steps, sawc2=wrapper, budget=budget, progress=progress, label="pin")
+    _, results = R.run_steps(steps, sawc=wrapper, budget=budget, progress=progress, label="pin")
     check_progress(failures, budget, progress.getvalue(),
                    {step.name: bool(r["failures"]) for step, r in results})
     streams = b"".join(r["stdout"] + r["stderr"] for _, r in results)
@@ -231,21 +231,21 @@ def check_progress(failures, budget, text, fails):
 
 
 def check_stage_steps(failures, R, wrapper, budget):
-    with Injecting(R.build.SAWC2, STAGE_INJECTED):
+    with Injecting(R.build.SAWC, STAGE_INJECTED):
         serial, results = stage_output(failures, R, wrapper, 1)
         parallel, _ = stage_output(failures, R, wrapper, budget)
         check_only_section(failures, R, wrapper, ONLY_STEP, results[ONLY_STEP])
     compare(failures, "the steps %s" % ", ".join(STAGE_STEPS), serial, parallel)
     if not any(MARK.split("\t")[0] in line and line.startswith("coro golden ") for line in serial.split("\n")):
-        failures.append("parallel order: the failure injected into `sawc2 %s` is not reported"
+        failures.append("parallel order: the failure injected into `sawc %s` is not reported"
                         % " ".join(STAGE_INJECTED))
 
 
-def only_output(R, steps, build_sawc2, sawc2=None):
+def only_output(R, steps, build_sawc, sawc=None):
     """run.py's exit status and what it prints to standard output and to
     standard error for `steps`, as `--only` runs them."""
     out, err = io.BytesIO(), io.BytesIO()
-    code = R.report(steps, build_sawc2=build_sawc2, sawc2=sawc2, out=out, err=err)
+    code = R.report(steps, build_sawc=build_sawc, sawc=sawc, out=out, err=err)
     return code, out.getvalue().decode("utf-8", "replace"), err.getvalue().decode("utf-8", "replace")
 
 
@@ -267,7 +267,7 @@ def check_only_section(failures, R, wrapper, name, section):
     section of a run of several steps: its streams, then its own summary."""
     builds = []
 
-    def build_sawc2():
+    def build_sawc():
         builds.append(name)
         write_wrapper()
         return True, ""
@@ -278,7 +278,7 @@ def check_only_section(failures, R, wrapper, name, section):
         return
     os.remove(wrapper)
     try:
-        code, out, err = only_output(R, steps, build_sawc2, sawc2=wrapper)
+        code, out, err = only_output(R, steps, build_sawc, sawc=wrapper)
     finally:
         write_wrapper()
     progress = split_progress(err)[0]
@@ -306,16 +306,16 @@ def compare_section(failures, R, name, section, out, err):
 
 
 def check_only_entry(failures, R):
-    """`--only` with a step that needs no sawc2 builds nothing, and an unknown
+    """`--only` with a step that needs no sawc builds nothing, and an unknown
     name is refused with every step's name, before anything runs."""
     builds = []
 
-    def build_sawc2():
+    def build_sawc():
         builds.append(True)
         return True, ""
 
     steps, _ = R.only_steps(ONLY_UNBUILT)
-    _, _, err = only_output(R, steps, build_sawc2)
+    _, _, err = only_output(R, steps, build_sawc)
     progress, _ = split_progress(err)
     if builds or progress[:1] != ["run.py: started %s" % ONLY_UNBUILT] or len(progress) != 2:
         failures.append("parallel order: run.py --only %s builds %d times and writes the progress lines %r, "
@@ -345,9 +345,9 @@ def check_fixpoint(failures, F, wrapper, budget):
         serial = fixpoint_output(F, wrapper, 1)
         parallel = fixpoint_output(F, wrapper, budget)
     compare(failures, "the fixpoint replay of %s" % ", ".join(FIXPOINT_LANES), serial, parallel)
-    want = "fixpoint mismatch: sawc2 %s: " % " ".join(FIXPOINT_INJECTED)
+    want = "fixpoint mismatch: sawc %s: " % " ".join(FIXPOINT_INJECTED)
     if not any(line.startswith(want) for line in serial.split("\n")):
-        failures.append("parallel order: the difference injected into Stage 2's `sawc2 %s` is not reported"
+        failures.append("parallel order: the difference injected into Stage 2's `sawc %s` is not reported"
                         % " ".join(FIXPOINT_INJECTED))
 
 
@@ -382,8 +382,8 @@ def run():
 
 
 def check_candidates(failures, F, build, wrapper):
-    """Candidate-text workers lex with SAWC2_CANDIDATE_BINARY when a runner
-    sets it (the fixpoint lane's default mode) and with the chosen sawc2
+    """Candidate-text workers lex with SAWC_CANDIDATE_BINARY when a runner
+    sets it (the fixpoint lane's default mode) and with the chosen sawc
     otherwise (full mode); the generator and the mutator are such workers;
     and in default mode a Stage 2 difference on a case text is still caught."""
     import cases
@@ -396,12 +396,12 @@ def check_candidates(failures, F, build, wrapper):
     wrappers = {}
     for name in ("chosen", "candidate"):
         logs[name] = os.path.join(work, name + ".log")
-        wrappers[name] = os.path.join(work, "sawc2-" + name)
+        wrappers[name] = os.path.join(work, "sawc-" + name)
         with open(wrappers[name], "w") as fh:
             fh.write('#!/bin/sh\necho "$*" >> "%s"\nexec "%s" "$@"\n' % (logs[name], build.STAGE2))
         os.chmod(wrappers[name], 0o755)
     paths = [os.path.join(COMPILER, "tests", "lex", name) for name in WORKER_FILES[:2]]
-    saved = (build.SAWC2, list(lexdump._built), os.environ.get("SAWC2_CANDIDATE_BINARY"))
+    saved = (build.SAWC, list(lexdump._built), os.environ.get("SAWC_CANDIDATE_BINARY"))
 
     def calls(name):
         if not os.path.exists(logs[name]):
@@ -410,7 +410,7 @@ def check_candidates(failures, F, build, wrapper):
             return sum(1 for _ in fh)
 
     try:
-        build.SAWC2 = wrappers["chosen"]
+        build.SAWC = wrappers["chosen"]
         lexdump._built[:] = []
         for candidates, default_mode, want in ((True, True, "candidate"), (False, True, "chosen"),
                                                (True, False, "chosen")):
@@ -418,27 +418,27 @@ def check_candidates(failures, F, build, wrapper):
                 if os.path.exists(log):
                     os.remove(log)
             if default_mode:
-                os.environ["SAWC2_CANDIDATE_BINARY"] = wrappers["candidate"]
+                os.environ["SAWC_CANDIDATE_BINARY"] = wrappers["candidate"]
             else:
-                os.environ.pop("SAWC2_CANDIDATE_BINARY", None)
+                os.environ.pop("SAWC_CANDIDATE_BINARY", None)
             recognize.check_paths(paths, jobs=2) if not candidates else recognize.run_workers(
                 [recognize.__file__, "--worker", "--grammar", recognize.extract.GRAMMAR], paths, 2, candidates=True)
             other = "chosen" if want == "candidate" else "candidate"
             if calls(want) == 0 or calls(other) != 0:
-                failures.append("parallel order: %s workers in %s mode lexed %d times with the %s sawc2 and %d "
+                failures.append("parallel order: %s workers in %s mode lexed %d times with the %s sawc and %d "
                                 "with the %s one, expected only the %s one"
                                 % ("candidate-text" if candidates else "other", "default" if default_mode else "full",
                                    calls(want), want, calls(other), other, want))
         # A difference on a case text, in default mode, through the twin.
         log = os.path.join(work, "twin-log")
         os.makedirs(log)
-        twin = os.path.join(work, "sawc2-twin")
+        twin = os.path.join(work, "sawc-twin")
         with open(twin, "w") as fh:
             fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, F.TWIN))
         os.chmod(twin, 0o755)
-        build.SAWC2 = twin
+        build.SAWC = twin
         lexdump._built[:] = []
-        os.environ["SAWC2_CANDIDATE_BINARY"] = build.STAGE2
+        os.environ["SAWC_CANDIDATE_BINARY"] = build.STAGE2
         injected = {"FIXPOINT_REF": build.STAGE1, "FIXPOINT_NEW": wrapper, "FIXPOINT_LOG": log,
                     "PARALLEL_ORDER_REAL": build.STAGE2, "PARALLEL_ORDER_MATCH": "lex"}
         before = {k: os.environ.get(k) for k in injected}
@@ -457,15 +457,15 @@ def check_candidates(failures, F, build, wrapper):
                 records.append(json.load(fh))
         judged = []
         F.judge(judged, {}, records)
-        if not any(line.startswith("fixpoint mismatch: sawc2 lex ") for line in judged):
+        if not any(line.startswith("fixpoint mismatch: sawc lex ") for line in judged):
             failures.append("parallel order: in default mode a Stage 2 difference on a case text is not caught "
                             "(%d twin records)" % len(records))
     finally:
-        build.SAWC2, lexdump._built[:] = saved[0], saved[1]
+        build.SAWC, lexdump._built[:] = saved[0], saved[1]
         if saved[2] is None:
-            os.environ.pop("SAWC2_CANDIDATE_BINARY", None)
+            os.environ.pop("SAWC_CANDIDATE_BINARY", None)
         else:
-            os.environ["SAWC2_CANDIDATE_BINARY"] = saved[2]
+            os.environ["SAWC_CANDIDATE_BINARY"] = saved[2]
     for module in ("generate.py", "negative.py"):
         with open(os.path.join(COMPILER, "tests", "grammar", module), encoding="utf-8") as fh:
             text = fh.read()
@@ -481,8 +481,8 @@ LIST_FILES = ("comments.saw", "doc_comments.saw", "error_binary_digit.saw", "no_
 
 
 def check_lex_list(failures, F, build, wrapper):
-    """`sawc2 lex @LIST` prints, per listed file, exactly what `sawc2 lex FILE`
-    and `sawc2 lex --docs FILE` print, with their statuses; lexdump reads it
+    """`sawc lex @LIST` prints, per listed file, exactly what `sawc lex FILE`
+    and `sawc lex --docs FILE` print, with their statuses; lexdump reads it
     back as it reads those; and under the twin a Stage 2 difference in one
     listed file is reported naming that file."""
     import lexdump
@@ -493,19 +493,19 @@ def check_lex_list(failures, F, build, wrapper):
     listing = os.path.join(work, "list.txt")
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in paths))
-    kinds = subprocess.run([build.SAWC2, "lex", "--kinds"], capture_output=True, text=True).stdout.split()
+    kinds = subprocess.run([build.SAWC, "lex", "--kinds"], capture_output=True, text=True).stdout.split()
     framing = [k for k in kinds if k in ("FILE", "DOCS", "END")]
     if framing:
-        failures.append("parallel order: token kinds %s collide with `sawc2 lex @LIST`'s frame lines" % framing)
-    batched = lexdump.frames(subprocess.run([build.SAWC2, "lex", "@" + listing], capture_output=True)
+        failures.append("parallel order: token kinds %s collide with `sawc lex @LIST`'s frame lines" % framing)
+    batched = lexdump.frames(subprocess.run([build.SAWC, "lex", "@" + listing], capture_output=True)
                              .stdout.decode("utf-8"))
     for path in paths:
         single = []
         for flags in ((), ("--docs",)):
-            r = subprocess.run([build.SAWC2, "lex"] + list(flags) + [path], capture_output=True)
+            r = subprocess.run([build.SAWC, "lex"] + list(flags) + [path], capture_output=True)
             single += [r.returncode, r.stdout.decode("utf-8")]
         if batched.get(path) != tuple(single):
-            failures.append("parallel order: `sawc2 lex @LIST` frames %s as %r, the single-file commands print %r"
+            failures.append("parallel order: `sawc lex @LIST` frames %s as %r, the single-file commands print %r"
                             % (os.path.basename(path), batched.get(path), tuple(single)))
     # The twin, with Stage 2 altered in the first listed file's frame, over
     # the files that exist: Stage 0's std and the new one word a failed open
@@ -515,7 +515,7 @@ def check_lex_list(failures, F, build, wrapper):
         fh.write("".join(p + "\n" for p in paths))
     log = os.path.join(work, "log")
     os.makedirs(log)
-    twin = os.path.join(work, "sawc2-twin")
+    twin = os.path.join(work, "sawc-twin")
     with open(twin, "w") as fh:
         fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, F.TWIN))
     os.chmod(twin, 0o755)
@@ -528,7 +528,7 @@ def check_lex_list(failures, F, build, wrapper):
             records.append(json.load(fh))
     judged, counts = [], {}
     F.judge(judged, counts, records)
-    want = "fixpoint mismatch: sawc2 lex %s (listed in sawc2 lex @%s): " % (paths[0], listing)
+    want = "fixpoint mismatch: sawc lex %s (listed in sawc lex @%s): " % (paths[0], listing)
     if len(judged) != 1 or not judged[0].startswith(want) or counts.get("fixpoint listed files compared") != len(paths):
         failures.append("parallel order: a Stage 2 difference in one listed file is reported as %r with %r, "
                         "expected one mismatch naming %s" % (judged, counts, os.path.basename(paths[0])))
@@ -540,7 +540,7 @@ WORKER_FILES = ("comments.saw", "directives.saw", "compound_locals.saw", "borrow
 
 
 def check_handed_down(failures, R):
-    """Under a logging wrapper as the chosen sawc2, the recognizer's workers'
+    """Under a logging wrapper as the chosen sawc, the recognizer's workers'
     calls are logged; and with the wrapper looking older than its sources and
     handed down, they are logged again and nothing rebuilds Stage 1 or 2."""
     import lexdump
@@ -548,49 +548,49 @@ def check_handed_down(failures, R):
     build = R.build
     paths = [os.path.join(COMPILER, "tests", "lex", name) for name in WORKER_FILES]
     log = os.path.join(OUT, "worker-calls.log")
-    logging = os.path.join(OUT, "sawc2-logging")
+    logging = os.path.join(OUT, "sawc-logging")
     with open(logging, "w") as fh:
-        fh.write('#!/bin/sh\necho "$*" >> "%s"\nexec "%s" "$@"\n' % (log, build.SAWC2))
+        fh.write('#!/bin/sh\necho "$*" >> "%s"\nexec "%s" "$@"\n' % (log, build.SAWC))
     os.chmod(logging, 0o755)
-    saved = (build.SAWC2, list(lexdump._built), os.environ.get("SAWC2_BINARY"))
+    saved = (build.SAWC, list(lexdump._built), os.environ.get("SAWC_BINARY"))
     stamps = [os.path.getmtime(p) for p in (build.STAGE1, build.STAGE2) if os.path.exists(p)]
     try:
         for stale in (False, True):
             if os.path.exists(log):
                 os.remove(log)
-            build.SAWC2 = logging
+            build.SAWC = logging
             lexdump._built[:] = []
             if stale:
                 os.utime(logging, (0, 0))
-                os.environ["SAWC2_BINARY"] = logging
+                os.environ["SAWC_BINARY"] = logging
             recognize.check_paths(paths, jobs=2)
             calls = 0
             if os.path.exists(log):
                 with open(log) as fh:
                     calls = sum(1 for _ in fh)
             if calls < 2 * len(paths):
-                failures.append("parallel order: the recognizer's workers made %d calls through the %s sawc2 "
+                failures.append("parallel order: the recognizer's workers made %d calls through the %s sawc "
                                 "their parent chose, expected at least %d"
                                 % (calls, "stale" if stale else "fresh", 2 * len(paths)))
     finally:
-        build.SAWC2, lexdump._built[:] = saved[0], saved[1]
+        build.SAWC, lexdump._built[:] = saved[0], saved[1]
         if saved[2] is None:
-            os.environ.pop("SAWC2_BINARY", None)
+            os.environ.pop("SAWC_BINARY", None)
         else:
-            os.environ["SAWC2_BINARY"] = saved[2]
+            os.environ["SAWC_BINARY"] = saved[2]
     if [os.path.getmtime(p) for p in (build.STAGE1, build.STAGE2) if os.path.exists(p)] != stamps:
-        failures.append("parallel order: a stale sawc2 handed down to the recognizer's workers was rebuilt")
+        failures.append("parallel order: a stale sawc handed down to the recognizer's workers was rebuilt")
     return 2
 
 
 def section(name):
     """`--only NAME` against NAME's section of a run of NAME beside
-    STAGE_STEPS, with nothing injected and the sawc2 on disk, built first."""
+    STAGE_STEPS, with nothing injected and the sawc on disk, built first."""
     import run as R
     failures = []
-    ok, output = R.build.build_sawc2()
+    ok, output = R.build.build_sawc()
     if not ok:
-        return ["parallel order: sawc2 does not build: %s" % R._first_line(output)], {}
+        return ["parallel order: sawc does not build: %s" % R._first_line(output)], {}
     only, problem = R.only_steps(name)
     if problem:
         return ["parallel order: run.py --only %s is refused: %s" % (name, problem)], {}

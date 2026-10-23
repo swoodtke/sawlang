@@ -1,12 +1,14 @@
 #!/bin/sh
-# `sawc` on a $PATH (design 238 unit 3, D-b1).
+# `sawc` on a $PATH (design 238 unit 3, D-b1): the self-hosted compiler.
 #
-# The compiler is `python sawc/sawc.py` plus llvmlite — there is no binary to
-# install and, pre-1.0, no packaging worth building for one. This shim is the
-# whole install story: `make install` symlinks it onto a prefix, and it execs
-# the checkout it lives in. So an installed `sawc` is always the checkout's
-# `sawc`, and editing the compiler changes what the name means immediately —
-# which is what you want while the compiler is the thing being worked on.
+# The compiler is built from this checkout's own source by
+# `compiler/tools/build.py`, so there is nothing to install: `make install`
+# symlinks this shim onto a prefix, and it execs the checkout it lives in. Every
+# run first has build.py bring the stages up to date (a cached check when
+# nothing changed), so an installed `sawc` is always this tree's compiler, and
+# editing or pulling the compiler changes what the name means immediately. A
+# tree that cannot build its compiler fails here, naming why; Stage 0 is
+# `sawc0`, and nothing reaches it through this name.
 #
 # It is also usable without installing anything: put `<checkout>/bin` on $PATH.
 set -eu
@@ -26,16 +28,18 @@ done
 # what the operator named beats what was inferred.
 ROOT=${SAWLANG_ROOT:-$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)}
 
-# The checkout's venv is where llvmlite lives. A machine that installed it
-# globally instead is served by the fallback; a machine with neither is told
-# so rather than left to fail somewhere deeper.
+# build.py needs only Python's standard library; the checkout's venv is
+# preferred where there is one, as `sawc0` prefers it.
 PY="$ROOT/.venv/bin/python"
 if [ ! -x "$PY" ]; then
     PY=$(command -v python3 || true)
 fi
 if [ -z "$PY" ]; then
-    echo "sawc: no Python found — expected $ROOT/.venv/bin/python or python3" >&2
+    echo "sawc: no Python found to run compiler/tools/build.py — expected $ROOT/.venv/bin/python or python3" >&2
     exit 1
 fi
 
-exec "$PY" "$ROOT/sawc/sawc.py" "$@"
+# This name always runs Stage 2, so a lane's stage choice in the environment is
+# not handed to the build that keeps it current.
+env -u SAWC_STAGE -u SAWC_BINARY "$PY" "$ROOT/compiler/tools/build.py" --quiet || exit 1
+exec "$ROOT/.build/sawc-stage2" "$@"

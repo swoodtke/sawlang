@@ -1,5 +1,5 @@
 # The cone of compiler/tests/std/cone/literal_only.saw against the new std (std): every std declaration its
-# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
+# functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
 # 18 declarations in 3 modules
 
 std.panic: 2

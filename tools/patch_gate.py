@@ -27,9 +27,9 @@ import build  # noqa: E402
 # A change to the gate's own definition re-runs everything.
 GATE_DEFINITION = ("build.sh", "tools/patch_gate.py", "tools/suite_lock.sh", ".sawtracker/")
 
-# What sawc2 is built from: each stage package's sources, the driver, the
+# What sawc is built from: each stage package's sources, the driver, the
 # seed that builds Stage 1, the std and runtime it compiles and links.
-SAWC2_SOURCES = tuple(directory + "/" for _, directory in build.STAGE_PACKAGES) + (
+SAWC_SOURCES = tuple(directory + "/" for _, directory in build.STAGE_PACKAGES) + (
     "compiler/driver/",
     "compiler/seed/",
     "compiler/tools/build.py",
@@ -46,7 +46,7 @@ SUITE_INPUTS = {
         "runtime/",                 # the runtime Stage 1 builds, which every later link takes
         "compiler/tests/fixpoint/", # the lane, twin.py and mismatches.tsv
         "compiler/tools/build.py",  # which builds both stages
-        "tests/corpus/",            # the programs the replayed lanes run sawc2 over
+        "tests/corpus/",            # the programs the replayed lanes run sawc over
         "tools/gate_jobs.py",       # how many invocations run at once
     ),
     "grammar corpus": (
@@ -55,11 +55,11 @@ SUITE_INPUTS = {
         "compiler/tests/grammar/",  # the tools and corpus_expected.tsv
         "compiler/lex/",            # the lexer whose token dump it reads
         "compiler/parse/",          # the parser that classifies a refused file
-        "compiler/driver/",         # sawc2, which prints that dump
-        "compiler/tools/build.py",  # which builds sawc2
+        "compiler/driver/",         # sawc, which prints that dump
+        "compiler/tools/build.py",  # which builds sawc
         "compiler/seed/",           # the seed, which builds Stage 1
     ),
-    "corpusdiff": SAWC2_SOURCES + (
+    "corpusdiff": SAWC_SOURCES + (
         "tests/corpus/",                 # the programs it measures
         "tests/cbor_vectors/",           # vector files the programs read at run time
         "tests/float_vectors/",
@@ -77,7 +77,7 @@ SUITE_INPUTS = {
 GRAMMAR_CORPUS = "compiler/tests/grammar/corpus.py"
 
 # (name, command) in running order. The first always runs, and builds the
-# sawc2 the others find cached.
+# sawc the others find cached.
 PARTS = (
     ("compiler tests", ["compiler/tests/run.py"]),
     ("fixpoint", ["compiler/tests/fixpoint/fixpoint_lane.py"]),

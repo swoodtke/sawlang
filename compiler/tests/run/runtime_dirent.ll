@@ -1,4 +1,4 @@
-; sawc2 link manifest
+; sawc link manifest
 ; target arm64-apple-darwin
 ; speed -O2
 ; runtime none

@@ -1,5 +1,5 @@
 // The MIR stage's entry points: a program checked, then lowered, and the
-// record `sawc2 mir` prints for it.
+// record `sawc mir` prints for it.
 
 import sawmir.dump.{mir_dump_module}
 import sawmir.lower.{mir_lower_program}
@@ -13,7 +13,7 @@ import sawtypecheck.api.{append_tc_diag}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
 import sawtypecheck.verify.{tc_verify_module}
 
-// How `sawc2 mir` treats one entry file.
+// How `sawc mir` treats one entry file.
 public struct MirOptions {
     // The directory holding `std/` and `builtin.saw`.
     std_root: String

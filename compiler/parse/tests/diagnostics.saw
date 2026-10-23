@@ -24,7 +24,7 @@ func expect_ids(text: String, unit: Bool, want: String) {
     assert(got.equals(want), "diagnostics: {}", got)
 }
 
-// The `ERROR` records `sawc2 parse` prints for `text`: rule, position,
+// The `ERROR` records `sawc parse` prints for `text`: rule, position,
 // message and hint.
 func expect_record(text: String, want: String) {
     var out = StringBuilder()

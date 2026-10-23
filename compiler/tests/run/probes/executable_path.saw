@@ -2,7 +2,7 @@
 // about: `Env.executable_path` names the real file however the program is started (SL-522)
 // Prints the running executable's path as `Env.executable_path` resolves it;
 // the run lane starts it through a renamed symbolic link on `PATH`, which
-// the manifest lookup of a sawc2 run by a bare name rests on.
+// the manifest lookup of a sawc run by a bare name rests on.
 
 import std.env.{Env}
 

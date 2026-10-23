@@ -1,15 +1,15 @@
 """Tokens and doc comments from the self-hosted lexer, read back from its dump.
 
-`lex_file` and `lex_text` run `sawc2 lex` and `sawc2 lex --docs` and return the
+`lex_file` and `lex_text` run `sawc lex` and `sawc lex --docs` and return the
 records as objects: a `Token` has the dump's kind name, its text (unescaped),
 its 1-based position, an integer's width suffix, and an interpolated string's
 segments. The record format is compiler/lex/README.md's. A lex error raises
 `LexError`. `raw_spelling` recovers a literal's source spelling, which the dump
-normalizes. `ensure_sawc2` builds the driver when it is missing or older than
+normalizes. `ensure_sawc` builds the driver when it is missing or older than
 its sources or the frozen compiler that builds it.
 
-`lex_files` and `lex_texts` lex many at once through `sawc2 lex @LIST`, so a
-worker that knows its inputs runs one sawc2 process for all of them.
+`lex_files` and `lex_texts` lex many at once through `sawc lex @LIST`, so a
+worker that knows its inputs runs one sawc process for all of them.
 
 ENTRY POINTS
     lex_file
@@ -29,10 +29,10 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
 
-# What a fresh sawc2 depends on: every stage it is built from, its driver, the
+# What a fresh sawc depends on: every stage it is built from, its driver, the
 # seed that builds Stage 1, the std the stages compile and the runtime they
 # link.
-SAWC2_SOURCES = tuple(os.path.join(REPO, rel) for _, rel in build.STAGE_PACKAGES) + (
+SAWC_SOURCES = tuple(os.path.join(REPO, rel) for _, rel in build.STAGE_PACKAGES) + (
     os.path.join(COMPILER, "driver"), build.SEED_DIR, build.STD_ROOT, build.RT_ROOT)
 LEX_TIMEOUT = 60
 
@@ -119,7 +119,7 @@ def _position(field):
 
 
 def parse_tokens(dump):
-    """The tokens of a `sawc2 lex` dump; raises LexError for an ERROR record."""
+    """The tokens of a `sawc lex` dump; raises LexError for an ERROR record."""
     out = []
     for record in dump.split("\n"):
         if not record:
@@ -163,29 +163,29 @@ def parse_docs(dump):
 _built = []
 
 
-def ensure_sawc2():
-    """The path of a sawc2 at least as new as everything it is built from. A
+def ensure_sawc():
+    """The path of a sawc at least as new as everything it is built from. A
     binary handed down from a runner above is used as it is: that runner
     keeps it fresh, and two processes building it at once would race."""
     if _built:
         return _built[0]
     if build.handed_down():
-        if not os.path.exists(build.SAWC2):
-            raise RuntimeError("SAWC2_BINARY names %s, which does not exist" % build.SAWC2)
-    elif not os.path.exists(build.SAWC2) or _newest(SAWC2_SOURCES) > os.path.getmtime(build.SAWC2):
-        ok, output = build.build_sawc2()
+        if not os.path.exists(build.SAWC):
+            raise RuntimeError("SAWC_BINARY names %s, which does not exist" % build.SAWC)
+    elif not os.path.exists(build.SAWC) or _newest(SAWC_SOURCES) > os.path.getmtime(build.SAWC):
+        ok, output = build.build_sawc()
         if not ok:
-            raise RuntimeError("sawc2 does not build: %s" % output.strip().split("\n")[0])
-    _built.append(build.SAWC2)
-    return build.SAWC2
+            raise RuntimeError("sawc does not build: %s" % output.strip().split("\n")[0])
+    _built.append(build.SAWC)
+    return build.SAWC
 
 
-def candidate_sawc2():
-    """The sawc2 that candidate texts are lexed with, those the generator and
+def candidate_sawc():
+    """The sawc that candidate texts are lexed with, those the generator and
     the mutator make and lex as they go, when a runner above chose one apart
-    (SAWC2_CANDIDATE_BINARY: the fixpoint lane's default mode hands Stage 2
-    here and its twin to everything else); None to use `ensure_sawc2`'s."""
-    return os.environ.get("SAWC2_CANDIDATE_BINARY") or None
+    (SAWC_CANDIDATE_BINARY: the fixpoint lane's default mode hands Stage 2
+    here and its twin to everything else); None to use `ensure_sawc`'s."""
+    return os.environ.get("SAWC_CANDIDATE_BINARY") or None
 
 
 def _newest(roots):
@@ -200,10 +200,10 @@ def _newest(roots):
 
 
 def _run(*args):
-    r = subprocess.run([ensure_sawc2(), "lex"] + list(args), capture_output=True,
+    r = subprocess.run([ensure_sawc(), "lex"] + list(args), capture_output=True,
                        timeout=LEX_TIMEOUT)
     if r.returncode not in (0, 1):
-        raise RuntimeError("sawc2 lex %s: exit %d: %s"
+        raise RuntimeError("sawc lex %s: exit %d: %s"
                            % (" ".join(args), r.returncode, r.stdout.decode("utf-8", "replace")))
     return r.returncode, r.stdout.decode("utf-8")
 
@@ -216,7 +216,7 @@ def lex_file(path):
     code, dump = _run(path)
     tokens = parse_tokens(dump)
     if code != 0:
-        raise RuntimeError("sawc2 lex %s: exit %d without an ERROR record" % (path, code))
+        raise RuntimeError("sawc lex %s: exit %d without an ERROR record" % (path, code))
     _, docs = _run("--docs", path)
     return tokens, parse_docs(docs)
 
@@ -225,15 +225,15 @@ def _lexed(path, code, dump, docs_code, docs):
     """What `lex_file` makes of the two dumps and their statuses: (tokens, doc
     comments), or the LexError or RuntimeError it would raise."""
     if code not in (0, 1):
-        return RuntimeError("sawc2 lex %s: exit %d: %s" % (path, code, dump))
+        return RuntimeError("sawc lex %s: exit %d: %s" % (path, code, dump))
     try:
         tokens = parse_tokens(dump)
     except LexError as e:
         return e
     if code != 0:
-        return RuntimeError("sawc2 lex %s: exit %d without an ERROR record" % (path, code))
+        return RuntimeError("sawc lex %s: exit %d without an ERROR record" % (path, code))
     if docs_code not in (0, 1):
-        return RuntimeError("sawc2 lex --docs %s: exit %d: %s" % (path, docs_code, docs))
+        return RuntimeError("sawc lex --docs %s: exit %d: %s" % (path, docs_code, docs))
     return tokens, parse_docs(docs)
 
 
@@ -244,20 +244,20 @@ def _answer(lexed):
 
 
 def lex_list(paths, scratch):
-    """{path: what `_lexed` makes of it} for every path, from one `sawc2 lex
+    """{path: what `_lexed` makes of it} for every path, from one `sawc lex
     @LIST` call over a listing written into the directory `scratch`."""
     listing = os.path.join(scratch, "list.txt")
     with open(listing, "w", encoding="utf-8") as fh:
         fh.write("".join(p + "\n" for p in paths))
-    r = subprocess.run([ensure_sawc2(), "lex", "@" + listing], capture_output=True,
+    r = subprocess.run([ensure_sawc(), "lex", "@" + listing], capture_output=True,
                        timeout=LEX_TIMEOUT * max(1, len(paths) // 100))
     if r.returncode not in (0, 1, 2):
-        raise RuntimeError("sawc2 lex @%s: exit %d: %s" % (listing, r.returncode, r.stdout[-300:]))
+        raise RuntimeError("sawc lex @%s: exit %d: %s" % (listing, r.returncode, r.stdout[-300:]))
     return {path: _lexed(path, *parts) for path, parts in frames(r.stdout.decode("utf-8")).items()}
 
 
 def frames(dump):
-    """{path: (status, token dump, docs status, doc dump)} of a `sawc2 lex
+    """{path: (status, token dump, docs status, doc dump)} of a `sawc lex
     @LIST` dump, each dump the text the single-file command prints."""
     lines = dump.split("\n")
     if lines and lines[-1] == "":
@@ -266,7 +266,7 @@ def frames(dump):
     k = 0
     while k < len(lines):
         if not lines[k].startswith("FILE\t"):
-            raise RuntimeError("sawc2 lex @LIST: expected a FILE line, got %r" % lines[k][:120])
+            raise RuntimeError("sawc lex @LIST: expected a FILE line, got %r" % lines[k][:120])
         path = lines[k][len("FILE\t"):]
         parts = []
         k += 1
@@ -276,7 +276,7 @@ def frames(dump):
                 body.append(lines[k])
                 k += 1
             if k == len(lines):
-                raise RuntimeError("sawc2 lex @LIST: %s has no %s line" % (path, closer.strip()))
+                raise RuntimeError("sawc lex @LIST: %s has no %s line" % (path, closer.strip()))
             parts += [int(lines[k][len(closer):]), "".join(line + "\n" for line in body)]
             k += 1
         out[path] = tuple(parts)
@@ -287,7 +287,7 @@ _prefetched = {}
 
 
 def lex_files(paths):
-    """Lex every file of `paths` with one sawc2 process, so that `lex_file`
+    """Lex every file of `paths` with one sawc process, so that `lex_file`
     answers each from that; the answers are those it gives a file alone
     (pinned by compiler/tests/parallel_order.py)."""
     todo = [p for p in dict.fromkeys(paths) if p not in _prefetched]
@@ -297,7 +297,7 @@ def lex_files(paths):
 
 
 def lex_texts(texts):
-    """Lex every text of `texts` not yet cached with one sawc2 process, so
+    """Lex every text of `texts` not yet cached with one sawc process, so
     that `lex_text` answers each from the cache as it would alone."""
     todo = [t for t in dict.fromkeys(texts) if t not in _cache]
     if len(todo) <= 1:
@@ -320,7 +320,7 @@ _cache = {}
 
 def lex_text(text):
     """(tokens, doc comments) of a text; raises LexError. Results are cached, since
-    the same interpolation segment recurs. sawc2 reads only files, so the text
+    the same interpolation segment recurs. sawc reads only files, so the text
     goes through a directory that is removed however the lex ends."""
     if text in _cache:
         hit = _cache[text]

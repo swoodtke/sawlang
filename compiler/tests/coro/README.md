@@ -1,7 +1,7 @@
 # compiler/tests/coro: coroutine lowering
 
 Coroutine lowering (`compiler/coro`, package `sawcoro`, SL:coroutines §3.1)
-is the stage between mono and the backend. This file specifies `sawc2 coro`'s
+is the stage between mono and the backend. This file specifies `sawc coro`'s
 records, the suspension decision, what a frame holds and how it is laid
 out, which frames are lowered and how, the rules it refuses by, and the lane.
 The stage decides, per item, whether it needs a frame, what that frame holds,
@@ -36,16 +36,16 @@ coro/
                           (see "The Stage 0 snapshot and the census")
 ```
 
-## `sawc2 coro`
+## `sawc coro`
 
 ```sh
-.build/sawc2 coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]
+.build/sawc-stage1 coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]
                   [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
 Each FILE is the entry of its own program, brought through mono as
-`sawc2 mono` brings it. Its record, after the `FILE` line, holds everything
-`sawc2 mono --check` prints; then, when nothing there is an `ERROR` or an
+`sawc mono` brings it. Its record, after the `FILE` line, holds everything
+`sawc mono --check` prints; then, when nothing there is an `ERROR` or an
 `INVARIANT` line, one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per
 refusal of this stage, an `INVARIANT<TAB>coro<TAB>message` line per broken
 invariant, and with `--dump` one line per item:
@@ -74,7 +74,7 @@ frame`; with `--bt-table`, the program lowered for `--target`, an
 `INVARIANT` line per problem the lowering meets, and when it meets none, its
 backtrace table, encoded and then decoded (see "The backtrace table"). The
 exit code is 1 when any program has a refusal or an `INVARIANT`
-line, 2 on a usage failure, and 0 otherwise. `sawc2 build` runs this
+line, 2 on a usage failure, and 0 otherwise. `sawc build` runs this
 stage, and prints its record when it refuses (`compiler/tests/run/README.md`).
 
 ## Which items suspend
@@ -420,7 +420,7 @@ frame (SL:architecture §3.8), so its `blocking` extern calls are plain calls:
 whether such a call is a suspension source at all is decided in
 `coro_call_is_source` once the form reaches this stage (SL-765). The
 freestanding profile, which has no thread to offload onto, refuses a
-`blocking` extern call in a framed body; sawc2 has no freestanding profile
+`blocking` extern call in a framed body; sawc has no freestanding profile
 yet, so the refusal has no fixture, and it keys on the profile at the
 calls `coro_offloaded_extern` finds.
 
@@ -586,7 +586,7 @@ resume #K: NAME  (frame size S align A, pointer _F, context _C)
 fn NAME -> T { ... }
 ```
 
-then the lowered body as `sawc2 mir --dump` spells a function, frame slots
+then the lowered body as `sawc mir --dump` spells a function, frame slots
 included. Then each item with no lowered frame that holds a lowered spawn or
 drive site, in item order: a `spawner #K: NAME` line for one that spawns, a
 `driver #K: NAME` line otherwise, its `spawn` lines, its `drive bbB task root
@@ -639,7 +639,7 @@ btframe	SYMBOL	NAME	FILE	STATE_WORD	STATES
 
 one `btframe` line per frame, its STATES space-separated in state order, each
 its line, or `LINE>CHILD@OFFSET` for one that drives frame CHILD at OFFSET.
-Stage 0 numbers more states than sawc2: every block of its state machine is
+Stage 0 numbers more states than sawc: every block of its state machine is
 one, so the block after a drive is a state with no line and no child, which
 never parks and has no counterpart here.
 
@@ -649,7 +649,7 @@ The borrow check runs before this stage, so it never sees the paths lowering
 makes; a verifier after lowering checks that lowering preserved what was
 decided before it (SL:architecture §3.9, SL:coroutines A5). It is one funnel,
 `compiler/coro/src/verify.saw`, whose docstring names its entry points, and
-`coro_lower_for` runs it on every lowering, so `sawc2 build`, `--lowered` and
+`coro_lower_for` runs it on every lowering, so `sawc build`, `--lowered` and
 every lane that builds a program run it too. It recomputes every fact from the
 MIR, and reads none of the lowering's own records (its points and resume
 functions): only which frames are lowered, their layouts, and the target's size
@@ -750,7 +750,7 @@ task's context, last in a block going where the call returned.
    (`coro_lowered_lifetimes`), and a `--sanitize address` build reads the
    same computation for its poison lists (below).
 
-**The dynamic twin (risk R2).** Under `sawc2 build --sanitize address`,
+**The dynamic twin (risk R2).** Under `sawc build --sanitize address`,
 `coro_poison_lists` turns rule 5's lifetimes into AddressSanitizer poison
 lists, which the backend emits as `__asan_poison_memory_region` and
 `__asan_unpoison_memory_region` calls on the frame's bytes in each resume
@@ -800,7 +800,7 @@ their lowering is verified with every build.
 | `coro.drive-in-suspending` | a drive site (`__saw_drive` or `__saw_drive_steps`) in an item that has a frame: one that suspends, as Stage 0 refuses it (DF-218n), or a task root, which runs inside an executor too; at the site, with Stage 0's message naming the root to call directly, where it embeds | `coro.drive-in-suspending`, from `tests/corpus/drive_site_in_suspending_body`; `function`, from `drive_site_in_suspending_function`; and `task-root`, a spawned body that never suspends |
 | `coro.suspending-cycle` | a cycle of items that suspend, which has no finite frame since a callee's frame is embedded in its caller's by value; once per strongly connected component, naming the shortest cycle through its first item in item order, at that item's declaration, with the note that the refusal is pending SL-322's heap frames | `coro.suspending-cycle` and its variants, one from each of the eight recursion tests of `tests/corpus/errors/`, and `generic`, a cycle that suspends at one instantiation only |
 | `coro.not-yet` | an item that needs a frame this compiler does not lower (Lowering, above), at its first suspending call that is not lowered, the chain through it in the message: each child it drives that is not lowered, then the source or the child that ends it, a child refused for a conditional window among them, so a frame holding a lowered park beside one that is not names the one that is not; failing a call, at the call its suspension was found through, naming the conditional window that is not lowered; only when no cycle is refused, and only the program's own items when any of them is refused, every std item that suspends being reached from one | `coro.not-yet`, a conditional window two calls down; `beside-a-lowered-park`, the drive of a child holding one beside a ready park; and `conditional-window`, a conditional window whose prologue suspends |
-| `coro.spawn-not-send` | the Send-on-frames gate (spec, Multi-threaded execution): a task root that a `group.spawn` site, into any group, or a `Task.spawn` site spawns, whose frame carries a value that is not `Send`. A reference is judged by Rust's rule at every depth, `&T` by `T: Sync` and `&var T` by `T: Send`, so a borrowing struct crosses when each reference it holds does. A function-typed parameter is judged by the closure its call passes, the spawn site's for a root's and the embedding call's for a child's, where the argument is a closure written there or the caller's own parameter so judged; any other function value keeps its written type. Refused once per root and site passing a closure, naming the first of its parameters, then its resident locals, then each embedded child's parameters and resident locals, then its result, at the declaration holding the value, or at the closure for a closure's capture, in sawc2's spelling with Stage 0's sentence | `coro.spawn-not-send`, a `&TaskGroup` parameter into `TaskGroup()`; `local`, a resident local (K02); `callee`, a child's resident local; `result`, the root's result; `group`, a group held across a suspension; `closure-capture`, the closure a root's parameter holds; `closure-chain`, the closure a child's parameter holds, written at the root's call of it; `closure-field`, a function value held in a field; and `join-inversion`, a spawned joiner holding its group across the suspension a join inversion needs, which makes the inversion unreachable from a spawned task (K196, K200). The unit program `compiler/coro/tests/send_matrix.saw` judges the position matrix over `inject/send_matrix.saw` in every spawn form (K196) |
+| `coro.spawn-not-send` | the Send-on-frames gate (spec, Multi-threaded execution): a task root that a `group.spawn` site, into any group, or a `Task.spawn` site spawns, whose frame carries a value that is not `Send`. A reference is judged by Rust's rule at every depth, `&T` by `T: Sync` and `&var T` by `T: Send`, so a borrowing struct crosses when each reference it holds does. A function-typed parameter is judged by the closure its call passes, the spawn site's for a root's and the embedding call's for a child's, where the argument is a closure written there or the caller's own parameter so judged; any other function value keeps its written type. Refused once per root and site passing a closure, naming the first of its parameters, then its resident locals, then each embedded child's parameters and resident locals, then its result, at the declaration holding the value, or at the closure for a closure's capture, in sawc's spelling with Stage 0's sentence | `coro.spawn-not-send`, a `&TaskGroup` parameter into `TaskGroup()`; `local`, a resident local (K02); `callee`, a child's resident local; `result`, the root's result; `group`, a group held across a suspension; `closure-capture`, the closure a root's parameter holds; `closure-chain`, the closure a child's parameter holds, written at the root's call of it; `closure-field`, a function value held in a field; and `join-inversion`, a spawned joiner holding its group across the suspension a join inversion needs, which makes the inversion unreachable from a spawned task (K196, K200). The unit program `compiler/coro/tests/send_matrix.saw` judges the position matrix over `inject/send_matrix.saw` in every spawn form (K196) |
 | `effect.sync` | a copy-policy `copy()` (`Copy` or `ExplicitCopy`, a written member) that suspends at its instantiation, at its declaration, naming its chain as Stage 0 does (`method Wrap.copy calls Slow.step → blocking extern usleep`): the compiler calls it at transfer sites no source names. Typecheck refuses one that suspends at every instantiation; this is the instantiation's half, decided per item | `effect.sync.copy-hook`, beside the run lane's `copy_hook_per_instantiation`, the same program built at `Fast` |
 | `coro.format-suspends` | a written `Printable.format` (an `Error` conformance's included) that suspends at its instantiation, at its declaration's name, naming the instance and the path (`` `Wrapper<Yielder>`'s does: `Wrapper.format` → `Yielder.name` → `yield_now` (parks the task) ``): a render calls `format` into stack scratch where nothing may suspend, so `format` is `sync` (spec, Printable). Typecheck refuses one that suspends at every instantiation (`effect.format-suspends`); this is the instantiation's half, decided per item, so it reaches an explicit `format(into:)` or `to_string()` as it does a render | `coro.format-suspends`, an interpolation in a task beside the `Wrapper<Plain>` it does not refuse; and one variant per render-site row: `print-argument`, `panic`, `assert`, `print-single`, `to-string`, `explicit`, `closure`, `thread`, `sync` and `main`; the run lane's `format_generic_sync_instance` is the program built at `Plain` (SL-781) |
 
@@ -828,19 +828,19 @@ the Stage 0 snapshot's for the corpus program its first line names
 target), the same frames by name, and in each frame the same states it can be
 parked in, by line and by the child's frame name, Stage 0's states with no
 line and no child left out; state numbers and offsets are each compiler's
-own, so neither is compared; that each `bt_table_` program's `sawc2 build
+own, so neither is compared; that each `bt_table_` program's `sawc build
 --emit-ll`, for `arm64-apple-darwin` and `x86_64-unknown-linux-gnu`, holds one
 `@__saw_bt_table` of its record's size in that format's section, kept by
 `@llvm.used`, and gives each task root's descriptor its frame's index in the
 table; that each fixture in `refuse/` is refused first at
 its header's position by the rule its name starts with, the refusal's
 message holding each `// message:` line of its header, and every rule has a
-fixture; and that `sawc2 coro --layouts` reports no `INVARIANT` line over the
+fixture; and that `sawc coro --layouts` reports no `INVARIANT` line over the
 mono lane's golden programs and the run lane's programs, which is where a
 disagreement with typecheck would show, and lays out every frame they hold.
 Every package under `modules/` is mapped with `--module-path` by its
 directory's name. Last, it builds each unit program under `parks/` with
-sawc2, against the new std and the stage packages, and requires it to exit 0
+sawc, against the new std and the stage packages, and requires it to exit 0
 (see "The verifier"). Nothing in the lane runs Stage 0.
 
 ## The Stage 0 snapshot and the census
@@ -852,7 +852,7 @@ of `compiler/tests/oracle.py` with the target triple of each record:
 run, the frame layouts and the backtrace table), `stage0/refusals.tsv` and
 `stage0/refusals/PATH.stage0` for the refusal tests. `census.py`, which
 `compiler/tests/run.py` runs for information, reads it and never runs Stage 0:
-it fails only when the snapshot is not whole, and counts the programs sawc2
+it fails only when the snapshot is not whole, and counts the programs sawc
 builds and passes and the refusal tests it refuses by the plan's rule.
 `stage0/snapshot.py --write` regenerates the snapshot with the v0 compiler,
 which `oracle.v0_compiler` finds; nothing else does.

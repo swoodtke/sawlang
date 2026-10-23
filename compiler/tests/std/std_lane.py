@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The std lane: the new std in `std/` under sawc2, the subset checker's std
+"""The std lane: the new std in `std/` under sawc, the subset checker's std
 profile, and the lang-item table.
 
     python compiler/tests/std/std_lane.py            # check
@@ -9,7 +9,7 @@ profile, and the lang-item table.
 `compiler/tests/run.py` runs `run()`. It checks:
 
 - every module of the new std resolves, typechecks, lowers to MIR and has its
-  constants evaluated with sawc2, with no refusal and no invariant;
+  constants evaluated with sawc, with no refusal and no invariant;
 - the std profile of compiler/tools/subset_check.py accepts `std/`, and refuses
   each fixture in `subset/` exactly where its `// refuses:` markers say;
 - each `lang/` program typechecks and lowers against `std/` with no refusal,
@@ -23,7 +23,7 @@ profile, and the lang-item table.
   against `sawc/std` (`stage0/HOST/NAME.stage0`, which `--stage0` writes
   through the v0 compiler and which is stale once the pair or the file
   fixtures change), or panics with the text its `// expect-panic:` line
-  names, and checks, lowers and evaluates clean with sawc2 against `std/`; one
+  names, and checks, lowers and evaluates clean with sawc against `std/`; one
   headed `// arguments: ...` runs with those arguments, `{files}` the
   directory of the lane's FILE_FIXTURES;
 - each `calls/` program, which only the new std's API can type, checks clean
@@ -32,13 +32,13 @@ profile, and the lang-item table.
   the drops stage's records and any other in typecheck's;
 - each `exec/` program, which builds coroutine frames by hand with their
   descriptors and drives them through the executor's entries, builds with
-  sawc2 against `std/` at -O0 and -O2 and prints exactly its `NAME.out` on
+  sawc against `std/` at -O0 and -O2 and prints exactly its `NAME.out` on
   standard output, exiting 0, or, headed `// expect-panic: TEXT`, panicking
   with that text, its standard error exactly its `NAME.err`;
   a `park_NAME.saw` program builds instead against a copy of std whose
   `task.saw` ends in `parks/task_tail.saw`, which re-exposes the std-internal
   descriptor wait to those programs alone;
-- each `mir/NAME.mir` holds its functions' MIR as sawc2 lowers them against
+- each `mir/NAME.mir` holds its functions' MIR as sawc lowers them against
   `std/`, and String's retain and release read the count with a relaxed
   atomic load and compare it with the immortal sentinel before any atomic
   read-modify-write, and `Data.spare`, past its relaxed sole-owner test,
@@ -48,10 +48,10 @@ profile, and the lang-item table.
   nothing of `std.alloc` and no task module, `spinlock`'s neither the
   allocator nor any runtime seam but the panic sink, `interpolation`'s reaches
   the builder and the allocator, and none holds a task module;
-- sawc2's own build (the driver with every stage package, the resolve loader
+- sawc's own build (the driver with every stage package, the resolve loader
   among them) typechecks, lowers, borrow-checks and drop-elaborates against
   `std/` with no refusal and no invariant, and its new-std cone equals
-  `cone/sawc2.cone` and holds no runtime, task or network module;
+  `cone/sawc.cone` and holds no runtime, task or network module;
 - no fixture here ends a line in whitespace or ends in a blank line.
 """
 import collections
@@ -114,11 +114,11 @@ SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic", "__saw_rt_lock_owner", "__saw_
 # The cone of a program that interpolates, which reaches the builder and the
 # allocator.
 BUILDER_CONE = "interpolation"
-# sawc2's own build against the new std: the stages it must check clean
+# sawc's own build against the new std: the stages it must check clean
 # through, its recorded cone, and the modules that cone must not reach (the
 # runtime, the task executor and the network stack; SL-443).
 DRIVER_STAGES = ("typecheck", "mir", "borrowck", "drops")
-DRIVER_CONE = os.path.join(CONE, "sawc2.cone")
+DRIVER_CONE = os.path.join(CONE, "sawc.cone")
 DRIVER_CONE_EXCLUDED = ("rt.", "std.task", "std.net")
 # The functions each `mir/` pin holds, and String's refcount hooks, which read
 # the count with a relaxed atomic load and compare it with the immortal
@@ -154,8 +154,8 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def sawc2(*args):
-    r = subprocess.run([build.SAWC2] + list(args), cwd=REPO, capture_output=True, text=True,
+def sawc(*args):
+    r = subprocess.run([build.SAWC] + list(args), cwd=REPO, capture_output=True, text=True,
                        timeout=TIMEOUT)
     return r.returncode, r.stdout
 
@@ -183,7 +183,7 @@ def module_name(path):
 
 def check_modules(failures, counts):
     for stage in ("resolve", "typecheck", "mir", "eval"):
-        _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, rel(ENTRY))
+        _, out = sawc(stage, "--check", "--std-root", NEW_ROOT, rel(ENTRY))
         for line in problems_of(out):
             failures.append("std %s: %s" % (stage, line))
     counts["std modules"] = len(subset_check.std_tree_files())
@@ -219,8 +219,8 @@ def check_lang(failures, counts, write):
         if name == USER_OPTIONAL:
             check_user_optional(failures, path)
             continue
-        _, dump = sawc2("typecheck", "--dump", "--std-root", NEW_ROOT, rel(path))
-        _, lowered = sawc2("mir", "--dump", "--std-root", NEW_ROOT, rel(path))
+        _, dump = sawc("typecheck", "--dump", "--std-root", NEW_ROOT, rel(path))
+        _, lowered = sawc("mir", "--dump", "--std-root", NEW_ROOT, rel(path))
         counts["lang cases"] = counts.get("lang cases", 0) + 1
         if name in REFUSED:
             if not problems_of(dump):
@@ -244,7 +244,7 @@ def check_lang(failures, counts, write):
 
 
 def check_user_optional(failures, path):
-    _, out = sawc2("resolve", "--dump", "--std-root", NEW_ROOT, rel(path))
+    _, out = sawc("resolve", "--dump", "--std-root", NEW_ROOT, rel(path))
     errors = problems_of(out)
     if not errors or errors[0].split("\t")[1] != "name.reserved":
         failures.append("std lang %s: not refused first as name.reserved" % rel(path))
@@ -253,7 +253,7 @@ def check_user_optional(failures, path):
 
 
 def check_optional_members(failures):
-    _, out = sawc2("typecheck", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
+    _, out = sawc("typecheck", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
     prelude = section(out, "std.prelude").split("\n")
     rows, inside = [], False
     for line in prelude:
@@ -309,7 +309,7 @@ def check_shapes(failures, counts):
             continue
         with open(target, "w", encoding="utf-8") as fh:
             fh.write(text.replace(old, new))
-        _, out = sawc2("typecheck", "--check", "--std-root", rel(root), rel(ENTRY))
+        _, out = sawc("typecheck", "--check", "--std-root", rel(root), rel(ENTRY))
         errors = [l.split("\t") for l in out.split("\n") if l.startswith("ERROR\t")]
         rule, where = (fields.get("refuses", "") + " ").split(" ", 1)
         if not errors:
@@ -426,7 +426,7 @@ def check_pairs(failures, counts):
         if failure:
             failures.append(failure)
     for stage in ("typecheck", "mir", "eval"):
-        _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, *[rel(p) for p in pairs])
+        _, out = sawc(stage, "--check", "--std-root", NEW_ROOT, *[rel(p) for p in pairs])
         for line in problems_of(out):
             failures.append("std pair (%s against %s): %s" % (stage, NEW_ROOT, line))
     counts["behaviour pairs"] = len(pairs)
@@ -447,7 +447,7 @@ def file_sections(output):
 
 
 # The rules only a stage after typecheck refuses by, which a `calls/` header
-# is checked against `sawc2 drops`'s records for.
+# is checked against `sawc drops`'s records for.
 LATE_RULE_PREFIXES = ("loan.", "drop.")
 
 
@@ -455,7 +455,7 @@ def check_calls(failures, counts):
     """Each `calls/` program against the new std alone, where Stage 0's std
     cannot say it: one headed `// refuses: RULE at L:C` is refused first there,
     by that rule, and any other checks clean through drop elaboration. A
-    header is read against `sawc2 typecheck`'s records, or against `sawc2
+    header is read against `sawc typecheck`'s records, or against `sawc
     drops`'s, which run the borrow check, when RULE is a borrow-check or drops
     rule (`loan.*`, `drop.*`)."""
     programs = sorted(glob.glob(os.path.join(CALLS, "*.saw")))
@@ -463,8 +463,8 @@ def check_calls(failures, counts):
     for path in programs:
         with open(path, encoding="utf-8") as fh:
             headers[rel(path)] = _REFUSES.match(fh.readline().rstrip("\n"))
-    _, typed = sawc2("typecheck", "--check", "--std-root", NEW_ROOT, *sorted(headers))
-    _, dropped = sawc2("drops", "--check", "--std-root", NEW_ROOT, *sorted(headers))
+    _, typed = sawc("typecheck", "--check", "--std-root", NEW_ROOT, *sorted(headers))
+    _, dropped = sawc("drops", "--check", "--std-root", NEW_ROOT, *sorted(headers))
     typed, dropped = file_sections(typed), file_sections(dropped)
     for path, m in sorted(headers.items()):
         if m is None:
@@ -528,7 +528,7 @@ def check_cones(failures, counts, write):
         counts["std cones"] = counts.get("std cones", 0) + 1
 
 
-# --------------------------------------------------- sawc2 over the new std
+# --------------------------------------------------- sawc over the new std
 
 def driver_arguments():
     args = []
@@ -538,12 +538,12 @@ def driver_arguments():
 
 
 def check_driver(failures, counts, write):
-    """sawc2's own build, the driver and every stage package its loader and
+    """sawc's own build, the driver and every stage package its loader and
     passes import, checks clean against the new std through drop elaboration,
-    and its new-std cone equals `cone/sawc2.cone` and holds no runtime, task or
+    and its new-std cone equals `cone/sawc.cone` and holds no runtime, task or
     network module."""
     for stage in DRIVER_STAGES:
-        _, out = sawc2(stage, "--check", "--std-root", NEW_ROOT, *driver_arguments())
+        _, out = sawc(stage, "--check", "--std-root", NEW_ROOT, *driver_arguments())
         for line in problems_of(out):
             failures.append("std driver %s: %s" % (stage, line))
         counts["driver stages"] = counts.get("driver stages", 0) + 1
@@ -678,7 +678,7 @@ def blocks_of(body):
 
 
 def check_mir_pins(failures, counts, write):
-    _, dump = sawc2("mir", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
+    _, dump = sawc("mir", "--dump", "--std-root", NEW_ROOT, rel(ENTRY))
     functions = mir_functions(dump)
     for header in REFCOUNT_HOOKS:
         found = [text for line, text in functions.items() if line.startswith(header + " ")]
@@ -732,7 +732,7 @@ def exec_std_root(path):
 
 
 def build_and_run_exec(path, speed):
-    """sawc2's build of executor program `path` against its std root at
+    """sawc's build of executor program `path` against its std root at
     `speed`, run: None when it prints its `NAME.out` on standard output and
     exits as its header says, a panic writing its `NAME.err`, each location
     masked, on standard error, or the failure. The output files are
@@ -741,11 +741,11 @@ def build_and_run_exec(path, speed):
     name = module_name(path)
     exe = os.path.join(OUT, "exec", name + speed)
     os.makedirs(os.path.dirname(exe), exist_ok=True)
-    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", exec_std_root(path), rel(path),
+    r = subprocess.run([build.SAWC, "build", speed, "--std-root", exec_std_root(path), rel(path),
                         "-o", exe],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     if r.returncode != 0:
-        return "std exec %s (%s): sawc2 does not build it: %s" \
+        return "std exec %s (%s): sawc does not build it: %s" \
             % (rel(path), speed, (r.stdout + r.stderr).strip().split("\n")[-1])
     try:
         ran = subprocess.run([exe], capture_output=True, text=True, timeout=RUN_TIMEOUT)
@@ -778,7 +778,7 @@ def build_and_run_exec(path, speed):
 
 def check_exec(failures, counts):
     """Each `exec/` program, which builds frames by hand and drives them
-    through the executor's entries, built by sawc2 at -O0 and -O2 and run."""
+    through the executor's entries, built by sawc at -O0 and -O2 and run."""
     programs = sorted(glob.glob(os.path.join(EXEC, "*.saw")))
     if any(module_name(p).startswith(PARK_EXEC_PREFIX) for p in programs):
         make_park_std()

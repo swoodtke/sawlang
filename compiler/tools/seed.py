@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The bootstrap seed: sawc2's own `.ll` per host target, which `build.py`
+"""The bootstrap seed: sawc's own `.ll` per host target, which `build.py`
 compiles into the compiler that builds Stage 1.
 
     python compiler/tools/seed.py check                         # path-free, and it reproduces itself
@@ -8,8 +8,8 @@ compiles into the compiler that builds Stage 1.
     python compiler/tools/seed.py emit --target TRIPLE...       # Stage 1's IR of HEAD, into .build/seed-write/
     python compiler/tools/seed.py publish --target TRIPLE...    # upload what emit wrote; the manifest, the pin
 
-A target's seed is, compressed with xz, the driver's `.ll` as `sawc2 build
--O2 --emit-ll` writes it (`sawc2.ll.xz`), and each runtime source's as `sawc2
+A target's seed is, compressed with xz, the driver's `.ll` as `sawc build
+-O2 --emit-ll` writes it (`sawc.ll.xz`), and each runtime source's as `sawc
 runtime --emit-ll` writes it (`runtime/DIR/NAME.ll.xz` for
 `runtime/DIR/NAME.saw`). The files live on the blob host, each named by its
 SHA-256: `compiler/seed/manifest.tsv` lists every target's files with their
@@ -105,7 +105,7 @@ def host_directory(triple):
 
 
 def runtime_sources(root, triple):
-    """The runtime sources `sawc2 runtime` compiles for `triple` in the tree
+    """The runtime sources `sawc runtime` compiles for `triple` in the tree
     at `root`, relative to its `runtime/`: `runtime_table.host_sources`'s
     reading, of another tree."""
     out = []
@@ -213,6 +213,19 @@ def pinned_tree(commit, directory):
     return ""
 
 
+def check_runtime_manifest_name(failures, counts, tree):
+    """The seed's driver, the pinned tree's, reads its runtime manifest under
+    `build.SEED_RUNTIME_MANIFEST`, the name `build_seed` writes it as."""
+    driver = os.path.join(tree, os.path.relpath(build.DRIVER_ENTRY, REPO))
+    with open(driver, encoding="utf-8") as fh:
+        source = fh.read()
+    if '"%s"' % build.SEED_RUNTIME_MANIFEST not in source:
+        failures.append("seed: the pinned driver %s does not read its runtime manifest as %s, which build_seed "
+                        "writes; build.SEED_RUNTIME_MANIFEST names what it reads"
+                        % (rel(build.DRIVER_ENTRY), build.SEED_RUNTIME_MANIFEST))
+    counts["seed runtime manifest name"] = 1
+
+
 def check_reproduces(failures, counts, seed_triple=None):
     """The seed of `seed_triple` (the host's when None) emits every target's
     seed IR from the pinned tree."""
@@ -229,6 +242,7 @@ def check_reproduces(failures, counts, seed_triple=None):
     if why:
         failures.append("seed: %s" % why)
         return
+    check_runtime_manifest_name(failures, counts, tree)
     for triple in TARGETS:
         expected = expected_files(tree, triple)
         entries = build.seed_entries(triple)
@@ -449,7 +463,7 @@ def main(argv):
         p = sub.add_parser(name, help=what)
         p.add_argument("--target", metavar="TRIPLE", action="append", required=True, choices=TARGETS)
         if name != "publish":
-            p.add_argument("--compiler", metavar="BINARY", help="the sawc2 that emits it (Stage 1 by default)")
+            p.add_argument("--compiler", metavar="BINARY", help="the sawc that emits it (Stage 1 by default)")
     args = ap.parse_args(argv)
     if args.command != "check":
         why = ""

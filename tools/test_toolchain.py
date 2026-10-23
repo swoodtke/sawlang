@@ -5,7 +5,10 @@ All four resolution steps, the version check and the refusal. `resolve()` takes
 its environment and its consumer root as PARAMETERS precisely so this file can
 drive every step without mutating the process — and without a network: step 3
 is exercised through a pre-populated cache (the steady state) and through its
-missing-prerequisite refusal, never by cloning.
+missing-prerequisite refusal, never by cloning. One case runs this checkout's
+own `bin/sawc` through a PATH link, as `make install` makes it, since only a
+run shows that an installed `sawc` is the self-hosted compiler; it builds the
+compiler first when nothing is built.
 
 The refusal texts are asserted on rather than merely "an error was raised",
 because design 238 unit 6's negative tests read exactly those words: a
@@ -18,6 +21,7 @@ compiler disagrees with its pin has to be told which two versions disagreed.
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 
@@ -61,9 +65,9 @@ def expect_error(name, fn, *needles):
 def make_checkout(base, name="sawlang"):
     """A directory that passes `_looks_like_sawlang` and holds the packages."""
     root = os.path.join(base, name)
-    os.makedirs(os.path.join(root, "sawc"))
-    with open(os.path.join(root, "sawc", "sawc.py"), "w") as f:
-        f.write("# a stand-in compiler\n")
+    os.makedirs(os.path.join(root, "bin"))
+    with open(os.path.join(root, "bin", "sawc"), "w") as f:
+        f.write("#!/bin/sh\n# a stand-in compiler\nexit 1\n")
     for parts in MODULE_DIRS.values():
         os.makedirs(os.path.join(root, *parts))
     os.makedirs(os.path.join(root, "blade", "src"))
@@ -112,8 +116,8 @@ def test_step1_in_repo_default(tmp):
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     check("this checkout is the default root", tc.root == here, tc.root)
     check("source names the checkout", tc.source == "this checkout", tc.source)
-    check("sawc argv ends at sawc/sawc.py",
-          tc.sawc()[-1] == os.path.join(here, "sawc", "sawc.py"), tc.sawc())
+    check("sawc argv is the checkout's bin/sawc",
+          tc.sawc() == [os.path.join(here, "bin", "sawc")], tc.sawc())
     check("imgformat resolves under libs/",
           tc.module_source("imgformat") ==
           os.path.join(here, "libs", "imgformat", "src"))
@@ -142,7 +146,7 @@ def test_step1_named_root(tmp):
         "a SAWLANG_ROOT that is not a checkout is refused by name",
         lambda: resolve(env={"SAWLANG_ROOT": tmp, "PATH": ""},
                         consumer_root=c),
-        "is not a sawlang checkout", "sawc/sawc.py")
+        "is not a sawlang checkout", "bin/sawc")
 
 
 def test_step1_beats_path(tmp):
@@ -220,6 +224,30 @@ def test_step2_version_check(tmp):
     expect_error("a compiler that will not say its version refuses",
                  lambda: resolve(env={"PATH": quiet}, consumer_root=c),
                  "would not say what version", "0.1.0")
+    os.remove(os.path.join(c, PIN_FILE))
+
+
+def test_step2_installed_sawc_is_self_hosted(tmp):
+    print("step 2: an installed sawc is the self-hosted compiler")
+    # What `make install` does: a link to this checkout's bin/sawc on a PATH.
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    prefix = os.path.join(tmp, "prefix")
+    os.makedirs(prefix)
+    os.symlink(os.path.join(here, "bin", "sawc"), os.path.join(prefix, "sawc"))
+    with open(os.path.join(here, ".sawtracker", "version")) as f:
+        release = f.read().strip()[1:]
+    c = consumer(tmp)
+    write_pin(c, f"version = {release}\n")
+    tc = resolve(env={"PATH": prefix}, consumer_root=c)
+    check("the installed sawc resolves off PATH and meets the release's pin",
+          tc.source == "PATH" and tc.notes == [], (tc.source, tc.notes))
+    # `lex --kinds` is a subcommand only the self-hosted driver has: Stage 0
+    # would take `lex` for a source file and refuse it.
+    r = subprocess.run(tc.sawc() + ["lex", "--kinds"], capture_output=True,
+                       text=True, timeout=1800)
+    check("it runs the self-hosted driver",
+          r.returncode == 0 and "IDENT" in r.stdout.split(),
+          f"exit {r.returncode}: {(r.stdout + r.stderr)[-300:]}")
     os.remove(os.path.join(c, PIN_FILE))
 
 
@@ -340,6 +368,7 @@ TESTS = [
     test_step1_named_artifacts,
     test_step2_path,
     test_step2_version_check,
+    test_step2_installed_sawc_is_self_hosted,
     test_step2_has_no_sources,
     test_step3_cache_hit,
     test_step3_missing_prereq,

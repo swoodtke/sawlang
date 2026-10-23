@@ -15,7 +15,7 @@ the position matrices.
 ```
 typecheck/
   src/
-    api.saw           typecheck_program and the record `sawc2 typecheck` prints
+    api.saw           typecheck_program and the record `sawc typecheck` prints
     program.saw       TcProgram: resolve's program and every table the phases fill
     model.saw         the records: signatures, generics, conformances, members,
                       tiers; a body's uses, adjustments and calls
@@ -267,7 +267,7 @@ final, or for the one call where it is not:
     the backend defines. Its signature takes and returns only what C passes,
     no generic is exported, no symbol twice, and none may suspend, by its
     summary. `main`, `saw_*` and `__saw_*` are reserved, except that a
-    runtime (`runtime_build`, set by `sawc2 runtime` and `typecheck
+    runtime (`runtime_build`, set by `sawc runtime` and `typecheck
     --runtime`) defines the frozen seams it owns, each against the ABI table
     `runtimeabi.saw`: its arity and every width class.
 
@@ -453,7 +453,7 @@ These are the reversible readings U6b2 made; SL-447's report lists them.
   one `UnsafePointer<T>`, a const pointer refused, and gives `Void` (SL-662).
 - A documented enum case's doc comment is a child of its node, and no raw
   value.
-- sawc2 takes no target yet, so the platform pair, `Int` and `UInt`, is read
+- sawc takes no target yet, so the platform pair, `Int` and `UInt`, is read
   as 64 bits wide when a widening's losslessness is judged: `Int64` into `Int`
   widens, as on the hosted targets.
 - A bare module static keeps its declared type in a slot, as the frozen
@@ -535,7 +535,7 @@ These are the reversible readings U6b3 made; SL-447's report lists them.
   since its body is not read: its table row holds for every instantiation.
   That is weaker than a bound call's condition, and it retires with the table.
 - The std table's rows come from the frozen compiler's std check, keyed as
-  sawc2 names each declaration the source writes; the methods that check
+  sawc names each declaration the source writes; the methods that check
   synthesizes (a policy's `deinit`, a default copied into a conformer, a place
   accessor's twin) have no row, and a place accessor's lowered window
   parameters are left out of its key.

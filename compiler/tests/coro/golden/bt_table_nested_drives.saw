@@ -15,7 +15,7 @@
 // The lane compares the decoded table with the snapshot's, state by state:
 // each state this table parks in has a Stage 0 state with its line and the
 // same child, named by frame, and no other Stage 0 state parks. Offsets are
-// not compared, since sawc2 packs frames and Stage 0 does not. The runtime
+// not compared, since sawc packs frames and Stage 0 does not. The runtime
 // descriptor a debugger finds the tasks by is SL-577's, so none is here.
 
 // (the `dump_tasks` import)

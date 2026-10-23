@@ -1,7 +1,7 @@
 # compiler/tests/mir: the MIR lowering's corpus
 
 The corpus the MIR stage (`compiler/mir`, SL-452) is held to. This file
-specifies `sawc2 mir`'s records and dump, the position matrices the corpus
+specifies `sawc mir`'s records and dump, the position matrices the corpus
 covers, and the constructs the lowering refuses.
 
 ```
@@ -17,10 +17,10 @@ mir/
   corpus_info.py   how much of tests/corpus/ lowers, for information
 ```
 
-## `sawc2 mir`
+## `sawc mir`
 
 ```sh
-.build/sawc2 mir (--dump | --check) [--notes] [--spans] [--std-root DIR]
+.build/sawc-stage1 mir (--dump | --check) [--notes] [--spans] [--std-root DIR]
                  [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -772,13 +772,13 @@ Each shape has a span golden in `spans/`, recorded with `--dump --spans`:
 
 ## The lane
 
-`mir_lane.py` runs one `sawc2 mir` process per group and checks that each
+`mir_lane.py` runs one `sawc mir` process per group and checks that each
 golden and span program's record equals its `.mir` file byte for byte (`--write`
 rewrites them after a deliberate change, for review), that each refusal
 fixture is refused first at its position (`--fill` writes a `// refuses:
 TODO` header), that no golden or fixture record carries an `INVARIANT` line,
-and that the compiler's own source lowers whole, the sawc2 build and each
+and that the compiler's own source lowers whole, the sawc build and each
 unit program, with no refusal and no invariant; a unit program the parser
-refuses is counted apart. It prints how many functions of the sawc2 build
+refuses is counted apart. It prints how many functions of the sawc build
 were lowered. `corpus_info.py` lowers every file of `tests/corpus/` and prints
 how many lower clean; it does not gate.

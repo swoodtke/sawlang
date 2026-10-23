@@ -1,6 +1,6 @@
 // probe: stated
 // about: a `close` from one `Thread.spawn` body wakes another blocked in `Channel.receive`'s twin, which returns `Err(Closed)` rather than waiting on or panicking (SL-782)
-// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); its thread engine's receive is `recv`, which panics on the closed, drained channel where sawc2's returns `Err`
+// stage 0: refuses `try! Thread.spawn` at parse, and its `Thread.spawn` hands back no `Result` (SL-765 Q1 (b)); its thread engine's receive is `recv`, which panics on the closed, drained channel where sawc's returns `Err`
 // speeds: -O0 -O2
 // prints: woken: channel is closed
 // The waiter blocks in `receive` before the closer closes, since the closer

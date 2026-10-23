@@ -235,7 +235,7 @@ def cases(case, host, triple):
     expect_refusal(case, "a host that refuses the connection fails", driver, refused, "the fetch fails")
 
     with open(build.SEED_MANIFEST, "a", encoding="utf-8") as fh:
-        fh.write("%s\tsawc2.ll\t%s\t1\n" % (triple, driver.sha256))
+        fh.write("%s\tsawc.ll\t%s\t1\n" % (triple, driver.sha256))
     binary, why = build.build_seed()
     case.check("a malformed manifest line is refused",
                binary is None and "manifest.tsv:" in why and "is not" in why, why)

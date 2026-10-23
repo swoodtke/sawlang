@@ -74,7 +74,7 @@ STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 # handler must report, or None)
 RUNNERS = {
     "test_runner": (child_groups.GRACE_SECONDS, "saw", "driver.log"),
-    # compiler/tests/oracle.py: the run and the sawc2 build the coroutine
+    # compiler/tests/oracle.py: the run and the sawc build the coroutine
     # census, its Stage 0 snapshot and the corpus differential all launch.
     "oracle_run": (child_groups.GRACE_SECONDS, "script", None),
     "oracle_build": (child_groups.GRACE_SECONDS, "script", None),
@@ -127,7 +127,7 @@ def drive(runner, work, pidfile):
         import recognize
         # The hanging workers lex nothing, but the binary is handed down to them
         # through the environment, so it must be a path.
-        recognize.lexdump.ensure_sawc2 = lambda: "/usr/bin/false"
+        recognize.lexdump.ensure_sawc = lambda: "/usr/bin/false"
         recognize.run_workers([os.path.join(work, "hang.py")], ["a", "b"], 2)
         return
     if runner == "fixpoint_twin":
@@ -144,8 +144,8 @@ def drive(runner, work, pidfile):
         if runner == "oracle_run":
             oracle.run_binary(hang)
         else:
-            oracle.build.SAWC2 = hang
-            oracle.sawc2_build(os.path.join(REPO, "examples", "hello.saw"), os.path.join(work, "hello"), [])
+            oracle.build.SAWC = hang
+            oracle.sawc_build(os.path.join(REPO, "examples", "hello.saw"), os.path.join(work, "hello"), [])
     elif runner == "test_worker":
         import test_worker
         config = argparse.Namespace(job_root=os.path.join(work, "jobs"), job_timeout=600.0,

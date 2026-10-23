@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The typecheck lane: `sawc2 typecheck` against its golden dumps and refusal fixtures.
+"""The typecheck lane: `sawc typecheck` against its golden dumps and refusal fixtures.
 
     python compiler/tests/typecheck/typecheck_lane.py            # check
     python compiler/tests/typecheck/typecheck_lane.py --write    # rewrite the golden dumps
@@ -17,7 +17,7 @@ directory specifies:
   position its `// refuses:` header names, checked with the flags a second
   line `// flags: ...` passes (`--runtime`, for a runtime's seams);
 - every rule typecheck refuses by has a fixture;
-- the compiler's own source, the sawc2 build and each unit program, checks
+- the compiler's own source, the sawc build and each unit program, checks
   with no refusal;
 - no record anywhere carries an `INVARIANT` line from either verifier.
 """
@@ -54,15 +54,15 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def sawc2(args):
-    r = subprocess.run([build.SAWC2, "typecheck"] + with_std_root(args), cwd=REPO, capture_output=True,
+def sawc(args):
+    r = subprocess.run([build.SAWC, "typecheck"] + with_std_root(args), cwd=REPO, capture_output=True,
                        text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
 # The std a call names when its arguments name none: Stage 0's frozen one,
 # which this lane's fixtures are written against unless a `// flags:` line
-# names another. sawc2's own default is the new std.
+# names another. sawc's own default is the new std.
 FROZEN_STD_ROOT = "sawc"
 
 
@@ -163,7 +163,7 @@ def check_golden(failures, counts, write):
 
 
 def check_golden_group(failures, counts, write, flags, cases):
-    code, out = sawc2(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
+    code, out = sawc(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
     got = records(out)
     if std_root_of(flags) != FROZEN_STD_ROOT:
         got = {path: without_std_modules(record) for path, record in got.items()}
@@ -233,7 +233,7 @@ def check_refusals(failures, counts, fill):
         groups.setdefault(refusal_flags(path), []).append(path)
     got = {}
     for flags, paths in sorted(groups.items()):
-        code, out = sawc2(["--check"] + list(flags) + [rel(p) for p in paths])
+        code, out = sawc(["--check"] + list(flags) + [rel(p) for p in paths])
         got.update(records(out))
     named = set()
     for path in cases:
@@ -287,15 +287,15 @@ def unit_programs():
 
 
 def check_acceptance(failures, counts, nonsync=None):
-    """The compiler's own source checks whole: the sawc2 build, then each unit
+    """The compiler's own source checks whole: the sawc build, then each unit
     program, each the entry of its own program. A unit program the parser
     refuses has no tree to check and is counted apart. The subset is
     sync-only, so no function in compiler/ may suspend; how many are
     sync-callable is information, and `nonsync` collects those that are not.
-    A std function the sawc2 build calls and the suspension table has no row
+    A std function the sawc build calls and the suspension table has no row
     for fails too."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc2(["--check", "--notes", "--summaries", "--std-root", "std"] + package_args() + entries)
+    code, out = sawc(["--check", "--notes", "--summaries", "--std-root", "std"] + package_args() + entries)
     got = records(out)
     # Only the compiler's own functions are held to sync-only: the new std is
     # compiled whole and suspends where it should. An entry's module is named
@@ -348,7 +348,7 @@ def run(write=False, fill=False, nonsync=None):
     counts = {}
     check_golden(failures, counts, write)
     named = check_refusals(failures, counts, fill)
-    code, out = sawc2(["--check"] + [rel(p) for p in refusal_cases()]
+    code, out = sawc(["--check"] + [rel(p) for p in refusal_cases()]
                       + [rel(src) for src, _ in golden_cases()])
     check_invariants(failures, records(out))
     check_catalog(failures, counts, named)

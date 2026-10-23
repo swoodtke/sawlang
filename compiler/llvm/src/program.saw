@@ -132,7 +132,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         return ""
     }
     var out = StringBuilder()
-    try! out.append("; sawc2 link manifest\n")
+    try! out.append("; sawc link manifest\n")
     try! out.append("; target ")
     try! out.append(target.triple)
     try! out.append("\n; speed ")

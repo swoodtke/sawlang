@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""sawc2's reading of Saw source, as the frozen parser's tree and tokens.
+"""sawc's reading of Saw source, as the frozen parser's tree and tokens.
 
 The subset checker's rules and the parser's lanes are written over the frozen
-parser's tree, and read Saw source with sawc2: tokens from `sawc2 lex`, the
-tree from `sawc2 parse --dump`, rebuilt as the frozen parser builds it. A form the frozen
+parser's tree, and read Saw source with sawc: tokens from `sawc lex`, the
+tree from `sawc parse --dump`, rebuilt as the frozen parser builds it. A form the frozen
 tree lacks gets a node here, a subclass of the frozen kind it stands nearest.
 The dump records no positions, so its leaves, each a token in source order, are
 matched to the tokens, and a node's line is that of the token the frozen parser
 takes it from. Leaves and tokens that disagree are a `ReadingError` (SL-600).
 
-    python compiler/tools/sawc2_reading.py FILE...   # each file's tree, for inspection
+    python compiler/tools/sawc_reading.py FILE...   # each file's tree, for inspection
 """
 import dataclasses
 import hashlib
@@ -28,12 +28,12 @@ import ast_nodes as A  # noqa: E402
 import build  # noqa: E402
 from lexer import TokenType as T  # noqa: E402
 
-WORK = os.path.join(REPO, ".build", "sawc2-reading")
+WORK = os.path.join(REPO, ".build", "sawc-reading")
 TIMEOUT = 300
 
 
 class ReadingError(Exception):
-    """sawc2's dump and its tokens do not line up, or the dump holds a node
+    """sawc's dump and its tokens do not line up, or the dump holds a node
     this reading does not know: a defect of the reading, never of the source."""
 
 
@@ -147,7 +147,7 @@ class Segment:
 
 
 class Token:
-    """One `sawc2 lex` record, in the frozen lexer's `Token` shape."""
+    """One `sawc lex` record, in the frozen lexer's `Token` shape."""
     __slots__ = ("type", "value", "line", "column", "suffix", "segments", "kind")
 
     def __init__(self, kind, value, line, column, suffix=None, segments=None):
@@ -161,15 +161,15 @@ class Token:
 
 
 def _frozen_type(kind):
-    """The frozen lexer's kind for a sawc2 kind. `borrow` is a keyword only
-    for sawc2; the frozen lexer reads it as the identifier it spells."""
+    """The frozen lexer's kind for a sawc kind. `borrow` is a keyword only
+    for sawc; the frozen lexer reads it as the identifier it spells."""
     if kind == "BORROW":
         return T.IDENT
     return T[kind]
 
 
 def _unescape_lex(text):
-    """A `sawc2 lex` field's text: the dump escapes bytes (compiler/lex/README.md)."""
+    """A `sawc lex` field's text: the dump escapes bytes (compiler/lex/README.md)."""
     out = bytearray()
     i = 0
     raw = text.encode("utf-8")
@@ -195,7 +195,7 @@ _SEGMENT_RE = re.compile(r"E:(\d+):(\d+):(.*)\Z", re.S)
 
 
 def parse_tokens(text):
-    """`sawc2 lex` output as Tokens, or (None, (line, message)) on its ERROR record."""
+    """`sawc lex` output as Tokens, or (None, (line, message)) on its ERROR record."""
     tokens = []
     for record in text.split("\n"):
         if not record:
@@ -226,26 +226,26 @@ def parse_tokens(text):
     return tokens, None
 
 
-def _sawc2(args, cwd=REPO):
-    if not os.path.exists(build.SAWC2):
-        raise ReadingError("the reading runs sawc2, and %s is not built; build it "
-                           "with compiler/tools/build.py" % os.path.relpath(build.SAWC2, REPO))
-    r = subprocess.run([build.SAWC2] + list(args), cwd=cwd, capture_output=True, timeout=TIMEOUT)
+def _sawc(args, cwd=REPO):
+    if not os.path.exists(build.SAWC):
+        raise ReadingError("the reading runs sawc, and %s is not built; build it "
+                           "with compiler/tools/build.py" % os.path.relpath(build.SAWC, REPO))
+    r = subprocess.run([build.SAWC] + list(args), cwd=cwd, capture_output=True, timeout=TIMEOUT)
     return r.returncode, r.stdout.decode("utf-8")
 
 
 def _rel(path):
-    """`path` as sawc2 is given it: from the repository root, so that the
+    """`path` as sawc is given it: from the repository root, so that the
     fixpoint lane's twin sees the same arguments in every checkout."""
     return os.path.relpath(os.path.abspath(path), REPO)
 
 
 def lex_file(path):
     """(tokens, None) or (None, (line, message)) for one file."""
-    code, out = _sawc2(["lex", _rel(path)])
+    code, out = _sawc(["lex", _rel(path)])
     tokens, error = parse_tokens(out)
     if error is None and code != 0:
-        raise ReadingError("`sawc2 lex %s` exited %d with no ERROR record" % (_rel(path), code))
+        raise ReadingError("`sawc lex %s` exited %d with no ERROR record" % (_rel(path), code))
     return tokens, error
 
 
@@ -253,9 +253,9 @@ _segment_cache = {}
 
 
 def lex_text(text):
-    """The tokens of a fragment, an interpolation's text, or None when sawc2
+    """The tokens of a fragment, an interpolation's text, or None when sawc
     refuses it. The fragment's file is named for its text, so two checks at
-    once share it and a rerun asks sawc2 the same question."""
+    once share it and a rerun asks sawc the same question."""
     if text not in _segment_cache:
         os.makedirs(WORK, exist_ok=True)
         digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
@@ -272,8 +272,8 @@ def lex_text(text):
 
 def parse_files(paths):
     """{path: ("ok", root Node) | ("error", line, message)} from one
-    `sawc2 parse --dump` process."""
-    _, out = _sawc2(["parse", "--dump"] + [_rel(p) for p in paths])
+    `sawc parse --dump` process."""
+    _, out = _sawc(["parse", "--dump"] + [_rel(p) for p in paths])
     records, current = {}, None
     for line in out.split("\n"):
         if line.startswith("FILE\t"):
@@ -285,7 +285,7 @@ def parse_files(paths):
     for path in paths:
         lines = records.get(_rel(path))
         if lines is None:
-            raise ReadingError("`sawc2 parse --dump` printed no record for %s" % path)
+            raise ReadingError("`sawc parse --dump` printed no record for %s" % path)
         errors = [line.split("\t") for line in lines if line.startswith("ERROR\t")]
         if errors:
             rule, at, message = errors[0][1], errors[0][2], errors[0][3]
@@ -1748,8 +1748,8 @@ def _legacy_arm_shape(pattern):
 
 
 class Reading:
-    """One file as sawc2 reads it: its tokens and the frozen-shaped Program,
-    or sawc2's first refusal, (line, message)."""
+    """One file as sawc reads it: its tokens and the frozen-shaped Program,
+    or sawc's first refusal, (line, message)."""
 
     def __init__(self, tokens=None, program=None, error=None):
         self.tokens = tokens
@@ -1758,7 +1758,7 @@ class Reading:
 
 
 def read_files(paths):
-    """{path: Reading} for `paths`, every file parsed by one sawc2 process."""
+    """{path: Reading} for `paths`, every file parsed by one sawc process."""
     parsed = parse_files(paths)
     out = {}
     for path in paths:
@@ -1768,7 +1768,7 @@ def read_files(paths):
             continue
         tokens, error = lex_file(path)
         if error is not None:
-            raise ReadingError("%s: sawc2 parses it but `sawc2 lex` refuses it: %s"
+            raise ReadingError("%s: sawc parses it but `sawc lex` refuses it: %s"
                                % (path, error[1]))
         reader = Reader(path, tokens, verdict[1])
         out[path] = Reading(tokens=tokens, program=reader.program())

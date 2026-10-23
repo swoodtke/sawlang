@@ -29,7 +29,7 @@ implementation wins and this document is the bug.
 1. **Safety without sacrifice** - Memory safety and thread safety by default, with explicit opt-out for low-level control
 2. **Zero-cost abstractions** - High-level constructs compile to efficient machine code
 3. **Expressiveness** - Clean, readable syntax that reduces boilerplate
-4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `sawc --no-hidden-alloc`: every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
+4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `sawc0 --no-hidden-alloc`: every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
 5. **Progressive disclosure** - Simple things are simple, complex things are possible
 
 ### Non-Goals
@@ -1535,7 +1535,7 @@ func main() { print(0) }
 // declaration
 ```
 
-`sawc <entry.saw> --emit-docs` type-checks the program and writes a JSON
+`sawc0 <entry.saw> --emit-docs` type-checks the program and writes a JSON
 description of it instead of code (to `-o`, else stdout). It covers the entry
 file's module and every module the program imports, `std` included, so a file
 that imports what you want documented is the whole driver. Each item carries its
@@ -1557,9 +1557,9 @@ accessor therefore reports `self` as `borrows`, since it serves a `let` root,
 and its root charge as `exclusive`. A `&self` accessor derived by
 `@synthesize(shared)` is its own item, marked `synthesized: "shared"`.
 
-**Status:** Stage 0 (`sawc`) still reports a `borrows` accessor's receiver kind
+**Status:** Stage 0 (`sawc0`) still reports a `borrows` accessor's receiver kind
 as `window` (`borrows-var` when its body writes `self`) and emits no `lends`
-record. `sawc2` has no `--emit-docs` yet.
+record. `sawc` has no `--emit-docs` yet.
 
 ### Composite Types
 
@@ -4981,7 +4981,7 @@ borrow var n = counter.lock() {
 
 #### Subscripts: getitem, setitem and the place
 
-**Status: implemented in sawc2** for the three roles, declared and derived, and
+**Status: implemented in sawc** for the three roles, declared and derived, and
 std's `Map` declares the whole family described here; the `default:` subscript
 and `KeyedPlace` are planned. A subscript has three roles, and each is an ordinary
 method, so its receiver mode, effects, visibility, overloads, doc comment and
@@ -10574,7 +10574,7 @@ embedded by value inside one allocation at compile-time-known offsets, each
 carrying a state word naming its resume point, and the compiler records what
 those states mean in a read-only table linked into every binary
 (`__saw_bt_table`). So the dump needs no runtime support: it works in the
-freestanding profile and inside a panic handler. `sawc --emit-bt-table` decodes
+freestanding profile and inside a panic handler. `sawc0 --emit-bt-table` decodes
 the table as JSON, and `tools/test_bt_table.py --sizes` reports what it costs.
 
 The dump lists every thread's groups. It reads each one under that group's
@@ -13529,7 +13529,7 @@ hint: `data` here is the binding declared on line 4, which shadows the module
       directly (`import std.data.{Data}`)
 ```
 
-`sawc -W shadowed-qualifier` flags the declaration instead of waiting for the
+`sawc0 -W shadowed-qualifier` flags the declaration instead of waiting for the
 use. See [Compiler warnings](#compiler-warnings).
 
 #### Qualifier collisions
@@ -13632,7 +13632,7 @@ above covers it.
 
 ### Compiler warnings
 
-`sawc -W <name>` enables a warning category; `-W all` enables every one.
+`sawc0 -W <name>` enables a warning category; `-W all` enables every one.
 Warnings are off by default and never affect the exit code — there is no
 `-Werror`. An unrecognized category is an error, so a misspelled flag cannot
 quietly disable itself and read as a clean build.
@@ -13642,7 +13642,7 @@ quietly disable itself and read as a clean build.
 | `shadowed-qualifier` | a declaration takes the name of a module qualifier bound by an import, so qualified access is unavailable in its scope |
 
 ```
-$ sawc app.saw -W shadowed-qualifier
+$ sawc0 app.saw -W shadowed-qualifier
 warning [-W shadowed-qualifier]: `data` shadows the module qualifier bound by `import std.data`
   --> app.saw:5:5
    |
@@ -13961,7 +13961,7 @@ the frame's deinit, and the deinit is a no-op afterwards.
 
 **Status: freestanding stage 1 implemented.** Saw compiles under two profiles.
 The default **hosted** profile links libc and provides everything above. The
-**freestanding** profile (`sawc --freestanding`, optionally with `--target
+**freestanding** profile (`sawc0 --freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
 unlinked object file. In this profile the runtime rests on the `__saw_rt_*` seam
 symbols the environment must supply at link time — `__saw_rt_alloc(size, align)`,
@@ -13982,7 +13982,7 @@ runtime of the compiler's is linked beside it, and every exported seam's
 signature is checked against the contract in `sawc/rt/ABI.md` at compile time. A
 mismatch — the wrong arity, or a `word` return where the ABI says `Int64` — is a
 compile error naming the document, rather than a clean link and a wrong answer at
-run time. `sawc --runtime-build`, which is how `sawc/rt/` itself is compiled, is
+run time. `sawc0 --runtime-build`, which is how `sawc/rt/` itself is compiled, is
 the same permission plus a std-free unlinked build; a kernel wants the package
 form.
 
@@ -14002,7 +14002,7 @@ enable `CPACR_EL1.FPEN` before any compiled code runs, and that wants the
 vectorized block moves back, asks for them by name:
 
 ```bash
-sawc kernel.saw -o kernel.o --freestanding --target aarch64-unknown-none-elf \
+sawc0 kernel.saw -o kernel.o --freestanding --target aarch64-unknown-none-elf \
     --target-features +neon,+fp-armv8
 ```
 
@@ -14269,7 +14269,7 @@ it alive.
 unmangled C symbol must be unique); colliding with a reserved runtime symbol
 (`main`, `saw_*`, `__saw_*`) is an error. **Exception — the runtime-build mode
 (design 113b):** the per-host Saw runtime under `sawc/rt/` implements the
-`__saw_rt_*` ABI (`sawc/rt/ABI.md`). Compiling it with `sawc --runtime-build`
+`__saw_rt_*` ABI (`sawc/rt/ABI.md`). Compiling it with `sawc0 --runtime-build`
 loosens the reservation for EXACTLY the frozen `__saw_rt_*` ABI names (a
 misspelled/non-ABI `__saw_rt_*` export is a clean error naming the valid set; a
 suspending seam body is rejected — the runtime is sync-only); every other
@@ -15212,11 +15212,11 @@ state, and it no longer exists.
 **Status: implemented (design 135).** `Vector.push` allocates, and it says so:
 a method with a contract, an allocator in the type. The guarantee is about the
 other case — the compiler allocating on its own authority, where nothing in the
-source says a heap block is involved. `sawc --no-hidden-alloc` rejects every
+source says a heap block is involved. `sawc0 --no-hidden-alloc` rejects every
 such site at compile time.
 
 "Named" means named by the **expression** or by a **type the author wrote**.
-The classification below covers every allocation `sawc` emits.
+The classification below covers every allocation `sawc0` emits.
 
 | Site | What triggers it | Named | Under the flag |
 |---|---|---|---|
@@ -15381,13 +15381,23 @@ possible and accepted at this stage (documented in `std/slab.saw`).
 
 ---
 
-## Appendix 0: The Compiler (`sawc`)
+## Appendix 0: The Compilers (`sawc` and `sawc0`)
 
-**Status: implemented.** The reference compiler is `sawc` (Python + llvmlite),
-lowering Saw to LLVM IR and then to a native object/executable.
+**Status: implemented.** Two compilers lower Saw to LLVM IR and then to a
+native executable, and both print the same release with `--version`.
+
+`sawc` is the self-hosted compiler in `compiler/`, which
+`compiler/tools/build.py` builds from its own source, and which `bin/sawc`
+builds on first use. `sawc build <source.saw> [-o <file>]` compiles and links
+a program; `sawc <source.saw> [-o <file>]`, with the subcommand left out, is
+the same command. `sawc --help` lists its other subcommands and their flags.
+
+`sawc0` is Stage 0, the frozen reference compiler in `sawc/` (Python +
+llvmlite). The options below are `sawc0`'s; `sawc` takes only the ones its
+usage text lists.
 
 ```
-sawc <source.saw> [options]
+sawc0 <source.saw> [options]
 
   --version    Print the compiler version and exit. A plain semver from one
                source-of-truth constant, and the only thing a consumer that
@@ -15469,7 +15479,7 @@ sawc <source.saw> [options]
 
 ### Optimization levels
 
-By default `sawc` runs an O1-style pass pipeline (allocas hoisted to the entry
+By default `sawc0` runs an O1-style pass pipeline (allocas hoisted to the entry
 block, mem2reg, and the rest of LLVM's O1 module pipeline). `-O0` turns it off
 for debugging raw output. `-O2` runs LLVM's O2 pipeline. `-Os` and `-Oz` run
 that same pipeline with every function the module defines marked `optsize`,
@@ -15496,7 +15506,7 @@ Two things to know before reaching for a level:
 
 Size levels are also available to a riscv target through
 `--target-features +save-restore`, which replaces prologue and epilogue
-register saves with calls to `__riscv_save_N` / `__riscv_restore_N`. `sawc`
+register saves with calls to `__riscv_save_N` / `__riscv_restore_N`. `sawc0`
 does not enable it for you at any level: those routines live in the compiler
 runtime library, and the freestanding profile links none, so enabling it by
 default would turn `-Os` into an unresolved symbol on exactly the targets that

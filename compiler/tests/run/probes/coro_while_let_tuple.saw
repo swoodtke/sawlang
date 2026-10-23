@@ -8,7 +8,7 @@
 // A tuple-pattern `while let` whose subject suspends, with the loop's
 // op-budget point live in the frame: one of the spec's "Not yet supported"
 // limits, which Stage 0 refuses (tests/corpus/while_let_tuple_over_suspension_refused)
-// and sawc2 lowers as ordinary blocks (SL:coroutines §3.3, A9).
+// and sawc lowers as ordinary blocks (SL:coroutines §3.3, A9).
 // Spec-derived expectation (no oracle): `next_pair` yields `(1, 10)`,
 // `(2, 20)` and `(3, 30)` for a limit of 3, then `None`, so `drain_pairs(3)`
 // sums 66, a limit of 0 yields nothing, and `drain_pairs(3)` parks once in

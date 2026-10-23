@@ -1,5 +1,5 @@
 // The typecheck stage's entry points: a program resolved and its signatures
-// checked, and the record `sawc2 typecheck` prints for it.
+// checked, and the record `sawc typecheck` prints for it.
 
 import sawresolve.api.{append_res_diag, resolve_program}
 import sawresolve.lang.{ResLang}
@@ -36,7 +36,7 @@ import sawtypecheck.summaries.{tc_solve_summaries, tc_verify_all_summaries}
 import sawtypecheck.tier.{tc_check_containment, tc_check_obligations, tc_compute_tiers}
 import sawtypecheck.verify.{tc_verify_module}
 
-// How `sawc2 typecheck` treats one entry file.
+// How `sawc typecheck` treats one entry file.
 public struct TypecheckOptions {
     // The directory holding `std/` and `builtin.saw`.
     std_root: String

@@ -1,9 +1,9 @@
-# compiler/tests/corpusdiff: every corpus program, sawc2 against Stage 0
+# compiler/tests/corpusdiff: every corpus program, sawc against Stage 0
 
 The whole-corpus behavioural differential (SL-655, SL-398's acceptance item
-4): each `tests/corpus/` program built and run by sawc2, compared with what
+4): each `tests/corpus/` program built and run by sawc, compared with what
 Stage 0 did with its `examples/` twin, and put in one bucket under one key.
-Its report is the list of what sawc2 cannot do yet, and its baseline is a
+Its report is the list of what sawc cannot do yet, and its baseline is a
 regression gate: the per-patch gate fails a patch that moves any program's
 verdict (SL-666, "The gate" below).
 
@@ -68,8 +68,8 @@ compiler's checkout is named.
 ## The measurement
 
 `run` holds the snapshot whole first and stops if it is not; then it builds
-sawc2 through `compiler/tools/build.py` (unless `--no-build`) and, for each
-program, runs `sawc2 build --std-root std` on the corpus file with its
+sawc through `compiler/tools/build.py` (unless `--no-build`) and, for each
+program, runs `sawc build --std-root std` on the corpus file with its
 `COMPILE-FLAGS`, and runs what it builds the way the snapshot ran Stage 0's.
 Both `snapshot` and `run` take one program at a time unless `--jobs` says
 otherwise, and neither takes the suite lock, so either shares the machine
@@ -80,41 +80,41 @@ The buckets:
 
 | bucket | means | keys |
 |---|---|---|
-| `pass` | sawc2 does what Stage 0 did | `-` |
-| `refused` | sawc2 refuses a program Stage 0 builds, or a refusal test by a gap rule | the stage and the rule: `resolve name.undefined`, `driver driver.usage` |
-| `crash` | an `INVARIANT` line, sawc2's own panic or signal, a signal in its binary, or a hang | `INVARIANT`, `sawc2 panic`, `sawc2 SIGNAL`, `sawc2 exit N`, `run SIGNAL`, `hang in build`, `hang in run` |
-| `link` | clang or the link fails on sawc2's `.ll` | `clang or the link` |
-| `wrong` | it builds and runs, but the exit status or the output differs; or a refusal test is built, or refused by another rule than the plan's | `exit differs`, `stdout differs`, `stderr differs`, `sawc2's binary panics`, `accepts a refusal test`, `refused by another rule` |
+| `pass` | sawc does what Stage 0 did | `-` |
+| `refused` | sawc refuses a program Stage 0 builds, or a refusal test by a gap rule | the stage and the rule: `resolve name.undefined`, `driver driver.usage` |
+| `crash` | an `INVARIANT` line, sawc's own panic or signal, a signal in its binary, or a hang | `INVARIANT`, `sawc panic`, `sawc SIGNAL`, `sawc exit N`, `run SIGNAL`, `hang in build`, `hang in run` |
+| `link` | clang or the link fails on sawc's `.ll` | `clang or the link` |
+| `wrong` | it builds and runs, but the exit status or the output differs; or a refusal test is built, or refused by another rule than the plan's | `exit differs`, `stdout differs`, `stderr differs`, `sawc's binary panics`, `accepts a refusal test`, `refused by another rule` |
 | `stage0-wrong` | Stage 0's answer is known wrong, or Stage 0 fails the twin's own directives | the annotation's citation, `Stage 0 fails its directives (unannotated)` |
-| `nondeterministic` | the program's output varies, and no annotation says how to judge it | `Stage 0's stdout varies`, `sawc2's two runs differ` |
+| `nondeterministic` | the program's output varies, and no annotation says how to judge it | `Stage 0's stdout varies`, `sawc's two runs differ` |
 | `slow` | a build or a run timed out, then finished at twice the timeout | `slow build`, `slow run` |
 
 Each key's detail is the first refusal's message, the first line that
-differs, or what sawc2 printed. The first of these that applies decides a
+differs, or what sawc printed. The first of these that applies decides a
 program's bucket:
 
-1. sawc2's build printed an `INVARIANT` line: `crash`.
+1. sawc's build printed an `INVARIANT` line: `crash`.
 2. A refusal test (`EXPECT: error`) is judged as the coroutine census judges
-   one (`oracle.judge_refusal`): `pass` when sawc2 refuses it by the rule the
+   one (`oracle.judge_refusal`): `pass` when sawc refuses it by the rule the
    plan names for its Stage 0 error, or by any rule that is no gap when the
    plan names none; `refused` when a gap rule (`oracle.GAP_RULES`) refuses
-   it; `wrong` when sawc2 builds it or refuses it by another rule. A refusal
+   it; `wrong` when sawc builds it or refuses it by another rule. A refusal
    test whose refusal `annotations.tsv` marks `stage0-wrong` is not: it goes
-   on through the rules below like any program, and one sawc2 builds is run.
-3. Any other refusal: `refused`, keyed by its stage and rule. A flag `sawc2
+   on through the rules below like any program, and one sawc builds is run.
+3. Any other refusal: `refused`, keyed by its stage and rule. A flag `sawc
    build` does not take is the driver's refusal, `driver driver.usage`
    (Stage 0's `--runtime-build` is passed as `--runtime`,
-   `oracle.SAWC2_SPELLINGS`), and a `--target` sawc2 has no layout for is
+   `oracle.SAWC_SPELLINGS`), and a `--target` sawc has no layout for is
    `driver driver.unknown-target`.
 4. A `compiles`, `object` or `docs` test that builds: `pass`.
-5. A build that fails otherwise: `crash` when sawc2 panicked, died by a
+5. A build that fails otherwise: `crash` when sawc panicked, died by a
    signal or printed no error; `link` when clang or the linker printed one.
 6. The binary died by a signal, a panic's abort aside, that Stage 0's did not
    die by: `crash`.
 7. Stage 0's answer is known wrong (see Annotations): `stage0-wrong`, keyed
-   by the citation, its detail saying whether sawc2 meets the program's own
+   by the citation, its detail saying whether sawc meets the program's own
    directives, the oracle there; for a refusal test, whose directives state
-   no run, the detail is what the run did: `sawc2 builds it, and its run
+   no run, the detail is what the run did: `sawc builds it, and its run
    exits N` or `panics: …`.
 8. The corpus file's `EXPECT` is not its twin's, since the language changed
    on purpose (SL:architecture §5), or `annotations.tsv` marks the program
@@ -128,7 +128,7 @@ program's bucket:
 
 **Comparing a run.** Both sides' streams are compared after removing what
 neither compiler's program decides: the checkout's root; the corpus root
-(Stage 0 compiled `examples/PATH`, sawc2 `tests/corpus/PATH`); and the
+(Stage 0 compiled `examples/PATH`, sawc `tests/corpus/PATH`); and the
 location of a `panic at FILE:LINE:` outside the program's own file, since each
 compiler's std is its own file. The program's own panic lines are compared
 only when its twin is the same file, since a migration may move them. A stream
@@ -144,7 +144,7 @@ the timeout, and is a `crash` (`hang in …`) only if it times out again, else
 
 **The stage of a refusal** is the compiler stage whose source spells the
 rule; for a rule several stages spell (`slice.not-yet`), it is the first of
-sawc2's stage commands (`parse`, `resolve`, … `coro`) whose `--check` makes
+sawc's stage commands (`parse`, `resolve`, … `coro`) whose `--check` makes
 the same refusal at the same position, and `llvm` when none before the
 backend does.
 
@@ -176,7 +176,7 @@ every other key's group by their shape, each name and number made alike.
 from a run over the whole corpus, and every other run ends with the programs
 that moved since it, from which bucket and key to which. A `slow` program is
 written as the verdict its second try reached, since whether a run times out
-says more about the machine's load than about sawc2.
+says more about the machine's load than about sawc.
 
 A run over named PATHs, or the quick form, is partial: it writes
 `results-partial.tsv` and `report-partial.md` beside the whole run's files
@@ -187,7 +187,7 @@ the baseline holds is reached once.
 ## The gate
 
 `gate` is a whole run on the gate's worker budget, compared with the
-baseline. It fails when the snapshot is not whole, when sawc2 does not build,
+baseline. It fails when the snapshot is not whole, when sawc does not build,
 and when any program moved: a new bucket or key, an improvement as much as a
 regression; a new detail inside `stage0-wrong`, where the detail is the
 oracle's answer (the run against the program's own directives); a program the
@@ -197,7 +197,7 @@ printed with its old and new verdict, and the whole report is written to
 `.build/corpusdiff/report.md`.
 
 So the baseline always says what main does. A patch that moves a verdict on
-purpose, a sawc2 fix or a new corpus program, runs `run --baseline` and
+purpose, a sawc fix or a new corpus program, runs `run --baseline` and
 carries the rewritten rows, which review reads as the patch's effect on the
 corpus; the gate then finds nothing moved. Details outside `stage0-wrong`, a
 refusal's message or the first line that differs, may change freely.
@@ -213,7 +213,7 @@ Whichever side the driver keeps, the re-measure is still owed before
 submitting. A forgotten one is never silent: the gate compares every measured
 verdict with the file and fails with the moved programs named.
 
-The per-patch gate (`tools/patch_gate.py`) runs it when what sawc2 is built
+The per-patch gate (`tools/patch_gate.py`) runs it when what sawc is built
 from changes, or what the measurement reads: `tests/corpus/`, the vector
 files the programs read, `examples/` (the twins the snapshot must be current
 with), this directory, and `compiler/tests/oracle.py` with the modules it

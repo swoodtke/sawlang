@@ -379,26 +379,30 @@ adds or updates its conformance rows as its FIRST unit.
 
 ```bash
 ./.venv/bin/python compiler/tests/run.py
-./.venv/bin/python compiler/tests/run.py --only mir,programs   # those steps, building sawc2 first if they need it
+./.venv/bin/python compiler/tests/run.py --only mir,programs   # those steps, building sawc first if they need it
 ```
 
 The compiler written in Saw (`compiler/`, epic SL-398) has its own tests until
 it can run its own `@test` sidecars. `compiler/README.md` describes them in
 full; in short, the runner:
 
-- builds `sawc2` (the seed builds Stage 1, Stage 1 builds Stage 2) and every
-  unit program (`compiler/<stage>/tests/*.saw`) with sawc2, and runs each unit
+- builds `sawc` (the seed builds Stage 1, Stage 1 builds Stage 2) and every
+  unit program (`compiler/<stage>/tests/*.saw`) with sawc, and runs each unit
   program: exit 0 is a pass;
-- compares `sawc2 lex` with each golden fixture in `compiler/tests/lex/`
+- compares `sawc lex` with each golden fixture in `compiler/tests/lex/`
   (`NAME.saw` beside its expected `NAME.tokens`, and `NAME.docs` for doc
   trivia), byte for byte;
+- requires one release number everywhere it is written (the `version` step):
+  the driver's `driver_version`, what `sawc --version` prints, `sawc0`'s
+  `SAWC_VERSION` and the release tag in `.sawtracker/version`, so a release
+  bump edits all three;
 - refuses a fixture line that ends in whitespace, or a fixture that ends in a
   blank line, naming the file and line: the patch server applies patches with
   `git apply --whitespace=fix`, which strips both;
 - fails if a token kind the lexer declares, or a kind of lex error it reports,
   appears in no fixture;
 - runs the subset checker (`compiler/tools/subset_check.py`), whose hygiene
-  rules read each file with sawc2, over the compiler's own source, and over its
+  rules read each file with sawc, over the compiler's own source, and over its
   fixtures in `compiler/tests/subset/`, whose `// refuses: RULE` markers name
   exactly what each must report;
 - runs the grammar lint (`compiler/tests/grammar/lint.py`) over `GRAMMAR.md`,
@@ -423,7 +427,7 @@ verdict with `compiler/tests/grammar/corpus_expected.tsv`. The record is a
 statement about `GRAMMAR.md`, so the recognizer refuses what the grammar's
 productions and its section-13 rules refuse, naming the rule. The record lists
 each refused file with its verdict and a classified reason: `a-removed` names
-the removed form the file uses, `a-error` is a file sawc2's parser refuses too,
+the removed form the file uses, `a-error` is a file sawc's parser refuses too,
 and `c-conflict` one it accepts, which a ruling or a filed finding must explain.
 A file that a rule the recognizer does not model yet refuses is listed by hand, as
 `UNMODELLED` with the reason `unmodelled: RULE`, never left unlisted. A file the
@@ -439,7 +443,7 @@ were checked once against the Python lexer, and they are the lexer's oracle now.
 
 `./build.sh test` is what sawtracker runs on every submitted patch, as
 `./build.sh test --changed-since HEAD^` (`.sawtracker/tests.json`). The
-decision is `tools/patch_gate.py`'s. Every part builds and runs sawc2; none
+decision is `tools/patch_gate.py`'s. Every part builds and runs sawc; none
 runs the frozen Python compiler, so `test_runner.py`, the freestanding suite and
 astdiff gate nothing (SL-666):
 
@@ -448,9 +452,8 @@ astdiff gate nothing (SL-666):
   `compiler/` (the lane itself, `compiler/tools/build.py` and the seed's
   manifest and pin in `compiler/seed/` included), `std/`,
   `runtime/` (the runtime Stage 1 builds, which every later link takes),
-  `sawc/` (its std is the one sawc2 compiles when no `--std-root` names
-  another) or
-  `tests/corpus/` (the programs the replayed lanes run sawc2 over) changes,
+  `sawc/` (Stage 0's frozen std, which lanes name with `--std-root sawc`) or
+  `tests/corpus/` (the programs the replayed lanes run sawc over) changes,
   so a local gate never runs it. The gate runs its default mode, which compares
   every call but the candidate texts the grammar generator and mutator lex as
   they go (`generate.py`, `negative.py`), which lex with Stage 2 alone; full
@@ -458,7 +461,7 @@ astdiff gate nothing (SL-666):
   `fixpoint` stage runs, so the periodic full battery on main (ST-45) covers
   them. The lane's summary line names the mode;
 - the full grammar corpus runs when `GRAMMAR.md`, `LANGUAGE_SPEC.md` (whose
-  headings `spec=` names), `compiler/tests/grammar/`, or what sawc2's token
+  headings `spec=` names), `compiler/tests/grammar/`, or what sawc's token
   dump and parser come from (`compiler/lex/`, `compiler/parse/`,
   `compiler/driver/`, `compiler/tools/build.py`, `compiler/seed/`) changes;
   otherwise each changed `.saw` file is checked against `corpus_expected.tsv`
@@ -466,7 +469,7 @@ astdiff gate nothing (SL-666):
   `compiler/tests/parse/`, which the compiler tests' parse lane checks case by
   case;
 - the corpus differential's regression gate (`corpusdiff.py gate`, see
-  `compiler/tests/corpusdiff/README.md`) runs when what sawc2 is built from
+  `compiler/tests/corpusdiff/README.md`) runs when what sawc is built from
   changes (each stage's `src/`, `compiler/driver/`, `compiler/seed/`,
   `compiler/tools/build.py`, `std/`, `runtime/`), or what it measures or judges
   by (`tests/corpus/`, the vector files under `tests/` the programs read,
@@ -537,7 +540,7 @@ SAW_GATE_JOBS=4 ./build.sh test --changed-since HEAD^      # at most four at onc
 ```
 
 `compiler/tests/run.py` runs each of its parts (`STEPS`) in a process of its
-own, as many at once as the budget allows, starting those that need no `sawc2`
+own, as many at once as the budget allows, starting those that need no `sawc`
 while Stage 1 and Stage 2 build. The fixpoint lane replays the same parts
 through its twin the same way, the twin running Stage 1 and Stage 2 at once
 for a command that writes no files, and judges the twin's records in a fixed
@@ -570,7 +573,7 @@ No stage tests the frozen Python compiler any more (SL-666): the `suite`,
 `bench`, `minivm` stages and the checks that read `sawc/`'s source left the
 battery. Their tools still run by hand until `sawc/` is deleted, and the
 sections below that describe them describe those tools. One stage still runs
-Stage 0, because sawc2 has no equivalent yet: `docverify`.
+Stage 0, because sawc has no equivalent yet: `docverify`.
 
 The interpreter comes from `$SAW_PYTHON`, else `./.venv/bin/python`, else
 `python3`. A worktree has no venv of its own, so point it at the main
@@ -783,7 +786,7 @@ baselines and are never built by the battery.
 
 The self-hosted compiler's code generation has its own timing report:
 `compiler/tests/run/run_lane.py --bench` times the kernels in
-`compiler/tests/run/bench/` under `sawc2 build -O2` against Stage 0, best of
+`compiler/tests/run/bench/` under `sawc build -O2` against Stage 0, best of
 five each. It gates nothing and no lane runs it; the run lane's README
 describes the kernels.
 
@@ -806,7 +809,7 @@ Guard Malloc (`/usr/lib/libgmalloc.dylib`) puts every allocation on its own page
 and unmaps it on free, which turns a latent over-release into a fault at the
 instruction that made it, on every run.
 
-`tools/gmgate.py` builds its programs with sawc2 against the new std, through
+`tools/gmgate.py` builds its programs with sawc against the new std, through
 the one build path the run lane, the census and corpusdiff share
 (`compiler/tests/oracle.py`), and runs each under Guard Malloc. Two lanes, each
 kept short because Guard Malloc costs a page per allocation:
@@ -821,10 +824,10 @@ kept short because Guard Malloc costs a page per allocation:
 
 Each lane is a list of categories, and each category names three kinds of
 program: **twins** (the `tests/corpus/` twins of the programs the lane ran on
-Stage 0), **stand-ins** (other programs sawc2 builds that police the same
-shape, held while a twin is blocked) and **blocked** twins, which sawc2 refuses
+Stage 0), **stand-ins** (other programs sawc builds that police the same
+shape, held while a twin is blocked) and **blocked** twins, which sawc refuses
 today, each listed with its first refusal's rule and the unit that clears it.
-A blocked twin is still built on every run, and fails the lane once sawc2
+A blocked twin is still built on every run, and fails the lane once sawc
 builds it or refuses it by another rule, so the list never goes stale
 silently. The tool's docstring states each lane's coverage, and the tool
 checks that statement against the lists. A `tests/corpus/` program is judged by
@@ -839,7 +842,7 @@ fails.
 
 **Add a program to a category in `tools/gmgate.py` whenever you write an
 ownership oracle, and move a blocked twin into the category's twins once
-sawc2 builds it.**
+sawc builds it.**
 
 macOS only — Guard Malloc is a macOS facility, so on other platforms the tool
 reports `SKIPPED` and exits 0 rather than failing.
@@ -1217,8 +1220,10 @@ blade test
 # test result: ok. 1 passed; 0 failed (1 total)
 ```
 
-The compiler command defaults to `sawc`; set the `SAWC` environment variable to
-point `blade test` at a not-yet-installed compiler (e.g. an in-tree build). This
+The compiler command defaults to `sawc` on `PATH`, and the `blade` shim sets it
+to the `sawc0` beside it, since Blade drives Stage 0's command line; set the
+`SAWC` environment variable to point `blade test` at a not-yet-installed
+compiler (e.g. an in-tree build). This
 is entirely separate from `test_runner.py` — the compiler suite and an app's
 `blade test` suite do not share machinery or semantics.
 
@@ -1245,7 +1250,7 @@ its directory first, the way `blade/tests/dep_build.saw` does:
 assert(Path(s: ".build/scratch").ensure_dir(), "scratch directory available")
 ```
 
-`sawc` does not create its output directory, so a test that skips this depends
+`sawc0` does not create its output directory, so a test that skips this depends
 on some earlier test having made the directory, and the suite starts failing
 in whatever order the filesystem hands the files back.
 

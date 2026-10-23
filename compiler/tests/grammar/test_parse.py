@@ -220,7 +220,7 @@ def check_depth_cells(failures):
     """The parser's depth cells (compiler/tools/depth_funnel.py) and the
     corpus hold the same texts: each cell refused at the limit has a negative
     case with its text that records depth-limit at the cell's opener, and each
-    other cell but the limit's own accepted twins a golden case. So sawc2 and
+    other cell but the limit's own accepted twins a golden case. So sawc and
     the recognizer are held to one refusal position on every shape they share."""
     have = {}
     for path in cases.case_files(cases.GOLDEN) + cases.case_files(cases.NEGATIVE):
@@ -244,11 +244,11 @@ def check_depth_cells(failures):
         if rule is not None and at is not None:
             line += " at " + depth_funnel.position(text, at)
         if rule is None and refused:
-            failures.append("depth cell %r: sawc2 accepts it, but %s is a negative case"
+            failures.append("depth cell %r: sawc accepts it, but %s is a negative case"
                             % (name, case))
         elif rule is not None and not (refused and expectation.split("\n")[0].startswith(line)
                                        and (at is None or expectation.split("\n")[0] == line)):
-            failures.append("depth cell %r: sawc2 %s, but the case %s records %r"
+            failures.append("depth cell %r: sawc %s, but the case %s records %r"
                             % (name, line.replace("refuses", "refuses it by"), case,
                                expectation.split("\n")[0] if refused else "an acceptance"))
     return count

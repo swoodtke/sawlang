@@ -5,7 +5,7 @@
 
 Each program at the top of tests/corpus/ is checked as an entry against the
 new std, as corpusdiff builds it, in one
-`sawc2 typecheck --check` process per set of package mappings. A program that
+`sawc typecheck --check` process per set of package mappings. A program that
 expects a refusal (an `EXPECT-ERROR` directive) is counted apart: checking it
 clean says nothing. The rest are sorted into the ones that check with no
 refusal and the ones refused, by the rule of their first refusal, resolve's or
@@ -52,7 +52,7 @@ def first_refusals(rels, flags):
     first = {}
     pending = list(rels)
     while pending:
-        r = subprocess.run([build.SAWC2, "typecheck", "--check", "--std-root", "std"] + list(flags) + pending,
+        r = subprocess.run([build.SAWC, "typecheck", "--check", "--std-root", "std"] + list(flags) + pending,
                            cwd=REPO, capture_output=True, text=True)
         current = None
         seen = []

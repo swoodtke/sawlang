@@ -1,7 +1,7 @@
 // The target description (SL:architecture §3.10): the one module that answers
 // how a concrete type is laid out in memory and how a value of it crosses the
 // C calling convention. Every backend asks here, so no layout fact lives in a
-// backend. The rules are Stage 0's, which shares the runtime ABI with sawc2:
+// backend. The rules are Stage 0's, which shares the runtime ABI with sawc:
 // primitives at their natural size, references and raw pointers one word, a
 // pointer to an erased `any Trait` two (the value's address, then its
 // vtable's), structs and tuples in declaration order with natural alignment, `Optional`

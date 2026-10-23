@@ -26,7 +26,7 @@ with limactl's message: the VM's state is unknown, and the lane fails on it
 The host checkout is mounted read-only, so the VM builds in a clone on its own
 disk, `~/sawlang/<checkout name>`. `sync` carries COMMITS: the clone is checked
 out at this checkout's HEAD, and uncommitted changes stay behind (it warns).
-The clone gets its own `.venv`, Python 3.14 from uv with sawc's requirements
+The clone gets its own `.venv`, Python 3.14 from uv with sawc0's requirements
 and llvmlite pinned as on the Mac, so Stage 0 can record the run lane's
 Linux oracle inside the VM (`stage0`), and every stage is built natively
 there from the Linux seed.
@@ -53,7 +53,7 @@ EXIT_LIMA_FAILED = 4
 PYTHON = "3.14"
 LLVMLITE = "llvmlite==0.48.0"
 UV = "$HOME/.local/bin/uv"
-# Each arch the run lane runs on, and the target sawc2 cross-builds for it:
+# Each arch the run lane runs on, and the target sawc cross-builds for it:
 # None is the VM's own (native aarch64); x86_64 binaries run under Rosetta.
 ARCHES = {"aarch64": None, "x86_64": "x86_64-unknown-linux-gnu"}
 # The targets whose seed a bump emits in the VM.

@@ -1,14 +1,17 @@
 #!/bin/sh
 # `blade` on a $PATH (design 238 unit 3, D-b1).
 #
-# Blade is a real binary, but one BUILT FROM SAW SOURCE by sawc, so it lives in
+# Blade is a real binary, but one BUILT FROM SAW SOURCE by sawc0, so it lives in
 # the checkout's `.build/` rather than anywhere a package would put it. This
 # shim execs it, for the same reason the `sawc` shim execs the checkout: an
 # installed `blade` should be the one this tree last built, not a copy that
 # went stale the next time somebody built it.
 #
-# `blade build` shells out to `sawc` — so with this shim on $PATH the `sawc`
-# shim beside it is what Blade drives, and neither name needs SAWC set.
+# Blade is written in Stage 0's language and drives Stage 0's command line, and
+# so do the packages it builds and tests here (`libs/`). It shells out to the
+# command `SAWC` names, so with `SAWC` unset this shim names Stage 0, the
+# `sawc0` beside it; `sawc` is the self-hosted compiler. A `SAWC` already set is
+# kept.
 set -eu
 
 # Resolve through symlinks, then take the checkout above `bin/`. See bin/sawc
@@ -29,4 +32,6 @@ if [ ! -x "$BLADE" ]; then
     exit 1
 fi
 
+SAWC=${SAWC:-$ROOT/bin/sawc0}
+export SAWC
 exec "$BLADE" "$@"

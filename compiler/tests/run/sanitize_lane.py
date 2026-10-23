@@ -9,7 +9,7 @@ reported at its access (SL:coroutines B3, risk R2).
 of the run lane's `coro_*` programs that is not due, its offload pins
 (`OFFLOAD_PINS`), or a probe of `probes/` named by `PROBE_PATTERNS` that states its
 output (`stated` or `panics`). Each is built at -O0 twice, plainly and with
-`sawc2 build --sanitize address`, which stamps `sanitize_address` on every
+`sawc build --sanitize address`, which stamps `sanitize_address` on every
 function and poisons each lowered frame's values outside the lifetimes rule 5
 recomputes; it passes when the sanitized binary prints the same bytes on
 standard output and on standard error, where a panic goes, and exits with the
@@ -89,12 +89,12 @@ def cases(names=None):
 
 
 def build_one(src, sanitize):
-    """sawc2's -O0 build of `src`, sanitized or not: (linked, binary, what it
+    """sawc's -O0 build of `src`, sanitized or not: (linked, binary, what it
     printed)."""
     name = os.path.splitext(os.path.basename(src))[0]
     out = os.path.join(OUT, name + (".asan" if sanitize else ".plain"))
     flags = ["--sanitize", "address"] if sanitize else []
-    r = subprocess.run([build.SAWC2, "build", "-O0", "--std-root", "std"] + flags + [rel(src), "-o", out],
+    r = subprocess.run([build.SAWC, "build", "-O0", "--std-root", "std"] + flags + [rel(src), "-o", out],
                        cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
@@ -117,7 +117,7 @@ def check_case(src):
     for sanitize in (False, True):
         ok, binary, log = build_one(src, sanitize)
         if not ok or log:
-            return ["%s: sawc2 %s%s: %s" % (where, "builds it but prints" if ok else "does not build it",
+            return ["%s: sawc %s%s: %s" % (where, "builds it but prints" if ok else "does not build it",
                                            " under --sanitize address" if sanitize else "", log[:300])]
         builds.append(binary)
     code_plain, out_plain, err_plain = execute(builds[0])

@@ -1,4 +1,4 @@
-// Data's uniqueness gate as sawc2 lowers it against std/. It tests that the
+// Data's uniqueness gate as sawc lowers it against std/. It tests that the
 // block's count is 1 with a relaxed load, then issues an acquire fence before
 // it returns a pointer for writing, so the reads a released copy made of the
 // bytes happen-before the sole owner's writes, as `Arc::get_mut`'s acquire

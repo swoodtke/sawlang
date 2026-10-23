@@ -16,7 +16,7 @@ conflict is temporary. Open work:
 
 ## Repo map
 ```
-sawc/              # Compiler: Python + llvmlite
+sawc/              # Stage 0, `sawc0`: the frozen compiler, Python + llvmlite
   sawc.py          # CLI; lexer.py; parser/; ast_nodes.py
   typechecker/     # Type checking passes (mixin classes)
   codegen/         # LLVM IR generation (mixin classes)
@@ -36,21 +36,21 @@ runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
                    # bodies, grown past the original three — DF-113a/b/c:
                    # write/panic, open_flags, getaddrinfo helpers, environ
                    # get/set, thread_spawn+offload thunk, set_nonblocking —
-                   # plus DF-186c's Linux-only futex lock). `sawc2 runtime`
+                   # plus DF-186c's Linux-only futex lock). `sawc runtime`
                    # builds it (build.py caches it under .build/rt2/). Design
                    # 117: the reactor is Saw too (instance-based); the compiler
                    # only synthesizes the process-global __saw_reactor getter.
 compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # one dir per stage — lex/ (package sawlex) — plus driver/
-                   # (the sawc2 binary), seed/ (the bootstrap seed's manifest:
-                   # sawc2's own IR per host target, xz, by SHA-256, fetched
+                   # (the sawc binary), seed/ (the bootstrap seed's manifest:
+                   # sawc's own IR per host target, xz, by SHA-256, fetched
                    # from https://blobs.sawlang.com/ into .build/blobs/; and
                    # its pin; README.md "The seed" is the bump, a manifest and
                    # pin diff), tools/ (build.py builds the seed with clang,
                    # Stage 1 with the seed, Stage 2 with Stage 1; no sawc/;
                    # the source may use the whole language, and
                    # subset_check.py keeps its hygiene rules, read with
-                   # sawc2) and tests/ (run.py: unit programs, golden fixtures,
+                   # sawc) and tests/ (run.py: unit programs, golden fixtures,
                    # the checker's fixtures). prototypes/ holds the paused
                    # minivm and the parser prototype that seeds its parser.
   tests/grammar/   # The tools over GRAMMAR.md (SL-406): extract.py (one model),
@@ -100,14 +100,34 @@ in the VM and runs the run lane, x86_64 cross-built and run under Rosetta. Run
 VM-side git through `tools/linux.py`, never in a hand-written `limactl shell`.
 The battery's `linux` lane (`tools/linux.py lane`) runs both arches and SKIPS
 (passes) only when the VM is known down or Lima is absent; a limactl that
-cannot report Lima's state (exit 4) FAILS it (`tools/test_linux.py`). sawc2 learns its host from the runtime manifest beside it, and
-`build.py`'s `choose_clang` funnel (`SAWC2_CLANG`, else clang-19 … clang) picks
+cannot report Lima's state (exit 4) FAILS it (`tools/test_linux.py`). sawc learns its host from the runtime manifest beside it, and
+`build.py`'s `choose_clang` funnel (`SAWC_CLANG`, else clang-19 … clang) picks
 the clang, which must compile opaque-pointer IR; Debian's default clang 14
 cannot. `build.py --runtime TRIPLE` configures another target's runtime.
 
 ## Compiler usage (dev)
-Stage 0 is `sawc0`: `bin/sawc0` (installed by `make install`) runs the
-command below, whatever `sawc` names.
+`sawc` is the self-hosted compiler. `bin/sawc` (installed by `make install`)
+runs `compiler/tools/build.py --quiet` first, which builds the stages on first
+use and after any change to their sources, then execs `.build/sawc-stage2`;
+it never falls back to Stage 0.
+```bash
+bin/sawc build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
+    [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
+    (FILE [-o OUT] | --emit-ll FILE)
+bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
+bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...
+bin/sawc runtime ...       # `bin/sawc --help` lists every form
+bin/sawc --version         # `sawc 0.18.0`: driver_version, held equal to
+                           # sawc/version.py and .sawtracker/version by run.py
+```
+With no `--std-root`, it compiles against the checkout's `std/`. The lanes
+run the stage binaries directly (`build.SAWC`; `SAWC_STAGE=1` selects Stage
+1, `SAWC_BINARY` hands a chosen binary down, `SAWC_CLANG` names the clang); a
+`SAWC2_*` spelling is refused, naming its new name.
+
+Stage 0 is `sawc0`: `bin/sawc0` runs the command below. Blade, `libs/` and the
+freestanding suite are Stage 0 sources, so they build with `sawc0`
+(`bin/blade` sets `SAWC` to it when unset).
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all]
@@ -162,14 +182,14 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   (`compiler/tests/fixpoint/fixpoint_lane.py`) over `compiler/`, `std/`,
   `runtime/`, `tests/corpus/` and `sawc/` (the lanes it replays name Stage
   0's frozen std, `--std-root sawc`, explicitly); the full `grammarcorpus` over
-  `GRAMMAR.md`, `LANGUAGE_SPEC.md`, `compiler/tests/grammar/` and what sawc2's
+  `GRAMMAR.md`, `LANGUAGE_SPEC.md`, `compiler/tests/grammar/` and what sawc's
   token dump and parser come from (`compiler/lex/`, `compiler/parse/`,
   `compiler/driver/`, `compiler/tools/build.py`, `compiler/seed/`) — without
   it, each changed `.saw` file is checked against `corpus_expected.tsv` alone,
   in seconds; and the **corpusdiff regression gate**
   (`compiler/tests/corpusdiff/corpusdiff.py gate`, every program on the
   gate's workers) over what
-  sawc2 is built from (each stage's `src/`, `compiler/driver/`,
+  sawc is built from (each stage's `src/`, `compiler/driver/`,
   `compiler/seed/`, `build.py`, `std/`, `runtime/`) and what it measures
   (`tests/corpus/`, the vector files, `examples/`, the corpusdiff directory,
   `compiler/tests/oracle.py`). It measures every corpus program and FAILS when
@@ -236,7 +256,7 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   (`compiler/tests/grammar/corpus.py`: every tracked .saw recognized with
   GRAMMAR.md, its verdict compared with `corpus_expected.tsv`, and exactly
   one tree required of an accepted one; a refused file is classified by
-  whether sawc2's parser refuses it too; `--write` records a deliberate
+  whether sawc's parser refuses it too; `--write` records a deliberate
   change for review), `corpusdiff` (the gate form, above),
   `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
   tracker's closed set + committed conflict markers over tracked files —
@@ -254,10 +274,10 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   tracked source that makes a group some other way), `floatvectors` (design
   253: the committed Float↔text vectors, bit-exact, plus the Ryū table
   re-derivation), `abidoc`, then the slow two: `gmgate` (the ownership and
-  concurrency oracles, built by sawc2, under Guard Malloc, after a self-test
+  concurrency oracles, built by sawc, under Guard Malloc, after a self-test
   that a dropped retain still faults; SL-697) and the opt-in `linux` (the run
   lane in the Linux VM, both arches; see "Linux"). `docverify` still drives
-  Stage 0, which has no sawc2 equivalent yet. Every stage RUNS even after one fails; the exit code
+  Stage 0, which has no sawc equivalent yet. Every stage RUNS even after one fails; the exit code
   is the number of failing stages. Adding a lane means editing `STAGES`.
   RETIRED from the battery (SL-666), the tools staying until SL-667 deletes
   `sawc/`: `suite`, `freestanding`, `bootstrap`, `astdiff`, `irdet`,
@@ -273,7 +293,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 For throwaway experiments do NOT write .saw files to /tmp or via
 heredocs/echo (not auto-approved). Instead:
 1. Write the file (Write tool) under `.build/scratch/` (gitignored)
-2. `./.venv/bin/python sawc/sawc.py .build/scratch/foo.saw -o .build/scratch/foo`
+2. `bin/sawc .build/scratch/foo.saw -o .build/scratch/foo` (the self-hosted
+   compiler; `bin/sawc0` for Stage 0)
 3. `./.build/scratch/foo`
 
 ## Command hygiene (avoids permission prompts)
@@ -334,7 +355,8 @@ with TWO exceptions that are ours: `.sawtracker/tests.json`, which tells
 the server how to test a submitted patch
 (`./build.sh test --changed-since HEAD^`), and
 `.sawtracker/version`, the release tag name (ST-46): a patch that changes it
-(next to a `SAWC_VERSION` bump in `sawc/version.py`) makes the server create
+(next to the same bump of `SAWC_VERSION` in `sawc/version.py` and the
+driver's `driver_version`, which run.py's `version` step holds equal) makes the server create
 that annotated tag at its merge commit. Never reuse a name.
 
 **THE MERGE PATH (user, Sep 8 2026): GitHub is DOWNSTREAM of
@@ -665,7 +687,7 @@ uses); `Deinit` is NON-declarable — a copy-policy conformance carries any
 hand-written deinit body, which PREFIXES the synthesized field drops (131).
 Doc comments (121):
 `///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers
-(`sawc2 lex --docs` dump), parser-attached with unattached-doc
+(`sawc lex --docs` dump), parser-attached with unattached-doc
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
 members); std.task + std.time docstringed; the saw-docs skill is the
 style guide for all user-facing doc text.

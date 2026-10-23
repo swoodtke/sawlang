@@ -127,8 +127,8 @@ def write_entry(root, name, text):
     return rel(path)
 
 
-def sawc2(command, root, entry):
-    r = subprocess.run([build.SAWC2, command, "--check", "--notes", "--std-root", rel(root), entry],
+def sawc(command, root, entry):
+    r = subprocess.run([build.SAWC, command, "--check", "--notes", "--std-root", rel(root), entry],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     return r.stdout.split("\n")
 
@@ -140,7 +140,7 @@ def refusals(lines):
 def check_dropped_declaration(failures):
     root, line = std_copy("dropped", "path.saw", DROPPED_DECLARATIONS)
     entry = write_entry(root, "main.saw", DROPPED_ENTRY)
-    lines = sawc2("resolve", root, entry)
+    lines = sawc("resolve", root, entry)
     bad_line = line + 5
     want = "NOTE\tresolve.parse-refused\t%s:%d:1\t" % (rel(os.path.join(root, "std", "path.saw")),
                                                         bad_line)
@@ -155,7 +155,7 @@ def check_dropped_declaration(failures):
 def check_unavailable(failures):
     root, _ = std_copy("unavailable", "data.saw", UNAVAILABLE_TAIL)
     entry = write_entry(root, "main.saw", UNAVAILABLE_ENTRY)
-    lines = sawc2("resolve", root, entry)
+    lines = sawc("resolve", root, entry)
     errors = [l for l in lines if l.startswith("ERROR\t")]
     want = "ERROR\timport.unavailable\t%s:%s\t" % (entry, UNAVAILABLE_AT)
     if not errors or not errors[0].startswith(want):
@@ -166,10 +166,10 @@ def check_unavailable(failures):
 def check_default_body(failures):
     root, _ = std_copy("default-body", "path.saw", DEFAULT_TRAIT)
     filled = write_entry(root, "filled.saw", DEFAULT_FILLED)
-    for l in refusals(sawc2("typecheck", root, filled)):
+    for l in refusals(sawc("typecheck", root, filled)):
         failures.append("interface pin: a conformance a std default body completes: %s" % l)
     missing = write_entry(root, "missing.saw", DEFAULT_MISSING)
-    if not refusals(sawc2("typecheck", root, missing)):
+    if not refusals(sawc("typecheck", root, missing)):
         failures.append("interface pin: a conformance missing a requirement with no default "
                         "body typechecks")
 

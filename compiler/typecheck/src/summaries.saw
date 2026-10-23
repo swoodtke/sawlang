@@ -1656,7 +1656,7 @@ extension TcProgram {
                 try! out.push(self.summary_problem(dv.decl, what))
             }
         }
-        // The table describes Stage 0's std, whose bodies sawc2 never reads;
+        // The table describes Stage 0's std, whose bodies sawc never reads;
         // the new std's summaries are inferred from its bodies.
         if m == self.res.builtin && not self.res.std_new {
             self.verify_std_table(&var out)
@@ -1801,7 +1801,7 @@ extension TcProgram {
     }
 
     // One `SUMMARY` line per function of a module checked in full, for
-    // `sawc2 typecheck --summaries`: its identity, whether it may suspend
+    // `sawc typecheck --summaries`: its identity, whether it may suspend
     // and whether it is sync-callable, each `yes`, `no` or `when`.
     public func summary_lines(&self, out: &var StringBuilder) {
         var d = 0

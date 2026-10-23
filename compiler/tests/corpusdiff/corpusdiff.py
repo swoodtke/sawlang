@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """The whole-corpus behavioural differential: every tests/corpus program built
-and run by sawc2, compared with Stage 0's snapshot of its examples/ twin, and
+and run by sawc, compared with Stage 0's snapshot of its examples/ twin, and
 put in one bucket under one key (SL-655). Its baseline is a regression gate
 (SL-666).
 
@@ -15,7 +15,7 @@ program, each current with its twin. `snapshot` reruns Stage 0 and rewrites
 it, for the PATHs named or the whole corpus; `--reuse` keeps every raw result
 in .build/corpusdiff/ whose twin is unchanged, so an interrupted write resumes
 and a grown corpus snapshots only what is new. `run` checks the snapshot,
-builds sawc2 through compiler/tools/build.py (unless `--no-build`), then
+builds sawc through compiler/tools/build.py (unless `--no-build`), then
 measures, writes .build/corpusdiff/results.tsv and report.md, and prints the
 report; `--baseline` rewrites corpus_diff.tsv from the run, and otherwise the
 run is compared with it. `--quick` checks the whole snapshot but measures one
@@ -365,7 +365,7 @@ def header(src):
 
 
 def known_wrong(path, annotations):
-    """(citation, the lines sawc2 must print or None) when the program
+    """(citation, the lines sawc must print or None) when the program
     carries a known Stage 0 bug: an `XFAIL:` pin, the run lane's
     `// differs:` citing SL:hazards with its `// prints:` lines, an `oracle
     known wrong: SL-nnn`, or a `stage0-wrong` row of annotations.tsv."""
@@ -392,7 +392,7 @@ def known_wrong(path, annotations):
 
 _STAGES = {}
 _STAGES_LOCK = threading.Lock()
-# sawc2's stage commands in pipeline order; each runs every stage before it.
+# sawc's stage commands in pipeline order; each runs every stage before it.
 STAGE_COMMANDS = ("parse", "resolve", "typecheck", "mir", "eval", "borrowck", "drops", "mono", "coro")
 
 
@@ -407,10 +407,10 @@ def refusing_stage(src, flags, rule, where):
     paths = [f for k, f in enumerate(flags) if k > 0 and flags[k - 1] == "--module-path"]
     args = [a for p in paths for a in ("--module-path", p)]
     for command in STAGE_COMMANDS:
-        argv = [build.SAWC2, command, "--check"] + ([] if command == "parse" else ["--std-root", "std"] + args)
+        argv = [build.SAWC, command, "--check"] + ([] if command == "parse" else ["--std-root", "std"] + args)
         try:
             r = subprocess.run(argv + [rel(src)], cwd=REPO, capture_output=True, text=True,
-                               timeout=oracle.SAWC2_TIMEOUT)
+                               timeout=oracle.SAWC_TIMEOUT)
         except subprocess.TimeoutExpired:
             return stage
         if any(line.split("\t")[1:3] == [rule, where] for line in r.stdout.split("\n")
@@ -484,10 +484,10 @@ def one_line(text, limit=200):
 
 
 def usage_flags(log):
-    """The flags sawc2's usage text lists for `sawc2 build`."""
+    """The flags sawc's usage text lists for `sawc build`."""
     flags = set()
     for line in log.split("\n"):
-        if "sawc2 build" in line or (flags and line.startswith(" ")):
+        if "sawc build" in line or (flags and line.startswith(" ")):
             flags.update(re.findall(r"(?<![\w-])(-{1,2}[A-Za-z][\w-]*)", line))
         elif flags:
             break
@@ -498,7 +498,7 @@ def build_verdict(src, d, rec, code, found, log, wrong_refusal=False):
     """(bucket, key, detail) when the build decides the program's bucket,
     None when it built a program that is run. A refusal test whose refusal
     annotations.tsv marks wrong is judged as any other program is, so one
-    sawc2 builds is run."""
+    sawc builds is run."""
     problems = oracle.invariants(log)
     if problems:
         return "crash", "INVARIANT", one_line(problems[0].split("\t")[-1])
@@ -521,42 +521,42 @@ def build_verdict(src, d, rec, code, found, log, wrong_refusal=False):
     if code == 0:
         return None if d.expect in RUN_KINDS or wrong_refusal else ("pass", "-", "built")
     if code == 2 and log.startswith("usage:"):
-        unknown = [f for f in oracle.sawc2_flags(d.flags) if f.startswith("-") and f not in usage_flags(log)]
-        return "refused", "driver driver.usage", "sawc2 build takes no %s" % (" ".join(unknown) or "such arguments")
-    if code == 2 and log.startswith("sawc2: unknown target"):
-        # A target sawc2 describes no layout for is refused before anything is
-        # checked, which is a gap in sawc2, not a fault.
+        unknown = [f for f in oracle.sawc_flags(d.flags) if f.startswith("-") and f not in usage_flags(log)]
+        return "refused", "driver driver.usage", "sawc build takes no %s" % (" ".join(unknown) or "such arguments")
+    if code == 2 and log.startswith("sawc: unknown target"):
+        # A target sawc describes no layout for is refused before anything is
+        # checked, which is a gap in sawc, not a fault.
         return "refused", "driver driver.unknown-target", one_line(log)
     panic = _PANIC.search(log)
     if code < 0 or panic:
-        return "crash", "sawc2 %s" % (oracle.exit_text(code) if not panic else "panic"), \
+        return "crash", "sawc %s" % (oracle.exit_text(code) if not panic else "panic"), \
             one_line(panic.group(0) if panic else log)
     link = oracle.comparable_link_error(log)
     lines = [l for l in link.split("\n") if l.strip()]
     errors = [l for l in lines if re.search(r"\berror\b|Undefined symbols|ld: ", l)]
     if errors:
         return "link", "clang or the link", one_line(errors[0])
-    return "crash", "sawc2 exit %d" % code, one_line(lines[0] if lines else "no output")
+    return "crash", "sawc exit %d" % code, one_line(lines[0] if lines else "no output")
 
 
 def run_verdict(path, d, rec, code, stdout, stderr, annotations):
-    """(bucket, key, detail) for a program sawc2 built and ran."""
+    """(bucket, key, detail) for a program sawc built and ran."""
     own = expect.judge(d, code, stdout, stderr)
-    met = "sawc2 meets its directives" if own is None else "sawc2: " + own
+    met = "sawc meets its directives" if own is None else "sawc: " + own
     panicked = code == -signal.SIGABRT and _PANIC.search(stdout + stderr) is not None
     if code is not None and code < 0 and not panicked and code != rec.exit:
         return "crash", "run %s" % oracle.exit_text(code), one_line(stdout + stderr or "no output")
     if d.expect == "error":
         # A refusal test states no run, so the detail is what the run did.
-        met = "sawc2 builds it, and its run " + (
+        met = "sawc builds it, and its run " + (
             "panics: " + _PANIC.search(stdout + stderr).group(0) if panicked else "exits %s" % oracle.exit_text(code))
         met = one_line(met)
     known = known_wrong(path, annotations)
     if known is not None:
         cite, prints = known
         if prints is not None:
-            met = "sawc2 prints the stated lines" if stdout.rstrip("\n").split("\n") == prints else \
-                "sawc2 does not print the stated lines"
+            met = "sawc prints the stated lines" if stdout.rstrip("\n").split("\n") == prints else \
+                "sawc does not print the stated lines"
         return "stage0-wrong", cite, met
     if rec.expect != d.expect:
         return ("pass", "-", "judged by its own directives") if own is None else \
@@ -576,7 +576,7 @@ def run_verdict(path, d, rec, code, stdout, stderr, annotations):
         return "pass", "-", "-"
     what, detail = diff
     if what == "exit" and panicked and not (isinstance(rec.exit, int) and rec.exit < 0):
-        return "wrong", "sawc2's binary panics", one_line(_PANIC.search(stdout + stderr).group(0))
+        return "wrong", "sawc's binary panics", one_line(_PANIC.search(stdout + stderr).group(0))
     return "wrong", "%s differs" % what, one_line(detail)
 
 
@@ -588,7 +588,7 @@ def measure(path, rec, annotations, scale=1):
     binary = os.path.join(OUT, "bin", flat(path))
     if os.path.exists(binary):
         os.remove(binary)
-    code, found, log, build_seconds = oracle.sawc2_build(src, binary, d.flags, oracle.SAWC2_TIMEOUT * scale)
+    code, found, log, build_seconds = oracle.sawc_build(src, binary, d.flags, oracle.SAWC_TIMEOUT * scale)
     result = {"path": path, "build_seconds": build_seconds, "run_seconds": 0.0}
     if code is None:
         return dict(result, bucket="timeout", phase="build", seconds=build_seconds)
@@ -606,7 +606,7 @@ def measure(path, rec, annotations, scale=1):
             # from itself says the program decides less than its output shows.
             again = oracle.run_binary(binary, oracle.RUN_TIMEOUT * scale)
             if again[:3] != (rc, out, err):
-                verdict = ("nondeterministic", "sawc2's two runs differ", verdict[2])
+                verdict = ("nondeterministic", "sawc's two runs differ", verdict[2])
     bucket, key, detail = verdict
     return dict(result, bucket=bucket, key=key, detail=detail)
 
@@ -629,7 +629,7 @@ def retried(first, path, rec, annotations):
 def settled(row):
     """A row as the baseline holds it: a `slow` program's verdict is the one
     its second try reached, since whether a run times out depends on the
-    machine's load and not on sawc2."""
+    machine's load and not on sawc."""
     if row.get("settled"):
         bucket, key, detail = row["settled"]
         return dict(row, bucket=bucket, key=key, detail=detail)
@@ -680,10 +680,10 @@ def measure_all(args):
         print("corpusdiff: the snapshot is not whole (%d problems), so nothing is measured" % len(failures))
         return 1
     if not args.no_build and not build.handed_down():
-        ok, output = build.build_sawc2()
+        ok, output = build.build_sawc()
         if not ok:
             print(output)
-            print("corpusdiff: sawc2 did not build")
+            print("corpusdiff: sawc did not build")
             return 1
     records = load()
     annotations = read_annotations()
@@ -693,7 +693,7 @@ def measure_all(args):
         raise SystemExit("corpusdiff: no record for %s" % ", ".join(unknown))
     head, base = commit()
     jobs = min(args.jobs, gate_jobs.jobs())
-    print("corpusdiff: sawc2 over %d programs, %d at a time; HEAD %s, main %s" % (len(paths), jobs, head, base),
+    print("corpusdiff: sawc over %d programs, %d at a time; HEAD %s, main %s" % (len(paths), jobs, head, base),
           flush=True)
     start = time.monotonic()
     lock = threading.Lock()
@@ -790,8 +790,8 @@ def counts(rows, head, base, wall):
     """The report's head, Markdown: what was measured, and the counts per
     bucket."""
     by_bucket = collections.Counter(r["bucket"] for r in rows)
-    lines = ["# corpusdiff: %d corpus programs through sawc2, against Stage 0" % len(rows), "",
-             "HEAD `%s`, main `%s`; %.0fs of sawc2 builds, %.0fs of runs, %.0fs wall." % (
+    lines = ["# corpusdiff: %d corpus programs through sawc, against Stage 0" % len(rows), "",
+             "HEAD `%s`, main `%s`; %.0fs of sawc builds, %.0fs of runs, %.0fs wall." % (
                  head, base, sum(r["build_seconds"] for r in rows), sum(r["run_seconds"] for r in rows), wall), "",
              "| bucket | programs |", "|---|---:|"]
     for bucket in BUCKETS:

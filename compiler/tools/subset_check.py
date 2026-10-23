@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The source rules over the compiler's own source and the new std.
 
-Each rule in `RULES` names its source in its diagnostic. sawc2 reads every
-file (`sawc2_reading.py`): `sawc2 lex` gives the tokens and `sawc2 parse
---dump` the tree, so GRAMMAR.md decides what parses and a file sawc2 refuses
+Each rule in `RULES` names its source in its diagnostic. sawc reads every
+file (`sawc_reading.py`): `sawc lex` gives the tokens and `sawc parse
+--dump` the tree, so GRAMMAR.md decides what parses and a file sawc refuses
 is refused as `grammar`. The two profiles differ only in what a file may
 import. The workaround inventory prints first over the compiler's tree.
 
@@ -20,11 +20,11 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import sawc2_reading  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
+import sawc_reading  # noqa: E402
+import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
 
 RULES = {
-    "grammar": "GRAMMAR.md: sawc2's parser must accept the source",
+    "grammar": "GRAMMAR.md: sawc's parser must accept the source",
     "import-allowlist": "LANGUAGE_SPEC, Package Structure",
     "workaround-marker": "SL:hazards: a workaround names the entry it works around",
     "redundant-visibility": "LANGUAGE_SPEC: a field's tier is stated once, on the type",
@@ -64,8 +64,8 @@ class Diagnostic:
 
 
 class SourceFile:
-    """One file as sawc2 reads it: its text, tokens and tree in the frozen
-    parser's shapes, or `grammar_error`, sawc2's refusal as (line, message)."""
+    """One file as sawc reads it: its text, tokens and tree in the frozen
+    parser's shapes, or `grammar_error`, sawc's refusal as (line, message)."""
 
     def __init__(self, path, reading):
         self.path = path
@@ -78,8 +78,8 @@ class SourceFile:
 
 
 def read_sources(paths):
-    """{path: SourceFile} for `paths`, every file parsed by one sawc2 process."""
-    readings = sawc2_reading.read_files(list(paths))
+    """{path: SourceFile} for `paths`, every file parsed by one sawc process."""
+    readings = sawc_reading.read_files(list(paths))
     return {p: SourceFile(p, readings[p]) for p in paths}
 
 

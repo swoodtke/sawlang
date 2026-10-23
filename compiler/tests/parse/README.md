@@ -270,7 +270,7 @@ reads as the inner type's suffix, so without `z` the text is a cast to
 `&Int??`.
 
 syntax.rule.depth-limit is decided at the opener that would take the 257th
-level, so its cases record that opener, the position sawc2 reports. The
+level, so its cases record that opener, the position sawc reports. The
 recognizer counts a tree's levels as §11 charges them: a postfix hop, a cast
 and a `move`'s `*` keep theirs to the end of their chain, and an interpolation
 segment goes on at its string's depth. A `<` the tree reads as a comparison
@@ -490,12 +490,12 @@ are hand-written:
   discarded, never recorded.
 
 The hand-written `depth` files hold the nesting cases of §11, each built as
-`compiler/tools/depth_funnel.py` builds sawc2's depth cells: the limit+1
+`compiler/tools/depth_funnel.py` builds sawc's depth cells: the limit+1
 negatives, one or more for every row of §11's table, and the accepting pins of
 the pre-scan and speculation. Every funnel cell short enough to copy, apart from
 the limit's own accepted twins, must have a case with exactly its text, and a
 refused cell a case that records depth-limit at the cell's opener
-(`check_depth_cells` in `test_parse.py`), so sawc2 and the recognizer are held
+(`check_depth_cells` in `test_parse.py`), so sawc and the recognizer are held
 to one position on every shape they share.
 
 ## Coverage

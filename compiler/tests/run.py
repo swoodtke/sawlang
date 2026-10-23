@@ -3,42 +3,43 @@
 
     python compiler/tests/run.py [--stage 1|2] [--only NAME[,NAME...]]
 
-`--only` runs just the named steps (`STEPS`), building sawc2 first when one of
+`--only` runs just the named steps (`STEPS`), building sawc first when one of
 them needs it, and prints as the full run prints.
 
-Builds Stage 1 (`sawc2`, by the seed) and Stage 2 (sawc2 built by
-Stage 1, `compiler/tools/build.py`), and every sawc2-driven lane below runs
-Stage 2; `--stage 1`, or `SAWC2_STAGE=1`, runs them on Stage 1 instead, for
-bisecting. Builds the unit programs with sawc2 and runs them;
-compares `sawc2 lex` with the golden fixtures in `lex/`, whose token
+Builds Stage 1 (`sawc`, by the seed) and Stage 2 (sawc built by
+Stage 1, `compiler/tools/build.py`), and every sawc-driven lane below runs
+Stage 2; `--stage 1`, or `SAWC_STAGE=1`, runs them on Stage 1 instead, for
+bisecting. Builds the unit programs with sawc and runs them;
+compares `sawc lex` with the golden fixtures in `lex/`, whose token
 kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; compares the std suspension
 table with `tools/std_suspension.txt`; holds the seed's fetch funnel to its
-cases against a local blob host (`seed/`); compares the runtime ABI table compiled
-into sawc2 with `runtime/ABI.md` and the runtime's sources, and Stage 0's copy of
+cases against a local blob host (`seed/`); requires the driver's release
+number, what `--version` prints, Stage 0's and the release tag to agree; compares the runtime ABI table compiled
+into sawc with `runtime/ABI.md` and the runtime's sources, and Stage 0's copy of
 the runtime with `runtime/`; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
 checks over `parse/`; runs the corpus rewriter's golden fixtures in
 `migrate/`; checks that the parser's grammar tables are current and that its
 speculation ledgers, the parser's and the tree builder's, name every field, runs the
 depth-funnel lane with its fixtures in `funnel/`, runs the parse lane, which
-holds `sawc2 parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
+holds `sawc parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
 claims, and times the line-length cells, which hold a parse to linear time on
 one very long line; and runs the resolve lane over `resolve/`, the typecheck
 lane over `typecheck/`, the MIR lane over `mir/` and the evaluator lane over
 `eval/`, whose golden dumps, refusal fixtures and the compiler's own source
-hold `sawc2 resolve`, `sawc2 typecheck`, `sawc2 mir` and `sawc2 eval` to their
+hold `sawc resolve`, `sawc typecheck`, `sawc mir` and `sawc eval` to their
 specifications, the evaluator lane also holding the evaluator and typecheck's
 fold to agreement over tests/corpus/; runs the std lane over `std/`, the
 new std; runs the borrowck lane over `borrowck/`; runs the drops lane over
 `drops/`; runs the mono lane over `mono/`, whose golden item dumps, layout
-tables and refusal fixtures hold `sawc2 mono` and the target description, and
+tables and refusal fixtures hold `sawc mono` and the target description, and
 whose layouts are compared with Stage 0's recorded ones; runs the coro lane
-over `coro/`, whose golden frame decisions and refusal fixtures hold `sawc2
+over `coro/`, whose golden frame decisions and refusal fixtures hold `sawc
 coro`, and whose decisions must agree with typecheck's summaries; runs the run
-lane over `run/`, which builds each program with `sawc2 build` and compares
+lane over `run/`, which builds each program with `sawc build` and compares
 its binary's output with Stage 0's recorded run; runs the sanitizer lane, which
-builds the coroutine programs with `sawc2 build --sanitize address`, holds
+builds the coroutine programs with `sawc build --sanitize address`, holds
 each to its plain build and requires an overlap injected past the verifier
 to be reported at its access; and checks that the Stage 0
 snapshot in `coro/stage0/` is whole and prints the coroutine census, which
@@ -80,8 +81,8 @@ import speculation_ledger  # noqa: E402
 import runtime_table  # noqa: E402
 import std_suspension  # noqa: E402
 import subset_check  # noqa: E402
-import sawc2_reading  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
+import sawc_reading  # noqa: E402
+import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
 import line_length  # noqa: E402
 import parse_lane  # noqa: E402
 import test_lint  # noqa: E402
@@ -207,8 +208,8 @@ def run_units(run):
     run.count("unit programs", len(programs))
 
 
-def sawc2(*args):
-    r = subprocess.run([build.SAWC2] + list(args), capture_output=True, timeout=RUN_TIMEOUT)
+def sawc(*args):
+    r = subprocess.run([build.SAWC] + list(args), capture_output=True, timeout=RUN_TIMEOUT)
     return r.returncode, r.stdout
 
 
@@ -280,7 +281,7 @@ def run_golden(run):
                 continue
             with open(exp_path, "rb") as fh:
                 expected = fh.read()
-            code, got = sawc2("lex", *flags, src)
+            code, got = sawc("lex", *flags, src)
             want_code = 1 if expected.startswith(b"ERROR\t") else 0
             if got != expected:
                 run.fail("golden %s%s: output differs at %s"
@@ -313,8 +314,8 @@ def _first_difference(expected, got):
 
 
 def lexer_program():
-    """The lexer's source as sawc2 reads it (`sawc2_reading.py`)."""
-    reading = sawc2_reading.read_files([LEXER_SOURCE])[LEXER_SOURCE]
+    """The lexer's source as sawc reads it (`sawc_reading.py`)."""
+    reading = sawc_reading.read_files([LEXER_SOURCE])[LEXER_SOURCE]
     if reading.program is None:
         raise RuntimeError("cannot parse %s: %s" % (os.path.relpath(LEXER_SOURCE, REPO),
                                                     reading.error))
@@ -322,12 +323,12 @@ def lexer_program():
 
 
 def check_kind_coverage(run, kinds_seen):
-    """The kinds come from the lexer: `sawc2 lex --kinds`, whose length must
+    """The kinds come from the lexer: `sawc lex --kinds`, whose length must
     match the case count of `TokenKind` as declared."""
-    code, out = sawc2("lex", "--kinds")
+    code, out = sawc("lex", "--kinds")
     kinds = out.decode("ascii").split()
     if code != 0 or not kinds:
-        run.fail("coverage: `sawc2 lex --kinds` failed (exit %d)" % code)
+        run.fail("coverage: `sawc lex --kinds` failed (exit %d)" % code)
         return
     declared = [e for e in lexer_program().enums if e.name == "TokenKind"]
     cases = len(declared[0].variants) if declared else 0
@@ -414,7 +415,7 @@ def check_subset_fixture(run, path, diags):
 
 def run_std_suspension(run):
     """The std suspension table, Stage 0's recorded verdicts, against the
-    rows compiled into sawc2, and the new std's suspending modules against its
+    rows compiled into sawc, and the new std's suspending modules against its
     park points."""
     failures, counts = std_suspension.check()
     for failure in failures:
@@ -429,8 +430,43 @@ def run_seed(run):
     _run_module(run, test_seed_store)
 
 
+DRIVER_SOURCE = os.path.join(COMPILER, "driver", "src", "main.saw")
+STAGE0_VERSION = os.path.join(REPO, "sawc", "version.py")
+RELEASE_TAG = os.path.join(REPO, ".sawtracker", "version")
+_DRIVER_VERSION = re.compile(r'func driver_version\(\) -> String \{\s*"([^"]+)"\s*\}')
+_STAGE0_VERSION = re.compile(r'^SAWC_VERSION = "([^"]+)"$', re.M)
+
+
+def run_version(run):
+    """The one release number, wherever it is written: the driver's
+    `driver_version`, what `sawc --version` prints, Stage 0's `SAWC_VERSION`
+    and the release tag `.sawtracker/version` all name it, so a consumer's pin
+    means the same compiler whichever it asks."""
+    with open(DRIVER_SOURCE, encoding="utf-8") as fh:
+        m = _DRIVER_VERSION.search(fh.read())
+    if m is None:
+        run.fail("version: %s defines no `driver_version` returning one literal"
+                 % os.path.relpath(DRIVER_SOURCE, REPO))
+        return
+    version = m.group(1)
+    found = {}
+    with open(STAGE0_VERSION, encoding="utf-8") as fh:
+        m = _STAGE0_VERSION.search(fh.read())
+    found[os.path.relpath(STAGE0_VERSION, REPO)] = m.group(1) if m else "no SAWC_VERSION"
+    with open(RELEASE_TAG, encoding="utf-8") as fh:
+        tag = fh.read().strip()
+    found[os.path.relpath(RELEASE_TAG, REPO)] = tag[1:] if tag.startswith("v") else "tag %r" % tag
+    code, out = sawc("--version")
+    found["`sawc --version`"] = (out.decode("utf-8", "replace").strip() if code == 0
+                                 else "exit %d" % code).replace("sawc ", "", 1)
+    for where, value in sorted(found.items()):
+        if value != version:
+            run.fail("version: the driver is %s, and %s says %s" % (version, where, value))
+    run.count("version sources agreeing", len(found) + 1)
+
+
 def run_runtime_table(run):
-    """The runtime ABI table compiled into sawc2 against a fresh reading of
+    """The runtime ABI table compiled into sawc against a fresh reading of
     runtime/ABI.md, each host's runtime sources and shim against it, and
     Stage 0's copy of the runtime against `runtime/`."""
     failures, counts = runtime_table.check()
@@ -477,7 +513,7 @@ def run_migrate(run):
 def run_parser(run):
     """The parser's grammar tables, its speculation ledger, its comma-list and
     depth funnels, its parse lane and its line-length cells; the last three run
-    sawc2, so they wait for it to build."""
+    sawc, so they wait for it to build."""
     stale = grammar_tables.check()
     if stale:
         run.fail("grammar tables: " + stale)
@@ -535,7 +571,7 @@ def run_eval(run):
 
 
 def run_std(run):
-    """The std lane (compiler/tests/std/std_lane.py): the new std under sawc2,
+    """The std lane (compiler/tests/std/std_lane.py): the new std under sawc,
     its subset profile, its lang items, its cone and its API equivalence."""
     failures, counts = std_lane.run()
     for failure in failures:
@@ -592,7 +628,7 @@ def run_coro(run):
 
 def run_programs(run):
     """The run lane (compiler/tests/run/run_lane.py): each program built by
-    sawc2, its binary's output and exit status compared with Stage 0's recorded run,
+    sawc, its binary's output and exit status compared with Stage 0's recorded run,
     the due programs refused where they say, and hello's `.ll` pinned."""
     failures, counts, _ = run_lane.run()
     for failure in failures:
@@ -635,9 +671,9 @@ def run_parallel_order(run):
 class Step:
     """One part of the run, `run_<name>(run)`. `when` is "always" (it needs
     nothing built), "after build" (it waits for the build, whatever the build
-    says) or "built" (it runs only when sawc2 builds). A step holds one token
+    says) or "built" (it runs only when sawc builds). A step holds one token
     while it runs, and its pools take more as they go
-    (`gate_jobs.map_ordered`), which makes its sawc2 calls overlap
+    (`gate_jobs.map_ordered`), which makes its sawc calls overlap
     (`calls_overlap`); a step with a `width` runs a pool that takes none, so it
     holds `width` tokens and gets that as its SAW_GATE_JOBS."""
 
@@ -659,6 +695,7 @@ STEPS = (
     Step("subset", "built"),
     Step("std_suspension", "after build"),
     Step("seed", "always"),
+    Step("version", "built"),
     Step("runtime_table", "after build"),
     Step("grammar_lint", "after build"),
     Step("recognizer", "after build"),
@@ -688,12 +725,12 @@ LONG_STEPS = ("units", "subset", "drops", "borrowck", "grammar_parse", "eval", "
 
 STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 
-# What a step's sawc2 call may use, from its environment: the tokens its step
+# What a step's sawc call may use, from its environment: the tokens its step
 # holds for each call (`run_steps`).
 CALL_TOKENS = "SAW_GATE_CALL_TOKENS"
 
 
-def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_tokens=1, progress=None,
+def run_steps(steps, build_sawc=None, sawc=None, env=None, budget=None, call_tokens=1, progress=None,
               label="run.py"):
     """Runs each of `steps` in a process of its own and returns (the build's
     (ok, output), or None without one; [(step, result)] in the order of
@@ -701,9 +738,9 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     skipped, true of a "built" step after a failed build, and crashed, true of
     a step whose process ended without its result.
 
-    `build_sawc2` runs here first, every step but an "always" one waiting for
-    it, and `sawc2` replaces `build.SAWC2` in each step and every process
-    below it (SAWC2_BINARY, `build.handed_down`). The build and each
+    `build_sawc` runs here first, every step but an "always" one waiting for
+    it, and `sawc` replaces `build.SAWC` in each step and every process
+    below it (SAWC_BINARY, `build.handed_down`). The build and each
     step hold their tokens of the gate's budget while they run, the first of
     them this process's own (`gate_jobs.budget`); a step whose calls do not
     overlap holds `call_tokens` (two under the fixpoint lane's twin), which
@@ -721,7 +758,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     call_tokens = max(1, min(call_tokens, limit))
     os.makedirs(STEP_OUT, exist_ok=True)
     cond = threading.Condition()
-    state = {"own": True, "running": 0, "built": build_sawc2 is None, "ok": build_sawc2 is None,
+    state = {"own": True, "running": 0, "built": build_sawc is None, "ok": build_sawc is None,
              "build": None}
     results = {}
     started = {}
@@ -780,7 +817,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
 
     def do_build(held):
         try:
-            outcome = build_sawc2()
+            outcome = build_sawc()
         except BaseException as e:  # a crash is a failed build, reported as one
             outcome = (False, "%s: %s" % (type(e).__name__, e))
         with cond:
@@ -796,7 +833,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
 
         def go():
             try:
-                result = _run_step_process(step, step.width or limit, sawc2, step_env)
+                result = _run_step_process(step, step.width or limit, sawc, step_env)
             except BaseException as e:
                 result = _crashed(step, "%s: %s" % (type(e).__name__, e), b"", b"")
             finish(step.name, result, held)
@@ -805,7 +842,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     order = [s for name in LONG_STEPS for s in steps if s.name == name]
     order += [s for s in steps if s not in order]
     with gate_jobs.budget(), cond:
-        if build_sawc2 is not None:
+        if build_sawc is not None:
             state["running"] += 1
             say("started", "build")
             threading.Thread(target=do_build, args=(take(1),), daemon=True).start()
@@ -833,7 +870,7 @@ def run_steps(steps, build_sawc2=None, sawc2=None, env=None, budget=None, call_t
     return state["build"], [(step, results[step.name]) for step in steps]
 
 
-def _run_step_process(step, workers, sawc2, env):
+def _run_step_process(step, workers, sawc, env):
     """`run.py --step NAME` in a child process with `workers` as its budget."""
     fd, result_path = tempfile.mkstemp(prefix="%s-" % step.name, suffix=".json", dir=STEP_OUT)
     os.close(fd)
@@ -844,7 +881,7 @@ def _run_step_process(step, workers, sawc2, env):
         child_env["SAW_GATE_STEP"] = step.name
         # Through the environment, so that every process below the step runs
         # this binary, the workers of its pools included (`build.handed_down`).
-        child_env["SAWC2_BINARY"] = sawc2 or build.SAWC2
+        child_env["SAWC_BINARY"] = sawc or build.SAWC
         r = subprocess.run(cmd, capture_output=True, env=child_env)
         try:
             with open(result_path, encoding="utf-8") as fh:
@@ -883,7 +920,7 @@ def merge(build_outcome, results):
     """One Run of the build's failure, then each step's, in order."""
     run = Run()
     if build_outcome is not None and not build_outcome[0]:
-        run.fail("build: sawc2 does not compile: %s" % _first_line(build_outcome[1]))
+        run.fail("build: sawc does not compile: %s" % _first_line(build_outcome[1]))
     for _, result in results:
         run.failures += result["failures"]
         for key, n in result["counts"].items():
@@ -913,7 +950,7 @@ def only_steps(text):
 
 
 def needs_build(steps):
-    """A step that waits for the build reads sawc2, so a stale binary would
+    """A step that waits for the build reads sawc, so a stale binary would
     pass it against an old compiler."""
     return any(step.when != "always" for step in steps)
 
@@ -932,18 +969,18 @@ class _Progress:
         self.stream.flush()
 
 
-def report(steps, build_sawc2=None, sawc2=None, out=None, err=None):
-    """Runs `steps`, after `build_sawc2` (`build.build_sawc2` when None) if one
+def report(steps, build_sawc=None, sawc=None, out=None, err=None):
+    """Runs `steps`, after `build_sawc` (`build.build_sawc` when None) if one
     of them needs it, writes what run.py prints to the binary streams `out`
     and `err` (standard output and error when None), and returns run.py's exit
-    status. `sawc2` is `run_steps`'."""
+    status. `sawc` is `run_steps`'."""
     out = out or sys.stdout.buffer
     err = err or sys.stderr.buffer
     if not needs_build(steps):
-        build_sawc2 = None
-    elif build_sawc2 is None:
-        build_sawc2 = build.build_sawc2
-    build_outcome, results = run_steps(steps, build_sawc2=build_sawc2, sawc2=sawc2, progress=_Progress(err))
+        build_sawc = None
+    elif build_sawc is None:
+        build_sawc = build.build_sawc
+    build_outcome, results = run_steps(steps, build_sawc=build_sawc, sawc=sawc, progress=_Progress(err))
     for _, result in results:
         out.write(result["stdout"])
         err.write(result["stderr"])
@@ -956,7 +993,7 @@ def report(steps, build_sawc2=None, sawc2=None, out=None, err=None):
 
 def main():
     """`--stage` and `--only` are the human entry. `--step NAME --result FILE`
-    is `run_steps`' child interface, its binary named by SAWC2_BINARY: it
+    is `run_steps`' child interface, its binary named by SAWC_BINARY: it
     neither builds nor prints the step's failures, and exits 0 whatever they
     are."""
     child_groups.install()
@@ -969,8 +1006,8 @@ def main():
     options = parser.parse_args(args)
     if options.stage:
         # The environment carries the choice to the steps and their own child processes.
-        os.environ["SAWC2_STAGE"] = options.stage
-        build.SAWC2 = build.STAGE1 if options.stage == "1" else build.STAGE2
+        os.environ["SAWC_STAGE"] = options.stage
+        build.SAWC = build.STAGE1 if options.stage == "1" else build.STAGE2
     steps = STEPS
     if options.only is not None:
         steps, problem = only_steps(options.only)

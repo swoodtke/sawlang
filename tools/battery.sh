@@ -13,8 +13,8 @@
 # you are in. The exit code is the number of failing stages.
 #
 # No stage runs the frozen Python compiler (sawc/): the lanes that tested it
-# left the battery with the per-patch gate's move to sawc2 (SL-666), but for
-# docverify, which stays until sawc2 has its equivalent.
+# left the battery with the per-patch gate's move to sawc (SL-666), but for
+# docverify, which stays until sawc has its equivalent.
 #
 #   tools/battery.sh                    # everything but the manual lanes
 #   tools/battery.sh --quick            # skip the slow lanes (gmgate, linux)
@@ -52,9 +52,9 @@ fi
 # it out.
 STAGES=(
     "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker, the grammar lint|$PY compiler/tests/run.py"
-    "fixpoint|no|Stage 2 (sawc2 built by sawc2) agrees with Stage 1 on every lane's invocations, and Stage 3 = Stage 2|env SAW_FIXPOINT_FULL=1 $PY compiler/tests/fixpoint/fixpoint_lane.py"
+    "fixpoint|no|Stage 2 (sawc built by sawc) agrees with Stage 1 on every lane's invocations, and Stage 3 = Stage 2|env SAW_FIXPOINT_FULL=1 $PY compiler/tests/fixpoint/fixpoint_lane.py"
     "grammarcorpus|no|every tracked .saw against GRAMMAR.md: its recorded verdict, one tree when accepted|$PY compiler/tests/grammar/corpus.py"
-    "corpusdiff|no|every tests/corpus program through sawc2 against Stage 0's snapshot: no verdict moved from the baseline|$PY compiler/tests/corpusdiff/corpusdiff.py gate"
+    "corpusdiff|no|every tests/corpus program through sawc against Stage 0's snapshot: no verdict moved from the baseline|$PY compiler/tests/corpusdiff/corpusdiff.py gate"
     "citations|no|the files nothing compiles: stale DF/SL citations, committed conflict markers|$PY tools/check_citations.py"
     "docverify|no|every Saw example in README/CLAUDE/spec/skill compiles as its marker claims|$PY tools/docverify.py"
     "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"
@@ -63,7 +63,7 @@ STAGES=(
     "childgroups|no|a TERM to a runner ends every child group it started in a session of its own|$PY tools/test_child_groups.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|runtime/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
-    "gmgate|yes|ownership + concurrency oracles, built by sawc2, under Guard Malloc (macOS)|$PY tools/gmgate.py"
+    "gmgate|yes|ownership + concurrency oracles, built by sawc, under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"
 )
 

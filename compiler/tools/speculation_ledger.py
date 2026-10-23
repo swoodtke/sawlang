@@ -121,7 +121,7 @@ def restore_body(text, struct):
 
 
 def read(path):
-    """`path` as sawc2 reads it (`sawc2_reading.py`)."""
+    """`path` as sawc reads it (`sawc_reading.py`)."""
     return subset_check.read_sources([path])[path]
 
 

@@ -4,7 +4,7 @@
 // requires the verifier's one report, under rule 5. Then it hands the
 // refused program to the backend anyway and writes its `.ll` to the path its
 // first argument names, for the target its second names. Calling the backend
-// past a refusal is this program's alone: `sawc2 build` stops at the report.
+// past a refusal is this program's alone: `sawc build` stops at the report.
 // compiler/tests/run/sanitize_lane.py links the `.ll` under AddressSanitizer
 // and requires a report at the read of `late`. Paths are the repository
 // root's, where the lane runs it.

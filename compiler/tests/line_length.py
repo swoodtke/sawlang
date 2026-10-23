@@ -4,7 +4,7 @@
     python compiler/tests/line_length.py            run the cells and print the timings
 
 Each cell writes 20,000 items on one line, as call arguments, as a set literal
-and as a tuple pattern, and times `sawc2 parse --check` on it against the same
+and as a tuple pattern, and times `sawc parse --check` on it against the same
 call written one argument per line. The two hold the same tokens, so a parse
 linear in its input takes about as long on each, and a cost that grows with a
 token's column, such as converting a column back into a byte offset by walking
@@ -68,7 +68,7 @@ def write(name, text):
 def timed(path):
     """(seconds, refusal or None) of one process parsing `path` COPIES times."""
     began = time.monotonic()
-    r = subprocess.run([build.SAWC2, "parse", "--check"] + [path] * COPIES, capture_output=True)
+    r = subprocess.run([build.SAWC, "parse", "--check"] + [path] * COPIES, capture_output=True)
     took = time.monotonic() - began
     out = r.stdout.decode("utf-8", "replace")
     refused = [line for line in out.split("\n") if line.startswith("ERROR\t")]
@@ -115,9 +115,9 @@ def run(verbose=False):
 
 
 def main():
-    ok, output = build.build_sawc2()
+    ok, output = build.build_sawc()
     if not ok:
-        print("line-length: sawc2 does not build: %s" % output.strip().split("\n")[-1])
+        print("line-length: sawc does not build: %s" % output.strip().split("\n")[-1])
         return 1
     failures, counts = run(verbose=True)
     for f in failures:

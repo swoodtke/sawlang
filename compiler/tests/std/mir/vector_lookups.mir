@@ -1,4 +1,4 @@
-// Vector's lookups as sawc2 lowers them against std/ (SL:borrowing §2.4,
+// Vector's lookups as sawc lowers them against std/ (SL:borrowing §2.4,
 // K14). `get` is a value method: its present path copies the element out of
 // the buffer into `Some`, and it opens no window. `find` is the conditional
 // lend: a prologue that returns `None` out of range or lends the element, and

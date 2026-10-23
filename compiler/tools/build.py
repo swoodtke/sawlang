@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
 """Build the self-hosted compiler: Stage 1 with the seed, Stage 2 with Stage 1.
 
-    python compiler/tools/build.py                   # .build/sawc2, then .build/sawc2-stage2
+    python compiler/tools/build.py                   # .build/sawc-stage1, then .build/sawc-stage2
+    python compiler/tools/build.py --quiet           # the same, printing only a failure
     python compiler/tools/build.py ENTRY.saw -o OUT  # the stages, then any program over them
     python compiler/tools/build.py --runtime TRIPLE  # the stages, then another target's runtime
 
-The seed is sawc2 compiled by clang from its own `.ll`, one set of files per
+The seed is sawc compiled by clang from its own `.ll`, one set of files per
 host target, which `compiler/seed/manifest.tsv` names by SHA-256 and the blob
-host serves (`seed_blob`, `seed.py`). Stage 1 is the sawc2 the seed
-builds at -O2 (`.build/sawc2`), and Stage 2 is sawc2 built by Stage 1 at -O2
-(`.build/sawc2-stage2`). The lanes run Stage 2; `SAWC2_STAGE=1` selects Stage
+host serves (`seed_blob`, `seed.py`). Stage 1 is the sawc the seed
+builds at -O2 (`.build/sawc-stage1`), and Stage 2 is sawc built by Stage 1 at -O2
+(`.build/sawc-stage2`). The lanes run Stage 2; `SAWC_STAGE=1` selects Stage
 1 instead, for bisecting a difference between the two, and then Stage 2 is
-not built. `SAWC2` is the binary selected, or the one `SAWC2_BINARY` names: a
+not built. `SAWC` is the binary selected, or the one `SAWC_BINARY` names: a
 runner that has chosen the binary (the fixpoint lane's twin, say) hands it to
-every process below it that way.
+every process below it that way. `bin/sawc` runs `--quiet` before every
+compile, so an installed `sawc` is always this tree's.
 
 Every step is cached by key, so an unchanged tree compiles and links nothing:
 the seed's files under `.build/blobs/` by SHA-256 (`seed_blob`), the seed under
 `.build/seed/<key>/` (`build_seed`), Stage 1 and Stage 2 beside their
 binaries. Stage 1 links against the seed's runtime; every link
-after that takes the runtime Stage 1 builds from `runtime/` with `sawc2
+after that takes the runtime Stage 1 builds from `runtime/` with `sawc
 runtime`, cached under `.build/rt2/<key>/` by a key covering Stage 1, `runtime/`,
-std, the target and clang. Beside the stages goes `.build/sawc2-runtime.txt`,
+std, the target and clang. Beside the stages goes `.build/sawc-runtime.txt`,
 the runtime manifest naming the host, the clang `choose_clang` picked and
-those objects, which a hosted `sawc2 build` links against.
+those objects, which a hosted `sawc build` links against.
 
 Nothing here runs Stage 0: the stages need only Python's standard library,
 clang, and HTTPS to the blob host while the seed's files are not yet cached;
-and `build_program` builds a program with `SAWC2`, after the stages.
+and `build_program` builds a program with `SAWC`, after the stages.
 `STAGE_PACKAGES` is the one place that maps a stage package to its directory:
 the stages, the unit programs and the runner all read it, so a new stage is
 registered here once.
@@ -49,14 +51,18 @@ from collections import namedtuple
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD_DIR = os.path.join(REPO, ".build")
-STAGE1 = os.path.join(BUILD_DIR, "sawc2")
+STAGE1 = os.path.join(BUILD_DIR, "sawc-stage1")
 STAGE1_KEY = STAGE1 + ".key"
-STAGE2 = os.path.join(BUILD_DIR, "sawc2-stage2")
+STAGE2 = os.path.join(BUILD_DIR, "sawc-stage2")
 STAGE2_KEY = STAGE2 + ".key"
 DRIVER_ENTRY = os.path.join(REPO, "compiler", "driver", "src", "main.saw")
-# The runtime manifest a hosted `sawc2 build` reads beside its own binary: the
+# The runtime manifest a hosted `sawc build` reads beside its own binary: the
 # host target and the runtime objects it links (compiler/tests/run/README.md).
-RUNTIME_MANIFEST = os.path.join(BUILD_DIR, "sawc2-runtime.txt")
+RUNTIME_MANIFEST_NAME = "sawc-runtime.txt"
+RUNTIME_MANIFEST = os.path.join(BUILD_DIR, RUNTIME_MANIFEST_NAME)
+# Held while the stages are built, so two builds in one checkout never link
+# the same stage at once.
+BUILD_LOCK = os.path.join(BUILD_DIR, "sawc.lock")
 # The runtime's sources, and where the objects Stage 1 builds from them are
 # cached by key.
 RT_ROOT = os.path.join(REPO, "runtime")
@@ -68,7 +74,11 @@ LINK_TIMEOUT = 1800
 # SHA-256, and where the seed binaries built from it are cached by key.
 SEED_DIR = os.path.join(REPO, "compiler", "seed")
 SEED_MANIFEST = os.path.join(SEED_DIR, "manifest.tsv")
-SEED_DRIVER = "sawc2.ll.xz"
+SEED_DRIVER = "sawc.ll.xz"
+# The runtime manifest's name as the seed's own driver reads it beside its
+# binary, which is the pinned commit's spelling, not this tree's: a seed bump
+# that changes it changes this, and `seed.py check` fails until it does.
+SEED_RUNTIME_MANIFEST = "sawc2-runtime.txt"
 SEED_CACHE = os.path.join(BUILD_DIR, "seed")
 # The blob host serves a file at its lowercase hex SHA-256, publicly, and never
 # changes or deletes one; the variable names a mirror instead. The cache holds
@@ -102,21 +112,35 @@ STAGE_PACKAGES = (
 )
 
 
+# Each variable the stages read, beside its `SAWC2_` spelling: one of those
+# still set in an environment would be ignored without a word, so it is
+# refused, naming the spelling the stages read.
+RENAMED_VARIABLES = (("SAWC2_STAGE", "SAWC_STAGE"), ("SAWC2_BINARY", "SAWC_BINARY"),
+                     ("SAWC2_CANDIDATE_BINARY", "SAWC_CANDIDATE_BINARY"), ("SAWC2_CLANG", "SAWC_CLANG"))
+
+
+def refuse_renamed_variables():
+    for old, new in RENAMED_VARIABLES:
+        if old in os.environ:
+            sys.exit("build: %s is set, and it is spelled %s now; set that instead" % (old, new))
+
+
 def selected_stage():
-    """The stage `SAWC2_STAGE` names, 2 when it is unset."""
-    stage = os.environ.get("SAWC2_STAGE", "2")
+    """The stage `SAWC_STAGE` names, 2 when it is unset."""
+    stage = os.environ.get("SAWC_STAGE", "2")
     if stage not in ("1", "2"):
-        sys.exit("build: SAWC2_STAGE is %r; it names Stage 1 or Stage 2" % stage)
+        sys.exit("build: SAWC_STAGE is %r; it names Stage 1 or Stage 2" % stage)
     return int(stage)
 
 
-SAWC2 = os.environ.get("SAWC2_BINARY") or (STAGE2 if selected_stage() == 2 else STAGE1)
+refuse_renamed_variables()
+SAWC = os.environ.get("SAWC_BINARY") or (STAGE2 if selected_stage() == 2 else STAGE1)
 
 
 def handed_down():
-    """Whether a runner above this process chose `SAWC2` (SAWC2_BINARY), so
+    """Whether a runner above this process chose `SAWC` (SAWC_BINARY), so
     keeping it fresh is that runner's job and never this process's."""
-    return bool(os.environ.get("SAWC2_BINARY"))
+    return bool(os.environ.get("SAWC_BINARY"))
 
 
 def package_arguments(root):
@@ -129,10 +153,10 @@ def package_arguments(root):
 
 def build_program(entry, out):
     """Compile `entry`, against the new std and every stage package, to the
-    executable `out` with `SAWC2`, the stage the lanes run. Returns (ok,
+    executable `out` with `SAWC`, the stage the lanes run. Returns (ok,
     compiler output)."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    r = subprocess.run([SAWC2, "build", "--std-root", "std"] + package_arguments(REPO)
+    r = subprocess.run([SAWC, "build", "--std-root", "std"] + package_arguments(REPO)
                        + [os.path.relpath(entry, REPO), "-o", out], cwd=REPO, capture_output=True, text=True,
                        timeout=LINK_TIMEOUT)
     return r.returncode == 0, (r.stdout + r.stderr).strip()
@@ -140,13 +164,13 @@ def build_program(entry, out):
 
 def link_module(ll, out, sanitize=False):
     """Link the host `.ll` at `ll` into the executable `out` at -O0 as a
-    hosted `sawc2 build` links it (`driver_link` in
+    hosted `sawc build` links it (`driver_link` in
     compiler/driver/src/main.saw, which the two must agree with): with the
-    clang and the runtime objects the manifest beside `SAWC2` names, and with
-    `-fsanitize=address` when `sanitize`. For a module no `sawc2 build` can
+    clang and the runtime objects the manifest beside `SAWC` names, and with
+    `-fsanitize=address` when `sanitize`. For a module no `sawc build` can
     write, such as one a test hands the backend past a refusal. Returns (ok,
     clang's output)."""
-    manifest = os.path.join(os.path.dirname(os.path.realpath(SAWC2)), "sawc2-runtime.txt")
+    manifest = os.path.join(os.path.dirname(os.path.realpath(SAWC)), RUNTIME_MANIFEST_NAME)
     triple, clang, objects = None, None, []
     with open(manifest) as fh:
         for line in fh.read().splitlines():
@@ -165,7 +189,7 @@ def link_module(ll, out, sanitize=False):
 
 
 def link_driver(compiler, out):
-    """The driver built and linked into `out` at -O2 by the sawc2 binary
+    """The driver built and linked into `out` at -O2 by the sawc binary
     `compiler`, which reads the runtime manifest beside itself; the error
     text, or "" when it linked. Stage 2 and Stage 3 are both linked here, so
     the fixpoint compares two links made the same way."""
@@ -179,8 +203,8 @@ def link_driver(compiler, out):
 
 
 def host_triple():
-    """The sawc2 target of the machine this runs on, which the runtime
-    manifest beside the stages names and a hosted `sawc2 build` links for."""
+    """The sawc target of the machine this runs on, which the runtime
+    manifest beside the stages names and a hosted `sawc build` links for."""
     machine = platform.machine().lower()
     if sys.platform == "darwin" and machine == "arm64":
         return "arm64-apple-darwin"
@@ -188,19 +212,19 @@ def host_triple():
         return "aarch64-unknown-linux-gnu"
     if sys.platform.startswith("linux") and machine in ("x86_64", "amd64"):
         return "x86_64-unknown-linux-gnu"
-    sys.exit("build: no sawc2 target describes this host (%s, %s)" % (sys.platform, machine))
+    sys.exit("build: no sawc target describes this host (%s, %s)" % (sys.platform, machine))
 
 
 def clang_triple(triple):
-    """The triple clang is told for a sawc2 target: `target_clang_triple` in
+    """The triple clang is told for a sawc target: `target_clang_triple` in
     compiler/target/src/layout.saw, which the two must agree with."""
     return "arm64-apple-macosx11.0.0" if triple == "arm64-apple-darwin" else triple
 
 
 def link_libraries(triple):
-    """The libraries a link for the sawc2 target `triple` names after its
+    """The libraries a link for the sawc target `triple` names after its
     objects: `driver_link_libraries` in compiler/driver/src/main.saw, which
-    the two must agree with, since the seed links as `sawc2 build` does.
+    the two must agree with, since the seed links as `sawc build` does.
     glibc keeps the math functions in libm, apart from libc; macOS carries
     them in libSystem. The Linux triples are named one by one, so a new Linux
     target must be added here and there.
@@ -212,24 +236,24 @@ def link_libraries(triple):
     return ["-lm"] if triple in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu") else []
 
 
-# The clangs tried when `SAWC2_CLANG` names none, in order: the versioned
+# The clangs tried when `SAWC_CLANG` names none, in order: the versioned
 # names a Linux distribution installs beside an older default, then `clang`.
 CLANG_CANDIDATES = ("clang-19", "clang-18", "clang-17", "clang-16", "clang-15", "clang")
-# The capability every clang sawc2 hands its `.ll` to must have: opaque
-# pointers (`ptr`), which sawc2 emits throughout and LLVM 15 made the default.
+# The capability every clang sawc hands its `.ll` to must have: opaque
+# pointers (`ptr`), which sawc emits throughout and LLVM 15 made the default.
 # The module is compiled rather than a version parsed, since Apple's clang
 # numbers its versions apart from LLVM's.
 OPAQUE_POINTER_MODULE = "define ptr @f(ptr %p) {\n  ret ptr %p\n}\n"
-CLANG_REQUIREMENT = "sawc2's .ll needs a clang that compiles opaque-pointer IR (`ptr`): LLVM 15 or later"
+CLANG_REQUIREMENT = "sawc's .ll needs a clang that compiles opaque-pointer IR (`ptr`): LLVM 15 or later"
 _CHOSEN_CLANGS = {}
 
 
 def choose_clang(triple):
-    """The clang every sawc2 compile and link for `triple` uses: `SAWC2_CLANG`,
+    """The clang every sawc compile and link for `triple` uses: `SAWC_CLANG`,
     else the first of `CLANG_CANDIDATES` on `PATH` that compiles
     `OPAQUE_POINTER_MODULE` for the target. Returns (absolute path, "") or
     (None, why none qualifies). The runtime manifest records the choice, and
-    everything after reads it there: `sawc2 build`'s link, `sawc2 runtime`
+    everything after reads it there: `sawc build`'s link, `sawc runtime`
     run without `--clang`, and `stage2_key`.
 
     ENTRY POINTS:
@@ -237,7 +261,7 @@ def choose_clang(triple):
     """
     if triple in _CHOSEN_CLANGS:
         return _CHOSEN_CLANGS[triple]
-    named = os.environ.get("SAWC2_CLANG")
+    named = os.environ.get("SAWC_CLANG")
     candidates = [named] if named else list(CLANG_CANDIDATES)
     refused = []
     answer = None
@@ -245,7 +269,7 @@ def choose_clang(triple):
         path = shutil.which(candidate)
         if path is None:
             if named:
-                refused.append("SAWC2_CLANG names %s, which is not an executable" % named)
+                refused.append("SAWC_CLANG names %s, which is not an executable" % named)
             continue
         path = os.path.abspath(path)
         if clang_capable(path, triple):
@@ -253,7 +277,7 @@ def choose_clang(triple):
             break
         refused.append("%s does not compile opaque-pointer IR (`ptr`) for %s" % (path, triple))
     if answer is None:
-        tried = "SAWC2_CLANG" if named else "any of %s on PATH" % ", ".join(CLANG_CANDIDATES)
+        tried = "SAWC_CLANG" if named else "any of %s on PATH" % ", ".join(CLANG_CANDIDATES)
         answer = (None, "no clang qualifies (tried %s): %s. %s" % (tried, "; ".join(refused) or "none is installed",
                                                                     CLANG_REQUIREMENT))
     _CHOSEN_CLANGS[triple] = answer
@@ -302,7 +326,7 @@ def runtime_key(triple, clang):
 def runtime_seam_problems(objects, triple):
     """Every way the external `__saw_rt_*` definitions of `objects`, as `nm`
     reads them, are not the ABI table's runtime seams each exactly once: the
-    check `sawc2 runtime` makes from its own exports, made again on the bytes
+    check `sawc runtime` makes from its own exports, made again on the bytes
     it wrote."""
     import runtime_table
     rows, _ = runtime_table.abi_rows()
@@ -332,16 +356,16 @@ def runtime_seam_problems(objects, triple):
 
 
 def runtime_manifest(triple):
-    """The runtime manifest a `sawc2 build` for `triple` reads beside its
-    binary: `sawc2-runtime.txt` for the host, `sawc2-runtime-TRIPLE.txt` for
+    """The runtime manifest a `sawc build` for `triple` reads beside its
+    binary: `sawc-runtime.txt` for the host, `sawc-runtime-TRIPLE.txt` for
     another target (compiler/tests/run/README.md)."""
     if triple == host_triple():
         return RUNTIME_MANIFEST
-    return os.path.join(BUILD_DIR, "sawc2-runtime-%s.txt" % triple)
+    return os.path.join(BUILD_DIR, "sawc-runtime-%s.txt" % triple)
 
 
 def build_runtime(triple=None):
-    """Stage 1's `sawc2 runtime` builds the runtime objects for `triple`, the
+    """Stage 1's `sawc runtime` builds the runtime objects for `triple`, the
     host when None, into `.build/rt2/<key>/` with the clang `choose_clang`
     picks, unless that directory already holds the build of the same key, and
     the runtime manifest naming them is written beside the stages. Returns the
@@ -362,6 +386,7 @@ def build_runtime(triple=None):
     with open(os.path.join(RUNTIME_CACHE, key + ".lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not os.path.exists(done):
+            announce()
             shutil.rmtree(directory, ignore_errors=True)
             os.makedirs(directory)
             r = subprocess.run([STAGE1, "runtime", "--rt-root", os.path.relpath(RT_ROOT, REPO), "--target", triple,
@@ -570,8 +595,8 @@ def build_seed(triple=None):
     """The seed binary of `triple`, the host when None, built from the IR its
     manifest lines name (`seed_blob`) into `.build/seed/<key>/` unless that
     directory already holds the build of the same key: each runtime IR
-    compiled as `sawc2 runtime` compiles it, `runtime/shim.c` too, and the
-    driver's IR linked against them as `sawc2 build` links, all by
+    compiled as `sawc runtime` compiles it, `runtime/shim.c` too, and the
+    driver's IR linked against them as `sawc build` links, all by
     `choose_clang`'s clang. Beside the binary goes the runtime manifest naming
     those objects, which the seed links Stage 1 against. Returns (path, "")
     or (None, why)."""
@@ -588,7 +613,7 @@ def build_seed(triple=None):
         return None, why
     key = seed_key(triple, clang)
     directory = os.path.join(SEED_CACHE, key)
-    binary = os.path.join(directory, "sawc2")
+    binary = os.path.join(directory, "sawc")
     done = os.path.join(directory, "done")
     target = clang_triple(triple)
     os.makedirs(SEED_CACHE, exist_ok=True)
@@ -597,6 +622,7 @@ def build_seed(triple=None):
     with open(os.path.join(SEED_CACHE, key + ".lock"), "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not os.path.exists(done):
+            announce()
             try:
                 blobs = [seed_blob(entry) for entry in entries]
             except SeedError as e:
@@ -618,14 +644,14 @@ def build_seed(triple=None):
             if why:
                 return None, "%s does not compile for the seed: %s" % (os.path.relpath(SHIM_C, REPO), why)
             objects.append(shim)
-            ll = os.path.join(directory, "sawc2.ll")
+            ll = os.path.join(directory, "sawc.ll")
             _decompress(blobs[0], ll)
             why = _clang(clang, ["-target", target, "-O2", "-x", "ir", ll, "-x", "none"] + objects
                          + link_libraries(triple) + ["-o", binary])
             if why:
                 return None, "the seed of %s does not link: %s" % (triple, why)
             os.remove(ll)
-            with open(os.path.join(directory, "sawc2-runtime.txt"), "w") as fh:
+            with open(os.path.join(directory, SEED_RUNTIME_MANIFEST), "w") as fh:
                 fh.write("target %s\nclang %s\n" % (triple, clang) + "".join("object %s\n" % o for o in objects))
             with open(done, "w") as fh:
                 fh.write(key + "\n")
@@ -643,7 +669,7 @@ def stage1_key(seed):
 
 
 def bootstrap_stage1():
-    """The seed (`build_seed`) builds the driver into `.build/sawc2` at -O2,
+    """The seed (`build_seed`) builds the driver into `.build/sawc-stage1` at -O2,
     linking it against the seed's own runtime, unless the cached link has the
     same key. The seed is the one compiler in the chain that the tree does not
     build. Returns (ok, output)."""
@@ -658,6 +684,7 @@ def bootstrap_stage1():
                 return True, ""
     if os.path.exists(STAGE1_KEY):
         os.remove(STAGE1_KEY)
+    announce()
     why = link_driver(seed, STAGE1)
     if why:
         return False, "the seed does not build Stage 1: " + why
@@ -729,7 +756,7 @@ def stage2_key():
 
 
 def build_stage2():
-    """Stage 1 builds the driver into `.build/sawc2-stage2`, unless the cached
+    """Stage 1 builds the driver into `.build/sawc-stage2`, unless the cached
     link has the same key. Returns (ok, output)."""
     key = stage2_key()
     if key is None:
@@ -742,6 +769,7 @@ def build_stage2():
                 return True, ""
     if os.path.exists(STAGE2_KEY):
         os.remove(STAGE2_KEY)
+    announce()
     why = link_driver(STAGE1, STAGE2)
     if why:
         return False, "Stage 1 does not build Stage 2: " + why
@@ -751,26 +779,54 @@ def build_stage2():
     return True, ""
 
 
-def build_sawc2():
-    """Build Stage 1, then Stage 2 unless Stage 1 is selected. Returns (ok,
-    output)."""
-    ok, output = build_stage1()
-    if not ok or SAWC2 == STAGE1:
-        return ok, output
-    ok2, output2 = build_stage2()
-    return ok2, "\n".join(part for part in (output, output2) if part)
+def build_sawc():
+    """Build Stage 1, then Stage 2 unless Stage 1 is selected, holding
+    BUILD_LOCK throughout. Returns (ok, output)."""
+    os.makedirs(BUILD_DIR, exist_ok=True)
+    with open(BUILD_LOCK, "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        ok, output = build_stage1()
+        if not ok or SAWC == STAGE1:
+            return ok, output
+        ok2, output2 = build_stage2()
+        return ok2, "\n".join(part for part in (output, output2) if part)
+
+
+# What `--quiet` prints on standard error once, the first time a step is about
+# to build rather than find its cached result; None prints nothing.
+ANNOUNCEMENT = None
+
+
+def announce():
+    global ANNOUNCEMENT
+    if ANNOUNCEMENT:
+        print(ANNOUNCEMENT, file=sys.stderr, flush=True)
+        ANNOUNCEMENT = None
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("entry", nargs="?", help="a program to build instead of sawc2")
+    ap.add_argument("entry", nargs="?", help="a program to build instead of sawc")
     ap.add_argument("-o", dest="out", help="the output path (required with ENTRY)")
     ap.add_argument("--runtime", metavar="TRIPLE", action="append", default=[],
                     help="also build the runtime of another target and write its manifest")
+    ap.add_argument("--quiet", action="store_true",
+                    help="print nothing when the stages build, and a failure on standard error")
     args = ap.parse_args()
+    if args.quiet:
+        if args.entry is not None or args.runtime:
+            ap.error("--quiet builds the stages alone, so it takes no ENTRY and no --runtime")
+        global ANNOUNCEMENT
+        ANNOUNCEMENT = ("sawc: building the compiler with compiler/tools/build.py; a first build "
+                        "takes a minute or two")
+        ok, output = build_sawc()
+        if not ok:
+            print("%s\nbuild: FAILED: %s" % (output, os.path.relpath(SAWC, REPO)), file=sys.stderr)
+            return 1
+        return 0
     if args.entry is None:
-        ok, output = build_sawc2()
-        target = SAWC2
+        ok, output = build_sawc()
+        target = SAWC
         for triple in args.runtime if ok else []:
             why = build_runtime(triple)
             if why:
@@ -779,13 +835,13 @@ def main():
             output = "\n".join(part for part in (output, "build: %s" % os.path.relpath(runtime_manifest(triple),
                                                                                            REPO)) if part)
     elif args.runtime:
-        ap.error("--runtime builds sawc2's runtimes, so it takes no ENTRY")
+        ap.error("--runtime builds sawc's runtimes, so it takes no ENTRY")
         return 2
     else:
         if args.out is None:
             ap.error("-o is required when an ENTRY is given")
-        target = SAWC2
-        ok, output = (True, "") if handed_down() else build_sawc2()
+        target = SAWC
+        ok, output = (True, "") if handed_down() else build_sawc()
         if ok:
             ok, output = build_program(os.path.abspath(args.entry), os.path.abspath(args.out))
             target = args.out

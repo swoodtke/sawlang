@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The parse lane: `sawc2 parse` against the parser corpus, as far as the parser claims.
+"""The parse lane: `sawc parse` against the parser corpus, as far as the parser claims.
 
     python compiler/tests/parse_lane.py            run the lane and print its summary
     python compiler/tests/parse_lane.py --verbose  also list the cases not yet claimed,
-                                                   and time the one sawc2 process
+                                                   and time the one sawc process
 
 `compiler/parse/CLAIMS.tsv` lists the GRAMMAR.md alternatives and rules the
-parser implements so far (SL-424, contract item 7). The lane runs one `sawc2
+parser implements so far (SL-424, contract item 7). The lane runs one `sawc
 parse` process over every case of `compiler/tests/parse/` and every file of
 `tests/corpus/`, then judges each case by its expectation:
 
@@ -24,8 +24,8 @@ parse` process over every case of `compiler/tests/parse/` and every file of
 
 Each case's recognizer record is computed once and cached under a hash of the
 case, GRAMMAR.md, the recognizer's own source, and the lexer it reads tokens
-from (its source and the sawc2 binary). The lane also re-renders
-every expected dump through `sawc2 parse --redump`, which must give it back
+from (its source and the sawc binary). The lane also re-renders
+every expected dump through `sawc parse --redump`, which must give it back
 byte for byte, so the renderer is proven apart from the parser.
 """
 import argparse
@@ -83,7 +83,7 @@ class Case:
         self.name = name
         self.start = start
         self.text = text
-        self.path = path          # the file sawc2 reads
+        self.path = path          # the file sawc reads
         self.expect = expect      # "dump", "refuses", "parses-as" or "corpus"
         self.detail = detail      # the dump lines, or the refusal's name
         self.record = None        # the recognizer's alternatives, when it accepts
@@ -97,7 +97,7 @@ class Case:
 
 
 class Result:
-    """What `sawc2 parse` printed for one file."""
+    """What `sawc parse` printed for one file."""
 
     def __init__(self):
         self.dump = []
@@ -222,7 +222,7 @@ def collect(failures):
 
 def salt(lexer_roots=LEXER_SOURCES, binary_key=None):
     """A hash of everything a record depends on besides the case itself: the
-    grammar, the recognizer, and the lexer whose `sawc2 lex` dump the
+    grammar, the recognizer, and the lexer whose `sawc lex` dump the
     recognizer reads, as the sources under `lexer_roots` and the identity of
     the binary, `binary_key` (Stage 2's cache key when None). That key is the
     same under the fixpoint lane's twin, whose answers are Stage 1's, which the
@@ -244,7 +244,7 @@ def salt(lexer_roots=LEXER_SOURCES, binary_key=None):
 
 
 def check_salt(failures):
-    """A change to a lexer source, or to the sawc2 binary's key, changes the
+    """A change to a lexer source, or to the sawc binary's key, changes the
     salt, so the cached records never outlive the lexer they were read from."""
     pin = os.path.join(WORK, "salt-pin")
     shutil.rmtree(pin, ignore_errors=True)
@@ -257,7 +257,7 @@ def check_salt(failures):
     if after_source == before:
         failures.append("parse lane: a change to the lexer's source leaves the record cache's salt as it was")
     if salt((copy,), "two") == after_source:
-        failures.append("parse lane: a different sawc2 binary leaves the record cache's salt as it was")
+        failures.append("parse lane: a different sawc binary leaves the record cache's salt as it was")
     shutil.rmtree(pin, ignore_errors=True)
     return 2
 
@@ -310,7 +310,7 @@ def run_worker():
         start, path, want_dump = line.rstrip("\n").split("\t")
         with open(path, encoding="utf-8", newline="") as fh:
             jobs.append((start, fh.read(), want_dump))
-    # Every case's text in one sawc2 process, before any is checked.
+    # Every case's text in one sawc process, before any is checked.
     lexdump.lex_texts([text for _, text, _ in jobs])
     for start, text, want_dump in jobs:
         checked = recognize.check(g, text, trees=True, start=start)
@@ -325,8 +325,8 @@ def run_worker():
 
 # ---- running the parser ----------------------------------------------------------
 
-def run_sawc2(args, inputs):
-    """{path: body lines} of one `sawc2 parse` process over `inputs`, a list
+def run_sawc(args, inputs):
+    """{path: body lines} of one `sawc parse` process over `inputs`, a list
     of (path, start), and how long it took."""
     os.makedirs(WORK, exist_ok=True)
     listing = os.path.join(WORK, "inputs.txt")
@@ -334,7 +334,7 @@ def run_sawc2(args, inputs):
         for path, start in inputs:
             fh.write(("--unit " if start == REFUSAL_UNIT else "") + path + "\n")
     began = time.monotonic()
-    r = subprocess.run([build.SAWC2, "parse"] + args + ["@" + listing], capture_output=True)
+    r = subprocess.run([build.SAWC, "parse"] + args + ["@" + listing], capture_output=True)
     took = time.monotonic() - began
     out = r.stdout.decode("utf-8", "replace")
     if out.endswith("\n"):
@@ -380,7 +380,7 @@ def first_difference(want, got):
 def judge(case, claims, counts, failures, not_yet):
     res = case.result
     if res is None:
-        failures.append("parse lane: %s: sawc2 printed no record" % case.label)
+        failures.append("parse lane: %s: sawc printed no record" % case.label)
         return
     if res.invariant is not None:
         failures.append("parse lane: %s: the tree breaks an arena invariant: %s"
@@ -488,21 +488,21 @@ def redump_check(all_cases, failures, counts):
     with open(extra, "w", encoding="utf-8") as fh:
         fh.write("".join("\n".join(c.detail) + "\n" for c in corpus_dumps))
     files.append(extra)
-    records, _, code = run_sawc2(["--redump"], [(f, SOURCE_FILE) for f in files])
+    records, _, code = run_sawc(["--redump"], [(f, SOURCE_FILE) for f in files])
     for f in files:
         with open(f, encoding="utf-8") as fh:
             want = fh.read()
         got = "\n".join(records.get(f, [])) if f in records else None
         rel = os.path.relpath(f, REPO)
         if got is None:
-            failures.append("renderer differential %s: sawc2 printed no record" % rel)
+            failures.append("renderer differential %s: sawc printed no record" % rel)
         elif got != want:
             failures.append("renderer differential %s: %s"
                             % (rel, first_difference(want.split("\n"), got.split("\n"))))
     counts["re-rendered dump files"] = len(files)
     counts["re-rendered corpus dumps"] = len(corpus_dumps)
     if code != 0:
-        failures.append("renderer differential: sawc2 exited %d" % code)
+        failures.append("renderer differential: sawc exited %d" % code)
 
 
 def run(verbose=False):
@@ -512,10 +512,10 @@ def run(verbose=False):
     claims = load_claims(model, failures)
     all_cases = collect(failures)
     computed = load_records(all_cases)
-    records, took, code = run_sawc2(["--dump", "--alternatives"],
+    records, took, code = run_sawc(["--dump", "--alternatives"],
                                     [(c.path, c.start) for c in all_cases])
     if code not in (0, 1):
-        failures.append("parse lane: sawc2 exited %d" % code)
+        failures.append("parse lane: sawc exited %d" % code)
     counts = {ACCEPTED: 0, REFUSED: 0, NOT_YET: 0}
     not_yet = []
     for c in all_cases:
@@ -533,7 +533,7 @@ def run(verbose=False):
     if verbose:
         for line in not_yet:
             print("not yet: " + line)
-        print("parse lane: one sawc2 process parsed %d files in %.2fs" % (len(all_cases), took))
+        print("parse lane: one sawc process parsed %d files in %.2fs" % (len(all_cases), took))
     return failures, counts
 
 
@@ -545,9 +545,9 @@ def main(argv=None):
     args = ap.parse_args(argv)
     if args.worker:
         return run_worker()
-    ok, output = build.build_sawc2()
+    ok, output = build.build_sawc()
     if not ok:
-        print("parse lane: sawc2 does not build: %s" % output.strip().split("\n")[-1])
+        print("parse lane: sawc does not build: %s" % output.strip().split("\n")[-1])
         return 1
     failures, counts = run(args.verbose)
     for f in failures:

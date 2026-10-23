@@ -1,7 +1,7 @@
 # The borrow check's conformance matrix
 
 Every row of `examples/conformance/INDEX.md`'s five borrow-check sections, and
-what in sawc2 answers it. A row's verdict was read from `sawc2 mir --check`
+what in sawc answers it. A row's verdict was read from `sawc mir --check`
 over its covering file's migrated copy in `tests/corpus/`. The borrowck lane
 fails when a row of those sections is missing here, when a row here is not in
 INDEX.md, or when an owner is not one of the words below.
@@ -18,7 +18,7 @@ INDEX.md, or when an owner is not one of the words below.
 | `§3.7` | drop elaboration: how many times a value is released, and where |
 | `§3.8` | monomorphization: the lifecycle glue generated per concrete type, retains and copies, and the checks made per instantiation |
 | `§3.9` | coroutine lowering |
-| `slice.not-yet` | sawc2 refuses a construct in the row's file as outside the bootstrap slice; the construct is named, and the owner the row reaches after it in parentheses |
+| `slice.not-yet` | sawc refuses a construct in the row's file as outside the bootstrap slice; the construct is named, and the owner the row reaches after it in parentheses |
 
 ## Mutability
 

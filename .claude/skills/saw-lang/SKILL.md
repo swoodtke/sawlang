@@ -509,7 +509,7 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   ordinary. One space after the marker is stripped; body text is opaque
   (Markdown by convention). A block that documents nothing is a clean error
   ("doc comment is not followed by a documentable declaration"), never a silent
-  drop. `sawc <entry> --emit-docs` emits the whole surface as JSON (signatures,
+  drop. `sawc0 <entry> --emit-docs` emits the whole surface as JSON (signatures,
   suspending-vs-sync effect, self borrows/consumes, conformances) for the entry
   module plus every module it imports; write user-facing doc text per the
   saw-docs skill. A `borrows` accessor's `self` kind is its declared receiver,
@@ -1079,7 +1079,7 @@ var u = w.copy()       // explicit duplicate
   anchored at a receiver that copies nothing), so distrust the shape in an older
   build, where the workaround was to move into a plain local first. An ESCAPING
   closure keeps the creation-time transfer, and its body may not move ITS
-  capture out at all (SL-469, a compile error in sawc2; Stage 0 still compiles
+  capture out at all (SL-469, a compile error in sawc; Stage 0 still compiles
   it and double-frees, DF-255a) — pass the value as a parameter instead.
   **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
   DF-146d) — how a slot-enum container gets an accessor at all:
@@ -1216,7 +1216,7 @@ var u = w.copy()       // explicit duplicate
   body and its bindings (per iteration for `while let`), on early exits too: a
   `_`-discarded guard or fd stays held through the arm. `let (a, _)`,
   `guard let (a, _)` and `let _` still discard at the statement. Stage 0 drops
-  at arm entry (SL:hazards C11); sawc2 is right.
+  at arm entry (SL:hazards C11); sawc is right.
 - `let _ = expr` = true discard (consumes + drops immediately). It is also the
   REQUIRED spelling for dropping a `Result` (design 151, Errors below).
 
@@ -1370,7 +1370,7 @@ while let job = queue.pop() { }      // DRAIN: one iteration per Some
   termination in the body and, when a refactor loses the `break`, fails as a HANG
   rather than an error. (That spelling also MISCOMPILED over a suspension until
   DF-233a, so treat a pre-Aug-16 one as suspect.) The scrutinee may suspend, in
-  a driven or spawned body, under a TUPLE pattern too (sawc2 lowers it; Stage 0
+  a driven or spawned body, under a TUPLE pattern too (sawc lowers it; Stage 0
   refuses it, as it does the `if let`/`guard let` form).
 - **An EXACT duplicate arm is a compile error**, reported at the second and
   naming the first's line — no input reaches it. Equality is textual after
@@ -3202,7 +3202,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   user-anchored compile error (NOT a silent block): a suspending `try { } catch
   { }` block whose try body raises TWO OR MORE distinct error types (below). A
   suspension-spanning `if let`/`guard let`/`while let` with a TUPLE pattern is
-  lowered by sawc2 and refused by Stage 0.
+  lowered by sawc and refused by Stage 0.
   A NESTED generic call whose template suspends UNCONDITIONALLY without calling a
   type-param method (`func g<T>(x: T) -> T { yield_now(); x }` called nested) PARKS
   since design 218 unit 1.5 — write it and it takes its turn. Until then it
@@ -3466,7 +3466,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   }
   ```
   If member lookup then fails on the shadowing value, the error names the
-  declaration that took the name and the three ways out. `sawc -W
+  declaration that took the name and the three ways out. `sawc0 -W
   shadowed-qualifier` flags the DECLARATION instead of waiting for the use
   (warnings are off by default and never affect the exit code).
   **THE GATED-STD TIER IS WHY `import mine.{Thread}` MEANS YOURS (design 255).**
@@ -3916,7 +3916,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   or an all-zero initializer (`static ARENA: [UInt8; 65536] = [0; 65536]`)
   is zerofill in BOTH profiles. Declare the region at its real size.
 - **A BARE STATIC IS A CONSTRUCTION, so the module must be ENTITLED to it
-  (SL-660, sawc2).** Every part of the zero value must be valid at zero (a
+  (SL-660, sawc).** Every part of the zero value must be valid at zero (a
   scalar, a raw pointer, an Optional = `None`, a payload-free enum = its first
   case, a raw-backed enum WITH A `= 0` CASE, tuples/arrays/`Atomic` of those)
   and either buildable field by field HERE (every field visible at any depth,
@@ -3930,7 +3930,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   `extension Lock<T: ZeroInit>: ZeroInit {}`, and the argument is then checked
   at the static from the static's module, so `static STATS:
   SpinLock<Counters>` needs no line on a local `Counters`). STAGE 0 has no
-  `ZeroInit`: code it compiles can't declare one, and under its std sawc2
+  `ZeroInit`: code it compiles can't declare one, and under its std sawc
   refuses a bare `SpinLock`/`Mutex`/`Once` static (their fields are private).
 - **A STATIC INITIALIZER IS A CONSTANT EXPRESSION (design 186).** Three
   tiers and no others: (1) zero-init, the bare declaration; (2) whatever
@@ -4056,7 +4056,7 @@ Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
 value; an exported return may not be optional — a seam returns a raw
 `UnsafePointer<T>`, the `?`-wrapping is the caller's `extern` decl).
 `@export` of a reserved runtime symbol (`main`, `saw_*`, `__saw_*`) is an
-error — EXCEPT in a runtime build (`sawc2 runtime`, or Stage 0's `sawc0
+error — EXCEPT in a runtime build (`sawc runtime`, or Stage 0's `sawc0
 --runtime-build`; design 113b), which lets the per-host runtime under
 `runtime/` export exactly the frozen `__saw_rt_*` ABI (sync-only; a non-ABI
 `__saw_rt_*` name / a suspending body is a clean error). You only touch this
@@ -4508,7 +4508,7 @@ construct in the owner and lend `&driver` down.
   indistinguishable. STAGE 0 refuses every `init` whose labels are the field
   names ("ambiguous with field initialization"), so code Stage 0 compiles
   (`compiler/`, `blade/`, `libs/`, `examples/`) cannot use an override yet;
-  sawc2 alone has it.
+  sawc alone has it.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), `static func` methods, hand-written trait
@@ -4618,7 +4618,7 @@ construct in the owner and lend `&driver` down.
   capture is judged EXACTLY as a `let` of its type: `h.deref().bump()` on a
   `[move h]` `UnsafeRef` is refused, as on a `let h`. GOTCHA: the FROZEN
   Stage 0 compiler (`sawc/`) refuses only the assignment forms and still
-  accepts `v[i] = x` and `v.push(1)` on a capture — sawc2 refuses them, so do
+  accepts `v[i] = x` and `v.push(1)` on a capture — sawc refuses them, so do
   not write them.
 - **AN ESCAPING CLOSURE NEVER CONSUMES A CAPTURE (SL-469, user ruling Oct 9).**
   Its env is shared by every copy and outlives each call, so `move` of a

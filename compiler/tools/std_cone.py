@@ -3,9 +3,9 @@
 
     python compiler/tools/std_cone.py --entry FILE [--std-root DIR]
 
-The cone is read off sawc2's own typecheck dump of the program against the
+The cone is read off sawc's own typecheck dump of the program against the
 new std (`new_std_cone`); the std lane holds the recorded cones in
-`compiler/tests/std/cone/`, sawc2's own among them (`sawc2.cone`).
+`compiler/tests/std/cone/`, sawc's own among them (`sawc.cone`).
 """
 import argparse
 import difflib
@@ -51,7 +51,7 @@ def _line_under(lines, i):
 
 
 # ------------------------------------------------------- the new std's cone
-# The cone is read off sawc2's own typecheck dump: every std declaration a
+# The cone is read off sawc's own typecheck dump: every std declaration a
 # program's functions reach through their calls, the types their bodies name
 # and the lang item each String position in them lowers through, closed over
 # each reached type's `deinit` and `copy` and each reached requirement's
@@ -79,17 +79,17 @@ _POSITION_MEMBERS = {
 
 def _new_std_dump(entry, std_root, extra=()):
     args = ["--std-root", std_root] + list(extra) + [entry]
-    r = subprocess.run([build.SAWC2, "typecheck", "--dump"] + args,
+    r = subprocess.run([build.SAWC, "typecheck", "--dump"] + args,
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     problems = [l for l in r.stdout.splitlines() if l.startswith(("ERROR", "INVARIANT"))]
-    lang = subprocess.run([build.SAWC2, "resolve", "--dump"] + args,
+    lang = subprocess.run([build.SAWC, "resolve", "--dump"] + args,
                           cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     return r.stdout, lang.stdout, problems
 
 
 def new_std_cone(entry, std_root="std", extra=()):
     """(text, problems, reached) for `entry` against the new std at `std_root`,
-    `extra` the sawc2 arguments it also needs (its `--module-path`s): the cone
+    `extra` the sawc arguments it also needs (its `--module-path`s): the cone
     as `module: count` blocks of `kind name` lines.
 
     A reached trait requirement reaches each written implementor whose self
@@ -209,7 +209,7 @@ def new_std_cone(entry, std_root="std", extra=()):
             by_module.setdefault(owner, []).append("  %s %s" % (decls[d], d[len(owner) + 1:]))
     lines = ["# The cone of %s against the new std (%s): every std declaration its"
              % (os.path.relpath(entry, REPO), std_root),
-             "# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.",
+             "# functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.",
              "# %d declarations in %d modules" % (sum(len(v) for v in by_module.values()),
                                                   len(by_module)), ""]
     for mod in sorted(by_module):

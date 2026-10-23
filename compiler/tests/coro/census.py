@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""How many of the coroutine programs sawc2 builds and passes, for
+"""How many of the coroutine programs sawc builds and passes, for
 information; it gates nothing (SL:coroutines §3.2, unit A0b).
 
     python compiler/tests/coro/census.py [-v] [--gated]
 
 The programs are the Stage 0 snapshot's (`stage0/index.tsv`): the corpus
-programs Stage 0 frames at least one function for. Each is built by `sawc2
+programs Stage 0 frames at least one function for. Each is built by `sawc
 build` against the new std and, once it builds, run and judged by its own
 `EXPECT` directives. The refusal tests are `stage0/refusals.tsv`'s: one passes
-when sawc2 refuses it by the rule the plan gives its Stage 0 message, or by
+when sawc refuses it by the rule the plan gives its Stage 0 message, or by
 any rule when the plan names none, with no refusal from a gap rule beside it.
 The build, the run and that judgement, with the plan's rules and the gap
 rules, are `compiler/tests/oracle.py`'s, which the corpus differential
@@ -17,7 +17,7 @@ rules, are `compiler/tests/oracle.py`'s, which the corpus differential
 A program is gated when its missing names include a std module, a type, or a
 member of a type that no unit of the plan provides (`PLAN_MODULES`,
 `PLAN_TYPES`, `PLAN_MEMBERS`); the rest is the plan-complete set, which the
-plan closes on. Missing names come from sawc2's own refusals, so the set
+plan closes on. Missing names come from sawc's own refusals, so the set
 moves as std grows: a name hidden behind a missing module surfaces once the
 module exists. `-v` prints each program's outcome, `--gated` the gated
 programs with the names that gate them.
@@ -55,9 +55,9 @@ PLAN_TYPES = ("Task", "TaskGroup", "Duration", "Instant", "Channel", "ChannelErr
 # A plan type not named here has every member in the plan.
 PLAN_MEMBERS = {"TcpStream": ("pair", "read", "write"), "TcpListener": ("listen", "accept")}
 
-# The refusal tests the language no longer refuses, which sawc2 accepts by
+# The refusal tests the language no longer refuses, which sawc accepts by
 # design (SL:architecture §5, "language changed"): each is counted as
-# `changed` while sawc2 accepts it, and as `accepted` would be otherwise.
+# `changed` while sawc accepts it, and as `accepted` would be otherwise.
 LANGUAGE_CHANGED = {
     "coro_suspending_default_omitted.saw":
         "a call that leaves out a suspending default suspends in the caller and runs (SL-656 (b))",
@@ -76,15 +76,15 @@ _MEMBER = re.compile(r"^`([^`]+)` has no (?:member|method) `([^`]+)`")
 
 def build_program(path):
     """(exit status, [(rule, position, message)], binary) for corpus program
-    `path` under `sawc2 build`."""
+    `path` under `sawc build`."""
     src = os.path.join(CORPUS, path)
     binary = os.path.join(OUT, os.path.splitext(path)[0].replace("/", "__"))
-    code, errors, _, _ = oracle.sawc2_build(src, binary, expect.read(src).flags)
+    code, errors, _, _ = oracle.sawc_build(src, binary, expect.read(src).flags)
     return code, errors, binary
 
 
 def missing_names(errors):
-    """The std modules, types and members sawc2's refusals say are missing,
+    """The std modules, types and members sawc's refusals say are missing,
     as `module std.x`, `type T` and `member T.m`. A free name is a type when
     it is capitalised and not an enum case written in a pattern (`case
     Value(_)`); a lower-case one is never counted, since any missing module
@@ -133,12 +133,12 @@ def census_program(path):
     code, errors, binary = build_program(path)
     gating = [n for n in missing_names(errors) if outside_plan(n)]
     if code is None:
-        return "crash", "sawc2 build timed out", gating
+        return "crash", "sawc build timed out", gating
     if errors:
         rule, where, message = errors[0]
         return "refused", "%s %s" % (rule, message), gating
     if code != 0:
-        return "crash", "sawc2 build exit %d with no ERROR line" % code, gating
+        return "crash", "sawc build exit %d with no ERROR line" % code, gating
     rc, out, err, _ = oracle.run_binary(binary)
     verdict = expect.judge(expect.read(os.path.join(CORPUS, path)), rc, out.decode("utf-8", "replace"),
                            err.decode("utf-8", "replace"))

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Stage 0's behaviour on a program, recorded as a snapshot record, and sawc2's
+"""Stage 0's behaviour on a program, recorded as a snapshot record, and sawc's
 behaviour judged against it: the one format and the one comparison every lane
-that holds sawc2 to Stage 0 shares (SL-655, SL-665). No lane runs Stage 0;
+that holds sawc to Stage 0 shares (SL-655, SL-665). No lane runs Stage 0;
 each reads its records, and only a snapshot's regeneration runs the v0
 compiler, which `v0_compiler` finds.
 
@@ -31,7 +31,7 @@ ENTRY POINTS
     load_run
     render_run
     record_run
-    sawc2_build
+    sawc_build
     run_binary
     judge_refusal
     compare_run
@@ -65,18 +65,18 @@ import twin  # noqa: E402
 RUNS = 2
 RUN_TIMEOUT = 60
 STAGE0_TIMEOUT = 900
-SAWC2_TIMEOUT = 600
+SAWC_TIMEOUT = 600
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _STAGE0_ERROR = re.compile(r"^(?:error\b|\w+ error at )")
-_SAWC2_ERROR = re.compile(r"^ERROR\t(\S+)\t(\S+)\t(.*)$")
-_SAWC2_INVARIANT = re.compile(r"^INVARIANT\t(.*)$")
+_SAWC_ERROR = re.compile(r"^ERROR\t(\S+)\t(\S+)\t(.*)$")
+_SAWC_INVARIANT = re.compile(r"^INVARIANT\t(.*)$")
 
-# The refusals that say sawc2 lacks something, not that the program is wrong.
+# The refusals that say sawc lacks something, not that the program is wrong.
 GAP_RULES = ("import.unknown-module", "name.undefined", "member.unknown", "slice.not-yet", "backend.not-yet",
              "mono.not-yet", "coro.not-yet", "driver.not-yet")
 
-# The sawc2 rule SL:coroutines §3.3 names for a refusal Stage 0 makes, by a
+# The sawc rule SL:coroutines §3.3 names for a refusal Stage 0 makes, by a
 # phrase of Stage 0's message; a test whose message matches none is judged
 # by any rule that is not a gap.
 PLAN_RULES = (
@@ -442,26 +442,26 @@ def read_tsv(path, columns):
     return rows
 
 
-# --- sawc2 -------------------------------------------------------------------
+# --- sawc -------------------------------------------------------------------
 
-# A `COMPILE-FLAGS` flag Stage 0 spells one way and `sawc2 build` another:
-# Stage 0's runtime build is `sawc2 build --runtime`, which checks a runtime's
-# source (`sawc2 runtime` builds one).
-SAWC2_SPELLINGS = {"--runtime-build": "--runtime"}
-
-
-def sawc2_flags(flags):
-    """A program's `COMPILE-FLAGS` as `sawc2 build` spells them."""
-    return [SAWC2_SPELLINGS.get(f, f) for f in flags]
+# A `COMPILE-FLAGS` flag Stage 0 spells one way and `sawc build` another:
+# Stage 0's runtime build is `sawc build --runtime`, which checks a runtime's
+# source (`sawc runtime` builds one).
+SAWC_SPELLINGS = {"--runtime-build": "--runtime"}
 
 
-def sawc2_build(src, out, flags, timeout=SAWC2_TIMEOUT):
-    """`sawc2 build` of `src` against the new std: (exit status, or None on a
+def sawc_flags(flags):
+    """A program's `COMPILE-FLAGS` as `sawc build` spells them."""
+    return [SAWC_SPELLINGS.get(f, f) for f in flags]
+
+
+def sawc_build(src, out, flags, timeout=SAWC_TIMEOUT):
+    """`sawc build` of `src` against the new std: (exit status, or None on a
     timeout; [(rule, position, message)] of its refusals; what it printed;
     seconds)."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
     start = time.monotonic()
-    proc = child_groups.start([build.SAWC2, "build", "--std-root", "std"] + sawc2_flags(flags) + [rel(src), "-o", out],
+    proc = child_groups.start([build.SAWC, "build", "--std-root", "std"] + sawc_flags(flags) + [rel(src), "-o", out],
                               cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         so, se = proc.communicate(timeout=timeout)
@@ -473,13 +473,13 @@ def sawc2_build(src, out, flags, timeout=SAWC2_TIMEOUT):
     finally:
         child_groups.forget(proc)
     so, se = _text(so), _text(se)
-    found = [m.groups() for m in map(_SAWC2_ERROR.match, so.split("\n")) if m]
+    found = [m.groups() for m in map(_SAWC_ERROR.match, so.split("\n")) if m]
     return code, found, so + se, time.monotonic() - start
 
 
 def invariants(log):
-    """The `INVARIANT` lines of sawc2's output, each without its kind."""
-    return [m.group(1) for m in map(_SAWC2_INVARIANT.match, log.split("\n")) if m]
+    """The `INVARIANT` lines of sawc's output, each without its kind."""
+    return [m.group(1) for m in map(_SAWC_INVARIANT.match, log.split("\n")) if m]
 
 
 def plan_rule(message):
@@ -491,16 +491,16 @@ def plan_rule(message):
 
 def judge_refusal(stage0_error, code, found):
     """(outcome, detail) for a refusal test whose Stage 0 error is
-    `stage0_error`, after a sawc2 build that exited `code` with refusals
+    `stage0_error`, after a sawc build that exited `code` with refusals
     `found`: `pass`, `accepted`, `blocked` (a gap rule refuses it), `other`
     (refused, not by the rule the plan names) or `crash`."""
     want = plan_rule(stage0_error)
     if code is None:
-        return "crash", "sawc2 build timed out"
+        return "crash", "sawc build timed out"
     if code == 0:
         return "accepted", ""
     if not found:
-        return "crash", "sawc2 build exit %d with no ERROR line" % code
+        return "crash", "sawc build exit %d with no ERROR line" % code
     gaps = [e for e in found if e[0] in GAP_RULES]
     if gaps:
         return "blocked", "%s %s" % (gaps[0][0], gaps[0][2])
@@ -531,13 +531,13 @@ def comparable(text, path, same_twin):
 
 
 def compare_run(rec, code, stdout, stderr):
-    """None when sawc2's run (exit `code`, the two streams as text) is Stage
+    """None when sawc's run (exit `code`, the two streams as text) is Stage
     0's recorded run `rec`, or (what, detail): what is `exit`, `stdout` or
     `stderr`, the first that differs. A stream recorded as `varies` is not
     compared."""
     same = rec.twin == "same"
     if rec.exit != "varies" and code != rec.exit:
-        return "exit", "sawc2 %s, Stage 0 %s" % (exit_text(code), exit_text(rec.exit))
+        return "exit", "sawc %s, Stage 0 %s" % (exit_text(code), exit_text(rec.exit))
     for name, got, want in (("stdout", stdout, rec.stdout), ("stderr", stderr, rec.stderr)):
         if want == "varies":
             continue
@@ -565,11 +565,11 @@ def first_difference(a, b):
         x = la[k] if k < len(la) else "<end>"
         y = lb[k] if k < len(lb) else "<end>"
         if x != y:
-            return "line %d: sawc2 %s, Stage 0 %s" % (k + 1, quote(x[:160]), quote(y[:160]))
+            return "line %d: sawc %s, Stage 0 %s" % (k + 1, quote(x[:160]), quote(y[:160]))
     return "no line differs"
 
 
 def comparable_link_error(log):
-    """sawc2's link output with clang's temporary object names made equal
+    """sawc's link output with clang's temporary object names made equal
     (the fixpoint twin's rule)."""
     return twin.comparable_stderr(["build"], log.encode("utf-8", "replace")).decode("utf-8", "replace")

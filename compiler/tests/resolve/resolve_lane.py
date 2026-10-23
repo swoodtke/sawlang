@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The resolve lane: `sawc2 resolve` against its golden dumps and refusal fixtures.
+"""The resolve lane: `sawc resolve` against its golden dumps and refusal fixtures.
 
     python compiler/tests/resolve/resolve_lane.py            # check
     python compiler/tests/resolve/resolve_lane.py --write    # rewrite the golden dumps
@@ -20,7 +20,7 @@ directory specifies:
   position its `// refuses:` header names, checked with the flags a second
   line `// flags: ...` passes (`--std-root std`, for the new std);
 - every rule resolve refuses by has a fixture, unless `WAIVED` says why not;
-- the compiler's own source, the sawc2 build and each unit program, resolves
+- the compiler's own source, the sawc build and each unit program, resolves
   with no refusal;
 - no record anywhere carries an `INVARIANT` line from the verifier;
 - the interface parse's checks in `interface_pin.py` pass.
@@ -90,15 +90,15 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def sawc2(args):
-    r = subprocess.run([build.SAWC2, "resolve"] + with_std_root(args), cwd=REPO, capture_output=True,
+def sawc(args):
+    r = subprocess.run([build.SAWC, "resolve"] + with_std_root(args), cwd=REPO, capture_output=True,
                        text=True, timeout=TIMEOUT)
     return r.returncode, r.stdout
 
 
 # The std a call names when its arguments name none: Stage 0's frozen one,
 # which this lane's fixtures are written against unless a `// flags:` line
-# names another. sawc2's own default is the new std.
+# names another. sawc's own default is the new std.
 FROZEN_STD_ROOT = "sawc"
 
 
@@ -207,7 +207,7 @@ def without_std_modules(record):
 
 
 def compare_records(failures, counts, write, cases, args):
-    code, out = sawc2(["--dump"] + args + [rel(src) for src, _ in cases])
+    code, out = sawc(["--dump"] + args + [rel(src) for src, _ in cases])
     got = records(out)
     if std_root_of(args) != FROZEN_STD_ROOT:
         got = {path: without_std_modules(record) for path, record in got.items()}
@@ -276,7 +276,7 @@ def check_refusals(failures, counts, fill):
         groups.setdefault(refusal_flags(path), []).append(path)
     got = {}
     for flags, paths in sorted(groups.items()):
-        code, out = sawc2(["--check"] + list(flags) + [rel(p) for p in paths])
+        code, out = sawc(["--check"] + list(flags) + [rel(p) for p in paths])
         got.update(records(out))
     named = set()
     for path in cases:
@@ -342,7 +342,7 @@ def check_built_cases(failures, counts):
     entry file, an imported module the parser refuses, and a std signature
     outside the slice."""
     missing = rel(os.path.join(HERE, "no-such-entry.saw"))
-    code, out = sawc2(["--check", missing])
+    code, out = sawc(["--check", missing])
     found = first_error(records(out).get(missing, ""))
     if found is None or found[0] != "import.unreadable":
         failures.append("resolve: a missing entry file is not refused as import.unreadable")
@@ -353,7 +353,7 @@ def check_built_cases(failures, counts):
         fh.write(PARSE_REFUSED_ENTRY)
     with open(os.path.join(case, "broken.saw"), "w") as fh:
         fh.write(PARSE_REFUSED_MODULE)
-    code, out = sawc2(["--check", rel(entry)])
+    code, out = sawc(["--check", rel(entry)])
     found = first_error(records(out).get(rel(entry), ""), rel(entry))
     if found != ("resolve.parse-refused", PARSE_REFUSED_AT):
         failures.append("resolve: an imported module the parser refuses gives %r, expected "
@@ -376,7 +376,7 @@ def check_interface_note(failures):
     line = text.count("\n") + 2
     with open(path, "w") as fh:
         fh.write(text + INTERFACE_DECLARATION)
-    code, out = sawc2(["--check", "--notes", "--std-root", rel(INTERFACE_ROOT),
+    code, out = sawc(["--check", "--notes", "--std-root", rel(INTERFACE_ROOT),
                        rel(os.path.join(HERE, "golden", "types.saw"))])
     lines = out.split("\n")
     want = "NOTE\t%s\t%s:%d:" % (INTERFACE_RULE, rel(path), line)
@@ -435,7 +435,7 @@ def check_identity_cases(failures, counts):
     mapping = ["--module-path", "pk=%s" % os.path.abspath(src)]
     entry = rel(os.path.join(src, "main.saw"))
     binary = os.path.join(IDENTITY_DIR, "main")
-    r = subprocess.run([build.SAWC2, "build", "--std-root", "std"] + mapping + [entry, "-o", binary],
+    r = subprocess.run([build.SAWC, "build", "--std-root", "std"] + mapping + [entry, "-o", binary],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
     if r.returncode != 0:
         failures.append("resolve identity: the S27 program does not build: %s"
@@ -449,7 +449,7 @@ def check_identity_cases(failures, counts):
     for name, text in cases.items():
         with open(os.path.join(IDENTITY_DIR, name), "w") as fh:
             fh.write(text)
-    code, out = sawc2(["--dump", "--module-path", "pk=%s" % rel(src)]
+    code, out = sawc(["--dump", "--module-path", "pk=%s" % rel(src)]
                       + [rel(os.path.join(IDENTITY_DIR, name)) for name in sorted(cases)])
     got = records(out)
     links = got.get(rel(os.path.join(IDENTITY_DIR, "links.saw")), "")
@@ -474,11 +474,11 @@ def unit_programs():
 
 
 def check_acceptance(failures, counts):
-    """The compiler's own source resolves whole: the sawc2 build, then each unit
+    """The compiler's own source resolves whole: the sawc build, then each unit
     program, each the entry of its own program. A unit program the parser
     refuses has no tree to resolve and is counted apart."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc2(["--check"] + package_args() + entries)
+    code, out = sawc(["--check"] + package_args() + entries)
     got = records(out)
     for entry in entries:
         record = got.get(entry)
@@ -507,11 +507,11 @@ def run(write=False, fill=False):
     counts = {}
     check_golden(failures, counts, write)
     named = check_refusals(failures, counts, fill)
-    code, out = sawc2(["--check"] + [rel(p) for p in refusal_cases()]
+    code, out = sawc(["--check"] + [rel(p) for p in refusal_cases()]
                       + [rel(src) for src, _ in golden_cases()])
     check_invariants(failures, records(out))
     cases, args = package_cases()
-    code, out = sawc2(["--check"] + args + [rel(src) for src, _ in cases])
+    code, out = sawc(["--check"] + args + [rel(src) for src, _ in cases])
     check_invariants(failures, records(out))
     check_catalog(failures, counts, named)
     check_built_cases(failures, counts)

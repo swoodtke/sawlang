@@ -7,7 +7,7 @@
 `Parser.parse_comma_list` parses every list whose elements a `,` separates
 (SL-437): its element parser, closer, trailing-comma policy and line breaks come
 from the position matrix `list_shape`. This lane holds the parser to that, over
-the source as sawc2 reads it (`sawc2_reading.py`).
+the source as sawc reads it (`sawc_reading.py`).
 
 A COMMA TAKE is an `if` whose condition tests `kind == TokenKind.Comma` (or
 `kind_at(n) == TokenKind.Comma`) and whose `then` block consumes a token
@@ -36,7 +36,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
 import subset_check  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
+import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
 
 PACKAGE = os.path.join(REPO, "compiler", "parse", "src")
 FUNNEL_FILE = os.path.join(PACKAGE, "parser.saw")

@@ -1,4 +1,4 @@
-"""The twin the fixpoint lane puts where the lanes expect sawc2: it runs Stage 1
+"""The twin the fixpoint lane puts where the lanes expect sawc: it runs Stage 1
 and Stage 2 on the same arguments, hands the lane Stage 1's answer, and writes
 one record per invocation into the log directory: the arguments, the step that
 made the call, and whether the two agree on standard output, standard error (a
@@ -6,11 +6,11 @@ build's clang temporary object names aside) and exit status. Configured by FIXPO
 FIXPOINT_LOG (the directory). The two stages run at once when the step holds a
 second token for the call (SAW_GATE_CALL_TOKENS, compiler/tests/run.py) or one
 of the gate's budget is free (`tools/gate_jobs.py`), except for a command that
-writes files, whose two runs would write the same paths. For `sawc2 lex @LIST`,
+writes files, whose two runs would write the same paths. For `sawc lex @LIST`,
 which lexes many files in one process, the record names each listed file
 whose frame the two stages print differently (`files`), and counts the files.
 
-The twin runs once per sawc2 call, the recognizer's many small lexes
+The twin runs once per sawc call, the recognizer's many small lexes
 included, so it imports only what it needs, `gate_jobs` only when it must ask
 for a token.
 """
@@ -24,7 +24,7 @@ import threading
 TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))), "tools")
 
-# The sawc2 commands that write files at paths their arguments name.
+# The sawc commands that write files at paths their arguments name.
 WRITERS = ("build", "runtime")
 
 # clang names the object it links through `STEM-XXXXXX.o` with a random
@@ -80,13 +80,13 @@ def run_both(args):
 
 
 def listed(args):
-    """Whether the call is `sawc2 lex @LIST`, whose output is one frame per
+    """Whether the call is `sawc lex @LIST`, whose output is one frame per
     listed file, each starting with a `FILE\tPATH` line."""
     return args[:1] == ["lex"] and len(args) == 2 and args[1].startswith("@")
 
 
 def split_frames(out):
-    """[(path, frame bytes)] of a `sawc2 lex @LIST` output, in order."""
+    """[(path, frame bytes)] of a `sawc lex @LIST` output, in order."""
     frames = []
     for line in out.split(b"\n"):
         if line.startswith(b"FILE\t"):

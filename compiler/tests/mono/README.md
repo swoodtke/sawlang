@@ -2,7 +2,7 @@
 
 The corpus monomorphization (`compiler/mono`, package `sawmono`, SL-505) and
 the target description (`compiler/target`, package `sawtarget`) are held to.
-This file specifies `sawc2 mono`'s records, the item model, the glue, the
+This file specifies `sawc mono`'s records, the item model, the glue, the
 layout table, the rules mono refuses by, and the lane.
 
 ```
@@ -16,17 +16,17 @@ mono/
   stage0/                 Stage 0's recorded runs of the layout probes (see "The lane")
 ```
 
-## `sawc2 mono`
+## `sawc mono`
 
 ```sh
-.build/sawc2 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]
+.build/sawc-stage1 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]
                   [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
 Each FILE is the entry of its own program. It is resolved, type checked,
-lowered, borrow checked and elaborated as `sawc2 drops` does, its constants
+lowered, borrow checked and elaborated as `sawc drops` does, its constants
 evaluated, then monomorphized. Its record, after the `FILE` line, holds
-everything `sawc2 drops --check` prints; then, when nothing there is an
+everything `sawc drops --check` prints; then, when nothing there is an
 `ERROR` or an `INVARIANT` line, one `ERROR<TAB>rule<TAB>file:line:col<TAB>message`
 line per refusal of mono, an `INVARIANT<TAB>mono<TAB>message` line per broken
 invariant mono met, and with `--dump` each item, with `--layouts` the layout
@@ -65,7 +65,7 @@ member glue item (requirement, concrete type); an extern item is its C name,
 so two std modules declaring one seam call one symbol.
 
 **The worklist** starts from the roots, in this order: the entry module's
-`main`, which a runtime source (`sawc2 runtime`) has none of, and which is
+`main`, which a runtime source (`sawc runtime`) has none of, and which is
 never a test-only declaration: a normal build emits none, so a program whose
 only `main` is test-only roots none and is refused as one with no `main`
 (golden `test_only_main`; typecheck's `top_decl` passes test-only
@@ -295,7 +295,7 @@ TYPE: size S align A KIND [offsets O...] [tag N, CASE=TAG @O..., ...] [of N]
 
 KIND is `zero`, `int`, `float`, `pointer`, `record` (a struct, a tuple),
 `enum`, `optional`, `closure` or `array`. The rules are Stage 0's, which
-shares the runtime ABI with sawc2:
+shares the runtime ABI with sawc:
 
 | type | layout |
 |---|---|
@@ -376,6 +376,6 @@ The lane also runs each subcommand `--lowerings` counts for over the golden
 programs, two run-lane programs with constants (`statics`, `layout_asserts`),
 a program mono refuses and one refused before mono, and requires each record's
 count. The paths the driver cannot count, coroutine lowering's (the front half
-of `sawc2 build`) and a runtime source's, are the unit program
+of `sawc build`) and a runtime source's, are the unit program
 `compiler/mono/tests/one_lowering.saw`, which reads the count off the program
 each returns.

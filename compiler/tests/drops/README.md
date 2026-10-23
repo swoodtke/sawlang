@@ -1,7 +1,7 @@
 # compiler/tests/drops: drop elaboration's corpus
 
 The corpus drop elaboration (`compiler/drops`, package `sawdrops`, SL-468) is
-held to. This file specifies `sawc2 drops`'s records and dump, the elaborated
+held to. This file specifies `sawc drops`'s records and dump, the elaborated
 MIR, its flags, the glue resolution it records, the rule it refuses by, and
 the verifier that runs after it.
 
@@ -15,10 +15,10 @@ drops/
   conformance.tsv    the conformance rows drop elaboration owns, and their summaries
 ```
 
-## `sawc2 drops`
+## `sawc drops`
 
 ```sh
-.build/sawc2 drops (--dump | --check) [--notes] [--std-root DIR]
+.build/sawc-stage1 drops (--dump | --check) [--notes] [--std-root DIR]
                    [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -26,7 +26,7 @@ Each FILE is the entry of its own program, which is resolved, type checked,
 lowered, borrow checked, then elaborated. Each entry gets one record,
 starting with the line `FILE<TAB>path`, holding in order:
 
-- everything `sawc2 borrowck --check` prints for it
+- everything `sawc borrowck --check` prints for it
   (`compiler/tests/borrowck/README.md`);
 - when nothing there is an `ERROR` or an `INVARIANT` line, the program is
   elaborated, and the record goes on with one
@@ -184,7 +184,7 @@ accepts elaborates exactly as before (golden `fates`).
 **The escape matrix**, each row against Stage 0's spawn-obligation funnel
 (`sawc/typechecker/types.py`), each cell probed with both compilers:
 
-| route | sawc2 | Stage 0 |
+| route | sawc | Stage 0 |
 |---|---|---|
 | a bare statement, `let _ =` | refused, discarded | refused, discarded |
 | bound, dropped on some path (a branch, a loop iteration, an early `return`) | refused | refused |
@@ -200,7 +200,7 @@ accepts elaborates exactly as before (golden `fates`).
 | a fate written, then the handle moved and dropped | accepted | accepted |
 | `Task.spawn(f()).join()` | accepted | accepted |
 
-The two divergences are both cases sawc2 accepts and Stage 0 refuses; each
+The two divergences are both cases sawc accepts and Stage 0 refuses; each
 follows from the check being per path and per value, as the spec states it.
 A handle reached through a reference (`let r = &t; r.join()`) or a field
 (`k.held.join()`) writes no fate the check sees, so the handle's local, or
@@ -278,12 +278,12 @@ file byte for byte (`--write` rewrites them; a first line `// flags: ...`
 passes flags, and under `--std-root` the expectation holds the entry module's
 dump alone); that each fixture in `refuse/` is refused first at its header's
 position, a due row by the refusal in its way, and every rule has a fixture;
-that the compiler's own source, the sawc2 build and each unit program, and
+that the compiler's own source, the sawc build and each unit program, and
 the new std's entry under `--std-root std`, elaborate with no refusal and no
 invariant; that every tests/corpus program that elaborates does so with no
 invariant; and that every conformance row CONFORMANCE.md gives `§3.7` names a
 fixture here and its program in `conformance.tsv` gives the summary recorded
-there. It counts the drop flags over the sawc2 build and over tests/corpus.
+there. It counts the drop flags over the sawc build and over tests/corpus.
 
 | aspect | golden |
 |---|---|
@@ -310,9 +310,9 @@ there. It counts the drop flags over the sawc2 build and over tests/corpus.
 
 ## The flag counts
 
-The borrow check labels 1 drop `flagged` over the sawc2 build and 28 over
+The borrow check labels 1 drop `flagged` over the sawc build and 28 over
 tests/corpus (its lane counts them over every record). Elaboration has 1
-flag over the sawc2 build, one per flagged drop. Over the corpus it has 25,
+flag over the sawc build, one per flagged drop. Over the corpus it has 25,
 8 of them take flags it adopts: 3 of the 28 flagged drops are in programs the
 borrow check refuses (`use_after_move_branch`, `use_after_move_loop`,
 `use_after_move_loop_body_always_breaks`), which are not elaborated.

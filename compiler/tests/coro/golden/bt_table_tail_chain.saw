@@ -4,7 +4,7 @@
 // point (29) and drives `handle` (30) and `step` (33); a chain three frames
 // deep, `worker` -> `handle` -> `serve`; and `handle` and `step`, each with
 // two states on two lines, a park of its own (`yield_now`, folded into the
-// caller's line) and a drive. sawc2 numbers a frame's states in block order,
+// caller's line) and a drive. sawc numbers a frame's states in block order,
 // which is not Stage 0's, so the lane compares the sets of states.
 
 import std.task.*

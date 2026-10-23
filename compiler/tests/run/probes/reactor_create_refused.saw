@@ -1,6 +1,6 @@
 // probe: panics
 // about: a reactor the system refuses is reported with its cause, never handed back half built (SL-768)
-// stage 0: panics with the same message, then writes its task dump, which sawc2's executor does not have
+// stage 0: panics with the same message, then writes its task dump, which sawc's executor does not have
 // speeds: -O0 -O2
 // prints: descriptors exhausted: true
 // panics: reactor: creating the reactor failed (errno 24)

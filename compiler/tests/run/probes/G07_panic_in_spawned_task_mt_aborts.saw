@@ -1,6 +1,6 @@
 // probe: panics
 // about: a panic in a task a pool worker runs aborts the process, and `main`'s own return never overwrites it (SL-578)
-// stage 0: it prints the task dump after the panic line, which sawc2's panic path does not print yet (SL-577)
+// stage 0: it prints the task dump after the panic line, which sawc's panic path does not print yet (SL-577)
 // speeds: -O0 -O2
 // panics: task panicked
 // tests/corpus/conformance/G07_panic_in_spawned_task_mt_aborts less its

@@ -1,38 +1,40 @@
-// sawc2, the driver of the self-hosted Saw compiler. Each stage is reached
+// sawc, the driver of the self-hosted Saw compiler. Each stage is reached
 // through a subcommand.
 //
-//   sawc2 lex [--docs] <file.saw>   the token dump, or the doc-comment trivia
-//   sawc2 lex --kinds               every token kind's dump name, one per line
-//   sawc2 lex @LIST                 each listed file's token dump and doc dump, framed
-//   sawc2 parse --dump FILE...      each file's canonical AST dump
-//   sawc2 parse --check FILE...     each file's diagnostics only
-//   sawc2 parse --redump FILE...    each dump file read back and rendered again
-//   sawc2 resolve --dump FILE...    each entry file's program resolved, and its dump
-//   sawc2 resolve --check FILE...   each entry file's program resolved, refusals only
-//   sawc2 typecheck --dump FILE...  each entry file's signatures checked, and its dump
-//   sawc2 typecheck --check FILE... each entry file's signatures checked, refusals only
-//   sawc2 mir --dump FILE...        each entry file's program lowered to MIR, and its dump
-//   sawc2 mir --check FILE...       each entry file's program lowered, refusals and invariants only
-//   sawc2 eval --dump FILE...       each entry file's constants evaluated, and their values
-//   sawc2 eval --check FILE...      each entry file's constants evaluated, refusals and invariants only
-//   sawc2 borrowck --dump FILE...   each entry file's program borrow checked, and its dump
-//   sawc2 borrowck --check FILE...  each entry file's program borrow checked, refusals and invariants only
-//   sawc2 drops --dump FILE...      each entry file's program with its drops elaborated, and its dump
-//   sawc2 drops --check FILE...     each entry file's program elaborated, refusals and invariants only
-//   sawc2 mono --dump FILE...       each entry file's program monomorphized, and its items
-//   sawc2 mono --layouts FILE...    each entry file's program monomorphized, and its types' layouts
-//   sawc2 mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
-//   sawc2 coro --dump FILE...       each entry file's program through coroutine lowering, and each item's frame
-//   sawc2 coro --layouts FILE...    each entry file's program through coroutine lowering, and each frame's layout
-//   sawc2 coro --lowered FILE...    each entry file's program through coroutine lowering, and each lowered frame's resume function
-//   sawc2 coro --bt-table FILE...   each entry file's program through coroutine lowering, and its backtrace table, decoded
-//   sawc2 coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
-//   sawc2 build FILE [-o OUT]       the entry file's program compiled and linked by clang
-//   sawc2 build --emit-ll FILE      the entry file's program as one `.ll` on standard output
-//   sawc2 build --freestanding FILE the entry file's program checked under the freestanding profile, and not built
-//   sawc2 build --runtime FILE      the entry file checked as a runtime's source, and not built
-//   sawc2 runtime --out DIR         the host's, or --target's, runtime objects built into DIR
-//   sawc2 runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
+//   sawc lex [--docs] <file.saw>   the token dump, or the doc-comment trivia
+//   sawc lex --kinds               every token kind's dump name, one per line
+//   sawc lex @LIST                 each listed file's token dump and doc dump, framed
+//   sawc parse --dump FILE...      each file's canonical AST dump
+//   sawc parse --check FILE...     each file's diagnostics only
+//   sawc parse --redump FILE...    each dump file read back and rendered again
+//   sawc resolve --dump FILE...    each entry file's program resolved, and its dump
+//   sawc resolve --check FILE...   each entry file's program resolved, refusals only
+//   sawc typecheck --dump FILE...  each entry file's signatures checked, and its dump
+//   sawc typecheck --check FILE... each entry file's signatures checked, refusals only
+//   sawc mir --dump FILE...        each entry file's program lowered to MIR, and its dump
+//   sawc mir --check FILE...       each entry file's program lowered, refusals and invariants only
+//   sawc eval --dump FILE...       each entry file's constants evaluated, and their values
+//   sawc eval --check FILE...      each entry file's constants evaluated, refusals and invariants only
+//   sawc borrowck --dump FILE...   each entry file's program borrow checked, and its dump
+//   sawc borrowck --check FILE...  each entry file's program borrow checked, refusals and invariants only
+//   sawc drops --dump FILE...      each entry file's program with its drops elaborated, and its dump
+//   sawc drops --check FILE...     each entry file's program elaborated, refusals and invariants only
+//   sawc mono --dump FILE...       each entry file's program monomorphized, and its items
+//   sawc mono --layouts FILE...    each entry file's program monomorphized, and its types' layouts
+//   sawc mono --check FILE...      each entry file's program monomorphized, refusals and invariants only
+//   sawc coro --dump FILE...       each entry file's program through coroutine lowering, and each item's frame
+//   sawc coro --layouts FILE...    each entry file's program through coroutine lowering, and each frame's layout
+//   sawc coro --lowered FILE...    each entry file's program through coroutine lowering, and each lowered frame's resume function
+//   sawc coro --bt-table FILE...   each entry file's program through coroutine lowering, and its backtrace table, decoded
+//   sawc coro --check FILE...      each entry file's program through coroutine lowering, refusals and invariants only
+//   sawc build FILE [-o OUT]       the entry file's program compiled and linked by clang
+//   sawc build --emit-ll FILE      the entry file's program as one `.ll` on standard output
+//   sawc build --freestanding FILE the entry file's program checked under the freestanding profile, and not built
+//   sawc build --runtime FILE      the entry file checked as a runtime's source, and not built
+//   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
+//   sawc runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
+//   sawc [FLAG]... FILE.saw        `sawc build` with the subcommand left out, Stage 0's command line
+//   sawc --version                 `sawc VERSION`, the release a toolchain pin names
 //
 // The lexer's records are its canonical dump (compiler/lex/README.md), the
 // parser's are described in compiler/parse/README.md, the resolver's in
@@ -77,33 +79,35 @@ static DRIVER_AT: Int = 64
 static DRIVER_EQUALS: Int = 61
 static DRIVER_SLASH: Int = 47
 func driver_usage() -> Int {
-    print("usage: sawc2 lex [--docs] <file.saw>")
-    print("       sawc2 lex --kinds")
-    print("       sawc2 lex @LIST")
-    print("       sawc2 parse (--dump | --check) [--alternatives] [[--unit] FILE | @LIST]...")
-    print("       sawc2 parse --redump [FILE | @LIST]...")
-    print("       sawc2 resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
-    print("                       [--freestanding] [--lowerings] [--std-root DIR] [--module-path NAME=DIR]...")
-    print("                       [FILE | @LIST]...")
-    print("       sawc2 mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
+    print("usage: sawc lex [--docs] <file.saw>")
+    print("       sawc lex --kinds")
+    print("       sawc lex @LIST")
+    print("       sawc parse (--dump | --check) [--alternatives] [[--unit] FILE | @LIST]...")
+    print("       sawc parse --redump [FILE | @LIST]...")
+    print("       sawc resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("                    [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
+    print("                      [--freestanding] [--lowerings] [--std-root DIR] [--module-path NAME=DIR]...")
+    print("                      [FILE | @LIST]...")
+    print("       sawc mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
+    print("                [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("       sawc borrowck (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc drops (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 borrowck (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                      [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 drops (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                   [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                  [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
-    print("                  [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc2 build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
-    print("                   [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...")
-    print("                   (FILE [-o OUT] | --emit-ll FILE)")
-    print("       sawc2 runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
-    print("                     (--out DIR | --emit-ll FILE)")
+    print("       sawc mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
+    print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
+    print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
+    print("                  [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...")
+    print("                  (FILE [-o OUT] | --emit-ll FILE)")
+    print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
+    print("                    (--out DIR | --emit-ll FILE)")
+    print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
+    print("       sawc --version")
     DRIVER_EXIT_USAGE
 }
 
@@ -116,16 +120,18 @@ func driver_speed_level(flag: String) -> String {
     ""
 }
 
-// `sawc2 build FILE`: the program compiled to `OUT.ll` and linked by clang
+// `sawc build FILE`: the program compiled to `OUT.ll` and linked by clang
 // into `OUT` against the runtime objects the manifest beside this binary
 // names; with `--emit-ll`, its `.ll` on standard output and nothing linked.
 // `--sanitize address` builds it under AddressSanitizer, its frames poisoned
 // outside their values' lifetimes; it is the one value the flag takes. A
 // refusal prints its record and exits 1, and a failing clang's exit status
 // is the build's (compiler/tests/run/README.md). `--freestanding` and
-// `--runtime` name a profile sawc2 checks but does not build
-// (`driver_check_profile`).
-func driver_build(args: &Vector<String>) -> Int {
+// `--runtime` name a profile sawc checks but does not build
+// (`driver_check_profile`). Its arguments start at `args[first]`: 2 after
+// `build`, and 1 for the implicit form `sawc [FLAG]... FILE.saw`, the
+// command line a Stage 0 consumer already writes.
+func driver_build(args: &Vector<String>, first: Int) -> Int {
     var std_root = ""
     var triple = ""
     var speed = "-O0"
@@ -137,7 +143,7 @@ func driver_build(args: &Vector<String>) -> Int {
     var sanitize = false
     var freestanding = false
     var runtime = false
-    var i = 2
+    var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
         let level = driver_speed_level(arg)
@@ -162,7 +168,7 @@ func driver_build(args: &Vector<String>) -> Int {
                 triple = value
             } else if arg.equals("--sanitize") {
                 if not value.equals("address") {
-                    print("sawc2 build: --sanitize takes `address`, the one sanitizer sawc2 builds with, not `{}`", value)
+                    print("sawc build: --sanitize takes `address`, the one sanitizer sawc builds with, not `{}`", value)
                     return DRIVER_EXIT_USAGE
                 }
                 sanitize = true
@@ -183,10 +189,10 @@ func driver_build(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     if triple.len() > 0 && not target_known(triple) {
-        print("sawc2: unknown target {triple}")
+        print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
-    std_root = driver_std_root("sawc2 build", std_root)
+    std_root = driver_std_root("sawc build", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
@@ -197,15 +203,15 @@ func driver_build(args: &Vector<String>) -> Int {
     var clang = StringBuilder()
     if emit {
         if triple.len() == 0 {
-            triple = driver_read_runtime("sawc2 build", &var objects, &var clang)
+            triple = driver_read_runtime("sawc build", &var objects, &var clang)
             if triple.len() == 0 {
-                print("sawc2 build: --emit-ll without --target writes the host's module, which the manifest names")
+                print("sawc build: --emit-ll without --target writes the host's module, which the manifest names")
                 return DRIVER_EXIT_USAGE
             }
         }
         return driver_emit(path, std_root, triple, speed, sanitize, &names, &dirs)
     }
-    let host = driver_read_runtime("sawc2 build", &var objects, &var clang)
+    let host = driver_read_runtime("sawc build", &var objects, &var clang)
     if host.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
@@ -221,7 +227,7 @@ func driver_build(args: &Vector<String>) -> Int {
     if cross {
         let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang)
         if not configured.equals(triple) {
-            print("sawc2 build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc2 mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
+            print("sawc build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
             return 1
         }
     }
@@ -251,7 +257,7 @@ func driver_build(args: &Vector<String>) -> Int {
     driver_link(clang.build(), ll_path, out, speed, sanitize, clang_triple, &objects)
 }
 
-// `sawc2 build --emit-ll FILE`: the program's `.ll` on standard output, or
+// `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
 func driver_emit(path: String, std_root: String, triple: String, speed: String, sanitize: Bool,
                  names: &Vector<String>, dirs: &Vector<String>) -> Int {
@@ -269,10 +275,10 @@ func driver_emit(path: String, std_root: String, triple: String, speed: String, 
     0
 }
 
-// `sawc2 build --freestanding` or `--runtime`: the program checked through
+// `sawc build --freestanding` or `--runtime`: the program checked through
 // typecheck under that profile, where the rules that know a profile live,
-// then refused with `driver.not-yet` when nothing else refuses it. sawc2
-// links only a hosted program, and `sawc2 runtime` builds a runtime, so a
+// then refused with `driver.not-yet` when nothing else refuses it. sawc
+// links only a hosted program, and `sawc runtime` builds a runtime, so a
 // profile build never emits a hosted image in its place.
 func driver_check_profile(path: String, std_root: String, runtime: Bool, freestanding: Bool,
                           names: &Vector<String>, dirs: &Vector<String>) -> Int {
@@ -287,9 +293,9 @@ func driver_check_profile(path: String, std_root: String, runtime: Bool, freesta
         try! record.append("ERROR\tdriver.not-yet\t")
         try! record.append(path)
         if freestanding {
-            try! record.append(":1:1\tthe freestanding profile is checked through typecheck, and sawc2 builds no freestanding image yet: it links only a hosted program, so it emits nothing rather than a hosted image\n")
+            try! record.append(":1:1\tthe freestanding profile is checked through typecheck, and sawc builds no freestanding image yet: it links only a hosted program, so it emits nothing rather than a hosted image\n")
         } else {
-            try! record.append(":1:1\ta runtime's source is checked through typecheck here, and `sawc2 runtime` is what builds a runtime: it compiles the runtime's own sources against runtime/ABI.md\n")
+            try! record.append(":1:1\ta runtime's source is checked through typecheck here, and `sawc runtime` is what builds a runtime: it compiles the runtime's own sources against runtime/ABI.md\n")
         }
         status = 1
     }
@@ -297,7 +303,7 @@ func driver_check_profile(path: String, std_root: String, runtime: Bool, freesta
     status
 }
 
-// Prints the record `sawc2 mono --check` would, headed by its file.
+// Prints the record `sawc mono --check` would, headed by its file.
 func driver_print_refusal(path: String, found: &var StringBuilder) {
     try! found.append("\n")
     var record = StringBuilder()
@@ -316,14 +322,14 @@ func driver_default_output(path: String) -> String {
 // The host target the runtime manifest beside this binary names, with the
 // clang it names appended to `clang` and its objects added to `objects`; ""
 // once the reason it cannot be read is printed, headed by `command`. This is
-// how sawc2 knows its host. The manifest is `sawc2-runtime.txt` in the
+// how sawc knows its host. The manifest is `sawc-runtime.txt` in the
 // directory of the executable this process runs from, its real path, since
 // `argv[0]` names a bare command found through `PATH` or a symbolic link: a
 // `target TRIPLE` line, a `clang PATH` line naming the clang that passed the
 // opaque-pointer check, then an `object PATH` line per runtime object
 // (compiler/tools/build.py writes it).
 func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
-    let at = driver_beside_binary(command, "sawc2-runtime.txt")
+    let at = driver_beside_binary(command, "sawc-runtime.txt")
     if at.len() == 0 {
         return ""
     }
@@ -335,16 +341,16 @@ func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &
 }
 
 // The target the runtime manifest of another target `triple` names, read as
-// `driver_read_runtime` reads the host's: `sawc2-runtime-TRIPLE.txt` beside
+// `driver_read_runtime` reads the host's: `sawc-runtime-TRIPLE.txt` beside
 // this binary, which `compiler/tools/build.py --runtime TRIPLE` writes only
 // once its clang passes the opaque-pointer check for that target. "" when
 // there is none, which is no error: that target is simply not configured.
 func driver_read_target_runtime(triple: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
     var name = StringBuilder()
-    try! name.append("sawc2-runtime-")
+    try! name.append("sawc-runtime-")
     try! name.append(triple)
     try! name.append(".txt")
-    let at = driver_beside_binary("sawc2 build", name.build())
+    let at = driver_beside_binary("sawc build", name.build())
     if at.len() == 0 {
         return ""
     }
@@ -358,7 +364,7 @@ func driver_read_target_runtime(triple: String, objects: &var Vector<String>, cl
     guard let text = driver_read_source(at) else {
         return ""
     }
-    driver_parse_manifest("sawc2 build", at, text, &var objects, &var clang)
+    driver_parse_manifest("sawc build", at, text, &var objects, &var clang)
 }
 
 // The path of the file `name` in the directory of the executable this process
@@ -409,7 +415,7 @@ func driver_std_root(command: String, given: String) -> String {
     found
 }
 
-// The runtime root `sawc2 runtime` reads its sources from: `given`, the
+// The runtime root `sawc runtime` reads its sources from: `given`, the
 // `--rt-root` it was handed, as written; with none, the `runtime/` of the
 // sawlang tree this binary was built in. "" once the reason is printed.
 func driver_rt_root(command: String, given: String) -> String {
@@ -501,7 +507,7 @@ func driver_parse_manifest(command: String, at: String, text: String, objects: &
         k = k + 1
     }
     if host.len() == 0 || not target_known(host) {
-        print("{}: {} names no target sawc2 knows", command, at)
+        print("{}: {} names no target sawc knows", command, at)
         return ""
     }
     if not named {
@@ -518,7 +524,7 @@ func driver_write_file(path: String, text: String) -> Bool {
     var file = match created {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            print("sawc2: cannot create {path}: {e}")
+            print("sawc: cannot create {path}: {e}")
             return false
         }
     }
@@ -526,7 +532,7 @@ func driver_write_file(path: String, text: String) -> Bool {
     let data = match converted {
         case Ok(bytes) -> bytes,
         case Err(e) -> {
-            print("sawc2: cannot write {path}: {e}")
+            print("sawc: cannot write {path}: {e}")
             return false
         }
     }
@@ -534,12 +540,12 @@ func driver_write_file(path: String, text: String) -> Bool {
     match written {
         case Ok(count) -> {
             if count != text.len() {
-                print("sawc2: {}: wrote {} of {} bytes", path, count, text.len())
+                print("sawc: {}: wrote {} of {} bytes", path, count, text.len())
                 return false
             }
         },
         case Err(e) -> {
-            print("sawc2: cannot write {path}: {e}")
+            print("sawc: cannot write {path}: {e}")
             return false
         }
     }
@@ -548,7 +554,7 @@ func driver_write_file(path: String, text: String) -> Bool {
     match closed {
         case Ok(_) -> true,
         case Err(e) -> {
-            print("sawc2: cannot close {path}: {e}")
+            print("sawc: cannot close {path}: {e}")
             false
         }
     }
@@ -586,7 +592,7 @@ func driver_link(clang: String, ll: String, out: String, speed: String, sanitize
     }
     try! arguments.push("-o")
     try! arguments.push(out)
-    driver_clang("sawc2 build", clang, &arguments)
+    driver_clang("sawc build", clang, &arguments)
 }
 
 // The libraries a program linked for the clang triple `triple` names after
@@ -595,7 +601,7 @@ func driver_link(clang: String, ll: String, out: String, speed: String, sanitize
 // carries them in libSystem, which every link takes. The Linux triples are
 // named one by one, so a new Linux target must be added here, and to
 // build.py's `link_libraries`, which must agree since the seed links as
-// `sawc2 build` does.
+// `sawc build` does.
 // ENTRY POINTS:
 //     driver_link
 func driver_link_libraries(triple: String) -> Vector<String> {
@@ -631,7 +637,7 @@ func driver_clang(command: String, program: String, arguments: &Vector<String>) 
     }
 }
 
-// `sawc2 runtime --out DIR`: each runtime source of the target, as the ABI
+// `sawc runtime --out DIR`: each runtime source of the target, as the ABI
 // table lists them under the runtime root, compiled to `DIR/NAME.ll` and by
 // clang to `DIR/NAME.o`, and the C shim to `DIR/shim.o`, all at the module's
 // target; then every runtime seam of the table must be defined by exactly one
@@ -675,20 +681,20 @@ func driver_runtime(args: &Vector<String>) -> Int {
     if (out_dir.len() == 0) == (emit.len() == 0) {
         return driver_usage()
     }
-    std_root = driver_std_root("sawc2 runtime", std_root)
+    std_root = driver_std_root("sawc runtime", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
-    rt_root = driver_rt_root("sawc2 runtime", rt_root)
+    rt_root = driver_rt_root("sawc runtime", rt_root)
     if rt_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
     if host.len() == 0 || (program.len() == 0 && out_dir.len() > 0) {
         var unused = Vector<String>()
         var named = StringBuilder()
-        let found = driver_read_runtime("sawc2 runtime", &var unused, &var named)
+        let found = driver_read_runtime("sawc runtime", &var unused, &var named)
         if found.len() == 0 {
-            print("sawc2 runtime: without a manifest, --target and --clang name what it builds for and with")
+            print("sawc runtime: without a manifest, --target and --clang name what it builds for and with")
             return DRIVER_EXIT_USAGE
         }
         if host.len() == 0 {
@@ -699,7 +705,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
         }
     }
     if not target_known(host) {
-        print("sawc2: unknown target {host}")
+        print("sawc: unknown target {host}")
         return DRIVER_EXIT_USAGE
     }
     let speed = driver_runtime_speed()
@@ -721,7 +727,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     }
     let sources = tc_runtime_sources(host)
     if sources.len() == 0 {
-        print("sawc2 runtime: the runtime table lists no sources for {}; compiler/tools/runtime_table.py's HOSTS gives a host its runtime", host)
+        print("sawc runtime: the runtime table lists no sources for {}; compiler/tools/runtime_table.py's HOSTS gives a host its runtime", host)
         return 1
     }
     var objects = Vector<String>()
@@ -746,7 +752,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
             continue
         }
         if not driver_write_file(ll, ir.build()) {
-            print("sawc2 runtime: --out {} must be a directory that exists; sawc2 creates none", out_dir)
+            print("sawc runtime: --out {} must be a directory that exists; sawc creates none", out_dir)
             return 1
         }
         var arguments = Vector<String>()
@@ -759,7 +765,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
         try! arguments.push(ll)
         try! arguments.push("-o")
         try! arguments.push(object)
-        let compiled = driver_clang("sawc2 runtime", program, &arguments)
+        let compiled = driver_clang("sawc runtime", program, &arguments)
         if compiled != 0 {
             return compiled
         }
@@ -784,7 +790,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     try! arguments.push(options.module_triple)
     try! arguments.push("-o")
     try! arguments.push(shim)
-    let compiled = driver_clang("sawc2 runtime", program, &arguments)
+    let compiled = driver_clang("sawc runtime", program, &arguments)
     if compiled != 0 {
         return compiled
     }
@@ -839,7 +845,7 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
             if seam.equals(name) {
                 let by = definers.get(j) ?? ""
                 if first.len() > 0 {
-                    print("sawc2 runtime: `{}` is defined by both {} and {}", name, first, by)
+                    print("sawc runtime: `{}` is defined by both {} and {}", name, first, by)
                     holds = false
                 }
                 first = by
@@ -847,7 +853,7 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
             j = j + 1
         }
         if first.len() == 0 {
-            print("sawc2 runtime: no runtime object defines `{}`, which runtime/ABI.md lists", name)
+            print("sawc runtime: no runtime object defines `{}`, which runtime/ABI.md lists", name)
             holds = false
         }
     }
@@ -865,7 +871,7 @@ func driver_runtime_seams_hold(seams: &Vector<String>, definers: &Vector<String>
             j = j + 1
         }
         if not listed {
-            print("sawc2 runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", definers.get(k) ?? "", seam)
+            print("sawc runtime: {} defines `{}`, which is not a runtime seam of runtime/ABI.md", definers.get(k) ?? "", seam)
             holds = false
         }
         k = k + 1
@@ -883,7 +889,7 @@ func driver_distinct(paths: &Vector<String>) -> Bool {
         while j < k {
             let other = paths.get(j) ?? ""
             if other.equals(one) {
-                print("sawc2 runtime: two runtime sources write {}", one)
+                print("sawc runtime: two runtime sources write {}", one)
                 return false
             }
             j = j + 1
@@ -920,7 +926,7 @@ func driver_stem(path: String) -> String {
     path.substring(start, stop)
 }
 
-// `sawc2 mono`: one record per entry file, in order, each file the entry of
+// `sawc mono`: one record per entry file, in order, each file the entry of
 // its own program; `--dump` prints the items, `--layouts` the layout table of
 // the types they reach.
 func driver_mono(args: &Vector<String>) -> Int {
@@ -979,10 +985,10 @@ func driver_mono(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     if not target_known(triple) {
-        print("sawc2: unknown target {triple}")
+        print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
-    std_root = driver_std_root("sawc2 mono", std_root)
+    std_root = driver_std_root("sawc mono", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
@@ -1011,7 +1017,7 @@ func driver_mono(args: &Vector<String>) -> Int {
     status
 }
 
-// `sawc2 coro`: one record per entry file, in order, each file the entry of
+// `sawc coro`: one record per entry file, in order, each file the entry of
 // its own program; `--dump` prints each item's frame decision, `--layouts`
 // each frame's layout, `--lowered` each lowered frame's resume function, and
 // `--bt-table` the program's backtrace table, decoded.
@@ -1075,10 +1081,10 @@ func driver_coro(args: &Vector<String>) -> Int {
         return driver_usage()
     }
     if not target_known(triple) {
-        print("sawc2: unknown target {triple}")
+        print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
-    std_root = driver_std_root("sawc2 coro", std_root)
+    std_root = driver_std_root("sawc coro", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
@@ -1142,12 +1148,32 @@ func main() -> Int {
         return driver_coro(&args)
     }
     if command.equals("build") {
-        return driver_build(&args)
+        return driver_build(&args, 2)
     }
     if command.equals("runtime") {
         return driver_runtime(&args)
     }
+    if command.equals("--version") {
+        print("sawc {}", driver_version())
+        return 0
+    }
+    if command.equals("--help") {
+        driver_usage()
+        return 0
+    }
+    if command.starts_with("-") || command.ends_with(".saw") {
+        return driver_build(&args, 1)
+    }
     driver_usage()
+}
+
+// The release this compiler is, which `sawc --version` prints as `sawc
+// VERSION`: a toolchain consumer checks it against its pin before trusting a
+// `sawc` found on `PATH`. compiler/tests/run.py fails unless it equals
+// `sawc/version.py`'s `SAWC_VERSION` and `.sawtracker/version`, so a release
+// bump edits all three.
+func driver_version() -> String {
+    "0.18.0"
 }
 
 // The program stages `driver_resolve` runs to.
@@ -1158,7 +1184,7 @@ static DRIVER_STAGE_EVAL: Int = 3
 static DRIVER_STAGE_BORROWCK: Int = 4
 static DRIVER_STAGE_DROPS: Int = 5
 
-// `sawc2 resolve`, `typecheck`, `mir`, `eval`, `borrowck` and `drops`, which take the same
+// `sawc resolve`, `typecheck`, `mir`, `eval`, `borrowck` and `drops`, which take the same
 // flags, `--interfaces` and `--summaries` typecheck's alone and `--spans` the
 // MIR's: one record per
 // entry file, in order, each file the entry of its own program.
@@ -1227,7 +1253,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
         return driver_usage()
     }
     var command = StringBuilder()
-    try! command.append("sawc2 ")
+    try! command.append("sawc ")
     try! command.append(args.get(1) ?? "")
     std_root = driver_std_root(command.build(), std_root)
     if std_root.len() == 0 {
@@ -1307,7 +1333,7 @@ func driver_add_mapping(names: &var Vector<String>, dirs: &var Vector<String>, t
     false
 }
 
-// One input of `sawc2 parse`: a path, and whether it is parsed from
+// One input of `sawc parse`: a path, and whether it is parsed from
 // `refusal-unit` rather than `source-file`.
 struct DriverInput {
     path: String
@@ -1341,7 +1367,7 @@ func driver_add_list(inputs: &var Vector<DriverInput>, list: String) -> Bool {
     }
 }
 
-// `sawc2 parse`: one record per input, in order, so that one process covers a
+// `sawc parse`: one record per input, in order, so that one process covers a
 // whole corpus.
 func driver_parse(args: &Vector<String>) -> Int {
     var dump = false
@@ -1431,7 +1457,7 @@ func driver_print_record(out: &var StringBuilder, status: Int) -> Int {
     drops_record_status(text, status)
 }
 
-// `sawc2 lex`: the arguments after the subcommand name one file or one `@LIST`,
+// `sawc lex`: the arguments after the subcommand name one file or one `@LIST`,
 // or ask for the kind list.
 func driver_lex(args: &Vector<String>) -> Int {
     var docs_mode = false
@@ -1472,7 +1498,7 @@ func driver_lex(args: &Vector<String>) -> Int {
     driver_lex_part(path, docs_mode)
 }
 
-// One file's token dump, or its doc dump, and the status `sawc2 lex` exits with.
+// One file's token dump, or its doc dump, and the status `sawc lex` exits with.
 func driver_lex_part(path: String, docs_mode: Bool) -> Int {
     if let text = driver_read_source(path) {
         driver_dump(text, docs_mode)
@@ -1481,8 +1507,8 @@ func driver_lex_part(path: String, docs_mode: Bool) -> Int {
     }
 }
 
-// `sawc2 lex @LIST`: for each listed file, `FILE\tPATH`, what `sawc2 lex PATH`
-// prints, `DOCS\tSTATUS` with that command's exit status, what `sawc2 lex
+// `sawc lex @LIST`: for each listed file, `FILE\tPATH`, what `sawc lex PATH`
+// prints, `DOCS\tSTATUS` with that command's exit status, what `sawc lex
 // --docs PATH` prints, and `END\tSTATUS`. Each part is byte for byte the
 // single-file command's output, so one process can stand for many. No token or
 // doc record starts with `FILE`, `DOCS` or `END`. Exits with the largest status.
@@ -1518,7 +1544,7 @@ func driver_read_source(path: String) -> String? {
     var file = match opened {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            print("sawc2: cannot open {path}: {e}")
+            print("sawc: cannot open {path}: {e}")
             return None
         }
     }
@@ -1526,7 +1552,7 @@ func driver_read_source(path: String) -> String? {
     let data = match read {
         case Ok(bytes) -> move bytes,
         case Err(e) -> {
-            print("sawc2: cannot read {path}: {e}")
+            print("sawc: cannot read {path}: {e}")
             return None
         }
     }
@@ -1534,7 +1560,7 @@ func driver_read_source(path: String) -> String? {
     match decoded {
         case Ok(text) -> text,
         case Err(e) -> {
-            print("sawc2: {path} is not valid UTF-8 (byte {e.offset})")
+            print("sawc: {path} is not valid UTF-8 (byte {e.offset})")
             None
         }
     }

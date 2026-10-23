@@ -1,5 +1,5 @@
 # The cone of compiler/tests/std/cone/core.saw against the new std (std): every std declaration its
-# functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
+# functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
 # 67 declarations in 9 modules
 
 std.alloc: 8

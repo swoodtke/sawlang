@@ -1,5 +1,5 @@
 // The parse stage's entry points: a source text in, a tree and its
-// diagnostics out, and the record `sawc2 parse` prints for one file.
+// diagnostics out, and the record `sawc parse` prints for one file.
 
 import sawlex.{DocComment, LexResult, lex}
 import sawparse.diag.{Diagnostic, append_diagnostic}
@@ -10,7 +10,7 @@ import sawparse.source.{SourceFile, source_file}
 import sawparse.tokens.{InterpPiece, ParseToken, parser_tokens}
 import sawparse.tree.{tree_builder, tree_problem}
 
-// How `sawc2 parse` treats one file.
+// How `sawc parse` treats one file.
 public struct ParseOptions {
     // Parse from `refusal-unit`, as a test build parses a refusal case's
     // body, rather than from `source-file`.

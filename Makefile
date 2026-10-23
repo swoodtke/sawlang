@@ -23,11 +23,12 @@ blade-bootstrap:
 	@python3 tools/blade_bootstrap.py
 
 # The install story (design 238 unit 3, D-b1): put `sawc`, `sawc0` and `blade`
-# on a $PATH. There is nothing to package — the compiler is a Python entry point
-# and Blade is built from Saw source — so `bin/` holds three shims into this
-# checkout and `install` symlinks them onto a prefix. An installed name
-# therefore always means THIS tree, and re-installing after a `git pull` is
-# unnecessary. `sawc0` is Stage 0 by name, whatever `sawc` names.
+# on a $PATH. There is nothing to package — `sawc` is the self-hosted compiler,
+# which its shim builds from this tree on first use (compiler/tools/build.py),
+# `sawc0` is Stage 0's Python entry point, and Blade is built from Saw source —
+# so `bin/` holds three shims into this checkout and `install` symlinks them
+# onto a prefix. An installed name therefore always means THIS tree, and
+# re-installing after a `git pull` is unnecessary.
 #
 #   make install                    # -> ~/.local/bin
 #   make install PREFIX=/usr/local/bin
@@ -96,8 +97,8 @@ astgraft:
 # sitting in the tree unnoticed until adding two unrelated examples reshuffled
 # the sample onto one of them.
 # The harness itself is written in SAW (design 155, the first devtool port):
-# `devtools/irdet/`, built here with the frozen compiler. It drives the PYTHON
-# sawc — the tool is Saw, the compiler under test is not.
+# `devtools/irdet/`, built here with the frozen compiler. It drives Stage 0,
+# `sawc0` — the tool is Saw, the compiler under test is not.
 IRDET_BIN := .build/irdetbin
 
 $(IRDET_BIN): devtools/irdet/src/main.saw

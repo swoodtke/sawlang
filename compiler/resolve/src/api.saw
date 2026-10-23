@@ -1,5 +1,5 @@
 // The resolve stage's entry points: a program resolved from its entry file,
-// and the record `sawc2 resolve` prints for it.
+// and the record `sawc resolve` prints for it.
 
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_same_binding}
@@ -12,7 +12,7 @@ import sawresolve.rules.{res_conformance_decl}
 import sawresolve.verify.{res_verify_module}
 import sawresolve.walk.{res_resolve_bodies}
 
-// How `sawc2 resolve` treats one entry file.
+// How `sawc resolve` treats one entry file.
 public struct ResolveOptions {
     // The std root: Stage 0's, holding `std/` and `builtin.saw`, or the new
     // std's, holding its modules and `prelude.saw`.

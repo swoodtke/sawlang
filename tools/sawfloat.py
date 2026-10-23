@@ -382,7 +382,7 @@ TABLE_BEGIN = ("// BEGIN GENERATED TABLES — regenerate with "
                "`tools/sawfloat.py tables`")
 TABLE_END = "// END GENERATED TABLES"
 # Both stds' float modules carry the generated tables: Stage 0's and the new
-# std's, which sawc2 compiles. `tables` writes both and the check holds both.
+# std's, which sawc compiles. `tables` writes both and the check holds both.
 FLOAT_SAWS = (os.path.join(REPO, "sawc", "std", "float.saw"),
               os.path.join(REPO, "std", "float.saw"))
 

@@ -41,7 +41,7 @@ extension TcAbiTable: NoCopy {}
 // in `export_symbols` unless it is test-only. It runs after the summaries,
 // which say whether an export may suspend; mono roots the exports and the
 // backend defines each under its symbol, both reading the record this writes,
-// so the record is what the build emits. sawc2 has only the normal build,
+// so the record is what the build emits. sawc has only the normal build,
 // which emits no test-only declaration (SL:testing).
 // ENTRY POINTS:
 //     typecheck_program
@@ -309,7 +309,7 @@ extension TcProgram {
         if self.runtime_build && row >= 0 {
             try! msg.append("` is the program's, not the runtime's: the compiler defines it in every program (runtime/ABI.md, \"Program arguments\")")
         } else if symbol.starts_with("__saw_rt_") {
-            try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc2 runtime` defines")
+            try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc runtime` defines")
         } else {
             try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`); choose another with `@export(\"name\")`")
         }

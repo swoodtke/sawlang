@@ -35,20 +35,20 @@ The CLI is the driver's `lex` subcommand:
 
 ```
 ./.venv/bin/python compiler/tools/build.py
-.build/sawc2 lex [--docs] <file.saw>
-.build/sawc2 lex --kinds
-.build/sawc2 lex @LIST
+.build/sawc-stage1 lex [--docs] <file.saw>
+.build/sawc-stage1 lex --kinds
+.build/sawc-stage1 lex @LIST
 ```
 
-`sawc2 lex @LIST` lexes every file the list names, one path per line, in one
-process. For each it prints `FILE<TAB>PATH`, what `sawc2 lex PATH` prints,
-`DOCS<TAB>STATUS` with that command's exit status, what `sawc2 lex --docs PATH`
+`sawc lex @LIST` lexes every file the list names, one path per line, in one
+process. For each it prints `FILE<TAB>PATH`, what `sawc lex PATH` prints,
+`DOCS<TAB>STATUS` with that command's exit status, what `sawc lex --docs PATH`
 prints, and `END<TAB>STATUS`; it exits with the largest status. No token or doc
 record starts with `FILE`, `DOCS` or `END`.
 
 ## Canonical token-dump format
 
-`sawc2 lex <file.saw>` emits one record per token, newline-separated:
+`sawc lex <file.saw>` emits one record per token, newline-separated:
 
 ```
 KIND<TAB>line:col[<TAB>escaped-text][<TAB>suffix]
@@ -79,7 +79,7 @@ lexer's dump (SL-399). That comparison was made in the earlier format, where
 such a record ended in a tab or a space. The golden fixtures were regenerated in
 this format, and they are the oracle.
 
-`sawc2 lex --kinds` prints every kind's dump name, one per line, in the order
+`sawc lex --kinds` prints every kind's dump name, one per line, in the order
 `TokenKind` declares them.
 
 ### An `INTERP_STRING` record carries its segments
@@ -142,7 +142,7 @@ ERROR<TAB>line:col<TAB>message<TAB>rule[<TAB>hint]
 
 ## Doc-comment trivia dump
 
-`sawc2 lex --docs <file.saw>` emits the documentation comments instead of the
+`sawc lex --docs <file.saw>` emits the documentation comments instead of the
 token stream, one record per captured line:
 
 ```

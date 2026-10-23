@@ -1,7 +1,7 @@
 # compiler/tests/borrowck: the borrow check's corpus
 
 The corpus the borrow check (`compiler/borrowck`, package `sawborrowck`,
-SL-460) is held to. This file specifies `sawc2 borrowck`'s records and dump,
+SL-460) is held to. This file specifies `sawc borrowck`'s records and dump,
 the initialisation analysis it shares with the MIR verifier, the loan
 analysis, the rules it refuses by, and the drop labels it exports for drop
 elaboration.
@@ -27,10 +27,10 @@ borrowck/
   stage0/                Stage 0's recorded builds of the fixtures loan_differential.tsv lists
 ```
 
-## `sawc2 borrowck`
+## `sawc borrowck`
 
 ```sh
-.build/sawc2 borrowck (--dump | --check) [--notes] [--std-root DIR]
+.build/sawc-stage1 borrowck (--dump | --check) [--notes] [--std-root DIR]
                       [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -38,7 +38,7 @@ Each FILE is the entry of its own program, which is resolved, type checked,
 lowered, then borrow checked. Each entry gets one record, starting with the
 line `FILE<TAB>path`, holding in order:
 
-- everything `sawc2 mir --check` prints for it (`compiler/tests/mir/README.md`);
+- everything `sawc mir --check` prints for it (`compiler/tests/mir/README.md`);
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal of the
   borrow check, in the order its functions were checked;
 - one `INVARIANT<TAB>module<TAB>message` line per problem its verifier finds;
@@ -403,7 +403,7 @@ loudly, naming the function and the statement, on:
   re-derived from the shared analysis, in either direction.
 
 The independent oracle for the labels is the Air's drop-after-move checker,
-which reads `sawc2 mir --dump` and shares nothing with either client: every
+which reads `sawc mir --dump` and shares nothing with either client: every
 drop-after-move site it lists must be labelled `elided` or `flagged`.
 
 ## The lane
@@ -420,11 +420,11 @@ borrow check owns, U6d1's or U6d2's, naming a fixture or golden here); that
 each golden's record equals its `.borrowck` file byte for byte (`--write`
 rewrites them); that each refusal fixture is refused first at its header's
 position (`--fill` writes a `// refuses: TODO` header), with no `INVARIANT`
-under `sawc2 borrowck` and neither an `ERROR` nor an `INVARIANT` under `sawc2
+under `sawc borrowck` and neither an `ERROR` nor an `INVARIANT` under `sawc
 mir`, and that every rule has a fixture; that a due fixture is still refused
 by what stands in its way; that each premise program is refused first by the
 earlier stage's rule its header names; that the compiler's own source, the
-sawc2 build and each unit program, and the new std's entry under `--std-root
+sawc build and each unit program, and the new std's entry under `--std-root
 std`, check with no refusal and no invariant; that each generated program
 of `LONG_PROGRAMS`, deeper than any fixed budget would reach (a lend through
 33 nested windows, a pointer copied through 32 locals, from the receiver
@@ -448,7 +448,7 @@ Stage 0's recorded build, `stage0/TRIPLE/NAME.stage0` in the format of
 `compiler/tests/oracle.py`, stale once the fixture's bytes change.
 `borrowck_lane.py --stage0` rewrites those records with the v0 compiler
 (`oracle.v0_compiler`); nothing else here runs Stage 0. It
-counts the drop labels over the sawc2 build and over tests/corpus, for
+counts the drop labels over the sawc build and over tests/corpus, for
 information.
 
 | aspect | golden |

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The one-time comparison of sawc2's parser with the frozen parser (SL-424, contract item 9).
+"""The one-time comparison of sawc's parser with the frozen parser (SL-424, contract item 9).
 
     python compiler/tools/frozen_compare.py              compare, and print the counts
     python compiler/tools/frozen_compare.py --list       also list every disagreement
@@ -10,8 +10,8 @@ that `MIGRATION.tsv` marks `copied` or `reviewed` and whose text is byte for
 byte the `examples/` file of the same path, and every tracked `.saw` file of
 std, blade and libs. The frozen lexer and parser are called through their
 Python API, never through `sawc.py --emit-ast`, which dumps the typed tree and
-so would count a file that fails to typecheck as refused. sawc2 runs once, as
-`sawc2 parse --dump`, over the whole list.
+so would count a file that fails to typecheck as refused. sawc runs once, as
+`sawc parse --dump`, over the whole list.
 
 Where both parsers accept a file, it compares a shape both trees hold (SHAPE,
 below), never the full tree. `compiler/tests/parse/FROZEN_COMPARISON.md`
@@ -176,7 +176,7 @@ def frozen_program(program, order, prefix, items, funcs):
             frozen_program(node.body, order, prefix + node.name + "::", items, funcs)
 
 
-# ---- sawc2 -----------------------------------------------------------------------------------
+# ---- sawc -----------------------------------------------------------------------------------
 
 class Node:
     def __init__(self, kind):
@@ -254,7 +254,7 @@ def body_of(node):
     return str(len(blocks[-1].children)) if blocks else "None"
 
 
-def sawc2_program(items_node, prefix, items, funcs):
+def sawc_program(items_node, prefix, items, funcs):
     for item in items_node.nodes():
         if item.base in ("Doc", "Visibility", "Attribute"):
             continue
@@ -286,16 +286,16 @@ def sawc2_program(items_node, prefix, items, funcs):
                 funcs.append("%s%s.%s(%d) %s" % (prefix, label, name_of(r), params_of(r),
                                                  body_of(r)))
         elif inner.kind == "ModuleDecl.inline":
-            sawc2_program(inner, prefix + label + "::", items, funcs)
+            sawc_program(inner, prefix + label + "::", items, funcs)
 
 
-def sawc2_shapes(paths):
-    """{path: (verdict, detail)} from one `sawc2 parse --dump` process."""
+def sawc_shapes(paths):
+    """{path: (verdict, detail)} from one `sawc parse --dump` process."""
     os.makedirs(WORK, exist_ok=True)
     listing = os.path.join(WORK, "inputs.txt")
     with open(listing, "w", encoding="utf-8") as fh:
         fh.write("".join(p + "\n" for p in paths))
-    r = subprocess.run([build.SAWC2, "parse", "--dump", "@" + listing], cwd=REPO,
+    r = subprocess.run([build.SAWC, "parse", "--dump", "@" + listing], cwd=REPO,
                        capture_output=True)
     records, current = {}, None
     for line in r.stdout.decode("utf-8", "replace").split("\n"):
@@ -308,14 +308,14 @@ def sawc2_shapes(paths):
     for path in paths:
         lines = records.get(path)
         if lines is None:
-            out[path] = ("NONE", "sawc2 printed no record")
+            out[path] = ("NONE", "sawc printed no record")
             continue
         errors = [line.split("\t") for line in lines if line.startswith("ERROR\t")]
         if errors:
             out[path] = ("FAIL", "%s at %s: %s" % (errors[0][1], errors[0][2], errors[0][3]))
             continue
         items, funcs = [], []
-        sawc2_program(read_dump("\n".join(lines)), "", items, funcs)
+        sawc_program(read_dump("\n".join(lines)), "", items, funcs)
         out[path] = ("OK", {"items": items, "funcs": funcs})
     return out
 
@@ -334,7 +334,7 @@ def first_difference(a, b):
 def compare(paths, jobs):
     results = recognize.run_workers([os.path.abspath(__file__), "--worker"], paths, jobs)
     frozen = {path: tuple(result) for path, result in zip(paths, results)}
-    ours = sawc2_shapes(paths)
+    ours = sawc_shapes(paths)
     rows = []
     for path in paths:
         fv, fd = frozen[path]
@@ -344,14 +344,14 @@ def compare(paths, jobs):
             for part in ("items", "funcs"):
                 d = first_difference(fd[part], sd[part])
                 if d is not None:
-                    diffs.append("%s #%d: frozen %r, sawc2 %r" % ((part,) + d))
+                    diffs.append("%s #%d: frozen %r, sawc %r" % ((part,) + d))
             rows.append((path, "both accept" if not diffs else "shape differs", diffs, fd))
         elif fv != "OK" and sv != "OK":
-            rows.append((path, "both refuse", ["frozen: %s" % fd, "sawc2: %s" % sd], None))
+            rows.append((path, "both refuse", ["frozen: %s" % fd, "sawc: %s" % sd], None))
         elif fv == "OK":
-            rows.append((path, "frozen accepts, sawc2 refuses", ["sawc2: %s" % sd], None))
+            rows.append((path, "frozen accepts, sawc refuses", ["sawc: %s" % sd], None))
         else:
-            rows.append((path, "frozen refuses, sawc2 accepts",
+            rows.append((path, "frozen refuses, sawc accepts",
                          ["frozen%s: %s" % (" crashes" if fv == "CRASH" else "", fd)], None))
     return rows
 
@@ -368,9 +368,9 @@ def main(argv=None):
             sys.stdout.write(json.dumps(frozen_shape(line.rstrip("\n"))) + "\n")
             sys.stdout.flush()
         return 0
-    ok, output = build.build_sawc2()
+    ok, output = build.build_sawc()
     if not ok:
-        print("frozen comparison: sawc2 does not build: %s" % output.strip().split("\n")[-1])
+        print("frozen comparison: sawc does not build: %s" % output.strip().split("\n")[-1])
         return 2
     differ = []
     if args.files:
@@ -387,7 +387,7 @@ def main(argv=None):
     print("frozen comparison: %d files (%d marked corpus files differ from examples/ and "
           "are left out)" % (len(paths), len(differ)))
     for verdict in ("both accept", "shape differs", "both refuse",
-                    "frozen accepts, sawc2 refuses", "frozen refuses, sawc2 accepts"):
+                    "frozen accepts, sawc refuses", "frozen refuses, sawc accepts"):
         print("  %s: %d" % (verdict, counts.get(verdict, 0)))
     print("  compared where both accept: %d items, %d functions" % (items, funcs))
     for root in (CORPUS,) + TREES:

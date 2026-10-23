@@ -5,9 +5,9 @@ built, and building itself again changes nothing.
     python compiler/tests/fixpoint/fixpoint_lane.py                       # default mode
     SAW_FIXPOINT_FULL=1 python compiler/tests/fixpoint/fixpoint_lane.py   # full mode
 
-The seed (sawc2 compiled from the `.ll` `compiler/seed/manifest.tsv` names) builds
-Stage 1, `.build/sawc2`; Stage 1's `sawc2 build -O2` of its own driver,
-against the new std, links Stage 2, `.build/sawc2-stage2`
+The seed (sawc compiled from the `.ll` `compiler/seed/manifest.tsv` names) builds
+Stage 1, `.build/sawc-stage1`; Stage 1's `sawc build -O2` of its own driver,
+against the new std, links Stage 2, `.build/sawc-stage2`
 (`compiler/tools/build.py` builds both); Stage 2 building itself is Stage 3.
 The lane requires:
 
@@ -17,8 +17,8 @@ The lane requires:
   twice, and built from a copy of `compiler/` and `std/` in another directory;
 - **the fixpoint**: Stage 2's `.ll` of the driver is Stage 1's, byte for byte,
   and Stage 3 links into Stage 2's bytes;
-- **the lanes**: every `sawc2` invocation that `compiler/tests/run.py`'s
-  sawc2-driven lanes make (the lex fixtures, the subset checker's readings,
+- **the lanes**: every `sawc` invocation that `compiler/tests/run.py`'s
+  sawc-driven lanes make (the lex fixtures, the subset checker's readings,
   the recognizer's token dumps, parse, resolve, typecheck, MIR, eval, std, borrowck, drops, mono and the run
   lane's builds) runs under Stage 1 and Stage 2 through `twin.py`, which hands
   the lane Stage 1's answer and records whether Stage 2's standard output,
@@ -33,7 +33,7 @@ stage and so the periodic full battery on main run) compares every call. The
 **default mode** (the per-patch gate's) compares every call but the
 generator's and the mutator's candidate texts (`generate.py`, `negative.py`),
 which they make and lex as they go, many thousands of them: those lex with
-Stage 2 alone (`lexdump.candidate_sawc2`). It still compares every case text,
+Stage 2 alone (`lexdump.candidate_sawc`). It still compares every case text,
 corpus file and parse-lane input, the lex fixtures, every other lane's calls,
 and the generated cases' recorded results, which the case files hold.
 
@@ -70,7 +70,7 @@ MISMATCHES = os.path.join(HERE, "mismatches.tsv")
 LOG = os.path.join(OUT, "invocations")
 TIMEOUT = 1800
 
-# The steps of run.py that drive sawc2, in run.py's order.
+# The steps of run.py that drive sawc, in run.py's order.
 LANES = ("golden", "subset", "grammar_lint", "recognizer", "grammar_parse", "parser", "resolver", "typechecker", "mir",
          "eval", "std", "borrowck", "drops", "mono", "coro", "programs")
 
@@ -174,7 +174,7 @@ def check_driver_ir(failures, counts):
 
 
 def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None, progress=None):
-    """Every sawc2 invocation of the run.py steps `lanes`, under Stage 1 and
+    """Every sawc invocation of the run.py steps `lanes`, under Stage 1 and
     `new` (Stage 2 when None), within `budget` workers (run.py's `run_steps`,
     which writes each lane's start and end to `progress`); returns the records
     the twin logged, in the order `judge` reads them. A lane that does not
@@ -183,16 +183,16 @@ def replay_lanes(failures, counts, lanes=LANES, new=None, out=OUT, budget=None, 
     log = os.path.join(out, os.path.basename(LOG))
     shutil.rmtree(log, ignore_errors=True)
     os.makedirs(log)
-    twin = os.path.join(out, "sawc2-twin")
+    twin = os.path.join(out, "sawc-twin")
     with open(twin, "w") as fh:
         fh.write('#!/bin/sh\nexec "%s" "%s" "$@"\n' % (sys.executable, TWIN))
     os.chmod(twin, 0o755)
     budget = min(budget or gate_jobs.jobs(), gate_jobs.jobs())
     env = {"FIXPOINT_REF": build.STAGE1, "FIXPOINT_NEW": new or build.STAGE2, "FIXPOINT_LOG": log}
     if mode() == "default":
-        env["SAWC2_CANDIDATE_BINARY"] = build.STAGE2
+        env["SAWC_CANDIDATE_BINARY"] = build.STAGE2
     start = time.time()
-    _, results = R.run_steps([R.STEP_BY_NAME[name] for name in lanes], sawc2=twin, env=env, budget=budget,
+    _, results = R.run_steps([R.STEP_BY_NAME[name] for name in lanes], sawc=twin, env=env, budget=budget,
                              call_tokens=2, progress=progress, label="fixpoint: run.py")
     counts["seconds: the lanes under both binaries"] = round(time.time() - start)
     for step, result in results:
@@ -232,7 +232,7 @@ def judge(failures, counts, records):
             counts["fixpoint listed files compared"] = (counts.get("fixpoint listed files compared", 0)
                                                         + record["listed"])
         verdicts = [(" ".join(record["args"]), "", record["differs"])] if record["differs"] else []
-        verdicts += [("lex " + f["path"], " (listed in sawc2 %s)" % " ".join(record["args"]), f["differs"])
+        verdicts += [("lex " + f["path"], " (listed in sawc %s)" % " ".join(record["args"]), f["differs"])
                      for f in record.get("files", [])]
         if not verdicts:
             counts["fixpoint invocations agreeing"] = counts.get("fixpoint invocations agreeing", 0) + 1
@@ -241,7 +241,7 @@ def judge(failures, counts, records):
                 seen.add(key)
                 counts["fixpoint annotated mismatches"] = counts.get("fixpoint annotated mismatches", 0) + 1
                 continue
-            failures.append("fixpoint mismatch: sawc2 %s%s: %s" % (key[:300], where[:300], "; ".join(differs)[:600]))
+            failures.append("fixpoint mismatch: sawc %s%s: %s" % (key[:300], where[:300], "; ".join(differs)[:600]))
     for key in sorted(set(known) - seen):
         failures.append("fixpoint: the annotated mismatch `%s` no longer occurs; remove its line" % key[:300])
 

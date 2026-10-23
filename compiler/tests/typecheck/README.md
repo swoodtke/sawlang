@@ -1,7 +1,7 @@
 # compiler/tests/typecheck: the type checker's corpus
 
 The corpus the typecheck stage (`compiler/typecheck`, SL-447) is held to. This
-file specifies `sawc2 typecheck`'s records and dump, the type interner's key,
+file specifies `sawc typecheck`'s records and dump, the type interner's key,
 the position matrices the corpus covers, and the rules typecheck refuses by.
 The stage checks signatures (U6b1), bodies (U6b2), and the summaries and the
 checks that read them (U6b3).
@@ -19,10 +19,10 @@ typecheck/
   corpus_info.py     how much of tests/corpus/ checks, for information
 ```
 
-## `sawc2 typecheck`
+## `sawc typecheck`
 
 ```sh
-.build/sawc2 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]
+.build/sawc-stage1 typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]
                        [--freestanding] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...
 ```
 
@@ -31,7 +31,7 @@ with every module it imports. The flags are resolve's (see
 `compiler/tests/resolve/README.md`); `--interfaces` also dumps the std and
 builtin modules, whose signatures are checked as interfaces; `--runtime` checks
 each program as a runtime source, whose exports may be the frozen seams, as
-`sawc2 runtime` does (the `export.*` rules); `--freestanding` checks it under
+`sawc runtime` does (the `export.*` rules); `--freestanding` checks it under
 the freestanding profile, `TcProgram.freestanding` (`spawn.freestanding`,
 `extern.freestanding-blocking`). Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
@@ -296,7 +296,7 @@ nothing: the tier, movability, zero-value and visibility readers each ask
 a type has one tier, one movability, one zero value and one thread behaviour
 in a binary. Another module's policy for a type is the orphan rule's first
 (resolve's `conformance.orphan`); only the trait's own module, the prelude,
-gets past it, and the std lane holds the prelude clean. sawc2 reads no
+gets past it, and the std lane holds the prelude clean. sawc reads no
 sidecar yet, and a sidecar's declarations are test-only declarations of its
 module, so the test-only rows cover it:
 
@@ -1629,7 +1629,7 @@ says what the fixture shows.
 | `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
 | `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
 | `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |
-| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime (`--runtime`, `sawc2 runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (runtime/ABI.md, "Program arguments") |
+| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime (`--runtime`, `sawc runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (runtime/ABI.md, "Program arguments") |
 | `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from runtime/ABI.md) does not list |
 | `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |
@@ -1746,7 +1746,7 @@ funnel share. `golden/construction_override` is abbreviated `g.`:
 | an override in a bounded extension; in an unbounded generic one | refused; the control accepted | `init.override-bounded`; `g.` |
 | an override in a specialized extension, the head's instantiation's fields read as its body sees them (SL-740) | refused | `init.override-specialized` |
 | a derived `copy()` | unchanged: it copies field by field and calls no constructor | mono's glue |
-| a synthesized `Deserialize` | lands with the serde port, which sawc2's std does not have yet | none |
+| a synthesized `Deserialize` | lands with the serde port, which sawc's std does not have yet | none |
 | a zero-initialized `static` or `unsafe static var` of a struct with an override, in its module or another, or holding one at any depth (a field, an array element) | refused: zero is a construction the override never checks | `static.zero-init`, `static.zero-init.override-module`, `static.zero-init.nested` |
 | a zero-initialized `static` of a struct without one, and of one whose overridden part is an Optional, zero being `None` | accepted | `g.` |
 | a zero-initialized `static` of a struct with a field the declaring module does not see, at any depth | refused unless a `ZeroInit` conformance vouches for it (SL-660) | the zero-init matrix below |
@@ -1858,7 +1858,7 @@ covers an `unsafe static var` too. `golden/static_immortal` is abbreviated
 
 ## The lane
 
-`typecheck_lane.py` runs one `sawc2 typecheck` process per group and checks:
+`typecheck_lane.py` runs one `sawc typecheck` process per group and checks:
 
 - each golden program's record equals its `.typecheck` file byte for byte;
   `--write` rewrites them after a deliberate change, for review. A first line
@@ -1871,7 +1871,7 @@ covers an `unsafe static var` too. `golden/static_immortal` is abbreviated
   `// refuses: TODO`, for review;
 - every rule typecheck's source refuses by has a fixture, and every fixture
   names such a rule;
-- the compiler's own source checks with no refusal: the sawc2 build, with the
+- the compiler's own source checks with no refusal: the sawc build, with the
   stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;
 - no function of the compiler's own source may suspend, since the subset is

@@ -9,7 +9,7 @@ specifies. `GRAMMAR.md` is its authority for spelling.
 parse/
   CLAIMS.tsv        the alternatives and rules the parser implements so far
   src/
-    api.saw         parse_source, parse_interface, and the record `sawc2 parse`
+    api.saw         parse_source, parse_interface, and the record `sawc parse`
                     prints for a file
     parser.saw      recursive descent, the depth funnel, recovery, doc comments
     tokens.saw      the lexer's tokens with byte spans, line breaks settled, and
@@ -250,12 +250,12 @@ A `///` run inside skipped tokens is never refused as documenting nothing.
 the same file's full parse: `compiler/tests/resolve/interface_pin.py` holds
 every std file to it.
 
-## `sawc2 parse`
+## `sawc parse`
 
 ```sh
-.build/sawc2 parse --dump [--alternatives] [[--unit] FILE | @LIST]...
-.build/sawc2 parse --check [[--unit] FILE | @LIST]...
-.build/sawc2 parse --redump [FILE | @LIST]...
+.build/sawc-stage1 parse --dump [--alternatives] [[--unit] FILE | @LIST]...
+.build/sawc-stage1 parse --check [[--unit] FILE | @LIST]...
+.build/sawc-stage1 parse --redump [FILE | @LIST]...
 ```
 
 Each input gets one record, in order, so one process can cover a corpus. A
@@ -306,7 +306,7 @@ Every construct GRAMMAR.md §11 charges takes its level through
 `Parser.enter_level`, at its opener. `compiler/tools/depth_funnel.py` checks,
 over the source, that every recursive call cycle crosses that funnel and that
 the funnel's ENTRY POINTS list names exactly the methods that charge; and, by
-running `sawc2 parse`, that 256 levels parse, the 257th is refused at its opener
+running `sawc parse`, that 256 levels parse, the 257th is refused at its opener
 as syntax.rule.depth-limit, a flat chain of any length parses, and a refused
 statement gives its levels back. The run-time cells cover each charging
 construct kind, those a loop charges too (an `as` chain and a postfix chain),

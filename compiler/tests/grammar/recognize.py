@@ -2901,7 +2901,7 @@ def check_paths(paths, grammar_path=extract.GRAMMAR, enable=(), jobs=None):
 
 
 # The paths are split into this many worker processes at any worker count. A
-# worker caches the texts it lexes, so the split decides which `sawc2 lex`
+# worker caches the texts it lexes, so the split decides which `sawc lex`
 # calls are made, and the fixpoint lane counts and compares those calls.
 WORKER_SHARES = 24
 
@@ -2912,14 +2912,14 @@ def run_workers(script_args, paths, jobs, candidates=False):
     Plain subprocesses, since a sandbox may refuse the semaphores
     multiprocessing needs; results come back in the order of `paths`.
     `candidates` marks workers that lex candidate texts as they make them (the
-    generator's, the mutator's), which lex with `lexdump.candidate_sawc2`."""
+    generator's, the mutator's), which lex with `lexdump.candidate_sawc`."""
     shares = max(1, min(WORKER_SHARES, len(paths)))
     # Chosen and built here, and handed to every worker, which then never
     # builds it (`build.handed_down`) and lexes with what this process lexes with.
-    binary = lexdump.ensure_sawc2()
+    binary = lexdump.ensure_sawc()
     if candidates:
-        binary = lexdump.candidate_sawc2() or binary
-    env = dict(os.environ, SAWC2_BINARY=binary)
+        binary = lexdump.candidate_sawc() or binary
+    env = dict(os.environ, SAWC_BINARY=binary)
     cmd = [sys.executable] + list(script_args)
 
     def work(share):
@@ -2942,7 +2942,7 @@ def run_workers(script_args, paths, jobs, candidates=False):
 def run_worker(grammar_path, enable):
     g = Grammar(extract.extract(grammar_path), enable)
     paths = [line.rstrip("\n") for line in sys.stdin]
-    # Every file in one sawc2 process, before any is checked.
+    # Every file in one sawc process, before any is checked.
     lexdump.lex_files(paths)
     for path in paths:
         sys.stdout.write(json.dumps(check_file(g, path)) + "\n")

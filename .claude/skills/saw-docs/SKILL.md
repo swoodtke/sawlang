@@ -73,10 +73,10 @@ reference material states facts.
 | trait, conformance, `any Trait` existential | interface, impl, dyn |
 | moves/consumes/borrows self (ownership effect of a method) | takes ownership of itself |
 
-Spell compiler/tool names lowercase as they are invoked: `sawc`, `blade`,
-`sawc2`. The language is Saw (capital S). Design references ("design 88")
-belong in dev docs and briefs, not user-facing pages — user docs cite the
-spec section instead.
+Spell compiler/tool names lowercase as they are invoked: `sawc` (the
+self-hosted compiler), `sawc0` (Stage 0), `blade`. The language is Saw
+(capital S). Design references ("design 88") belong in dev docs and briefs,
+not user-facing pages — user docs cite the spec section instead.
 
 ## Code examples
 

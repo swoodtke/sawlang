@@ -1,4 +1,4 @@
-# A type whose sawc2 layout differs from Stage 0's, and why: TYPE<TAB>reason.
+# A type whose sawc layout differs from Stage 0's, and why: TYPE<TAB>reason.
 # TYPE is spelled as the probe program spells it.
 (Void?, UInt8)	holds a Void?, 1 byte here and 2 under Stage 0 (see Void?)
 HasVoidOpt	holds a Void?, 1 byte here and 2 under Stage 0 (see Void?)

@@ -9,7 +9,7 @@ tree instead (desugar nodes, resolved types, and all of `builtin.saw` merged in)
 which is the right thing for debugging and the wrong thing for a parser oracle.
 
 A file that does not lex or parse emits a single ERROR record instead of a tree,
-exactly as `sawc2 lex` does, so the corpus's ~26 deliberate parse-error
+exactly as `sawc lex` does, so the corpus's ~26 deliberate parse-error
 examples become positive coverage of error POSITIONS rather than a hole:
 
     ERROR<TAB>line:col<TAB>message

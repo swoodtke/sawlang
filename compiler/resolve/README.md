@@ -10,7 +10,7 @@ specifies its dump and holds its position matrix.
 ```
 resolve/
   src/
-    api.saw         resolve_program and the record `sawc2 resolve` prints
+    api.saw         resolve_program and the record `sawc resolve` prints
     program.saw     ResProgram: the modules, their arenas and every table
     model.saw       the records: modules, declarations, bindings, calls
     names.saw       the interner and the pair index, over flat vectors
@@ -29,7 +29,7 @@ resolve/
 
 ## Modules
 
-`sawc2 resolve` takes each file it is given as the entry of its own program.
+`sawc resolve` takes each file it is given as the entry of its own program.
 A module's identity is its import path: `std.vector`, `sawparse.api`, or, for
 a file no mapped package holds, its path from the entry file's directory
 (`shapes`, `util.io`), whichever spelling reached it; the entry file's is its

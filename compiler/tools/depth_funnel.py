@@ -9,8 +9,8 @@
 256-deep budget (SL-424, contract item 5), and this lane holds the parser to it.
 
 STATICALLY, every recursion in `compiler/parse/src` passes through a charge.
-The call graph's nodes are the package's free functions and methods, as sawc2
-reads them (`sawc2_reading.py`). An edge is a call: a free function by name,
+The call graph's nodes are the package's free functions and methods, as sawc
+reads them (`sawc_reading.py`). An edge is a call: a free function by name,
 and a method through `self` or through a receiver whose type the lane follows
 from written types (fields, parameters, annotated or initialized locals, a
 return type), or, where it cannot, every package method of that name. A call is
@@ -20,7 +20,7 @@ uncharged edges must be acyclic, self-edges included, and nothing is exempt,
 so every walk over a finished tree is a loop. The funnel's ENTRY POINTS comment
 must name exactly the methods that charge.
 
-AT RUN TIME, through `sawc2 parse --check`: 256 levels of each claimed
+AT RUN TIME, through `sawc parse --check`: 256 levels of each claimed
 nesting construct are accepted and the 257th is refused at its opener by
 syntax.rule.depth-limit, a flat chain far deeper than any stack parses, and a
 refused statement gives its depth back to the next one.
@@ -42,7 +42,7 @@ sys.path.insert(0, HERE)
 
 import build  # noqa: E402
 import subset_check  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
+import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
 
 PACKAGE = os.path.join(REPO, "compiler", "parse", "src")
 FUNNEL_FILE = os.path.join(PACKAGE, "parser.saw")
@@ -797,7 +797,7 @@ def runtime_failures():
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
         paths.append(path)
-    r = subprocess.run([build.SAWC2, "parse", "--check"] + paths, capture_output=True)
+    r = subprocess.run([build.SAWC, "parse", "--check"] + paths, capture_output=True)
     records = {}
     current = None
     for line in r.stdout.decode("utf-8", "replace").split("\n"):
@@ -809,7 +809,7 @@ def runtime_failures():
     for (name, text, want, at), path in zip(rows, paths):
         errors = records.get(path)
         if errors is None:
-            out.append("depth-funnel cell %s: sawc2 printed no record (exit %d)"
+            out.append("depth-funnel cell %s: sawc printed no record (exit %d)"
                        % (name, r.returncode))
         elif want is None and errors:
             out.append("depth-funnel cell %s: refused: %s" % (name, "\t".join(errors[0][1:])))
@@ -845,9 +845,9 @@ def main(argv=None):
                                          args.cycles)
         counts = {}
     else:
-        ok, output = build.build_sawc2()
+        ok, output = build.build_sawc()
         if not ok:
-            print("depth-funnel: sawc2 does not build: %s" % output.strip().split("\n")[-1])
+            print("depth-funnel: sawc does not build: %s" % output.strip().split("\n")[-1])
             return 1
         failures, counts = run(args.cycles)
     for f in failures:

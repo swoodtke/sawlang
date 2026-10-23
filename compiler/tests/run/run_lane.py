@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The run lane: each program here built by sawc2 against the new std and
+"""The run lane: each program here built by sawc against the new std and
 run, and its standard output and exit status compared with Stage 0's recorded
 run of it, built against its own std.
 
@@ -8,18 +8,18 @@ run of it, built against its own std.
     python compiler/tests/run/run_lane.py NAME...    # just these programs and probes
     python compiler/tests/run/run_lane.py --stage0 [NAME...]   # record Stage 0's runs
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
-    python compiler/tests/run/run_lane.py --target TRIPLE   # sawc2's side cross-built
+    python compiler/tests/run/run_lane.py --target TRIPLE   # sawc's side cross-built
 
 `compiler/tests/run.py` runs `run()`. Each `NAME.saw` is one case:
 
-- a plain program passes when sawc2's binary, built at -O0 and again at -O2,
+- a plain program passes when sawc's binary, built at -O0 and again at -O2,
   prints the same bytes as Stage 0's recorded run on standard output and on
   standard error, where a panic's message goes, and exits with the same
   status (a panic's abort included); the record is `stage0/HOST/NAME.stage0`,
   written by `--stage0` through the v0 compiler, and a program without one,
   or whose bytes changed since it was made, fails until it is rerecorded;
 - a program whose first lines are `// due: REASON` and `// refuses: RULE at
-  L:C` is one sawc2 cannot build yet: the lane requires `sawc2 build` to
+  L:C` is one sawc cannot build yet: the lane requires `sawc build` to
   refuse it first there by that rule, and fails once it builds, so the lines
   come off when the slice reaches it; every rule the backend refuses by
   (`ll_rules` in `compiler/llvm/src/module.saw`) has a due program;
@@ -30,28 +30,28 @@ run of it, built against its own std.
   `panic at` line's location; when the reason cites an SL:hazards entry, a
   timing Stage 0 gets wrong, the program's `// prints: LINE` headers are the
   standard output's oracle instead:
-  sawc2 must print exactly those lines, and Stage 0 the same lines in some
+  sawc must print exactly those lines, and Stage 0 the same lines in some
   other order, since such a hazard moves output and never adds or loses it;
 - a build that links prints nothing: the runtime it links is built at the
   module's own target, so the linker has nothing to warn about;
 - `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
-  byte for byte, and `runtime/host_macos/dirent.saw`'s, as `sawc2 runtime`
+  byte for byte, and `runtime/host_macos/dirent.saw`'s, as `sawc runtime`
   writes it, `runtime_dirent.ll`;
-- `noalias.saw`'s own `define` lines equal `noalias.defines`, and a sawc2
+- `noalias.saw`'s own `define` lines equal `noalias.defines`, and a sawc
   built from a copy of the backend whose `noalias` funnel skips its
   cell-carrying test fails that comparison at the cell-carrying `&` parameter;
 - every `define` in those two `.ll` files, and in `frame_pointers.saw`'s,
   carries `"frame-pointer"="non-leaf"`, so a function the backend writes
   outside its function attribute funnel is caught;
-- `sawc2 build --target` links for the host and every target whose runtime
+- `sawc build --target` links for the host and every target whose runtime
   `build.py --runtime` configured, and refuses every other target, linking
-  nothing; with `--target TRIPLE` the lane builds sawc2's side of every
+  nothing; with `--target TRIPLE` the lane builds sawc's side of every
   program for TRIPLE (its runtime configured first) and holds it to Stage 0's
   host build, so a cross-built binary meets the host's expectations;
-- `sawc2 runtime` writes the same bytes into two directories, and refuses a
+- `sawc runtime` writes the same bytes into two directories, and refuses a
   copy of the runtime that leaves a seam undefined or defines one twice;
 - each `probes/NAME.saw` states in its leading comment lines how it is held
-  (README.md, "Probes"): `// probe: stated` is built by sawc2 alone at its
+  (README.md, "Probes"): `// probe: stated` is built by sawc alone at its
   `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
   `// probe: panics` prints them and then panics with its `// panics:` text,
   `// probe: link-fails` fails to link with each `// undefined:` symbol
@@ -63,12 +63,12 @@ run of it, built against its own std.
   a `// probe: custom` one is checked by its function in `CUSTOM_PROBES`, a
   `// probe: module` one is imported by another probe and never built alone,
   and a probe stating no kind, or a kind's lines wrongly, fails the lane;
-- `probes/executable_path.saw`, the custom probe, built by sawc2 and run
+- `probes/executable_path.saw`, the custom probe, built by sawc and run
   through a renamed symbolic link on `PATH` from another directory, prints its
   binary's real path;
-- with no `--std-root`, `sawc2 build` and `sawc2 runtime`, run from another
-  directory, compile against the new std of the tree sawc2 was built in; a
-  copy of sawc2 in a tree with no `std/`, and an explicit root holding no
+- with no `--std-root`, `sawc build` and `sawc runtime`, run from another
+  directory, compile against the new std of the tree sawc was built in; a
+  copy of sawc in a tree with no `std/`, and an explicit root holding no
   std, each refuse with exit status 2, naming the path;
 - a generated accessor with a local live across its `lend` and 1100 `if`s
   after it, which Stage 0 cannot parse, is held as a stated probe to the `42`
@@ -76,12 +76,12 @@ run of it, built against its own std.
 - no record in `stage0/` names a program that is gone.
 
 `--stage0` records Stage 0's runs of every program not due, or of the NAMEs,
-for this host; `--bench` times each kernel of `bench/` under sawc2 at -O2 and
+for this host; `--bench` times each kernel of `bench/` under sawc at -O2 and
 under Stage 0 and prints the report, which gates nothing. Those two run the v0
 compiler (`oracle.v0_compiler`); the check never does, and the runner never
 runs either.
 
-Stage 0's recorded run is the oracle; a difference is a sawc2 bug until shown
+Stage 0's recorded run is the oracle; a difference is a sawc bug until shown
 otherwise (SL:architecture §5).
 """
 import glob
@@ -109,7 +109,7 @@ OUT = os.path.join(REPO, ".build", "run-lane")
 # Stage 0's recorded runs, one directory per host triple (README.md, "The
 # oracle").
 STAGE0 = os.path.join(HERE, "stage0")
-# The target sawc2 builds the programs for, None for the host. The oracle is
+# The target sawc builds the programs for, None for the host. The oracle is
 # Stage 0's run on the host either way: the expected output is the same on
 # every target, which is the claim a cross-built program is held to.
 TARGET = None
@@ -120,7 +120,7 @@ def target_flags():
 
 
 def set_target(triple):
-    """Build sawc2's side for `triple` (None for the host), into a directory
+    """Build sawc's side for `triple` (None for the host), into a directory
     of its own so two targets' binaries never mix."""
     global TARGET, OUT
     TARGET = triple
@@ -137,7 +137,7 @@ _PRINTS = re.compile(r"^// prints: (.*)$")
 _PANIC = re.compile(r"^panic at [^:]+:\d+: ")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 RULES_SOURCE = os.path.join(COMPILER, "llvm", "src", "module.saw")
-# The targets compiler/target describes; `sawc2 build` links for the host's.
+# The targets compiler/target describes; `sawc build` links for the host's.
 TARGETS = ("arm64-apple-darwin", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu")
 # The target the pinned `.ll` files are written for.
 PINNED_TARGET = "arm64-apple-darwin"
@@ -184,7 +184,7 @@ def stated_prints(path):
 
 def check_hazard(src, differs, out_new, out_old):
     """Failures for a program whose `// differs:` cites an SL:hazards entry:
-    its `// prints:` lines are what sawc2 must print, and Stage 0 must print
+    its `// prints:` lines are what sawc must print, and Stage 0 must print
     the same lines in another order; `out_old` is None when Stage 0's order
     varied between its recorded runs, which the hazard allows."""
     stated = stated_prints(src)
@@ -193,7 +193,7 @@ def check_hazard(src, differs, out_new, out_old):
     want = ("\n".join(stated) + "\n").encode("utf-8")
     failures = []
     if out_new != want:
-        failures.append("run %s: sawc2 does not print the stated lines: %s"
+        failures.append("run %s: sawc does not print the stated lines: %s"
                         % (rel(src), first_difference(out_new, want)))
     if out_old is None:
         return failures
@@ -227,7 +227,7 @@ def ll_rules():
 
 
 def build_new(src, speed="-O0", helper=None):
-    """sawc2's build of `src` at `speed`: whether it linked, the binary, and
+    """sawc's build of `src` at `speed`: whether it linked, the binary, and
     what it printed. The runtime it links is built at the module's own target,
     so a build that links prints nothing. A probe's C helper, the path
     `helper`, is linked in beside it (`build_with_helper`)."""
@@ -235,21 +235,21 @@ def build_new(src, speed="-O0", helper=None):
     out = os.path.join(OUT, name + (".new" if speed == "-O0" else ".new" + speed[1:]))
     if helper is not None:
         return build_with_helper(src, speed, helper, out)
-    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std"] + target_flags() + [rel(src), "-o", out],
+    r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags() + [rel(src), "-o", out],
                        cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     return r.returncode == 0, out, (r.stdout + r.stderr).strip()
 
 
 def build_with_helper(src, speed, helper, out):
-    """sawc2's build of `src` at `speed` with the C file `helper` linked in,
-    as `build_new` returns it. sawc2 writes the `.ll` (`--emit-ll`) into
-    `OUT.ll`, where `sawc2 build` would. The clang the target's runtime
+    """sawc's build of `src` at `speed` with the C file `helper` linked in,
+    as `build_new` returns it. sawc writes the `.ll` (`--emit-ll`) into
+    `OUT.ll`, where `sawc build` would. The clang the target's runtime
     manifest records (`choose_clang`'s choice) compiles the helper at -O2, so
     it reads the C convention as strictly as optimized C does, and links the
-    two with the manifest's runtime objects and the libraries `sawc2 build`
+    two with the manifest's runtime objects and the libraries `sawc build`
     links (`build.link_module`'s line, at `speed`)."""
     triple = TARGET or build.host_triple()
-    r = subprocess.run([build.SAWC2, "build", speed, "--std-root", "std"] + target_flags()
+    r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags()
                        + ["--emit-ll", rel(src)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0 or r.stderr.strip():
         return False, out, (r.stderr or r.stdout).strip()
@@ -357,7 +357,7 @@ def first_difference(a, b):
         x = la[k] if k < len(la) else "<end>"
         y = lb[k] if k < len(lb) else "<end>"
         if x != y:
-            return "line %d: sawc2 %r, Stage 0 %r" % (k + 1, x, y)
+            return "line %d: sawc %r, Stage 0 %r" % (k + 1, x, y)
     return "no line differs"
 
 
@@ -367,7 +367,7 @@ def check_case(src):
     ok_new, new, new_log = build_new(src)
     if due is not None:
         if ok_new:
-            return ["run %s: due (%s), but sawc2 builds it now: remove the due lines" % (rel(src), due)], "fail"
+            return ["run %s: due (%s), but sawc builds it now: remove the due lines" % (rel(src), due)], "fail"
         found = first_error(new_log)
         if refuses is None or found != refuses:
             return ["run %s: due, expected %s first, got %s"
@@ -376,9 +376,9 @@ def check_case(src):
         return [], "due"
     if not ok_new:
         first = next((l for l in new_log.split("\n") if l.startswith(("ERROR", "INVARIANT"))), new_log[:300])
-        return ["run %s: sawc2 does not build it: %s" % (rel(src), first)], "fail"
+        return ["run %s: sawc does not build it: %s" % (rel(src), first)], "fail"
     if new_log:
-        return ["run %s: sawc2 builds it but prints: %s" % (rel(src), new_log[:300])], "fail"
+        return ["run %s: sawc builds it but prints: %s" % (rel(src), new_log[:300])], "fail"
     old, why = stage0_run(src)
     if old is None:
         return ["run %s: %s" % (rel(src), why)], "fail"
@@ -386,10 +386,10 @@ def check_case(src):
         return ["run %s: Stage 0 does not build it: %s" % (rel(src), old.build_error or old.build)], "fail"
     ok_fast, fast, fast_log = build_new(src, "-O2")
     if not ok_fast:
-        return ["run %s: sawc2 does not build it at -O2: %s" % (rel(src), fast_log[:300])], "fail"
+        return ["run %s: sawc does not build it at -O2: %s" % (rel(src), fast_log[:300])], "fail"
     code_old = old.exit
     # The record holds the output with this checkout's root removed, so
-    # sawc2's is compared the same way.
+    # sawc's is compared the same way.
     out_old = None if old.stdout == "varies" else old.stdout.encode("utf-8", "surrogateescape")
     err_old = None if old.stderr == "varies" else old.stderr.encode("utf-8", "surrogateescape")
     failures = []
@@ -401,7 +401,7 @@ def check_case(src):
         if code_new is None or code_old is None:
             failures.append("run %s: a binary timed out" % where)
         elif code_old != "varies" and code_new != code_old:
-            failures.append("run %s: exit %d under sawc2, %d under Stage 0" % (where, code_new, code_old))
+            failures.append("run %s: exit %d under sawc, %d under Stage 0" % (where, code_new, code_old))
         if differs is not None and _HAZARD.search(differs):
             failures.extend("%s (%s)" % (f, speed) for f in check_hazard(src, differs, out_new, out_old))
         elif out_old is None:
@@ -438,7 +438,7 @@ def cases(names=None):
 
 def check_pinned_ir(failures, counts, write):
     """hello.saw's `.ll`, as the compiler binary writes it for macOS, against
-    hello.ll, and one runtime source's, as `sawc2 runtime` writes it, against
+    hello.ll, and one runtime source's, as `sawc runtime` writes it, against
     runtime_dirent.ll. The target is named, so the pins hold on every host.
     Both, and frame_pointers.saw's, define every function keeping a frame
     pointer."""
@@ -448,11 +448,11 @@ def check_pinned_ir(failures, counts, write):
     dirent = check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
                           ["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
                            rel(os.path.join(build.RT_ROOT, "host_macos", "dirent.saw"))])
-    r = subprocess.run([build.SAWC2, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+    r = subprocess.run([build.SAWC, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
                         rel(os.path.join(HERE, "frame_pointers.saw"))], cwd=REPO, capture_output=True, text=True,
                        timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
-        failures.append("run frame pointers: sawc2 wrote no .ll: %s" % r.stdout.strip()[:300])
+        failures.append("run frame pointers: sawc wrote no .ll: %s" % r.stdout.strip()[:300])
     for what, text in (("hello", hello), ("runtime dirent", dirent),
                        ("frame pointers", r.stdout if r.returncode == 0 else None)):
         if text is not None:
@@ -461,7 +461,7 @@ def check_pinned_ir(failures, counts, write):
                 counts.get("run .ll files whose defines keep frame pointers", 0) + 1)
 
 
-# The function attribute every define carries on every target sawc2 knows
+# The function attribute every define carries on every target sawc knows
 # (`Target.frame_pointer` in compiler/target).
 FRAME_POINTER = '"frame-pointer"="non-leaf"'
 _GROUP = re.compile(r"^attributes #(\d+) = \{(.*)\}$")
@@ -495,11 +495,11 @@ def define_problems(what, text):
 
 
 def check_pinned(failures, counts, write, what, pinned, args):
-    """Compares the `.ll` sawc2 writes for `args` with `pinned`, or rewrites
-    `pinned` with it; returns the text, or None when sawc2 wrote none."""
-    r = subprocess.run([build.SAWC2] + args, cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    """Compares the `.ll` sawc writes for `args` with `pinned`, or rewrites
+    `pinned` with it; returns the text, or None when sawc wrote none."""
+    r = subprocess.run([build.SAWC] + args, cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
-        failures.append("run %s: sawc2 wrote no .ll: %s" % (what, r.stdout.strip()[:300]))
+        failures.append("run %s: sawc wrote no .ll: %s" % (what, r.stdout.strip()[:300]))
         return None
     text = r.stdout
     if write:
@@ -547,11 +547,11 @@ def noalias_defines(compiler):
 
 def check_noalias(failures, counts, write):
     """noalias.saw's `define` lines against noalias.defines, then the same
-    check over a sawc2 whose `noalias` funnel ignores the cell-carrying test,
+    check over a sawc whose `noalias` funnel ignores the cell-carrying test,
     which must fail at the cell-carrying shared reference."""
-    lines, why = noalias_defines(build.SAWC2)
+    lines, why = noalias_defines(build.SAWC)
     if lines is None:
-        failures.append("run noalias: sawc2 wrote no .ll: %s" % why)
+        failures.append("run noalias: sawc wrote no .ll: %s" % why)
         return
     text = "\n".join(lines) + "\n"
     if write:
@@ -583,17 +583,17 @@ def check_noalias(failures, counts, write):
         packages = []
         for name, path in build.STAGE_PACKAGES:
             packages += ["--module-path", "%s=%s" % (name, llvm if name == "sawllvm" else path)]
-        injected = os.path.join(copy, "sawc2")
-        r = subprocess.run([build.SAWC2, "build", "-O0", "--std-root", "std"] + packages
+        injected = os.path.join(copy, "sawc")
+        r = subprocess.run([build.SAWC, "build", "-O0", "--std-root", "std"] + packages
                            + [rel(build.DRIVER_ENTRY), "-o", injected], cwd=REPO, capture_output=True, text=True,
                            timeout=BUILD_TIMEOUT)
         if r.returncode != 0:
-            failures.append("run noalias: the injected sawc2 does not build: %s"
+            failures.append("run noalias: the injected sawc does not build: %s"
                             % (r.stdout + r.stderr).strip()[:300])
             return
         lines, why = noalias_defines(injected)
         if lines is None:
-            failures.append("run noalias: the injected sawc2 wrote no .ll: %s" % why)
+            failures.append("run noalias: the injected sawc wrote no .ll: %s" % why)
             return
         caught = [line for line in lines if line + "\n" not in expected]
         if not any(NOALIAS_CELL_ROW in line and "noalias %p1" in line for line in caught):
@@ -605,30 +605,30 @@ def check_noalias(failures, counts, write):
 
 
 def build_runtime(directory, rt_root):
-    """`sawc2 runtime` of the sources under `rt_root` into a fresh
+    """`sawc runtime` of the sources under `rt_root` into a fresh
     `directory`: (exit status, what it printed)."""
     shutil.rmtree(directory, ignore_errors=True)
     os.makedirs(directory)
-    r = subprocess.run([build.SAWC2, "runtime", "--std-root", "std"] + target_flags()
+    r = subprocess.run([build.SAWC, "runtime", "--std-root", "std"] + target_flags()
                        + ["--rt-root", rel(rt_root), "--out", rel(directory)], cwd=REPO, capture_output=True,
                        text=True, timeout=BUILD_TIMEOUT)
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
-# Each defect a runtime source may carry, and the line `sawc2 runtime` must
+# Each defect a runtime source may carry, and the line `sawc runtime` must
 # print for it: (source under runtime/, the text replaced, its replacement,
 # the line).
 RUNTIME_DEFECTS = (
     ("common/sleep.saw", '@export("__saw_rt_sleep_ns")\n', "",
-     "sawc2 runtime: no runtime object defines `__saw_rt_sleep_ns`, which runtime/ABI.md lists"),
+     "sawc runtime: no runtime object defines `__saw_rt_sleep_ns`, which runtime/ABI.md lists"),
     ("%s/dirent.saw" % ("host_macos" if build.host_triple().endswith("-apple-darwin") else "host_linux"),
      '@export("__saw_rt_fs_dirent_name")', '@export("__saw_rt_fs_chdir")',
-     "sawc2 runtime: `__saw_rt_fs_chdir` is defined by both"),
+     "sawc runtime: `__saw_rt_fs_chdir` is defined by both"),
 )
 
 
 def check_runtime(failures, counts):
-    """`sawc2 runtime` writes the same bytes into two directories, and refuses
+    """`sawc runtime` writes the same bytes into two directories, and refuses
     a runtime that leaves a seam undefined or defines one twice, naming it and
     printing no manifest."""
     first_dir = os.path.join(OUT, "runtime-a")
@@ -637,7 +637,7 @@ def check_runtime(failures, counts):
     code_a, log_a = build_runtime(first_dir, rt)
     code_b, log_b = build_runtime(second_dir, rt)
     if code_a != 0 or code_b != 0:
-        failures.append("run runtime: sawc2 runtime fails: %s" % (log_a or log_b)[:300])
+        failures.append("run runtime: sawc runtime fails: %s" % (log_a or log_b)[:300])
         return
     names = sorted(os.listdir(first_dir))
     if names != sorted(os.listdir(second_dir)):
@@ -667,8 +667,8 @@ def check_runtime(failures, counts):
 
 
 def check_foreign_targets(failures, counts):
-    """`sawc2 build --target T` links for the host and for every target whose
-    runtime manifest `build.py --runtime T` wrote beside sawc2, and every other
+    """`sawc build --target T` links for the host and for every target whose
+    runtime manifest `build.py --runtime T` wrote beside sawc, and every other
     target is refused before anything is written, saying it is not the host
     and has no runtime: a build never falls back to the host's objects."""
     hello = os.path.join(HERE, "hello.saw")
@@ -680,12 +680,12 @@ def check_foreign_targets(failures, counts):
         for written in (probe, probe + ".ll"):
             if os.path.exists(written):
                 os.remove(written)
-        r = subprocess.run([build.SAWC2, "build", "--std-root", "std", "--target", triple, rel(hello), "-o",
+        r = subprocess.run([build.SAWC, "build", "--std-root", "std", "--target", triple, rel(hello), "-o",
                             probe], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
         said = (r.stdout + r.stderr).strip()[:300]
         if triple in configured:
             if r.returncode != 0 or not os.path.exists(probe):
-                failures.append("run target %s: configured, but sawc2 does not link for it: %s" % (triple, said))
+                failures.append("run target %s: configured, but sawc does not link for it: %s" % (triple, said))
             continue
         refused += 1
         if (r.returncode == 0 or "is not this host" not in r.stdout or "no runtime for it is configured"
@@ -698,7 +698,7 @@ def check_foreign_targets(failures, counts):
 
 def check_executable_path(failures, counts):
     """`Env.executable_path` names the real file however the program is
-    started: `probes/executable_path.saw`, built by sawc2, is run by a bare
+    started: `probes/executable_path.saw`, built by sawc, is run by a bare
     name that a renamed relative symbolic link on `PATH` resolves, from
     another working directory, and must print its binary's real path. The
     expectation is the path itself, so no Stage 0 run is needed."""
@@ -710,9 +710,9 @@ def check_executable_path(failures, counts):
     os.makedirs(elsewhere, exist_ok=True)
     built = []
     new = os.path.join(OUT, "executable_path.new")
-    r = subprocess.run([build.SAWC2, "build", "--std-root", "std"] + target_flags() + [rel(probe), "-o", new],
+    r = subprocess.run([build.SAWC, "build", "--std-root", "std"] + target_flags() + [rel(probe), "-o", new],
                        cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    built.append(("sawc2", r.returncode, new, (r.stdout + r.stderr).strip()))
+    built.append(("sawc", r.returncode, new, (r.stdout + r.stderr).strip()))
     for who, code, binary, log in built:
         if code != 0:
             failures.append("run executable path: %s does not build the probe: %s" % (who, log[:300]))
@@ -750,8 +750,8 @@ def stage_binary():
 
 
 def check_default_std_root(failures, counts):
-    """With no `--std-root`, sawc2 compiles against the `std/` of the tree its
-    binary was built in, from any working directory, `sawc2 runtime`
+    """With no `--std-root`, sawc compiles against the `std/` of the tree its
+    binary was built in, from any working directory, `sawc runtime`
     included; a copy of the binary in a tree with no `std/` refuses naming the
     path it looked at, and so does an explicit root holding no std, each
     with exit status 2 (SL-818)."""
@@ -763,7 +763,7 @@ def check_default_std_root(failures, counts):
     with open(src, "w") as fh:
         fh.write(DEFAULT_STD_SOURCE)
     exe = os.path.join(work, "main")
-    r = subprocess.run([build.SAWC2, "build"] + target_flags() + [src, "-o", exe], cwd=elsewhere,
+    r = subprocess.run([build.SAWC, "build"] + target_flags() + [src, "-o", exe], cwd=elsewhere,
                        capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
         failures.append("run default std: a build from another directory with no --std-root fails: %s"
@@ -774,23 +774,23 @@ def check_default_std_root(failures, counts):
             failures.append("run default std: the program built with no --std-root prints %r, exit %s"
                             % (out[:200], code))
     mem = os.path.join(build.RT_ROOT, "common", "mem.saw")
-    r = subprocess.run([build.SAWC2, "runtime", "--target", TARGET or build.host_triple(), "--emit-ll", mem],
+    r = subprocess.run([build.SAWC, "runtime", "--target", TARGET or build.host_triple(), "--emit-ll", mem],
                        cwd=elsewhere, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
-        failures.append("run default std: `sawc2 runtime --emit-ll` from another directory with no --std-root "
+        failures.append("run default std: `sawc runtime --emit-ll` from another directory with no --std-root "
                         "fails: %s" % r.stdout.strip()[:300])
     nostd = os.path.join(work, "nostd")
     os.makedirs(os.path.join(nostd, ".build"))
     copy = os.path.join(nostd, ".build", os.path.basename(stage_binary()))
     shutil.copy2(stage_binary(), copy)
-    want = "sawc2 resolve: no std at %s: " % os.path.join(os.path.realpath(nostd), "std")
+    want = "sawc resolve: no std at %s: " % os.path.join(os.path.realpath(nostd), "std")
     r = subprocess.run([copy, "resolve", "--check", src], cwd=elsewhere, capture_output=True, text=True,
                        timeout=BUILD_TIMEOUT)
     if r.returncode != 2 or not r.stdout.startswith(want):
         failures.append("run default std: a binary in a tree with no std/ exits %d printing %r, not 2 and %r"
                         % (r.returncode, r.stdout[:300], want))
-    want = "sawc2 typecheck: --std-root %s holds no std: " % elsewhere
-    r = subprocess.run([build.SAWC2, "typecheck", "--check", "--std-root", elsewhere, src], cwd=elsewhere,
+    want = "sawc typecheck: --std-root %s holds no std: " % elsewhere
+    r = subprocess.run([build.SAWC, "typecheck", "--check", "--std-root", elsewhere, src], cwd=elsewhere,
                        capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 2 or not r.stdout.startswith(want):
         failures.append("run default std: an explicit root holding no std exits %d printing %r, not 2 and %r"
@@ -977,7 +977,7 @@ def leak_problems(where, binary):
 
 def held_probe(src, header):
     """(failures, counts) for a probe of a kind its header states, built by
-    sawc2 alone at each of its speeds. Each build is held whole, since a read
+    sawc alone at each of its speeds. Each build is held whole, since a read
     of an uninitialised local can pass at one level and not another."""
     kind = header["probe"][0]
     name = os.path.splitext(os.path.basename(src))[0]
@@ -996,11 +996,11 @@ def held_probe(src, header):
         if kind == "link-fails":
             symbols = header["undefined"]
             if ok or first_error(log) is not None or "ndefined" not in log or any(s not in log for s in symbols):
-                failures.append("%s: sawc2 %s, not a link failure naming %s undefined: %s"
+                failures.append("%s: sawc %s, not a link failure naming %s undefined: %s"
                                 % (where, "links it" if ok else "fails otherwise",
                                    ", ".join("`%s`" % s for s in symbols), log[:300]))
         elif not ok or log:
-            failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+            failures.append("%s: sawc %s: %s" % (where, "builds it but prints" if ok else "does not build it",
                                                   log[:300]))
             continue
         elif kind == "stated":
@@ -1094,7 +1094,7 @@ def check_print_lines(failures, counts):
         where = "run %s %s" % (rel(probe), speed)
         ok, binary, log = build_new(probe, speed)
         if not ok or log:
-            failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+            failures.append("%s: sawc %s: %s" % (where, "builds it but prints" if ok else "does not build it",
                                                   log[:300]))
             continue
         for k in range(PRINT_STRESS_RUNS):
@@ -1133,7 +1133,7 @@ def check_print_beside_a_panic(failures, counts):
         where = "run %s %s" % (rel(probe), speed)
         ok, binary, log = build_new(probe, speed)
         if not ok or log:
-            failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+            failures.append("%s: sawc %s: %s" % (where, "builds it but prints" if ok else "does not build it",
                                                   log[:300]))
             continue
         try:
@@ -1240,7 +1240,7 @@ def check_dump_beside_churn(name):
             where = "run %s %s" % (rel(probe), speed)
             ok, binary, log = build_new(probe, speed)
             if not ok or log:
-                failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it",
+                failures.append("%s: sawc %s: %s" % (where, "builds it but prints" if ok else "does not build it",
                                                       log[:300]))
                 continue
             for k in range(DUMP_CHURN_RUNS):
@@ -1266,7 +1266,7 @@ def check_leak_detection(failures, counts):
     where = "run %s -O0" % rel(probe)
     ok, binary, log = build_new(probe, "-O0")
     if not ok or log:
-        failures.append("%s: sawc2 %s: %s" % (where, "builds it but prints" if ok else "does not build it", log[:300]))
+        failures.append("%s: sawc %s: %s" % (where, "builds it but prints" if ok else "does not build it", log[:300]))
         return
     found = leak_problems(where, binary)
     if found is None:
@@ -1381,14 +1381,14 @@ def best_time(binary, reps=BENCH_REPS):
 
 
 def bench():
-    """The timing report: each kernel of `bench/` built by sawc2 at -O2 and
+    """The timing report: each kernel of `bench/` built by sawc at -O2 and
     by Stage 0, both run, their best times printed beside the ratio. Only a
     build that fails, or two outputs that differ, fails the report; a time
     never does, since it is only as good as the machine is quiet. A time is
     no record, so Stage 0 is run here, through the v0 compiler."""
     os.makedirs(OUT, exist_ok=True)
     failures = []
-    print("%-12s %10s %10s %7s" % ("kernel", "Stage 0", "sawc2 -O2", "ratio"))
+    print("%-12s %10s %10s %7s" % ("kernel", "Stage 0", "sawc -O2", "ratio"))
     for src in sorted(glob.glob(os.path.join(HERE, "bench", "*.saw"))):
         name = os.path.splitext(os.path.basename(src))[0]
         ok_new, new, new_log = build_new(src, "-O2")
@@ -1397,7 +1397,7 @@ def bench():
         ok_old = code == 0
         if not ok_new or not ok_old:
             failures.append("bench %s: %s does not build it: %s"
-                            % (name, "sawc2" if not ok_new else "Stage 0", (new_log if not ok_new else old_log)[:300]))
+                            % (name, "sawc" if not ok_new else "Stage 0", (new_log if not ok_new else old_log)[:300]))
             continue
         t_old, out_old = best_time(old)
         t_new, out_new = best_time(new)

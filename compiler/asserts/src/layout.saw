@@ -32,7 +32,7 @@ public func asserts_typecheck_program(path: String, std_root: String, names: &Ve
 // Each deferred assertion that measures no type parameter, against the
 // layouts of the types it measures.
 func asserts_check_concrete(p: &var TcProgram) {
-    // Every target sawc2 describes is LP64 with natural alignment, so one
+    // Every target sawc describes is LP64 with natural alignment, so one
     // answers for all of them.
     var target = Target(triple: "arm64-apple-darwin")
     var k = 0

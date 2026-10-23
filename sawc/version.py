@@ -1,6 +1,7 @@
 """The compiler's version — ONE constant, and what it does and does not promise.
 
-`sawc --version` prints this and nothing else computes it. It exists because a
+`sawc0 --version` prints this, and the self-hosted compiler's `driver_version`
+must equal it (compiler/tests/run.py's `version` step). It exists because a
 consumer of the toolchain (design 238 D-b2) has to be able to ask an installed
 `sawc` what it is before trusting it with a build: a compiler found on `$PATH`
 is otherwise unpinned, and a stale or bleeding-edge one silently produces a
@@ -29,4 +30,4 @@ so a consumer pinning by SHA can pick a BLESSED sha by name and hold it until
 ready for the next one. Tags exist retroactively back to v0.1.0.
 """
 
-SAWC_VERSION = "0.17.0"
+SAWC_VERSION = "0.18.0"

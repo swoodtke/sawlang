@@ -551,7 +551,7 @@ def run_worker():
         if path not in files:
             files[path] = read_cases(path)
         todo.append((path, files[path][int(index)]))
-    # Every case's own text in one sawc2 process; the texts an evaluation
+    # Every case's own text in one sawc process; the texts an evaluation
     # derives from it are lexed as they come.
     lexdump.lex_texts([case.text for _, case in todo])
     for path, case in todo:
