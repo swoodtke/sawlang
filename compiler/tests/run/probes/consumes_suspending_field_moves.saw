@@ -1,0 +1,128 @@
+// probe: stated
+// about: a suspending `consumes` method that moves fields out of `self` releases exactly the unmoved ones (SL-859)
+// stage 0: refuses a suspending `consumes` method that moves a field out of `self` (design 260 v1)
+// speeds: -O0 -O2
+// leaks: none
+// SL-859 matrix B: a SUSPENDING `consumes` method that moves fields out of
+// `self`, run as a cooperative group task. Spec (design 260 §3): the
+// end-of-body release covers exactly the unmoved fields, in reverse
+// declaration order; a moved field is released once, by its new owner.
+// (1) `a` moved BEFORE the suspension, (2) AFTER it, (3) both fields moved
+// (tuple), (4) nothing moved (whole release: b then a), (5) `a` moved on
+// every path, one path suspending.
+// prints: moved a
+// prints: after yield
+// prints: drop tr 2
+// prints: got 1
+// prints: drop tr 1
+// prints: B1 1
+// prints: yielded
+// prints: drop tr 4
+// prints: got 3
+// prints: drop tr 3
+// prints: B2 3
+// prints: yielded
+// prints: got 5 6
+// prints: drop tr 6
+// prints: drop tr 5
+// prints: B3 11
+// prints: yielded
+// prints: drop tr 8
+// prints: drop tr 7
+// prints: B4 15
+// prints: branch slow
+// prints: drop tr 10
+// prints: got 9
+// prints: drop tr 9
+// prints: B5a 9
+// prints: branch fast
+// prints: drop tr 12
+// prints: got 11
+// prints: drop tr 11
+// prints: B5b 11
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Job { a: Tr, b: Tr }
+extension Job: NoCopy {}
+
+extension Job {
+    func take_before(&var self) consumes -> Tr {
+        let x = move self.a
+        print("moved a")
+        yield_now()
+        print("after yield")
+        move x
+    }
+
+    func take_after(&var self) consumes -> Tr {
+        yield_now()
+        print("yielded")
+        move self.a
+    }
+
+    func take_both(&var self) consumes -> (Tr, Tr) {
+        yield_now()
+        print("yielded")
+        (move self.a, move self.b)
+    }
+
+    func take_none(&var self) consumes -> Int {
+        yield_now()
+        print("yielded")
+        self.a.id + self.b.id
+    }
+
+    func take_split(&var self, slow: Bool) consumes -> Tr {
+        if slow {
+            print("branch slow")
+            yield_now()
+            move self.a
+        } else {
+            print("branch fast")
+            move self.a
+        }
+    }
+}
+
+func d1(j: Job) -> Int {
+    let t = (move j).take_before()
+    print("got {}", t.id)
+    t.id
+}
+
+func d2(j: Job) -> Int {
+    let t = (move j).take_after()
+    print("got {}", t.id)
+    t.id
+}
+
+func d3(j: Job) -> Int {
+    let (x, y) = (move j).take_both()
+    print("got {} {}", x.id, y.id)
+    x.id + y.id
+}
+
+func d4(j: Job) -> Int {
+    (move j).take_none()
+}
+
+func d5(j: Job, slow: Bool) -> Int {
+    let t = (move j).take_split(slow)
+    print("got {}", t.id)
+    t.id
+}
+
+func main() {
+    var group = TaskGroup()
+    print("B1 {}", group.spawn(d1(Job(a: Tr(id: 1), b: Tr(id: 2)))).join())
+    print("B2 {}", group.spawn(d2(Job(a: Tr(id: 3), b: Tr(id: 4)))).join())
+    print("B3 {}", group.spawn(d3(Job(a: Tr(id: 5), b: Tr(id: 6)))).join())
+    print("B4 {}", group.spawn(d4(Job(a: Tr(id: 7), b: Tr(id: 8)))).join())
+    print("B5a {}", group.spawn(d5(Job(a: Tr(id: 9), b: Tr(id: 10)), true)).join())
+    print("B5b {}", group.spawn(d5(Job(a: Tr(id: 11), b: Tr(id: 12)), false)).join())
+}

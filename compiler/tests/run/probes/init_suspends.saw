@@ -1,0 +1,120 @@
+// probe: stated
+// about: an `init` body may suspend, including a fallible one and one cancelled while it sleeps (SL-859)
+// stage 0: refuses a suspension in an `init` body
+// speeds: -O0 -O2
+// leaks: none
+// SL-859: an `init` body that suspends (spec: "Limit: an `init` body may not
+// suspend"). (1) a plain init over a NoCopy field built before the yield,
+// in a group task; (2) a fallible `-> Result<Self, E>` init, Ok and Err, the
+// Err path releasing the field it built; (3) under `__saw_drive_steps` (1 per
+// init); (4) cancelled while the init sleeps: it finishes through its own code.
+// prints: init 1 start
+// prints: init 1 end
+// prints: I1 1
+// prints: drop tr 1
+// prints: try 2
+// prints: drop tr 20
+// prints: I2ok 2
+// prints: drop tr 2
+// prints: try 9
+// prints: drop tr 90
+// prints: drop tr 9
+// prints: I2err 9
+// prints: init 3 start
+// prints: init 3 end
+// prints: drop tr 3
+// prints: I3 1
+// prints: init 4 start
+// prints: init 4 end cancelled=true
+// prints: drop tr 4
+// prints: I4 4 quick=true
+import std.task.*
+import std.time.{Instant}
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Bad { n: Int }
+extension Bad: Error {}
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append(value: self.n) }
+}
+
+struct Thing { tag: Tr, n: Int }
+extension Thing: NoCopy {}
+
+extension Thing {
+    init(slow: Int) -> Thing {
+        print("init {} start", slow)
+        let t = Tr(id: slow)
+        yield_now()
+        print("init {} end", slow)
+        Thing(tag: move t, n: slow)
+    }
+
+    init(parked: Int) -> Thing {
+        print("init {} start", parked)
+        let t = Tr(id: parked)
+        sleep(Duration.secs(3))
+        print("init {} end cancelled={}", parked, cancelled())
+        Thing(tag: move t, n: parked)
+    }
+
+    init(checked: Int) -> Result<Thing, Bad> {
+        print("try {}", checked)
+        let t = Tr(id: checked)
+        let scratch = Tr(id: checked * 10)
+        yield_now()
+        if checked > 5 {
+            return Bad(n: checked)
+        }
+        Thing(tag: move t, n: checked)
+    }
+}
+
+func i1() -> Int {
+    let th = Thing(slow: 1)
+    print("I1 {}", th.n)
+    th.n
+}
+
+func i2(n: Int) -> Int {
+    match Thing(checked: n) {
+        case Ok(th) -> { print("I2ok {}", th.n); th.n },
+        case Err(e) -> { print("I2err {}", e.n); -1 }
+    }
+}
+
+func i3() -> Int {
+    let th = Thing(slow: 3)
+    th.n
+}
+
+func i4() -> Int {
+    let th = Thing(parked: 4)
+    th.n
+}
+
+func steps3() -> Int { __saw_drive_steps(i3()) }
+
+func cancel_round() {
+    var group = TaskGroup()
+    let start = Instant.now()
+    let t = group.spawn(i4())
+    yield_now()
+    yield_now()
+    t.cancel()
+    let r = t.join()
+    print("I4 {} quick={}", r, start.elapsed().as_millis() < 1000)
+}
+
+func main() {
+    var group = TaskGroup()
+    let _ = group.spawn(i1()).join()
+    let _ = group.spawn(i2(2)).join()
+    let _ = group.spawn(i2(9)).join()
+    print("I3 {}", steps3())
+    cancel_round()
+}

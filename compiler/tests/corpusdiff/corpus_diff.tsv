@@ -443,7 +443,7 @@ conformance/N11_align_refuses_frame_resident_local.saw	refused	llvm backend.not-
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	pass	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	pass	-	-
 conformance/O14_presence_test_is_tier_independent.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-conformance/P08_borrows_body_suspends.saw	wrong	accepts a refusal test	cannot suspend in `sync func` method: method `C.slot` calls yield_now (`C.slot` suspends at line 14)
+conformance/P08_borrows_body_suspends.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 conformance/R07_return_optional_ref.saw	pass	-	type.mismatch: expected `&Int?`, the type of the function's result, which the body's last expression is, and found `&Int`
 conformance/R08_return_vector_of_ref.saw	pass	-	type.reference-position: a return type may not name a reference: `std.vector.Vector<&Int, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and references are parameters only: a reference b
 conformance/R16_array_literal_of_refs.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
@@ -1076,8 +1076,8 @@ errors/consumes_function_type.saw	pass	-	resolve.parse-refused: the parser refus
 errors/consumes_needs_a_receiver.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_needs_a_receiver.saw` (syntax.rule.effect-slot), so its declarations are not available
 errors/consumes_needs_var_self.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_needs_var_self.saw` (syntax.rule.effect-slot), so its declarations are not available
 errors/consumes_receiver_through_a_field_or_place.saw	pass	-	transfer.partial-move: cannot move out of field `b` of `h`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; move the whole value, or keep the part in a binding of i
-errors/consumes_suspending_field_move.saw	wrong	accepts a refusal test	`harvest` moves field `a` out of `self` and also SUSPENDS — design 260 v1 does not support both in one method
-errors/consumes_suspending_handwritten_deinit.saw	wrong	accepts a refusal test	`close` is `consumes` on `Conn`, which has a hand-written `deinit`, and it SUSPENDS — design 260 v1 does not support that combination
+errors/consumes_suspending_field_move.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
+errors/consumes_suspending_handwritten_deinit.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 errors/consumes_trait_requirement.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_trait_requirement.saw` (syntax.rule.requirement-borrows), so its declarations are not available
 errors/copy_bound_missing.saw	pass	-	type.bound: `T` has no `copy()`: no bound makes it `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
 errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`

@@ -1,0 +1,97 @@
+// probe: stated
+// about: a suspending `consumes` method on a type with a hand-written `deinit` replaces the deinit body for the consumed receiver (SL-859)
+// stage 0: refuses a suspending `consumes` method on a type with a hand-written `deinit` (design 260 v1)
+// speeds: -O0 -O2
+// leaks: none
+// SL-859 matrix B: a SUSPENDING `consumes` method on a type with a
+// HAND-WRITTEN `deinit`. Spec (design 260 §2, LANGUAGE_SPEC "consuming
+// receivers"): for a CONSUMED receiver the deinit body does NOT run (the
+// consuming body occupies its prefix slot); the synthesized drops then sweep
+// the unmoved remainder. An ordinary drop runs body-then-fields. `self = v`
+// in a consuming body deinits the OLD referent whole (body included); the
+// new value is the consumed one.
+// (1) no field moved, (2) the `tag` field moved after the suspension, (3) the
+// field moved before it, (4) control: an ordinary drop of the same type,
+// (5) `self = v` then a suspension.
+// prints: closing 1
+// prints: drop tr 10
+// prints: K1 1
+// prints: drop tr 20
+// prints: K2 20
+// prints: moved tag
+// prints: drop tr 30
+// prints: K3 30
+// prints: conn deinit 4
+// prints: drop tr 40
+// prints: K4 4
+// prints: conn deinit 5
+// prints: drop tr 50
+// prints: replaced
+// prints: drop tr 60
+// prints: K5 6
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Conn { fd: Int, tag: Tr }
+extension Conn: NoCopy {
+    func deinit(&var self) { print("conn deinit {}", self.fd) }
+}
+
+extension Conn {
+    func close(&var self) consumes -> Int {
+        yield_now()
+        print("closing {}", self.fd)
+        self.fd
+    }
+
+    func take_tag_after(&var self) consumes -> Tr {
+        yield_now()
+        move self.tag
+    }
+
+    func take_tag_before(&var self) consumes -> Tr {
+        let t = move self.tag
+        print("moved tag")
+        yield_now()
+        move t
+    }
+
+    func replace(&var self) consumes -> Int {
+        self = Conn(fd: 6, tag: Tr(id: 60))
+        yield_now()
+        print("replaced")
+        self.fd
+    }
+}
+
+func k1(c: Conn) -> Int { (move c).close() }
+
+func k2(c: Conn) -> Int {
+    let t = (move c).take_tag_after()
+    t.id
+}
+
+func k3(c: Conn) -> Int {
+    let t = (move c).take_tag_before()
+    t.id
+}
+
+func k4(c: Conn) -> Int {
+    yield_now()
+    c.fd
+}
+
+func k5(c: Conn) -> Int { (move c).replace() }
+
+func main() {
+    var group = TaskGroup()
+    print("K1 {}", group.spawn(k1(Conn(fd: 1, tag: Tr(id: 10)))).join())
+    print("K2 {}", group.spawn(k2(Conn(fd: 2, tag: Tr(id: 20)))).join())
+    print("K3 {}", group.spawn(k3(Conn(fd: 3, tag: Tr(id: 30)))).join())
+    print("K4 {}", group.spawn(k4(Conn(fd: 4, tag: Tr(id: 40)))).join())
+    print("K5 {}", group.spawn(k5(Conn(fd: 5, tag: Tr(id: 50)))).join())
+}

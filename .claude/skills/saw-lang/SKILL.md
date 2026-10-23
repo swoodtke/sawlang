@@ -766,10 +766,9 @@ var u = w.copy()       // explicit duplicate
   model. `self = v` in a consuming body deinits the OLD referent WHOLE.
   FENCES, each a clean error: no `consumes` on `&self` / a static / an `init` /
   a free function / beside `borrows`; none on a trait REQUIREMENT and none
-  SATISFYING one; no `consumes` function TYPE; and a suspending consuming body
-  may neither move a field out nor sit on a type with a hand-written `deinit`
-  (its receiver lives in the caller's frame, whose per-slot release can do
-  neither). Suspending consuming methods otherwise work, driven and spawned.
+  SATISFYING one; and no `consumes` function TYPE. A consuming method may
+  suspend, move a field out, and sit on a type with a hand-written `deinit`
+  (the consuming body replaces the deinit body), driven and spawned.
   GOTCHA: `consumes` is CONTEXTUAL, so a field, label, local or function named
   `consumes` still compiles — which is exactly why the CALLER word is `move`
   and not `consume`.
@@ -1561,9 +1560,9 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   there too. Before Aug 24 every one of those was ACCEPTED and then miscompiled:
   the call site typed the construction as the receiver whatever was written, so
   a wrong return type was two types and the program died with an internal
-  compiler error about LLVM IR. Two limits: an `init` body may not suspend (an
-  ICE today, DF-251d), and a RENAMED generic extension's init parameters do not
-  substitute at the call site (DF-251c).
+  compiler error about LLVM IR. One limit: a RENAMED generic extension's init
+  parameters do not substitute at the call site (DF-251c). An `init` body may
+  suspend.
   A GENERIC extension's `init` RELEASES an owning parameter no path moved into
   the built value, exactly as the non-generic twin has since DF-217m — so
   `Holder<T>(seed: n, witness: res)` drops `res` when the body does not consume

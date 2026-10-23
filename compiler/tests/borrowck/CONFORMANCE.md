@@ -251,6 +251,9 @@ INDEX.md, or when an owner is not one of the words below.
 | V130 | U6d1 | `consumes.replace-partial`: `compiler/tests/borrowck/refuse/consumes.replace-partial.saw`, `.refill`, `.branch`, `.loop`, `.generic`; a whole use after a field is assigned again, `compiler/tests/borrowck/refuse/move.use-after.refilled.saw`; accepted before any move and after a Copy field's, `compiler/tests/borrowck/golden/replace.saw`; run, `compiler/tests/run/probes/consumes_replace.saw` |
 | V131 | typecheck | accepted, a raw-backed enum's cast borrows its place (SL-623): golden `compiler/tests/typecheck/golden/raw_enum_cast.saw`; the same-type cast's `transfer.implicit-copy`, `compiler/tests/typecheck/refuse/transfer.implicit-copy.raw-enum-forwarding.saw`; a `borrow PLACE` operand's, whole or a field of one (SL-642), `compiler/tests/run/probes/borrow_place_reads.saw`; run, `compiler/tests/run/raw_enum_cast.saw` |
 | V132 | mir | a temporary a raw-backed enum's cast reads is its statement's to drop (SL-623): `compiler/tests/mir/golden/raw_enum_casts.saw`; run, `compiler/tests/run/probes/raw_enum_cast_handoff.saw` |
+| V133 | §3.9 | run, a suspending `consumes` method's release covers the unmoved fields once (SL-859): `compiler/tests/run/probes/consumes_suspending_field_moves.saw`, `compiler/tests/run/probes/consumes_suspending_cancel_and_unjoined.saw` |
+| V134 | §3.9 | run, a suspending `consumes` method on a hand-written `deinit` type (SL-859): `compiler/tests/run/probes/consumes_suspending_handwritten_deinit.saw` |
+| V135 | §3.9 | run, an `init` body that suspends (SL-859): `compiler/tests/run/probes/init_suspends.saw` |
 | V140 | mir | a `borrow` subscript read where its position borrows the value is the place accessor's window, read in place (SL-642): `compiler/tests/mir/golden/borrow_reads.saw`; the verifier's refusal of a copy of a value that does not copy silently, `compiler/mir/tests/verify_copies.saw`; run, `compiler/tests/run/probes/borrow_place_reads.saw` |
 | V150 | typecheck | `copy.second-policy` (SL-641): `compiler/tests/typecheck/refuse/copy.second-policy.saw`, `.no-copy`, `.explicit-no-copy`, `.one-extension`, `.bounded`, `.bounded-both` |
 | V151 | typecheck | `copy.outside-policy` (SL-641): `compiler/tests/typecheck/refuse/copy.outside-policy.saw`, `.declared`, `.explicit`, `.enum`, `.generic`, `.other-conformance`, `.static`, `.defaulted`; the other shapes, accepted, typecheck golden `copy_method_shapes.saw` |
@@ -345,4 +348,6 @@ INDEX.md, or when an owner is not one of the words below.
 | P21 | slice.not-yet | `syntax.stmt.optional-assign.borrow-plain` (then U6d2) |
 | P19 | U6d2 | accepted: rendering two shared windows side by side, `compiler/tests/borrowck/golden/windows.saw`; the migrated file is refused first by `member.unknown`, a migration artifact |
 | P20 | U6d2 | accepted: comparing two shared windows, `compiler/tests/borrowck/golden/windows.saw` |
+| P23 | §3.9 | run, a task cancelled inside a suspending accessor's window finishes it once (SL-859): `compiler/tests/run/probes/borrows_body_suspends_cancelled_in_window.saw` |
+| P24 | §3.9 | run, nested windows over suspending accessors close in reverse (SL-859): `compiler/tests/run/probes/borrows_body_suspends_nested_windows.saw` |
 | P22 | typecheck | `transfer.implicit-copy` for a move-only `Box.value()` read; tests/corpus file refused by it |

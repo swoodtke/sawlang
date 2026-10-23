@@ -1,0 +1,136 @@
+// probe: stated
+// about: a `borrows` body that suspends in its prologue, its epilogue or both, in a group task beside a sibling that interleaves (SL-859)
+// stage 0: refuses a suspension in a `borrows` body (the design-146 v1 fence)
+// speeds: -O0 -O2
+// leaks: none
+// SL-859 matrix A: an UNCONDITIONAL lend whose body suspends in the
+// prologue (pro), the epilogue (epi) or both, the borrow in a cooperative
+// group task, with a sibling task whose prints show each yield really cedes.
+// Expected order assumes the FIFO run queue (yield_now requeues at the back).
+// Sibling placement relative to the task is the scheduler's (slot reuse puts
+// the second round's sibling first); the task's own events are what is checked.
+// prints: pro 0 start
+// prints: sib 1
+// prints: pro 0 end
+// prints: body 0
+// prints: epi 0 t=0
+// prints: drop tr 0
+// prints: P 11
+// prints: sib 2
+// prints: sib 3
+// prints: S 3
+// prints: sib 1
+// prints: pro 1 start
+// prints: pro 1 end
+// prints: body 1
+// prints: epi 1 start t=1
+// prints: sib 2
+// prints: epi 1 end
+// prints: drop tr 1
+// prints: E 21
+// prints: sib 3
+// prints: S 3
+// prints: pro 0 start
+// prints: sib 1
+// prints: pro 0 end
+// prints: body 0
+// prints: epi 0 start t=0
+// prints: sib 2
+// prints: epi 0 end
+// prints: drop tr 0
+// prints: B 12
+// prints: sib 3
+// prints: S 3
+// prints: name holder 12 21
+import std.task.*
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Holder { cells: Vector<Int>, name: String }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func pro(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        yield_now()
+        print("pro {} end", i)
+        lend self.cells[i]
+        print("epi {} t={}", i, t.id)
+    }
+
+    func epi(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        print("pro {} end", i)
+        lend self.cells[i]
+        print("epi {} start t={}", i, t.id)
+        yield_now()
+        print("epi {} end", i)
+    }
+
+    func both(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        yield_now()
+        print("pro {} end", i)
+        lend self.cells[i]
+        print("epi {} start t={}", i, t.id)
+        yield_now()
+        print("epi {} end", i)
+    }
+}
+
+func work_p(h: &var Holder) -> Int {
+    borrow var c = h.pro(0) {
+        print("body 0")
+        c += 1
+    }
+    h.cells[0]
+}
+
+func work_e(h: &var Holder) -> Int {
+    borrow var c = h.epi(1) {
+        print("body 1")
+        c += 1
+    }
+    h.cells[1]
+}
+
+func work_b(h: &var Holder) -> Int {
+    borrow var c = h.both(0) {
+        print("body 0")
+        c += 1
+    }
+    h.cells[0]
+}
+
+func sibling() -> Int {
+    print("sib 1")
+    yield_now()
+    print("sib 2")
+    yield_now()
+    print("sib 3")
+    3
+}
+
+func main() {
+    var h = Holder(cells: [10, 20], name: "holder")
+    var group = TaskGroup()
+    let a = group.spawn(work_p(&var h))
+    let s = group.spawn(sibling())
+    print("P {}", a.join())
+    print("S {}", s.join())
+    let a2 = group.spawn(work_e(&var h))
+    let s2 = group.spawn(sibling())
+    print("E {}", a2.join())
+    print("S {}", s2.join())
+    let a3 = group.spawn(work_b(&var h))
+    let s3 = group.spawn(sibling())
+    print("B {}", a3.join())
+    print("S {}", s3.join())
+    print("name {} {} {}", h.name, h.cells[0], h.cells[1])
+}

@@ -1,0 +1,132 @@
+// probe: stated
+// about: a task cancelled while parked in a suspending accessor's prologue, window or epilogue finishes through its own code, closing the window and running the epilogue once (SL-859)
+// stage 0: refuses a suspension in a `borrows` body (the design-146 v1 fence)
+// speeds: -O0 -O2
+// leaks: none
+// SL-859 matrix A, cancellation: a group task is cancelled while it is parked
+// in a 3-second sleep (1) in a suspending accessor's PROLOGUE, (2) in the
+// WINDOW body, (3) in the EPILOGUE. Spec (cooperative cancellation, no forced
+// destroy): the sleep is cut short, the task runs on through its own code, the
+// window closes once, the epilogue runs exactly once, the accessor local drops
+// exactly once. "quick" says the 3 s sleep was woken by the cancel.
+// prints: pro 0 start
+// prints: pro 0 end cancelled=true
+// prints: body 0 cancelled=true
+// prints: epi 0 start t=0
+// prints: epi 0 end
+// prints: drop tr 0
+// prints: C1 11 quick=true
+// prints: pro 1 start
+// prints: pro 1 end cancelled=false
+// prints: body 1 cancelled=false
+// prints: body 1 woke cancelled=true
+// prints: epi 1 start t=1
+// prints: epi 1 end
+// prints: drop tr 1
+// prints: C2 21 quick=true
+// prints: pro 0 start
+// prints: pro 0 end cancelled=false
+// prints: body 0 cancelled=false
+// prints: epi 0 start t=0
+// prints: epi 0 end cancelled=true
+// prints: drop tr 0
+// prints: C3 12 quick=true
+// prints: drop holder local
+import std.task.*
+import std.time.{Instant}
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Holder { cells: Vector<Int>, name: String }
+extension Holder: NoCopy {
+    func deinit(&var self) { print("drop holder {}", self.name) }
+}
+
+extension Holder {
+    func pro_park(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        sleep(Duration.secs(3))
+        print("pro {} end cancelled={}", i, cancelled())
+        lend self.cells[i]
+        print("epi {} start t={}", i, t.id)
+        yield_now()
+        print("epi {} end", i)
+    }
+
+    func plain(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        yield_now()
+        print("pro {} end cancelled={}", i, cancelled())
+        lend self.cells[i]
+        print("epi {} start t={}", i, t.id)
+        yield_now()
+        print("epi {} end", i)
+    }
+
+    func epi_park(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        yield_now()
+        print("pro {} end cancelled={}", i, cancelled())
+        lend self.cells[i]
+        print("epi {} start t={}", i, t.id)
+        sleep(Duration.secs(3))
+        print("epi {} end cancelled={}", i, cancelled())
+    }
+}
+
+func c1(h: &var Holder) -> Int {
+    borrow var c = h.pro_park(0) {
+        print("body 0 cancelled={}", cancelled())
+        c += 1
+    }
+    h.cells[0]
+}
+
+func c2(h: &var Holder) -> Int {
+    borrow var c = h.plain(1) {
+        print("body 1 cancelled={}", cancelled())
+        sleep(Duration.secs(3))
+        print("body 1 woke cancelled={}", cancelled())
+        c += 1
+    }
+    h.cells[1]
+}
+
+func c3(h: &var Holder) -> Int {
+    borrow var c = h.epi_park(0) {
+        print("body 0 cancelled={}", cancelled())
+        c += 1
+    }
+    h.cells[0]
+}
+
+func round(h: &var Holder, which: Int) {
+    var group = TaskGroup()
+    let start = Instant.now()
+    let t = if which == 1 {
+        group.spawn(c1(&var h))
+    } else if which == 2 {
+        group.spawn(c2(&var h))
+    } else {
+        group.spawn(c3(&var h))
+    }
+    yield_now()
+    yield_now()
+    yield_now()
+    t.cancel()
+    let r = t.join()
+    print("C{} {} quick={}", which, r, start.elapsed().as_millis() < 1000)
+}
+
+func main() {
+    var h = Holder(cells: [10, 20], name: "local")
+    round(&var h, 1)
+    round(&var h, 2)
+    round(&var h, 3)
+}

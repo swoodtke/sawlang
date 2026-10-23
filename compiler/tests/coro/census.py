@@ -65,6 +65,10 @@ LANGUAGE_CHANGED = {
         "a call that leaves out a suspending default suspends in the caller and runs (SL-656 (b))",
     "conformance/P08_borrows_body_suspends.saw":
         "a `borrows` body may suspend unless it is `borrows(sync)` (SL-559; run lane probes/coro_windows_held)",
+    "errors/consumes_suspending_field_move.saw":
+        "a suspending `consumes` method may move a field out of `self` (SL-859; run lane probes/consumes_suspending_field_moves)",
+    "errors/consumes_suspending_handwritten_deinit.saw":
+        "a suspending `consumes` method may sit on a type with a hand-written `deinit` (SL-859; run lane probes/consumes_suspending_handwritten_deinit)",
     "while_let_tuple_over_suspension_refused.saw":
         "a tuple-pattern `while let` may span a suspension (SL-566; run lane probes/coro_while_let_tuple)",
 }

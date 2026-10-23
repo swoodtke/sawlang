@@ -3252,9 +3252,9 @@ A constructor that fails has a reason, and `None` discards it. That is the same
 never-hide-errors rule [Error Handling](#5-error-handling) states for every
 other operation.
 
-Limit: an `init` body may not suspend. A suspending call inside one is an
-internal compiler error today rather than a diagnostic; compute the value in a
-suspending function and hand it to an ordinary `init`.
+An `init` body may suspend, like any other method body. A fallible `init` that
+fails after a suspension releases what it had built, and a cancelled task
+finishes the `init` through its own code.
 
 #### An `init` that overrides the construction
 
@@ -4089,12 +4089,13 @@ Each is a clean error naming the boundary.
   requirement. A call through an erased `any Trait` receiver cannot spell the
   `move`, and has no binding to retire.
 - A function TYPE may not be `consumes`; methods are not first-class values.
-- A consuming body may not both move a field out and SUSPEND, and a consuming
-  method on a type with a hand-written `deinit` may not suspend. A suspending
-  method's receiver lives in the caller's coroutine frame, whose release is
-  decided per slot: it cannot skip a field, and it runs the type's full deinit.
-  Suspending consuming methods otherwise work, driven and spawned, releasing the
-  receiver exactly once.
+
+A consuming method may suspend, whether or not its body moves a field out of
+`self` and whether or not the type has a hand-written `deinit`. The receiver is
+released exactly once, covering the fields the body left in place; for a type
+with a hand-written `deinit`, the consuming body takes the place of the `deinit`
+body, as it does without a suspension. Cancellation lets the body run on to its
+end.
 
 ### Reference passing
 

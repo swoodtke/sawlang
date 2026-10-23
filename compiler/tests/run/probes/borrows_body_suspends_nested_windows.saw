@@ -1,0 +1,197 @@
+// probe: stated
+// about: nested windows over suspending accessors open outer first and close in reverse, each exactly once (SL-859)
+// stage 0: refuses a suspension in a `borrows` body (the design-146 v1 fence)
+// speeds: -O0 -O2
+// leaks: none
+// SL-859 matrix A, nesting: two windows open at once, both accessors
+// suspending in prologue and epilogue. (1) a statement-form chain
+// `o.slot().both(0)`, (2) a block binding a reborrow `row`/`cell`, (3) a block
+// with two independent roots, (4) an accessor forwarding a suspending inner
+// accessor (`lend self.inner.both(i)`), (5) case 2 cancelled while parked in
+// the inner window. Spec: open left to right / outer first, close in reverse,
+// epilogues LIFO, each exactly once.
+// prints: outer pro start
+// prints: outer pro end
+// prints: pro 0 start
+// prints: pro 0 end
+// prints: epi 0 start t=0
+// prints: epi 0 end
+// prints: drop tr 0
+// prints: outer epi start
+// prints: outer epi end
+// prints: N1 11
+// prints: outer pro start
+// prints: outer pro end
+// prints: pro 1 start
+// prints: pro 1 end
+// prints: body 2
+// prints: epi 1 start t=1
+// prints: epi 1 end
+// prints: drop tr 1
+// prints: outer epi start
+// prints: outer epi end
+// prints: N2 21
+// prints: pro 0 start
+// prints: pro 0 end
+// prints: pro 1 start
+// prints: pro 1 end
+// prints: body 3
+// prints: epi 1 start t=1
+// prints: epi 1 end
+// prints: drop tr 1
+// prints: epi 0 start t=0
+// prints: epi 0 end
+// prints: drop tr 0
+// prints: N3 101 201
+// prints: fwd pro
+// prints: pro 0 start
+// prints: pro 0 end
+// prints: body 4
+// prints: epi 0 start
+// prints: epi 0 end
+// prints: fwd epi start
+// prints: fwd epi end
+// prints: N4 12
+// prints: outer pro start
+// prints: outer pro end
+// prints: pro 1 start
+// prints: pro 1 end
+// prints: body 5 cancelled=false
+// prints: body 5 woke cancelled=true
+// prints: epi 1 start t=1
+// prints: epi 1 end
+// prints: drop tr 1
+// prints: outer epi start
+// prints: outer epi end
+// prints: N5 22 quick=true
+// prints: drop holder b
+// prints: drop holder a
+// prints: drop holder inner
+import std.task.*
+import std.time.{Instant}
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Holder { cells: Vector<Int>, name: String }
+extension Holder: NoCopy {
+    func deinit(&var self) { print("drop holder {}", self.name) }
+}
+
+extension Holder {
+    // No owning local: forwarding through an accessor that keeps one is refused
+    // by a separate sync defect (iso/fwd_min.saw).
+    func both_nl(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        yield_now()
+        print("pro {} end", i)
+        lend self.cells[i]
+        print("epi {} start", i)
+        yield_now()
+        print("epi {} end", i)
+    }
+
+    func both(&var self, i: Int) borrows -> &var Int {
+        print("pro {} start", i)
+        let t = Tr(id: i)
+        yield_now()
+        print("pro {} end", i)
+        lend self.cells[i]
+        print("epi {} start t={}", i, t.id)
+        yield_now()
+        print("epi {} end", i)
+    }
+}
+
+struct Outer { inner: Holder, tag: Int }
+extension Outer: NoCopy {}
+
+extension Outer {
+    func slot(&var self) borrows -> &var Holder {
+        print("outer pro start")
+        yield_now()
+        print("outer pro end")
+        lend self.inner
+        print("outer epi start")
+        yield_now()
+        print("outer epi end")
+    }
+
+    func fwd(&var self, i: Int) borrows -> &var Int {
+        print("fwd pro")
+        yield_now()
+        lend self.inner.both_nl(i)
+        print("fwd epi start")
+        yield_now()
+        print("fwd epi end")
+    }
+}
+
+func n1(o: &var Outer) -> Int {
+    borrow var o.slot().both(0) += 1
+    o.inner.cells[0]
+}
+
+func n2(o: &var Outer) -> Int {
+    borrow var row = o.slot(), var cell = row.both(1) {
+        print("body 2")
+        cell += 1
+    }
+    o.inner.cells[1]
+}
+
+func n3(a: &var Holder, b: &var Holder) -> Int {
+    borrow var x = a.both(0), var y = b.both(1) {
+        print("body 3")
+        x += 1
+        y += 1
+    }
+    a.cells[0] * 1000 + b.cells[1]
+}
+
+func n4(o: &var Outer) -> Int {
+    borrow var c = o.fwd(0) {
+        print("body 4")
+        c += 1
+    }
+    o.inner.cells[0]
+}
+
+func n5(o: &var Outer) -> Int {
+    borrow var row = o.slot(), var cell = row.both(1) {
+        print("body 5 cancelled={}", cancelled())
+        sleep(Duration.secs(3))
+        print("body 5 woke cancelled={}", cancelled())
+        cell += 1
+    }
+    o.inner.cells[1]
+}
+
+func cancelled_round(o: &var Outer) {
+    var group = TaskGroup()
+    let start = Instant.now()
+    let t = group.spawn(n5(&var o))
+    yield_now()
+    yield_now()
+    yield_now()
+    yield_now()
+    yield_now()
+    t.cancel()
+    let r = t.join()
+    print("N5 {} quick={}", r, start.elapsed().as_millis() < 1000)
+}
+
+func main() {
+    var o = Outer(inner: Holder(cells: [10, 20], name: "inner"), tag: 0)
+    var a = Holder(cells: [100, 200], name: "a")
+    var b = Holder(cells: [100, 200], name: "b")
+    var group = TaskGroup()
+    print("N1 {}", group.spawn(n1(&var o)).join())
+    print("N2 {}", group.spawn(n2(&var o)).join())
+    let r3 = group.spawn(n3(&var a, &var b)).join()
+    print("N3 {} {}", r3 / 1000, r3 % 1000)
+    print("N4 {}", group.spawn(n4(&var o)).join())
+    cancelled_round(&var o)
+}

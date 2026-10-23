@@ -1,0 +1,133 @@
+// probe: stated
+// about: a suspending `consumes` method cancelled at its suspension, or its task dropped unjoined, releases the unmoved fields exactly once (SL-859)
+// stage 0: refuses a suspending `consumes` method that moves a field out of `self` (design 260 v1)
+// speeds: -O0 -O2
+// leaks: none
+// SL-859 matrix B: cancellation at the suspension of a suspending consuming
+// method, and the task dropped unjoined. Spec: cancellation is cooperative,
+// with no forced destroy, so the consuming body runs on to its end and its
+// release covers the unmoved fields exactly once; a dropped group handle's
+// task is drained by the group's teardown.
+// (1) field moved BEFORE a 3 s sleep, cancelled while asleep; (2) field moved
+// AFTER the cancelled sleep; (3) hand-written deinit type, cancelled while
+// asleep (its body must not run, the field drops once); (4) a group handle
+// dropped unjoined while the task is parked in the consuming body;
+// (5) `Task.spawn` detached, cancelled by `main`'s exit.
+// prints: moved a
+// prints: woke cancelled=true
+// prints: drop tr 2
+// prints: drop tr 1
+// prints: C1 1 quick=true
+// prints: woke cancelled=true
+// prints: drop tr 4
+// prints: drop tr 3
+// prints: C2 3 quick=true
+// prints: woke cancelled=true
+// prints: drop tr 50
+// prints: C3 5 quick=true
+// prints: dropped handle
+// prints: woke cancelled=false
+// prints: drop tr 7
+// prints: drop tr 6
+// prints: group gone
+// prints: main returns
+// prints: woke cancelled=true
+// prints: drop tr 9
+// prints: drop tr 8
+import std.task.*
+import std.time.{Instant}
+
+struct Tr { id: Int }
+extension Tr: NoCopy {
+    func deinit(&var self) { print("drop tr {}", self.id) }
+}
+
+struct Job { a: Tr, b: Tr }
+extension Job: NoCopy {}
+
+struct Conn { fd: Int, tag: Tr }
+extension Conn: NoCopy {
+    func deinit(&var self) { print("conn deinit {}", self.fd) }
+}
+
+extension Job {
+    func before_park(&var self) consumes -> Tr {
+        let x = move self.a
+        print("moved a")
+        sleep(Duration.secs(3))
+        print("woke cancelled={}", cancelled())
+        move x
+    }
+
+    func after_park(&var self) consumes -> Tr {
+        sleep(Duration.secs(3))
+        print("woke cancelled={}", cancelled())
+        move self.a
+    }
+
+    func short_park(&var self) consumes -> Tr {
+        sleep(Duration.ms(20))
+        print("woke cancelled={}", cancelled())
+        move self.a
+    }
+}
+
+extension Conn {
+    func close_park(&var self) consumes -> Int {
+        sleep(Duration.secs(3))
+        print("woke cancelled={}", cancelled())
+        self.fd
+    }
+}
+
+func c1(j: Job) -> Int {
+    let t = (move j).before_park()
+    t.id
+}
+
+func c2(j: Job) -> Int {
+    let t = (move j).after_park()
+    t.id
+}
+
+func c3(c: Conn) -> Int { (move c).close_park() }
+
+func c4(j: Job) -> Int {
+    let t = (move j).short_park()
+    t.id
+}
+
+func round(which: Int) {
+    var group = TaskGroup()
+    let start = Instant.now()
+    let t = if which == 1 {
+        group.spawn(c1(Job(a: Tr(id: 1), b: Tr(id: 2))))
+    } else if which == 2 {
+        group.spawn(c2(Job(a: Tr(id: 3), b: Tr(id: 4))))
+    } else {
+        group.spawn(c3(Conn(fd: 5, tag: Tr(id: 50))))
+    }
+    yield_now()
+    yield_now()
+    t.cancel()
+    let r = t.join()
+    print("C{} {} quick={}", which, r, start.elapsed().as_millis() < 1000)
+}
+
+func dropped() {
+    var group = TaskGroup()
+    let _ = group.spawn(c4(Job(a: Tr(id: 6), b: Tr(id: 7))))
+    yield_now()
+    print("dropped handle")
+}
+
+func main() {
+    round(1)
+    round(2)
+    round(3)
+    dropped()
+    print("group gone")
+    let t = Task.spawn(c2(Job(a: Tr(id: 8), b: Tr(id: 9))))
+    t.detach()
+    print("main returns")
+}
