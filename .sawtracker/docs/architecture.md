@@ -1101,7 +1101,7 @@ depends on. The boundary (codex t19):
   lane fails when it grows without review.
 - **The new std's language is the subset plus a short, named list of low-level
   features:** raw memory and pointers for buffers, allocator parameters, the
-  runtime's extern seams, and `borrows` accessors with `lend`; and, for the
+  runtime's extern seams, `borrows` accessors with `lend`, and fixed-size arrays for constant static tables and stack scratch that keeps a std operation from allocating (the user, Oct 22; SL-722 U5); and, for the
   `threads: N` pool's workers, the `Thread.spawn` brace's capture list, which
   is that brace's parameter list (an ordinary closure still captures nothing;
   SL-578). The bootstrap slice implements exactly that union.
