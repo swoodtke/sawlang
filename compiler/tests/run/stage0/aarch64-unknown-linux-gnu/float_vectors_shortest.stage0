@@ -1,0 +1,7 @@
+program	compiler/tests/run/float_vectors_shortest.saw
+triple	aarch64-unknown-linux-gnu
+source	2c4dfd896596257d
+build	ok
+exit	0
+stdout	"shortest: 0 failures over 2897 vectors"
+stdout	""

@@ -1,0 +1,68 @@
+// The formatter over every row of `tests/float_vectors/shortest.tsv`, BIT
+// EXACT: each row is a Float's IEEE 754 bits and the shortest round-trip text
+// CPython's `repr` gives it, and the text the formatter writes must be those
+// bytes, never a near miss. The rows cover the zeros, the subnormal edge, the
+// normal edge, the maximum finite value, every power of ten in range, powers of
+// two with their neighbours, `2^53`, both sides of the exponent-form switch,
+// and pseudorandom bit patterns (design 253, SL-722).
+//
+// The lane runs a program in `.build/run-lane`, two levels below the repo
+// root, so the vector file is named from there.
+
+// The import is owed only until SL-819 moves the formatter's public member to
+// std.stringbuilder.
+import std.float
+import std.file.{File}
+import std.path.{Path}
+
+func read_text(p: Path) -> String {
+    var f = try! File.open(p)
+    let bytes = try! f.read()
+    // The vector file is generated ASCII, so a UTF-8 fault in it is a broken
+    // checkout rather than input to handle.
+    try! bytes.to_string()
+}
+
+// `<16 hex digits>` as the bits they spell, or `None` for a broken row.
+func bits_of(hex: String) -> UInt64? {
+    guard let v = hex.to_uint(16) else {
+        return None
+    }
+    return v as UInt64
+}
+
+func main() {
+    let text = read_text(Path(s: "../../tests/float_vectors/shortest.tsv"))
+    let lines = try! text.split("\n")
+    var checked = 0
+    var failures = 0
+    var i = 0
+    while i < lines.len() {
+        let line = lines[i]
+        i = i + 1
+        if line.len() == 0 || line.starts_with("#") {
+            continue
+        }
+        let fields = try! line.split("\t")
+        if fields.len() != 2 {
+            print("malformed row: {}", line)
+            failures = failures + 1
+            continue
+        }
+        guard let bits = bits_of(fields[0]) else {
+            print("unreadable bits: {}", line)
+            failures = failures + 1
+            continue
+        }
+        let want = fields[1]
+        let got = Float.from(bits: bits).to_string()
+        checked = checked + 1
+        if not got.equals(want) {
+            failures = failures + 1
+            if failures <= 10 {
+                print("{}: formatted {} want {}", fields[0], got, want)
+            }
+        }
+    }
+    print("shortest: {} failures over {} vectors", failures, checked)
+}

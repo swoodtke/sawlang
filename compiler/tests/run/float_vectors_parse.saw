@@ -1,0 +1,106 @@
+// The parser over `tests/float_vectors/`, BIT EXACT: every row of
+// `shortest.tsv` must parse back to exactly its bits, and every row of
+// `parse.tsv` to its bits or, marked `reject`, to `None`. The parse rows are
+// the spellings the formatter never writes: exponent forms, signs, a bare
+// point, long and hostile inputs, and the non-numbers (design 253, SL-722).
+//
+// The lane runs a program in `.build/run-lane`, two levels below the repo
+// root, so the vector files are named from there.
+
+// The import is owed only until SL-819 moves `String.to_float` to std.string.
+import std.float
+import std.file.{File}
+import std.path.{Path}
+
+func read_text(p: Path) -> String {
+    var f = try! File.open(p)
+    let bytes = try! f.read()
+    // The vector files are generated ASCII, so a UTF-8 fault in one is a broken
+    // checkout rather than input to handle.
+    try! bytes.to_string()
+}
+
+func bits_of(hex: String) -> UInt64? {
+    guard let v = hex.to_uint(16) else {
+        return None
+    }
+    return v as UInt64
+}
+
+// One row of `shortest.tsv`: the text must parse back to exactly its bits.
+func check_round_trip(bits_text: String, text: String) -> Bool {
+    guard let want = bits_of(bits_text) else {
+        print("unreadable bits: {}", bits_text)
+        return false
+    }
+    guard let got = text.to_float() else {
+        print("{}: refused {}", bits_text, text)
+        return false
+    }
+    if got.to_bits() != want {
+        print("{}: parsed {} as {}", bits_text, text, got.to_bits())
+        return false
+    }
+    true
+}
+
+// One row of `parse.tsv`: `reject` means `None`, anything else means bits.
+func check_parse(text: String, want_text: String) -> Bool {
+    let got = text.to_float()
+    if want_text.equals("reject") {
+        if let value = got {
+            print("{}: should be refused, parsed as {}", text, value.to_bits())
+            return false
+        }
+        return true
+    }
+    guard let want = bits_of(want_text) else {
+        print("unreadable bits: {}", want_text)
+        return false
+    }
+    guard let value = got else {
+        print("{}: refused, want {}", text, want_text)
+        return false
+    }
+    if value.to_bits() != want {
+        print("{}: parsed as {} want {}", text, value.to_bits(), want_text)
+        return false
+    }
+    true
+}
+
+func run(path: String, label: String, round_trip: Bool) {
+    let text = read_text(Path(s: path))
+    let lines = try! text.split("\n")
+    var checked = 0
+    var failures = 0
+    var i = 0
+    while i < lines.len() {
+        let line = lines[i]
+        i = i + 1
+        if line.len() == 0 || line.starts_with("#") {
+            continue
+        }
+        let fields = try! line.split("\t")
+        if fields.len() != 2 {
+            print("malformed row: {}", line)
+            failures = failures + 1
+            continue
+        }
+        checked = checked + 1
+        let ok = if round_trip {
+            check_round_trip(fields[0], fields[1])
+        } else {
+            check_parse(fields[0], fields[1])
+        }
+        if not ok {
+            failures = failures + 1
+        }
+    }
+    print("{}: {} failures over {} vectors", label, failures, checked)
+}
+
+func main() {
+    run("../../tests/float_vectors/shortest.tsv", "round trip", true)
+    run("../../tests/float_vectors/parse.tsv", "parse", false)
+}

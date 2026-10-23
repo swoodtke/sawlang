@@ -1,8 +1,24 @@
-//! Integer arithmetic helpers.
+//! Arithmetic helpers on `Int` and `Float`.
 //!
 //! Methods on `Int`: absolute value, minimum, maximum, clamping, integer
 //! powers, parity and sign. The checks every `Int` operation carries stay on
 //! here, so an overflow panics with `panic at FILE:LINE:` instead of wrapping.
+//!
+//! Methods on `Float`: absolute value, rounding, square root, minimum and
+//! maximum. They follow IEEE 754, so a NaN goes through them rather than
+//! panicking, and each lowers to the C math library's function of the same
+//! job.
+
+// libm. A non-Apple link names it with `-lm`; on Apple it is part of libSystem.
+extern "C" {
+    func fabs(x: Float) -> Float
+    func floor(x: Float) -> Float
+    func ceil(x: Float) -> Float
+    func round(x: Float) -> Float
+    func sqrt(x: Float) -> Float
+    func fmin(a: Float, b: Float) -> Float
+    func fmax(a: Float, b: Float) -> Float
+}
 
 extension Int {
     /// Returns the absolute value.
@@ -87,5 +103,52 @@ extension Int {
         } else {
             0
         }
+    }
+}
+
+extension Float {
+    /// Returns the absolute value: the receiver with its sign bit cleared.
+    ///
+    /// `(-0.0).abs()` is `0.0`, and a NaN stays a NaN.
+    public func abs(&self) -> Float {
+        fabs(self)
+    }
+
+    /// Returns the largest integral value not greater than the receiver.
+    public func floor(&self) -> Float {
+        floor(self)
+    }
+
+    /// Returns the smallest integral value not less than the receiver.
+    public func ceil(&self) -> Float {
+        ceil(self)
+    }
+
+    /// Returns the nearest integral value, rounding a half away from zero.
+    ///
+    /// `(2.5).round()` is `3.0` and `(-2.5).round()` is `-3.0`.
+    public func round(&self) -> Float {
+        round(self)
+    }
+
+    /// Returns the square root, correctly rounded.
+    ///
+    /// A negative receiver other than `-0.0` gives a NaN.
+    public func sqrt(&self) -> Float {
+        sqrt(self)
+    }
+
+    /// Returns the smaller of the receiver and `other`.
+    ///
+    /// When exactly one of the two is a NaN, the other is returned.
+    public func min(&self, other: Float) -> Float {
+        fmin(self, other)
+    }
+
+    /// Returns the larger of the receiver and `other`.
+    ///
+    /// When exactly one of the two is a NaN, the other is returned.
+    public func max(&self, other: Float) -> Float {
+        fmax(self, other)
     }
 }

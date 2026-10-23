@@ -7,5 +7,8 @@ func big_fixture() -> Int {
     let e: Int = 9223372036854775808   // refuses: int-literal-range
     let g = -9223372036854775809   // refuses: int-literal-range
     print("big {18446744073709551615}")   // refuses: int-literal-range
+    // An element of a `UInt64`-typed array literal adopts the element type.
+    let t: [UInt64; 2] = [0xFFFF_FFFF_FFFF_FFFF, 1]   // refuses: fixed-array
+    let u = [0xFFFF_FFFF_FFFF_FFFF, 1]   // refuses: int-literal-range fixed-array
     3
 }

@@ -1,0 +1,67 @@
+// Every position that shows a Float, over the values the layout turns on:
+// the two zeros, NaN, the two infinities, the minimum subnormal, the maximum
+// finite value, `0.1 + 0.2`, `100.0`, `0.001`, both sides of the exponent
+// form's two switches (`1e16` and `1e-4`) and `2^53`. Each position prints
+// the one formatter's bytes (SL-722).
+
+// The import is owed only until SL-819 moves `StringBuilder.append(value:
+// Float)` to std.stringbuilder.
+import std.float
+
+struct Reading {
+    value: Float
+}
+
+extension Reading: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("Reading(")
+        self.value.format(into: &var into)
+        try! into.append(")")
+    }
+}
+
+func shown<T: Printable>(v: T) -> String {
+    v.to_string()
+}
+
+func values() -> [Float; 15] {
+    let zero = 0.0
+    [
+        0.0,
+        -0.0,
+        zero / zero,
+        1.0 / zero,
+        -1.0 / zero,
+        Float.from(bits: 1),
+        Float.from(bits: 0x7FEF_FFFF_FFFF_FFFF),
+        0.1 + 0.2,
+        100.0,
+        0.001,
+        9999999999999998.0,
+        10000000000000000.0,
+        0.0001,
+        0.00001,
+        9007199254740992.0,
+    ]
+}
+
+func main() {
+    let all = values()
+    var i = 0
+    while i < 15 {
+        let f = all[i]
+        print(f)
+        print("interpolated {f}")
+        print("argument {}", f)
+        print("to_string {}", f.to_string())
+        var into = StringBuilder()
+        f.format(into: &var into)
+        print("format {}", into.build())
+        var appended = StringBuilder()
+        try! appended.append(value: f)
+        print("append {}", appended.build())
+        print("generic {}", shown(f))
+        print(Reading(value: f))
+        i = i + 1
+    }
+}

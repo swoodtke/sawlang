@@ -1,0 +1,9 @@
+program	compiler/tests/run/float_render_panic.saw
+triple	aarch64-unknown-linux-gnu
+source	d9acaff9000bae9e
+build	ok
+exit	-6
+stdout	"before"
+stdout	""
+stderr	"panic at float_render_panic.saw:13: floats 0.0 -0.0 nan -inf 5e-324 0.30000000000000004 9999999999999998.0 1e+16"
+stderr	""

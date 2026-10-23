@@ -537,12 +537,7 @@ extension MonoProgram {
                 }
                 ""
             },
-            case Floating -> {
-                if hook == MonoHook.Format {
-                    return "a Float's `format` waits for `std.float`'s formatter (SL-722 U5)"
-                }
-                ""
-            },
+            case Floating -> "",
             case Pointer -> {
                 if hook == MonoHook.Duplicate {
                     return ""
@@ -784,7 +779,8 @@ extension MonoProgram {
         let into = self.dp.bc.mir.tc.params[s.param_first].ty
         let f = self.begin_hook(void_type, t, into)
         let hasher = self.dp.bc.mir.tc.referent(into)
-        let write = self.glue_member(hasher, "write_int", "n")
+        let word_type = self.dp.bc.mir.tc.int_type()
+        let write = self.glue_member(hasher, "write_int", "n", word_type)
         if write < 0 {
             self.refuse(-1, "mono.not-yet", "a scalar's `Hashable.hash` with no `write_int(n:)` on the hasher")
             self.dp.bc.mir.ret()
@@ -913,9 +909,11 @@ extension MonoProgram {
     }
 
     // `format(into:)`: a Bool's `true` or `false`, an integer's decimal
-    // digits, each appended through the builder. An unsigned 64-bit value
-    // past `Int.max` is no `Int`, so it is appended as its quotient by ten,
-    // when not zero, then its last digit. An append fails only for a
+    // digits, a Float's shortest round-trip text, each appended through the
+    // builder. An unsigned 64-bit value past `Int.max` is no `Int`, so it is
+    // appended as its quotient by ten, when not zero, then its last digit. A
+    // Float is the builder's `append(value: Float)`, the one formatter every
+    // position that shows a Float reaches. An append fails only for a
     // growable builder's refused growth, which panics as `try!` does.
     func build_scalar_format(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
@@ -924,8 +922,23 @@ extension MonoProgram {
         let into = self.dp.bc.mir.tc.params[s.param_first].ty
         let f = self.begin_hook(void_type, t, into)
         let builder = self.dp.bc.mir.tc.referent(into)
-        let digits = self.glue_member(builder, "append", "value")
-        let text = self.glue_member(builder, "append", "s")
+        if self.dp.bc.mir.tc.is_float(t) {
+            let float_type = self.dp.bc.mir.tc.float_type()
+            let shortest = self.glue_member(builder, "append", "value", float_type)
+            if shortest < 0 {
+                self.refuse(-1, "mono.not-yet", "a Float's `Printable.format` with no `append(value: Float)` on the builder")
+            } else {
+                let value = self.referent_copy(1, t)
+                self.append_checked(shortest, builder, value)
+            }
+            self.dp.bc.mir.ret()
+            self.finish_glue(k, f)
+            return
+        }
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let string_type = self.dp.bc.mir.tc.string_type()
+        let digits = self.glue_member(builder, "append", "value", int_type)
+        let text = self.glue_member(builder, "append", "s", string_type)
         if digits < 0 || text < 0 {
             self.refuse(-1, "mono.not-yet", "a scalar's `Printable.format` with no `append(value: Int)` or `append(s:)` on the builder")
             self.dp.bc.mir.ret()
@@ -938,7 +951,6 @@ extension MonoProgram {
             self.append_wide_unsigned(t, digits, builder)
         } else {
             let value = self.referent_copy(1, t)
-            let int_type = self.dp.bc.mir.tc.int_type()
             if t == int_type {
                 self.append_checked(digits, builder, value)
             } else {
@@ -1042,9 +1054,11 @@ extension MonoProgram {
     }
 
     // The member of type `t` named `name` taking one parameter labelled
-    // `label`, the `Int` one where several share the label, or -1: a member
-    // of its declaration's table that belongs to `t` (`extension_applies`).
-    func glue_member(&var self, t: Int, name: String, label: String) -> Int {
+    // `label` of type `param`, or -1: a member of its declaration's table
+    // that belongs to `t` (`extension_applies`). Overloads share a label
+    // (`append(value: Int)` beside `append(value: Float)`), so
+    // the parameter type is what picks one.
+    func glue_member(&var self, t: Int, name: String, label: String, param: Int) -> Int {
         let d = self.dp.bc.mir.tc.nominal_decl(t)
         if d < 0 || d >= self.dp.bc.mir.tc.member_first.len() || self.dp.bc.mir.tc.member_first[d] < 0 {
             return -1
@@ -1053,8 +1067,6 @@ extension MonoProgram {
         let count = self.dp.bc.mir.tc.member_count[d]
         let name_id = self.dp.bc.mir.tc.res.intern(name)
         let label_id = self.dp.bc.mir.tc.res.intern(label)
-        let int_type = self.dp.bc.mir.tc.int_type()
-        var found = -1
         var j = first
         while j < first + count {
             let member = self.dp.bc.mir.tc.members[j]
@@ -1066,11 +1078,11 @@ extension MonoProgram {
             if s.param_count != 1 || self.dp.bc.mir.tc.params[s.param_first].name != label_id {
                 continue
             }
-            if found < 0 || self.dp.bc.mir.tc.params[s.param_first].ty == int_type {
-                found = member.decl
+            if self.dp.bc.mir.tc.params[s.param_first].ty == param {
+                return member.decl
             }
         }
-        found
+        return -1
     }
 
     // The `copy()` type `t`'s copy-policy conformance writes, or -1.
@@ -1338,7 +1350,8 @@ extension MonoProgram {
             self.dp.bc.mir.goto(head)
         } else {
             let hasher = self.dp.bc.mir.tc.referent(into)
-            let write = self.glue_member(hasher, "write_int", "n")
+            let word_type = self.dp.bc.mir.tc.int_type()
+            let write = self.glue_member(hasher, "write_int", "n", word_type)
             if write < 0 {
                 self.refuse(-1, "mono.not-yet", "an enum's `Hashable.hash` with no `write_int(n:)` on the hasher")
                 self.dp.bc.mir.ret()

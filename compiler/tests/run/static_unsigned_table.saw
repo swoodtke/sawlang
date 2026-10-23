@@ -1,0 +1,19 @@
+// A `[UInt64; N]` static table whose elements are unsuffixed literals past
+// `Int.max`, the shape std.float's power-of-five tables have: each element
+// adopts the written element type and reads back exactly, from a table
+// literal and from a repeat literal (SL-722).
+
+static WIDE: [UInt64; 4] = [0xFFFF_FFFF_FFFF_FFFF, 0x8000_0000_0000_0000, 0x7FFF_FFFF_FFFF_FFFF, 1]
+
+static FILLED: [UInt64; 3] = [0xFEDC_BA98_7654_3210; 3]
+
+func main() {
+    var i = 0
+    while i < 4 {
+        print(WIDE[i])
+        i = i + 1
+    }
+    print(FILLED[2])
+    print(WIDE[0] == UInt64.max)
+    print(WIDE[1] + WIDE[2] == UInt64.max)
+}

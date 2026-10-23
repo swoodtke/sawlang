@@ -1,7 +1,0 @@
-// refuses: mono.not-yet at 6:5
-// A format argument renders through its Printable `format`; a Float's is
-// synthesized glue the slice does not make.
-func main() {
-    let f = 2.5
-    print("{}", f)
-}

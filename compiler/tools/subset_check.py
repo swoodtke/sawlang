@@ -186,6 +186,9 @@ STD_PROFILE_FEATURES = {
                  "and the std modules a task parks in call it (SL:coroutines)",
     "borrow-syntax": "`borrows` accessors and `lend`: a `borrow` binding is how a caller takes "
                      "the place an accessor lends",
+    "fixed-array": "fixed-size arrays: a constant table a static can hold, and stack scratch "
+                   "that keeps a std operation from allocating (SL:hazards L7 is Stage 0's, and "
+                   "no stage compiles std/ with Stage 0)",
 }
 # The rules only the std profile has. No stage compiles `std/` with Stage 0, so
 # GRAMMAR.md governs its spelling, and sawc2's parser reads it (SL-600).
@@ -1415,10 +1418,17 @@ class FileChecker:
 
 
 def _allow_typed(value, annotation, allowed):
-    """The typed binding SL:hazards S7 recommends for a constant past `Int.max`."""
-    if isinstance(value, A.IntLiteral) and value.suffix is None and annotation is not None \
+    """The typed binding SL:hazards S7 recommends for a constant past `Int.max`:
+    a scalar slot, or an element of an array literal whose written element
+    type is that wide, which the literal adopts the same way."""
+    if annotation is None:
+        return
+    if isinstance(value, A.IntLiteral) and value.suffix is None \
             and annotation.kind in UNSIGNED_64:
         allowed.add(id(value))
+    elif isinstance(value, A.ArrayLiteral) and annotation.kind == A.TypeKind.ARRAY:
+        for element in value.elements:
+            _allow_typed(element, annotation.array_element_type, allowed)
 
 
 def _signed_max(lit):

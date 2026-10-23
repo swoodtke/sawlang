@@ -1,0 +1,15 @@
+program	compiler/tests/run/float_numeric_methods.saw
+triple	arm64-apple-darwin
+source	8a38da48f70dc97a
+build	ok
+exit	0
+stdout	"abs 2.5 3.25 0.0 inf 1"
+stdout	"floor 2.0 -3.0 5.0 -1.0"
+stdout	"ceil 3.0 -2.0 5.0 1"
+stdout	"round 3.0 -3.0 1.0 2.0 -0.0 inf"
+stdout	"sqrt 4.0 1.4142135623730951 -0.0 inf 1"
+stdout	"min 1.0 1.0 -inf 2.0"
+stdout	"max 5.0 5.0 3.0 inf"
+stdout	"nan min 3.0 3.0 1"
+stdout	"nan max 3.0 3.0 1"
+stdout	""

@@ -1,0 +1,13 @@
+program	compiler/tests/run/static_unsigned_table.saw
+triple	aarch64-unknown-linux-gnu
+source	d8e494796e17f46f
+build	ok
+exit	0
+stdout	"18446744073709551615"
+stdout	"9223372036854775808"
+stdout	"9223372036854775807"
+stdout	"1"
+stdout	"18364758544493064720"
+stdout	"true"
+stdout	"true"
+stdout	""

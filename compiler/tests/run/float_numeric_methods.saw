@@ -1,0 +1,27 @@
+// std.numeric's Float methods, each over the libm function of the same job:
+// `abs`, `floor`, `ceil`, `round` (half away from zero), `sqrt`, `min` and
+// `max`, over ordinary values, the two zeros, NaN and the infinities, and
+// `min`/`max` with a NaN on either side, which return the other operand. A
+// result's zero sign is shown only where IEEE 754 fixes it (SL-722).
+
+func flag(b: Bool) -> Int {
+    if b { 1 } else { 0 }
+}
+
+func main() {
+    let zero = 0.0
+    let nan = zero / zero
+    let inf = 1.0 / zero
+    print("abs {} {} {} {} {}", (0.0 - 2.5).abs(), (3.25).abs(), (-0.0).abs(), (-inf).abs(),
+          flag(nan.abs().is_nan()))
+    print("floor {} {} {} {}", (2.7).floor(), (-2.7).floor(), (5.0).floor(), (-0.5).floor())
+    print("ceil {} {} {} {}", (2.1).ceil(), (-2.1).ceil(), (5.0).ceil(), flag(nan.ceil().is_nan()))
+    print("round {} {} {} {} {} {}", (2.5).round(), (-2.5).round(), (0.5).round(), (2.4).round(),
+          (-0.4).round(), (inf).round())
+    print("sqrt {} {} {} {} {}", (16.0).sqrt(), (2.0).sqrt(), (-0.0).sqrt(), (inf).sqrt(),
+          flag((0.0 - 1.0).sqrt().is_nan()))
+    print("min {} {} {} {}", (1.0).min(5.0), (5.0).min(1.0), (-inf).min(3.0), (2.0).min(inf))
+    print("max {} {} {} {}", (1.0).max(5.0), (5.0).max(1.0), (-inf).max(3.0), (2.0).max(inf))
+    print("nan min {} {} {}", nan.min(3.0), (3.0).min(nan), flag(nan.min(nan).is_nan()))
+    print("nan max {} {} {}", nan.max(3.0), (3.0).max(nan), flag(nan.max(nan).is_nan()))
+}

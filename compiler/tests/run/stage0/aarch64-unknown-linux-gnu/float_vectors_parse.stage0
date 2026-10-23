@@ -1,0 +1,8 @@
+program	compiler/tests/run/float_vectors_parse.saw
+triple	aarch64-unknown-linux-gnu
+source	5abe8c2f0b4dd07f
+build	ok
+exit	0
+stdout	"round trip: 0 failures over 2897 vectors"
+stdout	"parse: 0 failures over 175 vectors"
+stdout	""

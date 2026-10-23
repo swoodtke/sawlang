@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The Python half of the design-253 Float<->text contract.
 
-`sawc/std/float.saw` holds Saw's shortest-round-trip formatter and its
-correctly-rounded parser. This tool holds the ORACLE for both: CPython's own
+`sawc/std/float.saw` and `std/float.saw` (Stage 0's std and the new one) each
+hold Saw's shortest-round-trip formatter and its correctly-rounded parser. This tool holds the ORACLE for both: CPython's own
 `repr`/`float()` are correctly-rounded shortest-round-trip conversions, so the
 golden vectors under `tests/float_vectors/` are two independent implementations
 checked against each other rather than one implementation checked against
@@ -364,7 +364,8 @@ def parse_rows():
 
 
 # ---------------------------------------------------------------------------
-# The Ryu power-of-five tables, which live INSIDE `sawc/std/float.saw`
+# The Ryu power-of-five tables, which live INSIDE `sawc/std/float.saw` and
+# `std/float.saw`
 #
 # A shortest-round-trip formatter is only as correct as its tables, and a
 # mistyped hex digit in 1236 of them would show up as one wrong value in a
@@ -380,7 +381,10 @@ POW5_TABLE_SIZE = 326            # indices 1..325 are reached
 TABLE_BEGIN = ("// BEGIN GENERATED TABLES — regenerate with "
                "`tools/sawfloat.py tables`")
 TABLE_END = "// END GENERATED TABLES"
-FLOAT_SAW = os.path.join(REPO, "sawc", "std", "float.saw")
+# Both stds' float modules carry the generated tables: Stage 0's and the new
+# std's, which sawc2 compiles. `tables` writes both and the check holds both.
+FLOAT_SAWS = (os.path.join(REPO, "sawc", "std", "float.saw"),
+              os.path.join(REPO, "std", "float.saw"))
 
 
 def _pow5bits(e: int) -> int:
@@ -473,39 +477,48 @@ def _splice(path, lines):
 
 
 def cmd_tables():
-    if not os.path.exists(FLOAT_SAW):
-        print("missing %s" % FLOAT_SAW)
-        return 1
-    out = _splice(FLOAT_SAW, table_lines())
-    if out is None:
-        return 1
-    with open(FLOAT_SAW, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write("\n".join(out) + "\n")
-    print("spliced %d table entries into %s"
-          % (POW5_INV_TABLE_SIZE + POW5_TABLE_SIZE, FLOAT_SAW))
+    lines = table_lines()
+    for path in FLOAT_SAWS:
+        if not os.path.exists(path):
+            print("missing %s" % path)
+            return 1
+        out = _splice(path, lines)
+        if out is None:
+            return 1
+        with open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n".join(out) + "\n")
+        print("spliced %d table entries into %s"
+              % (POW5_INV_TABLE_SIZE + POW5_TABLE_SIZE, path))
     return 0
 
 
 def verify_tables():
-    """The committed tables, re-derived. Returns a list of failures."""
-    if not os.path.exists(FLOAT_SAW):
-        return []                      # unit 1 has not landed the module yet
-    with open(FLOAT_SAW, encoding="utf-8") as fh:
-        src = fh.read().splitlines()
-    if TABLE_BEGIN not in src:
-        return ["%s carries no generated-table sentinel" % FLOAT_SAW]
-    have = src[src.index(TABLE_BEGIN):src.index(TABLE_END) + 1]
+    """The committed tables of both float modules, re-derived. Returns a list
+    of failures; a missing module is one."""
+    failures = []
     want = table_lines()
-    if have == want:
-        return []
-    n = min(len(have), len(want))
-    first = next((i for i in range(n) if have[i] != want[i]), n)
-    return ["sawc/std/float.saw's generated tables differ from what "
-            "tools/sawfloat.py derives, first at offset %d:\n    committed: "
-            "%s\n    generated: %s\n  Re-run `tools/sawfloat.py tables`." % (
-                first,
-                have[first] if first < len(have) else "<end>",
-                want[first] if first < len(want) else "<end>")]
+    for path in FLOAT_SAWS:
+        name = os.path.relpath(path, REPO)
+        if not os.path.exists(path):
+            failures.append("%s is missing" % name)
+            continue
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read().splitlines()
+        if TABLE_BEGIN not in src or TABLE_END not in src:
+            failures.append("%s carries no generated-table sentinel pair" % name)
+            continue
+        have = src[src.index(TABLE_BEGIN):src.index(TABLE_END) + 1]
+        if have == want:
+            continue
+        n = min(len(have), len(want))
+        first = next((i for i in range(n) if have[i] != want[i]), n)
+        failures.append("%s's generated tables differ from what tools/sawfloat.py "
+                        "derives, first at offset %d:\n    committed: %s\n    generated: "
+                        "%s\n  Re-run `tools/sawfloat.py tables`." % (
+                            name, first,
+                            have[first] if first < len(have) else "<end>",
+                            want[first] if first < len(want) else "<end>"))
+    return failures
 
 
 # ---------------------------------------------------------------------------
@@ -670,7 +683,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("gen", help="rewrite the golden vectors")
-    sub.add_parser("tables", help="splice the Ryu tables into sawc/std/float.saw")
+    sub.add_parser("tables", help="splice the Ryu tables into both float.saw modules")
     v = sub.add_parser("verify", help="check the committed vectors")
     v.add_argument("--rule", action="store_true",
                    help="also re-check the documented render rule against repr")
