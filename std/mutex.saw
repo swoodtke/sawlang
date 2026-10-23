@@ -1,8 +1,9 @@
 //! `Mutex<T>`: mutual exclusion for state several threads share.
 //!
-//! A mutex is one inline word beside its payload. It allocates nothing, frees
-//! nothing, and needs no constructor to be valid: zero means unlocked, so a
-//! `static` holds one with no initializer at all.
+//! A mutex is two inline words beside its payload: the lock and its owner. It
+//! allocates nothing, frees nothing, and needs no constructor to be valid:
+//! zero means unlocked with no owner, so a `static` holds one with no
+//! initializer at all.
 //!
 //! ```saw-fragment
 //! import std.mutex.{Mutex}
@@ -14,7 +15,7 @@
 //! }
 //! ```
 //!
-//! The word is the runtime's lock: `os_unfair_lock` on macOS and a futex on
+//! The lock word is the runtime's: `os_unfair_lock` on macOS and a futex on
 //! Linux, both zero when unlocked. A contended `lock` blocks the calling
 //! thread, so prefer a `Channel` where a task would otherwise wait.
 
@@ -23,6 +24,9 @@ extern "C" {
     // The protocol is the runtime's, so std never knows which host it is on.
     func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
     func __saw_rt_lock_release(state: UnsafePointer<Int>)
+    // The calling thread's identity: nonzero, and distinct between any two
+    // threads alive at once.
+    func pthread_self() -> Int
 }
 
 /// A value guarded by a lock.
@@ -37,10 +41,15 @@ extern "C" {
 /// lock across one. It is `Sync` when `T` is `Send`, and a bare `static` of
 /// one is legal when `T` is valid at zero.
 ///
-/// Locking is not reentrant: locking a mutex this thread already holds is a
-/// program bug (macOS traps, Linux deadlocks).
+/// Locking is not reentrant. A thread that takes a mutex it already holds,
+/// through another name for it or from a task it runs inside the window,
+/// panics rather than waiting for itself.
 public struct Mutex<T> {
     private state: UnsafeMutableInterior<Int>,
+    // The holding thread's identity, or zero. Only the holder writes its own
+    // identity here, and it clears it before releasing, so a thread that
+    // finds its own identity holds the lock.
+    private owner: Atomic<Int>,
     private value: UnsafeMutableInterior<T>
 }
 
@@ -48,7 +57,7 @@ public struct Mutex<T> {
 // at once.
 extension Mutex<T: Send>: UnsafeSync {}
 
-// Zero is an unlocked word over a zeroed payload.
+// Zero is an unlocked word with no owner over a zeroed payload.
 extension Mutex<T: ZeroInit>: ZeroInit {}
 
 // No hand-written `deinit`: the word owns no OS resource and no block.
@@ -61,7 +70,7 @@ extension Mutex<T> {
     /// declare it without an initializer and the zero pattern is already an
     /// unlocked mutex over a zeroed payload.
     public init(value: T) unsafe -> Mutex<T> {
-        Mutex<T>(state: UnsafeMutableInterior(0), value: UnsafeMutableInterior(move value))
+        Mutex<T>(state: UnsafeMutableInterior(0), owner: Atomic(0), value: UnsafeMutableInterior(move value))
     }
 
     /// Blocks until the lock is free, then lends the payload for the window.
@@ -71,20 +80,44 @@ extension Mutex<T> {
     /// and runs none of its other tasks meanwhile. That wait always ends: the
     /// window cannot suspend, so the holder is a thread or a task inside a
     /// window that runs to its end without ceding, and never a suspended task
-    /// waiting on the blocked thread's tasks.
+    /// waiting on the blocked thread's tasks. Panics when the calling thread
+    /// already holds the lock.
     public func lock(&self) unsafe sync borrows(sync) -> &var T {
-        __saw_rt_lock_acquire(self.state.ptr())
+        let caller = pthread_self()
+        if self.owner.load() == caller {
+            panic("Mutex.lock: this thread already holds the lock — a lock is not reentrant, and it was reached again through another name or by a task run inside its window")
+        }
+        self.acquire(caller)
         lend self.value.ptr()[0]
+        self.release()
+    }
+
+    // The caller checks the owner first, with a message of its own: a thread
+    // waiting for a lock it holds would never wake. The message is a literal so
+    // that the panic path allocates nothing.
+    func acquire(&self, caller: Int) unsafe sync {
+        __saw_rt_lock_acquire(self.state.ptr())
+        self.owner.store(caller)
+    }
+
+    func release(&self) unsafe sync {
+        self.owner.store(0)
         __saw_rt_lock_release(self.state.ptr())
     }
 }
 
 extension Mutex<T: ExplicitCopy> {
     /// Returns a copy of the payload, read under the lock.
+    ///
+    /// Panics when the calling thread already holds the lock.
     public func get(&self) unsafe -> T {
-        __saw_rt_lock_acquire(self.state.ptr())
+        let caller = pthread_self()
+        if self.owner.load() == caller {
+            panic("Mutex.get: this thread already holds the lock — a lock is not reentrant, and it was reached again through another name or by a task run inside its window")
+        }
+        self.acquire(caller)
         let snapshot = self.value.ptr()[0].copy()
-        __saw_rt_lock_release(self.state.ptr())
+        self.release()
         move snapshot
     }
 }

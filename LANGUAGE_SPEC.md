@@ -5997,10 +5997,11 @@ let taken = borrow b.value()
 
 ### Synchronized Access
 
-**Status: `Mutex<T>` implemented (hosted); its `lock()` accessor and the
-re-entry panic are planned; `RwLock` planned.** `Mutex<T>` is
-ONE INLINE WORD beside its payload: `os_unfair_lock` on macOS, a futex on Linux,
-and zero means unlocked on both. It is `NoCopy`, allocates nothing and frees
+**Status: `Mutex<T>` implemented (hosted), with its `lock()` accessor and the
+re-entry panic; `RwLock` planned.** `Mutex<T>` is TWO INLINE WORDS beside its
+payload: the lock, which is `os_unfair_lock` on macOS and a futex on Linux, and
+the owner, which records the thread holding the lock. Zero means unlocked with
+no owner on both hosts. It is `NoCopy`, allocates nothing and frees
 nothing. `lock()` is a `borrows` accessor that lends the guarded payload under
 the lock: a [cell-carrying](#interior-mutability) `(&self) borrows -> &var T`,
 declared `borrows(sync)`. The window is the critical section, and the lock is
@@ -6060,7 +6061,7 @@ the fallible tier exists exactly where an allocation does
 address-stability contract: a thread inside a `lock()` window holds a live
 borrow of the mutex for the whole critical section, and a move needs exclusive
 access, so a move cannot be spelled while any thread is inside the lock. Moving
-an IDLE mutex relocates one word and a payload, and nothing was pointing at
+an IDLE mutex relocates two words and a payload, and nothing was pointing at
 either — which is why `Mutex` is ordinary `NoCopy` and deliberately not
 [`NoMove`](#nomove).
 
@@ -6075,10 +6076,12 @@ would hand out two live `&var T` to one payload.
 - Re-entry through the same name is a compile error. `lock` lends `&var T`, so
   the mutex is held exclusively for the window, and a second `m.lock()` inside
   it is refused.
-- Re-entry through another name, such as two `Arc` copies of one mutex, panics
-  at run time. The lock word records its owner: macOS's `os_unfair_lock`
-  stores its owner and traps on re-entry, and on Linux the futex word holds the
-  owner's thread id, and acquiring panics when it finds its own.
+- Re-entry through another name panics at run time. The name can be a second
+  `Arc` copy of the mutex, a static that a helper called inside the window
+  reaches, or a task the window's thread runs inside it, which a cooperative
+  `join()` does. The lock records its owner, and acquiring, by `lock()` or
+  `get()`, panics when it finds its own, before it would wait. A lock that
+  another thread holds is waited for as usual.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -8336,11 +8339,11 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   pointer and mutates the referent in place. A closure whose signature has
   reference parameters is **non-storable** (legal only as a direct call
   argument) — the conservative gate ahead of full non-escaping closures.
-- **`Mutex<T>`** — `NoCopy`, one inline lock word beside its payload, zero when
-  unlocked. `lock()` is a `borrows(sync)` accessor that lends the payload under
-  the lock for the `borrow` window, and the lock is not reentrant: a second
-  `m.lock()` inside the window is a compile error, and re-entry through another
-  name panics. See [Synchronized Access](#synchronized-access), which also says
+- **`Mutex<T>`** — `NoCopy`, an inline lock word and owner word beside its
+  payload, zero when unlocked. `lock()` is a `borrows(sync)` accessor that
+  lends the payload under the lock for the `borrow` window, and the lock is
+  not reentrant: a second `m.lock()` inside the window is a compile error, and
+  re-entry through another name panics. See [Synchronized Access](#synchronized-access), which also says
   which parts are planned.
 - **Escaping-closure heap environments — `Copy`, refcounted env**
   (design 71 + 73) — a closure used in value position (bound, returned, stored,

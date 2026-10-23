@@ -1,0 +1,24 @@
+// probe: panics
+// about: a cooperative task that `Mutex.lock`s a lock its thread holds, run inside the window by a `join()`, panics naming the lock (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: Mutex.lock: this thread already holds the lock
+// A non-suspending `main` never yields, so the task first runs at the join,
+// which drives it on `main`'s own thread, inside the window.
+import std.mutex.{Mutex}
+
+static G: Mutex<Int>
+
+func take() -> Int {
+    borrow var g = G.lock() { g = g + 1; g }
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(take())
+    let r = borrow var o = G.lock() {
+        o = 10
+        h.join()
+    }
+    print("joined {}", r)
+}

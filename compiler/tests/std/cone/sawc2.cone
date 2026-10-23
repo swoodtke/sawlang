@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 173 declarations in 17 modules
+# 178 declarations in 17 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -81,10 +81,13 @@ std.mem: 2
   func copy_bytes
   func drop_in_place
 
-std.mutex: 4
+std.mutex: 7
   extern __saw_rt_lock_acquire
   extern __saw_rt_lock_release
+  extern pthread_self
+  method Mutex.acquire
   method Mutex.lock
+  method Mutex.release
   struct Mutex
 
 std.panic: 2
@@ -99,13 +102,15 @@ std.path: 6
   method Path.canonical
   struct Path
 
-std.prelude: 13
+std.prelude: 15
   enum Optional
   enum Result
   func atomic_exchange_word
   func atomic_load_word
+  func atomic_store_word
   method Atomic.compare_exchange
   method Atomic.load
+  method Atomic.store
   method Optional.is_some
   method UnsafeMutableInterior.ptr
   requirement ExplicitCopy.copy

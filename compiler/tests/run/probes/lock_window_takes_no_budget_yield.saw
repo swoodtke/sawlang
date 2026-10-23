@@ -1,0 +1,49 @@
+// probe: stated
+// about: a compute loop inside a `Mutex` window in a task takes no op-budget yield, so a sibling task taking the lock runs after the window, through `lock` and `get` (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// prints: mutex lock: looper 100000 take 100001
+// prints: mutex get: looper 200001 take 200001
+// Outside a window the same loop yields to the sibling; inside one a yield
+// would run the sibling on the thread that holds the lock.
+import std.mutex.{Mutex}
+
+static M: Mutex<Int>
+
+func loop_in_mutex() -> Int {
+    borrow var o = M.lock() {
+        var i = 0
+        while i < 100000 { i = i + 1 }
+        o = o + i
+        o
+    }
+}
+
+func mutex_lock() -> Int {
+    borrow var g = M.lock() { g = g + 1; g }
+}
+
+func mutex_get() -> Int {
+    M.get()
+}
+
+func round_mutex_lock() {
+    var group = TaskGroup()
+    let a = group.spawn(loop_in_mutex())
+    let b = group.spawn(mutex_lock())
+    let x = a.join()
+    print("mutex lock: looper {} take {}", x, b.join())
+}
+
+func round_mutex_get() {
+    var group = TaskGroup()
+    let a = group.spawn(loop_in_mutex())
+    let b = group.spawn(mutex_get())
+    let x = a.join()
+    print("mutex get: looper {} take {}", x, b.join())
+}
+
+func main() {
+    round_mutex_lock()
+    round_mutex_get()
+}

@@ -1112,14 +1112,32 @@ initializer and land in .bss. A runtime may use as much of the word as it likes
 little-endian) but must accept all-zero as the initial unlocked state.
 
 `acquire` blocks the calling thread until the lock is held; `release` hands it
-on. Neither is recursive: acquiring a lock this thread already holds is a
-program bug, and a runtime may trap or deadlock. Both are `sync` (a seam never
-suspends a task), which is why `Mutex.lock` takes a `sync` closure.
+on. Neither is recursive, and neither has to detect a re-entry: `std/mutex.saw`
+records the holding thread in an owner word beside this one, and panics before
+it calls `acquire` on a lock the calling thread already holds. The hosted
+bodies do not survive one (`os_unfair_lock` kills the process with no message,
+and the futex waits forever), so the check stays in std, where the panic has a
+message and the task dump. Stage 0's std keeps no owner. Both are `sync` (a
+seam never suspends a task), which is why a `Mutex` window cannot suspend.
 
 Host bodies: macOS is `os_unfair_lock_lock`/`_unlock` in Saw
 (`rt/host_macos/lock.saw`); Linux is a three-state futex in `rt/shim.c`, which
 stays C because a futex needs 32-bit atomics through a pointer, which Saw
 cannot spell (DF-186c).
+
+### `__saw_rt_lock_owner() -> word`
+**The lock owner (SL-843).** The identity of the calling context, which a lock
+records as its owner and compares against before it acquires: nonzero, and
+distinct between any two contexts that can hold a lock at the same time. A lock
+that finds its own identity recorded is being re-entered, and panics. `sync`,
+and it allocates nothing, since a lock's panic path must not allocate.
+
+The hosted body is the calling thread's `pthread_self()`, in Saw
+(`rt/common/pthread.saw`). No std code calls the seam yet; `SpinLock`, which
+has no host lock to ask, is its intended caller. A freestanding provider's
+owner is the CPU or hart plus the interrupt context, since the re-entry that
+matters in a kernel is an interrupt handler taking a lock its own core holds;
+that contract is planned.
 
 ## Blocking-extern offload (design 183)
 

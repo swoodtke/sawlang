@@ -1,0 +1,32 @@
+// probe: stated
+// about: a `Mutex` window around a `TaskGroup(threads: 2)` join, whose cooperative task spawned before it takes the lock, joins and then runs the task after the window (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// prints: pool 6
+// prints: coop 1
+// The pool join blocks the thread and runs none of its tasks, so the
+// cooperative task first runs at its own join, after the window. SL-821
+// makes the pool join drive the thread's tasks, which turns this into a
+// re-entry.
+import std.mutex.{Mutex}
+
+static GUARD: Mutex<Int>
+
+func pool_work() -> Int { 6 }
+
+func coop() -> Int {
+    borrow var g = GUARD.lock() { g = g + 1; g }
+}
+
+func main() {
+    var group = TaskGroup()
+    let c = group.spawn(coop())
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(pool_work())
+    let got = borrow var o = GUARD.lock() {
+        o = 0
+        p.join()
+    }
+    print("pool {}", got)
+    print("coop {}", c.join())
+}

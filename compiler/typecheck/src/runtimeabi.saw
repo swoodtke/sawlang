@@ -33,6 +33,7 @@ public func tc_runtime_abi_rows(names: &var Vector<String>, params: &var Vector<
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_last_raw_code", "", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_last_syserror", "", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_lock_acquire", "word", "void", "runtime")
+    tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_lock_owner", "", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_lock_release", "word", "void", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_offload_done", "word", "word", "runtime")
     tc_abi_row(&var names, &var params, &var results, &var owners, "__saw_rt_offload_pipe_fd", "word", "word", "runtime")

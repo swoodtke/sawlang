@@ -14,6 +14,7 @@ extern "C" {
     // pthread_t is pointer-sized on macOS and glibc and is passed BY VALUE; model
     // it as a platform word (`Int`). retval is NULL (we discard the thread result).
     func pthread_join(thread: Int, retval: UnsafePointer<Int8>) -> Int32
+    func pthread_self() -> Int
     func __saw_classify_code(code: Int) -> Int
 }
 
@@ -58,4 +59,11 @@ func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) unsafe -> Int {
 @export("__saw_rt_thread_join")
 func rt_thread_join(handle: Int) unsafe -> Int {
     pthread_status(pthread_join(handle, 0 as UnsafePointer<Int8>))
+}
+
+// The identity a lock records as its owner. A `pthread_t` is nonzero and no
+// two live threads share one, which is all the owner check needs.
+@export("__saw_rt_lock_owner")
+func rt_lock_owner() -> Int {
+    pthread_self()
 }

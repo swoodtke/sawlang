@@ -1,0 +1,23 @@
+// probe: panics
+// about: `Mutex.get` on a lock the calling thread holds through another `Arc` copy panics naming the lock, rather than waiting for itself (SL-843)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: Mutex.get: this thread already holds the lock
+// Two copies of one `Arc` are two names for one lock, so the window on
+// `a`'s lock does not refuse the acquisition through `b`: it is the run-time
+// owner check that catches it.
+import std.mutex.{Mutex}
+
+func reenter(l: &Mutex<Int>) -> Int {
+    l.get()
+}
+
+func main() {
+    let a = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let b = a.copy()
+    let r = borrow var o = a.value().lock() {
+        o = 10
+        reenter(borrow b.value())
+    }
+    print("reentered {}", r)
+}

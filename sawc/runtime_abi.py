@@ -152,6 +152,8 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # unlocked on every host, which is what lets a `static M: Mutex<T>` be bss.
     "__saw_rt_lock_acquire",
     "__saw_rt_lock_release",
+    # A lock's owner, for the re-entry panic (SL-843).
+    "__saw_rt_lock_owner",
     # Blocking-extern offload (design 103)
     "__saw_rt_offload_start",
     "__saw_rt_offload_done",

@@ -3877,11 +3877,15 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
     `--target-features +a`. Short critical sections; a waiter burns its
     core.
   - **`Mutex<T>`** (`import std.mutex.{Mutex}`, HOSTED) — the same shape
-    where a waiter should SLEEP rather than spin. Since design 186 it is
-    one inline word (`os_unfair_lock` / futex), allocates nothing, has no
-    `deinit` and an INFALLIBLE constructor, and zero is unlocked — so `static
-    REGISTRY: Mutex<Int>` works with no initializer exactly as `SpinLock`
-    does. Blocks the calling THREAD; not reentrant.
+    where a waiter should SLEEP rather than spin. It is two inline words,
+    the lock (`os_unfair_lock` / futex) and its owner, allocates nothing,
+    has no `deinit` and an INFALLIBLE constructor, and zero is unlocked —
+    so `static REGISTRY: Mutex<Int>` works with no initializer exactly as
+    `SpinLock` does. Blocks the calling THREAD; not reentrant: a thread that
+    takes a mutex it already holds (a second `Arc` copy, a helper naming the
+    static, a task a `join()` runs inside the window) PANICS naming
+    `Mutex.lock`/`Mutex.get`, where it used to die silently on macOS
+    (SIGKILL) and deadlock on Linux (SL-843).
   - **`Once<T>`** (`import std.once.*`) — state COMPUTED once at a moment
     the program picks, then read as a plain value. `static LIMITS:
     Once<Limits>` (zero is UNSET), `LIMITS.set(...)` once, `LIMITS.get()`
