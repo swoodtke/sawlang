@@ -1,0 +1,36 @@
+// probe: panics
+// about: a `SpinLock` window around a cooperative `TaskGroup()` join of a task waiting on what a cooperative task spawned before the window sends once it holds the lock, runs that task inside the window, and its `lock()` panics naming the lock, conformance row K206 (SL-821)
+// stage 0: cannot parse a `borrow` block, and its std's locks check no owner
+// speeds: -O0 -O2
+// panics: SpinLock.lock: this thread already holds the lock
+// The joined task finishes only once the cooperative task has sent, and
+// only the join's drive runs that task, inside the window, so the re-entry
+// is the one outcome whatever the timing.
+import std.channel.{Channel}
+import std.spinlock.{SpinLock}
+
+static GUARD: SpinLock<Int>
+
+func waited(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func coop(ch: Channel<Int>) -> Int {
+    let v = borrow var g = GUARD.lock() { g = g + 1; g }
+    try! ch.send(v)
+    v
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var group = TaskGroup()
+    let c = group.spawn(coop(ch))
+    var other = TaskGroup()
+    let p = other.spawn(waited(ch))
+    let got = borrow var o = GUARD.lock() {
+        o = 0
+        p.join()
+    }
+    print("joined {}", got)
+    print("coop {}", c.join())
+}

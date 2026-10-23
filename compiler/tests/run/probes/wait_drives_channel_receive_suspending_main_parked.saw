@@ -1,0 +1,33 @@
+// probe: stated
+// about: a `Channel.receive()` made by a `main` it makes suspend while a cooperative task on its thread, parked on a timer, sends what it waits for, runs that task and completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+import std.task.*
+import std.channel.{Channel}
+
+// Parks on a timer before it sends.
+func late_sender(ch: Channel<Int>, value: Int) -> Int {
+    sleep(Duration.ms(20))
+    try! ch.send(value)
+    0
+}
+
+// Cedes once, so a join of it runs the thread's other ready tasks first.
+func yielder() -> Int {
+    yield_now()
+    0
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var group = TaskGroup()
+    let s = group.spawn(late_sender(ch, 5))
+    // The kick's join runs the sender to its timer park.
+    var kick = TaskGroup()
+    let k = kick.spawn(yielder())
+    let _ = k.join()
+    let v = try! ch.receive()
+    let _ = s.join()
+    print("done {}", v)
+}

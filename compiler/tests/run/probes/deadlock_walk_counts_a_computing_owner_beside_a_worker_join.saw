@@ -1,0 +1,38 @@
+// probe: stated
+// about: the deadlock walk a pool worker makes in a cooperative join's drive counts a `main` computing toward a send as able to send, and reports nothing, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: busy owner fed 4
+import std.channel.{Channel}
+
+func recv_one(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func spin(rounds: Int) sync -> Int {
+    var n = 0
+    var i = 0
+    while i < rounds {
+        n = (n * 31 + i) % 1000003
+        i = i + 1
+    }
+    n
+}
+
+// The cooperative join drives on the worker, which waits in its idle poll.
+func on_worker(ch: Channel<Int>) -> Int {
+    var group = TaskGroup()
+    let r = group.spawn(recv_one(ch))
+    r.join()
+}
+
+// `main` computes before it sends, so a walk that reads it as waiting would
+// report a deadlock while the send is still to come.
+func main() {
+    let ch = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 2)
+    let h = pool.spawn(on_worker(ch))
+    let _ = spin(60000000)
+    try! ch.send(4)
+    print("busy owner fed {}", h.join())
+}

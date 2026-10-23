@@ -1,0 +1,22 @@
+// probe: stated
+// about: a `join()` of a `TaskGroup(threads: 2)` task made by a `sync` helper under a suspending `main` with no cooperative task on its thread, completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+import std.task.*
+
+func pool_value() -> Int {
+    5
+}
+
+func helper() sync -> Int {
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(pool_value())
+    let v = p.join()
+    v
+}
+
+func main() {
+    yield_now()
+    print("done {}", helper())
+}

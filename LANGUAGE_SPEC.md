@@ -6082,6 +6082,11 @@ would hand out two live `&var T` to one payload.
   `join()` does. The lock records its owner, and acquiring, by `lock()` or
   `get()`, panics when it finds its own, before it would wait. A lock that
   another thread holds is waited for as usual.
+- Every wait that runs other tasks reaches that last name. A cooperative
+  `join()`, a pool's `join()` or `Deinit`, and a thread-context
+  `Thread.join()` or `Channel.receive()` run the waiting thread's tasks inside
+  the window while it has any, so a task they run that takes the lock the
+  window holds panics at its `lock()`.
 
 `RwLock` (multiple readers XOR single writer) is planned; it is not yet in the
 stdlib.
@@ -9373,7 +9378,15 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   one ready) ends the walk, because whether it will ever send is not
   decidable. So a chain of waits that only a stuck continuation could end, with
   such a task alive beside it, is the program's own livelock: it is not
-  reported, and the program waits for as long as that task lives.
+  reported, and the program waits for as long as that task lives. A thread
+  running code of its own, a `Thread.spawn` body or a `main` that computes
+  before it sends, can send too, whichever thread walks, so it ends the walk
+  as well. A `Thread.spawn` body counts as running until it returns, even
+  while it waits, so a body whose own wait can never end keeps the program
+  waiting unreported. So does a pool's `Deinit` made outside every task, or
+  a `join()` a pool's task makes of another pool's task, when the pool task
+  it waits for waits for good and no cooperative task shares the waiting
+  thread.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2, rebuilt as a
 live pool by design 225).** By default a `TaskGroup()` runs its children on ONE
@@ -9405,10 +9418,22 @@ threads, no lock).
   (*Background tasks: `Task.spawn`*, below): a background task a pool's task
   detached on the worker, parked where a cancel does not wake it, holds the
   teardown open until that wait finishes, and inside a task the thread's other
-  tasks keep running throughout. Made outside every task (in a
-  `Thread.spawn` body, or in a `main` that does not suspend) both block the
-  calling thread, and a pool dropped there waits for its tasks with nothing
-  else running on that thread.
+  tasks keep running throughout.
+- **Outside every task, a wait runs the thread's own tasks while it has
+  any.** A `join()` of a pool's task and a pool's `Deinit` made in a
+  `Thread.spawn` body, in a `main` that does not suspend, or by a pool's own
+  task, run that thread's cooperative tasks while one of them is live, ready
+  or parked, exactly as the waits inside a task do, so a pool's task may wait
+  on a task of the thread that joins it here too. So do `Thread.join()` and
+  `Channel.receive()` in thread context (see [Pairs](#pairs)). The decision is
+  made once, when the wait begins: a thread that is blocked adds no task, and
+  no other thread can add one to its groups. With no live cooperative task
+  the wait blocks the calling thread, and a pool dropped there waits for its
+  tasks with nothing else running on that thread. A wait that runs other
+  tasks runs them inside its caller's window, so holding a lock across it is
+  the same re-entry as holding one across a cooperative `join()`: a task it
+  runs that takes the lock panics at its `lock()`, naming the lock (see
+  [Synchronized Access](#synchronized-access)).
 - **A wait made inside a task returns after the waits begun inside it.** The
   joining task stays on its thread's stack while the thread runs its other
   tasks, so when one of those joins too, the inner join returns first, on
@@ -9795,8 +9820,12 @@ thread. A call site carries no marker, and nothing lets a task block. A `main`
 declared `blocking` is thread context by its signature, and may not suspend.
 
 A `main` that never suspends may still drive a group by joining it, and its
-tasks are paused whenever `main` is blocked, so a block that waits on
-something one of those tasks would produce, before the join, never returns.
+tasks are paused whenever `main` is blocked in a `blocking` call, so a call
+that waits on something one of those tasks would produce, before the join,
+never returns. The waits std makes there are not such calls: a pool's `join()`
+and `Deinit`, and in thread context `Thread.join()` and `Channel.receive()`,
+run the thread's tasks while it has any (see [Cooperative
+tasks](#cooperative-tasks-taskgroup), *Multi-threaded execution*).
 
 **A public function says so.** A `public` function whose body blocks must
 declare `blocking`, because its signature is what a caller in another module
@@ -9850,7 +9879,12 @@ externs and the offload](#blocking-externs-and-the-offload)), since a thread
 cannot be asked to stop and its result has nowhere else to go. A `main` that joins a
 thread suspends there, so it runs the executor and is a task root, and a value
 whose drop blocks may not drop in it (see [Blocking drops](#blocking-drops)); a
-`main` declared `blocking` joins in thread context instead.
+`main` declared `blocking` joins in thread context instead. In thread context,
+in a `Thread.spawn` body, a `blocking` function or a `blocking` `main`,
+`Thread.join()` and `Channel.receive()` run the calling thread's own
+cooperative tasks while one of them is live, ready or parked, and block the
+thread only when it has none, so a thread may wait on what one of its own
+tasks sends.
 
 The selection reaches through the calls between: a thread-context copy of a
 generic helper, two calls deep or inside a std generic such as `Map.insert`'s
@@ -10209,7 +10243,8 @@ A SYNC `main` never yields, so its background tasks first run at that exit join
 itself rather than a special case: a task runs when something cedes to it, and a
 `main` that never suspends never does. Give the tasks a `yield_now()`, or join
 them, or spawn them from a suspending `main`. A `Thread.spawn` body is `sync`
-in the same way, so its background tasks run while it joins one of them and at
+in the same way, so its background tasks run while it joins one of them, while
+it waits in a pool's `join()`, `Thread.join()` or `Channel.receive()`, and at
 its end.
 
 THE THREAD'S END WAITS FOR THE JOIN, and so for every wait a cancel does not
@@ -10912,8 +10947,9 @@ which one you are on.** `Thread.spawn`/`Thread<T>` run on the
 **OS-thread** engine: `Thread.spawn` starts an OS thread (or reports, in its
 `Result`, that the OS refused one), its body is a `sync`
 context that may block on FFI, and in that body `Thread.join()` and
-`Channel.receive()` block the calling thread; a task that calls either parks
-instead (see [Pairs](#pairs)). `Task.spawn`/`TaskGroup`/`Task<T>`
+`Channel.receive()` wait with the calling thread, running its own cooperative
+tasks meanwhile while it has any; a task that calls either parks instead (see
+[Pairs](#pairs)). `Task.spawn`/`TaskGroup`/`Task<T>`
 run on the **single-threaded cooperative executor** (above), where a body
 suspends, `Channel.receive()` among the calls that do, and a join drives the
 group; a suspending `main` runs there too. The call site's

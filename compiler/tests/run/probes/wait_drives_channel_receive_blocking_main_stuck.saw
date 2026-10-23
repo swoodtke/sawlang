@@ -1,0 +1,19 @@
+// probe: panics
+// about: a `Channel.receive()` made by a `blocking` `main` while its thread's one cooperative task receives from a channel nothing sends to, as does what it waits for, is reported by the deadlock walk, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// panics: deadlock: every task is waiting to receive from a channel, and nothing in this program can send
+import std.channel.{Channel}
+
+func stuck_receive(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    let other = try! Channel<Int>()
+    var group = TaskGroup()
+    let s = group.spawn(stuck_receive(other))
+    let v = try! ch.receive()
+    print("done {}", v)
+}

@@ -1,0 +1,26 @@
+// probe: stated
+// about: a `join()` of a `TaskGroup(threads: 2)` task made by a `blocking` `main` while a ready cooperative task on its thread sends what it waits for, runs that task and completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+import std.channel.{Channel}
+
+func sender(ch: Channel<Int>, value: Int) -> Int {
+    try! ch.send(value)
+    0
+}
+
+func pool_receive(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func main() blocking {
+    let ch = try! Channel<Int>()
+    var group = TaskGroup()
+    let s = group.spawn(sender(ch, 5))
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(pool_receive(ch))
+    let v = p.join()
+    let _ = s.join()
+    print("done {}", v)
+}

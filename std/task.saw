@@ -16,7 +16,7 @@ import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, __saw_exec_drive_main}
 import std.taskgroup.{__saw_exec_cancel_requested, __saw_exec_close_background, __saw_exec_dump_tasks}
-import std.taskgroup.{__saw_exec_join_park}
+import std.taskgroup.{__saw_exec_await_exit, __saw_exec_join_park}
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_exiting, __saw_exec_thread_finished}
 import std.taskgroup.{ThreadControlBlock, alloc_thread_block, exchange_state, free_thread_block}
 import std.taskgroup.{reap_thread_block, thread_exit_word}
@@ -52,9 +52,10 @@ extension Thread<T> {
     /// A task parks until the thread finishes, and its executor's thread runs
     /// the other tasks meanwhile. A cancel does not end the wait: a thread
     /// cannot be asked to stop, and its result has nowhere else to go. In a
-    /// `Thread.spawn` body or a `blocking` function the call blocks the
-    /// calling thread instead. A `main` that calls it suspends, and so runs
-    /// the executor.
+    /// `Thread.spawn` body or a `blocking` function the call waits with the
+    /// calling thread instead: it runs that thread's tasks meanwhile while
+    /// one of them is live, and otherwise blocks the thread. A `main` that
+    /// calls it suspends, and so runs the executor.
     ///
     /// A thread yields its result once, so joining a second time, or after
     /// `detach`, panics. A join the operating system refuses, as for a
@@ -75,6 +76,7 @@ extension Thread<T> {
 
     public func join(&var self) unsafe blocking -> T {
         self.check_fate_open("Thread.join")
+        __saw_exec_await_exit(self.__saw_exit_word())
         self.__saw_reap()
     }
 

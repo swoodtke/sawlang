@@ -1,0 +1,57 @@
+// probe: stated
+// about: a `TaskGroup(threads: 2)` teardown made by a pool's task while a cooperative task on its thread, parked on a timer, sends what it waits for, runs that task and completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+import std.task.*
+import std.channel.{Channel}
+
+// Parks on a timer before it sends.
+func late_sender(ch: Channel<Int>, value: Int) -> Int {
+    sleep(Duration.ms(20))
+    try! ch.send(value)
+    0
+}
+
+// Cedes once, so a join of it runs the thread's other ready tasks first.
+func yielder() -> Int {
+    yield_now()
+    0
+}
+
+func relay(ch: Channel<Int>, out: Channel<Int>) {
+    let v = try! ch.receive()
+    try! out.send(v)
+}
+
+// The pool is torn down at this function's end.
+func run_pool(ch: Channel<Int>, out: Channel<Int>) {
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(relay(ch, out))
+}
+
+// What the pool's task relayed, read once the pool is torn down.
+func tear_down_pool(ch: Channel<Int>) -> Int {
+    let out = try! Channel<Int>()
+    run_pool(ch, out)
+    (try! out.try_receive())!
+}
+
+func on_worker() -> Int {
+    let ch = try! Channel<Int>()
+    var group = TaskGroup()
+    let s = group.spawn(late_sender(ch, 5))
+    // The kick's join runs the sender to its timer park.
+    var kick = TaskGroup()
+    let k = kick.spawn(yielder())
+    let _ = k.join()
+    let v = tear_down_pool(ch)
+    let _ = s.join()
+    v
+}
+
+func main() {
+    var outer = try! TaskGroup(threads: 2)
+    let h = outer.spawn(on_worker())
+    print("done {}", h.join())
+}

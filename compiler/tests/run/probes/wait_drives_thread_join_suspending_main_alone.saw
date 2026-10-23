@@ -1,0 +1,12 @@
+// probe: stated
+// about: a `Thread.join()` made by a `main` it makes suspend with no cooperative task on its thread, completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+
+
+func main() {
+    var t = try! Thread.spawn { 5 }
+    let v = t.join()
+    print("done {}", v)
+}

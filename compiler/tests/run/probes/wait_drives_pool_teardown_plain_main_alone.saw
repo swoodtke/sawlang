@@ -1,0 +1,28 @@
+// probe: stated
+// about: a `TaskGroup(threads: 2)` teardown made by a `main` that never suspends with no cooperative task on its thread, completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+import std.channel.{Channel}
+
+func relay_alone(out: Channel<Int>) {
+    try! out.send(5)
+}
+
+// The pool is torn down at this function's end.
+func run_pool_alone(out: Channel<Int>) {
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(relay_alone(out))
+}
+
+// What the pool's task sent, read once the pool is torn down.
+func tear_down_pool_alone() -> Int {
+    let out = try! Channel<Int>()
+    run_pool_alone(out)
+    (try! out.try_receive())!
+}
+
+func main() {
+    let v = tear_down_pool_alone()
+    print("done {}", v)
+}

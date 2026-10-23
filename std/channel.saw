@@ -28,8 +28,9 @@
 //! In a task, `receive` suspends the task, never the thread: a waiting
 //! receiver parks on the channel's readiness word and costs nothing until a
 //! `send` or a `close` on that channel sets it. In thread context, a
-//! `Thread.spawn` body or a `blocking` function, the same call blocks the
-//! calling thread instead (a pair: spec, Blocking functions). Disconnection is
+//! `Thread.spawn` body or a `blocking` function, the same call waits with the
+//! calling thread instead, running that thread's own tasks meanwhile while it
+//! has any (a pair: spec, Blocking functions). Disconnection is
 //! explicit, since a handle carries no sender or receiver role and so no count
 //! of producers exists: a channel nobody closes and nobody sends to is a
 //! deadlock.
@@ -37,7 +38,7 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.task.{__saw_park_channel}
-import std.taskgroup.{__saw_exec_chan_wake}
+import std.taskgroup.{__saw_exec_await_word, __saw_exec_chan_wake}
 
 extern "C" {
     // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
@@ -241,8 +242,10 @@ extension Channel<T: Send> {
     ///
     /// A task suspends while the queue is empty, and its executor's thread
     /// runs the other tasks meanwhile. In a `Thread.spawn` body or a
-    /// `blocking` function the call blocks the calling thread instead. A
-    /// `main` that calls it suspends, and so runs the executor.
+    /// `blocking` function the call waits with the calling thread instead: it
+    /// runs that thread's tasks meanwhile while one of them is live, and
+    /// otherwise blocks the thread. A `main` that calls it suspends, and so
+    /// runs the executor.
     ///
     /// - `Ok(v)`: a message, dequeued.
     /// - `Err(Closed)`: the channel has been closed and everything queued
@@ -293,12 +296,18 @@ extension Channel<T: Send> {
     // writer that counts one broadcasts under the gate's mutex, which the
     // waiter holds from its read until the wait releases it, so the
     // broadcast cannot fall between the two.
+    //
+    // A thread with tasks of its own runs them instead, until the word is
+    // set, since one of them may be the sender (`__saw_exec_await_word`).
     func wait_ready(&self) unsafe -> Result<Void, ChannelError> {
         let block = self.block
+        let word = (&block[0].ready) as UnsafePointer<Int>
+        if __saw_exec_await_word(word) {
+            return
+        }
         let gate = try self.open_gate()
         let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
         let waiters = (&block[0].waiters) as UnsafePointer<Int>
-        let word = (&block[0].ready) as UnsafePointer<Int>
         let _ = pthread_mutex_lock(gate)
         let _ = __saw_atomic_add_i64_seq_cst(waiters, 1)
         while __saw_atomic_load_i64_seq_cst(word) == 0 {

@@ -1,0 +1,19 @@
+// probe: stated
+// about: a `Channel.receive()` made by a `main` it makes suspend with no cooperative task on its thread, completes, conformance row K205 (SL-821)
+// stage 0: runs it on its own std's executor, which this rule is not part of (SL-821)
+// speeds: -O0 -O2
+// prints: done 5
+import std.channel.{Channel}
+
+func sender(ch: Channel<Int>, value: Int) -> Int {
+    try! ch.send(value)
+    0
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var t = try! Thread.spawn { [ch] in sender(ch, 5) }
+    let v = try! ch.receive()
+    let _ = t.join()
+    print("done {}", v)
+}
