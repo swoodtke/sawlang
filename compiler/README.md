@@ -491,20 +491,14 @@ the fixpoint lane when `compiler/` (the seed included), `std/`, `runtime/` or
 low-level features SL:architecture §4 names: `raw-pointer` (raw memory and
 pointers), `borrows-accessor` and `borrow-syntax` (`borrows`, `lend`, and the
 `borrow` that takes a lent place), `deinit-body` (a type owning a buffer frees
-it), `box-type` and `generic-extension-init` (allocator parameters:
-`Box<T, A>`, and `Vector<T, A>` built by its `init`), `cell-type` (the
+it), `box-type` (allocator parameters: `Box<T, A>`), `cell-type` (the
 prelude's `UnsafeMutableInterior` and the `Atomic` over it, SL:open-questions
 D38) and `sync-only` (`std.task`'s park points and the modules that call them)
-are dropped. A bound may be `Allocator`, or a policy trait a container's
-conditional conformance needs (`Copy`, `ExplicitCopy`, `Send`, `Sync`), and
-nothing else (`bounded-extension`); a fieldless struct may be an allocator
-(`empty-struct`); the prelude may declare the vocabulary's alias `Byte` and
-no other (`type-alias`); and a std module imports only std modules
-(`import-allowlist`). `prelude-type-name` and `std-api` hold the compiler to
-std, so the profile drops them too, and `compile` and `owned-operand`, which
+are dropped. The prelude may declare the vocabulary's alias `Byte` and
+no other (`type-alias`), and a std module imports only std modules
+(`import-allowlist`). `std-api` holds the compiler to std, so the profile
+drops it too, and `compile` and `owned-operand`, which
 ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
-`prefix-cast` guards how the frozen parser reads a prefix over `as`, which
-sawc2's reading makes moot, so it never runs either.
 `move buf[i]` through a binding is the raw-memory feature's move out of a
 pointer place, not `borrowed-match-payload`.
 
@@ -576,58 +570,34 @@ so it is compiled by itself, without the source rules.
 |---|---|---|
 | `lex`, `parse` | a file the frozen lexer or parser rejects | §4 |
 | `compile` | a build the frozen compiler rejects, when every other rule accepts it | §4 |
-| `file-end` | a file that does not end in a newline | C2 |
 | `sync-only` | tasks, threads, channels, `sleep`, a `blocking` extern | §4 |
 | `closure-capture` | a closure naming an enclosing binding or `self`, a capture list | §4 |
 | `type-alias` | any `type` alias | §4, S9 |
-| `prelude-type-name` | a declared type named like a public std type, import-gated ones included, or like `Optional` or `Result` | §4, L17 |
-| `selective-imports` | `import m` and `import m.*` | §4, L3 |
 | `import-allowlist` | a std module off `ALLOWED_STD_MODULES`, a package that is not a compiler stage, or a path headed by `src` | §4 |
 | `std-api` | a std call off `STD_API`; `m[k]` on a Map; a write, a mutating method or a presence test through `get`; `m[k]! = v`; `with_ref`, `with_var_ref`, `with_unique`, a closure-taking `lock` | §4 |
 | `borrows-accessor` | `borrows`, `lend`, `lends`, and a `borrows struct` | §4 |
-| `generic-extension-init` | an `init` in an extension with type parameters | §4, S1 |
-| `integer-overload` | an overload set where a member takes a non-`Int` integer | §4, L1 |
 | `any-type` | `any` in a type | §4, S12 |
-| `box-type` | `Box` | §4, L8 |
-| `cell-type` | `Mutex`, `SpinLock`, `Once`, `UnsafeMutableInterior`, `Atomic`, `Arc` | §4, S11, S15 |
-| `raw-pointer` | pointer types, std's `unsafe struct`s, `unsafe`, `*p`, `move *p` | §4, C1 |
-| `fixed-array` | `[T; N]` types, repeat literals, and an array literal with no written type to adopt | §4, L7 |
+| `box-type` | `Box` | §4 |
+| `cell-type` | `Mutex`, `SpinLock`, `Once`, `UnsafeMutableInterior`, `Atomic`, `Arc` | §4 |
+| `raw-pointer` | pointer types, std's `unsafe struct`s, `unsafe`, `*p`, `move *p` | §4 |
+| `fixed-array` | `[T; N]` types, repeat literals, and an array literal with no written type to adopt | §4 |
 | `value-loop` | `break` with an operand | §4, L11 |
-| `statement-arm` | a match arm whose body is a bare statement | §4, L13, C4 |
 | `borrow-syntax` | `borrow` as a name | §4 |
 | `test-directive` | `@test` | §4 |
 | `deinit-body` | a `deinit` in an extension, a conformance or a trait body | leak tolerance |
 | `borrowed-match-payload` | `move` of an arm binding, or a `match` on one, when the scrutinee is borrowed | S2 |
 | `optional-try` | every `try?` | S3 |
 | `root-reuse` | an argument reading the receiver's or a `&` argument's root; an index write whose right side reads its root | S4 |
-| `var-ref-into-let` | `&var`, or a call of a `&var self` method, reaching into a binding that is not a `var`, or into any `static` | S5 |
-| `function-exit` | a value-returning body, `init` or closure that can fall off its end or end in a `Void` call; code after `return`, `break` or `continue` | S6 |
 | `int-literal-range` | an unsuffixed integer literal above `Int.max`, except as a `UInt64` binding's value or as `-9223372036854775808`; a literal with a signed suffix above its width's signed maximum, in any context, except the magnitude of the width's minimum under a unary minus (`-128_i8`) | S7 |
-| `enum-equatable-body` | a hand-written `equals` on an enum, in its `Equatable` conformance or apart from it | S8 |
-| `nested-optional` | `T??`, and an optional element or value type in `Vector`, `Map` or `Set` | S10 |
-| `argument-labels` | a repeated label; a labeled call to a `borrows` accessor, std's or the build's, judged by the receiver's type | S14 |
 | `index-receiver-call` | a method not known to only read, on storage reached through `x[i]`, `m[k]?.` or a tuple element | S15 |
-| `cast-then-optional` | `?` or `??` after an `as` cast's type, on its line or the next | S17 |
-| `program-unique-names` | a free function or `static` named like another in the build or in std; a type named like another in the build, since the checker keys its facts about types by name | S18 |
-| `written-type-shape` | a written type nested 8 levels, `Optional<T>`, `Self` inside a tuple type | §4, S19 |
 | `float-literal` | any float literal | §4, S20 |
-| `interpolation-line-break` | a line break inside an interpolation's braces | S21 |
 | `inline-module` | every inline `module name { }` | S22 |
 | `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, or the operand of an `as` cast that builds a new value rather than forwarding it, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
 | `conditional-temporary` | a call's result read through a method, a field, an index or a tuple element in a bare value-`match` arm, a `match` guard or the right side of `??`, an operand only some paths evaluate | S29 |
-| `prefix-cast` | a `-` or `~` whose operand is an `as` cast, unless the cast sits inside a parenthesis directly after the operator, as `-(x as T)`: `-x as T`, `-(x) as T` and `~(x as A) as B` are refused, and `(-x) as T` is the spelling for GRAMMAR.md's meaning; interpolations included | S30 |
 | `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
 | `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
-| `default-value-literal` | a default parameter value that is not a literal | L3 |
 | `optional-shaping` | `== None`, a method directly on a `get` result, a collection literal returned as a `Result` | L4 |
-| `empty-struct` | a struct with no fields | L5 |
-| `bounded-extension` | a bound on an extension's type parameter | L6 |
-| `name-collision` | a generic method and generic function sharing a name (std included), a static and an instance method sharing one, a type parameter spelled like a type | L9 |
-| `type-param-receiver` | a call whose receiver is a type parameter | L10 |
-| `leading-minus` | a line that begins with `-` after a token that can end an operand | L12 |
-| `nesting-depth`, `chain-length` | brackets nested past 30; an operator, `??`, postfix, `else if` or `else if let` chain past 100 | L14 |
-| `generic-extension-params` | an extension head naming a generic type, the build's or std's (`Optional` and `Result` included), without its type parameters, as `extension Gen { }`, `extension Gen: NoCopy {}`, `extension Vector { }` or `extension Result { }`; its message for `extension Optional { }` says Stage 0 cannot extend `Optional` at all | L18 |
-| `interpolation-content` | `//`, a brace or a quote inside an interpolation | C3 |
+| `name-collision` | a type parameter spelled like a type | L9 |
 | `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
 | `redundant-visibility` | a field marked with its struct's own tier, `public` in a `public struct` or `public(package)` in a `public(package) struct`; a field inherits that tier, so only a narrowing `private` is written | the spec |
 
@@ -670,13 +640,10 @@ trust obligation, as SL:hazards describes:
   declares it too, so an instance method on the allowlist is allowed on every
   untraced receiver. `m[k]` is caught when the receiver traces to `Map`, or when
   the subscript is used as an optional.
-- `closure-capture`, `root-reuse` and `var-ref-into-let` resolve names through
-  lexical scopes. They do not follow values. A path headed by an inline module's
-  name, such as `m.inner.NAME`, is followed through the module bodies it names:
-  `var-ref-into-let` finds the `static` behind `&var m.NAME`, and `std-api`
+- `closure-capture` and `root-reuse` resolve names through lexical scopes. They
+  do not follow values. A path headed by an inline module's name, such as
+  `m.inner.NAME`, is followed through the module bodies it names, and `std-api`
   knows a call through `m.inner.f(...)` is the build's own.
-- `nested-optional` sees written types only, not the types a generic
-  instantiation produces.
 - SL:hazards S16 and L15 have no check.
 
 ## Constructors
@@ -690,12 +657,9 @@ that computes something and returns it as a struct stays a function named for
 what it computes, `coro_edges(coro)` or `parse_source(path, text, unit)`, and so
 do the stage entry points such as `mir_program(tc)`.
 
-Two limits apply in this source:
-- no `init` in an extension with type parameters (`generic-extension-init`,
-  SL:hazards S1);
-- no `init` whose labels and types are exactly the fields'. Under SL-648 that
-  is an override of the memberwise construction, which Stage 0 refuses, so it
-  waits until the compiler builds itself.
+One limit applies in this source: no `init` whose labels and types are exactly
+the fields'. Under SL-648 that is an override of the memberwise construction,
+which Stage 0 refuses, so it waits until the compiler builds itself.
 
 Some older factory functions predate this rule. SL-652 converts them, and new
 code doesn't copy them.

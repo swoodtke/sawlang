@@ -1,4 +1,0 @@
-// A struct with no fields.
-struct Unreadable {}   // refuses: empty-struct
-
-struct Readable { reason: Int }

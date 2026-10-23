@@ -848,8 +848,7 @@ DISCIPLINE_RULES = ("import-allowlist", "std-api", "borrows-accessor", "borrow-s
                     "test-directive", "closure-capture")
 # The rules that judge a file rather than a declaration, reported for every
 # module in the cone.
-FILE_RULES = ("lex", "parse", "file-end", "workaround-marker", "selective-imports",
-              "import-allowlist", "inline-module")
+FILE_RULES = ("lex", "parse", "workaround-marker", "import-allowlist", "inline-module")
 
 
 def module_path(module):
@@ -921,8 +920,7 @@ def rule_firings(c):
                     spans.append(((value[0], value[1]), owner))
         ranges[path] = spans
         diags = SC.FileChecker(src, std, SC.BuildFacts([src])).run()
-        diags += [d for d in SC.check_build([src], [], std)
-                  if not (d.rule == "program-unique-names" and src.rel in d.message)]
+        diags += SC.check_build([src], [], std)
         for d in diags:
             did = _innermost(spans, d.line)
             if did is not None:

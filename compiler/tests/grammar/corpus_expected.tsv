@@ -87,10 +87,6 @@ compiler/tests/lex/unicode_escape_surrogate_error.saw	LEXERR	a-error: 8:12 refus
 compiler/tests/lex/unsafe_expression_marker_removed.saw	FAIL	a-removed: syntax.expr.refused-unsafe
 compiler/tests/std/subset/grammar.saw	FAIL	a-removed: syntax.decl.refused-static
 compiler/tests/subset/borrow-syntax.saw	FAIL	a-error: 3:9 near BORROW 'borrow'
-compiler/tests/subset/cast-then-optional.interpolation.saw	SEGFAIL	a-error: 6:17 {n as Int ?? 9} 1:10 refused by syntax.rule.cast-target-question
-compiler/tests/subset/cast-then-optional.newline.saw	FAIL	a-error: 15:14 refused by syntax.rule.cast-target-question
-compiler/tests/subset/cast-then-optional.saw	FAIL	a-error: 3:23 refused by syntax.rule.cast-target-question
-compiler/tests/subset/interpolation-line-break.saw	SEGFAIL	a-error: 5:17 {x\n        + 3} 5:19 refused by syntax.rule.interpolation-whole
 compiler/tests/subset/lex.saw	LEXERR	a-error: 3:7 refused by syntax.lex.escape: unknown escape in a string literal
 compiler/tests/subset/parse.interpolation-escape.saw	SEGLEX	a-error: 6:14 Lexer error at 1:3: Unexpected character
 compiler/tests/subset/parse.saw	FAIL	a-error: 3:9 near ASSIGN '='

@@ -40,59 +40,34 @@ RULES = {
     "lex": ARCH + ": the frozen lexer must accept the source",
     "parse": ARCH + ": the frozen parser must accept the source",
     "compile": ARCH + ": the frozen compiler must accept the source",
-    "file-end": "SL:hazards C2",
     "sync-only": ARCH,
     "closure-capture": ARCH,
     "type-alias": ARCH + "; SL:hazards S9",
-    "prelude-type-name": ARCH + "; SL:hazards L17",
-    "selective-imports": ARCH + "; SL:hazards L3",
     "import-allowlist": ARCH + ": the compiler's std cone",
     "std-api": ARCH + ": the API allowlist",
     "borrows-accessor": ARCH + ": accessors belong to the new std",
-    "generic-extension-init": ARCH + "; SL:hazards S1",
-    "integer-overload": ARCH + "; SL:hazards L1",
     "any-type": ARCH + "; SL:hazards S12",
-    "box-type": ARCH + "; SL:hazards L8",
-    "cell-type": ARCH + "; SL:hazards S11, S15",
-    "raw-pointer": ARCH + "; SL:hazards C1",
-    "fixed-array": ARCH + "; SL:hazards L7",
+    "box-type": ARCH,
+    "cell-type": ARCH,
+    "raw-pointer": ARCH,
+    "fixed-array": ARCH,
     "value-loop": ARCH + "; SL:hazards L11",
-    "statement-arm": ARCH + "; SL:hazards L13, C4",
     "borrow-syntax": ARCH,
     "test-directive": ARCH,
     "deinit-body": "SL:hazards: leaks are tolerated in Stage 1",
     "borrowed-match-payload": "SL:hazards S2",
     "optional-try": "SL:hazards S3",
     "root-reuse": "SL:hazards S4",
-    "var-ref-into-let": "SL:hazards S5",
-    "function-exit": "SL:hazards S6",
     "int-literal-range": "SL:hazards S7",
-    "enum-equatable-body": "SL:hazards S8",
-    "nested-optional": "SL:hazards S10",
-    "argument-labels": "SL:hazards S14",
     "index-receiver-call": "SL:hazards S15",
-    "cast-then-optional": "SL:hazards S17",
-    "program-unique-names": "SL:hazards S18",
-    "written-type-shape": ARCH + "; SL:hazards S19",
     "float-literal": ARCH + "; SL:hazards S20",
-    "interpolation-line-break": "SL:hazards S21",
     "inline-module": "SL:hazards S22",
     "owned-operand": "SL:hazards S23",
     "conditional-temporary": "SL:hazards S29",
-    "prefix-cast": "SL:hazards S30",
     "from-raw-literal": "SL:hazards L1",
     "closure-syntax": "SL:hazards L2",
-    "default-value-literal": "SL:hazards L3",
     "optional-shaping": "SL:hazards L4",
-    "empty-struct": "SL:hazards L5",
-    "bounded-extension": "SL:hazards L6",
     "name-collision": "SL:hazards L9",
-    "type-param-receiver": "SL:hazards L10",
-    "leading-minus": "SL:hazards L12",
-    "nesting-depth": "SL:hazards L14",
-    "chain-length": "SL:hazards L14",
-    "generic-extension-params": "SL:hazards L18",
-    "interpolation-content": "SL:hazards C3",
     "workaround-marker": "SL:hazards: a workaround names the entry it works around",
     "redundant-visibility": "LANGUAGE_SPEC: a field's tier is stated once, on the type",
 }
@@ -178,8 +153,6 @@ STD_PROFILE_FEATURES = {
     "borrows-accessor": "`borrows` accessors and `lend`",
     "deinit-body": "raw memory: a type owning a buffer frees it in its `deinit`",
     "box-type": "allocator parameters: `Box<T, A>` owns one value through its allocator",
-    "generic-extension-init": "allocator parameters: a container generic over its allocator, "
-                              "`Vector<T, A>`, is built by its `init`",
     "cell-type": "interior mutability: the prelude's cell, `UnsafeMutableInterior`, and the atomic "
                  "word over it (SL:open-questions D38)",
     "sync-only": "cooperative tasks: `std.task` declares the task vocabulary over its park points, "
@@ -187,8 +160,7 @@ STD_PROFILE_FEATURES = {
     "borrow-syntax": "`borrows` accessors and `lend`: a `borrow` binding is how a caller takes "
                      "the place an accessor lends",
     "fixed-array": "fixed-size arrays: a constant table a static can hold, and stack scratch "
-                   "that keeps a std operation from allocating (SL:hazards L7 is Stage 0's, and "
-                   "no stage compiles std/ with Stage 0)",
+                   "that keeps a std operation from allocating",
 }
 # The rules only the std profile has. No stage compiles `std/` with Stage 0, so
 # GRAMMAR.md governs its spelling, and sawc2's parser reads it (SL-600).
@@ -198,20 +170,7 @@ STD_PROFILE_RULES = {
 }
 # Rules that hold the compiler's source to std, which the std profile is
 # checking itself: std declares the std names, imports std and calls std.
-STD_PROFILE_SELF = ("prelude-type-name", "std-api")
-# The bound a conformance extension of the new std may write on a type
-# parameter beside the policy traits below (a methods-only extension with no
-# hook-named member may write any), and the trait whose conformers may be
-# fieldless: allocator parameters.
-STD_PROFILE_BOUND = "Allocator"
-# The traits a container's conditional conformance may bound its element on,
-# as the language defines `Vector`: ExplicitCopy when its element is, Send and
-# Sync when its element and allocator are, and `iter()` where it is Copy; and
-# ZeroInit when its payload is, as the language defines the locks.
-STD_PROFILE_POLICY_BOUNDS = ("Copy", "ExplicitCopy", "Send", "Sync", "ZeroInit")
-# The members a compiler-inserted call reaches by name, so an extension
-# declaring one keeps the policy-only bound even without a conformance.
-HOOK_MEMBER_NAMES = ("equals", "compare", "hash", "format", "deinit", "copy")
+STD_PROFILE_SELF = ("std-api",)
 # The aliases the language's vocabulary defines, which the new std's prelude
 # declares where Stage 0's builtin module did: `type-alias` refuses any other.
 STD_PROFILE_ALIAS_HOME = "std/prelude.saw"
@@ -230,10 +189,6 @@ POINTER_TYPE_NAMES = ("UnsafePointer", "UnsafeConstPointer")
 # The generic prelude types the frozen typechecker declares itself, so no std
 # source names them.
 BUILTIN_GENERIC_TYPES = ("Optional", "Result")
-COLLECTIONS = ("Vector", "Map", "Set")
-NON_INT_INTEGERS = (A.TypeKind.UINT, A.TypeKind.INT8, A.TypeKind.INT16, A.TypeKind.INT32,
-                    A.TypeKind.INT64, A.TypeKind.UINT8, A.TypeKind.UINT16,
-                    A.TypeKind.UINT32, A.TypeKind.UINT64)
 UNSIGNED_64 = (A.TypeKind.UINT, A.TypeKind.UINT64)
 INT_MAX = (1 << 63) - 1
 SIGNED_SUFFIX_WIDTHS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
@@ -244,14 +199,7 @@ READ_ONLY_METHODS = ("byte_at", "compare", "contains", "contains_key", "copy", "
                      "equals", "get", "hash", "index_of", "is_empty", "is_none", "is_some",
                      "len", "starts_with", "substring", "to_string")
 
-MAX_NESTING = 30
-MAX_CHAIN = 100
-# A written type nests fewer levels than the lowest depth bound among the
-# frozen compiler's type walks (SL:hazards S19).
-MAX_TYPE_DEPTH = 7
-
-STATEMENT_KEYWORDS = (T.RETURN, T.BREAK, T.CONTINUE, T.LET, T.VAR, T.GUARD, T.WHILE, T.FOR)
-# The tokens that can end an operand. A `*` or `-` after one, across any newline
+# The tokens that can end an operand. A `*` after one, across any newline
 # the parser skips, is a binary operator; after anything else it is a prefix
 # operator, except that `.*` is an import glob.
 OPERAND_END = (T.IDENT, T.INT, T.FLOAT, T.STRING, T.INTERP_STRING, T.RPAREN, T.RBRACKET,
@@ -369,18 +317,10 @@ class StdFacts:
 
     def __init__(self, stage0=True):
         from mono_identity import PRIMITIVE_TYPE_NAMES
-        self.names = {}
         self.generic_functions = set()
-        self.generic_methods = set()
         self.types = set(PRIMITIVE_TYPE_NAMES) | {"Void", "Never"} | set(BUILTIN_GENERIC_TYPES)
-        # Names a compiler type may not take: every type the builtins or a std
-        # module make public, gated or not (SL:hazards L17).
-        self.reserved_types = set(self.types)
         self.methods = set()
-        self.borrows_methods = set()
         self.unsafe_types = set(POINTER_TYPE_NAMES)
-        self.generic_types = set(BUILTIN_GENERIC_TYPES)
-        self.method_kinds = {}
         std_dir = os.path.join(REPO, "sawc", "std")
         paths = sorted(glob.glob(os.path.join(std_dir, "**", "*.saw"), recursive=True))
         paths.append(os.path.join(REPO, "sawc", "builtin.saw"))
@@ -388,39 +328,23 @@ class StdFacts:
             src = SourceFile(path)
             if src.program is None:
                 raise RuntimeError("subset_check: cannot parse %s" % src.rel)
-            builtin = path.endswith("builtin.saw")
             for prog in programs(src.program):
-                self._collect(prog, src.rel, builtin)
+                self._collect(prog)
 
-    def _collect(self, prog, rel, builtin):
+    def _collect(self, prog):
         for fn in prog.functions:
-            self.names.setdefault(fn.name, rel)
             if fn.type_params:
                 self.generic_functions.add(fn.name)
-        for st in prog.statics:
-            self.names.setdefault(st.name, rel)
         for decl in prog.structs + prog.enums + prog.traits + prog.type_definitions:
             self.types.add(decl.name)
-            if builtin or decl.visibility != A.Visibility.PRIVATE:
-                self.reserved_types.add(decl.name)
         for s in prog.structs:
             if s.is_unsafe:
                 self.unsafe_types.add(s.name)
-        for decl in prog.structs + prog.enums:
-            if decl.type_params:
-                self.generic_types.add(decl.name)
         for tr in prog.traits:
             self.methods.update(m.name for m in tr.methods)
         for ext in prog.extensions:
             for m in ext.methods:
                 self.methods.add(m.name)
-                if m.type_params or ext.type_params:
-                    self.generic_methods.add(m.name)
-                if m.is_borrows and m.name != "[]":
-                    self.borrows_methods.add(m.name)
-                if not m.is_init:
-                    kind = "static" if m.is_static else "instance"
-                    self.method_kinds.setdefault((ext.struct_name, m.name), set()).add(kind)
 
 
 _HAZARD_IDS = None
@@ -576,31 +500,23 @@ class BuildFacts:
     def __init__(self, files):
         self.functions = set()
         self.generic_functions = set()
-        self.void_functions = set()
-        self.statics = set()
         self.modules = set()
         self.module_bodies = {}
         self.types = set()
-        self.generic_types = set()
-        self.enums = set()
         self.methods = set()
-        self.borrows_methods = set()
-        self.borrows_owned = set()
         self.fields = {}
         self.variants = {}
         self.function_decls = {}
         self.method_decls = {}
         self.method_mutates = {}
         self.name_mutates = {}
-        nonvoid = set()
         for f in files:
             if f.program is None:
                 continue
             for prog in programs(f.program):
-                self._collect(prog, nonvoid)
-        self.void_functions -= nonvoid
+                self._collect(prog)
 
-    def _collect(self, prog, nonvoid):
+    def _collect(self, prog):
         for md in prog.module_decls:
             self.modules.add(md.name)
             if md.body is not None:
@@ -610,24 +526,14 @@ class BuildFacts:
             if fn.type_params:
                 self.generic_functions.add(fn.name)
             self.function_decls.setdefault(fn.name, []).append(fn)
-            if fn.return_type is None or fn.return_type.kind == A.TypeKind.VOID:
-                self.void_functions.add(fn.name)
-            else:
-                nonvoid.add(fn.name)
-        for st in prog.statics:
-            self.statics.add(st.name)
         for decl in prog.structs + prog.enums + prog.traits + prog.type_definitions:
             self.types.add(decl.name)
         for en in prog.enums:
-            self.enums.add(en.name)
             # A generic enum's payload types name its own parameters, which mean
             # nothing at a match site.
             if not en.type_params:
                 self.variants.setdefault(en.name, {
                     v.name: [t for _, t in v.associated_types] for v in en.variants})
-        for decl in prog.structs + prog.enums:
-            if decl.type_params:
-                self.generic_types.add(decl.name)
         for s in prog.structs:
             self.fields[s.name] = {fd.name: fd.type for fd in s.fields}
         owners = [(ext.struct_name, ext.methods) for ext in prog.extensions]
@@ -635,9 +541,6 @@ class BuildFacts:
         for owner, methods in owners:
             for m in methods:
                 self.methods.add(m.name)
-                if getattr(m, "is_borrows", False):
-                    self.borrows_methods.add(m.name)
-                    self.borrows_owned.add((owner, m.name))
                 self.method_decls.setdefault((owner, m.name), []).append(m)
                 if _instance_method(m):
                     self.method_mutates[(owner, m.name)] = _mutates_self(m)
@@ -657,12 +560,6 @@ class BuildFacts:
         """The written return type of the method overload a call with `args`
         picks, or None."""
         return _picked_return(self.method_decls.get((owner, name), ()), args)
-
-    def method_is_void(self, owner, name, args):
-        """Does every overload a call with `args` can bind to return nothing?"""
-        decls = _picked(self.method_decls.get((owner, name), ()), args)
-        return bool(decls) and all(d.return_type is None
-                                   or d.return_type.kind == A.TypeKind.VOID for d in decls)
 
     def module_member(self, path):
         """What a path headed by an inline module's name reaches, walked through
@@ -769,7 +666,6 @@ def optional_payload(t):
 # A `?.` chain parses as an OptionalEvalExpr around its spine, with each `?.`
 # hop's receiver wrapped in a BindOptional.
 CHAIN_WRAPPERS = (A.BindOptional, A.OptionalEvalExpr)
-HOPS = (A.MethodCall, A.MemberAccess, A.ArrayIndex, A.TupleIndex, A.ForceUnwrap, A.CastExpr)
 
 
 def postfix_object(expr):
@@ -887,14 +783,6 @@ def pattern_names(pattern, fallback=()):
     return names
 
 
-def is_literal(expr):
-    if isinstance(expr, (A.IntLiteral, A.FloatLiteral, A.BoolLiteral, A.StringLiteral,
-                         A.NoneLiteral)):
-        return True
-    return (isinstance(expr, A.UnaryOp) and expr.op == "-"
-            and isinstance(expr.operand, (A.IntLiteral, A.FloatLiteral)))
-
-
 def is_collection_literal(expr):
     return isinstance(expr, (A.ArrayLiteral, A.MapLiteral, A.SetLiteral))
 
@@ -960,9 +848,6 @@ class FileChecker:
 
     def run(self):
         src = self.src
-        if not src.text.endswith("\n"):
-            self.report(src.text.count("\n") + 1, "file-end",
-                        "the file must end with a newline")
         self.check_workaround_markers()
         if src.grammar_error:
             self.report(src.grammar_error[0], "grammar", src.grammar_error[1])
@@ -978,7 +863,6 @@ class FileChecker:
             self.report(line, "new-feature",
                         "%s belongs to the new language, and the std profile names no such "
                         "feature" % what)
-        self.check_prefix_casts(src.program, src.tokens, 0)
         for prog in programs(src.program):
             self.check_declarations(prog)
         self.check_types()
@@ -1005,30 +889,11 @@ class FileChecker:
             return tok.line + line_base
 
         significant = _significant_newlines(toks)
-        depth = 0
-        over = False
         for i, tok in enumerate(toks):
             prev = toks[i - 1] if i > 0 else None
             nxt = toks[i + 1] if i + 1 < len(toks) else None
-            if tok.type in (T.LPAREN, T.LBRACKET, T.LBRACE):
-                depth += 1
-                if depth > MAX_NESTING and not over:
-                    over = True
-                    self.report(line_of(tok), "nesting-depth",
-                                "brackets nest deeper than %d levels" % MAX_NESTING)
-            elif tok.type in (T.RPAREN, T.RBRACKET, T.RBRACE):
-                depth -= 1
-                if depth <= MAX_NESTING:
-                    over = False
-            elif tok.type == T.IDENT:
+            if tok.type == T.IDENT:
                 self.check_name_token(tok, prev, nxt, line_of(tok))
-            elif tok.type == T.MINUS:
-                if prev is None or (prev.type == T.NEWLINE and significant[i - 1]):
-                    before = _previous(toks, i, significant, skip_all_newlines=True)
-                    if before is not None and before.type in OPERAND_END:
-                        self.report(line_of(tok), "leading-minus",
-                                    "a line after an operand may not begin with `-`; write "
-                                    "`return -1` or bind the value first")
             elif tok.type == T.STAR:
                 before = _previous(toks, i, significant)
                 if before is None or before.type not in OPERAND_END + (T.DOT,):
@@ -1041,10 +906,6 @@ class FileChecker:
             elif tok.type == T.DOLLAR_PARAM:
                 self.report(line_of(tok), "closure-syntax",
                             "shorthand closure parameters; name and annotate each one")
-            elif tok.type == T.CASE:
-                self.check_arm(toks, i, line_base)
-            elif tok.type == T.AS:
-                self.check_cast(toks, i, line_base)
             elif tok.type == T.AT and nxt is not None and nxt.type == T.IDENT \
                     and nxt.value == "test":
                 self.report(line_of(tok), "test-directive",
@@ -1057,30 +918,12 @@ class FileChecker:
             if seg.kind != "expr":
                 continue
             line = seg.line + line_base
-            if any(s in seg.text for s in ("//", "{", "}", '"')):
-                self.report(line, "interpolation-content",
-                            "keep an interpolation to a name, a field or a simple call: "
-                            "no comment, brace or string inside it")
-                continue
-            if "\n" in seg.text:
-                self.report(line + seg.text.count("\n"), "interpolation-line-break",
-                            "keep an interpolation on one line; compute a longer "
-                            "expression into a `let` first")
             inner = self.src.lex_fragment(seg.text)
             if inner is None:
                 continue
-            # A broken segment is refused above; the other token rules read it as
-            # one line, so a `-` or `*` after the break is not taken for a prefix.
+            # The token rules read a segment as one line, so a `*` after a line
+            # break is not taken for a prefix.
             self.check_tokens([t for t in inner if t.type != T.NEWLINE], line - 1)
-            if not self.std_profile:
-                # Parsed again here, as the frozen parser parses a segment, so the
-                # tree's positions are those of `inner`. A segment that does not
-                # parse fails the file's parse, which `parse` refuses.
-                try:
-                    tree = Parser(inner, source_file=self.src.path).parse_expression()
-                except Exception:
-                    continue
-                self.check_prefix_casts(tree, inner, line - 1)
 
     def check_name_token(self, tok, prev, nxt, line):
         # A member, an enum case or a label is not the std name it spells.
@@ -1102,83 +945,6 @@ class FileChecker:
         elif name == "lends":
             self.report(line, "borrows-accessor",
                         "`lends` belongs to the new std, not the subset")
-
-    def check_arm(self, toks, i, line_base):
-        """A match arm whose body starts with a statement keyword."""
-        depth = 0
-        j = i + 1
-        while j < len(toks):
-            t = toks[j]
-            if t.type in (T.LPAREN, T.LBRACKET, T.LBRACE):
-                depth += 1
-            elif t.type in (T.RPAREN, T.RBRACKET, T.RBRACE):
-                if depth == 0:
-                    return
-                depth -= 1
-            elif depth == 0 and t.type in (T.COMMA, T.NEWLINE, T.EOF):
-                return
-            elif depth == 0 and t.type == T.ARROW:
-                break
-            j += 1
-        else:
-            return
-        j += 1
-        while j < len(toks) and toks[j].type == T.NEWLINE:
-            j += 1
-        if j < len(toks) and toks[j].type in STATEMENT_KEYWORDS:
-            self.report(toks[j].line + line_base, "statement-arm",
-                        "brace a statement arm: `case X -> { return 7 },`")
-
-    def check_cast(self, toks, i, line_base):
-        """`?` or `??` after the type of an `as` cast, on its line or the next."""
-        j = i + 1
-        if j < len(toks) and toks[j].type in (T.LPAREN, T.LBRACKET):
-            j = _skip_group(toks, j)
-        else:
-            while j < len(toks) and toks[j].type == T.IDENT:
-                j += 1
-                if j < len(toks) and toks[j].type == T.LT:
-                    j = _skip_group(toks, j)
-                if j < len(toks) and toks[j].type == T.DOT:
-                    j += 1
-                    continue
-                break
-        while j < len(toks) and toks[j].type == T.NEWLINE:
-            j += 1
-        if j < len(toks) and toks[j].type in (T.QUESTION, T.DOUBLE_QUESTION):
-            self.report(toks[j].line + line_base, "cast-then-optional",
-                        "coalesce first, then convert: `(n ?? 9) as Int`")
-
-    def check_prefix_casts(self, tree, toks, line_base):
-        """A `-` or `~` whose operand is an `as` cast the source leaves
-        unparenthesized: the frozen parser casts first, and GRAMMAR.md applies
-        the prefix first (SL:hazards S30). `tree` is the frozen parser's reading
-        of `toks`, whose line 1 is the file's line `line_base + 1`.
-
-        The frozen tree is `UnaryOp(CastExpr)` for `-x as T`, `-(x) as T` and
-        `-(x as T)` alike; only the last is unambiguous, and the tokens tell it
-        apart: its `as` sits inside the parenthesis that follows the operator.
-        The std profile is exempt, since only sawc2 reads `std/`."""
-        if self.std_profile:
-            return
-        index = None
-        stack = [tree]
-        while stack:
-            n = stack.pop()
-            if isinstance(n, A.StringInterpolation):
-                # Its segments are checked against their own tokens.
-                continue
-            if isinstance(n, A.UnaryOp) and n.op in ("-", "~") \
-                    and isinstance(n.operand, A.CastExpr):
-                if index is None:
-                    index = {(t.line, t.column): i for i, t in enumerate(toks)}
-                if not _cast_in_operand_parens(toks, index, n, n.operand):
-                    op = n.op
-                    self.report(n.line + line_base, "prefix-cast",
-                                "Stage 0 reads `%sx as T` as `%s(x as T)`, GRAMMAR.md as "
-                                "`(%sx) as T`; write `(%sx) as T`, or `%s(x as T)` to cast first"
-                                % (op, op, op, op, op))
-            stack.extend(children(n))
 
     def previous_token(self, line, column):
         """The token before the one at `line:column`, newlines skipped."""
@@ -1241,15 +1007,7 @@ class FileChecker:
                         "no `type` aliases; use `Int` or a one-field struct")
         for imp in prog.imports:
             self.check_import(imp)
-        for decl in prog.structs + prog.enums + prog.traits:
-            if decl.name in self.std.reserved_types:
-                self.report(decl.line, "prelude-type-name",
-                            "`%s` is the name of a std type" % decl.name)
-        allocators = {ext.struct_name for ext in prog.extensions
-                      if STD_PROFILE_BOUND in ext.conformances} if self.std_profile else set()
         for s in prog.structs:
-            if not s.fields and s.name not in allocators:
-                self.report(s.line, "empty-struct", "give every struct at least one field")
             self.check_field_visibility(s)
         for blk in prog.extern_blocks:
             for fn in blk.functions:
@@ -1259,25 +1017,6 @@ class FileChecker:
         for fn in prog.functions:
             BodyChecker(self, fn, None).run()
         for ext in prog.extensions:
-            head_args = ext.type_params or ext.type_args
-            if not head_args and ext.struct_name == "Optional":
-                # Stage 0 has no struct named `Optional`, so writing the
-                # parameters trades this refusal for a `compile` one.
-                self.report(ext.line, "generic-extension-params",
-                            "`Optional` cannot be extended under Stage 0; it refuses "
-                            "`extension Optional<T>` too, as an undefined struct")
-            elif not head_args and self.is_generic_type(ext.struct_name):
-                self.report(ext.line, "generic-extension-params",
-                            "`%s` is generic; write its type parameters in the extension "
-                            "head" % ext.struct_name)
-            if ext.type_params:
-                for m in ext.methods:
-                    if m.is_init:
-                        self.report(m.line, "generic-extension-init",
-                                    "no `init` in a generic extension; build it memberwise")
-                if any(self.refused_bound(b, ext) for tp in ext.type_params for b in tp.bounds):
-                    self.report(ext.line, "bounded-extension",
-                                "no bounds on an extension's type parameters")
             for m in ext.methods:
                 self.check_deinit(m)
                 BodyChecker(self, m, ext).run()
@@ -1304,22 +1043,6 @@ class FileChecker:
                             "`%s` repeats the tier of `%s struct %s`; write the field "
                             "bare, and mark only a narrowing `private`" % (tier, tier, s.name))
 
-    def refused_bound(self, bound, ext):
-        """Every bound, but, in the std profile, any bound on an extension
-        that declares no conformance and no hook-named member, and the
-        allocator parameter and the policy traits on any other."""
-        if not self.std_profile:
-            return True
-        # The hazard is a bounded member instantiated implicitly, as copy glue
-        # reaches a conditional conformance's members, or as a compiler-inserted
-        # hook call (glue, an operator, interpolation, a Map probe) reaches a
-        # member by its name. Any other member is instantiated only at a
-        # written call, where typecheck has already checked the bound
-        # (SL:hazards L6).
-        if not ext.conformances and not any(m.name in HOOK_MEMBER_NAMES for m in ext.methods):
-            return False
-        return not (bound == STD_PROFILE_BOUND or bound in STD_PROFILE_POLICY_BOUNDS)
-
     def check_deinit(self, m):
         """A `deinit` in any extension or trait body. Stage 1 tolerates leaks
         only while no skipped drop has an effect, and a struct or enum body
@@ -1329,18 +1052,8 @@ class FileChecker:
                         "a skipped drop must have no effect in Stage 1, so the compiler "
                         "source declares no `deinit`")
 
-    def is_generic_type(self, name):
-        """Is `name` a generic type: the build's when the build declares it,
-        std's otherwise?"""
-        if name in self.facts.types:
-            return name in self.facts.generic_types
-        return name in self.std.generic_types
-
     def check_import(self, imp):
         path = imp.path
-        if imp.symbols is None or imp.is_glob:
-            self.report(imp.line, "selective-imports",
-                        "import names selectively: `import %s.{...}`" % ".".join(path))
         head = path[0] if path else ""
         if self.std_profile:
             if head != "std" or not os.path.isfile(os.path.join(STD_ROOT, *path[1:]) + ".saw"):
@@ -1383,17 +1096,9 @@ class FileChecker:
             stack.append((value, line))
 
     def check_type(self, t, fallback):
-        if _type_depth(t) > MAX_TYPE_DEPTH:
-            self.report(t.written_line or fallback, "written-type-shape",
-                        "a written type nests more than %d levels" % MAX_TYPE_DEPTH)
         for part in type_parts(t):
             line = part.written_line or fallback
             k = part.kind
-            if k == A.TypeKind.STRUCT and part.struct_name == "Optional":
-                self.report(line, "written-type-shape", "write `T?`, not `Optional<T>`")
-            if k == A.TypeKind.TUPLE and any(p.kind == A.TypeKind.SELF
-                                             for p in type_parts(part)):
-                self.report(line, "written-type-shape", "no `Self` inside a tuple type")
             # A pointer type is not reported here: the frozen parser builds one
             # only from a `POINTER_TYPE_NAMES` token, which the token rules report.
             if k == A.TypeKind.EXISTENTIAL:
@@ -1402,19 +1107,11 @@ class FileChecker:
                 self.report(line, "fixed-array", "no fixed-size arrays; use `Vector`")
             if is_optional(part):
                 inner = optional_payload(part)
-                if is_optional(inner):
-                    self.report(line, "nested-optional",
-                                "no nested optionals; use an enum with named cases")
                 if inner is not None and (inner.kind == A.TypeKind.FUNCTION or (
                         inner.kind == A.TypeKind.TUPLE and len(inner.element_types or ()) == 1
                         and inner.element_types[0].kind == A.TypeKind.FUNCTION)):
                     self.report(line, "closure-syntax",
                                 "keep function values out of optional slots")
-            if k == A.TypeKind.STRUCT and part.struct_name in COLLECTIONS:
-                if any(is_optional(a) for a in part.type_args or ()):
-                    self.report(line, "nested-optional",
-                                "no optional element or value type in a `%s`"
-                                % part.struct_name)
 
 
 def _allow_typed(value, annotation, allowed):
@@ -1458,59 +1155,11 @@ def _significant_newlines(toks):
     return out
 
 
-def _previous(toks, i, significant, skip_all_newlines=False):
+def _previous(toks, i, significant):
     j = i - 1
-    while j >= 0 and toks[j].type == T.NEWLINE and (skip_all_newlines or not significant[j]):
+    while j >= 0 and toks[j].type == T.NEWLINE and not significant[j]:
         j -= 1
     return toks[j] if j >= 0 else None
-
-
-def _type_depth(t):
-    kids = [k for k in (t.type_args or []) + (t.element_types or []) + (t.param_types or [])
-            + [t.inner_type, t.array_element_type, t.func_return_type] if k is not None]
-    return 1 + max((_type_depth(k) for k in kids), default=0)
-
-
-def _cast_in_operand_parens(toks, index, unary, cast):
-    """Whether `cast`'s `as` token sits inside a parenthesis opened directly
-    after `unary`'s operator token. A position that names no token answers
-    False, so the rule refuses rather than passes what it cannot place."""
-    op = index.get((unary.line, unary.column))
-    at = index.get((cast.line, cast.column))
-    if op is None or at is None or toks[at].type != T.AS:
-        return False
-    j = op + 1
-    while j < len(toks) and toks[j].type == T.NEWLINE:
-        j += 1
-    if j >= len(toks) or toks[j].type != T.LPAREN:
-        return False
-    depth = 0
-    for k in range(j, len(toks)):
-        if toks[k].type in (T.LPAREN, T.LBRACKET, T.LBRACE):
-            depth += 1
-        elif toks[k].type in (T.RPAREN, T.RBRACKET, T.RBRACE):
-            depth -= 1
-            if depth == 0:
-                return j < at < k
-    return False
-
-
-def _skip_group(toks, j):
-    """From an opener at `j`, the index just past its matching closer."""
-    openers = (T.LPAREN, T.LBRACKET, T.LT)
-    closers = (T.RPAREN, T.RBRACKET, T.GT)
-    depth = 0
-    while j < len(toks):
-        if toks[j].type in openers:
-            depth += 1
-        elif toks[j].type in closers:
-            depth -= 1
-            if depth == 0:
-                return j + 1
-        elif toks[j].type in (T.NEWLINE, T.EOF, T.LBRACE):
-            return j
-        j += 1
-    return j
 
 
 class Binding:
@@ -1528,11 +1177,6 @@ class Binding:
         self.type = type_
 
 
-# Stage 0 lets a `&var` write through any root; only these may be written
-# (SL:hazards S5).
-MUTABLE_ROOTS = ("var", "param-refvar", "pattern-var")
-
-
 class BodyChecker:
     """One function, method, trait default body or static initializer, walked
     with its lexical scopes."""
@@ -1545,7 +1189,6 @@ class BodyChecker:
         self.scopes = [{}]
         self.closure_depth = 0
         self.self_kind = None
-        self.chain_links = set()
         self.type_params = {}
         for tp in (getattr(owner, "type_params", ()) or []) + \
                 (getattr(decl, "type_params", ()) or []):
@@ -1587,9 +1230,6 @@ class BodyChecker:
             kind = "param-refvar" if p.reference_mutable else (
                 "param-ref" if p.is_reference else "param")
             self.bind(p.name, kind, type_=p.type)
-            if p.default_value is not None and not is_literal(p.default_value):
-                self.report(d.line, "default-value-literal",
-                            "write a default parameter value as a literal")
         if isinstance(d, (A.Method, A.TraitMethod)) and _instance_method(d):
             if getattr(d, "is_consumes", False):
                 self.self_kind = "consumes"
@@ -1600,71 +1240,14 @@ class BodyChecker:
         rt = d.return_type
         is_init = getattr(d, "is_init", False)
         value_returning = is_init or (rt is not None and rt.kind != A.TypeKind.VOID)
-        if value_returning and not getattr(d, "is_borrows", False):
-            if not self.block_ends(d.body):
-                self.report(d.line, "function-exit",
-                            "a value-returning body must end in a value, a `return`, or a "
-                            "branch whose every arm does")
-            if self.returns_result:
-                self.check_result_tail(d.body)
+        if value_returning and not getattr(d, "is_borrows", False) and self.returns_result:
+            self.check_result_tail(d.body)
         self.block(d.body)
 
     def run_expression(self, expr):
         """A `static` initializer or a `static_assert` condition, checked as a
         body of one expression."""
         self.expr(expr, None)
-
-    # -- function exits --------------------------------------------------------
-
-    def block_ends(self, block):
-        if block is None:
-            return False
-        if block.final_expr is not None:
-            return self.expr_ends(block.final_expr)
-        if not block.statements:
-            return False
-        last = block.statements[-1]
-        if isinstance(last, A.ReturnStatement):
-            return True
-        if isinstance(last, A.ExpressionStatement):
-            return self.expr_ends(last.expression)
-        return False
-
-    def expr_ends(self, expr):
-        if isinstance(expr, A.IfExpr):
-            return (expr.else_branch is not None and self.block_ends(expr.then_branch)
-                    and self.block_ends(expr.else_branch))
-        if isinstance(expr, A.IfLetExpr):
-            return (not expr.while_let and expr.else_branch is not None
-                    and self.block_ends(expr.then_branch) and self.block_ends(expr.else_branch))
-        if isinstance(expr, A.MatchExpr):
-            return all(self.arm_ends(arm.body) for arm in expr.arms)
-        if isinstance(expr, A.TryCatchExpr):
-            return self.block_ends(expr.try_block) and self.block_ends(expr.catch_block)
-        if isinstance(expr, A.ScopedBlock):
-            return self.block_ends(expr.block)
-        if isinstance(expr, A.WhileExpr):
-            return False
-        if isinstance(expr, sawc2_reading.BorrowBlock):
-            return self.block_ends(expr.body)
-        if isinstance(expr, sawc2_reading.BorrowUnwrap):
-            return (not expr.is_loop and expr.else_branch is not None
-                    and self.block_ends(expr.then_branch) and self.block_ends(expr.else_branch))
-        return not self.is_void_call(expr)
-
-    def is_void_call(self, expr):
-        """A call known to return nothing: its path produces no value."""
-        if isinstance(expr, A.FunctionCall) and not self.is_local(expr.name):
-            return expr.name in ("print", "assert") or expr.name in self.facts.void_functions
-        if isinstance(expr, A.MethodCall):
-            return self.facts.method_is_void(_type_name(self.type_of(expr.object)),
-                                             expr.method_name, arguments_of(expr))
-        return False
-
-    def arm_ends(self, body):
-        if isinstance(body, A.Block):
-            return self.block_ends(body)
-        return self.expr_ends(body)
 
     def check_result_tail(self, block):
         tails = []
@@ -1699,12 +1282,7 @@ class BodyChecker:
             return
         self.push()
         stmts = block.statements
-        for i, stmt in enumerate(stmts):
-            if isinstance(stmt, (A.ReturnStatement, A.BreakStatement, A.ContinueStatement)):
-                if i + 1 < len(stmts) or block.final_expr is not None:
-                    self.report(stmt.line, "function-exit",
-                                "nothing may follow an unconditional return, break or "
-                                "continue")
+        for stmt in stmts:
             self.statement(stmt)
         if block.final_expr is not None:
             self.expr(block.final_expr, block)
@@ -1877,8 +1455,6 @@ class BodyChecker:
         elif isinstance(e, A.MatchExpr):
             self.match(e)
         elif isinstance(e, (A.IfExpr, A.IfLetExpr)):
-            if id(e) not in self.chain_links:
-                self.check_else_if_chain(e)
             if isinstance(e, A.IfExpr):
                 self.expr(e.condition, e)
                 self.block(e.then_branch)
@@ -1918,11 +1494,6 @@ class BodyChecker:
         elif isinstance(e, CALLS):
             self.call(e, parent)
         elif isinstance(e, A.BinaryOp):
-            if not isinstance(parent, A.BinaryOp):
-                terms = _count_nested(e, A.BinaryOp, ("left", "right"))
-                if terms > MAX_CHAIN:
-                    self.report(e.line, "chain-length",
-                                "an operator chain of %d terms; split it" % terms)
             if e.op in ("==", "!=") and (isinstance(e.left, A.NoneLiteral)
                                          or isinstance(e.right, A.NoneLiteral)):
                 self.report(e.line, "optional-shaping",
@@ -1930,18 +1501,12 @@ class BodyChecker:
             self.expr(e.left, e)
             self.expr(e.right, e)
         elif isinstance(e, A.NilCoalesce):
-            if not isinstance(parent, A.NilCoalesce):
-                terms = _count_nested(e, A.NilCoalesce, ("expr", "default"))
-                if terms > MAX_CHAIN:
-                    self.report(e.line, "chain-length",
-                                "a `??` chain of %d terms; split it" % terms)
             self.check_conditional_temporary(e.default, "the right side of `??`",
                                              "write it as a `match` whose arms are blocks")
             self.expr(e.expr, e)
             self.expr(e.default, e)
         elif isinstance(e, A.ReferenceExpr):
             if e.mutable:
-                self.check_var_ref(e)
                 if reaches_get(e.expr):
                     self.report(e.line, "std-api",
                                 "`&var` through `get` writes a place in sawc/std and a "
@@ -1959,8 +1524,6 @@ class BodyChecker:
         else:
             if isinstance(e, A.ArrayIndex):
                 self.check_subscript(e, parent)
-            if isinstance(e, HOPS + CHAIN_WRAPPERS):
-                self.check_postfix_chain(e, parent)
             for child in children(e):
                 self.any(child, e)
 
@@ -1989,9 +1552,6 @@ class BodyChecker:
             if p.type_annotation is None:
                 self.report(e.line, "closure-syntax",
                             "annotate every closure parameter: `{ x: Int in ... }`")
-        if _returns_value(e.body) and not self.block_ends(e.body):
-            self.report(e.line, "function-exit",
-                        "a closure that returns a value must end in one on every path")
         self.closure_depth += 1
         self.push()
         if spawn_brace:
@@ -2102,38 +1662,8 @@ class BodyChecker:
             return b is not None and b.kind in ("let", "var", "param") and not b.borrowed
         return False
 
-    def check_var_ref(self, e):
-        path = member_path(e.expr)
-        if path is not None and not self.is_local(path[0]):
-            member = self.facts.module_member(path)
-            if member is not None and member[0] == "static":
-                self.report(e.line, "var-ref-into-let",
-                            _static_root_message("`&var` reaches into",
-                                                 ".".join(path[:member[1]])))
-                return
-        self.check_mutable_root(place_root(e.expr), e.line, "`&var` reaches into")
-
-    def check_mutable_root(self, root, line, reach):
-        """`reach` says how the write reaches `root`, as "`&var` reaches into"."""
-        if root is None:
-            return
-        message = "%s `%s`, which is not a `var`" % (reach, root)
-        if root == "self":
-            if self.self_kind == "ref":
-                self.report(line, "var-ref-into-let", message)
-            return
-        b = self.lookup(root)
-        if b is not None:
-            if b.kind not in MUTABLE_ROOTS:
-                self.report(line, "var-ref-into-let", message)
-        elif root in self.facts.statics:
-            self.report(line, "var-ref-into-let", _static_root_message(reach, root))
-
     def call(self, e, parent):
         args = arguments_of(e)
-        labels = [name for name, _ in args if name]
-        if len(labels) != len(set(labels)):
-            self.report(e.line, "argument-labels", "a label repeats in one argument list")
         self.check_std_call(e)
         if isinstance(e, A.FunctionCall):
             self.use(e.name, e.line)
@@ -2141,7 +1671,7 @@ class BodyChecker:
                 for _, value in args:
                     self.check_untyped_array(value, e.line)
         if isinstance(e, A.MethodCall):
-            self.method_call(e, parent, labels)
+            self.method_call(e)
         self.check_ref_args(e, args)
         self.check_trailing_closures(e, args)
         if isinstance(e, A.MethodCall):
@@ -2149,23 +1679,14 @@ class BodyChecker:
         for _, value in args:
             self.expr(value, e)
 
-    def method_call(self, e, parent, labels):
+    def method_call(self, e):
         obj = e.object
-        self.check_postfix_chain(e, parent)
         self.check_untyped_array(obj, e.line)
         mutating = self.may_mutate(e)
         if mutating and through_index(obj):
             self.report(e.line, "index-receiver-call",
                         "`.%s()` on storage reached through an index runs on a copy; call "
                         "it on a named local or a field path" % e.method_name)
-        if self.known_mutating(e):
-            self.check_mutable_root(place_root(obj), e.line,
-                                    "`.%s()` takes `&var self` on" % e.method_name)
-        if isinstance(obj, A.Identifier):
-            if obj.name in self.type_params:
-                self.report(e.line, "type-param-receiver",
-                            "call a static requirement on the concrete type, not on `%s`"
-                            % obj.name)
         if isinstance(obj, A.MethodCall) and obj.method_name == "get":
             self.report(e.line, "optional-shaping",
                         "a method called directly on a `get` result; bind the result or "
@@ -2175,9 +1696,6 @@ class BodyChecker:
                 for a in e.arguments):
             self.report(e.line, "from-raw-literal",
                         "`from(raw:)` with a bare literal; write a suffixed literal")
-        if labels and self.calls_borrows_accessor(e):
-            self.report(e.line, "argument-labels",
-                        "call the accessor `%s` positionally" % e.method_name)
         root = root_name(obj)
         if root is not None and self.is_local(root):
             if any(mentions(a.value, root) for a in e.arguments):
@@ -2185,31 +1703,12 @@ class BodyChecker:
                             "an argument reads `%s`, the receiver's root; bind it to a "
                             "`let` first" % root)
 
-    def calls_borrows_accessor(self, e):
-        """Does `e` call a `borrows` accessor? A traced receiver decides whose
-        method it is; on an untraced one, any accessor of that name counts."""
-        owner = _type_name(self.type_of(e.object))
-        std_accessor = e.method_name in self.fc.std.borrows_methods
-        if owner is not None and owner not in self.type_params:
-            if (owner, e.method_name) in self.facts.borrows_owned:
-                return True
-            return owner not in self.facts.types and std_accessor
-        return std_accessor or e.method_name in self.facts.borrows_methods
-
     def receiver_owner(self, e):
         """The build type whose method `e` calls, when the receiver's type is known."""
         owner = _type_name(self.type_of(e.object))
         if owner in self.facts.types:
             return owner
         return None
-
-    def known_mutating(self, e):
-        """Does `e` call a build method known to take `&var self`?"""
-        owner = self.receiver_owner(e)
-        if owner is not None:
-            return self.facts.method_mutates.get((owner, e.method_name), False)
-        kinds = self.facts.name_mutates.get(e.method_name)
-        return bool(kinds) and kinds == {True}
 
     def may_mutate(self, e):
         name = e.method_name
@@ -2241,33 +1740,6 @@ class BodyChecker:
                 if prev is not None and prev.type in (T.RPAREN, T.IDENT, T.GT):
                     self.report(value.line, "closure-syntax",
                                 "pass a closure inside the argument parentheses")
-
-    def check_postfix_chain(self, e, parent):
-        if isinstance(parent, HOPS + CHAIN_WRAPPERS) and postfix_object(parent) is e:
-            return
-        hops = 0
-        cur = e
-        while isinstance(cur, HOPS + CHAIN_WRAPPERS):
-            if isinstance(cur, HOPS):
-                hops += 1
-            cur = postfix_object(cur)
-        if hops > MAX_CHAIN:
-            self.report(e.line, "chain-length", "a postfix chain of %d hops; split it" % hops)
-
-    def check_else_if_chain(self, e):
-        arms = 1
-        cur = e
-        while True:
-            branch = cur.else_branch
-            if branch is None or branch.statements or not isinstance(
-                    branch.final_expr, (A.IfExpr, A.IfLetExpr)):
-                break
-            cur = branch.final_expr
-            self.chain_links.add(id(cur))
-            arms += 1
-        if arms > MAX_CHAIN:
-            self.report(e.line, "chain-length",
-                        "an `else if` chain of %d arms; use `match`" % arms)
 
     # -- the std API -----------------------------------------------------------
 
@@ -2438,39 +1910,8 @@ class BodyChecker:
         return "." + e.method_name
 
 
-def _static_root_message(reach, name):
-    # Every `static` is refused as a root, a mutable one included: its writes
-    # belong in a local `var` (SL:hazards S5).
-    return "%s the `static` `%s`; copy it into a local `var` first" % (reach, name)
-
-
-def _count_nested(e, kind, fields):
-    count = 0
-    stack = [e]
-    while stack:
-        n = stack.pop()
-        if isinstance(n, kind):
-            stack.extend(getattr(n, f) for f in fields)
-        else:
-            count += 1
-    return count
-
-
-def _returns_value(block):
-    """Does a body hold a `return` with a value, outside nested closures?"""
-    stack = [block]
-    while stack:
-        n = stack.pop()
-        if isinstance(n, A.ClosureExpr):
-            continue
-        if isinstance(n, A.ReturnStatement) and n.value is not None:
-            return True
-        stack.extend(children(n))
-    return False
-
-
 # ---------------------------------------------------------------------------
-# Rules over a whole build: the names every file in it declares.
+# Rules over a whole build: the declarations every file in it makes.
 # ---------------------------------------------------------------------------
 
 def _all_programs(files):
@@ -2485,97 +1926,21 @@ def check_build(reported, context, std):
     included. Only `reported` files get diagnostics; `context` files contribute
     their declarations."""
     diags = []
-    declared = {}
-    type_sites = {}
-    generic_functions = set()
-    generic_methods = set()
     types = set(std.types)
-    enums = set()
-    overloads = {}
-    kinds_by_method = {key: set(kinds) for key, kinds in std.method_kinds.items()}
     for f, prog in _all_programs(reported + context):
-        for fn in prog.functions:
-            declared.setdefault(fn.name, set()).add(f.rel)
-            overloads.setdefault(("func", fn.name), []).append((f, fn))
-            if fn.type_params:
-                generic_functions.add(fn.name)
-        for st in prog.statics:
-            declared.setdefault(st.name, set()).add(f.rel)
         for decl in _type_decls(prog):
             types.add(decl.name)
-            type_sites.setdefault(decl.name, []).append("%s:%d" % (f.rel, decl.line))
-        for en in prog.enums:
-            enums.add(en.name)
-        for ext in prog.extensions:
-            for m in ext.methods:
-                overloads.setdefault(("method", ext.struct_name, m.name), []).append((f, m))
-                if m.type_params or ext.type_params:
-                    generic_methods.add(m.name)
-                if not m.is_init:
-                    kind = "static" if m.is_static else "instance"
-                    kinds_by_method.setdefault((ext.struct_name, m.name), set()).add(kind)
 
     def report(f, line, rule, message):
         diags.append(Diagnostic(f.rel, line, rule, message))
 
     for f, prog in _all_programs(reported):
-        decls = [(fn.name, fn.line) for fn in prog.functions] + \
-                [(st.name, st.line) for st in prog.statics]
-        for name, line in decls:
-            if name in std.names:
-                report(f, line, "program-unique-names",
-                       "`%s` is also declared in %s; prefix it with the module's name"
-                       % (name, std.names[name]))
-            elif len(declared.get(name, ())) > 1:
-                others = sorted(declared[name] - {f.rel})
-                report(f, line, "program-unique-names",
-                       "`%s` is also declared in %s" % (name, ", ".join(others)))
-        # The checker's facts about a type are keyed by its name, so a second
-        # declaration would answer for the first.
-        for decl in _type_decls(prog):
-            here = "%s:%d" % (f.rel, decl.line)
-            others = sorted(set(type_sites[decl.name]) - {here})
-            if others:
-                report(f, decl.line, "program-unique-names",
-                       "the type `%s` is also declared at %s" % (decl.name, ", ".join(others)))
-        for fn in prog.functions:
-            if fn.type_params and fn.name in (generic_methods | std.generic_methods):
-                report(f, fn.line, "name-collision",
-                       "the generic function `%s` shares its name with a generic method"
-                       % fn.name)
-        for ext in prog.extensions:
-            for m in ext.methods:
-                if (m.type_params or ext.type_params) and \
-                        m.name in (generic_functions | std.generic_functions):
-                    report(f, m.line, "name-collision",
-                           "the generic method `%s` shares its name with a generic function"
-                           % m.name)
-                if not m.is_init and \
-                        len(kinds_by_method.get((ext.struct_name, m.name), ())) > 1:
-                    report(f, m.line, "name-collision",
-                           "`%s.%s` is both a static and an instance method"
-                           % (ext.struct_name, m.name))
-                if ext.struct_name in enums and m.name == "equals":
-                    report(f, m.line, "enum-equatable-body",
-                           "an enum's hand-written `equals` disagrees with `==`; write "
-                           "`@synthesize extension %s: Equatable {}`, or give the "
-                           "comparison its own method name" % ext.struct_name)
         for owner in _type_param_owners(prog):
             for tp in owner.type_params:
                 if tp.name in types:
                     report(f, tp.line or owner.line, "name-collision",
                            "the type parameter `%s` is spelled like a declared type"
                            % tp.name)
-    reported_files = set(id(f) for f in reported)
-    for members in overloads.values():
-        if len(members) < 2:
-            continue
-        if not any(_has_narrow_integer(decl) for _, decl in members):
-            continue
-        for f, decl in members:
-            if id(f) in reported_files:
-                report(f, decl.line, "integer-overload",
-                       "no overloads where an overload takes a non-`Int` integer")
     return diags
 
 
@@ -2590,14 +1955,6 @@ def _type_param_owners(prog):
         yield ext
         for m in ext.methods:
             yield m
-
-
-def _has_narrow_integer(decl):
-    for p in decl.parameters:
-        t = _peel(p.type)
-        if t is not None and t.kind in NON_INT_INTEGERS:
-            return True
-    return False
 
 
 # ---------------------------------------------------------------------------

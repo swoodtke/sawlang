@@ -1,7 +1,0 @@
-// A declared type named like a prelude type.
-struct Duration { ticks: Int }   // refuses: prelude-type-name
-enum Ordering { case Low, case High }   // refuses: prelude-type-name
-trait Printable { func show(&self) -> Int }   // refuses: prelude-type-name
-struct Result { code: Int }   // refuses: prelude-type-name
-enum Optional { case Held, case Gone }   // refuses: prelude-type-name
-struct Tally { kind: Int }

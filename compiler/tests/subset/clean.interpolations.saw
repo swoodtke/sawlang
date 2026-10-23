@@ -1,6 +1,6 @@
-// Interpolations of ordinary subset expressions, each on one line: a unary
-// minus, a multiplication, `??`, a cast with no optional after it, tuple and
-// Vector element reads, and a `get` with a fallback.
+// Interpolations of ordinary subset expressions: a unary minus, a
+// multiplication (which the pointer rule does not read as a dereference),
+// `??`, a cast, tuple and Vector element reads, and a `get` with a fallback.
 func main() {
     let x = 3
     let y: Int? = None
