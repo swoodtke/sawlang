@@ -1,0 +1,93 @@
+// probe: stated
+// about: a generic static method's default at its own `T` holds each width and signedness, computed at the instantiation's own type (SL-830)
+// stage 0: builds it and prints the same lines; stated until the lane keeps Stage 0's output (SL-665)
+// speeds: -O0 -O2
+// prints: 200
+// prints: 200
+// prints: -100
+// prints: -100
+// prints: 60000
+// prints: 200
+// prints: -30000
+// prints: -100
+// prints: 4000000000
+// prints: 200
+// prints: -2000000000
+// prints: -100
+// prints: 18446744073709551615
+// prints: 200
+// prints: -9000000000000000000
+// prints: -100
+// prints: -9000000000000000000
+// prints: 1.5
+// prints: true
+// prints: hi
+// prints: none
+// prints: none
+//
+// One default per cell of SL-830's sweep: every integer width, signed and
+// unsigned, a literal and a constant expression, then `Float`, `Bool`,
+// `String` and two Optionals. The sanitizer lane builds it too: a default
+// computed at another width than its slot's is a stack overwrite.
+
+struct Host {
+    tag: Int
+}
+
+extension Host {
+    static func u8<T>(x: T = 200) -> T { x }
+    static func u8_sum<T>(x: T = 100 + 100) -> T { x }
+    static func i8<T>(x: T = -100) -> T { x }
+    static func i8_sum<T>(x: T = -50 - 50) -> T { x }
+    static func u16<T>(x: T = 60000) -> T { x }
+    static func u16_sum<T>(x: T = 100 + 100) -> T { x }
+    static func i16<T>(x: T = -30000) -> T { x }
+    static func i16_sum<T>(x: T = -50 - 50) -> T { x }
+    static func u32<T>(x: T = 4000000000) -> T { x }
+    static func u32_sum<T>(x: T = 100 + 100) -> T { x }
+    static func i32<T>(x: T = -2000000000) -> T { x }
+    static func i32_sum<T>(x: T = -50 - 50) -> T { x }
+    static func u64<T>(x: T = 18446744073709551615) -> T { x }
+    static func u64_sum<T>(x: T = 100 + 100) -> T { x }
+    static func i64<T>(x: T = -9000000000000000000) -> T { x }
+    static func i64_sum<T>(x: T = -50 - 50) -> T { x }
+    static func int<T>(x: T = -9000000000000000000) -> T { x }
+    static func float<T>(x: T = 1.5) -> T { x }
+    static func boolean<T>(x: T = true) -> T { x }
+    static func string<T>(x: T = "hi") -> T { x }
+    static func u8_none<T>(x: T = None) -> T { x }
+    static func string_none<T>(x: T = None) -> T { x }
+}
+
+func main() {
+    print(Host.u8<UInt8>())
+    print(Host.u8_sum<UInt8>())
+    print(Host.i8<Int8>())
+    print(Host.i8_sum<Int8>())
+    print(Host.u16<UInt16>())
+    print(Host.u16_sum<UInt16>())
+    print(Host.i16<Int16>())
+    print(Host.i16_sum<Int16>())
+    print(Host.u32<UInt32>())
+    print(Host.u32_sum<UInt32>())
+    print(Host.i32<Int32>())
+    print(Host.i32_sum<Int32>())
+    print(Host.u64<UInt64>())
+    print(Host.u64_sum<UInt64>())
+    print(Host.i64<Int64>())
+    print(Host.i64_sum<Int64>())
+    print(Host.int<Int>())
+    print(Host.float<Float>())
+    print(Host.boolean<Bool>())
+    print(Host.string<String>())
+    if let v = Host.u8_none<UInt8?>() {
+        print(v)
+    } else {
+        print("none")
+    }
+    if let v = Host.string_none<String?>() {
+        print(v)
+    } else {
+        print("none")
+    }
+}

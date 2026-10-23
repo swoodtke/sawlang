@@ -98,8 +98,9 @@ extension TcProgram {
     }
 
     // Generic default `e`'s value at `t`, the type a call gives its
-    // parameter. The default is typed once, at `Int`, so each call folds it
-    // with every unsuffixed literal written at `t` instead (design 108).
+    // parameter. The default is typed once, at the type parameter, so each
+    // call folds it with every unsuffixed literal written at `t` instead
+    // (design 108).
     public func fold_default(&var self, e: Int, t: Int) -> TcFold {
         let outer = self.fold_written
         self.fold_written = t

@@ -1,0 +1,241 @@
+// probe: stated
+// about: an `init` default at a type's `T` its written default type fills holds each width and signedness, computed at the instantiation's own type (SL-830)
+// stage 0: refuses an `init` whose defaulted parameter comes before a plain one
+// speeds: -O0 -O2
+// prints: 200
+// prints: 200
+// prints: -100
+// prints: -100
+// prints: 60000
+// prints: 200
+// prints: -30000
+// prints: -100
+// prints: 4000000000
+// prints: 200
+// prints: -2000000000
+// prints: -100
+// prints: 18446744073709551615
+// prints: 200
+// prints: -9000000000000000000
+// prints: -100
+// prints: -9000000000000000000
+// prints: 1.5
+// prints: true
+// prints: hi
+// prints: none
+// prints: none
+//
+// One default per cell of SL-830's sweep: every integer width, signed and
+// unsigned, a literal and a constant expression, then `Float`, `Bool`,
+// `String` and two Optionals. The sanitizer lane builds it too: a default
+// computed at another width than its slot's is a stack overwrite.
+
+struct CellU8<T = UInt8> {
+    v: T
+}
+
+extension CellU8<T> {
+    init(seed: T = 200, tag: Int) -> CellU8<T> { CellU8(v: seed) }
+}
+
+struct CellU8Sum<T = UInt8> {
+    v: T
+}
+
+extension CellU8Sum<T> {
+    init(seed: T = 100 + 100, tag: Int) -> CellU8Sum<T> { CellU8Sum(v: seed) }
+}
+
+struct CellI8<T = Int8> {
+    v: T
+}
+
+extension CellI8<T> {
+    init(seed: T = -100, tag: Int) -> CellI8<T> { CellI8(v: seed) }
+}
+
+struct CellI8Sum<T = Int8> {
+    v: T
+}
+
+extension CellI8Sum<T> {
+    init(seed: T = -50 - 50, tag: Int) -> CellI8Sum<T> { CellI8Sum(v: seed) }
+}
+
+struct CellU16<T = UInt16> {
+    v: T
+}
+
+extension CellU16<T> {
+    init(seed: T = 60000, tag: Int) -> CellU16<T> { CellU16(v: seed) }
+}
+
+struct CellU16Sum<T = UInt16> {
+    v: T
+}
+
+extension CellU16Sum<T> {
+    init(seed: T = 100 + 100, tag: Int) -> CellU16Sum<T> { CellU16Sum(v: seed) }
+}
+
+struct CellI16<T = Int16> {
+    v: T
+}
+
+extension CellI16<T> {
+    init(seed: T = -30000, tag: Int) -> CellI16<T> { CellI16(v: seed) }
+}
+
+struct CellI16Sum<T = Int16> {
+    v: T
+}
+
+extension CellI16Sum<T> {
+    init(seed: T = -50 - 50, tag: Int) -> CellI16Sum<T> { CellI16Sum(v: seed) }
+}
+
+struct CellU32<T = UInt32> {
+    v: T
+}
+
+extension CellU32<T> {
+    init(seed: T = 4000000000, tag: Int) -> CellU32<T> { CellU32(v: seed) }
+}
+
+struct CellU32Sum<T = UInt32> {
+    v: T
+}
+
+extension CellU32Sum<T> {
+    init(seed: T = 100 + 100, tag: Int) -> CellU32Sum<T> { CellU32Sum(v: seed) }
+}
+
+struct CellI32<T = Int32> {
+    v: T
+}
+
+extension CellI32<T> {
+    init(seed: T = -2000000000, tag: Int) -> CellI32<T> { CellI32(v: seed) }
+}
+
+struct CellI32Sum<T = Int32> {
+    v: T
+}
+
+extension CellI32Sum<T> {
+    init(seed: T = -50 - 50, tag: Int) -> CellI32Sum<T> { CellI32Sum(v: seed) }
+}
+
+struct CellU64<T = UInt64> {
+    v: T
+}
+
+extension CellU64<T> {
+    init(seed: T = 18446744073709551615, tag: Int) -> CellU64<T> { CellU64(v: seed) }
+}
+
+struct CellU64Sum<T = UInt64> {
+    v: T
+}
+
+extension CellU64Sum<T> {
+    init(seed: T = 100 + 100, tag: Int) -> CellU64Sum<T> { CellU64Sum(v: seed) }
+}
+
+struct CellI64<T = Int64> {
+    v: T
+}
+
+extension CellI64<T> {
+    init(seed: T = -9000000000000000000, tag: Int) -> CellI64<T> { CellI64(v: seed) }
+}
+
+struct CellI64Sum<T = Int64> {
+    v: T
+}
+
+extension CellI64Sum<T> {
+    init(seed: T = -50 - 50, tag: Int) -> CellI64Sum<T> { CellI64Sum(v: seed) }
+}
+
+struct CellInt<T = Int> {
+    v: T
+}
+
+extension CellInt<T> {
+    init(seed: T = -9000000000000000000, tag: Int) -> CellInt<T> { CellInt(v: seed) }
+}
+
+struct CellFloat<T = Float> {
+    v: T
+}
+
+extension CellFloat<T> {
+    init(seed: T = 1.5, tag: Int) -> CellFloat<T> { CellFloat(v: seed) }
+}
+
+struct CellBoolean<T = Bool> {
+    v: T
+}
+
+extension CellBoolean<T> {
+    init(seed: T = true, tag: Int) -> CellBoolean<T> { CellBoolean(v: seed) }
+}
+
+struct CellString<T = String> {
+    v: T
+}
+
+extension CellString<T> {
+    init(seed: T = "hi", tag: Int) -> CellString<T> { CellString(v: seed) }
+}
+
+struct CellU8None<T = UInt8?> {
+    v: T
+}
+
+extension CellU8None<T> {
+    init(seed: T = None, tag: Int) -> CellU8None<T> { CellU8None(v: seed) }
+}
+
+struct CellStringNone<T = String?> {
+    v: T
+}
+
+extension CellStringNone<T> {
+    init(seed: T = None, tag: Int) -> CellStringNone<T> { CellStringNone(v: seed) }
+}
+
+
+func main() {
+    print(CellU8(tag: 1).v)
+    print(CellU8Sum(tag: 1).v)
+    print(CellI8(tag: 1).v)
+    print(CellI8Sum(tag: 1).v)
+    print(CellU16(tag: 1).v)
+    print(CellU16Sum(tag: 1).v)
+    print(CellI16(tag: 1).v)
+    print(CellI16Sum(tag: 1).v)
+    print(CellU32(tag: 1).v)
+    print(CellU32Sum(tag: 1).v)
+    print(CellI32(tag: 1).v)
+    print(CellI32Sum(tag: 1).v)
+    print(CellU64(tag: 1).v)
+    print(CellU64Sum(tag: 1).v)
+    print(CellI64(tag: 1).v)
+    print(CellI64Sum(tag: 1).v)
+    print(CellInt(tag: 1).v)
+    print(CellFloat(tag: 1).v)
+    print(CellBoolean(tag: 1).v)
+    print(CellString(tag: 1).v)
+    if let v = CellU8None(tag: 1).v {
+        print(v)
+    } else {
+        print("none")
+    }
+    if let v = CellStringNone(tag: 1).v {
+        print(v)
+    } else {
+        print("none")
+    }
+}

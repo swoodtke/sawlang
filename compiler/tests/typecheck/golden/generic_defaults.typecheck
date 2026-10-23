@@ -9,7 +9,7 @@
   (copy-tier)
   (bodies
     (show 6:6
-      (6:40-6:41 IntLit Int value temp)
+      (6:40-6:41 IntLit Int (adopt T) value temp)
       (7:5-7:10 Interp String value temp)
       (7:7-7:8 Name T place borrow))
     (describe 10:6

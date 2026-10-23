@@ -1,0 +1,91 @@
+// The body verifier admits an adoption of a type parameter from an integer,
+// a generic default's literal at the parameter it is written at, and reports
+// one from any other type, which no typing makes. The verifier reads no text,
+// so the fixture `compiler/tests/typecheck/inject/generic_default_adopt.saw`
+// is checked clean, then its literal's own type is edited to `Float`. Paths
+// are the repository root's, where the runner runs.
+import sawtypecheck.api.{typecheck_program}
+import sawtypecheck.bodyverify.{tc_verify_bodies}
+import sawtypecheck.model.{TcAdjustKind}
+import sawtypecheck.program.{TcProgram}
+// For the extension writing `float_type`.
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// The index of module `name`, or -1.
+func module_index(p: &TcProgram, name: String) -> Int {
+    var m = 0
+    while m < p.res.module_count() {
+        if p.res.module_name(m).equals(name) {
+            return m
+        }
+        m = m + 1
+    }
+    return -1
+}
+
+// The expression whose first adjustment adopts a type parameter, or -1.
+func adopting_param(p: &TcProgram) -> Int {
+    var e = 0
+    while e < p.adj_head.len() {
+        let a = p.adj_head[e]
+        if a >= 0 {
+            let adj = p.adjusts[a]
+            if adj.kind == TcAdjustKind.Adopt && p.ty(adj.to).kind == TcKind.Param {
+                return e
+            }
+        }
+        e = e + 1
+    }
+    return -1
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// How many of `found` report a chain that does not compose.
+func broken(found: &Vector<String>) -> Int {
+    var count = 0
+    var k = 0
+    while k < found.len() {
+        let line = found.get(k) ?? ""
+        if holds(&line, "an adjustment chain does not compose") {
+            count = count + 1
+        }
+        k = k + 1
+    }
+    count
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var p = typecheck_program("compiler/tests/typecheck/inject/generic_default_adopt.saw", "sawc", &names, &dirs)
+    let m = module_index(&p, "generic_default_adopt")
+    assert(m >= 0, "the fixture did not load: run from the repository root")
+    assert(p.error_count() == 0, "the fixture is refused")
+    let clean = tc_verify_bodies(&p, m)
+    assert(clean.len() == 0, "the verifier refuses an integer literal adopting a type parameter")
+
+    let e = adopting_param(&p)
+    assert(e >= 0, "the fixture's literal does not adopt its type parameter")
+    let float = p.float_type()
+    p.expr_types[e] = float
+    let edited = tc_verify_bodies(&p, m)
+    assert(broken(&edited) == 1, "the verifier admits a Float adopting a type parameter")
+}

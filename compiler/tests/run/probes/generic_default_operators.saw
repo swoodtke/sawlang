@@ -1,0 +1,36 @@
+// probe: stated
+// about: a generic default's operators compute at the instantiation's own width and signedness, as its fold checked them (SL-830)
+// stage 0: refuses a constant-expression generic default at a `T` other than `Int`, `complement<UInt8>()`
+// speeds: -O0 -O2
+// prints: 255
+// prints: 127
+// prints: 9223372036854775807
+// prints: 21845
+// prints: -128
+// prints: 128
+// prints: -1
+//
+// Each value differs from the same expression computed at `Int` and then
+// narrowed: `~0 >> 1` is `-1` at `Int` but a logical shift at an unsigned
+// `T`, at 64 bits too, and `~0 / 3` divides the unsigned all-ones. `-128` is
+// one literal, `Int8.min`. The sanitizer lane builds it too.
+
+func complement<T>(x: T = ~0) -> T { x }
+
+func halved<T>(x: T = ~0 >> 1) -> T { x }
+
+func quotient<T>(x: T = ~0 / 3) -> T { x }
+
+func lowest<T>(x: T = -128) -> T { x }
+
+func high_bit<T>(x: T = 1 << 7) -> T { x }
+
+func main() {
+    print(complement<UInt8>())
+    print(halved<UInt8>())
+    print(halved<UInt64>())
+    print(quotient<UInt16>())
+    print(lowest<Int8>())
+    print(high_bit<UInt8>())
+    print(complement<Int16>())
+}

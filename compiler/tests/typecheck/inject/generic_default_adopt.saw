@@ -1,0 +1,9 @@
+// A generic default's integer literal, which adopts the type parameter it is
+// written at. `compiler/typecheck/tests/verify_generic_default_adopt.saw`
+// checks it clean, then edits the literal's own type to `Float`.
+
+func plain<T>(x: T = 200) -> T { x }
+
+func main() {
+    print(plain<UInt8>())
+}

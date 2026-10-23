@@ -634,9 +634,9 @@ def run_programs(run):
 
 def run_sanitize(run):
     """The sanitizer lane (compiler/tests/run/sanitize_lane.py): the coroutine
-    programs, offload pins and thread probes built with `--sanitize address`
-    and held to their plain builds, and an overlap injected past the verifier
-    reported by AddressSanitizer at its access."""
+    programs, offload pins, thread probes and generic-default probes built with
+    `--sanitize address` and held to their plain builds, and an overlap injected
+    past the verifier reported by AddressSanitizer at its access."""
     failures, counts = sanitize_lane.run()
     for failure in failures:
         run.fail(failure)

@@ -471,7 +471,15 @@ extension TcProgram {
         let fi = self.types.ty(from)
         let ti = self.types.ty(to)
         match kind {
-            case Adopt -> (self.is_integer(from) || self.is_raw_backed(from)) && ti.kind == TcKind.Nominal,
+            // A generic default's integer literal adopts the type parameter
+            // it is written at, which mono resolves per instance; nothing
+            // else adopts a parameter (`adopts_integer`).
+            case Adopt -> {
+                if ti.kind == TcKind.Param {
+                    return self.is_integer(from)
+                }
+                (self.is_integer(from) || self.is_raw_backed(from)) && ti.kind == TcKind.Nominal
+            },
             case Never -> fi.kind == TcKind.Nominal && fi.decl == self.known.never,
             case Some -> ti.kind == TcKind.Nominal && ti.decl == self.known.optional && self.types.arg(to, 0) == from,
             case Ok -> ti.kind == TcKind.Nominal && ti.decl == self.known.result && self.types.arg(to, 0) == from,

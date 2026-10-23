@@ -714,7 +714,14 @@ nowhere, and checks, from the MIR alone:
   temporary, so it is no such write). The unit program `compiler/mir/tests/verify_payloads.saw`
   edits `inject/leftovers.saw`'s lowered match twice, swapping its switch's
   arms and writing the scrutinee again before the leftover's drop, and
-  requires the report each time.
+  requires the report each time;
+- a default value's function returns its parameter's declared type, a
+  generic default's its type parameter, so each call's instantiation of it
+  is the slot the caller passes (SL-830): one typed at another type stores
+  one width into another. The unit program
+  `compiler/mir/tests/verify_default_result.saw` lowers
+  `inject/default_result.saw` clean, retypes its generic default's return to
+  `Int` and requires the one report.
 
 ## Source nodes
 

@@ -28,7 +28,7 @@
 //
 // The values the literal funnel accepts, each read back: a negated literal is
 // one literal, so `Int.min` is written as one. Generic defaults run here at a
-// 64-bit `T` only; the narrow-width run is SL-830's pin.
+// 64-bit `T`; the `generic_default_*` probes hold every other width.
 
 func id<T>(x: T) -> T { x }
 

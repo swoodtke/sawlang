@@ -279,9 +279,10 @@ public struct TcProgram {
     // D6), and a refusal of it is anchored at the minus.
     negated_literal: Int
     negation: Int
-    // Whether a generic default value is being typed: its literals take
-    // their type per call, so none is settled where it is written.
-    generic_default: Bool
+    // The type parameter a generic default value is being typed at, or -1:
+    // its literals adopt it and take their values per call, so none is
+    // settled where it is written.
+    generic_default: Int
     // The type a generic default's literals are folded at for one call, or
     // -1 (`fold_default`).
     fold_written: Int
@@ -445,7 +446,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                                           labels: Vector<String>()),
                       untabled: Vector<Int>(),
                       summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
-                      negated_literal: -1, negation: -1, generic_default: false, fold_written: -1,
+                      negated_literal: -1, negation: -1, generic_default: -1, fold_written: -1,
                       meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),

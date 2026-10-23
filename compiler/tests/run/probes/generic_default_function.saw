@@ -1,0 +1,87 @@
+// probe: stated
+// about: a generic function's default at `T` holds each width and signedness, computed at the instantiation's own type (SL-830)
+// stage 0: refuses a constant-expression generic default at a `T` other than `Int`, `u8_sum<UInt8>()`
+// speeds: -O0 -O2
+// prints: 200
+// prints: 200
+// prints: -100
+// prints: -100
+// prints: 60000
+// prints: 200
+// prints: -30000
+// prints: -100
+// prints: 4000000000
+// prints: 200
+// prints: -2000000000
+// prints: -100
+// prints: 18446744073709551615
+// prints: 200
+// prints: -9000000000000000000
+// prints: -100
+// prints: -9000000000000000000
+// prints: 1.5
+// prints: true
+// prints: hi
+// prints: none
+// prints: none
+//
+// One default per cell of SL-830's sweep: every integer width, signed and
+// unsigned, a literal and a constant expression, then `Float`, `Bool`,
+// `String` and two Optionals. The sanitizer lane builds it too: a default
+// computed at another width than its slot's is a stack overwrite.
+
+func u8<T>(x: T = 200) -> T { x }
+func u8_sum<T>(x: T = 100 + 100) -> T { x }
+func i8<T>(x: T = -100) -> T { x }
+func i8_sum<T>(x: T = -50 - 50) -> T { x }
+func u16<T>(x: T = 60000) -> T { x }
+func u16_sum<T>(x: T = 100 + 100) -> T { x }
+func i16<T>(x: T = -30000) -> T { x }
+func i16_sum<T>(x: T = -50 - 50) -> T { x }
+func u32<T>(x: T = 4000000000) -> T { x }
+func u32_sum<T>(x: T = 100 + 100) -> T { x }
+func i32<T>(x: T = -2000000000) -> T { x }
+func i32_sum<T>(x: T = -50 - 50) -> T { x }
+func u64<T>(x: T = 18446744073709551615) -> T { x }
+func u64_sum<T>(x: T = 100 + 100) -> T { x }
+func i64<T>(x: T = -9000000000000000000) -> T { x }
+func i64_sum<T>(x: T = -50 - 50) -> T { x }
+func int<T>(x: T = -9000000000000000000) -> T { x }
+func float<T>(x: T = 1.5) -> T { x }
+func boolean<T>(x: T = true) -> T { x }
+func string<T>(x: T = "hi") -> T { x }
+func u8_none<T>(x: T = None) -> T { x }
+func string_none<T>(x: T = None) -> T { x }
+
+func main() {
+    print(u8<UInt8>())
+    print(u8_sum<UInt8>())
+    print(i8<Int8>())
+    print(i8_sum<Int8>())
+    print(u16<UInt16>())
+    print(u16_sum<UInt16>())
+    print(i16<Int16>())
+    print(i16_sum<Int16>())
+    print(u32<UInt32>())
+    print(u32_sum<UInt32>())
+    print(i32<Int32>())
+    print(i32_sum<Int32>())
+    print(u64<UInt64>())
+    print(u64_sum<UInt64>())
+    print(i64<Int64>())
+    print(i64_sum<Int64>())
+    print(int<Int>())
+    print(float<Float>())
+    print(boolean<Bool>())
+    print(string<String>())
+    if let v = u8_none<UInt8?>() {
+        print(v)
+    } else {
+        print("none")
+    }
+    if let v = string_none<String?>() {
+        print(v)
+    } else {
+        print("none")
+    }
+}

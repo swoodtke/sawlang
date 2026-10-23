@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 8:11
+// a type parameter's written default type fills it over the literal default's
+// own `Int`, and the value is checked there: 300 does not fit `UInt8`
+
+func f<T = UInt8>(x: T = 300) -> T { x }
+
+func main() {
+    print(f())
+}

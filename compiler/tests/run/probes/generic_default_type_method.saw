@@ -1,0 +1,93 @@
+// probe: stated
+// about: a generic type's method's default at the type's `T` holds each width and signedness, computed at the instantiation's own type (SL-830)
+// stage 0: refuses `string_none`'s `None` default at the type's `T`, typing it `Int`
+// speeds: -O0 -O2
+// prints: 200
+// prints: 200
+// prints: -100
+// prints: -100
+// prints: 60000
+// prints: 200
+// prints: -30000
+// prints: -100
+// prints: 4000000000
+// prints: 200
+// prints: -2000000000
+// prints: -100
+// prints: 18446744073709551615
+// prints: 200
+// prints: -9000000000000000000
+// prints: -100
+// prints: -9000000000000000000
+// prints: 1.5
+// prints: true
+// prints: hi
+// prints: none
+// prints: none
+//
+// One default per cell of SL-830's sweep: every integer width, signed and
+// unsigned, a literal and a constant expression, then `Float`, `Bool`,
+// `String` and two Optionals. The sanitizer lane builds it too: a default
+// computed at another width than its slot's is a stack overwrite.
+
+struct Holder<T> {
+    tag: Int
+}
+
+extension Holder<T> {
+    func u8(&self, x: T = 200) -> T { x }
+    func u8_sum(&self, x: T = 100 + 100) -> T { x }
+    func i8(&self, x: T = -100) -> T { x }
+    func i8_sum(&self, x: T = -50 - 50) -> T { x }
+    func u16(&self, x: T = 60000) -> T { x }
+    func u16_sum(&self, x: T = 100 + 100) -> T { x }
+    func i16(&self, x: T = -30000) -> T { x }
+    func i16_sum(&self, x: T = -50 - 50) -> T { x }
+    func u32(&self, x: T = 4000000000) -> T { x }
+    func u32_sum(&self, x: T = 100 + 100) -> T { x }
+    func i32(&self, x: T = -2000000000) -> T { x }
+    func i32_sum(&self, x: T = -50 - 50) -> T { x }
+    func u64(&self, x: T = 18446744073709551615) -> T { x }
+    func u64_sum(&self, x: T = 100 + 100) -> T { x }
+    func i64(&self, x: T = -9000000000000000000) -> T { x }
+    func i64_sum(&self, x: T = -50 - 50) -> T { x }
+    func int(&self, x: T = -9000000000000000000) -> T { x }
+    func float(&self, x: T = 1.5) -> T { x }
+    func boolean(&self, x: T = true) -> T { x }
+    func string(&self, x: T = "hi") -> T { x }
+    func u8_none(&self, x: T = None) -> T { x }
+    func string_none(&self, x: T = None) -> T { x }
+}
+
+func main() {
+    print(Holder<UInt8>(tag: 0).u8())
+    print(Holder<UInt8>(tag: 0).u8_sum())
+    print(Holder<Int8>(tag: 0).i8())
+    print(Holder<Int8>(tag: 0).i8_sum())
+    print(Holder<UInt16>(tag: 0).u16())
+    print(Holder<UInt16>(tag: 0).u16_sum())
+    print(Holder<Int16>(tag: 0).i16())
+    print(Holder<Int16>(tag: 0).i16_sum())
+    print(Holder<UInt32>(tag: 0).u32())
+    print(Holder<UInt32>(tag: 0).u32_sum())
+    print(Holder<Int32>(tag: 0).i32())
+    print(Holder<Int32>(tag: 0).i32_sum())
+    print(Holder<UInt64>(tag: 0).u64())
+    print(Holder<UInt64>(tag: 0).u64_sum())
+    print(Holder<Int64>(tag: 0).i64())
+    print(Holder<Int64>(tag: 0).i64_sum())
+    print(Holder<Int>(tag: 0).int())
+    print(Holder<Float>(tag: 0).float())
+    print(Holder<Bool>(tag: 0).boolean())
+    print(Holder<String>(tag: 0).string())
+    if let v = Holder<UInt8?>(tag: 0).u8_none() {
+        print(v)
+    } else {
+        print("none")
+    }
+    if let v = Holder<String?>(tag: 0).string_none() {
+        print(v)
+    } else {
+        print("none")
+    }
+}

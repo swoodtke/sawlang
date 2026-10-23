@@ -12149,7 +12149,11 @@ default is typed by a type parameter (`func f<T>(a: Int, b: T = 0)`) has that
 default type-checked against the **instantiated** `T` at each call, and when `T`
 is otherwise undetermined the **default drives inference** (design 108) — `f(1)`
 infers `T = Int` from `b: T = 0` (a supplied argument always wins, so `f(1, 2.0)`
-infers `Float`); a default that cannot fit the instantiated type (`f<Float>(1)` —
+infers `Float`). A written type default is more specific than that inference and
+wins over it: `func g<T = UInt8>(x: T = 200)` called as `g()` has `T = UInt8`,
+and its value default is then checked there (`= 300` is refused). The value
+default is evaluated at the instantiated `T`, its literals and operators at `T`'s
+width and signedness, so `~0 >> 1` at `UInt8` is 127. A default that cannot fit the instantiated type (`f<Float>(1)` —
 a bare integer literal does not adopt `Float`) or that drives inference to a
 bound-violating type is a clean call-anchored error, never an ICE. Inference
 never guesses — a

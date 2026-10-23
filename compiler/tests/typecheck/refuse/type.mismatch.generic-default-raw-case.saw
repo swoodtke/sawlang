@@ -1,0 +1,14 @@
+// refuses: type.mismatch at 10:18
+// a generic default is typed at its type parameter, so it names only
+// literals: a raw-backed case has its enum's backing, one type
+
+enum E: Int {
+    case A = 100,
+    case B = 7
+}
+
+func h<T>(x: T = E.A + 1) -> T { x }
+
+func main() {
+    print(h<UInt8>())
+}

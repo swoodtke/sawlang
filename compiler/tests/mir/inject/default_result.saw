@@ -1,0 +1,12 @@
+// A generic default and a plain one, each a function returning its
+// parameter's declared type. `compiler/mir/tests/verify_default_result.saw`
+// lowers it clean, then retypes the generic default's return to `Int`.
+
+func plain<T>(x: T = 200) -> T { x }
+
+func narrow(x: UInt8 = 200) -> UInt8 { x }
+
+func main() {
+    print(plain<UInt8>())
+    print(narrow())
+}

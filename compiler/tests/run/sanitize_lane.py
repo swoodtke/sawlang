@@ -7,8 +7,8 @@ reported at its access (SL:coroutines B3, risk R2).
 
 `compiler/tests/run.py` runs `run()` as its `sanitize` step. Each case is one
 of the run lane's `coro_*` programs that is not due, its offload pins
-(`OFFLOAD_PINS`), or a `thread_*` or `coro_*` probe of `probes/` that states its output
-(`stated` or `panics`). Each is built at -O0 twice, plainly and with
+(`OFFLOAD_PINS`), or a probe of `probes/` named by `PROBE_PATTERNS` that states its
+output (`stated` or `panics`). Each is built at -O0 twice, plainly and with
 `sawc2 build --sanitize address`, which stamps `sanitize_address` on every
 function and poisons each lowered frame's values outside the lifetimes rule 5
 recomputes; it passes when the sanitized binary prints the same bytes on
@@ -45,6 +45,10 @@ OUT = os.path.join(REPO, ".build", "sanitize-lane")
 # The run lane's programs that hold a `blocking` extern's offload.
 OFFLOAD_PINS = ("offload_cancel_waits_for_the_call", "offload_start_refused", "suspend_blocking_main")
 PROBE_KINDS = ("stated", "panics")
+# The probes the lane builds: the thread and coroutine probes, and the generic
+# defaults, where a value computed at another width than its slot's is a stack
+# overwrite (SL-830).
+PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw")
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60
@@ -63,13 +67,13 @@ def rel(path):
 
 def cases(names=None):
     """The programs the lane builds, in name order: the run lane's `coro_*`
-    programs and offload pins that are not due, then the `thread_*` and
-    `coro_*` probes that state their output."""
+    programs and offload pins that are not due, then the probes
+    `PROBE_PATTERNS` names that state their output."""
     found = [src for src in sorted(glob.glob(os.path.join(HERE, "coro_*.saw")))
              + [os.path.join(HERE, name + ".saw") for name in OFFLOAD_PINS]
              if run_lane.headers(src)[0] is None]
     found.sort()
-    probes = [src for pattern in ("thread_*.saw", "coro_*.saw")
+    probes = [src for pattern in PROBE_PATTERNS
               for src in glob.glob(os.path.join(run_lane.PROBES, pattern))]
     for src in sorted(probes):
         if run_lane.probe_header(src).get("probe", [None])[0] in PROBE_KINDS:

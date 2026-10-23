@@ -2462,9 +2462,24 @@ extension TcProgram {
     func constant_part(&var self, c: Int, want: Int) {
         let _ = self.expr(c, want)
         let leaf = self.names_constant_static(c) || self.raw_case_named(c) >= 0
+        if leaf && want >= 0 && want == self.generic_default {
+            self.refuse_generic_default_leaf(c)
+            return
+        }
         if leaf && self.final_type(c) != want && self.is_integer(want) {
             self.add_adjust(c, TcAdjustKind.Adopt, want)
         }
+    }
+
+    // A static or raw case named in a generic default: its value has one
+    // type, which only one instantiation of the parameter's could hold.
+    func refuse_generic_default_leaf(&var self, c: Int) {
+        let t = self.final_type(c)
+        var msg = StringBuilder()
+        try! msg.append("a default of a type parameter's type is typed at that parameter, so it names only literals; this value's type is `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which only one instantiation could hold; give the parameter that type, or pass the argument")
+        self.refuse(c, "type.mismatch", msg.build())
     }
 
     // The backing integer of the first raw-backed case constant expression
@@ -2937,12 +2952,26 @@ extension TcProgram {
         let t = self.int_type()
         let _ = self.set_type(e, t, false)
         var written = t
-        if want >= 0 && want != t && self.is_integer(want) {
+        if want != t && self.adopts_integer(want) {
             self.add_adjust(e, TcAdjustKind.Adopt, want)
             written = want
         }
         self.settle_literal(e, written, want, false)
         t
+    }
+
+    // THE INTEGER-SLOT FUNNEL: whether a bare integer literal, or a chain of
+    // constants, adopts expected type `want`: an integer type, or the type
+    // parameter a generic default is typed at, so the default computes at
+    // each instantiation's width and signedness. Its value at each call is
+    // `fold_default`'s, which `check_used_defaults` range-checks.
+    //
+    // ENTRY POINTS (adopts_integer):
+    //     int_literal
+    //     unary_expr
+    //     arithmetic_expr
+    func adopts_integer(&self, want: Int) -> Bool {
+        want >= 0 && (self.is_integer(want) || want == self.generic_default)
     }
 
     // The literal funnel: integer literal `e`, written at type `t` where
@@ -2952,8 +2981,9 @@ extension TcProgram {
     // is `Int.min`. The rule is the fold's (`fold_literal`), and the platform
     // pair's range is `int_width`'s, so a 32-bit target narrows it there. A
     // literal under a poisoned or non-integer slot is that slot's mismatch
-    // alone. A generic default's literals take their type per call, so they
-    // are judged by the per-call route instead: `check_used_defaults` calls
+    // alone. A generic default's literals adopt its type parameter, which
+    // each call instantiates, so they are judged by the per-call route
+    // instead: `check_used_defaults` calls
     // `fold_default`, which writes each at the call's type.
     //
     // ENTRY POINTS (settle_literal):
@@ -2964,7 +2994,7 @@ extension TcProgram {
             return
         }
         if not suffixed {
-            if self.generic_default || (want >= 0 && (self.has_error(want) || not self.is_integer(want))) {
+            if self.generic_default >= 0 || (want >= 0 && (self.has_error(want) || not self.is_integer(want))) {
                 return
             }
         }
@@ -3589,7 +3619,7 @@ extension TcProgram {
             self.negated_literal = operand
             self.negation = e
         }
-        if which != 1 && self.is_constant_expr(e) && want >= 0 && self.is_integer(want) {
+        if which != 1 && self.is_constant_expr(e) && self.adopts_integer(want) {
             self.constant_part(operand, want)
         } else {
             // A negated literal is one literal, so it sees its slot even
@@ -3613,12 +3643,12 @@ extension TcProgram {
             return self.set_type(e, b, false)
         }
         if which == 0 {
-            if not self.is_numeric(t) {
+            if not self.is_numeric(t) && not self.adopts_integer(t) {
                 self.refuse_operand(e, "`-` negates a number", t)
             }
             self.record_builtin(e, -1, TcRole.BuiltinOperator, "-")
         } else {
-            if not self.is_integer(t) {
+            if not self.adopts_integer(t) {
                 self.refuse_operand(e, "`~` complements an integer", t)
             }
             self.record_builtin(e, -1, TcRole.BuiltinOperator, "~")
@@ -3638,13 +3668,13 @@ extension TcProgram {
         let shift = self.has_alt(e, Alt.Expr_Shift)
         let constant = self.is_constant_expr(e)
         var cwant = want
-        if constant && not (want >= 0 && self.is_integer(want)) {
+        if constant && not self.adopts_integer(want) {
             let backing = self.constant_backing(e)
             if backing >= 0 {
                 cwant = backing
             }
         }
-        if constant && cwant >= 0 && self.is_integer(cwant) {
+        if constant && self.adopts_integer(cwant) {
             var operand = 0
             var k = 0
             while k < n {
@@ -10082,10 +10112,12 @@ extension TcProgram {
     }
 
     // A default value whose parameter's type is a type parameter `t`: a
-    // literal, typed as it is written, or `None`, typed `t`, which each call
-    // then requires to be an Optional. Each call checks the value against its
-    // own `t`, where a literal's type drives inference (design 108). Any
-    // other value would need a typing per instantiation.
+    // literal or `None`, each typed `t`. A bare integer literal and a
+    // constant chain adopt `t` (`adopts_integer`), so each instantiation
+    // computes the value at its own type, and `None` needs each call's `t`
+    // optional. Each call checks the value against its own `t`, where the
+    // literal's own type drives inference (design 108). Any other value would
+    // need a typing per instantiation.
     func check_generic_default(&var self, value: Int, t: Int) {
         if self.is_none_literal(value) {
             let _ = self.set_type(value, t, false)
@@ -10099,10 +10131,28 @@ extension TcProgram {
             let _ = self.set_type(value, poisoned, false)
             return
         }
+        // A literal of any other kind fits only the `t` that is its own type,
+        // so it is typed `t`, as `None` is.
+        let string = self.has_alt(value, Alt.Expr_String)
+        let boolean = self.has_alt(value, Alt.Expr_Bool_True) || self.has_alt(value, Alt.Expr_Bool_False)
+        if string || boolean || self.has_alt(value, Alt.Expr_Float) {
+            if string {
+                self.string_position(value, TcStringPosition.Literal)
+            }
+            let _ = self.set_type(value, t, false)
+            self.consume(value)
+            return
+        }
         let outer = self.generic_default
-        self.generic_default = true
-        let _ = self.expr(value, TC_WANT_NONE)
+        self.generic_default = t
+        let _ = self.expr(value, t)
         self.generic_default = outer
+        // A suffixed literal keeps its suffix's type, which each call
+        // requires `t` to be, so it adopts `t` as a bare one does.
+        let written = self.final_type(value)
+        if written != t && self.is_integer(written) {
+            self.add_adjust(value, TcAdjustKind.Adopt, t)
+        }
         self.consume(value)
     }
 
@@ -10184,7 +10234,9 @@ extension TcProgram {
     }
 
     // Unifies each used literal default's type with its parameter's, so the
-    // default drives inference where nothing else does (design 108).
+    // default drives inference where nothing else does (design 108). A type
+    // parameter with a written default type takes that type instead, which
+    // is more specific than a literal's, and the value is checked at it.
     func infer_from_defaults(&var self, c: TcCand, params: &Vector<Int>, sub: &TcSubst, solve: &var TcSolve) {
         var k = 0
         while k < params.len() {
@@ -10192,7 +10244,7 @@ extension TcProgram {
             k = k + 1
             let raw = self.cand_param_type(c, j)
             let pt = self.subst(raw, &sub)
-            if not self.mentions_unsolved(pt, &solve) {
+            if not self.mentions_unsolved(pt, &solve) || self.has_default_type(raw) {
                 continue
             }
             let v = self.param_default_node(c.decl, j)
@@ -10201,6 +10253,17 @@ extension TcProgram {
                 let _ = self.unify(pt, own, &var solve)
             }
         }
+    }
+
+    // Whether `t` is a type parameter declared with a default type.
+    func has_default_type(&var self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        if info.kind != TcKind.Param || info.decl < 0 {
+            return false
+        }
+        self.ensure_generic_list(info.decl)
+        let s = self.sigs[info.decl]
+        info.a < s.generic_count && self.generics[s.generic_first + info.a].default_type >= 0
     }
 
     // Checks each used default against the type this call gives its

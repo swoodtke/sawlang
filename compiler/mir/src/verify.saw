@@ -89,6 +89,34 @@ extension MirProgram {
         self.verify_nodes(f, &var out)
         self.verify_moves(f, &var out)
         self.verify_payloads(f, &var out)
+        self.verify_default_result(f, &var out)
+    }
+
+    // A default value's function returns its parameter's declared type, so
+    // each call's instantiation of it is the slot the caller passes; a
+    // generic default typed at anything else stores one width into another
+    // (pinned by compiler/mir/tests/verify_default_result.saw).
+    func verify_default_result(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Default || info.decl < 0 || info.local_count == 0 {
+            return
+        }
+        let s = self.tc.sigs[info.decl]
+        if info.param < 0 || info.param >= s.param_count {
+            self.problem(f, &var out, "a default's function names no parameter")
+            return
+        }
+        let want = self.tc.params[s.param_first + info.param].ty
+        let have = self.locals[info.local_first].ty
+        if have != want {
+            var text = StringBuilder()
+            try! text.append("a default's function returns `")
+            try! text.append(self.tc.type_text(have))
+            try! text.append("` for a parameter of type `")
+            try! text.append(self.tc.type_text(want))
+            try! text.append("`")
+            self.problem(f, &var out, text.build())
+        }
     }
 
     // No operand moves an owning value out through a reference, and none

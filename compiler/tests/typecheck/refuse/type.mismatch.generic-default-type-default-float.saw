@@ -1,0 +1,9 @@
+// refuses: type.mismatch at 8:11
+// a type parameter's written default type fills it over the literal default's
+// own `Int`, and a bare integer literal does not adopt `Float`
+
+func f<T = Float>(x: T = 200) -> T { x }
+
+func main() {
+    print(f())
+}

@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 7:18
+// a generic default is typed at its type parameter, so it names only
+// literals: a static has one type, which only one instantiation could hold
+
+static K8: UInt8 = 100
+
+func g<T>(x: T = K8 + 1) -> T { x }
+
+func main() {
+    print(g<UInt64>())
+}

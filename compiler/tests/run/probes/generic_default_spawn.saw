@@ -1,0 +1,87 @@
+// probe: stated
+// about: a generic function's default at `T`, called as `Task.spawn`'s root holds each width and signedness, computed at the instantiation's own type (SL-830)
+// stage 0: refuses a constant-expression generic default at a `T` other than `Int`, `u8_sum<UInt8>()`
+// speeds: -O0 -O2
+// prints: 200
+// prints: 200
+// prints: -100
+// prints: -100
+// prints: 60000
+// prints: 200
+// prints: -30000
+// prints: -100
+// prints: 4000000000
+// prints: 200
+// prints: -2000000000
+// prints: -100
+// prints: 18446744073709551615
+// prints: 200
+// prints: -9000000000000000000
+// prints: -100
+// prints: -9000000000000000000
+// prints: 1.5
+// prints: true
+// prints: hi
+// prints: none
+// prints: none
+//
+// One default per cell of SL-830's sweep: every integer width, signed and
+// unsigned, a literal and a constant expression, then `Float`, `Bool`,
+// `String` and two Optionals. The sanitizer lane builds it too: a default
+// computed at another width than its slot's is a stack overwrite.
+
+func u8<T>(x: T = 200) -> T { x }
+func u8_sum<T>(x: T = 100 + 100) -> T { x }
+func i8<T>(x: T = -100) -> T { x }
+func i8_sum<T>(x: T = -50 - 50) -> T { x }
+func u16<T>(x: T = 60000) -> T { x }
+func u16_sum<T>(x: T = 100 + 100) -> T { x }
+func i16<T>(x: T = -30000) -> T { x }
+func i16_sum<T>(x: T = -50 - 50) -> T { x }
+func u32<T>(x: T = 4000000000) -> T { x }
+func u32_sum<T>(x: T = 100 + 100) -> T { x }
+func i32<T>(x: T = -2000000000) -> T { x }
+func i32_sum<T>(x: T = -50 - 50) -> T { x }
+func u64<T>(x: T = 18446744073709551615) -> T { x }
+func u64_sum<T>(x: T = 100 + 100) -> T { x }
+func i64<T>(x: T = -9000000000000000000) -> T { x }
+func i64_sum<T>(x: T = -50 - 50) -> T { x }
+func int<T>(x: T = -9000000000000000000) -> T { x }
+func float<T>(x: T = 1.5) -> T { x }
+func boolean<T>(x: T = true) -> T { x }
+func string<T>(x: T = "hi") -> T { x }
+func u8_none<T>(x: T = None) -> T { x }
+func string_none<T>(x: T = None) -> T { x }
+
+func main() {
+    print(Task.spawn(u8<UInt8>()).join())
+    print(Task.spawn(u8_sum<UInt8>()).join())
+    print(Task.spawn(i8<Int8>()).join())
+    print(Task.spawn(i8_sum<Int8>()).join())
+    print(Task.spawn(u16<UInt16>()).join())
+    print(Task.spawn(u16_sum<UInt16>()).join())
+    print(Task.spawn(i16<Int16>()).join())
+    print(Task.spawn(i16_sum<Int16>()).join())
+    print(Task.spawn(u32<UInt32>()).join())
+    print(Task.spawn(u32_sum<UInt32>()).join())
+    print(Task.spawn(i32<Int32>()).join())
+    print(Task.spawn(i32_sum<Int32>()).join())
+    print(Task.spawn(u64<UInt64>()).join())
+    print(Task.spawn(u64_sum<UInt64>()).join())
+    print(Task.spawn(i64<Int64>()).join())
+    print(Task.spawn(i64_sum<Int64>()).join())
+    print(Task.spawn(int<Int>()).join())
+    print(Task.spawn(float<Float>()).join())
+    print(Task.spawn(boolean<Bool>()).join())
+    print(Task.spawn(string<String>()).join())
+    if let v = Task.spawn(u8_none<UInt8?>()).join() {
+        print(v)
+    } else {
+        print("none")
+    }
+    if let v = Task.spawn(string_none<String?>()).join() {
+        print(v)
+    } else {
+        print("none")
+    }
+}

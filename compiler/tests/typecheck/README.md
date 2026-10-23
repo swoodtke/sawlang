@@ -653,11 +653,18 @@ all-literal branch, a closure's tail and a scrutinee alike (literal-default,
 golden literal_default_range). A negated literal is one literal: `-2^63` is
 `Int.min` and a magnitude past it is refused at every 64-bit signed type
 (literal-negated-range). A literal at a non-integer slot is that slot's
-mismatch alone. A generic default's literals take their type per call: each
-call folds the default at the type it gives the parameter
-(`fold_default`), so `200 + 100` and `-1` are refused at `UInt8`
-(generic-default-overflow, generic-default-negative) and `100 + 100` is
-accepted there (spec, Primitive Types: "range-checked *at the literal*"). A larger
+mismatch alone. A generic default is typed at its type parameter: its bare
+literals and constant chains adopt `T` (`adopts_integer`), so each
+instantiation computes it at its own width and signedness, and any other
+literal is typed `T` as `None` is. A static or raw case named in one has a
+single type, and is refused (generic-default-static, generic-default-raw-case).
+Its values take their range per call: each call folds the default at the type
+it gives the parameter (`fold_default`), so `200 + 100` and `-1` are refused
+at `UInt8` (generic-default-overflow, generic-default-negative) and `100 +
+100` is accepted there (spec, Primitive Types: "range-checked *at the
+literal*"). A type parameter with a written default type takes it over the
+literal's own `Int`, and the value is checked there
+(generic-default-type-default, generic-default-type-default-float). A larger
 constant expression is folded (`fold.saw`) by typed arithmetic
 (SL:architecture §3.10), with a module static of an integer type and a
 raw-backed enum's case as leaves: each literal is written at the type the
@@ -888,7 +895,7 @@ Every body construct in the slice, and how it is typed:
 | a `borrow` block, `borrow` place, `if borrow let` | the place's type, borrowed | borrows |
 | `lends self`, a reference field's value in the construction a `borrows -> S` function returns | `&Self`, shared, typed as `&self` is; any other operand, a `&var self` receiver, and every other position refused (the origin funnel, below) | declarations; lends.origin, lends.position, slice.not-yet.lends-exclusive |
 | `borrow var PLACE`, `borrow PLACE` where a `&var T` or `&T` parameter expects it | the place passed by reference, `&var T` or `&T` (SL:borrowing §2.2) | borrow_arguments |
-| a default value whose parameter's type is a type parameter, `b: T = 0` | a literal typed as written, whose type drives each call's inference, or `None`, which needs each call's `T` optional; checked against each call's `T`, a literal or constant expression folded at it (design 108) | generic_defaults; literal_default_range; generic-default, generic-default-overflow, generic-default-negative |
+| a default value whose parameter's type is a type parameter, `b: T = 0` | a literal or constant chain typed `T`, whose own type drives each call's inference unless `T` has a written default type, or `None`, which needs each call's `T` optional; checked against each call's `T`, a literal or constant expression folded at it (design 108); a static or raw case in it refused | generic_defaults; literal_default_range; generic-default, generic-default-overflow, generic-default-negative, generic-default-static, generic-default-raw-case, generic-default-type-default, generic-default-type-default-float |
 | patterns: wildcard, literal, range, tuple, variant, name, `None`, borrow binding | the matched type; bindings copy, take, move or alias | patterns, places |
 | a lone name pattern resolve took for a case | that case of the matched enum, else refused (D13) | patterns, multi/cases |
 
@@ -1917,7 +1924,11 @@ argument binding (every written argument binds exactly one parameter or falls
 in the variadic tail, and every parameter no argument binds has a default),
 that each closure records a capture, with a capture's transfer, of every
 enclosing binding its body names, and that each adjustment chain composes,
-every step's source the step before's result.
+every step's source the step before's result, a type parameter adopted only
+from an integer, as a generic default's literal adopts it (the unit program
+`compiler/typecheck/tests/verify_generic_default_adopt.saw` edits
+`inject/generic_default_adopt.saw`'s literal to a `Float` and requires the
+report).
 
 The summary verifier (`summaries.saw`) checks that every function has its
 three summaries, that each checked body's summary is a fixpoint (one more step
