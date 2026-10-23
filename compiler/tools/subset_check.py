@@ -56,7 +56,7 @@ RULES = {
     "test-directive": ARCH,
     "deinit-body": "SL:hazards: leaks are tolerated in Stage 1",
     "root-reuse": "SL:hazards S4",
-    "float-literal": ARCH + "; SL:hazards S20",
+    "float-literal": ARCH,
     "inline-module": "SL:hazards S22",
     "owned-operand": "SL:hazards S23",
     "from-raw-literal": "SL:hazards L1",

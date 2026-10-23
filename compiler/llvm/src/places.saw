@@ -438,7 +438,7 @@ extension LlEmitter {
             return out.build()
         }
         if op.const_kind == MirConstKind.Float && l.kind == TargetKind.Float {
-            // An unrepresentable literal saturates; no rule refuses it yet.
+            // Typecheck refuses an unrepresentable literal (`float.unrepresentable`), so saturated bits never reach here.
             let v = tc_float_bits(&text)
             return ll_double_constant(v.bits)
         }

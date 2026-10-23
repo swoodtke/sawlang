@@ -46,7 +46,7 @@ _FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
-                      r'capture|escaping|mutability|nomove|constant|static_assert|trait|atomic|lends|'
+                      r'capture|escaping|mutability|nomove|constant|float|static_assert|trait|atomic|lends|'
                       r'export|extern|erasure|spawn|drive|overload|zeroinit)\.[a-z-]+)"')
 
 

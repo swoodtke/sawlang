@@ -31,7 +31,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
+import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text, tc_float_bits}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
@@ -2839,6 +2839,7 @@ extension TcProgram {
         match alt {
             case Expr_Int -> self.int_literal(e, want),
             case Expr_Float -> {
+                self.settle_float_literal(e)
                 let t = self.float_type()
                 self.set_type(e, t, false)
             },
@@ -2972,6 +2973,35 @@ extension TcProgram {
     //     arithmetic_expr
     func adopts_integer(&self, want: Int) -> Bool {
         want >= 0 && (self.is_integer(want) || want == self.generic_default)
+    }
+
+    // A float literal whose exact value rounds to infinity, or is nonzero and
+    // rounds to zero, is refused at the literal; a subnormal and `0.0` are
+    // accepted. A negated literal is checked as its operand, since the sign
+    // changes neither case. Float constant expressions are not folded, so
+    // `1e300 * 1e300` is not judged here.
+    //
+    // ENTRY POINTS (settle_float_literal):
+    //     expr_as
+    //     check_generic_default
+    func settle_float_literal(&var self, e: Int) {
+        let m = self.current
+        let leaf = self.res.first_leaf(e)
+        let at = if leaf >= 0 { leaf } else { e }
+        let text = self.text(m, at)
+        let v = tc_float_bits(&text)
+        if v.ok || v.fault != TcFault.NotFit {
+            return
+        }
+        var msg = StringBuilder()
+        try! msg.append("float literal ")
+        try! msg.append(text)
+        if v.bits == 0 {
+            try! msg.append(" is nonzero but rounds to zero in `Float`: it is below half the smallest subnormal")
+        } else {
+            try! msg.append(" rounds to infinity in `Float`: it is above the largest finite value")
+        }
+        self.refuse(e, "float.unrepresentable", msg.build())
     }
 
     // The literal funnel: integer literal `e`, written at type `t` where
@@ -10138,6 +10168,9 @@ extension TcProgram {
         if string || boolean || self.has_alt(value, Alt.Expr_Float) {
             if string {
                 self.string_position(value, TcStringPosition.Literal)
+            }
+            if self.has_alt(value, Alt.Expr_Float) {
+                self.settle_float_literal(value)
             }
             let _ = self.set_type(value, t, false)
             self.consume(value)
