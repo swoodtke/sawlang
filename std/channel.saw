@@ -262,9 +262,7 @@ extension Channel<T: Send> {
         // read, so a consumer that is stopping takes no further message.
         while not cancelled() {
             var drained = false
-            // Stage 0 workaround (SL:hazards S2): canonical: if let v = self.take(&var drained) { return move v }
-            let got = self.take(&var drained)
-            if let v = move got {
+            if let v = self.take(&var drained) {
                 return move v
             }
             if drained {

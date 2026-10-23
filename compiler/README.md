@@ -499,8 +499,6 @@ no other (`type-alias`), and a std module imports only std modules
 (`import-allowlist`). `std-api` holds the compiler to std, so the profile
 drops it too, and `compile` and `owned-operand`, which
 ask Stage 0's code generator, never run: sawc2's check of `std/` stands in.
-`move buf[i]` through a binding is the raw-memory feature's move out of a
-pointer place, not `borrowed-match-payload`.
 
 No stage compiles `std/` with Stage 0, so the profile reads it with sawc2
 (`tools/sawc2_reading.py`), not the frozen parser: `sawc2 lex` gives the tokens
@@ -585,14 +583,10 @@ so it is compiled by itself, without the source rules.
 | `borrow-syntax` | `borrow` as a name | §4 |
 | `test-directive` | `@test` | §4 |
 | `deinit-body` | a `deinit` in an extension, a conformance or a trait body | leak tolerance |
-| `borrowed-match-payload` | `move` of an arm binding, or a `match` on one, when the scrutinee is borrowed | S2 |
-| `optional-try` | every `try?` | S3 |
 | `root-reuse` | an argument reading the receiver's or a `&` argument's root; an index write whose right side reads its root | S4 |
-| `index-receiver-call` | a method not known to only read, on storage reached through `x[i]`, `m[k]?.` or a tuple element | S15 |
 | `float-literal` | any float literal | §4, S20 |
 | `inline-module` | every inline `module name { }` | S22 |
 | `owned-operand` | an operand Stage 0's `_is_owned_temporary` calls an owned temporary, as a comparison operand, an interpolation segment, a format argument of `print`, `panic` or `assert`, or the operand of an `as` cast that builds a new value rather than forwarding it, a string literal exempt; any interpolation segment codegen renders through a synthesized `to_string()` (a type off its builtin fast path, such as a user `Printable`), a named place included | S23 |
-| `conditional-temporary` | a call's result read through a method, a field, an index or a tuple element in a bare value-`match` arm, a `match` guard or the right side of `??`, an operand only some paths evaluate | S29 |
 | `from-raw-literal` | `from(raw:)` with a bare literal | L1 |
 | `closure-syntax` | an unannotated closure parameter, `$0`, a trailing closure, a function type under `?` | L2 |
 | `optional-shaping` | `== None`, a method directly on a `get` result, a collection literal returned as a `Result` | L4 |
@@ -613,9 +607,7 @@ descriptor (SL:hazards S28: a write is unbuffered and a child is waited for
 explicitly, so no `deinit` flushes or waits). S13, a nested generic with defaulted parameters, only leaks, so it
 has no rule. S23 only leaks too, and has one anyway: a parser comparing token
 text, or a diagnostic interpolating it, would leak once per token of every file
-Stage 1 compiles. S3's `try?`, which never releases the error it discards, has
-one for the same reason: a parser's "try this, else fall back" paths would leak
-once per attempt.
+Stage 1 compiles.
 
 `owned-operand` asks the compiler, not the source: its code generator's
 predicate judges each operand of the build Stage 0 is given, generic bodies at

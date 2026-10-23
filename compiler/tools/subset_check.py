@@ -55,14 +55,10 @@ RULES = {
     "borrow-syntax": ARCH,
     "test-directive": ARCH,
     "deinit-body": "SL:hazards: leaks are tolerated in Stage 1",
-    "borrowed-match-payload": "SL:hazards S2",
-    "optional-try": "SL:hazards S3",
     "root-reuse": "SL:hazards S4",
-    "index-receiver-call": "SL:hazards S15",
     "float-literal": ARCH + "; SL:hazards S20",
     "inline-module": "SL:hazards S22",
     "owned-operand": "SL:hazards S23",
-    "conditional-temporary": "SL:hazards S29",
     "from-raw-literal": "SL:hazards L1",
     "closure-syntax": "SL:hazards L2",
     "optional-shaping": "SL:hazards L4",
@@ -604,27 +600,6 @@ def _collect(value, out):
         out.append(value)
 
 
-def conditional_temporary(expr):
-    """The first method, field, index or tuple element `expr` reads off a
-    call's result, a temporary the frozen compiler drops at the end of the
-    statement whether or not the operand holding it ran (SL:hazards S29), or
-    None. A block or a closure inside is a scope of its own and is not
-    searched."""
-    stack = [expr]
-    while stack:
-        n = stack.pop()
-        if n is None or isinstance(n, (A.Block, A.ClosureExpr)):
-            continue
-        if isinstance(n, (A.MethodCall, A.MemberAccess)) and isinstance(n.object, CALLS):
-            return n
-        if isinstance(n, A.ArrayIndex) and isinstance(n.array_expr, CALLS):
-            return n
-        if isinstance(n, A.TupleIndex) and isinstance(n.tuple_expr, CALLS):
-            return n
-        stack.extend(children(n))
-    return None
-
-
 def walk(node):
     """`node` and every structural descendant, depth first."""
     stack = [node]
@@ -730,15 +705,6 @@ def reaches_get(expr):
     """Does an expression reach its value through a `.get(...)` call?"""
     while expr is not None:
         if _is_get_call(expr):
-            return True
-        expr = postfix_object(expr)
-    return False
-
-
-def through_index(expr):
-    """Does a receiver reach its storage through `x[i]` or a tuple element?"""
-    while isinstance(expr, PLACE_STEPS):
-        if isinstance(expr, (A.ArrayIndex, A.TupleIndex)):
             return True
         expr = postfix_object(expr)
     return False
@@ -1113,15 +1079,12 @@ def _previous(toks, i, significant):
 class Binding:
     """A name in scope. `kind` is one of: let, var, param, param-ref,
     param-refvar, pattern, pattern-var, for, closure-param, catch. `depth` is
-    the closure nesting it was bound at, so a use from deeper is a capture.
-    `borrowed` marks a binding that aliases storage it does not own
-    (SL:hazards S2)."""
-    __slots__ = ("kind", "depth", "borrowed", "type")
+    the closure nesting it was bound at, so a use from deeper is a capture."""
+    __slots__ = ("kind", "depth", "type")
 
-    def __init__(self, kind, depth, borrowed=False, type_=None):
+    def __init__(self, kind, depth, type_=None):
         self.kind = kind
         self.depth = depth
-        self.borrowed = borrowed
         self.type = type_
 
 
@@ -1149,9 +1112,9 @@ class BodyChecker:
 
     # -- scopes --------------------------------------------------------------
 
-    def bind(self, name, kind, borrowed=False, type_=None):
+    def bind(self, name, kind, type_=None):
         if name and name != "_":
-            self.scopes[-1][name] = Binding(kind, self.closure_depth, borrowed, type_)
+            self.scopes[-1][name] = Binding(kind, self.closure_depth, type_)
 
     def lookup(self, name):
         for scope in reversed(self.scopes):
@@ -1242,7 +1205,6 @@ class BodyChecker:
                 self.check_untyped_array(s.value, s.line)
             self.expr(s.value, s)
             self.bind(s.name, "var" if s.mutable else "let",
-                      borrowed=self.aliases_borrowed(s.value),
                       type_=s.type_annotation or self.type_of(s.value))
         elif isinstance(s, A.DestructuringLet):
             self.check_untyped_array(s.value, s.line)
@@ -1299,7 +1261,7 @@ class BodyChecker:
         storage the binding does not own."""
         self.push()
         for name, mutable in names:
-            self.bind(name, "pattern-var" if mutable else "pattern", borrowed=True)
+            self.bind(name, "pattern-var" if mutable else "pattern")
         self.block(body)
         self.pop()
 
@@ -1387,15 +1349,6 @@ class BodyChecker:
                 self.report(e.line, "closure-capture", "a closure may not capture `self`")
         elif isinstance(e, A.MoveExpr):
             self.use(e.variable, e.line)
-            b = self.lookup(e.variable)
-            # Under the std profile, `move buf[i]` through a binding is the
-            # raw-memory feature's move out of a pointer place, not a move of
-            # the binding.
-            pointer_place = self.fc.std_profile and e.path is not None
-            if b is not None and b.borrowed and not pointer_place:
-                self.report(e.line, "borrowed-match-payload",
-                            "`%s` aliases storage it does not own; pass it on by `&` "
-                            "instead of moving it" % e.variable)
             if e.path is not None:
                 self.expr(e.path, e)
         elif isinstance(e, A.ClosureExpr):
@@ -1415,11 +1368,6 @@ class BodyChecker:
                 self.pop()
             self.block(e.else_branch)
         elif isinstance(e, A.TryExpr):
-            if e.variant == "optional":
-                self.report(e.line, "optional-try",
-                            "`try?` never releases the error it discards; `match` on the "
-                            "`Result` instead, and mark it `// Stage 0 workaround "
-                            "(SL:hazards S3): canonical: <the original line>`")
             self.expr(e.expr, e)
             if e.catch_block is not None:
                 self.catch_block(e.catch_block, "error")
@@ -1449,8 +1397,6 @@ class BodyChecker:
             self.expr(e.left, e)
             self.expr(e.right, e)
         elif isinstance(e, A.NilCoalesce):
-            self.check_conditional_temporary(e.default, "the right side of `??`",
-                                             "write it as a `match` whose arms are blocks")
             self.expr(e.expr, e)
             self.expr(e.default, e)
         elif isinstance(e, A.ReferenceExpr):
@@ -1519,65 +1465,32 @@ class BodyChecker:
         self.pop()
         self.closure_depth -= 1
 
-    def aliases_borrowed(self, expr):
-        """Does `expr` name storage a borrowed binding aliases?"""
-        root = place_root(expr) if not isinstance(expr, A.Identifier) else expr.name
-        b = self.lookup(root) if root is not None else None
-        return b is not None and b.borrowed
-
     def bind_optional_pattern(self, name, pattern, mutable, subject):
-        borrowed = not self.owned_scrutinee(subject)
         payload = _peel(self.type_of(subject))
         payload = optional_payload(payload) if is_optional(payload) else None
         for n in pattern_names(pattern, [name]):
-            self.bind(n, "pattern-var" if mutable else "pattern", borrowed=borrowed,
-                      type_=payload)
+            self.bind(n, "pattern-var" if mutable else "pattern", type_=payload)
 
     def match(self, e):
         self.check_untyped_array(e.matched_expr, e.line)
         self.expr(e.matched_expr, e)
         scrutinee = e.matched_expr
-        root = place_root(scrutinee)
-        b = self.lookup(root) if root is not None else None
-        if b is not None and b.borrowed:
-            self.report(e.line, "borrowed-match-payload",
-                        "`%s` aliases storage it does not own; give its type a `&self` "
-                        "accessor instead of matching it" % root)
         if _is_get_call(scrutinee) and not any(
                 pattern_names(arm.pattern, arm.bindings) for arm in e.arms):
             self.report(e.line, "std-api",
                         "a presence test through `get`; compare the index with `len()`")
-        borrowed = not self.owned_scrutinee(scrutinee)
         scrutinee_type = _peel(self.type_of(scrutinee))
         for arm in e.arms:
             self.push()
             types = self.arm_payload_types(scrutinee_type, arm)
             for name in pattern_names(arm.pattern, arm.bindings):
-                self.bind(name, "pattern", borrowed=borrowed, type_=types.get(name))
-            self.check_conditional_temporary(arm.guard, "a `match` guard",
-                                             "test it inside the arm's block")
+                self.bind(name, "pattern", type_=types.get(name))
             self.expr(arm.guard, arm)
             if isinstance(arm.body, A.Block):
                 self.block(arm.body)
             else:
-                self.check_conditional_temporary(arm.body, "a bare `match` arm",
-                                                 "write the arm as a block")
                 self.expr(arm.body, arm)
             self.pop()
-
-    def check_conditional_temporary(self, expr, position, fix):
-        """An owning-temporary shape on an operand only some paths evaluate:
-        a bare arm, a guard, the right side of `??`."""
-        if expr is None:
-            return
-        hop = conditional_temporary(expr)
-        if hop is not None:
-            self.report(getattr(hop, "line", None) or expr.line, "conditional-temporary",
-                        "a call's result read through a method, a field or an index in "
-                        "%s is dropped by the "
-                        "frozen compiler whether or not that operand ran; %s, and mark "
-                        "it `// Stage 0 workaround (SL:hazards S29): canonical: <the "
-                        "original line>`" % (position, fix))
 
     def arm_payload_types(self, scrutinee, arm):
         """The written type of each name an enum-case arm binds, by position in
@@ -1600,16 +1513,6 @@ class BodyChecker:
             return {}
         return {name: _peel(t) for name, t in zip(subs, payload) if name}
 
-    def owned_scrutinee(self, s):
-        """A local bound by `let`/`var`, a by-value parameter, or `move` of
-        either. `self` never is, not even in a `consumes` method."""
-        if isinstance(s, A.MoveExpr) and s.path is None:
-            s = A.Identifier(name=s.variable)
-        if isinstance(s, A.Identifier):
-            b = self.lookup(s.name)
-            return b is not None and b.kind in ("let", "var", "param") and not b.borrowed
-        return False
-
     def call(self, e, parent):
         args = arguments_of(e)
         self.check_std_call(e)
@@ -1630,11 +1533,6 @@ class BodyChecker:
     def method_call(self, e):
         obj = e.object
         self.check_untyped_array(obj, e.line)
-        mutating = self.may_mutate(e)
-        if mutating and through_index(obj):
-            self.report(e.line, "index-receiver-call",
-                        "`.%s()` on storage reached through an index runs on a copy; call "
-                        "it on a named local or a field path" % e.method_name)
         if isinstance(obj, A.MethodCall) and obj.method_name == "get":
             self.report(e.line, "optional-shaping",
                         "a method called directly on a `get` result; bind the result or "

@@ -9104,10 +9104,7 @@ extension TcProgram {
     public func cand_param_count(&self, c: TcCand) -> Int {
         match c.kind {
             case Function -> self.sigs[c.decl].param_count,
-            // Stage 0 workaround (SL:hazards S29): canonical: case Memberwise -> self.struct_fields(c.decl).len()
-            case Memberwise -> {
-                self.struct_fields(c.decl).len()
-            },
+            case Memberwise -> self.struct_fields(c.decl).len(),
             case Case -> {
                 if self.res.decls[c.decl].node < 0 {
                     if self.case_has_payload(c.decl) {

@@ -27,6 +27,6 @@ func arena_calls(a: &var ProbeArena) -> Int {
 
 func untraced_calls(pair: (ProbeArena, Int)) {
     var copy = pair
-    copy.0.sort()   // refuses: index-receiver-call, std-api
-    copy.0.tidy()   // refuses: index-receiver-call
+    copy.0.sort()   // refuses: std-api
+    copy.0.tidy()
 }

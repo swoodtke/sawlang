@@ -524,8 +524,8 @@ extension TaskGroup: NoCopy {
             }
         }
         check_no_outstanding(&self)
-        unregister(&var self)
-        release_slots(&var self)
+        self.unregister()
+        self.release_slots()
         if self.lock != 0 {
             // Every worker has joined, so nothing waits on either.
             let gate = self.lock as UnsafePointer<UInt8>
@@ -652,7 +652,7 @@ static WALK_NAP_NANOS: UInt64 = 100_000
 // ENTRY POINTS:
 //   lock_queue (a cooperative group's sections)
 //   register
-//   unregister
+//   TaskGroup.unregister
 func latch_take(record: UnsafePointer<ExecutorRecord>) unsafe {
     let word = (&record[0].latch) as UnsafePointer<Int>
     let mark = record as Int
@@ -1066,32 +1066,32 @@ func group_on_this_stack(at: UnsafePointer<TaskGroup>, slot: Int) unsafe -> Bool
     found
 }
 
-// The run queue's writes are free functions over `&var TaskGroup`, so a group
-// reached through its address is written through one argument, `&var g[0]`,
-// and never through a method call on an indexed receiver. None is called
+// The run queue's writes are `&var self` methods on `TaskGroup`, called on a
+// group reached through its address as `g[0].place(..)`. None is called
 // across a resume: the frame being resumed may reach the same group through
-// its address (SL:hazards S15).
+// its address.
 
-// Puts the frame at `frame` on `group`'s run queue with a fresh cell. `owned`
-// says the executor frees the frame when its root finishes. `group` is the
-// group's final storage: its owner thread's list records its address until
-// `unregister`.
-func enqueue(group: &var TaskGroup, descriptor: UnsafePointer<FrameDescriptor>,
-             frame: UnsafePointer<UInt8>, owned: Bool) unsafe -> TaskTicket {
-    register(&var group)
-    let cell = new_cell(descriptor)
-    let at = (&group) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
-    if group.lock == 0 {
-        // Under the latch: a growth frees the old `slots` buffer, which a
-        // walk on another thread may be reading.
-        var g = at
-        lock_queue(at)
-        // Stage 0 workaround (SL:hazards S15): canonical: g[0].place(frame, cell, owned)
-        let ticket = place(&var g[0], frame, cell, owned)
-        unlock_queue(at)
-        return ticket
+extension TaskGroup {
+    // Puts the frame at `frame` on this group's run queue with a fresh cell.
+    // `owned` says the executor frees the frame when its root finishes. The
+    // group is in its final storage: its owner thread's list records its
+    // address until `unregister`.
+    func enqueue(&var self, descriptor: UnsafePointer<FrameDescriptor>,
+                 frame: UnsafePointer<UInt8>, owned: Bool) unsafe -> TaskTicket {
+        register(&var self)
+        let cell = new_cell(descriptor)
+        let at = (&self) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
+        if self.lock == 0 {
+            // Under the latch: a growth frees the old `slots` buffer, which a
+            // walk on another thread may be reading.
+            var g = at
+            lock_queue(at)
+            let ticket = g[0].place(frame, cell, owned)
+            unlock_queue(at)
+            return ticket
+        }
+        enqueue_pooled(at, frame, cell, owned)
     }
-    enqueue_pooled(at, frame, cell, owned)
 }
 
 // A pool's enqueue: the slot is placed under the lock, the workers are told,
@@ -1102,8 +1102,7 @@ func enqueue_pooled(at: UnsafePointer<TaskGroup>, frame: UnsafePointer<UInt8>, c
                     owned: Bool) unsafe -> TaskTicket {
     var g = at
     lock_queue(at)
-    // Stage 0 workaround (SL:hazards S15): canonical: g[0].place(frame, cell, owned)
-    let ticket = place(&var g[0], frame, cell, owned)
+    let ticket = g[0].place(frame, cell, owned)
     let start = not g[0].started
     g[0].started = true
     let poke = queue_changed(at)
@@ -1126,109 +1125,119 @@ func queue_changed(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
     at[0].pollers > 0
 }
 
-// Claims a reclaimed slot, or grows by one. A reused slot keeps the
-// generation its recycle advanced to.
-func place(group: &var TaskGroup, frame: UnsafePointer<UInt8>, cell: UnsafePointer<TaskCell>,
-           owned: Bool) unsafe -> TaskTicket {
-    var slot = -1
-    if let reused = group.free.pop() {
-        slot = reused
-    }
-    if slot < 0 {
-        slot = group.slots.len()
-        // The free list never outgrows the slots, so reserving here is what
-        // keeps `recycle` from needing to allocate.
-        alloc_or_fault(group.free.reserve(slot + 1), "Task.spawn")
-        let fresh = TaskSlot(frame: None, cell: None, generation: 1, done: true, active: false, runner: 0,
-                             owned: false, pinned: false)
-        alloc_or_fault(group.slots.push(fresh), "Task.spawn")
-    }
-    let generation = group.slots[slot].generation
-    let entry = TaskSlot(frame: frame, cell: cell, generation: generation, done: false,
-                         active: false, runner: 0, owned: owned, pinned: false)
-    group.slots[slot] = entry
-    TaskTicket(slot: slot, generation: generation)
-}
-
-// Retires `slot`: its generation advances, so every handle to the task that
-// left goes stale, and its cell is unlinked for the caller to free (`retire`)
-// and the slot freed for the next spawn. A pinned slot keeps its cell, whose
-// result the caller drops, and is never reused: a peer may still write the
-// cancel word whose address it was handed (`Task.cancel_addr`).
-func recycle(group: &var TaskGroup, slot: Int) unsafe -> Retired {
-    let cell = group.cell_at(slot)
-    let next = group.slots[slot].generation + 1
-    group.slots[slot].generation = next
-    if group.slots[slot].pinned {
-        return Retired(cell: cell as Int, free: false)
-    }
-    group.slots[slot].cell = None
-    alloc_or_fault(group.free.push(slot), "Task.spawn")
-    Retired(cell: cell as Int, free: true)
-}
-
-// The root of `slot` returned `Ready`. Its result moves into the cell and the
-// frame's storage is released, the one place a frame is. The cell holds the
-// result while a handle may still join it, whatever its size, `Void` included,
-// so "holds a result" never depends on the result's bytes. A task no handle
-// claims gives up its slot here, its result dropped by the caller (`retire`),
-// which keeps a group's slots bounded by its live tasks and the finished ones
-// a live handle still claims. A frame has no drop glue, so only a frame whose
-// own code reached its end holds nothing that still needs destroying
-// (SL:coroutines §3.1).
-func complete(group: &var TaskGroup, slot: Int) unsafe -> Retired {
-    let s = group.slots[slot]
-    let cell = group.cell_at(slot)
-    let descriptor = cell[0].descriptor
-    if let frame = s.frame {
-        if s.owned {
-            let from = (frame as Int + descriptor[0].result_offset) as UnsafePointer<Int8>
-            copy_bytes(from, cell[0].result as UnsafePointer<Int8>, descriptor[0].result_size)
-            cell[0].holding = true
-            GlobalAllocator().dealloc(frame as UnsafePointer<Int8>, descriptor[0].size,
-                                      descriptor[0].align)
+extension TaskGroup {
+    // Claims a reclaimed slot, or grows by one. A reused slot keeps the
+    // generation its recycle advanced to.
+    func place(&var self, frame: UnsafePointer<UInt8>, cell: UnsafePointer<TaskCell>,
+               owned: Bool) unsafe -> TaskTicket {
+        var slot = -1
+        if let reused = self.free.pop() {
+            slot = reused
         }
-    }
-    group.slots[slot].frame = None
-    // Ahead of `done`, which the deadlock walk reads first: a walk that finds
-    // the slot done finds the word set when it reads the driving join's park
-    // again (`quiescent_now`).
-    let _ = __saw_atomic_add_i64_seq_cst((&cell[0].finished) as UnsafePointer<Int>, 1)
-    group.slots[slot].done = true
-    if cell[0].unclaimed || not cell[0].holding {
-        return recycle(&var group, slot)
-    }
-    retired_none()
-}
-
-// The handle to `slot` lets go of the task's result without taking it. A task
-// that has finished gives up its slot now, its result dropped by the caller
-// (`retire`); a live one is marked, and `complete` does both when it
-// finishes. A stale handle's slot has moved on, and nothing is done.
-//
-// ENTRY POINTS:
-//   Task.detach
-//   Task.deinit
-func unclaim_slot(group: &var TaskGroup, slot: Int, generation: Int) unsafe -> Retired {
-    if group.stale(slot, generation) {
-        return retired_none()
-    }
-    let cell = group.cell_at(slot)
-    cell[0].unclaimed = true
-    if group.slots[slot].done {
-        return recycle(&var group, slot)
-    }
-    retired_none()
-}
-
-// Asks every live task in `group` to stop.
-func cancel_every_live(group: &var TaskGroup) unsafe {
-    var i = 0
-    while i < group.slots.len() {
-        if not group.slots[i].done {
-            request_cancel(group.cell_at(i))
+        if slot < 0 {
+            slot = self.slots.len()
+            // The free list never outgrows the slots, so reserving here is what
+            // keeps `recycle` from needing to allocate.
+            alloc_or_fault(self.free.reserve(slot + 1), "Task.spawn")
+            let fresh = TaskSlot(frame: None, cell: None, generation: 1, done: true, active: false, runner: 0,
+                                 owned: false, pinned: false)
+            alloc_or_fault(self.slots.push(fresh), "Task.spawn")
         }
-        i = i + 1
+        let generation = self.slots[slot].generation
+        let entry = TaskSlot(frame: frame, cell: cell, generation: generation, done: false,
+                             active: false, runner: 0, owned: owned, pinned: false)
+        self.slots[slot] = entry
+        TaskTicket(slot: slot, generation: generation)
+    }
+}
+
+extension TaskGroup {
+    // Retires `slot`: its generation advances, so every handle to the task that
+    // left goes stale, and its cell is unlinked for the caller to free (`retire`)
+    // and the slot freed for the next spawn. A pinned slot keeps its cell, whose
+    // result the caller drops, and is never reused: a peer may still write the
+    // cancel word whose address it was handed (`Task.cancel_addr`).
+    func recycle(&var self, slot: Int) unsafe -> Retired {
+        let cell = self.cell_at(slot)
+        let next = self.slots[slot].generation + 1
+        self.slots[slot].generation = next
+        if self.slots[slot].pinned {
+            return Retired(cell: cell as Int, free: false)
+        }
+        self.slots[slot].cell = None
+        alloc_or_fault(self.free.push(slot), "Task.spawn")
+        Retired(cell: cell as Int, free: true)
+    }
+}
+
+extension TaskGroup {
+    // The root of `slot` returned `Ready`. Its result moves into the cell and the
+    // frame's storage is released, the one place a frame is. The cell holds the
+    // result while a handle may still join it, whatever its size, `Void` included,
+    // so "holds a result" never depends on the result's bytes. A task no handle
+    // claims gives up its slot here, its result dropped by the caller (`retire`),
+    // which keeps a group's slots bounded by its live tasks and the finished ones
+    // a live handle still claims. A frame has no drop glue, so only a frame whose
+    // own code reached its end holds nothing that still needs destroying
+    // (SL:coroutines §3.1).
+    func complete(&var self, slot: Int) unsafe -> Retired {
+        let s = self.slots[slot]
+        let cell = self.cell_at(slot)
+        let descriptor = cell[0].descriptor
+        if let frame = s.frame {
+            if s.owned {
+                let from = (frame as Int + descriptor[0].result_offset) as UnsafePointer<Int8>
+                copy_bytes(from, cell[0].result as UnsafePointer<Int8>, descriptor[0].result_size)
+                cell[0].holding = true
+                GlobalAllocator().dealloc(frame as UnsafePointer<Int8>, descriptor[0].size,
+                                          descriptor[0].align)
+            }
+        }
+        self.slots[slot].frame = None
+        // Ahead of `done`, which the deadlock walk reads first: a walk that finds
+        // the slot done finds the word set when it reads the driving join's park
+        // again (`quiescent_now`).
+        let _ = __saw_atomic_add_i64_seq_cst((&cell[0].finished) as UnsafePointer<Int>, 1)
+        self.slots[slot].done = true
+        if cell[0].unclaimed || not cell[0].holding {
+            return self.recycle(slot)
+        }
+        retired_none()
+    }
+}
+
+extension TaskGroup {
+    // The handle to `slot` lets go of the task's result without taking it. A task
+    // that has finished gives up its slot now, its result dropped by the caller
+    // (`retire`); a live one is marked, and `complete` does both when it
+    // finishes. A stale handle's slot has moved on, and nothing is done.
+    //
+    // ENTRY POINTS:
+    //   Task.detach
+    //   Task.deinit
+    func unclaim_slot(&var self, slot: Int, generation: Int) unsafe -> Retired {
+        if self.stale(slot, generation) {
+            return retired_none()
+        }
+        let cell = self.cell_at(slot)
+        cell[0].unclaimed = true
+        if self.slots[slot].done {
+            return self.recycle(slot)
+        }
+        retired_none()
+    }
+}
+
+extension TaskGroup {
+    // Asks every live task in this group to stop.
+    func cancel_every_live(&var self) unsafe {
+        var i = 0
+        while i < self.slots.len() {
+            if not self.slots[i].done {
+                request_cancel(self.cell_at(i))
+            }
+            i = i + 1
+        }
     }
 }
 
@@ -1238,7 +1247,7 @@ func cancel_every_live(group: &var TaskGroup) unsafe {
 //
 // ENTRY POINTS:
 //   Task.cancel
-//   cancel_every_live
+//   TaskGroup.cancel_every_live
 func request_cancel(cell: UnsafePointer<TaskCell>) unsafe {
     cell[0].cancel = true
 }
@@ -1310,28 +1319,30 @@ func monotonic_now() -> UInt64 {
     __saw_rt_clock_monotonic_nanos() as UInt64
 }
 
-// Releases every slot's cell, dropping any result nobody took. A slot still
-// holding a frame means a frame would be released before its root returned
-// `Ready`, which would lose that frame's live values unseen. It runs once the
-// group is unlinked (`unregister`), so no walk can reach a cell it frees, and
-// a result's drop runs under no lock.
-//
-// ENTRY POINTS:
-//   TaskGroup.deinit
-//   __saw_exec_close_background
-func release_slots(group: &var TaskGroup) unsafe {
-    var i = 0
-    while i < group.slots.len() {
-        if group.slots[i].frame.is_some() {
-            panic("TaskGroup: a task's frame was released before its root returned Ready")
+extension TaskGroup {
+    // Releases every slot's cell, dropping any result nobody took. A slot still
+    // holding a frame means a frame would be released before its root returned
+    // `Ready`, which would lose that frame's live values unseen. It runs once the
+    // group is unlinked (`unregister`), so no walk can reach a cell it frees, and
+    // a result's drop runs under no lock.
+    //
+    // ENTRY POINTS:
+    //   TaskGroup.deinit
+    //   __saw_exec_close_background
+    func release_slots(&var self) unsafe {
+        var i = 0
+        while i < self.slots.len() {
+            if self.slots[i].frame.is_some() {
+                panic("TaskGroup: a task's frame was released before its root returned Ready")
+            }
+            if let cell = self.slots[i].cell {
+                free_cell(cell)
+                let next = self.slots[i].generation + 1
+                self.slots[i].cell = None
+                self.slots[i].generation = next
+            }
+            i = i + 1
         }
-        if let cell = group.slots[i].cell {
-            free_cell(cell)
-            let next = group.slots[i].generation + 1
-            group.slots[i].cell = None
-            group.slots[i].generation = next
-        }
-        i = i + 1
     }
 }
 
@@ -1351,18 +1362,20 @@ func register(group: &var TaskGroup) unsafe {
     latch_give(record)
 }
 
-// Unlinks `group` from its owner's list, fixing its predecessor's `next`,
-// under the owner's latch: once it returns, no walk is reading the group or
-// can reach it, so its storage may go.
-func unregister(group: &var TaskGroup) unsafe {
-    if not group.registered {
-        return
+extension TaskGroup {
+    // Unlinks this group from its owner's list, fixing its predecessor's `next`,
+    // under the owner's latch: once it returns, no walk is reading the group or
+    // can reach it, so its storage may go.
+    func unregister(&var self) unsafe {
+        if not self.registered {
+            return
+        }
+        let record = self.owner as UnsafePointer<ExecutorRecord>
+        latch_take(record)
+        self.registered = false
+        unlink_group(record, (&self) as UnsafePointer<TaskGroup> as Int, self.next)
+        latch_give(record)
     }
-    let record = group.owner as UnsafePointer<ExecutorRecord>
-    latch_take(record)
-    group.registered = false
-    unlink_group(record, (&group) as UnsafePointer<TaskGroup> as Int, group.next)
-    latch_give(record)
 }
 
 // Removes the group at `me`, whose successor is `after_me`, from `record`'s
@@ -1468,8 +1481,7 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     g[0].slots[slot].active = false
     var retired = retired_none()
     match poll {
-        // Stage 0 workaround (SL:hazards S15): canonical: g[0].complete(slot)
-        case Ready -> { retired = complete(&var g[0], slot) },
+        case Ready -> { retired = g[0].complete(slot) },
         case Pending -> {
             if cell[0].park == PARK_UNSET {
                 // The section's writes are done, so the latch goes back first
@@ -2054,9 +2066,7 @@ func start_crew(group: &var TaskGroup, addr: Int) unsafe {
     let _ = LIVE_POOLS.fetch_add(1)
     var i = 0
     while i < n {
-        // Stage 0 workaround (SL:hazards S2): canonical: match Thread.spawn({ [addr] in exec_worker(addr) }) {
-        let spawned = Thread.spawn({ [addr] in exec_worker(addr) })
-        match spawned {
+        match Thread.spawn({ [addr] in exec_worker(addr) }) {
             case Ok(worker) -> {
                 let _ = LIVE_THREADS.fetch_add(-1)
                 // The handle's fate is the teardown's join: the group
@@ -2169,20 +2179,13 @@ func drive_on_word(word: UnsafePointer<Int>) unsafe {
 // blocks the thread until the worker ends.
 func join_crew(crew: &var Vector<Thread<Void>>) unsafe {
     let drives = this_executor()[0].sweeps > 0
-    var joining = true
-    while joining {
-        // Stage 0 workaround (SL:hazards S2): canonical: while let worker = crew.pop() { var held = move worker; LIVE_THREADS.fetch_add(1); held.__saw_reap() }
-        let next = crew.pop()
-        if let worker = move next {
-            var held = move worker
-            let _ = LIVE_THREADS.fetch_add(1)
-            if drives {
-                drive_on_exit(held.__saw_exit_word())
-            }
-            held.__saw_reap()
-        } else {
-            joining = false
+    while let worker = crew.pop() {
+        var held = move worker
+        let _ = LIVE_THREADS.fetch_add(1)
+        if drives {
+            drive_on_exit(held.__saw_exit_word())
         }
+        held.__saw_reap()
     }
 }
 
@@ -2341,8 +2344,7 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointe
                 }
                 // A pool's walk only tries its lock, so an unclaimed result
                 // may be dropped with it held.
-                // Stage 0 workaround (SL:hazards S15): canonical: retire(g[0].complete(slot))
-                retire(complete(&var g[0], slot))
+                retire(g[0].complete(slot))
                 finished = true
             },
             case Pending -> {
@@ -2473,19 +2475,13 @@ public func __saw_exec_io_register(fd: Int, dir: Int, token: Int) unsafe {
     //   coro_lower_park's offload park (`__saw_park_offload`)
     let word = token as UnsafePointer<Atomic<Int>>
     let recorded = __saw_atomic_load_i64_seq_cst(token as UnsafePointer<Int>)
-    // Stage 0 workaround (SL:hazards S15): canonical: word[0].store(recorded)
-    store_park(&word[0], recorded)
+    word[0].store(recorded)
     let status = __saw_rt_reactor_register(host_reactor(), fd, dir, token)
     if status != 0 {
         let direction = if dir != 0 { "write" } else { "read" }
         panic("reactor: arming fd {} for {} readiness failed (errno {})", fd, direction,
               __saw_rt_last_raw_code())
     }
-}
-
-// Stores park value `value` into the park word `word`.
-func store_park(word: &Atomic<Int>, value: Int) {
-    word.store(value)
 }
 
 // Withdraws the registration a descriptor park armed for `fd` in direction
@@ -2566,14 +2562,11 @@ public func __saw_exec_close_background() unsafe {
         return
     }
     var g = addr as UnsafePointer<TaskGroup>
-    // Stage 0 workaround (SL:hazards S15): canonical: g[0].cancel_every_live()
-    cancel_every_live(&var g[0])
+    g[0].cancel_every_live()
     exec_run(addr, -1, 0)
     // Unlinked first, so no walk reads a cell the release frees.
-    // Stage 0 workaround (SL:hazards S15): canonical: g[0].unregister()
-    unregister(&var g[0])
-    // Stage 0 workaround (SL:hazards S15): canonical: g[0].release_slots()
-    release_slots(&var g[0])
+    g[0].unregister()
+    g[0].release_slots()
     // Its storage stays with the record (`ExecutorRecord.background`); only
     // its run queue is given back.
     drop_in_place(g)
@@ -2590,7 +2583,7 @@ public func __saw_exec_close_background() unsafe {
 public func __saw_exec_drive_main(descriptor: UnsafePointer<FrameDescriptor>,
                                   frame: UnsafePointer<UInt8>) unsafe {
     var root = TaskGroup()
-    let ticket = enqueue(&var root, descriptor, frame, false)
+    let ticket = root.enqueue(descriptor, frame, false)
     let at = (&root) as UnsafePointer<TaskGroup> as Int
     ENTRY_GROUP.store(at)
     exec_run(at, ticket.slot, ticket.generation)
@@ -2704,9 +2697,7 @@ extension Task<T> {
             panic("Task.spawn: the frame's result is {} bytes, and the task's is {}",
                   descriptor[0].result_size, sizeof<T>())
         }
-        var g = group
-        // Stage 0 workaround (SL:hazards S15): canonical: group[0].enqueue(descriptor, frame, true)
-        let ticket = enqueue(&var g[0], descriptor, frame, true)
+        let ticket = group[0].enqueue(descriptor, frame, true)
         if provenance == TaskProvenance.Group {
             handle_minted(group)
         }
@@ -2811,8 +2802,7 @@ extension Task<T> {
         cell[0].holding = false
         let at = cell[0].result as UnsafePointer<T>
         let value = move at[0]
-        // Stage 0 workaround (SL:hazards S15): canonical: g[0].recycle(self.slot)
-        let retired = recycle(&var g[0], self.slot)
+        let retired = g[0].recycle(self.slot)
         unlock_queue(g)
         retire(retired)
         move value
@@ -2880,10 +2870,12 @@ extension Task<T> {
         if self.let_go() {
             return
         }
-        var g = self.group
+        let g = self.group
         lock_queue(g)
-        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
-        let retired = unclaim_slot(&var g[0], self.slot, self.generation)
+        // Stage 0 workaround (SL:hazards S4): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
+        let slot = self.slot
+        let generation = self.generation
+        let retired = self.group[0].unclaim_slot(slot, generation)
         unlock_queue(g)
         retire(retired)
     }
@@ -2906,10 +2898,12 @@ extension Task<T>: NoCopy {
         if self.let_go() {
             return
         }
-        var g = self.group
+        let g = self.group
         lock_queue(g)
-        // Stage 0 workaround (SL:hazards S15): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
-        let retired = unclaim_slot(&var g[0], self.slot, self.generation)
+        // Stage 0 workaround (SL:hazards S4): canonical: self.group[0].unclaim_slot(self.slot, self.generation)
+        let slot = self.slot
+        let generation = self.generation
+        let retired = self.group[0].unclaim_slot(slot, generation)
         unlock_queue(g)
         retire(retired)
     }

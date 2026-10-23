@@ -11,6 +11,6 @@ func main() {
     print(v[0].n)
     v.get(0)?.bump()   // refuses: std-api
     print(v[0].n)
-    v[0].bump()   // refuses: index-receiver-call
+    v[0].bump()
     print(v[0].n)
 }

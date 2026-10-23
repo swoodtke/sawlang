@@ -25,15 +25,8 @@ extension Set<T, A: Allocator = GlobalAllocator> {
     public init(from: Vector<T, A>) -> Result<Set<T, A>, AllocError> {
         var source = move from
         var out = Set<T, A>()
-        var draining = true
-        while draining {
-            // Stage 0 workaround (SL:hazards S2): canonical: while let e = source.pop() { let _ = try out.insert(move e) }
-            let next = source.pop()
-            if let e = move next {
-                let _ = try out.insert(move e)
-            } else {
-                draining = false
-            }
+        while let e = source.pop() {
+            let _ = try out.insert(move e)
         }
         return move out
     }
