@@ -276,8 +276,9 @@ refusal case's body. `@LIST` names a file of inputs, one path per line, a line
 `--unit PATH` for a refusal unit. `--redump` reads a file of dumps, such as an
 expectation file of `compiler/tests/parse/`, into arenas and renders each again,
 keeping every other line; the renderer agrees with its reader exactly when the
-file comes back unchanged. The exit code is 1 when any file is refused, 2 on a
-usage or I/O failure, and 0 otherwise.
+file comes back unchanged. The exit code is 1 when any file is refused or its
+record holds an `INVARIANT` line, 2 on a usage or I/O failure, and 0
+otherwise.
 
 ## The claims
 

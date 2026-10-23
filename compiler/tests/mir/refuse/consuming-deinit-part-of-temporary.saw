@@ -1,0 +1,28 @@
+// refuses: slice.not-yet at 26:13
+// A part read by value two hops off a call's result whose type writes its own
+// `deinit`: taking the part out dissolves the result, which the spec does not
+// say may skip that body.
+
+struct Mid {
+    f: String,
+    pad: String
+}
+
+struct Root {
+    a: Mid,
+    pad: String
+}
+extension Root: NoCopy {
+    func deinit(&var self) {
+        print("released")
+    }
+}
+
+func make(n: Int) -> Root {
+    Root(a: Mid(f: "s{n}", pad: "m{n}"), pad: "r{n}")
+}
+
+func read(n: Int) -> String {
+    let s = make(n).a.f
+    s
+}

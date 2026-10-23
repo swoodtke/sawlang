@@ -89,12 +89,12 @@ fn value_reads.assigned(h: &var value_reads.Holder) {
     }
 
     bb2: {
-        [W] {L0 L1} _6 = ref(shared, _5);
-        [W] {L0 L1 L3} _7 = call std.string.String.len() (owner String) [move _6] -> [return: bb3];
+        [W] {L0 L1} window_close w0 epilogue value_reads.Holder.get() (owner value_reads.Holder) -> [return: bb3];
     }
 
     bb3: {
-        [W] {L0 L1} window_close w0 epilogue value_reads.Holder.get() (owner value_reads.Holder) -> [return: bb4];
+        [W] {} _6 = ref(shared, _5);
+        [W] {L3} _7 = call std.string.String.len() (owner String) [move _6] -> [return: bb4];
     }
 
     bb4: {

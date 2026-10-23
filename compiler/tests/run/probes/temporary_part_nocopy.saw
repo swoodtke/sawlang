@@ -1,0 +1,323 @@
+// probe: stated
+// about: a NoCopy field read by value one to three hops off a fresh value moves out and the rest drops (SL-844)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// prints: call d1 let t1
+// prints: call d1 arg t2
+// prints: call d2 let t3
+// prints: call d2 arg t4
+// prints: call d3 let t5
+// prints: call d3 arg t6
+// prints: coalesce d1 let t7
+// prints: coalesce d1 arg t8
+// prints: coalesce d2 let t9
+// prints: coalesce d2 arg t10
+// prints: coalesce d3 let t11
+// prints: coalesce d3 arg t12
+// prints: match d1 let t13
+// prints: match d1 arg t14
+// prints: match d2 let t15
+// prints: match d2 arg t16
+// prints: match d3 let t17
+// prints: match d3 arg t18
+// prints: force d1 let t19
+// prints: force d1 arg t20
+// prints: force d2 let t21
+// prints: force d2 arg t22
+// prints: force d3 let t23
+// prints: force d3 arg t24
+// prints: epi
+// prints: borrow d1 let t25
+// prints: epi
+// prints: borrow d1 arg t26
+// prints: epi
+// prints: borrow d2 let t27
+// prints: epi
+// prints: borrow d2 arg t28
+// prints: epi
+// prints: borrow d3 let t29
+// prints: epi
+// prints: borrow d3 arg t30
+// Each function reads `f` by value through a chain whose root is a fresh
+// value: a call's result, a `??`, a value `match`, a forced Optional, or a
+// call on a place a statement-form `borrow` lends. The field moves out and
+// the rest of the root drops where it is read, so nothing drops whole after
+// a part left it.
+
+struct Tok {
+    s: String
+}
+
+extension Tok: NoCopy {}
+
+extension Tok: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.s) }
+}
+
+struct R1 {
+    f: Tok,
+    pad: String
+}
+
+extension R1: NoCopy {}
+
+func make1(n: Int) -> R1 {
+    R1(f: Tok(s: "t{n}"), pad: "r{n}")
+}
+
+func maybe1(n: Int) -> R1? {
+    make1(n)
+}
+
+struct M2 {
+    f: Tok,
+    k: Int,
+    pad: String
+}
+
+struct R2 {
+    a: M2,
+    pad: String
+}
+
+extension M2: NoCopy {}
+
+extension R2: NoCopy {}
+
+func make2(n: Int) -> R2 {
+    R2(a: M2(f: Tok(s: "t{n}"), k: n, pad: "m{n}"), pad: "r{n}")
+}
+
+func maybe2(n: Int) -> R2? {
+    make2(n)
+}
+
+struct I3 {
+    f: Tok,
+    pad: String
+}
+
+struct M3 {
+    b: I3,
+    k: Int,
+    pad: String
+}
+
+struct R3 {
+    a: M3,
+    pad: String
+}
+
+extension I3: NoCopy {}
+
+extension M3: NoCopy {}
+
+extension R3: NoCopy {}
+
+func make3(n: Int) -> R3 {
+    R3(a: M3(b: I3(f: Tok(s: "t{n}"), pad: "i{n}"), k: n, pad: "m{n}"), pad: "r{n}")
+}
+
+func maybe3(n: Int) -> R3? {
+    make3(n)
+}
+
+struct Maker {
+    k: Int
+}
+
+extension Maker {
+    func make1(&self, n: Int) -> R1 { make1(n) }
+    func make2(&self, n: Int) -> R2 { make2(n) }
+    func make3(&self, n: Int) -> R3 { make3(n) }
+}
+
+struct Holder {
+    m: Maker
+}
+
+extension Holder {
+    func get(&self) borrows -> &Maker {
+        lend self.m
+        print("epi")
+    }
+}
+
+func take(x: Tok) -> String {
+    "{x}"
+}
+
+func call_d1_let(n: Int) -> String {
+    let x = make1(n).f
+    "{x}"
+}
+
+func call_d1_arg(n: Int) -> String {
+    take(make1(n).f)
+}
+
+func call_d2_let(n: Int) -> String {
+    let x = make2(n).a.f
+    "{x}"
+}
+
+func call_d2_arg(n: Int) -> String {
+    take(make2(n).a.f)
+}
+
+func call_d3_let(n: Int) -> String {
+    let x = make3(n).a.b.f
+    "{x}"
+}
+
+func call_d3_arg(n: Int) -> String {
+    take(make3(n).a.b.f)
+}
+
+func coalesce_d1_let(n: Int) -> String {
+    let x = (maybe1(n) ?? make1(0)).f
+    "{x}"
+}
+
+func coalesce_d1_arg(n: Int) -> String {
+    take((maybe1(n) ?? make1(0)).f)
+}
+
+func coalesce_d2_let(n: Int) -> String {
+    let x = (maybe2(n) ?? make2(0)).a.f
+    "{x}"
+}
+
+func coalesce_d2_arg(n: Int) -> String {
+    take((maybe2(n) ?? make2(0)).a.f)
+}
+
+func coalesce_d3_let(n: Int) -> String {
+    let x = (maybe3(n) ?? make3(0)).a.b.f
+    "{x}"
+}
+
+func coalesce_d3_arg(n: Int) -> String {
+    take((maybe3(n) ?? make3(0)).a.b.f)
+}
+
+func match_d1_let(n: Int) -> String {
+    let x = (match n { case 0 -> make1(0), case _ -> make1(n) }).f
+    "{x}"
+}
+
+func match_d1_arg(n: Int) -> String {
+    take((match n { case 0 -> make1(0), case _ -> make1(n) }).f)
+}
+
+func match_d2_let(n: Int) -> String {
+    let x = (match n { case 0 -> make2(0), case _ -> make2(n) }).a.f
+    "{x}"
+}
+
+func match_d2_arg(n: Int) -> String {
+    take((match n { case 0 -> make2(0), case _ -> make2(n) }).a.f)
+}
+
+func match_d3_let(n: Int) -> String {
+    let x = (match n { case 0 -> make3(0), case _ -> make3(n) }).a.b.f
+    "{x}"
+}
+
+func match_d3_arg(n: Int) -> String {
+    take((match n { case 0 -> make3(0), case _ -> make3(n) }).a.b.f)
+}
+
+func force_d1_let(n: Int) -> String {
+    let x = maybe1(n)!.f
+    "{x}"
+}
+
+func force_d1_arg(n: Int) -> String {
+    take(maybe1(n)!.f)
+}
+
+func force_d2_let(n: Int) -> String {
+    let x = maybe2(n)!.a.f
+    "{x}"
+}
+
+func force_d2_arg(n: Int) -> String {
+    take(maybe2(n)!.a.f)
+}
+
+func force_d3_let(n: Int) -> String {
+    let x = maybe3(n)!.a.b.f
+    "{x}"
+}
+
+func force_d3_arg(n: Int) -> String {
+    take(maybe3(n)!.a.b.f)
+}
+
+func borrow_d1_let(n: Int) -> String {
+    let h = Holder(m: Maker(k: 0))
+    let x = borrow h.get().make1(n).f
+    "{x}"
+}
+
+func borrow_d1_arg(n: Int) -> String {
+    let h = Holder(m: Maker(k: 0))
+    take(borrow h.get().make1(n).f)
+}
+
+func borrow_d2_let(n: Int) -> String {
+    let h = Holder(m: Maker(k: 0))
+    let x = borrow h.get().make2(n).a.f
+    "{x}"
+}
+
+func borrow_d2_arg(n: Int) -> String {
+    let h = Holder(m: Maker(k: 0))
+    take(borrow h.get().make2(n).a.f)
+}
+
+func borrow_d3_let(n: Int) -> String {
+    let h = Holder(m: Maker(k: 0))
+    let x = borrow h.get().make3(n).a.b.f
+    "{x}"
+}
+
+func borrow_d3_arg(n: Int) -> String {
+    let h = Holder(m: Maker(k: 0))
+    take(borrow h.get().make3(n).a.b.f)
+}
+
+func main() {
+    print("call d1 let {}", call_d1_let(1))
+    print("call d1 arg {}", call_d1_arg(2))
+    print("call d2 let {}", call_d2_let(3))
+    print("call d2 arg {}", call_d2_arg(4))
+    print("call d3 let {}", call_d3_let(5))
+    print("call d3 arg {}", call_d3_arg(6))
+    print("coalesce d1 let {}", coalesce_d1_let(7))
+    print("coalesce d1 arg {}", coalesce_d1_arg(8))
+    print("coalesce d2 let {}", coalesce_d2_let(9))
+    print("coalesce d2 arg {}", coalesce_d2_arg(10))
+    print("coalesce d3 let {}", coalesce_d3_let(11))
+    print("coalesce d3 arg {}", coalesce_d3_arg(12))
+    print("match d1 let {}", match_d1_let(13))
+    print("match d1 arg {}", match_d1_arg(14))
+    print("match d2 let {}", match_d2_let(15))
+    print("match d2 arg {}", match_d2_arg(16))
+    print("match d3 let {}", match_d3_let(17))
+    print("match d3 arg {}", match_d3_arg(18))
+    print("force d1 let {}", force_d1_let(19))
+    print("force d1 arg {}", force_d1_arg(20))
+    print("force d2 let {}", force_d2_let(21))
+    print("force d2 arg {}", force_d2_arg(22))
+    print("force d3 let {}", force_d3_let(23))
+    print("force d3 arg {}", force_d3_arg(24))
+    print("borrow d1 let {}", borrow_d1_let(25))
+    print("borrow d1 arg {}", borrow_d1_arg(26))
+    print("borrow d2 let {}", borrow_d2_let(27))
+    print("borrow d2 arg {}", borrow_d2_arg(28))
+    print("borrow d3 let {}", borrow_d3_let(29))
+    print("borrow d3 arg {}", borrow_d3_arg(30))
+}

@@ -128,6 +128,12 @@ public struct MirProgram {
     // windows in receiver position, before the arguments that follow them
     // (`open_receiver_windows` in lower.saw).
     defer_windows: Bool
+    // The expression a statement-form `borrow` reads, whose windows close at
+    // the first value a call returns along its chain, and the scope entry
+    // they are registered from; -1 outside one, or once they have closed
+    // (`prepare_borrow` in lower.saw).
+    borrow_spine: Int
+    borrow_mark: Int
 }
 
 extension MirProgram: NoCopy {}
@@ -176,5 +182,5 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
                leftover_parts: Vector<Int>(), release_fields: Vector<Int>(), release_types: Vector<Int>(),
                aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,
-               order_now: 0, at: -1, at_closing: false, defer_windows: false)
+               order_now: 0, at: -1, at_closing: false, defer_windows: false, borrow_spine: -1, borrow_mark: 0)
 }

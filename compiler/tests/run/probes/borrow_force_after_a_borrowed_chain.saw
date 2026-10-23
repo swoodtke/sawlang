@@ -1,0 +1,24 @@
+// probe: stated
+// about: the spelling the getitem copy refusal suggests, a force at the end of a borrowed chain, compiles and reads in place (SL-844)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// prints: true
+// prints: false
+// `transfer.implicit-copy` on `doc.as_array()![0].as_text()!` suggests
+// writing `borrow` before the whole chain; this is that spelling.
+
+import std.json.{JsonValue}
+
+func first_is(doc: &JsonValue, target: String) -> Bool {
+    let s = borrow doc.as_array()![0].as_text()!
+    s == target
+}
+
+func main() {
+    var words = Vector<JsonValue>()
+    try! words.push(JsonValue.Text("a"))
+    let doc = JsonValue.Array(move words)
+    print(first_is(&doc, "a"))
+    print(first_is(&doc, "b"))
+}

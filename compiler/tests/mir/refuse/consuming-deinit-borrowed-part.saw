@@ -1,0 +1,39 @@
+// refuses: slice.not-yet at 38:10
+// A part a statement-form `borrow` reads by value out of a call's result whose
+// type writes its own `deinit`: the plain read's refusal, reached through the
+// borrow.
+
+struct Token {
+    tag: String
+}
+extension Token: NoCopy {
+    func deinit(&var self) {
+        print("drop {self.tag}")
+    }
+}
+
+struct Res {
+    name: String
+}
+
+extension Res {
+    func make(&self) -> Token { Token(tag: self.name) }
+}
+
+struct Holder {
+    r: Res
+}
+
+extension Holder {
+    func get(&self) borrows -> &Res {
+        lend self.r
+    }
+}
+
+func join(a: String, b: String) -> String {
+    a
+}
+
+func read(h: &Holder) -> String {
+    join(borrow h.get().make().tag, "c")
+}

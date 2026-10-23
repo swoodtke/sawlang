@@ -1,0 +1,177 @@
+// probe: stated
+// about: a part read by value through tuple, forced and `try!` hops off a fresh value moves out at every position that takes it (SL-844)
+// stage 0: a recorded run says nothing of a leak, which this probe is held to
+// speeds: -O0 -O2
+// leaks: none
+// prints: tuple field y7
+// prints: tuple element p7
+// prints: tuple last z7
+// prints: forced middle s7
+// prints: try then forced s7
+// prints: try field r7
+// prints: return s7
+// prints: tail s7
+// prints: field s7
+// prints: assignment s7
+// prints: payload s7
+// prints: literal s7
+// prints: coalesce s7
+// prints: tuple literal s7
+// prints: if let s7
+// prints: compare true
+// Each function takes a part two or more hops off a call's result; the rest
+// of the result drops where the part is read.
+
+struct Pair {
+    t: (String, String),
+    k: Int
+}
+
+struct Duo {
+    a: Pair,
+    pair: (Pair, String)
+}
+
+func duo(n: Int) -> Duo {
+    Duo(a: Pair(t: ("x{n}", "y{n}"), k: n), pair: (Pair(t: ("p{n}", "q{n}"), k: n), "z{n}"))
+}
+
+struct Inner {
+    s: String,
+    pad: String
+}
+
+struct Outer {
+    o: Inner?,
+    pad: String
+}
+
+enum Bad {
+    case Nope
+}
+
+func outer(n: Int) -> Outer {
+    Outer(o: Inner(s: "s{n}", pad: "i{n}"), pad: "r{n}")
+}
+
+func outer_result(n: Int) -> Result<Outer, Bad> {
+    outer(n)
+}
+
+struct Mid {
+    f: String,
+    pad: String
+}
+
+struct Root {
+    a: Mid,
+    pad: String
+}
+
+func root(n: Int) -> Root {
+    Root(a: Mid(f: "s{n}", pad: "m{n}"), pad: "r{n}")
+}
+
+struct OptionalMid {
+    f: String?,
+    pad: String
+}
+
+struct OptionalRoot {
+    a: OptionalMid,
+    pad: String
+}
+
+func optional_root(n: Int) -> OptionalRoot {
+    OptionalRoot(a: OptionalMid(f: "s{n}", pad: "m{n}"), pad: "r{n}")
+}
+
+struct Held {
+    s: String
+}
+
+enum Wrap {
+    case Full(s: String),
+    case Empty
+}
+
+func absent(n: Int) -> String? {
+    if n > 100 { None } else { "o{n}" }
+}
+
+func take(x: String) -> String {
+    x
+}
+
+func at_return(n: Int) -> String {
+    return root(n).a.f
+}
+
+func at_tail(n: Int) -> String {
+    root(n).a.f
+}
+
+func at_field(n: Int) -> String {
+    let h = Held(s: root(n).a.f)
+    h.s
+}
+
+func at_assignment(n: Int) -> String {
+    var s = "x"
+    s = root(n).a.f
+    s
+}
+
+func at_payload(n: Int) -> String {
+    let w = Wrap.Full(s: root(n).a.f)
+    match w {
+        case Full(s) -> s,
+        case Empty -> "none"
+    }
+}
+
+func at_literal(n: Int) -> String {
+    let v: Vector<String> = [root(n).a.f, "z"]
+    v[0]
+}
+
+func at_coalesce(n: Int) -> String {
+    absent(n + 1000) ?? root(n).a.f
+}
+
+func at_tuple(n: Int) -> String {
+    let t = (root(n).a.f, 1)
+    t.0
+}
+
+func at_if_let(n: Int) -> String {
+    if let s = optional_root(n).a.f {
+        return s
+    }
+    "none"
+}
+
+func main() {
+    let a = duo(7).a.t.1
+    print("tuple field {}", a)
+    let b = take(duo(7).pair.0.t.0)
+    print("tuple element {}", b)
+    let c = duo(7).pair.1
+    print("tuple last {}", c)
+    let d = outer(7).o!.s
+    print("forced middle {}", d)
+    let e = take((try! outer_result(7)).o!.s)
+    print("try then forced {}", e)
+    let f = (try! outer_result(7)).pad
+    print("try field {}", f)
+    print("return {}", at_return(7))
+    print("tail {}", at_tail(7))
+    print("field {}", at_field(7))
+    print("assignment {}", at_assignment(7))
+    print("payload {}", at_payload(7))
+    print("literal {}", at_literal(7))
+    print("coalesce {}", at_coalesce(7))
+    print("tuple literal {}", at_tuple(7))
+    print("if let {}", at_if_let(7))
+    print("compare {}", root(7).a.f == "s7")
+}

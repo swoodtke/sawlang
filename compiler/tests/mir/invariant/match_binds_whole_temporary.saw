@@ -1,0 +1,19 @@
+// A program the MIR verifier finds an invariant broken in, for the check that
+// every stage's command exits 1 on an `INVARIANT` line: a `match` over a
+// call's result whose arm binds all of it leaves that result with no drop
+// (SL-852). Once that is fixed, this check needs another such program.
+
+func make(n: Int) -> String {
+    "s{n}"
+}
+
+func take(x: String) -> String {
+    x
+}
+
+func main() {
+    let r = match make(7) {
+        case x -> take(move x)
+    }
+    print(r)
+}

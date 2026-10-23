@@ -37,7 +37,7 @@ starting with the line `FILE<TAB>path`, holding in order:
 
 MIR some verifier found a problem in is not elaborated: the drops it holds
 are not the ones the program owes. The exit code is 1 when any program has a
-refusal, 2 on a usage failure, and 0 otherwise.
+refusal or an `INVARIANT` line, 2 on a usage failure, and 0 otherwise.
 
 ## Elaboration
 

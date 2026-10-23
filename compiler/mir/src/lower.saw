@@ -38,8 +38,9 @@ import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC,
-                               TC_EFFECT_CONSUMES, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcCall,
-                               TcCapture, TcLend, TcParam, TcReceiver, TcRole, TcSig, TcUse}
+                               TC_EFFECT_CONSUMES, TC_FLAG_BORROWS_STRUCT, TC_TIER_COPY, TcAdjust,
+                               TcAdjustKind, TcCall, TcCapture, TcLend, TcParam, TcReceiver, TcRole, TcSig,
+                               TcUse}
 import sawtypecheck.summaries.{tc_solve_summaries}
 import sawtypecheck.types.{TcKind, TcType}
 
@@ -2251,12 +2252,14 @@ extension MirProgram {
     // THE VALUE-READ CLOSE FUNNEL: a statement-form borrow whose result is
     // only a value closes once the value is read, so the windows registered
     // since scope entry `mark` close here, newest first, and are forgotten.
-    // One used by reference keeps them for that use (spec, The `borrow`
-    // construct).
+    // One used by reference keeps them for that use, unless the reference
+    // reaches into a value a call returned, which holds nothing of the place
+    // (spec, The `borrow` construct).
     //
     // ENTRY POINTS (close_windows_since):
     //     borrow_place_val
     //     prepare_borrow
+    //     close_at_fresh_value
     func close_windows_since(&var self, mark: Int) {
         var k = self.scope.len() - 1
         var closed = Vector<Int>()
@@ -2409,18 +2412,53 @@ extension MirProgram {
         }
     }
 
-    // The statement form `borrow PLACE…`: its chain prepared, and, when the
-    // chain ends in a value a call returned rather than in the lent place,
-    // its windows closed as soon as that value is complete. Only a `borrows`
-    // function may return a reference, a slice or a borrowing struct, so
-    // such a value holds nothing of the place (SL:borrowing §2.2).
+    // The statement form `borrow PLACE…`: its chain prepared, a part the
+    // position takes by value out of a value a call returned taken out of
+    // it, and its windows closed at the first such value along the chain
+    // (`close_at_fresh_value`), whatever the use. Only a `borrows` function
+    // may return a reference, a slice or a borrowing struct, so any other
+    // value holds nothing of the place (SL:borrowing §2.2).
     func prepare_borrow(&var self, e: Int, steps: &var Vector<MirStep>) {
         let inner = self.tc.res.first_node_child(e)
         let mark = self.scope.len()
+        let outer_spine = self.borrow_spine
+        let outer_mark = self.borrow_mark
+        self.borrow_spine = inner
+        self.borrow_mark = mark
         self.prepare_base(inner, &var steps)
-        if steps.len() == 1 && steps[0].fresh {
+        self.borrow_spine = outer_spine
+        self.borrow_mark = outer_mark
+        // A borrow handed on as a reference takes nothing out of the value.
+        if self.tc.referent(self.tc.expr_types[e]) < 0 {
+            self.take_from_temporary(e, &var steps)
+        }
+        if self.crosses_fresh_value(&steps) {
             self.close_windows_since(mark)
         }
+    }
+
+    // Whether plan `steps` names a value a call returned, or a part of one,
+    // whose type holds no loan.
+    func crosses_fresh_value(&self, steps: &Vector<MirStep>) -> Bool {
+        if steps.len() == 0 || not self.within_root(&steps) {
+            return false
+        }
+        if not steps[0].fresh && self.temporary_root(&steps) < 0 {
+            return false
+        }
+        let t = self.place_type(steps[0].place)
+        self.holds_no_loan(t)
+    }
+
+    // Whether a value of type `t` is no reference, slice or borrowing
+    // struct, the values a `borrows` function lends out of a place.
+    func holds_no_loan(&self, t: Int) -> Bool {
+        let kind = self.tc.kind_of(t)
+        if kind == TcKind.Ref || kind == TcKind.Slice || self.lent_optional(t) {
+            return false
+        }
+        let d = self.tc.nominal_decl(t)
+        d < 0 || (self.tc.sigs[d].flags & TC_FLAG_BORROWS_STRUCT) == 0
     }
 
     // Opens the windows plan `steps` holds now, leaving one root step naming
@@ -2498,6 +2536,48 @@ extension MirProgram {
         let p = self.as_place(v, e)
         let whole = self.bare_local(p) >= 0
         self.push_root(&var steps, e, p, fresh && whole)
+        if fresh && whole {
+            self.close_at_fresh_value(e, p)
+        }
+    }
+
+    // The windows of the statement-form `borrow` whose chain value `e`
+    // stands on close once `e`'s value, made here in place `p`, is complete:
+    // it holds nothing of the place they lend, so nothing later in the chain
+    // reaches that place (spec, The `borrow` construct). An argument of a
+    // call along the chain is not on it.
+    func close_at_fresh_value(&var self, e: Int, p: Int) {
+        if self.borrow_spine < 0 || not self.on_borrow_spine(e) {
+            return
+        }
+        let t = self.place_type(p)
+        if not self.holds_no_loan(t) {
+            return
+        }
+        let mark = self.borrow_mark
+        self.borrow_spine = -1
+        self.close_windows_since(mark)
+    }
+
+    // Whether node `e` is the expression the current statement-form borrow
+    // reads, or the base each of its projections and calls reads through.
+    func on_borrow_spine(&self, e: Int) -> Bool {
+        var node = self.borrow_spine
+        while node >= 0 {
+            if node == e {
+                return true
+            }
+            let along = (self.tc.has_alt(node, Alt.Expr_Member) || self.tc.is_call_alt(node)
+                         || self.tc.has_alt(node, Alt.Expr_Subscript_Single)
+                         || self.tc.has_alt(node, Alt.Expr_Subscript_Multi)
+                         || self.tc.has_alt(node, Alt.Expr_TupleIndex) || self.tc.has_alt(node, Alt.Expr_Force)
+                         || self.tc.has_alt(node, Alt.Expr_Paren))
+            if not along {
+                return false
+            }
+            node = self.tc.res.first_node_child(node)
+        }
+        false
     }
 
     func prepare_name(&var self, e: Int, steps: &var Vector<MirStep>) {
@@ -5479,10 +5559,12 @@ extension MirProgram {
                 j = j + 1
             }
         } else if step.kind == MirProjKind.Payload || step.kind == MirProjKind.Force {
+            // A payload a forced read reached is reached the same way, since
+            // no switch on this path proves its case.
             let types = self.payload_types(ty, step.decl)
             var j = 0
             while j < types.len() {
-                try! parts.push(self.project(base, MirProjKind.Payload, step.decl, j, types[j]))
+                try! parts.push(self.project(base, step.kind, step.decl, j, types[j]))
                 j = j + 1
             }
         } else if step.kind == MirProjKind.Field {
@@ -5626,25 +5708,79 @@ extension MirProgram {
         (u == TcUse.Move || u == TcUse.Temp) && self.owns(t)
     }
 
-    // A plan whose last step projects a part `e` reads out of a temporary:
-    // when the position takes the part by value and it owns something, the
-    // part moves into a temporary of its own, the root is dissolved around
-    // it, and the plan becomes that temporary.
+    // THE TEMPORARY-PART FUNNEL: a plan reading a part of an owned
+    // temporary, at any depth. When the position `e` names takes the part by
+    // value and it owns something, the part moves into a temporary of its
+    // own, the temporary it was read out of is dissolved around it, never
+    // dropped whole, and the plan becomes the new temporary. `e` is the
+    // projection itself, or a statement-form `borrow` whose use is the
+    // position's.
+    //
+    // ENTRY POINTS (take_from_temporary):
+    //     prepare_as
+    //     prepare_member
+    //     prepare_borrow
     func take_from_temporary(&var self, e: Int, steps: &var Vector<MirStep>) {
-        if steps.len() != 2 || not steps[0].fresh {
+        let l = self.temporary_root(&steps)
+        if l < 0 {
             return
         }
-        let t = steps[1].ty
+        let t = steps[steps.len() - 1].ty
         if not self.takes_payload(e, t) {
             return
         }
         let p = self.realize_all(&steps)
-        let root = steps[0].place
-        self.forget_temp(root)
-        let moved = self.take_payload(root, p, e)
+        self.forget_local(l)
+        let whole = self.place_local(l)
+        let moved = self.take_payload(whole, p, e)
         let q = self.operands[moved].place
         steps = Vector<MirStep>()
         self.push_root(&var steps, e, q, true)
+    }
+
+    // The owned temporary plan `steps` reads a part of, or -1. Its root is a
+    // value a call returned or a payload place inside one, as `try!` reads,
+    // and every later step stays inside it.
+    func temporary_root(&self, steps: &Vector<MirStep>) -> Int {
+        if steps.len() < 2 || not self.within_root(&steps) {
+            return -1
+        }
+        let info = self.places[steps[0].place]
+        if info.local < 0 {
+            return -1
+        }
+        let l = self.local(info.local)
+        if l.kind != MirLocalKind.Temp || not l.owned {
+            return -1
+        }
+        var k = 0
+        while k < info.count {
+            let kind = self.projs[info.first + k].kind
+            let inside = (kind == MirProjKind.Field || kind == MirProjKind.Tuple || kind == MirProjKind.Payload
+                          || kind == MirProjKind.Force)
+            if not inside {
+                return -1
+            }
+            k = k + 1
+        }
+        info.local
+    }
+
+    // Whether plan `steps` is a root followed only by steps that stay inside
+    // its value: fields, tuple elements and payloads.
+    func within_root(&self, steps: &Vector<MirStep>) -> Bool {
+        if steps.len() == 0 || steps[0].kind != MIR_STEP_ROOT {
+            return false
+        }
+        var k = 1
+        while k < steps.len() {
+            let kind = steps[k].kind
+            if kind != MIR_STEP_FIELD && kind != MIR_STEP_TUPLE && kind != MIR_STEP_FORCE {
+                return false
+            }
+            k = k + 1
+        }
+        true
     }
 
     // Takes the temporary place `p` names off its scope.

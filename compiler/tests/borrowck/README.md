@@ -44,9 +44,9 @@ line `FILE<TAB>path`, holding in order:
 - one `INVARIANT<TAB>module<TAB>message` line per problem its verifier finds;
 - with `--dump`, the dump of each module checked in full, in load order.
 
-The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
-otherwise. Every function the MIR stage lowered and refused nowhere is
-checked.
+The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
+a usage failure, and 0 otherwise. Every function the MIR stage lowered and
+refused nowhere is checked.
 
 ## The initialisation analysis
 

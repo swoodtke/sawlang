@@ -1,0 +1,22 @@
+// refuses: slice.not-yet at 20:13
+// A field read by value through a forced Optional a call returned, whose
+// payload's type writes its own `deinit`.
+
+struct Root {
+    f: String,
+    pad: String
+}
+extension Root: NoCopy {
+    func deinit(&var self) {
+        print("released")
+    }
+}
+
+func maybe(n: Int) -> Root? {
+    Root(f: "s{n}", pad: "r{n}")
+}
+
+func read(n: Int) -> String {
+    let s = maybe(n)!.f
+    s
+}

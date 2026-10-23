@@ -148,3 +148,19 @@ func iterated(items: Vector<String>) -> Int {
 extension Holder {
     func take_kept(&var self) consumes -> Res { move self.kept }
 }
+
+// A part two hops into a temporary, one past a forced payload, and one of
+// `try!`'s payload: each temporary is dissolved around its part.
+struct Nest { inner: Holder, spare: Res }
+extension Nest: NoCopy {}
+
+func nest(n: Int) -> Nest { Nest(inner: holder(n), spare: fresh(n)) }
+func maybe_holder(n: Int) -> Holder? { holder(n) }
+func risky_holder(n: Int) -> Result<Holder, Fault> { holder(n) }
+
+func deep_temporary_parts(n: Int) -> Int {
+    let a = nest(n).inner.kept
+    let b = maybe_holder(n)!.other
+    let c = (try! risky_holder(n)).kept
+    use_res(move a) + use_res(move b) + use_res(move c)
+}

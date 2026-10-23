@@ -41,8 +41,8 @@ paths, one per line. Each entry gets one record, starting with the line
 - with `--dump`, the dump of each module resolved in full, in load order: the
   entry first, then the modules it imports that are not std's.
 
-The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
-otherwise.
+The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
+a usage failure, and 0 otherwise.
 
 ## The dump
 

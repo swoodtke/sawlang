@@ -1,0 +1,119 @@
+// probe: stated
+// about: a statement-form borrow whose chain crosses a call's result closes its window at that result, for every use of what follows (SL-844)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// prints: arg trivial
+// prints: epi
+// prints: in-take 7
+// prints: got 7
+// prints: arg owning
+// prints: epi
+// prints: in-take s7
+// prints: got s7
+// prints: let owning
+// prints: epi
+// prints: got s7
+// prints: reference trivial
+// prints: epi
+// prints: in-look 7
+// prints: got 7
+// prints: reference owning
+// prints: epi
+// prints: in-look s7
+// prints: got s7
+// prints: receiver owning
+// prints: epi
+// prints: in-describe s7
+// prints: got s7
+// prints: rendered owning
+// prints: epi
+// prints: got s7
+// prints: argument of the call
+// prints: loud 7
+// prints: epi
+// prints: in-take 7
+// prints: got 7
+// A call's result holds nothing of the place `get()` lends, so the window
+// closes once the result is complete, before the field read out of it is
+// used, whether by value or by reference; an argument of that call still runs
+// inside the window.
+
+struct Res {
+    n: Int,
+    s: String,
+    pad: String
+}
+
+struct Maker {
+    name: String
+}
+
+extension Maker {
+    func make(&self, n: Int) -> Res { Res(n: n, s: "s{n}", pad: "p{n}") }
+}
+
+struct Holder {
+    m: Maker
+}
+
+extension Holder {
+    func get(&self) borrows -> &Maker {
+        lend self.m
+        print("epi")
+    }
+}
+
+func loud(n: Int) -> Int {
+    print("loud {}", n)
+    n
+}
+
+func take_int(x: Int) -> String {
+    print("in-take {}", x)
+    "{x}"
+}
+
+func take_string(x: String) -> String {
+    print("in-take {}", x)
+    x
+}
+
+func look_int(x: &Int) -> String {
+    print("in-look {}", x)
+    "{x}"
+}
+
+func look_string(x: &String) -> String {
+    print("in-look {}", x)
+    x
+}
+
+extension String {
+    func describe(&self) -> String {
+        print("in-describe {}", self)
+        self
+    }
+}
+
+func main() {
+    let h = Holder(m: Maker(name: "p0"))
+    print("arg trivial")
+    print("got {}", take_int(borrow h.get().make(7).n))
+    print("arg owning")
+    print("got {}", take_string(borrow h.get().make(7).s))
+    print("let owning")
+    let s = borrow h.get().make(7).s
+    print("got {}", s)
+    print("reference trivial")
+    print("got {}", look_int(borrow h.get().make(7).n))
+    print("reference owning")
+    print("got {}", look_string(borrow h.get().make(7).s))
+    print("receiver owning")
+    print("got {}", borrow h.get().make(7).s.describe())
+    print("rendered owning")
+    let line = "got {borrow h.get().make(7).s}"
+    print(line)
+    print("argument of the call")
+    print("got {}", take_int(borrow h.get().make(loud(7)).n))
+}

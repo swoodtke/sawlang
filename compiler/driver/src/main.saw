@@ -43,16 +43,16 @@
 // compiler/tests/drops/README.md, and coroutine lowering's in
 // compiler/tests/coro/README.md.
 // A lex error prints one ERROR record and
-// exits 1, and so does a file a later stage refuses; a usage or I/O failure
-// prints a message and exits 2. With no `--std-root`, a command compiles
-// against the `std/` of the sawlang tree this binary was built in
-// (`driver_std_root`), whatever the working directory.
+// exits 1, and so does a file a later stage refuses or whose record holds an
+// INVARIANT line; a usage or I/O failure prints a message and exits 2. With no
+// `--std-root`, a command compiles against the `std/` of the sawlang tree this
+// binary was built in (`driver_std_root`), whatever the working directory.
 
 import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
 import sawcoro.api.{CoroOptions, coro_record}
 import sawcoro.bttable.{coro_bt_record}
-import sawdrops.api.{DropsOptions, drops_record}
+import sawdrops.api.{DropsOptions, drops_has_invariant, drops_record}
 import saweval.api.{EvalOptions, eval_record}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting}
@@ -1001,9 +1001,9 @@ func driver_mono(args: &Vector<String>) -> Int {
             if counted {
                 driver_append_lowerings(&var out, lowerings)
             }
-            print(out.build())
-            if result > status {
-                status = result
+            let printed = driver_print_record(&var out, result)
+            if printed > status {
+                status = printed
             }
         }
         k = k + 1
@@ -1098,9 +1098,9 @@ func driver_coro(args: &Vector<String>) -> Int {
             } else {
                 result = coro_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs)
             }
-            print(out.build())
-            if result > status {
-                status = result
+            let printed = driver_print_record(&var out, result)
+            if printed > status {
+                status = printed
             }
         }
         k = k + 1
@@ -1273,9 +1273,9 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             if counted {
                 driver_append_lowerings(&var out, lowerings)
             }
-            print(out.build())
-            if result > status {
-                status = result
+            let printed = driver_print_record(&var out, result)
+            if printed > status {
+                status = printed
             }
         }
         k = k + 1
@@ -1410,11 +1410,29 @@ func driver_parse_one(input: &DriverInput, dump: Bool, reread: Bool, alternative
         }
         let options = ParseOptions(unit: input.unit, dump: dump, alternatives: alternatives)
         let status = parse_record(out: &var out, path: input.path, text: text, options: &options)
-        print(out.build())
-        return status
+        return driver_print_record(&var out, status)
     }
     print(out.build())
     DRIVER_EXIT_USAGE
+}
+
+// THE RECORD STATUS FUNNEL: prints a finished record and returns its
+// stage's exit status, raised to 1 when the record holds an `INVARIANT`
+// line. A broken invariant is a compiler bug, which a command never reports
+// as a success.
+//
+// ENTRY POINTS (driver_print_record):
+//     driver_parse_one
+//     driver_resolve
+//     driver_mono
+//     driver_coro
+func driver_print_record(out: &var StringBuilder, status: Int) -> Int {
+    let text = out.build()
+    print(text)
+    if status == 0 && drops_has_invariant(text) {
+        return 1
+    }
+    status
 }
 
 // `sawc2 lex`: the arguments after the subcommand name one file or one `@LIST`,

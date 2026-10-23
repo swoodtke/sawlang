@@ -885,3 +885,122 @@ fn destructures.Holder.take_kept() -> destructures.Res {
         return;
     }
 }
+
+fn destructures.nest(n: Int) -> destructures.Nest {
+    let _0: destructures.Nest;  // return
+    let _1: Int;  // param n
+    let _2: destructures.Holder;
+    let _3: destructures.Res;
+    let _4: destructures.Nest;
+
+    bb0: {
+        _2 = call destructures.holder(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = call destructures.fresh(n: Int) [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        _4 = destructures.Nest { inner: move _2, spare: move _3 };
+        _0 = move _4;
+        return;
+    }
+}
+
+fn destructures.maybe_holder(n: Int) -> destructures.Holder? {
+    let _0: destructures.Holder?;  // return
+    let _1: Int;  // param n
+    let _2: destructures.Holder;
+    let _3: destructures.Holder?;
+
+    bb0: {
+        _2 = call destructures.holder(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = destructures.Holder?::Some(move _2);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn destructures.risky_holder(n: Int) -> Result<destructures.Holder, destructures.Fault> {
+    let _0: Result<destructures.Holder, destructures.Fault>;  // return
+    let _1: Int;  // param n
+    let _2: destructures.Holder;
+    let _3: Result<destructures.Holder, destructures.Fault>;
+
+    bb0: {
+        _2 = call destructures.holder(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _3 = Result<destructures.Holder, destructures.Fault>::Ok(move _2);
+        _0 = move _3;
+        return;
+    }
+}
+
+fn destructures.deep_temporary_parts(n: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param n
+    let _2: destructures.Res;  // a
+    let _3: destructures.Nest;
+    let _4: destructures.Res;
+    let _5: destructures.Res;  // b
+    let _6: destructures.Holder?;
+    let _7: destructures.Res;
+    let _8: destructures.Res;  // c
+    let _9: Result<destructures.Holder, destructures.Fault>;
+    let _10: destructures.Res;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+
+    bb0: {
+        _3 = call destructures.nest(n: Int) [copy _1] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = move _3.inner.kept;
+        drop(_3.spare);
+        drop(_3.inner.other);
+        _2 = move _4;
+        _6 = call destructures.maybe_holder(n: Int) [copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        _7 = move (_6 as Some!).0.other;
+        drop((_6 as Some!).0.kept);
+        _5 = move _7;
+        _9 = call destructures.risky_holder(n: Int) [copy _1] -> [return: bb3];
+    }
+
+    bb3: {
+        _10 = move (_9 as Ok!).0.kept;
+        drop((_9 as Ok!).0.other);
+        _8 = move _10;
+        _11 = call destructures.use_res(r: destructures.Res) [move _2] -> [return: bb4];
+    }
+
+    bb4: {
+        _12 = call destructures.use_res(r: destructures.Res) [move _5] -> [return: bb5];
+    }
+
+    bb5: {
+        _13 = Add(move _11, move _12);
+        _14 = call destructures.use_res(r: destructures.Res) [move _8] -> [return: bb6];
+    }
+
+    bb6: {
+        _15 = Add(move _13, move _14);
+        _0 = move _15;
+        drop(_8);
+        drop(_5);
+        drop(_2);
+        return;
+    }
+}

@@ -30,9 +30,10 @@ everything `sawc2 drops --check` prints; then, when nothing there is an
 `ERROR` or an `INVARIANT` line, one `ERROR<TAB>rule<TAB>file:line:col<TAB>message`
 line per refusal of mono, an `INVARIANT<TAB>mono<TAB>message` line per broken
 invariant mono met, and with `--dump` each item, with `--layouts` the layout
-table. The exit code is 1 when any program has a refusal, 2 on a usage
-failure, and 0 otherwise. `--target` names the triple the layouts are for:
-`arm64-apple-darwin` (the default) or `x86_64-unknown-linux-gnu`.
+table. The exit code is 1 when any program has a refusal or an `INVARIANT`
+line, 2 on a usage failure, and 0 otherwise. `--target` names the triple the
+layouts are for: `arm64-apple-darwin` (the default) or
+`x86_64-unknown-linux-gnu`.
 
 The file is lowered to MIR once. The evaluator borrows that program and
 evaluates its constants before the borrow check and drop elaboration rewrite

@@ -73,8 +73,8 @@ for `--target`, in item order (see "Lowering"), or the line `no lowered
 frame`; with `--bt-table`, the program lowered for `--target`, an
 `INVARIANT` line per problem the lowering meets, and when it meets none, its
 backtrace table, encoded and then decoded (see "The backtrace table"). The
-exit code is 1 when any program has a refusal or an
-invariant, 2 on a usage failure, and 0 otherwise. `sawc2 build` runs this
+exit code is 1 when any program has a refusal or an `INVARIANT`
+line, 2 on a usage failure, and 0 otherwise. `sawc2 build` runs this
 stage, and prints its record when it refuses (`compiler/tests/run/README.md`).
 
 ## Which items suspend

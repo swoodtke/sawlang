@@ -11,6 +11,8 @@ mir/
   golden/          NAME.saw, a program, and NAME.mir, its expected record
   spans/           NAME.saw, a program, and NAME.mir, its expected `--spans` record
   refuse/          NAME.saw, a construct the lowering refuses
+  invariant/       NAME.saw, a program a MIR verifier finds broken, under every
+                   command its record reaches, each of which must exit 1
   inject/          NAME.saw, a program a unit program lowers, then edits, to
                    prove the verifier refuses a shape no lowering emits, or
                    reads through the builders a shape no construct reaches
@@ -38,8 +40,8 @@ record, starting with the line `FILE<TAB>path`, holding in order:
   fact the lowering found typecheck left unrecorded, then the MIR verifier's;
 - with `--dump`, the dump of each module checked in full, in load order.
 
-The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
-otherwise. A module with a refusal of its own is not lowered, and neither is a
+The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
+a usage failure, and 0 otherwise. A module with a refusal of its own is not lowered, and neither is a
 body another module's refusal poisoned; a function the lowering refuses a
 construct in is neither dumped nor verified.
 
@@ -447,7 +449,7 @@ value the same way. Golden `leftovers` covers each.
 | a `try` in a `try` block | the switch: the `Ok` payload into a temporary, the `Err` payload into the catch block's `error` | catches `owned_block` |
 | `a ?? b` | the present edge's payload; the absent edge drops the `None` | destructures `coalesced` |
 | `move o!` | the Optional moved whole into a temporary, then its payload | destructures `moved_force` |
-| `f()!`, `f().field`, `f().0` by value | the temporary, around the part | destructures `temporary_parts` |
+| `f()!`, `f().field`, `f().0` by value, at any depth (`f().a.b`, `f()!.a`, `(try! f()).a`), and a statement-form `borrow` reading one by value | the temporary, around the part (`take_from_temporary`) | destructures `temporary_parts`, `deep_temporary_parts`; run probes `temporary_part_*` |
 | `match` on a consumed local or a temporary | each leaf takes its bindings' parts; the leftovers drop on each exit of its arm, after the arm's bindings, a value `match`'s after its result is written | destructures `matched`, `matched_temporary`; leftovers `partial`, `guarded`, `returned`, `suspended` |
 | `if let`, `while let` | the present edge takes the binding's parts; the leftovers drop on each exit of the branch or iteration; `if let x = move o` moves `o` into a temporary first | destructures `optional`, `unwrapped`, `drained`; leftovers `unwrapped`, `drained` || `guard let` | the present edge, after the binding | destructures `unwrapped`; leftovers `guarded_let` |
 | a destructuring `let` | after its bindings | destructures `destructured`; leftovers `guarded_let` |
@@ -587,7 +589,7 @@ slice.not-yet at L:C`.
 |---|---|
 | a conditional lend's optional place, a `borrow` binding of one, read as a whole value, passed by reference, assigned whole, or the receiver of `is_some()`: no `T?` holds it to copy, point at or write (SL-835) | conditional-place-copy, conditional-place-reference, conditional-place-assign, conditional-place-presence-call |
 | a `for` over an iterator held in a place | iterator-place |
-| a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body | consuming-deinit |
+| a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body: a pattern's, or a part read by value out of a temporary at any depth, through a statement-form `borrow` too | consuming-deinit, consuming-deinit-part-of-temporary, consuming-deinit-borrowed-part, consuming-deinit-forced-part |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |
 | a write to an owning part of a raw pointer's pointee (`p[i].f = v`, `(*p).f = v`), since the spec makes only a whole pointer slot a placement write | pointer-part |
 | a `lend` in the body of a `match`, `if let` or `while let` that holds leftovers: the scrutinee is partly moved out across the `lend`, and the accessor's state record cannot carry a partial value yet (`record_flag_slots` in `compiler/mir/src/split.saw`) | leftover-lend |

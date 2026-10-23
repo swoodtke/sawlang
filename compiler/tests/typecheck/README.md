@@ -48,8 +48,8 @@ with the line `FILE<TAB>path`, holding in order:
   `sync-callable-unless` or `sync-callable`;
 - with `--dump`, the dump of each module checked in full, in load order.
 
-The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
-otherwise.
+The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
+a usage failure, and 0 otherwise.
 
 ## The dump
 

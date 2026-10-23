@@ -79,8 +79,8 @@ starts with `FILE<TAB>path` and holds, in order:
   `TYPE(WORD)`, or an aggregate's parts in order: `TYPE { A, B }` for a
   struct, `[A, B]` for an array literal and `[A; N]` for a repeat.
 
-The exit code is 1 when any program has a refusal, 2 on a usage failure, and 0
-otherwise.
+The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on
+a usage failure, and 0 otherwise.
 
 ## Refusals
 
