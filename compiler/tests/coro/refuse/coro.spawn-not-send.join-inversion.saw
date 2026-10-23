@@ -1,0 +1,33 @@
+// refuses: coro.spawn-not-send at 22:1
+// message: cannot spawn `joiner`: local `g` of type `std.taskgroup.TaskGroup` is held across a suspension but is not `Send`
+// A join inversion is unreachable from a spawned task, because the frame rule
+// refuses it (K196). To be resumed inside `subject`'s drive and then join
+// `subject`, the joiner has to suspend between the spawn and the join, holding
+// its group and the handle across that suspension, and neither is `Send`. A
+// suspending `main` is no spawned task, so it still reaches the shape, and
+// its join panics at entry (K200, `join_inversion_main_inside_a_drive.saw`).
+import std.task.*
+
+func leaf() -> Int {
+    sleep(Duration.ms(50))
+    1
+}
+
+func subject() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(leaf())
+    h.join() + 1
+}
+
+func joiner() -> Int {
+    var g = TaskGroup()
+    let h = g.spawn(subject())
+    sleep(Duration.ms(10))
+    h.join()
+}
+
+func main() {
+    var outer = TaskGroup()
+    let j = outer.spawn(joiner())
+    print(j.join())
+}

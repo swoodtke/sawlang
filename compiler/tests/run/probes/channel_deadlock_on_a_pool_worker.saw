@@ -1,0 +1,33 @@
+// probe: panics
+// about: `channel_deadlock_nested_join.saw` run inside a `TaskGroup(threads: 2)` task is reported, the deadlock walk counting the pool task its own worker is resuming as waiting rather than running, conformance row K200 (SL-809)
+// stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
+// speeds: -O0 -O2
+// prints: middle joins
+// panics: deadlock: every task is waiting to receive from a channel
+// The worker's walk meets `on_worker`'s slot active: the worker itself is
+// resuming it, under the very sweep that walks.
+import std.channel.{Channel}
+
+func consume(orders: Channel<Int>) -> Int {
+    try! orders.receive()
+}
+
+func middle(orders: Channel<Int>) -> Int {
+    var g = TaskGroup()
+    let h = g.spawn(consume(orders.copy()))
+    print("middle joins")
+    h.join()
+}
+
+func on_worker() -> Int {
+    var g = TaskGroup()
+    let orders = try! Channel<Int>()
+    let h = g.spawn(middle(orders.copy()))
+    h.join()
+}
+
+func main() {
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(on_worker())
+    print("never reached {}", p.join())
+}

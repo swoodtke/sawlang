@@ -1,0 +1,51 @@
+// probe: panics
+// about: a `join()` of a `group.spawn` task further up its thread's stack, made by a suspending `main` inside the drive two above the subject's own, beside a sibling sleeping an hour, panics at the join, before any other task runs, conformance row K200 (SL-809)
+// stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
+// speeds: -O0 -O2
+// prints: J joins the subject
+// panics: Task.join: the task cannot finish while this join waits for it
+// The joiner sleeps first, so the subject's drive resumes it; the subject
+// continues only once the joiner's wait returns.
+import std.task.*
+
+func leaf() -> Int {
+    sleep(Duration.ms(50))
+    print("leaf done")
+    1
+}
+
+func mid0() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(leaf())
+    h.join() + 1
+}
+
+func mid1() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(mid0())
+    h.join() + 1
+}
+
+func mid2() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(mid1())
+    h.join() + 1
+}
+
+func sleeper() -> Int {
+    sleep(Duration.secs(3600))
+    0
+}
+
+func main() {
+    var gs = TaskGroup()
+    let s = gs.spawn(sleeper())
+    var gj = TaskGroup()
+    let h = gj.spawn(mid2())
+    sleep(Duration.ms(10))
+    print("J joins the subject")
+    let v = h.join()
+    s.cancel()
+    let _ = s.join()
+    print("J returns {}", v)
+}

@@ -10,7 +10,7 @@ frame #12: group_task_root.hello(name: String) task root  (size 24 align 8, lowe
     (*frame).[8: String]  size 8 align 8  _1 param name  (across 1)
     (*frame).[16: frame std.task.yield_now()]  size 8 align 8  child  (across 1)
     stack: _2
-frame #47: std.task.yield_now()  (size 8 align 8, lower bound 8)
+frame #48: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result

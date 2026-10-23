@@ -1,0 +1,60 @@
+// probe: panics
+// about: a `join()` of a `TaskGroup(threads: 2)` task receiving what only the subject's continuation sends, made by a suspending `main` inside the drive one above the subject's own, beside a sleeping sibling it cancels first, is reported by the deadlock walk, conformance row K200 (SL-809)
+// stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
+// speeds: -O0 -O2
+// prints: J joins the pool task
+// prints: leaf done
+// panics: deadlock: every task is waiting to receive from a channel, or to join a `TaskGroup(threads:)` task that is
+// The joiner sleeps first, so the subject's drive resumes it; the subject
+// continues only once the joiner's wait returns.
+import std.task.*
+import std.channel.{Channel}
+
+func leaf() -> Int {
+    sleep(Duration.ms(50))
+    print("leaf done")
+    1
+}
+
+func mid0() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(leaf())
+    h.join() + 1
+}
+
+func mid1() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(mid0())
+    h.join() + 1
+}
+
+func sleeper() -> Int {
+    sleep(Duration.secs(3600))
+    0
+}
+
+func sends(ch: Channel<Int>) -> Int {
+    let v = mid1()
+    try! ch.send(v)
+    v
+}
+
+func pool_receive(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var gs = TaskGroup()
+    let s = gs.spawn(sleeper())
+    var gj = TaskGroup()
+    let h = gj.spawn(sends(ch))
+    sleep(Duration.ms(10))
+    s.cancel()
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(pool_receive(ch))
+    print("J joins the pool task")
+    let v = p.join() + h.join()
+    let _ = s.join()
+    print("J returns {}", v)
+}

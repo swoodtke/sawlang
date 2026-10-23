@@ -1,0 +1,31 @@
+// probe: panics
+// about: a suspending `main` resumed inside the drive of a task joining its own inner group's task, which then joins that task, panics at its join, before the inner task finishes, conformance row K200 (SL-809)
+// stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
+// speeds: -O0 -O2
+// prints: subject joins leaf
+// prints: main joins subject
+// panics: Task.join: the task cannot finish while this join waits for it
+// `main` sleeps, so `subject`'s join of `leaf` resumes it; `subject` continues
+// only once `main`'s join returns, and that join waits for `subject`.
+import std.task.*
+
+func leaf() -> Int {
+    sleep(Duration.ms(50))
+    print("leaf done")
+    1
+}
+
+func subject() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(leaf())
+    print("subject joins leaf")
+    h.join() + 1
+}
+
+func main() {
+    var g = TaskGroup()
+    let h = g.spawn(subject())
+    sleep(Duration.ms(10))
+    print("main joins subject")
+    print("never reached {}", h.join())
+}

@@ -9332,6 +9332,14 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   state is read twice with a nap between, because an abort is not a diagnostic.
   `close()` is the cooperative path and this is the backstop; a program that
   closes its channels never reaches it.
+  **The report's condition is that no task anywhere can run.** A task waiting
+  in a join or a drive further up its own thread's stack counts as unable to
+  run, on a pool's worker too, since it continues only once the waits begun
+  above it return. A task that can run (one ticking on a timer, one sleeping,
+  one ready) ends the walk, because whether it will ever send is not
+  decidable. So a chain of waits that only a stuck continuation could end, with
+  such a task alive beside it, is the program's own livelock: it is not
+  reported, and the program waits for as long as that task lives.
 
 **Multi-threaded execution — `TaskGroup(threads: N)` (design 75 A2, rebuilt as a
 live pool by design 225).** By default a `TaskGroup()` runs its children on ONE
@@ -9370,9 +9378,21 @@ threads, no lock).
 - **A wait made inside a task returns after the waits begun inside it.** The
   joining task stays on its thread's stack while the thread runs its other
   tasks, so when one of those joins too, the inner join returns first, on
-  either engine. A task that joins, through a chain of waits, something only
-  an outer join's continuation can do never finishes; the executor reports the
-  state as a deadlock rather than waiting forever, naming the join.
+  either engine. A `join()` of a task that is itself further up the joining
+  thread's stack, waiting in a join or a drive this one is nested inside, can
+  never finish, so it panics at the join, before any other task runs, with
+  `Task.join: the task cannot finish while this join waits for it`. A group
+  torn down while one of its own tasks is further up the stack panics at the
+  teardown the same way. Both hold whatever else is alive, since the joined
+  task's state decides them alone. A spawned task cannot reach this shape: it
+  would hold its group and the joined task's handle across a suspension, which
+  the frame rule refuses (*Send-on-frames gate*, below), so a suspending `main`
+  is where it arises. A chain that passes through anything
+  but joins, such as a pool's task receiving what only an outer join's
+  continuation sends, is the deadlock report's (above): it is reported, naming
+  the join, when no task anywhere can run, and not while another task can.
+  `Thread.join()` from a task parks instead of nesting a drive, so it never
+  closes such a chain.
 - **What is observable, and what changed.** Multi-threaded execution order was
   never deterministic. What a live pool widens is WHEN that is visible: a task's
   effects — a channel send, an `Arc<Mutex<T>>` update — now become visible to the

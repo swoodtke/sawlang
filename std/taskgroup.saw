@@ -463,6 +463,7 @@ func queue_cond(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
 //   enqueue
 //   resume_slot
 //   queue_count
+//   group_on_this_stack
 //   drain_pool
 //   shutdown_crew
 //   await_task
@@ -492,10 +493,12 @@ func unlock_queue(at: UnsafePointer<TaskGroup>) unsafe {
 
 // The group's teardown is its structured join: every live task is driven to
 // completion where the group was born, other groups' tasks advancing beside
-// them, and then each slot is released. Nothing is cancelled. The sweep skips every frame active on this thread's
-// stack, so a group torn down while one of its own tasks is further up the
-// stack would release a frame that has not returned `Ready`; it panics
-// instead (SL:coroutines §3.1). The outstanding-handle check sits between the
+// them, and then each slot is released. Nothing is cancelled. A group torn
+// down while one of its own tasks is further up this thread's stack can never
+// finish, since that task continues only once the teardown returns, so it
+// panics before the sweep (`on_this_stack`); the check after the sweep is the
+// backstop that keeps a frame that has not returned `Ready` from being
+// released (SL:coroutines §3.1). The outstanding-handle check sits between the
 // join and the release: a handle a task's own frame held was dropped by that
 // task's code during the join, and nothing a late handle reads is freed yet.
 //
@@ -512,6 +515,9 @@ extension TaskGroup: NoCopy {
             shutdown_crew(at)
         } else if self.registered {
             let me = (&self) as UnsafePointer<TaskGroup> as Int
+            if group_on_this_stack(me as UnsafePointer<TaskGroup>, -1) {
+                panic("TaskGroup: the group is torn down while one of its tasks is running further up this thread's stack")
+            }
             exec_run(me, -1, 0)
             if self.has_live() {
                 panic("TaskGroup: the group is torn down while one of its tasks is running further up this thread's stack")
@@ -1020,6 +1026,39 @@ extension TaskGroup {
         }
         false
     }
+}
+
+// Whether the frame of slot `s` is being resumed on the stack of the thread
+// whose executor record is `me`, further up than the caller: a cooperative
+// task its owner resumes, or the pool task a worker resumes. Such a frame
+// continues only once every drive opened above it returns, so a wait for it
+// made on that thread never ends, and the deadlock walk counts it as waiting
+// rather than as code that can run.
+//
+// ENTRY POINTS:
+//   group_on_this_stack (Task.join, TaskGroup.deinit)
+//   group_parks
+func on_this_stack(s: TaskSlot, me: Int) -> Bool {
+    not s.done && s.active && s.runner == me
+}
+
+// Whether slot `slot` of the cooperative group at `at`, or with `slot`
+// negative any of its slots, is further up the calling thread's stack
+// (`on_this_stack`), read under the group's lock.
+func group_on_this_stack(at: UnsafePointer<TaskGroup>, slot: Int) unsafe -> Bool {
+    let me = __saw_rt_thread_executor()
+    lock_queue(at)
+    var found = false
+    var i = 0
+    while i < at[0].slots.len() {
+        let s = at[0].slots[i]
+        if (slot < 0 || i == slot) && on_this_stack(s, me) {
+            found = true
+        }
+        i = i + 1
+    }
+    unlock_queue(at)
+    found
 }
 
 // The run queue's writes are free functions over `&var TaskGroup`, so a group
@@ -1636,14 +1675,15 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 //     them: a joined thread sets its word before it lowers `LIVE_THREADS`,
 //     and an offloaded call ends on its own thread, so neither waits for
 //     good, and the walk reads neither's object;
-//   * a frame a pool worker is resuming, or a cooperative frame active on
-//     another thread's stack;
+//   * a frame active on another thread's stack: a pool task a worker is
+//     resuming, or a cooperative task its owner is;
 //   * from a pool worker, a thread outside the executor (a live record that
 //     is not `waiting`): a pool's workers are no `Thread.spawn` bodies to
 //     `LIVE_THREADS`, so the walk has to learn some other way that the
 //     threads owning the groups are waiting rather than computing toward a
 //     send.
-// A cooperative frame active on the walking thread's own stack counts as
+// A frame active on the walking thread's own stack (`on_this_stack`), a
+// cooperative task or the pool task the walking worker resumes, counts as
 // blocked: it is waiting in a nested join or drive on the very sweep that
 // asks, so it cannot run before that sweep returns, and the spec reports this
 // state rather than waiting forever. The drive point's own park at `waiter`,
@@ -1685,7 +1725,7 @@ func quiescent_now(waiter: Int, on_worker: Bool, walker: UnsafePointer<ExecutorR
         if walk_take(record) != WalkLock.Taken {
             return false
         }
-        let found = record_parks(record, at == walker as Int)
+        let found = record_parks(record, walker as Int)
         walk_give(record)
         if found == RecordParks.Runs {
             return false
@@ -1715,9 +1755,9 @@ enum RecordParks {
     case Channel
 }
 
-// The deadlock walk over `record`'s groups, with its latch held; `mine` when
-// it is the walking thread's own.
-func record_parks(record: UnsafePointer<ExecutorRecord>, mine: Bool) unsafe -> RecordParks {
+// The deadlock walk over `record`'s groups, with its latch held, made by the
+// thread whose executor record is `walker`.
+func record_parks(record: UnsafePointer<ExecutorRecord>, walker: Int) unsafe -> RecordParks {
     var parked = false
     var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
     while cur != 0 {
@@ -1726,7 +1766,7 @@ func record_parks(record: UnsafePointer<ExecutorRecord>, mine: Bool) unsafe -> R
         if pooled && walk_take_pool(g) != WalkLock.Taken {
             return RecordParks.Runs
         }
-        let found = group_parks(g, pooled || not mine)
+        let found = group_parks(g, walker)
         if pooled {
             walk_give_pool(g)
         }
@@ -1744,15 +1784,16 @@ func record_parks(record: UnsafePointer<ExecutorRecord>, mine: Bool) unsafe -> R
     RecordParks.Empty
 }
 
-// The deadlock walk over the group at `g`, its lock held; `foreign` when an
-// active slot is on another thread, where it runs.
-func group_parks(g: UnsafePointer<TaskGroup>, foreign: Bool) unsafe -> RecordParks {
+// The deadlock walk over the group at `g`, its lock held, made by the thread
+// whose executor record is `walker`. An active slot runs on another thread,
+// unless it is on the walker's own stack.
+func group_parks(g: UnsafePointer<TaskGroup>, walker: Int) unsafe -> RecordParks {
     var parked = false
     var i = 0
     while i < g[0].slots.len() {
         let s = g[0].slots[i]
         if not s.done {
-            if s.active && foreign {
+            if s.active && not on_this_stack(s, walker) {
                 return RecordParks.Runs
             }
             if not s.active {
@@ -2672,9 +2713,10 @@ extension Task<T> {
     /// group is cooperative or a pool; a join made outside every task waits
     /// for a pool's task with the thread blocked. The joining task stays on
     /// its thread's stack until the join returns, so a join made inside it
-    /// returns first. A pool keeps running after the join. A task yields its
-    /// result once, so joining a second time, or after `detach`, panics, a
-    /// `Task<Void>` included.
+    /// returns first, and a join of a task that is itself waiting further up
+    /// the stack could never finish: it panics at once. A pool keeps running
+    /// after the join. A task yields its result once, so joining a second
+    /// time, or after `detach`, panics, a `Task<Void>` included.
     public func join(&self) unsafe -> T {
         self.check_home_thread("Task.join", "join")
         self.consume()
@@ -2685,6 +2727,12 @@ extension Task<T> {
         if g[0].lock == 0 {
             if g[0].stale(self.slot, self.generation) {
                 panic("Task.join: this task's result was already joined")
+            }
+            // A task further up this stack continues only once this join
+            // returns, so the join is refused before the sweep; the check
+            // after it is the backstop.
+            if group_on_this_stack(g, self.slot) {
+                panic("Task.join: the task cannot finish while this join waits for it")
             }
             exec_run(g as Int, self.slot, self.generation)
         } else {

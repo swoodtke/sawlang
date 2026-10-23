@@ -1,0 +1,43 @@
+// probe: panics
+// about: `join_inversion_main_inside_a_drive.saw` beside a sibling that ticks until it is cancelled, which keeps the sweep alive, panics at the join rather than hanging, conformance row K200 (SL-809)
+// stage 0: runs it on its own std's executor, which this check is not part of (SL-809)
+// speeds: -O0 -O2
+// prints: subject joins leaf
+// prints: main joins subject
+// panics: Task.join: the task cannot finish while this join waits for it
+// The sibling is cancelled only after the join returns, so a sweep waiting
+// for every other task to stop would run it forever.
+import std.task.*
+
+func leaf() -> Int {
+    sleep(Duration.ms(50))
+    print("leaf done")
+    1
+}
+
+func subject() -> Int {
+    var inner = TaskGroup()
+    let h = inner.spawn(leaf())
+    print("subject joins leaf")
+    h.join() + 1
+}
+
+func ticker() -> Int {
+    var n = 0
+    while not cancelled() {
+        sleep(Duration.ms(1))
+        n = n + 1
+    }
+    n
+}
+
+func main() {
+    var g = TaskGroup()
+    let t = g.spawn(ticker())
+    let h = g.spawn(subject())
+    sleep(Duration.ms(10))
+    print("main joins subject")
+    let v = h.join()
+    t.cancel()
+    print("never reached {} {}", v, t.join())
+}
