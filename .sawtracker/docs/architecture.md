@@ -1137,16 +1137,18 @@ compiler's coroutine transform is where most of SL:hazards lives. So:
 - After self-hosting, the compiler may absorb these steps, through a sync spawn
   in the new std or its own coroutine support. The script stays the interface
   users call.
-- **The name moves at a milestone, not before** (Air t33). `sawc` already names
-  the frozen compiler. `bin/sawc` is design 238's install shim, and
-  `tools/toolchain.py` resolves `sawc` by name, from `$SAWC` or `$PATH` and
-  checked against a pinned version. That is how sawos and blade find their
-  compiler. So:
-  - the new driver script is `sawc2` until the switch, matching SL-399;
-  - `sawc` stays the frozen compiler's name, and what the resolver hands sawos
-    and blade;
-  - the switch is a named milestone: the new compiler accepts sawos's flag list
-    (§5). The name, the resolver and the pin move together.
+- **The name moved at a milestone** (Air t33; the user's order, SL-661 c2/c3).
+  `bin/sawc` is design 238's install shim, and `tools/toolchain.py` resolves
+  `sawc` by name, from `$SAWC` or `$PATH` and checked against a pinned
+  version. That is how consumers find their compiler. So the name, the
+  resolver and the pin moved together, in one release:
+  - **v0.17.0** is the last release where `sawc` names the frozen compiler;
+  - SL-668 gave the frozen compiler its own name, `sawc0` (`bin/sawc0`);
+  - **v0.18.0** (SL-669) is the first where `sawc` is the self-hosted
+    compiler. `bin/sawc` builds it on first use and never falls back to
+    Stage 0; a flag-first or `.saw`-first command line is an implicit
+    `sawc build`; `bin/blade` defaults `SAWC` to `sawc0`, since Blade's
+    sources are Stage 0's language.
 
 **Stage 0 moves after self-hosting** (Ruled). Once the new compiler builds
 itself, a pinned release of it can replace the frozen Python compiler as
@@ -1155,7 +1157,7 @@ compiler and its std may use the full new language, and the intersection rule
 lifts. Until then, the compiler's own source stays in the intersection, since
 Stage 0 builds it. The new std stays in the bootstrap language (the subset plus
 the named low-level features), since only the new compiler builds it.
-**Lifted (the user, Oct 23 2026):** the seed, sawc2's own IR, now builds Stage 1, so
+**Lifted (the user, Oct 23 2026):** the seed, sawc's own IR, now builds Stage 1, so
 nothing compiles the compiler's source with the frozen Python compiler. The
 intersection rule no longer applies; the constraint is what the pinned seed
 compiles, which the bootstrap build enforces. SL-839 retires the subset checker's
