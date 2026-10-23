@@ -85,37 +85,6 @@ ledger; the issues' repros are the evidence. Main is at 2fa71814.
 
 ## Silent hazards
 
-### S1. `init` in a generic extension (SL-80, SL-31, SL-32)
-
-**Shape:**
-- **SL-80** (silent, double free): an `init` declared in a generic extension
-  that moves an owning parameter into the value it builds also releases that
-  parameter when the `init` returns. The caller reads freed storage and
-  releases it again. Pinned by
-  `examples/generic_init_moved_parameter_is_released_once.saw` (XFAIL).
-- **SL-31** (fixed on main): the leak of an un-moved owning parameter in the
-  same generator was fixed on Sep 2 by 218c stage 3 (178e6522), and its XFAIL
-  flipped. The tracker issue is stale.
-- **SL-32** (loud): an extension that renames the struct's type parameters
-  (`extension Pair<U>` over `struct Pair<A>`) and declares an `init` is
-  refused at the construction site: ``parameter `three` expects type `U` but
-  got `Int` ``.
-
-**Example (SL-80):**
-```saw
-struct Wrap<T> { value: T }
-extension Wrap<T> { init(from: T) -> Wrap<T> { Wrap<T>(value: from) } }
-// Wrap<Res>(from: move r): `Res`'s deinit runs inside init, then again at scope end
-```
-
-**Instead:** declare no `init` inside a generic extension. Build generic
-structs memberwise at the call site with inferred type arguments,
-`Wrap(value: move r)`, which drops once (see S13 for why the arguments should
-be inferred).
-
-**Checker:** yes: refuse an `init` inside any `extension` whose header has type
-parameters.
-
 ### S3. Owned values around `try` and `catch` (SL-240, SL-348, SL-74, SL-427, SL-429, SL-430)
 
 **Shape:**
@@ -331,25 +300,6 @@ distinct id type is wanted. SL-340's alias face is in S11.
 
 **Checker:** yes: refuse every `type` alias declaration.
 
-### S12. Consuming an erased box through a projection (SL-288)
-
-**Shape:** `take<T>()` on a `Box<any Trait>` reached through a field, tuple
-element or array element frees the box shell inside the call, and the
-container frees it again at scope exit. `move w.b` is refused, but
-`w.b.take<Res>()`, which consumes the same field, is accepted.
-
-**Example:**
-```saw
-struct W { b: Box<any Shape> }
-w.b.take<Res>()   // "gone 42", then a second deinit reads freed memory
-```
-
-**Instead:** keep `any Trait` out of the compiler source and dispatch over an
-enum. If an erased box is ever needed, bind it to a local and call `take` on
-the local.
-
-**Checker:** yes: refuse `any` in type position.
-
 ### S15. Methods called on an indexed element (SL-368)
 
 **Shape:** a method called directly on a pointer-index receiver,
@@ -384,18 +334,6 @@ Call mutating methods only on a named local or a field path, never directly on
 **Checker:** yes: refuse a method call whose receiver is an index expression,
 with an allowlist of known read-only methods.
 
-### S16. Generic bodies returning a type parameter (SL-156)
-
-**Shape:** in a generic body whose return type is a type parameter or an
-associated type, the returned value is not checked against that type. A
-mistyped return compiles at Stage 0.
-
-**Instead:** no different spelling. Don't count a clean Stage 0 build as type
-checking for these bodies; Stage 1 checks generic bodies fully and reports the
-mismatch.
-
-**Checker:** no: needs types.
-
 ### S19. Type walks bounded by a depth count (SL-390)
 
 **Shape:** several of the frozen compiler's type walks stop at a fixed depth
@@ -422,42 +360,6 @@ silent bound. Use no alias chains (S9 bans aliases outright). Write `T?`, never
 
 **Checker:** yes: the syntactic nesting depth of every written type (as L14
 measures blocks), `Optional<` in a type, and `Self` inside a tuple type.
-
-### S20. Float literals out of range (SL-68)
-
-**Shape:** an unrepresentable float literal silently becomes `inf` or `0.0`.
-It is S7's float twin (Air t8).
-
-**Instead:** the compiler source needs no float literals, so the subset has
-none. If one is ever needed, keep it well inside `Float`'s range.
-
-**Checker:** yes: refuse a float literal token in the compiler source.
-
-### S22. Types declared in an inline module (SL-403)
-
-**Shape:** Stage 0 never drops a value whose type is declared inside an inline
-`module name { }`. Its `deinit` never runs, and its synthesized field drops are
-missing, so an owning field leaks. The same code drops correctly at top level
-or in a file module (Air, SL-399 r4 review, probes c03c, c03d and c04c;
-reproduced on main 2fa71814).
-
-**Example:**
-```saw
-module mod_b {
-    public struct Res { name: String }
-    extension Res: NoCopy {
-        func deinit(&var self) { print("drop {self.name}") }
-    }
-    public func scope_end() { let r = Res(name: "x") }   // prints nothing
-}
-```
-
-**Instead:** use file modules. Inline modules have also cost the checker four
-scope and name-resolution findings, and the compiler source needs none.
-
-**Checker:** yes: refuse every inline `module name { }` in the compiler source.
-The drop failure alone is **leak only**. The refusal stands because inline
-modules also defeat the checker's own name resolution.
 
 ### S23. An owned value consumed without a binding: comparison operands, interpolation segments, format arguments, or a head's receiver (SL-404)
 
@@ -736,35 +638,6 @@ function in the program, std's included: `std.cbor` and `std.json` each declare
 `encode<T>`, so a generic method named `encode` in the compiler source would
 hit it whenever either module is compiled in.
 
-### L11. Value-position loops (SL-22)
-
-**Shape:** a `while` or `for` used as a value (`let x = while … { break v }`)
-whose result type is not an integer is an ICE. The `None` sentinel for the
-loop's result is built as an integer constant.
-
-**Instead:** declare a `var` before a statement loop and assign it before
-`break`.
-
-**Checker:** yes: refuse `break` with an operand.
-
-### L15. Unreduced ICE: "no copy symbol for field" (SL-389)
-
-**Shape:** not yet reduced. `prototypes/minivm/tests/numeric_contract.saw`
-ICEs with `no copy symbol for field code`. From reading
-`sawc/codegen/methods.py`, the message comes from a derived `copy()` whose
-field type has no emitted `copy` function. In minivm the field is
-`FuncIR.code: Vector<Instruction>`, and both `FuncIR` and `Instruction` take
-`@synthesize … ExplicitCopy`. The likely trigger is a derived `copy()` emitted
-in a program that never demands `Vector<Instruction>.copy()`. This is
-unconfirmed; nothing was compiled.
-
-**Instead:** until it is reduced, don't `@synthesize` `ExplicitCopy` on a struct
-that holds a `Vector` of another user struct. The compiler's arena tables need
-no copy.
-
-**Checker:** no, not until the shape is confirmed. A lint could flag the
-candidate shape meanwhile.
-
 ### L29. A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms (SL-656)
 
 **Shape:** the user's ruling (b) on SL-656 says a default is evaluated in the caller, so its effect belongs to the call that leaves the argument out, never to the function. For `func f(n: Int = slow())`:
@@ -776,14 +649,6 @@ So code using a suspending default builds under sawc2 and fails under Stage 0. I
 **Instead:** in code Stage 0 builds (`compiler/`, `blade/`, `libs/`, `examples/`), give no parameter a default value that suspends; make the suspending value an argument the caller passes.
 
 **Checker:** not needed: Stage 0 refuses loudly.
-
-### L30. `ZeroInit`: Stage 0 has none (SL-660)
-
-**Shape (loud):** `extension T: ZeroInit {}` is an unknown name to Stage 0, so code Stage 0 builds can't declare it. Under Stage 0's std root, sawc2 refuses a bare `SpinLock`, `Mutex` or `Once` static with `static.zero-hidden`, because that std keeps their fields private and can't declare `ZeroInit` (pin `static.zero-hidden.frozen-std`). The corpus's lock and once programs are refused there.
-
-**Instead:** in Stage 0-built code, keep zero-initialized statics to types the module sees whole. The new std's lock and once types declare `ZeroInit` once they are ported.
-
-**Checker:** not needed.
 
 ### L33. A field read two struct hops away, bound by a `let`: Stage 0 loses the binding when neither struct type is named in the module (SL-649)
 
@@ -873,10 +738,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-7 | L2 Closure literals and call syntax | loud |
 | SL-13 | L1 Integer literal adoption | loud |
 | SL-14 | L3 Module-qualified spellings | loud |
-| SL-22 | L11 Value-position loops | loud |
 | SL-28 | L4 Optional and Result shaping | loud |
-| SL-31 | S1 `init` in a generic extension | fixed on main |
-| SL-32 | S1 `init` in a generic extension | loud |
 | SL-36 | L3 Module-qualified spellings | loud |
 | SL-38 | L2 Closure literals and call syntax | loud |
 | SL-41 | L2 Closure literals and call syntax | loud |
@@ -888,26 +750,22 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-53 | L1 Integer literal adoption | loud |
 | SL-56 | L1 Integer literal adoption | loud |
 | SL-65 | L2 Closure literals and call syntax | loud |
-| SL-68 | S20 Float literals out of range | silent (promoted after review) |
 | SL-70 | L1 Integer literal adoption | loud |
 | SL-73 | L2 Closure literals and call syntax | loud |
 | SL-74 | S3 Owned values around `try` and `catch` | loud |
 | SL-75 | L1 Integer literal adoption | loud |
 | SL-77 | S9 Type aliases | loud |
 | SL-78 | L3 Module-qualified spellings | loud |
-| SL-80 | S1 `init` in a generic extension | silent |
 | SL-84 | L1 Integer literal adoption | loud |
 | SL-96 | L9 Name collisions within a program | loud |
 | SL-107 | L9 Name collisions within a program | loud (possibly fixed) |
 | SL-111 | S4 Whole-call exclusivity | loud |
 | SL-115 | L3 Module-qualified spellings | loud |
 | SL-125 | L3 Module-qualified spellings | loud |
-| SL-156 | S16 Generic bodies returning a type parameter | silent |
 | SL-194 | L1 Integer literal adoption | loud |
 | SL-199 | L3 Module-qualified spellings | loud |
 | SL-240 | S3 Owned values around `try` and `catch` | silent, leak only |
 | SL-284 | S4 Whole-call exclusivity | silent |
-| SL-288 | S12 Consuming an erased box through a projection | silent |
 | SL-291 | L4 Optional and Result shaping | loud |
 | SL-292 | L4 Optional and Result shaping | loud |
 | SL-293 | L2 Closure literals and call syntax | loud |
@@ -921,9 +779,7 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-368 | S15 Methods called on an indexed element | silent |
 | SL-383 | S9 Type aliases | loud |
 | SL-384 | S9 Type aliases | loud |
-| SL-389 | L15 Unreduced ICE | loud (shape unconfirmed) |
 | SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
-| SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
 | SL-404 | S23 An owned value consumed without a binding: comparison operands, interpolation segments, format arguments, or a head's receiver | silent, leak only (found in the compiler-skeleton review; widened by sawtracker's ST-64) |
 | SL-427 | S3 and S23 The error around `try`/`catch`, and a cast operand in std | silent, leak only (found by sawtracker's ST-66; the std half fixed under a freeze exception) |
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
@@ -931,7 +787,6 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-531 | S27 Bare imports inside a package | silent and loud (found by SL-519) |
 | SL-532 | S27 Bare imports inside a package | silent (found in the Air's SL-519.p1 review) |
 | SL-656 | L29 A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
-| SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
 | SL-565 | S36 A spawn borrow released by joining a rebound handle variable | silent, a use-after-free (found by the Air reviewing SL-565.p1; no live instance: the compiler spawns no task) |
 | SL-765 | S37 A detached thread that finishes after the detach drops no result | silent, a lost deinit and a leak (found by the Air reviewing SL-765.p3; no live instance: the compiler spawns no thread) |
 | SL-649 | L33 A field read two struct hops away, bound by a `let`, with neither struct type named in the module | loud (Stage 0 reports an undefined variable; one marked instance in `compiler/typecheck/src/conform.saw`) |
