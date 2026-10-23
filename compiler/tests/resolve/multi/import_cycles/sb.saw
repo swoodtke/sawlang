@@ -1,0 +1,5 @@
+import sa.{fa}
+
+public func fb() -> Int {
+    1
+}

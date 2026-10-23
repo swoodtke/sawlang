@@ -18,66 +18,13 @@ import std.taskgroup.{FrameDescriptor, TaskContext, __saw_exec_deadline_passed, 
 import std.taskgroup.{__saw_exec_cancel_requested, __saw_exec_close_background, __saw_exec_dump_tasks}
 import std.taskgroup.{__saw_exec_join_park}
 import std.taskgroup.{__saw_exec_io_unregister, __saw_exec_thread_exiting, __saw_exec_thread_finished}
+import std.taskgroup.{ThreadControlBlock, alloc_thread_block, exchange_state, free_thread_block}
+import std.taskgroup.{reap_thread_block, thread_exit_word}
 
 extern "C" {
-    // 0, or the negated portable tag of a refused join (runtime/ABI.md).
-    func __saw_rt_thread_join(handle: Int) -> Int
     // Settles the block's ownership with the thread's own exit: 1 when the
     // thread already finished and the caller frees the block (runtime/ABI.md).
     func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>) -> Int
-    func __saw_rt_last_raw_code() -> Int
-}
-
-// The alignment every control block is allocated and freed at. The detach seam
-// frees a block knowing only its size, at this alignment (runtime/ABI.md), so
-// it is fixed rather than read off the result type.
-static THREAD_BLOCK_ALIGN: Int = 16
-
-// The control block of one spawned thread: the record the compiler's
-// `Thread.spawn` lowering builds, the thread writes its result into, and a
-// `Thread<T>` handle owns. Only that lowering builds one.
-//
-// The layout is the field order, which runtime/ABI.md freezes in one place:
-// `state` sits two words in, at `2 * sizeof(UnsafePointer<UInt8>)`, because
-// `tid` and `env` are each one pointer-sized word. Every size the detach
-// handshake carries or a deallocation passes is `sizeof` of this type.
-public(package) struct ThreadControlBlock<T> {
-    // The OS thread's handle, as `__saw_rt_thread_spawn` stored it.
-    tid: Int
-    // The body's environment, which the thread frees once the body has
-    // taken its captures.
-    env: UnsafePointer<UInt8>
-    // The detach handshake word: the block's size while the thread and its
-    // handle are both live, 0 once the handle detached, and the negated size
-    // once the thread finished.
-    state: Int
-    // The body's result, written by the thread when the body returns.
-    result: T
-}
-
-// The OS-thread surface: join by handle. Spawn stays the compiler's
-// `__saw_rt_thread_spawn` call, since it passes a C function pointer, which a
-// Saw value cannot carry (DF-113b). Dispatch is static: the implementation is
-// chosen at build time, so an `any NativeThread` would cost an allocation for
-// nothing. The member is not named `join`, which std's suspension census
-// would read as `Thread.join`'s parking default (compiler/tools/std_suspension.py).
-trait NativeThread {
-    func wait_for_exit(&self)
-}
-
-struct PosixThread {
-    handle: Int
-}
-
-// A refused join panics with the cause, since `Thread.join` hands back the
-// result with no error channel. A join is refused only for a handle naming no
-// joinable thread, or a thread joining itself.
-extension PosixThread: NativeThread {
-    func wait_for_exit(&self) {
-        if __saw_rt_thread_join(self.handle) != 0 {
-            panic("Thread.join: joining the thread failed (errno {})", __saw_rt_last_raw_code())
-        }
-    }
 }
 
 /// The handle to a spawned thread, carrying the result type `T`.
@@ -132,24 +79,26 @@ extension Thread<T> {
     }
 
     // The thread's handshake word, which its exit leaves negative: what a
-    // join waits on before the reap, a pool teardown's among them
-    // (`join_crew` in std.taskgroup).
-    public(package) func __saw_exit_word(&self) unsafe -> UnsafePointer<Int> {
-        (&self.block[0].state) as UnsafePointer<Int>
+    // join waits on before the reap.
+    func __saw_exit_word(&self) unsafe -> UnsafePointer<Int> {
+        thread_exit_word(self.block)
     }
 
     // Joins the OS thread and takes its result, the handle's fate still
-    // open: both joins, and a pool's teardown, which joins the workers it
-    // started without the pair (`join_crew` in std.taskgroup).
-    public(package) func __saw_reap(&var self) unsafe -> T {
-        let block = self.block
-        PosixThread(handle: block[0].tid).wait_for_exit()
-        let at = (&block[0].result) as UnsafePointer<T>
-        // The block is freed next, so the result is moved out of it first.
-        let result = move at[0]
-        free_thread_block(block)
+    // open: the step both joins end in.
+    func __saw_reap(&var self) unsafe -> T {
+        let result = reap_thread_block(self.block)
         self.joined = true
         move result
+    }
+
+    // Ends the handle and gives its control block to a worker pool, which
+    // joins the thread at its teardown (`PoolThread` in std.taskgroup). The
+    // consuming body stands in for the handle's `deinit`, so ending it here
+    // is no unwritten fate.
+    public(package) func __saw_hand_off(&var self) consumes unsafe -> UnsafePointer<ThreadControlBlock<T>> {
+        self.check_fate_open("Thread.__saw_hand_off")
+        self.block
     }
 
     // Panics, naming `what`, when the handle's fate is already written: its
@@ -182,20 +131,10 @@ extension Thread<T> {
         self.joined = true
     }
 
-    // Allocates a control block for a thread whose result is a `T`, its
-    // handshake word holding the block's size: the spawn lowering's first
-    // step, before the thread exists. Panics if the allocation is refused,
-    // naming the request.
+    // Allocates a control block for a thread whose result is a `T`: the spawn
+    // lowering's first step, before the thread exists.
     public(package) static func __saw_control_block() unsafe -> UnsafePointer<ThreadControlBlock<T>> {
-        let size = sizeof<ThreadControlBlock<T>>()
-        guard let raw = GlobalAllocator().alloc(size, THREAD_BLOCK_ALIGN) else {
-            panic("Thread.spawn: {}", AllocError(size: size, align: THREAD_BLOCK_ALIGN))
-        }
-        let block = raw as UnsafePointer<ThreadControlBlock<T>>
-        block[0].tid = 0
-        block[0].env = 0 as UnsafePointer<UInt8>
-        block[0].state = size
-        block
+        alloc_thread_block<T>()
     }
 
     // Returns the handle that owns the control block at `block`, whose
@@ -267,31 +206,6 @@ extension Thread<T>: NoCopy {
             panic("Thread was dropped without being joined or detached — `join()` waits for it and takes its result, `detach()` gives the thread to the process")
         }
     }
-}
-
-// Swaps `value` into the handshake word of the block at `block` and returns
-// what the word held. Sequentially consistent, which is at least the
-// acquire-release runtime/ABI.md asks of each side's exchange.
-func exchange_state<T>(block: UnsafePointer<ThreadControlBlock<T>>, value: Int) unsafe -> Int {
-    let word = (&block[0].state) as UnsafePointer<Int>
-    var seen = __saw_atomic_load_i64_seq_cst(word)
-    while not __saw_atomic_cmpxchg_i64_seq_cst(word, seen, value) {
-        seen = __saw_atomic_load_i64_seq_cst(word)
-    }
-    seen
-}
-
-// Frees the control block at `block`, whose result is moved out, destroyed,
-// or never written.
-//
-// ENTRY POINTS:
-//   Thread.join
-//   Thread.detach
-//   Thread.__saw_started
-//   Thread.__saw_exit
-func free_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe {
-    GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ThreadControlBlock<T>>(),
-                              THREAD_BLOCK_ALIGN)
 }
 
 /// Cedes to the other ready tasks; the caller resumes once they have had a

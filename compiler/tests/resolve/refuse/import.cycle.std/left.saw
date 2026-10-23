@@ -1,0 +1,5 @@
+import right.{back}
+
+public func go() -> Int {
+    back()
+}

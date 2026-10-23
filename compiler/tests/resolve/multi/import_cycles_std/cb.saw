@@ -1,0 +1,5 @@
+import ca
+
+public func g() -> Int {
+    1
+}

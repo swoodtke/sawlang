@@ -1,0 +1,236 @@
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/main.saw:8:1	import cycle: main -> back -> main
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/ca.saw:1:1	import cycle: ca -> cb -> ca
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/sa.saw:1:1	import cycle: sa -> sb -> sa
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/ga.saw:1:1	import cycle: ga -> gb -> ga
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/t1.saw:1:1	import cycle: t1 -> t2 -> t3 -> t1
+ERROR	import.cycle	compiler/tests/resolve/multi/import_cycles_std/pk/src/a.saw:1:1	import cycle: pk.a -> pk.b -> pk.a
+(Module main
+  (names
+    (8:8 back (module back))
+    (8:14 b (overload back b))
+    (9:8 ca (module ca))
+    (10:8 sa (module sa))
+    (10:12 fa (overload sa fa))
+    (11:8 ga (module ga))
+    (12:8 t1 (module t1))
+    (12:12 f1 (overload t1 f1))
+    (13:8 s1 (module s1))
+    (13:12 f1s (overload s1 f1s))
+    (14:11 a (module pk.a))
+    (14:14 pa (overload pk.a pa))
+    (16:20 Int (type builtin Int))
+    (21:13 b (overload back b))
+    (21:19 ca (module ca))
+    (21:22 f (overload ca f))
+    (21:28 fa (overload sa fa))
+    (21:35 fga (overload ga fga))
+    (21:43 f1 (overload t1 f1))
+    (21:50 f1s (overload s1 f1s))
+    (21:58 pa (overload pk.a pa)))
+  (calls
+    (21:13 overload (overload back b))
+    (21:19 overload (overload ca f))
+    (21:28 overload (overload sa fa))
+    (21:35 overload (overload ga fga))
+    (21:43 overload (overload t1 f1))
+    (21:50 overload (overload s1 f1s))
+    (21:58 overload (overload pk.a pa)))
+  (declarations
+    (func m 16:13 public (signature () -> builtin.Int))
+    (func main 20:6 (signature ())))
+  (surface
+    (m (overload main m)))
+  (imports
+    (8:1 back (select (b (overload back b))))
+    (9:1 ca (qualifier ca))
+    (10:1 sa (select (fa (overload sa fa))))
+    (11:1 ga (glob))
+    (12:1 t1 (select (f1 (overload t1 f1))))
+    (13:1 s1 (select (f1s (overload s1 f1s))))
+    (14:1 pk.a (select (pa (overload pk.a pa)))))
+  (extensions back ca ga main pk.a s1 sa t1))
+(Module back
+  (names
+    (1:8 main (module main))
+    (1:14 m (overload main m))
+    (3:20 Int (type builtin Int))
+    (4:5 m (overload main m)))
+  (calls
+    (4:5 overload (overload main m)))
+  (declarations
+    (func b 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (b (overload back b)))
+  (imports
+    (1:1 main (select (m (overload main m)))))
+  (extensions back main))
+(Module ca
+  (names
+    (1:8 cb (module cb))
+    (3:20 Int (type builtin Int))
+    (4:5 cb (module cb))
+    (4:8 g (overload cb g)))
+  (calls
+    (4:5 overload (overload cb g)))
+  (declarations
+    (func f 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (f (overload ca f)))
+  (imports
+    (1:1 cb (qualifier cb)))
+  (extensions ca cb))
+(Module sa
+  (names
+    (1:8 sb (module sb))
+    (1:12 fb (overload sb fb))
+    (3:21 Int (type builtin Int))
+    (4:5 fb (overload sb fb)))
+  (calls
+    (4:5 overload (overload sb fb)))
+  (declarations
+    (func fa 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (fa (overload sa fa)))
+  (imports
+    (1:1 sb (select (fb (overload sb fb)))))
+  (extensions sa sb))
+(Module ga
+  (names
+    (1:8 gb (module gb))
+    (3:22 Int (type builtin Int))
+    (4:5 fgb (overload gb fgb)))
+  (calls
+    (4:5 overload (overload gb fgb)))
+  (declarations
+    (func fga 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (fga (overload ga fga)))
+  (imports
+    (1:1 gb (glob)))
+  (extensions ga gb))
+(Module t1
+  (names
+    (1:8 t2 (module t2))
+    (1:12 f2 (overload t2 f2))
+    (3:21 Int (type builtin Int))
+    (4:5 f2 (overload t2 f2)))
+  (calls
+    (4:5 overload (overload t2 f2)))
+  (declarations
+    (func f1 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (f1 (overload t1 f1)))
+  (imports
+    (1:1 t2 (select (f2 (overload t2 f2)))))
+  (extensions t1 t2))
+(Module s1
+  (names
+    (1:8 s1 (module s1))
+    (1:12 g1s (overload s1 g1s))
+    (3:22 Int (type builtin Int))
+    (7:22 Int (type builtin Int))
+    (8:5 g1s (overload s1 g1s)))
+  (calls
+    (8:5 overload (overload s1 g1s)))
+  (declarations
+    (func g1s 3:13 public (signature () -> builtin.Int))
+    (func f1s 7:13 public (signature () -> builtin.Int)))
+  (surface
+    (f1s (overload s1 f1s))
+    (g1s (overload s1 g1s)))
+  (imports
+    (1:1 s1 (select (g1s (overload s1 g1s)))))
+  (extensions s1))
+(Module pk.a
+  (names
+    (1:11 b (module pk.b))
+    (1:14 pb (overload pk.b pb))
+    (3:21 Int (type builtin Int))
+    (4:5 pb (overload pk.b pb)))
+  (calls
+    (4:5 overload (overload pk.b pb)))
+  (declarations
+    (func pa 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (pa (overload pk.a pa)))
+  (imports
+    (1:1 pk.b (select (pb (overload pk.b pb)))))
+  (extensions pk.a pk.b))
+(Module cb
+  (names
+    (1:8 ca (module ca))
+    (3:20 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func g 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (g (overload cb g)))
+  (imports
+    (1:1 ca (qualifier ca)))
+  (extensions ca cb))
+(Module sb
+  (names
+    (1:8 sa (module sa))
+    (1:12 fa (overload sa fa))
+    (3:21 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func fb 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (fb (overload sb fb)))
+  (imports
+    (1:1 sa (select (fa (overload sa fa)))))
+  (extensions sa sb))
+(Module gb
+  (names
+    (1:8 ga (module ga))
+    (3:22 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func fgb 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (fgb (overload gb fgb)))
+  (imports
+    (1:1 ga (glob)))
+  (extensions ga gb))
+(Module t2
+  (names
+    (1:8 t3 (module t3))
+    (1:12 f3 (overload t3 f3))
+    (3:21 Int (type builtin Int))
+    (4:5 f3 (overload t3 f3)))
+  (calls
+    (4:5 overload (overload t3 f3)))
+  (declarations
+    (func f2 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (f2 (overload t2 f2)))
+  (imports
+    (1:1 t3 (select (f3 (overload t3 f3)))))
+  (extensions t2 t3))
+(Module pk.b
+  (names
+    (1:11 a (module pk.a))
+    (1:14 pa (overload pk.a pa))
+    (3:21 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func pb 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (pb (overload pk.b pb)))
+  (imports
+    (1:1 pk.a (select (pa (overload pk.a pa)))))
+  (extensions pk.a pk.b))
+(Module t3
+  (names
+    (1:8 t1 (module t1))
+    (1:12 f1 (overload t1 f1))
+    (3:21 Int (type builtin Int)))
+  (calls)
+  (declarations
+    (func f3 3:13 public (signature () -> builtin.Int)))
+  (surface
+    (f3 (overload t3 f3)))
+  (imports
+    (1:1 t1 (select (f1 (overload t1 f1)))))
+  (extensions t1 t3))

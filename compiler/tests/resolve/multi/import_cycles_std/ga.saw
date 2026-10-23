@@ -1,0 +1,5 @@
+import gb.*
+
+public func fga() -> Int {
+    fgb()
+}

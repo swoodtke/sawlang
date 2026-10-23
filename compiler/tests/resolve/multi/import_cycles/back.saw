@@ -1,0 +1,5 @@
+import main.{m}
+
+public func b() -> Int {
+    m()
+}

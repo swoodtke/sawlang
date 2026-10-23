@@ -1,0 +1,5 @@
+import t2.{f2}
+
+public func f1() -> Int {
+    f2()
+}

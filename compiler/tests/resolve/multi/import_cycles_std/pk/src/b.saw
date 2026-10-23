@@ -1,0 +1,5 @@
+import pk.a.{pa}
+
+public func pb() -> Int {
+    1
+}

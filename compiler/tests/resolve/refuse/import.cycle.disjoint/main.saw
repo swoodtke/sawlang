@@ -1,0 +1,11 @@
+// refuses: import.cycle at d1.saw:1:1
+// flags: --std-root std
+// two disjoint cycles; the first is refused first, and the golden
+// multi/import_cycles_std pins that both are
+
+import d1.{f1}
+import d3.{f3}
+
+func f() -> Int {
+    f1() + f3()
+}

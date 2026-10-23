@@ -1,0 +1,5 @@
+import left.{go}
+
+public func back() -> Int {
+    1
+}

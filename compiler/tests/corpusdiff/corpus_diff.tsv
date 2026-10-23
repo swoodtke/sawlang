@@ -1859,8 +1859,8 @@ module_import_selective.saw	pass	-	-
 module_import_selective_error.saw	refused	resolve name.undefined	cannot find `triple` in scope
 module_import_simple.saw	pass	-	-
 module_import_unqualified_error.saw	refused	resolve name.undefined	cannot find `double` in scope
-module_matrix/graph_2cycle_error.saw	wrong	accepts a refusal test	import cycle: modules.graphcyc2.a -> modules.graphcyc2.b -> modules.graphcyc2.a
-module_matrix/graph_3cycle_error.saw	wrong	accepts a refusal test	import cycle: modules.graphcyc3.a -> modules.graphcyc3.b -> modules.graphcyc3.c -> modules.graphcyc3.a
+module_matrix/graph_2cycle_error.saw	pass	-	import.cycle: import cycle: modules.graphcyc2.a -> modules.graphcyc2.b -> modules.graphcyc2.a
+module_matrix/graph_3cycle_error.saw	pass	-	import.cycle: import cycle: modules.graphcyc3.a -> modules.graphcyc3.b -> modules.graphcyc3.c -> modules.graphcyc3.a
 module_matrix/graph_diamond.saw	pass	-	-
 module_matrix/graph_export_through_facade.saw	pass	-	-
 module_matrix/graph_self_import.saw	pass	-	-

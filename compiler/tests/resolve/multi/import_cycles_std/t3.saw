@@ -1,0 +1,5 @@
+import t1.{f1}
+
+public func f3() -> Int {
+    1
+}

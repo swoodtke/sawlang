@@ -1,0 +1,5 @@
+import d3.{f3}
+
+public func f4() -> Int {
+    1
+}

@@ -1,0 +1,9 @@
+// refuses: import.cycle at a.saw:1:1
+// flags: --std-root std --module-path pk=compiler/tests/resolve/refuse/import.cycle.package/pk/src
+// a cycle between two modules of a package, named by the package
+
+import pk.a.{pa}
+
+func f() -> Int {
+    pa()
+}

@@ -1,0 +1,22 @@
+// flags: --module-path pk=compiler/tests/resolve/multi/import_cycles/pk/src
+// under Stage 0's std root
+// Every shape of import cycle, each refused with its modules in order: one
+// through the entry, by whole-module, selective and glob imports, around three
+// modules, and between a package's modules, all reported. A module importing
+// itself is not a cycle, so `s1` resolves (SL-831).
+
+import back.{b}
+import ca
+import sa.{fa}
+import ga.*
+import t1.{f1}
+import s1.{f1s}
+import pk.a.{pa}
+
+public func m() -> Int {
+    1
+}
+
+func main() {
+    let n = b() + ca.f() + fa() + fga() + f1() + f1s() + pa()
+}

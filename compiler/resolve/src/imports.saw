@@ -443,8 +443,17 @@ extension ResProgram {
                 continue
             }
             state[start] = 1
-            try! stack.push(start)
-            try! edge.push(0)
+            // Every root is walked from the bottom of the stack, which the
+            // walk before it left empty, so a module loaded after the first
+            // root is walked too: the resolve fixture `import.cycle.std` and
+            // the golden `multi/import_cycles_std` pin it.
+            if stack.len() > 0 {
+                stack[0] = start
+                edge[0] = 0
+            } else {
+                try! stack.push(start)
+                try! edge.push(0)
+            }
             var top = 1
             while top > 0 {
                 let m = stack[top - 1]

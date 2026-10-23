@@ -1,7 +1,7 @@
 # The seed: each file's target, name, SHA-256 and size in bytes, in build.py's
 # seed_files order; the blob host serves each at its SHA-256. compiler/tools/seed.py
 # writes this file, and compiler/README.md, "The seed", says when.
-arm64-apple-darwin	sawc2.ll.xz	817473f418fcb05928177c28c56e18a39643f741e2824962cf7b1ed717a40dc1	2167428
+arm64-apple-darwin	sawc2.ll.xz	95ca03c89713a2517c48b23e9a3f04d0e37c5dbcf3405a4dc259b4fef0d4f5db	2168152
 arm64-apple-darwin	runtime/common/mem.ll.xz	a1545d2dd67d099e95133f8df9cca5e256c70d513b798bb4f4a2ed734c9c3d39	3800
 arm64-apple-darwin	runtime/common/offload.ll.xz	f5f963882482a24f2d1969131f8ebf577ee8eb5ee4be523e721a3b0705e21458	5976
 arm64-apple-darwin	runtime/common/op_budget.ll.xz	9f80598d89d4c2452ae2bfe54dcda03431d08c0e2db605f7366dda8f29f21112	4672
@@ -17,7 +17,7 @@ arm64-apple-darwin	runtime/host_macos/lock.ll.xz	3c59cc3c69fb8795797d88d1e455c38
 arm64-apple-darwin	runtime/host_macos/net_os.ll.xz	6fe5429b80a7899a0593eeacf416fe864a69ab57926c497b90ccf7711cae0246	6016
 arm64-apple-darwin	runtime/host_macos/proc_wait.ll.xz	1f24b1b78d8e52de596ba9e3cb6fe8e0a65e073d180ce06e79aec21b6438fe65	4108
 arm64-apple-darwin	runtime/host_macos/reactor.ll.xz	5a1bf588cc0957ebdf5d7fe48b7113dcee31a19ffb18daae8b9f351f5ee9eb3f	7696
-x86_64-unknown-linux-gnu	sawc2.ll.xz	5a7f04d2d75b8898e435bc635d768595570385ef455b79b0d7e7c46fe93f2723	2166216
+x86_64-unknown-linux-gnu	sawc2.ll.xz	ae834e1e558614d62316dc9c430aaa57ab71e60b6d37fdba12484f5233b29498	2168236
 x86_64-unknown-linux-gnu	runtime/common/mem.ll.xz	497a1d407d56b72fcdcfceb0d97491732530b8d59d7484b6fab44d903f803818	3792
 x86_64-unknown-linux-gnu	runtime/common/offload.ll.xz	0eac488805898edda4a2b95a7155de3a5cc64ba3788424491507c5b56e8a804f	5976
 x86_64-unknown-linux-gnu	runtime/common/op_budget.ll.xz	5c56e978d0d726a2051a64bcaebe69481db34b592a09739f97fb6cbb758dd206	4664
@@ -32,7 +32,7 @@ x86_64-unknown-linux-gnu	runtime/host_linux/executable_path.ll.xz	c63f2103d5b65c
 x86_64-unknown-linux-gnu	runtime/host_linux/net_os.ll.xz	d6aeae48fac7d4c9d2eb3ed28746b3f92242b2f2ef074df8946ad5ec0ac08dd0	6020
 x86_64-unknown-linux-gnu	runtime/host_linux/proc_wait.ll.xz	abb8bb6396413a8fd8dd4cfe742657f0d514c66ce32ec53a5c09ac5227338700	3752
 x86_64-unknown-linux-gnu	runtime/host_linux/reactor.ll.xz	c9e7584fff7c9bacfe315fa01389e4969b40bd8f23d1dbaed32137af3ac30493	8504
-aarch64-unknown-linux-gnu	sawc2.ll.xz	1e572b2d7e03ef289dd60c49bec5323d1ac1eed49c1bef354aac5790b11719ed	2167444
+aarch64-unknown-linux-gnu	sawc2.ll.xz	44b3b6e418737faa41da79489e84ee3f32a48800f8009f09f12193d1a86b1a77	2167776
 aarch64-unknown-linux-gnu	runtime/common/mem.ll.xz	99765a1a1646c67da7faded0b3c8fece79d79ccb731125e1389f9daf5b0f6677	3796
 aarch64-unknown-linux-gnu	runtime/common/offload.ll.xz	ebc9d7dbf4299ea490b9e549946570dc78f079b2ebbf5b183cfefbf543fd0d99	5976
 aarch64-unknown-linux-gnu	runtime/common/op_budget.ll.xz	3a0dad7b28229fde4ef257383f48c08fc4c1a94a42931a6c548b8f6d4cd96dde	4664

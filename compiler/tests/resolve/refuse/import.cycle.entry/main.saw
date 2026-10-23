@@ -1,0 +1,13 @@
+// refuses: import.cycle at 5:1
+// flags: --std-root std
+// a cycle through the entry module
+
+import back.{b}
+
+public func m() -> Int {
+    1
+}
+
+func f() -> Int {
+    b()
+}

@@ -9,7 +9,9 @@
 directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, resolves to
-  exactly the record in `golden/NAME.resolve` or `multi/NAME.resolve`;
+  exactly the record in `golden/NAME.resolve` or `multi/NAME.resolve`, with
+  the flags a first line `// flags: ...` passes, and under `--std-root` the
+  record leaves out the `std.` modules' dumps;
 - each package entry, `package/NAME/src/main.saw` or `package/NAME/tests/*.saw`,
   resolved with `--module-path NAME=package/NAME/src`, resolves to exactly the
   record in the `.resolve` file beside it;
@@ -149,15 +151,46 @@ def refusal_cases():
     return cases
 
 
+def golden_flags(src):
+    """The flags a golden program's first line `// flags: ...` passes."""
+    with open(src) as fh:
+        m = _FLAGS.match(fh.readline().rstrip("\n"))
+    return list(m.group(1).split()) if m else []
+
+
 def check_golden(failures, counts, write):
-    compare_records(failures, counts, write, golden_cases(), [])
+    groups = {}
+    for src, exp in golden_cases():
+        groups.setdefault(tuple(golden_flags(src)), []).append((src, exp))
+    for flags, cases in sorted(groups.items()):
+        compare_records(failures, counts, write, cases, list(flags))
     cases, args = package_cases()
     compare_records(failures, counts, write, cases, args)
+
+
+def without_std_modules(record):
+    """The record with each `std.` module's dump left out. Under `--std-root`
+    the new std's modules are resolved in full and dumped beside the
+    program's, and they are std's lane's to hold, so an edit to std moves no
+    golden of this lane. A line outside every module, an `ERROR` or
+    `INVARIANT` among them, is kept."""
+    out = []
+    keep = True
+    for line in record.split("\n"):
+        if line.startswith("(Module "):
+            keep = not line[len("(Module "):].startswith("std.")
+        elif line and not line.startswith(" "):
+            keep = True
+        if keep:
+            out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def compare_records(failures, counts, write, cases, args):
     code, out = sawc2(["--dump"] + args + [rel(src) for src, _ in cases])
     got = records(out)
+    if "--std-root" in args:
+        got = {path: without_std_modules(record) for path, record in got.items()}
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:

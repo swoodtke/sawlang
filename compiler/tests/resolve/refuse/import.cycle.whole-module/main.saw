@@ -1,0 +1,9 @@
+// refuses: import.cycle at ca.saw:1:1
+// flags: --std-root std
+// a cycle among imported modules only, by whole-module imports
+
+import ca
+
+func f() -> Int {
+    ca.f()
+}
