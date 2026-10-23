@@ -1564,7 +1564,7 @@ flat_and_nested_module_paths_are_distinct.saw	refused	resolve slice.not-yet	`syn
 flat_and_nested_modules_declare_distinct_types.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 float_integer_operand_mix.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Float`; convert one with `as`
 float_methods.saw	pass	-	-
-float_text_format.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
+float_text_format.saw	pass	-	-
 float_text_parse_vectors.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
 float_text_shortest_vectors.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
 for_head_transfer_accepts.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
@@ -2090,7 +2090,7 @@ overload_decl_ambiguous_error.saw	pass	-	overload.indistinguishable: `f(x: U)` i
 overload_effects_sync.saw	pass	-	-
 overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend
 overload_exact_vs_optional.saw	pass	-	-
-overload_int_uint_exact.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
+overload_int_uint_exact.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(value: Float) [st
 overload_method_and_static.saw	pass	-	-
 overload_same_arity_dispatch.saw	pass	-	-
 overload_set_reaches_qualified_enum.saw	pass	-	-
@@ -2380,11 +2380,11 @@ string_simple.saw	pass	-	-
 string_split_join.saw	pass	-	-
 string_substring_oob_panic.saw	pass	-	-
 string_substring_reversed_panic.saw	pass	-	-
-string_to_float.saw	refused	typecheck member.unknown	`String` has no method `to_float` this module can see
+string_to_float.saw	pass	-	-
 string_to_int.saw	pass	-	-
 string_to_int_radix.saw	pass	-	-
 string_withcstring.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-stringbuilder_append_int_alloc_free.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(b: UInt8) [std.st
+stringbuilder_append_int_alloc_free.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(value: Float) [st
 stringbuilder_append_scalar.saw	pass	-	-
 stringbuilder_build_append.saw	pass	-	-
 stringbuilder_fixed.saw	pass	-	-

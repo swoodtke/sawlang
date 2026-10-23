@@ -1,6 +1,6 @@
 program	compiler/tests/run/float_render_positions.saw
 triple	arm64-apple-darwin
-source	e368dc35e348c0ee
+source	e38ad8f9ed805880
 build	ok
 exit	0
 stdout	"0.0"

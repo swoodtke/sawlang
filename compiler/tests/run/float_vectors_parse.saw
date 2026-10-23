@@ -7,8 +7,6 @@
 // The lane runs a program in `.build/run-lane`, two levels below the repo
 // root, so the vector files are named from there.
 
-// The import is owed only until SL-819 moves `String.to_float` to std.string.
-import std.float
 import std.file.{File}
 import std.path.{Path}
 

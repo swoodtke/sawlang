@@ -15,11 +15,10 @@
 //!     and `f.format(into:)`.
 //!   * `String.to_float` is the parser.
 //!
-//! Their bodies are `float_append` and `float_parse`, because the two
-//! directions share the bit-level layer below. The two members are declared
-//! here for now, so a program reaches them with `import std.float`; the
-//! receivers' modules hold them once the seed knows this module (SL-819).
-//! This module imports neither `std.string` nor `std.stringbuilder`.
+//! Their bodies are `float_append` and `float_parse`, here because the two
+//! directions share the bit-level layer below. The members themselves live in
+//! their receivers' modules, `std.stringbuilder` and `std.string`, so a
+//! program calls them with no import. This module imports neither.
 //!
 //! The text is the shortest round-trip: the produced decimal parses back to
 //! the identical bits, and no shorter decimal does. The layout is CPython's
@@ -1692,34 +1691,6 @@ extension Float {
 // Formatting
 // =============================================================================
 
-// The receiver's module holds this member once the seed knows `std.float`
-// (SL-819); until then a program reaches it with `import std.float`.
-extension StringBuilder {
-    /// Appends the shortest decimal text that reads back as `value`.
-    ///
-    /// This is the one float formatter: every position that shows a `Float`
-    /// produces its bytes, `print(f)`, `"{f}"`, `to_string()` and
-    /// `f.format(into:)` included. The layout:
-    ///
-    ///   * zero is `0.0` or `-0.0`, keeping its sign;
-    ///   * the exponent form when the decimal point sits more than four places
-    ///     left of the digits or more than sixteen right of their start: one
-    ///     leading digit, `.` and the rest only if there is a rest, then `e`, a
-    ///     sign and at least two exponent digits (`1e+16`, `5e-324`,
-    ///     `1.5e-07`);
-    ///   * otherwise the fixed form, with `0.` and zero padding when the point
-    ///     falls at or before the first digit (`0.001`), and a trailing `.0`
-    ///     when the digits end at or before it (`100.0`);
-    ///   * a NaN is `nan` and the infinities are `inf` and `-inf`.
-    ///
-    /// Stages nothing on the heap besides the builder's own buffer, so a fixed
-    /// builder renders a float with no allocator present. Returns
-    /// `Err(AllocError)` when a growable builder cannot grow.
-    public func append(&var self, value: Float) -> Result<Void, AllocError> {
-        float_append(into: &var self, value: value)
-    }
-}
-
 // Appends the shortest decimal text that reads back as `value` to `into`:
 // `StringBuilder.append(value: Float)`'s body. It shares the bit-level layer
 // with the parser, and it writes only through the builder's own `append`
@@ -2458,32 +2429,6 @@ func float_nonfinite(text: &String) -> UInt64? {
         return FLOAT_INFINITY_BITS | FLOAT_SIGN_MASK
     }
     None
-}
-
-// The receiver's module holds this member once the seed knows `std.float`
-// (SL-819); until then a program reaches it with `import std.float`.
-extension String {
-    /// Parses the whole string as a `Float`, correctly rounded, or `None`.
-    ///
-    /// The exact inverse of a Float's text: every finite input gives the
-    /// nearest `Float`, ties to even, so `"0.30000000000000004".to_float()` is
-    /// the bits `0.1 + 0.2` produces. Overflow gives an infinity and underflow
-    /// a subnormal or a signed zero, which are the IEEE 754 answers, so `None`
-    /// only ever means the text is not a number.
-    ///
-    /// Nothing is trimmed, as with `to_int()`. The grammar:
-    ///
-    /// ```text
-    /// sign? ( digits ('.' digits?)? | '.' digits ) ([eE] sign? digits)?
-    /// sign? ('nan' | 'inf')
-    /// ```
-    ///
-    /// So `"1e3"`, `"+.5"`, `"1."` and `"-inf"` are numbers, while `" 1"`,
-    /// `"1_000"`, `"0x1p3"`, `"Infinity"` and `"NaN"` are `None`. Never panics,
-    /// at any input length.
-    public func to_float(&self) -> Float? {
-        float_parse(&self)
-    }
 }
 
 // The whole of `text` as a `Float`, correctly rounded, or `None`:

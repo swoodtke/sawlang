@@ -14,6 +14,7 @@
 //! before any atomic read-modify-write, so a literal is never retained,
 //! released or written, and a literal costs no allocation.
 
+import std.float.{float_parse}
 import std.mem.{copy_bytes}
 
 // The String layer's blocks go straight to the runtime's allocation seams, as
@@ -646,6 +647,28 @@ extension String {
             return None
         }
         self.parse_unsigned(radix)
+    }
+
+    /// Parses the whole string as a `Float`, correctly rounded, or `None`.
+    ///
+    /// The exact inverse of a Float's text: every finite input gives the
+    /// nearest `Float`, ties to even, so `"0.30000000000000004".to_float()` is
+    /// the bits `0.1 + 0.2` produces. Overflow gives an infinity and underflow
+    /// a subnormal or a signed zero, which are the IEEE 754 answers, so `None`
+    /// only ever means the text is not a number.
+    ///
+    /// Nothing is trimmed, as with `to_int()`. The grammar:
+    ///
+    /// ```text
+    /// sign? ( digits ('.' digits?)? | '.' digits ) ([eE] sign? digits)?
+    /// sign? ('nan' | 'inf')
+    /// ```
+    ///
+    /// So `"1e3"`, `"+.5"`, `"1."` and `"-inf"` are numbers, while `" 1"`,
+    /// `"1_000"`, `"0x1p3"`, `"Infinity"` and `"NaN"` are `None`. Never panics,
+    /// at any input length.
+    public func to_float(&self) -> Float? {
+        float_parse(&self)
     }
 
     // The digits accumulate with wrapping arithmetic, and a divide-back and a

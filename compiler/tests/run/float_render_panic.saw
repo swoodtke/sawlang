@@ -2,10 +2,6 @@
 // every other position: the two zeros, NaN, an infinity, the minimum
 // subnormal, `0.1 + 0.2` and both sides of the `1e16` switch (SL-722).
 
-// The import is owed only until SL-819 moves the formatter's public member to
-// std.stringbuilder.
-import std.float
-
 func main() {
     let zero = 0.0
     let tiny = Float.from(bits: 1)

@@ -9,9 +9,6 @@
 // The lane runs a program in `.build/run-lane`, two levels below the repo
 // root, so the vector file is named from there.
 
-// The import is owed only until SL-819 moves the formatter's public member to
-// std.stringbuilder.
-import std.float
 import std.file.{File}
 import std.path.{Path}
 

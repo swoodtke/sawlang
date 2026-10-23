@@ -1,6 +1,6 @@
 program	compiler/tests/run/float_vectors_parse.saw
 triple	arm64-apple-darwin
-source	5abe8c2f0b4dd07f
+source	2f643420078267d1
 build	ok
 exit	0
 stdout	"round trip: 0 failures over 2897 vectors"

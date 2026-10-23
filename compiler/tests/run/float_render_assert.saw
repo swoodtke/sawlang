@@ -3,10 +3,6 @@
 // finite value, `100.0`, `0.001`, both sides of the `1e-4` switch and `2^53`
 // (SL-722).
 
-// The import is owed only until SL-819 moves the formatter's public member to
-// std.stringbuilder.
-import std.float
-
 func main() {
     let huge = Float.from(bits: 0x7FEF_FFFF_FFFF_FFFF)
     let held = 0.0001

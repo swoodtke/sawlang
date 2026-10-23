@@ -1,6 +1,6 @@
 # The cone of compiler/tests/std/cone/core.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 53 declarations in 8 modules
+# 67 declarations in 9 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -17,6 +17,22 @@ std.box: 4
   method Box.make
   method Box.value
   struct Box
+
+std.float: 14
+  func __float_decimal_length
+  func __float_log10_pow2
+  func __float_log10_pow5
+  func __float_mul_high
+  func __float_mul_low
+  func __float_mul_shift
+  func __float_multiple_of_pow2
+  func __float_multiple_of_pow5
+  func __float_pow5bits
+  func float_append
+  method Float._raw_exponent
+  method Float._raw_mantissa
+  method Float._shortest
+  method Float.to_bits
 
 std.mem: 2
   func copy_bytes

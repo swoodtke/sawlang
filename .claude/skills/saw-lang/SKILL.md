@@ -3633,10 +3633,13 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `Atomic<Int>` is prelude-bare too — a `builtin.saw` primitive, not a
   module, so there is nothing to import (it sat in NEITHER list until a
   design-203 dogfood reader had to guess; it belongs here).
-  `std.numeric` and `std.float` declare no top-level name at all — only
-  methods (`Float.sqrt`, `Float.to_string`, `String.to_float`,
-  `StringBuilder.append(value: Float)`) — so there is nothing to import there
-  either and `import std.float` is not a thing to write.
+  `std.numeric` and `std.float` declare no public top-level name — only
+  methods on builtin types (`Float.sqrt`, `Float.abs`), which every module
+  sees — so there is nothing to import there either and `import std.float` is
+  not a thing to write. `String.to_float` and `StringBuilder.append(value:
+  Float)` live with their receivers (std.string, std.stringbuilder), so they
+  need no import either; `Float`'s text comes from its `Printable` `format`
+  (`print(f)`, `"{f}"`, `f.to_string()`).
   IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
   `Channel` (std.channel), `Mutex` (std.mutex), `Once` (std.once — design 186),

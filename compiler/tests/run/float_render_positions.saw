@@ -4,10 +4,6 @@
 // form's two switches (`1e16` and `1e-4`) and `2^53`. Each position prints
 // the one formatter's bytes (SL-722).
 
-// The import is owed only until SL-819 moves `StringBuilder.append(value:
-// Float)` to std.stringbuilder.
-import std.float
-
 struct Reading {
     value: Float
 }

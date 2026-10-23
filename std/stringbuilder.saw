@@ -7,6 +7,7 @@
 //! is how `print`, `panic` and `assert` render their messages with the
 //! allocator refusing everything.
 
+import std.float.{float_append}
 import std.mem.{copy_bytes}
 import std.string.{string_from_bytes}
 
@@ -136,6 +137,30 @@ extension StringBuilder {
     /// unchanged; a fixed builder truncates instead.
     public func append(&var self, value: Int) -> Result<Void, AllocError> {
         self.append_decimal(value)
+    }
+
+    /// Appends the shortest decimal text that reads back as `value`.
+    ///
+    /// This is the one float formatter: every position that shows a `Float`
+    /// produces its bytes, `print(f)`, `"{f}"`, `to_string()` and
+    /// `f.format(into:)` included. The layout:
+    ///
+    ///   * zero is `0.0` or `-0.0`, keeping its sign;
+    ///   * the exponent form when the decimal point sits more than four places
+    ///     left of the digits or more than sixteen right of their start: one
+    ///     leading digit, `.` and the rest only if there is a rest, then `e`, a
+    ///     sign and at least two exponent digits (`1e+16`, `5e-324`,
+    ///     `1.5e-07`);
+    ///   * otherwise the fixed form, with `0.` and zero padding when the point
+    ///     falls at or before the first digit (`0.001`), and a trailing `.0`
+    ///     when the digits end at or before it (`100.0`);
+    ///   * a NaN is `nan` and the infinities are `inf` and `-inf`.
+    ///
+    /// Stages nothing on the heap besides the builder's own buffer, so a fixed
+    /// builder renders a float with no allocator present. Returns
+    /// `Err(AllocError)` when a growable builder cannot grow.
+    public func append(&var self, value: Float) -> Result<Void, AllocError> {
+        float_append(into: &var self, value: value)
     }
 
     func append_decimal(&var self, value: Int) unsafe -> Result<Void, AllocError> {
