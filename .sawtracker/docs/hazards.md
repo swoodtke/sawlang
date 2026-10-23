@@ -71,6 +71,13 @@ an entry handled correctly by both and cited by nothing is deleted. A mention
 of an id with no section here (S7, L14, C1, ...) names a retired entry; its
 verdict is in SL-425 c7.
 
+**The checker today (SL-839, Oct 23).** The intersection rule is lifted:
+nothing runs Stage 0 over the compiler's source, and `subset_check.py` keeps
+only `grammar`, `import-allowlist` (its hygiene part, plus S27's until
+SL-826), `workaround-marker` and `redundant-visibility`. An entry's
+**Checker** line naming any other rule records a retired rule. The entry stays
+while a marker, an oracle annotation or an open defect still cites it.
+
 Sources: the Sep 25 tracker sweep (SL:tracker-cleanup, which closed most of
 these issues as `frozen`), the issue text, and the Sep 1 parser census
 (`designs/reviews/parser-census-sep1.md`). Nothing was compiled for this
