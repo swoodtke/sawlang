@@ -1,0 +1,10 @@
+// refuses: import.std-path at 6:8
+// flags: --std-root std --module-path tree=.
+// a package mapped around the std root reaches a std file by another path,
+// `tree.std.duration`, which only `std.duration` may name (SL-826)
+
+import tree.std.duration
+
+func f() -> Int {
+    1
+}

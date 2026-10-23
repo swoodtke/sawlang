@@ -16,7 +16,10 @@ static RES_CONTINUATION_HIGH: Int = 191
 // A package mapped to a directory with `--module-path NAME=DIR`.
 public struct ResPackage {
     name: Int
+    // The directory as the flag spells it, where imports through it look.
     dir: Int
+    // Its real path, which decides the package a file belongs to.
+    real: Int
 }
 
 public struct ResProgram {
@@ -71,8 +74,16 @@ public struct ResProgram {
     qualifiers: ResIndex
     // (0, name) -> the prelude declaration; (1, name) -> a gated std one.
     prelude: ResIndex
-    // (0, module identity) -> the module's index.
+    // (0, module name) -> the module's index.
     by_name: ResIndex
+    // (0, a file's real path) -> the module read from it: one module per file.
+    by_file: ResIndex
+    // The real path of the directory holding the std modules, which no other
+    // import path may reach.
+    std_dir_real: String
+    // The refusals of `--module-path` mappings that overlap another, reported
+    // at the entry once it is loaded.
+    mapping_refusals: Vector<String>
     // (0, a type parameter's leaf) -> its generic parameter node, whose bounds
     // an undefined name is checked against.
     param_nodes: ResIndex
@@ -125,6 +136,7 @@ public func res_program(std_root: String) -> ResProgram {
                        cases: ResIndex(), closure: Vector<Bool>(), closure_stride: 0,
                        surface: ResIndex(), bare: ResIndex(),
                        qualifiers: ResIndex(), prelude: ResIndex(), by_name: ResIndex(),
+                       by_file: ResIndex(), std_dir_real: "", mapping_refusals: Vector<String>(),
                        param_nodes: ResIndex(),
                        record_of: Vector<Int>(), pending: Vector<ResPending>(),
                        pending_params: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,

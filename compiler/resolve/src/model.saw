@@ -18,10 +18,14 @@ public enum ResModuleKind {
 }
 
 public struct ResModule {
-    // The module's identity, interned: `main`, `sawparse.api`, `std.vector`.
+    // The module's name, interned: `main`, `sawparse.api`, `std.vector`.
     name: Int
-    // The file it was read from, interned; -1 for none.
+    // The file it was read from, interned as the spelling that reached it
+    // first; -1 for none.
     file: Int
+    // The file's real path, interned: the module's identity (loader.saw's
+    // `module_for_file`).
+    real: Int
     kind: ResModuleKind
     // The first segment of the identity, interned: std's is `std`, and a module
     // no mapped package holds belongs to its importer's, the empty package

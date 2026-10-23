@@ -278,8 +278,13 @@ def check_acceptance(failures, counts, nonsync=None):
     A std function the sawc2 build calls and the suspension table has no row
     for fails too."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc2(["--check", "--notes", "--summaries"] + package_args() + entries)
+    code, out = sawc2(["--check", "--notes", "--summaries", "--std-root", "std"] + package_args() + entries)
     got = records(out)
+    # Only the compiler's own functions are held to sync-only: the new std is
+    # compiled whole and suspends where it should. An entry's module is named
+    # by its file, not by a stage package, so its name is listed too.
+    own = {name for name, _ in build.STAGE_PACKAGES}
+    own |= {os.path.splitext(os.path.basename(entry))[0] for entry in entries}
     summarized = {}
     for entry in entries:
         record = got.get(entry)
@@ -298,7 +303,8 @@ def check_acceptance(failures, counts, nonsync=None):
                 failures.append("typecheck acceptance %s: %s" % (entry, line))
             if line.startswith("SUMMARY\t"):
                 _, identity, suspends, sync = line.split("\t")
-                summarized[identity] = (suspends, sync)
+                if identity.split(".")[0] in own:
+                    summarized[identity] = (suspends, sync)
         counts["checked compiler programs"] = counts.get("checked compiler programs", 0) + 1
     for identity in sorted(summarized):
         suspends, sync = summarized[identity]

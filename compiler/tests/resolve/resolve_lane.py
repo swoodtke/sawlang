@@ -67,6 +67,9 @@ WAIVED = {
     "import.unavailable": "an import of a std module the parser refuses as a whole file; no "
                           "tracked std file is, so interface_pin.py checks it on a copy of the "
                           "std root",
+    "import.case-mismatch": "a segment a case-insensitive volume finds in another case; whether "
+                            "the volume is one is the host's, so the lane writes the case under "
+                            ".build and checks it there",
 }
 BUILT_DIR = os.path.join(REPO, ".build", "resolve-lane")
 # The case check_built_cases writes: an entry importing a module that does not
@@ -340,6 +343,7 @@ def check_built_cases(failures, counts):
                         "resolve.parse-refused at %s" % (found, PARSE_REFUSED_AT))
     check_interface_note(failures)
     counts["resolve built cases"] = 3
+    check_identity_cases(failures, counts)
 
 
 def check_interface_note(failures):
@@ -365,6 +369,87 @@ def check_interface_note(failures):
     for l in lines:
         if l.startswith(("ERROR\t", "INVARIANT\t")):
             failures.append("resolve interface case: %s" % l)
+
+
+IDENTITY_DIR = os.path.join(BUILT_DIR, "identity")
+# The package the identity cases reach (SL-826): a module with a static and a
+# struct, one in a subdirectory naming it by the package's name, a symbolic
+# link to each, and a hard link to the first.
+IDENTITY_LAYOUT = ("public static COUNT: Atomic<Int> = Atomic(0)\n\n"
+                   "public struct Slot {\n    width: Int\n}\n\n"
+                   "public func bump() {\n    COUNT.fetch_add(1)\n}\n\n"
+                   "public func count() -> Int {\n    COUNT.load()\n}\n")
+IDENTITY_USER = ("import pk.layout\n\n"
+                 "public func bump_through() {\n    layout.bump()\n}\n\n"
+                 "public func width_of(s: &layout.Slot) -> Int {\n    s.width\n}\n")
+# The S27 program: one bump through each spelling, and a struct passed across
+# them, which one module makes `2` and `2`.
+IDENTITY_MAIN = ("import layout\nimport pk.sub.user\n\n"
+                 "func main() {\n    layout.bump()\n    user.bump_through()\n"
+                 "    print(layout.count())\n    let s = layout.Slot(width: 2)\n"
+                 "    print(user.width_of(&s))\n}\n")
+IDENTITY_LINKS = ("import pk.layout\nimport pk.link\nimport pk.sub.user\nimport pk.alias.user as aliased\n\n"
+                  "func f() -> Int {\n    1\n}\n")
+IDENTITY_HARD = "import pk.layout\nimport pk.hard\n\nfunc f() -> Int {\n    1\n}\n"
+IDENTITY_CASE = "import pk.Layout\n\nfunc f() -> Int {\n    1\n}\n"
+
+
+def module_names(record):
+    """The names of the modules a resolve dump holds, in order."""
+    return [line[len("(Module "):] for line in record.split("\n") if line.startswith("(Module ")]
+
+
+def check_identity_cases(failures, counts):
+    """The module identity cases no tracked file can hold, written under
+    .build: the S27 program built and run with the mapping spelled absolute
+    and the entry relative, symbolic links that reach one module, the hard
+    link that is two (LANGUAGE_SPEC, Package Structure), and a segment in
+    the wrong case."""
+    shutil.rmtree(IDENTITY_DIR, ignore_errors=True)
+    src = os.path.join(IDENTITY_DIR, "pk", "src")
+    os.makedirs(os.path.join(src, "sub"))
+    files = {"layout.saw": IDENTITY_LAYOUT, "sub/user.saw": IDENTITY_USER, "main.saw": IDENTITY_MAIN}
+    for name, text in files.items():
+        with open(os.path.join(src, name), "w") as fh:
+            fh.write(text)
+    os.symlink("layout.saw", os.path.join(src, "link.saw"))
+    os.symlink("sub", os.path.join(src, "alias"))
+    os.link(os.path.join(src, "layout.saw"), os.path.join(src, "hard.saw"))
+    mapping = ["--module-path", "pk=%s" % os.path.abspath(src)]
+    entry = rel(os.path.join(src, "main.saw"))
+    binary = os.path.join(IDENTITY_DIR, "main")
+    r = subprocess.run([build.SAWC2, "build", "--std-root", "std"] + mapping + [entry, "-o", binary],
+                       cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+    if r.returncode != 0:
+        failures.append("resolve identity: the S27 program does not build: %s"
+                        % (r.stdout + r.stderr).strip()[:300])
+    else:
+        ran = subprocess.run([binary], capture_output=True, text=True, timeout=TIMEOUT)
+        if ran.stdout != "2\n2\n" or ran.returncode != 0:
+            failures.append("resolve identity: the S27 program prints %r and exits %d, expected "
+                            "'2\\n2\\n' from one module" % (ran.stdout, ran.returncode))
+    cases = {"links.saw": IDENTITY_LINKS, "hard.saw": IDENTITY_HARD, "case.saw": IDENTITY_CASE}
+    for name, text in cases.items():
+        with open(os.path.join(IDENTITY_DIR, name), "w") as fh:
+            fh.write(text)
+    code, out = sawc2(["--dump", "--module-path", "pk=%s" % rel(src)]
+                      + [rel(os.path.join(IDENTITY_DIR, name)) for name in sorted(cases)])
+    got = records(out)
+    links = got.get(rel(os.path.join(IDENTITY_DIR, "links.saw")), "")
+    if module_names(links) != ["links", "pk.layout", "pk.sub.user"] or "ERROR\t" in links:
+        failures.append("resolve identity: symbolic links give the modules %r, expected one module "
+                        "per file, ['links', 'pk.layout', 'pk.sub.user']" % module_names(links))
+    hard = got.get(rel(os.path.join(IDENTITY_DIR, "hard.saw")), "")
+    if module_names(hard) != ["hard", "pk.layout", "pk.hard"]:
+        failures.append("resolve identity: a hard link gives the modules %r, expected the "
+                        "documented two, ['hard', 'pk.layout', 'pk.hard']" % module_names(hard))
+    case_entry = rel(os.path.join(IDENTITY_DIR, "case.saw"))
+    found = first_error(got.get(case_entry, ""), case_entry)
+    insensitive = os.path.exists(os.path.join(src, "LAYOUT.saw"))
+    want = ("import.case-mismatch" if insensitive else "import.unknown-module", "1:8")
+    if found != want:
+        failures.append("resolve identity: `import pk.Layout` gives %r, expected %r" % (found, want))
+    counts["resolve identity cases"] = 4
 
 
 def unit_programs():

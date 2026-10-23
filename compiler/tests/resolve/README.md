@@ -198,6 +198,9 @@ GRAMMAR.md alternative; the last table lists them.
 | prelude names | the prelude table | prelude |
 | every import form, re-exports through a facade | Imports, below | multi/imports |
 | a package's own modules: bare from inside its `src/`, by its name through its own `--module-path`, and from its tests by name; one module whichever spelling | the module, its identity `NAME.path` | package/shelf |
+| one file reached by spellings that differ only in how they reach it: a `--module-path` directory spelled with a `./` the entry's path lacks, an absolute mapping beside a relative entry, the entry by its package name, a symbolic link to a file or a directory | one module, its identity the file's real path and its name `NAME.path` (SL-826) | multi/spellings, the lane's identity cases |
+| a hard link to a module's file | a second module: the documented exception (LANGUAGE_SPEC, Package Structure) | the lane's identity cases |
+| the entry, imported back through a package mapping its directory | the entry itself, so the import closes a cycle | import.cycle.entry-by-package |
 | a dependency's bare import, with a file of that name beside the program's entry; the entry's own bare import of it | the dependency's own module, at its package root; the entry's sibling | package/hijackapp, package/hijacklib |
 | a package's test reaching a `public(package)` member, selected or through a glob | `visibility.private`, the hint naming `@test` and the sidecar | package/tier |
 
@@ -260,6 +263,9 @@ is resolved with (`--std-root std`, for the new std).
 | `visibility.private` | a name private, or of another package or parent, in its module (design 80), asked for by an import or a qualified path, or a bare name a glob import misses only for that reason |
 | `import.duplicate-qualifier` | two whole-module imports binding one qualifier to two modules |
 | `import.cycle` | modules that import each other, at the first participant's import |
+| `import.module-path-overlap` | a `--module-path` whose directory, by real path, is another mapping's or lies inside or around it, at the entry's start, naming both mappings (`.dotdot`, `.nested`, `.holding`) |
+| `import.std-path` | a path other than `std.` that reaches a file of std, under either std root (`.frozen`, `.inside`) |
+| `import.case-mismatch` | a segment a case-insensitive file system matched in another case; the lane's identity cases check it, since whether the volume ignores case is the host's |
 | `import.prelude-name` | a selective import binding a prelude name to another declaration |
 | `import.unavailable` | an import of a module that could not be read or parsed |
 | `import.unreadable` | an entry file or std module that cannot be read |

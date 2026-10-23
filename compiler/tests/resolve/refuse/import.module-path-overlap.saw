@@ -1,0 +1,8 @@
+// refuses: import.module-path-overlap at 1:1
+// flags: --module-path a=compiler/tests/resolve/package/shelf/src --module-path b=compiler/tests/resolve/package/shelf/./src
+// two `--module-path` names for one directory, spelled two ways: a directory
+// is one package (SL-826)
+
+func f() -> Int {
+    1
+}

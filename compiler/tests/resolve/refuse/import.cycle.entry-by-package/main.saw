@@ -1,0 +1,14 @@
+// refuses: import.cycle at 6:1
+// flags: --std-root std --module-path loop=./compiler/tests/resolve/refuse/import.cycle.entry-by-package
+// the entry reached again through a package mapping its directory is the entry
+// itself, so `back`'s import of `loop.main` closes a cycle (SL-826)
+
+import loop.back.{b}
+
+public func m() -> Int {
+    1
+}
+
+func f() -> Int {
+    b()
+}

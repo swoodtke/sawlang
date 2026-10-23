@@ -1,0 +1,20 @@
+// flags: --module-path spellings=./compiler/tests/resolve/multi/spellings
+// One file is one module whatever spelling reaches it (SL-826). The mapping
+// spells this directory with a `./` the entry's path lacks, so only the files'
+// real paths agree: `layout` here, `spellings.layout` in `sub/user.saw`, and
+// this entry by its package name, are each one module.
+
+import layout
+import spellings.sub.user
+import spellings.main as again
+
+public func tick() -> Int {
+    layout.bump()
+    2
+}
+
+func main() {
+    let s = layout.Slot(width: 2)
+    let n = user.width_of(&s) + again.tick()
+    user.bump_through()
+}

@@ -1,6 +1,6 @@
 // An import inside an inline module is checked as one at the file's top is.
 module probe_tools {
-    import blade.manifest.{Manifest}   // refuses: import-allowlist
+    import src.manifest.{Manifest}   // refuses: import-allowlist
     import std.time.{Instant}
 
     public func get(n: Int) -> Int {

@@ -497,16 +497,13 @@ rules read every region of a file, inline `module m { ... }` bodies included.
 | Rule | Refuses | Source |
 |---|---|---|
 | `grammar` | a file sawc2's lexer or parser refuses | GRAMMAR.md |
-| `import-allowlist` | in the compiler, a path headed by `src`, or by a package that is neither std, a compiler stage, nor package-relative; in std, an import of anything but a std module | the spec, S27 |
+| `import-allowlist` | in the compiler, a path headed by `src`; in std, an import of anything but a std module | the spec |
 | `workaround-marker` | a comment that reads as a Stage 0 workaround marker but is not in its one form, or names an S or L entry SL:hazards does not declare | SL:hazards |
 | `redundant-visibility` | a field marked with its struct's own tier, `public` in a `public struct` or `public(package)` in a `public(package) struct`; a field inherits that tier, so only a narrowing `private` is written | the spec |
 
 "The spec" is LANGUAGE_SPEC.md: its Package Structure, where a package's module
 root is its `src/`, and its member visibility, which states a field's tier once,
-on its type. S27 is the SL:hazards entry for a bare import searched from the
-entry file, where one file reached by two spellings is two modules; the compiler
-writes only the self-named `import <stage>.x`, which `build.py` maps with
-`--module-path`, until SL-826 fixes it.
+on its type.
 
 Each rule has at least one fixture, `tests/subset/RULE.saw` or
 `tests/subset/RULE.VARIANT.saw`, whose `// refuses: RULE...` markers name

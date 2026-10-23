@@ -1,0 +1,10 @@
+// refuses: import.std-path at 6:8
+// flags: --module-path mystd=./sawc/std
+// Stage 0's std root holds its modules under `std/`; a package mapped there
+// reaches a std file, which only a `std.` path may (SL-826)
+
+import mystd.duration
+
+func f() -> Int {
+    1
+}

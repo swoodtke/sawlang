@@ -1,6 +1,8 @@
-// Loading modules: a module identity to a file, the file to a parsed arena,
-// the arena into the program. Each module is collected (phase 1) as soon as it
-// is loaded, since its own table depends on nothing else.
+// Loading modules: a file to its module, the file to a parsed arena, the
+// arena into the program. A module's identity is its file's real path, so a
+// file is one module whatever spelling reached it. Each module is collected
+// (phase 1) as soon as it is loaded, since its own table depends on nothing
+// else.
 
 import sawparse.api.{parse_interface, parse_source}
 import sawparse.diag.{diagnostic_id}
@@ -17,6 +19,9 @@ static RES_SLASH: Int = 47
 static RES_DOT: Int = 46
 static RES_NEWLINE_BYTE: Int = 10
 static RES_SPACE: Int = 32
+static RES_CAPITAL_A: Int = 65
+static RES_CAPITAL_Z: Int = 90
+static RES_CASE_DISTANCE: Int = 32
 
 // The text of the file at `path`, or None when it cannot be read as UTF-8.
 public func res_read_file(path: String) -> String? {
@@ -39,6 +44,54 @@ public func res_read_file(path: String) -> String? {
         case Ok(text) -> text,
         case Err(e) -> None
     }
+}
+
+// The real path of `path`, every symbolic link, `.` and `..` resolved, or
+// `path` itself when it cannot be resolved: a file that cannot be read is
+// refused where it is read, and the empty path is the working directory.
+public func res_real_path(path: &String) -> String {
+    let spelled = if path.len() == 0 { "." } else { path.substring(0, path.len()) }
+    match Path(s: spelled).canonical() {
+        case Ok(real) -> real.as_string(),
+        case Err(e) -> path.substring(0, path.len())
+    }
+}
+
+// The last `/`-separated component of `path`, all of it when it has none.
+public func res_last_component(path: &String) -> String {
+    var i = path.len() - 1
+    while i >= 0 {
+        if (path.byte_at(i) as Int) == RES_SLASH {
+            return path.substring(i + 1, path.len())
+        }
+        i = i - 1
+    }
+    path.substring(0, path.len())
+}
+
+// Whether `a` and `b` are one text when ASCII letters are compared without
+// their case.
+public func res_same_ignoring_case(a: &String, b: &String) -> Bool {
+    let n = a.len()
+    if n != b.len() {
+        return false
+    }
+    var i = 0
+    while i < n {
+        if res_lower(a.byte_at(i) as Int) != res_lower(b.byte_at(i) as Int) {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// An ASCII capital as its small letter; any other byte unchanged.
+func res_lower(b: Int) -> Int {
+    if b >= RES_CAPITAL_A && b <= RES_CAPITAL_Z {
+        return b + RES_CASE_DISTANCE
+    }
+    b
 }
 
 // `text` with each `.` made a `/`: a module path's segments as directories.
@@ -155,19 +208,57 @@ public func res_after_first_segment(text: &String) -> String {
 }
 
 extension ResProgram {
+    // Maps package `name` to directory `dir`. A directory is one package, so
+    // a mapping whose directory another mapping's already is, or lies inside
+    // or around another's, is refused at the entry, naming both mappings.
     public func add_package(&var self, name: String, dir: String) {
-        let n = self.intern(name)
-        let d = self.intern(res_trim_slash(dir))
-        try! self.packages.push(ResPackage(name: n, dir: d))
-    }
-
-    // The index of the mapped package whose directory holds `path`, or -1.
-    public func package_holding(&self, path: &String) -> Int {
+        let trimmed = res_trim_slash(dir)
+        let real = res_real_path(&trimmed)
         var k = 0
         while k < self.packages.len() {
             let p = self.packages[k]
-            let dir = self.name_text(p.dir)
-            if res_is_within(&path, &dir) {
+            let other = self.name_text(p.real)
+            if res_is_within(&real, &other) || res_is_within(&other, &real) {
+                var msg = StringBuilder()
+                try! msg.append("`--module-path ")
+                try! msg.append(name)
+                try! msg.append("=")
+                try! msg.append(dir)
+                try! msg.append("` maps `")
+                try! msg.append(real)
+                if real.equals(other) {
+                    try! msg.append("`, the directory `--module-path ")
+                } else if res_is_within(&real, &other) {
+                    try! msg.append("`, inside `")
+                    try! msg.append(other)
+                    try! msg.append("`, the directory `--module-path ")
+                } else {
+                    try! msg.append("`, which holds `")
+                    try! msg.append(other)
+                    try! msg.append("`, the directory `--module-path ")
+                }
+                try! msg.append(self.name_text(p.name))
+                try! msg.append("=")
+                try! msg.append(self.name_text(p.dir))
+                try! msg.append("` maps: a directory is one package, and one package's directory holds no other's")
+                try! self.mapping_refusals.push(msg.build())
+            }
+            k = k + 1
+        }
+        let n = self.intern(name)
+        let d = self.intern(trimmed)
+        let r = self.intern(real)
+        try! self.packages.push(ResPackage(name: n, dir: d, real: r))
+    }
+
+    // The index of the mapped package whose directory holds the file whose
+    // real path is `real`, or -1.
+    public func package_holding(&self, real: &String) -> Int {
+        var k = 0
+        while k < self.packages.len() {
+            let p = self.packages[k]
+            let dir = self.name_text(p.real)
+            if res_is_within(&real, &dir) {
                 return k
             }
             k = k + 1
@@ -175,22 +266,38 @@ extension ResProgram {
         return -1
     }
 
-    // The identity of the module in file `path` when a mapped package holds
-    // it, the package's name and the file's path from the package's root, so
-    // a bare import and a self-named one reach one module; "" otherwise.
-    public func canonical_identity(&self, path: &String) -> String {
-        let k = self.package_holding(&path)
+    // The name of the module whose file's real path is `real`: the holding
+    // package's name and the file's path from that package's root, else the
+    // file's path from the entry's directory, else `written`, the spelling
+    // that reached it.
+    public func module_name_for(&self, real: &String, written: String) -> String {
+        let named = self.package_name_for(&real)
+        if named.len() > 0 {
+            return named
+        }
+        let loose = self.loose_name_for(&real)
+        if loose.len() > 0 {
+            return loose
+        }
+        written
+    }
+
+    // The name of the module in the file whose real path is `real` when a
+    // mapped package holds it, the package's name and the file's path from
+    // the package's root; "" otherwise.
+    func package_name_for(&self, real: &String) -> String {
+        let k = self.package_holding(&real)
         if k < 0 {
             return ""
         }
         let p = self.packages[k]
         let name = self.name_text(p.name)
-        let dir = self.name_text(p.dir)
-        let n = path.len()
-        if n <= dir.len() + 5 || not path.substring(n - 4, n).equals(".saw") {
+        let dir = self.name_text(p.real)
+        let n = real.len()
+        if n <= dir.len() + 5 || not real.substring(n - 4, n).equals(".saw") {
             return ""
         }
-        let rel = path.substring(dir.len() + 1, n - 4)
+        let rel = real.substring(dir.len() + 1, n - 4)
         if rel.equals("lib") {
             return name
         }
@@ -201,27 +308,19 @@ extension ResProgram {
         out.build()
     }
 
-    // The identity of the module in file `path` when no mapped package holds
-    // it: the file's path from the entry file's directory, so a sibling import
-    // inside a subdirectory and the entry's path to the same file reach one
-    // module; "" when the file lies outside that directory.
-    public func loose_identity(&self, path: &String) -> String {
+    // The name of the module in the file whose real path is `real` when no
+    // mapped package holds it: the file's path from the entry's directory, so
+    // a sibling import inside a subdirectory and the entry's path to the same
+    // file name one module; "" when the file lies outside that directory.
+    func loose_name_for(&self, real: &String) -> String {
         let entry = self.modules[self.entry]
-        let root = self.name_text(entry.dir)
-        let n = path.len()
-        if n <= 4 || not path.substring(n - 4, n).equals(".saw") {
+        let entry_real = self.name_text(entry.real)
+        let root = res_dir_of(&entry_real)
+        let n = real.len()
+        if n <= 4 || not real.substring(n - 4, n).equals(".saw") || not res_is_within(&real, &root) {
             return ""
         }
-        var start = 0
-        if root.len() > 0 {
-            if not res_is_within(&path, &root) {
-                return ""
-            }
-            start = root.len() + 1
-        } else if (path.byte_at(0) as Int) == RES_SLASH {
-            return ""
-        }
-        let rel = path.substring(start, n - 4)
+        let rel = real.substring(root.len() + 1, n - 4)
         res_slashes_to_dots(&rel)
     }
 
@@ -238,31 +337,50 @@ extension ResProgram {
         None
     }
 
-    // The module whose identity is `identity`, or -1 when none is loaded.
-    public func find_module(&self, identity: Int) -> Int {
-        let at = self.by_name.first(0, identity)
+    // The module named `name`, or -1 when none is loaded.
+    public func find_module(&self, name: Int) -> Int {
+        let at = self.by_name.first(0, name)
         if at < 0 {
             return -1
         }
         self.by_name.value(at)
     }
 
-    // Loads module `identity` from `path` unless it is loaded already, and
-    // collects it. Returns its index, available or not.
-    public func load_module(&var self, identity: String, path: String, kind: ResModuleKind,
-                            package: String) -> Int {
-        let key = self.intern(identity)
-        let known = self.find_module(key)
+    // The module read from the file whose real path is `real`, or -1.
+    public func module_of_file(&var self, real: &String) -> Int {
+        let key = self.intern(real.substring(0, real.len()))
+        let at = self.by_file.first(0, key)
+        if at < 0 {
+            return -1
+        }
+        self.by_file.value(at)
+    }
+
+    // THE MODULE IDENTITY FUNNEL: the module in file `path`, whose real path
+    // is `real`, loaded and collected unless a module holds that file already.
+    // A module's identity is its file, so every spelling that reaches one file
+    // reaches one module (LANGUAGE_SPEC, Package Structure); a new module is
+    // named `name`. Returns its index, available or not.
+    //
+    // ENTRY POINTS:
+    //     std_module
+    //     load_entry
+    //     load_import
+    public func module_for_file(&var self, path: String, real: String, name: String,
+                                kind: ResModuleKind, package: String) -> Int {
+        let known = self.module_of_file(&real)
         if known >= 0 {
             return known
         }
-        let m = self.new_module(key, path, kind, package)
+        let key = self.intern(name)
+        let m = self.new_module(key, path, real, kind, package)
         self.read_module(m, path)
         m
     }
 
-    // Adds module `key`, read from `path`, with nothing in it yet.
-    func new_module(&var self, key: Int, path: String, kind: ResModuleKind,
+    // Adds module `key`, read from `path`, whose real path is `real`, with
+    // nothing in it yet.
+    func new_module(&var self, key: Int, path: String, real: String, kind: ResModuleKind,
                     package: String) -> Int {
         let m = self.modules.len()
         // The new std's modules are compiled whole; Stage 0's std is read for
@@ -271,13 +389,15 @@ extension ResProgram {
         let dir_text = res_dir_of(&path)
         let dir = self.intern(dir_text)
         let file = self.intern(path)
+        let real_key = self.intern(real)
         let pkg = self.intern(package)
         let first = self.decls.len()
-        try! self.modules.push(ResModule(name: key, file: file, kind: kind, package: pkg, dir: dir,
-                                         available: false, interface_only: interface,
+        try! self.modules.push(ResModule(name: key, file: file, real: real_key, kind: kind, package: pkg,
+                                         dir: dir, available: false, interface_only: interface,
                                          node_base: 0, node_count: 0, root: -1, line_base: 0,
                                          line_count: 0, decl_first: first, decl_count: 0))
         self.by_name.add(0, key, m)
+        self.by_file.add(0, real_key, m)
         m
     }
 
@@ -388,7 +508,8 @@ extension ResProgram {
     public func load_builtin(&var self) {
         let path = if self.std_new { "<builtin>" } else { self.std_file("builtin.saw") }
         let key = self.intern("builtin")
-        let m = self.new_module(key, path, ResModuleKind.Builtin, "std")
+        let real = if self.std_new { path } else { res_real_path(&path) }
+        let m = self.new_module(key, path, real, ResModuleKind.Builtin, "std")
         self.builtin = m
         let saved = self.current
         self.current = m
@@ -403,6 +524,8 @@ extension ResProgram {
 
     // Every std module: the third of the tables prelude.saw describes.
     public func load_std_modules(&var self) {
+        let dir = if self.std_new { self.std_root } else { self.std_file("std") }
+        self.std_dir_real = res_real_path(&dir)
         if self.std_new {
             self.load_new_std_modules()
         } else {
@@ -503,7 +626,8 @@ extension ResProgram {
         try! rel.append(res_dots_to_slashes(&path))
         try! rel.append(".saw")
         let file = self.std_file(rel.build())
-        let _ = self.load_module(identity.build(), file, ResModuleKind.Std, "std")
+        let real = res_real_path(&file)
+        let _ = self.module_for_file(file, real, identity.build(), ResModuleKind.Std, "std")
     }
 
     // The gated tier (design 255): every public std declaration the prelude
@@ -522,19 +646,27 @@ extension ResProgram {
         }
     }
 
-    // Loads the entry file named on the command line: a module whose identity
-    // is its file name without `.saw`, in the package whose directory holds
-    // it, else in the empty package.
+    // Loads the entry file named on the command line: a module named by its
+    // file name without `.saw`, in the package whose directory holds it, else
+    // in the empty package. The mappings `add_package` refused are reported
+    // at its start.
     public func load_entry(&var self, path: String) -> Int {
         let base = res_base_name(&path)
-        let k = self.package_holding(&path)
+        let real = res_real_path(&path)
+        let k = self.package_holding(&real)
         var package = ""
         if k >= 0 {
             let p = self.packages[k]
             package = self.name_text(p.name)
         }
-        let m = self.load_module(base, path, ResModuleKind.Entry, package)
+        let m = self.module_for_file(path, real, base, ResModuleKind.Entry, package)
         self.entry = m
+        var r = 0
+        while r < self.mapping_refusals.len() {
+            let message = self.mapping_refusals[r]
+            self.refuse_at(m, 0, "import.module-path-overlap", message, false)
+            r = r + 1
+        }
         m
     }
 }

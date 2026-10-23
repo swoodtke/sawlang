@@ -1,0 +1,11 @@
+// The module the entry names bare and `sub/user.saw` by the package's name.
+
+public static COUNT: Atomic<Int> = Atomic(0)
+
+public struct Slot {
+    width: Int
+}
+
+public func bump() {
+    COUNT.fetch_add(1)
+}

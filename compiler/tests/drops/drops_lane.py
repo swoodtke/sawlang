@@ -194,7 +194,7 @@ def count_flags(record, counts, prefix):
 
 def check_acceptance(failures, counts):
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in borrowck_lane.unit_programs()]
-    code, out = sawc2(["--check"] + borrowck_lane.package_args() + entries)
+    code, out = sawc2(["--check", "--std-root", "std"] + borrowck_lane.package_args() + entries)
     got = borrowck_lane.records(out)
     for entry in entries:
         record = got.get(entry)

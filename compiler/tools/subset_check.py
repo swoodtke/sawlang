@@ -22,11 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import sawc2_reading  # noqa: E402
 import ast_nodes as A  # noqa: E402  (on sys.path through sawc2_reading)
-from build import STAGE_PACKAGES  # noqa: E402
 
 RULES = {
     "grammar": "GRAMMAR.md: sawc2's parser must accept the source",
-    "import-allowlist": "LANGUAGE_SPEC, Package Structure; SL:hazards S27",
+    "import-allowlist": "LANGUAGE_SPEC, Package Structure",
     "workaround-marker": "SL:hazards: a workaround names the entry it works around",
     "redundant-visibility": "LANGUAGE_SPEC: a field's tier is stated once, on the type",
 }
@@ -48,8 +47,6 @@ _MARKER_LIKE_RE = re.compile(r"//.*stage[\s_-]*0[\s_-]*work[\s_-]*around", re.I)
 _MARKER_RE = re.compile(
     r"// Stage 0 workaround \(SL:hazards ([SL]\d+)\): canonical: (\S.*?)(?: — \S.*)?\s*$")
 MARKER_FORM = "// Stage 0 workaround (SL:hazards ID): canonical: <the code it replaces>"
-
-PACKAGE_RELATIVE_HEADS = ("parent", "package")
 
 STD_ROOT = os.path.join(REPO, "std")
 
@@ -232,13 +229,6 @@ class FileChecker:
             self.report(imp.line, "import-allowlist",
                         "`src` heads no module path: a package's module root is its `src/`; "
                         "name the stage, `import <stage>.%s`" % ".".join(path[1:]))
-        elif head != "std" and head not in PACKAGE_RELATIVE_HEADS and \
-                head not in [name for name, _ in STAGE_PACKAGES]:
-            # Any other bare import is searched from the entry file, where one
-            # file reached by two spellings is two modules (SL:hazards S27). The
-            # fix of that retires this refusal (SL-826).
-            self.report(imp.line, "import-allowlist",
-                        "`%s` is neither std, a compiler stage, nor package-relative" % head)
 
 
 def check_files(paths, std_profile=False):

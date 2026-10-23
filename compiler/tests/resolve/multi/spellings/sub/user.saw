@@ -1,0 +1,11 @@
+// Names the entry's sibling by the package's name.
+
+import spellings.layout
+
+public func bump_through() {
+    layout.bump()
+}
+
+public func width_of(s: &layout.Slot) -> Int {
+    s.width
+}

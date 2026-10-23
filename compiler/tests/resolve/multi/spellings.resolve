@@ -1,0 +1,74 @@
+(Module main
+  (names
+    (7:8 layout (module spellings.layout))
+    (8:22 user (module spellings.sub.user))
+    (9:18 main (module main))
+    (11:23 Int (type builtin Int))
+    (12:5 layout (module spellings.layout))
+    (12:12 bump (overload spellings.layout bump))
+    (17:13 layout (module spellings.layout))
+    (17:20 Slot (struct spellings.layout Slot))
+    (18:13 user (module spellings.sub.user))
+    (18:18 width_of (overload spellings.sub.user width_of))
+    (18:28 s (local s 17:9))
+    (18:33 again (module main))
+    (18:39 tick (overload main tick))
+    (19:5 user (module spellings.sub.user))
+    (19:10 bump_through (overload spellings.sub.user bump_through)))
+  (calls
+    (12:5 overload (overload spellings.layout bump))
+    (17:13 init (struct spellings.layout Slot))
+    (18:13 overload (overload spellings.sub.user width_of))
+    (18:33 overload (overload main tick))
+    (19:5 overload (overload spellings.sub.user bump_through)))
+  (declarations
+    (func tick 11:13 public (signature () -> builtin.Int))
+    (func main 16:6 (signature ())))
+  (surface
+    (tick (overload main tick)))
+  (imports
+    (7:1 spellings.layout (qualifier layout))
+    (8:1 spellings.sub.user (qualifier user))
+    (9:1 main (qualifier again)))
+  (extensions main spellings.layout spellings.sub.user))
+(Module spellings.layout
+  (names
+    (3:22 Atomic (struct builtin Atomic))
+    (3:29 Int (type builtin Int))
+    (3:36 Atomic (struct builtin Atomic))
+    (6:12 Int (type builtin Int))
+    (10:5 COUNT (static spellings.layout COUNT)))
+  (calls
+    (3:36 init (struct builtin Atomic))
+    (10:5 method))
+  (declarations
+    (static COUNT 3:15 public)
+    (struct Slot 5:15 public)
+    (field Slot.width 6:5 public)
+    (func bump 9:13 public (signature ())))
+  (surface
+    (COUNT (static spellings.layout COUNT))
+    (Slot (struct spellings.layout Slot))
+    (bump (overload spellings.layout bump)))
+  (imports)
+  (extensions spellings.layout))
+(Module spellings.sub.user
+  (names
+    (3:18 layout (module spellings.layout))
+    (6:5 layout (module spellings.layout))
+    (6:12 bump (overload spellings.layout bump))
+    (9:26 layout (module spellings.layout))
+    (9:33 Slot (struct spellings.layout Slot))
+    (9:42 Int (type builtin Int))
+    (10:5 s (local s 9:22)))
+  (calls
+    (6:5 overload (overload spellings.layout bump)))
+  (declarations
+    (func bump_through 5:13 public (signature ()))
+    (func width_of 9:13 public (signature (s: &spellings.layout.Slot) -> builtin.Int)))
+  (surface
+    (bump_through (overload spellings.sub.user bump_through))
+    (width_of (overload spellings.sub.user width_of)))
+  (imports
+    (3:1 spellings.layout (qualifier layout)))
+  (extensions spellings.layout spellings.sub.user))

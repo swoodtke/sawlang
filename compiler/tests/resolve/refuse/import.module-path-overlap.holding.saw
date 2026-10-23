@@ -1,0 +1,7 @@
+// refuses: import.module-path-overlap at 1:1
+// flags: --module-path inner=compiler/tests/resolve/package/shelf/src --module-path outer=compiler/tests/resolve/package/shelf
+// a later mapping whose directory holds an earlier one's (SL-826)
+
+func f() -> Int {
+    1
+}

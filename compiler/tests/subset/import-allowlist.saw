@@ -1,7 +1,7 @@
-// A package that is neither std nor a compiler stage, and a path headed by
-// `src`, which names no module. Any std module may be imported.
+// A path headed by `src`, which names no module. Any std module, a compiler
+// stage and a package of any other name may be imported.
 import std.net.{TcpStream}
-import blade.manifest.{Manifest}   // refuses: import-allowlist
+import blade.manifest.{Manifest}
 import std.file.{File}
 import sawlex.{lex}
 import parent.shared.{helper}

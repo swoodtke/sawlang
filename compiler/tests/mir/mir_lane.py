@@ -188,7 +188,7 @@ def check_acceptance(failures, counts):
     invariant. A unit program the parser refuses has no tree to lower and is
     counted apart."""
     entries = [rel(build.DRIVER_ENTRY)] + [rel(p) for p in unit_programs()]
-    code, out = sawc2(["--check"] + package_args() + entries)
+    code, out = sawc2(["--check", "--std-root", "std"] + package_args() + entries)
     got = records(out)
     for entry in entries:
         record = got.get(entry)

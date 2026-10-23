@@ -13643,6 +13643,26 @@ declared in `src/parser.saw` is the same type whichever spelling reached it.
   passes, with the name from `Saw.toml`, whenever it builds or tests the
   package.
 
+A module's identity is its file, compared by real path: every symbolic link,
+`.` and `..` resolved. So two spellings of one file name one module however
+the entry path and the `--module-path` directories are written, relative or
+absolute, through a symbolic link or not. Each of its statics and types
+exists once. An imported module of a package is named from that path too, by
+the package's name and the file's path from the package root,
+`my_project.parser`, whichever spelling reached it. A hard link is the one
+exception. It is a
+second name for the file's contents, not a link to another name, so two hard
+links to one file are two modules.
+
+Three spellings are refused because they would give one file a second
+identity or a second meaning:
+
+- a `--module-path` whose directory is another mapping's, or lies inside or
+  around it (a directory is one package);
+- a path other than `std.` that reaches a std file;
+- an import segment that a case-insensitive file system matches in another
+  case: `import my_project.Parser` when the file is `parser.saw`.
+
 A package's tests import it by name, as any client does:
 `import my_project.parser`, the way a Rust integration test writes
 `use my_project::parser`. Another package reaches a dependency the same way,

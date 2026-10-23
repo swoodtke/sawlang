@@ -1,0 +1,10 @@
+// refuses: import.std-path at 6:8
+// flags: --std-root std --module-path mystd=std
+// a std file reached through a package mapped to the std root: std's modules
+// are reached only through a `std.` path (SL-826)
+
+import mystd.duration.{Duration}
+
+func f() -> Int {
+    1
+}
