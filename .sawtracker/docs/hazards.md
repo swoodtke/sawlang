@@ -64,6 +64,13 @@ Issues that share one mechanism, or one rule that avoids them, form one entry.
 A family with any silent member is listed under silent hazards, and each issue
 in it is tagged. Entry codes (S1, L1, C1) are what the inventory maps to.
 
+An entry stays while something cites it: a checker rule, a workaround marker,
+an oracle annotation, or an open defect it pins. The rest are retired: the
+SL-425 sweep compiled and ran every entry's repro with sawc2 and the seed, and
+an entry handled correctly by both and cited by nothing is deleted. A mention
+of an id with no section here (S7, L14, C1, ...) names a retired entry; its
+verdict is in SL-425 c7.
+
 Sources: the Sep 25 tracker sweep (SL:tracker-cleanup, which closed most of
 these issues as `frozen`), the issue text, and the Sep 1 parser census
 (`designs/reviews/parser-census-sep1.md`). Nothing was compiled for this
@@ -101,45 +108,6 @@ be inferred).
 
 **Checker:** yes: refuse an `init` inside any `extension` whose header has type
 parameters.
-
-### S2. Moving or re-matching a payload of a borrowed match (SL-192)
-
-**Shape:** a `match` whose scrutinee is reached through a reference (a
-`&`/`&var` parameter, `self`, or a field of either) binds a move-only payload.
-Two spellings then drop that payload twice: `move` of the arm binding, and a
-nested `match` on the arm binding, even with no `move` written. The second is
-the common one: `match r.what { case Reply(outcome) -> match outcome { … } }`.
-The ruled behavior is a refusal.
-
-**Example:**
-```saw
-func take_it(s: &var Slot) -> Owned {
-    match s {
-        case Empty -> { Owned(w: 0) },
-        case Full(o) -> { move o },   // `s` still owns `o`: dropped again later
-    }
-}
-```
-
-**Instead:** when the scrutinee is borrowed, pass an arm binding onward by `&`,
-or call a `&self` method on it. Never `move` it and never make it the scrutinee
-of another `match`. Where a nested read is needed, give the inner type a `&self`
-accessor. To move a payload out, match an owned value: a local, or a by-value
-parameter.
-
-**Checker:** yes. The borrowed-versus-owned distinction is visible in the
-syntax, so the rule and the recipe above agree (codex t5):
-- **An owned scrutinee** is a plain name bound in the function by `let` or
-  `var`, a by-value parameter (its declared type is not `&T` or `&var T`), or
-  `move` of either. `self` is never one, not even in a `consumes` method: the
-  spec keeps a consuming receiver borrowed for `match`, and its one exception
-  is `move self.<field>` (codex t5). Saw has no
-  reference-typed locals outside `borrow` bindings, which the subset excludes.
-  `move` of an arm binding is allowed here.
-- **Anything else is treated as borrowed:** a reference parameter, `self` in
-  any method, a field path, an index, or a call. `move` of
-  an arm binding is refused there, as is a `match` whose scrutinee is an
-  enclosing arm's binding.
 
 ### S3. Owned values around `try` and `catch` (SL-240, SL-348, SL-74, SL-427, SL-429, SL-430)
 
@@ -296,32 +264,6 @@ write it back.
 whose target root appears on its right side. This also refuses disjoint
 fields, which costs little.
 
-### S5. `&var` into a `let` binding (SL-130)
-
-**Shape:**
-- **The `let` face:** `&var` into a field, tuple element or fixed-array element
-  whose root is a `let` binding compiles, and writes through the `let`. The
-  direct write `p.a = 2` is refused, so only the reference form slips through.
-  Stage 1 refuses it.
-- **The qualified-static face:** `&var` into an immutable `static` reached
-  through a module qualifier compiles, and the write is silently lost:
-  `bump_int(&var limits_mod.LIMIT_VALUE)` leaves the value at 3 (SL-399 r3
-  review, probe b14; reproduced on main 2fa71814). The unqualified form is
-  refused.
-
-**Example:**
-```saw
-func bump(x: &var Int) { x = x + 1 }
-let p = Pair(a: 1, b: 2)
-bump(&var p.a)   // accepted; p.a is now 2
-```
-
-**Instead:** declare the root `var` whenever any `&var` reaches into it. Never
-take `&var` into a `static`; copy it into a local `var`.
-
-**Checker:** yes: resolve the root name to its declaration, through any module
-qualifier, and refuse `&var` into a `let` or an immutable `static`.
-
 ### S6. Function exits (SL-298, SL-295)
 
 **Shape:**
@@ -343,55 +285,6 @@ unconditional `return`, `break` or `continue`.
 **Checker:** yes, structurally: a non-`Void` function body ends in an
 expression, a `return` or `panic`, or a branch construct whose every arm does;
 no statement follows an unconditional `return`/`break`/`continue` in its block.
-
-### S7. Integer literal above `Int.max` (SL-299)
-
-**Shape:** an integer literal with no type context whose value is outside
-platform `Int`'s range compiles and wraps instead of being refused.
-
-**Example:**
-```saw
-func main() { print(18446744073709551615) }   // prints -1
-```
-
-**The signed-suffix face (SL-435; the Air, t21):** a signed suffix doesn't
-protect a literal. Stage 0 checks a suffixed literal only against its width's
-unsigned range, so `255_i8` prints -1, `128_i8` prints -128, and
-`18446744073709551615_i64` prints -1. `256_u8` is refused by the lexer, and
-`-129_i8` once negated. Only a typed `let` or `var` refuses a signed-suffixed
-literal (`let v: Int8 = 200_i8`). Every other position wraps it silently: an
-argument (`take8(x: 200_i8)` passes -56), a typed `static`
-(`static s: Int8 = 200_i8` holds -56), a return, an assignment, an array
-element, and a binary operand (`x - 128_i8`). A wrapped pattern literal also
-changes control flow: `case 200_i8` matches -56, so a different arm runs (the
-Air, SL-435.p1 review).
-
-**Instead:** write large constants with an **unsigned** suffix,
-`14695981039346656037u64`, or bind them to a `UInt64`-typed `let` or `static`.
-
-**Checker:** yes, for an unsuffixed integer literal whose magnitude exceeds
-`Int.max`, and for a signed-suffixed literal above 2^(w−1) − 1, allowing
-2^(w−1) as a unary minus's direct operand (SL-435). Both are `int-literal-range`.
-
-### S8. Enum `==` with a hand-written `equals` (SL-61)
-
-**Shape:** `==` on an enum ignores a hand-written `Equatable.equals` and
-compares payloads structurally, so `a == b` and `a.equals(&b)` can disagree.
-The struct arm calls `equals` correctly.
-
-**Example:**
-```saw
-enum Bag { case Empty, case Full(k: Vector<Int>) }
-extension Bag: Equatable { func equals(&self, other: &Self) -> Bool { self.size() == other.size() } }
-// a = Full([1, 2]); b = a.copy(); a == b is false, a.equals(&b) is true
-```
-
-**Instead:** don't hand-write `Equatable` on an enum. Use
-`@synthesize extension E: Equatable {}` for structural equality, and write any
-other comparison as an ordinary method with its own name (`same_kind(&other)`).
-
-**Checker:** yes: refuse an `extension X: Equatable` with a body when `X` is
-declared as an `enum` in the source.
 
 ### S9. Type aliases (SL-49, SL-50, SL-52, SL-77, SL-383, SL-384)
 
@@ -431,56 +324,6 @@ distinct id type is wanted. SL-340's alias face is in S11.
 
 **Checker:** yes: refuse every `type` alias declaration.
 
-### S10. Nested optionals (SL-264, SL-290)
-
-**Shape:**
-- **SL-264** (silent): a bare `None` arm of a value `if`/`match` at an
-  annotated, non-tail `T??` destination produces `Some(None)`, not `None`.
-  Tails distribute the wrap correctly; `let`, assignment, argument and field
-  positions do not.
-- **SL-290** (loud, ICE): a `T?` argument to a `T??` parameter, or
-  `let x: T?? = inner`, reaches codegen with mismatched layouts.
-
-**Example (SL-264):**
-```saw
-let inner: Int? = None
-let x: Int?? = if false { inner } else { None }   // x is Some(None)
-```
-
-**Instead:** use no nested optionals: no `T??` or `Optional<T?>`, and no
-optional element or value types in collections whose accessors return an
-optional (`Vector<T?>`, `Map<K, V?>`). Use an enum with named cases for a
-three-state value.
-
-**Checker:** yes for written types: refuse `?` applied to an optional type and
-an optional type argument to `Vector`, `Map` or `Set`. A nested optional that
-arises only inside a generic instantiation needs types.
-
-### S11. Owning payloads in cells (SL-340)
-
-**Shape:**
-- `Mutex(value:)` and `SpinLock(value:)` over a heap-owning payload free it at
-  construction, a use-after-free. The `UnsafeMutableInterior(value)` inside
-  the `init` does not retire the parameter, so the parameter's cleanup runs.
-- A cell or distinct-alias value over an owning type never drops its payload,
-  a leak.
-- `UnsafeMutableInterior(x)` or `Alias(x)` of a NoCopy or ExplicitCopy value is
-  accepted without `move`.
-
-The two halves hide each other today. Pinned by
-`examples/conformance/K141_mutex_guarded_for_is_sync.saw` (XFAIL).
-
-**Example:**
-```saw
-var v: Vector<Int> = [1, 2, 3]
-let guarded = Mutex(value: move v)   // v's buffer is freed here
-```
-
-**Instead:** the sync compiler needs no cells. Use no `Mutex`, `SpinLock`,
-`Once` or `UnsafeMutableInterior`, and no `type` aliases (S9).
-
-**Checker:** yes: refuse those type names.
-
 ### S12. Consuming an erased box through a projection (SL-288)
 
 **Shape:** `take<T>()` on a `Box<any Trait>` reached through a field, tuple
@@ -499,73 +342,6 @@ enum. If an erased box is ever needed, bind it to a local and call `take` on
 the local.
 
 **Checker:** yes: refuse `any` in type position.
-
-### S13. Nested generics with defaulted parameters (SL-382)
-
-**Shape:** a type that nests a generic with a defaulted parameter is mangled
-without the default (`Vector`'s allocator), so the deinit lookup misses and the
-contents never drop. The same mangling feeds retain, copy and static lookups.
-It has two faces:
-- **Construction:** `Plain<Vector<Noisy>>(v: move v)`, with the nested type
-  argument written explicitly. The inferred `Plain(v: move v)` drops correctly.
-- **Fields, the likelier face** (Air t6, probed against the frozen compiler).
-  A *field* whose type nests such a generic never drops its contents, however
-  the value was built: `struct Outer { p: Plain<Vector<Noisy>> }`,
-  `vv: Vector<Vector<Rec>>`, `m: Map<String, Vector<Rec>>`. These are the
-  ordinary shapes of symbol tables and per-scope lists. The controls drop
-  exactly once:
-  - a field one generic deep (`v: Vector<Noisy>`);
-  - a nested generic with nothing defaulted (`p: Plain<Noisy>`);
-  - the default written out (`Plain<Vector<Noisy, GlobalAllocator>>`);
-  - the same nested types as locals, parameters or return types.
-
-  Deriving copy over such a field is loud:
-  ``internal compiler error: no `copy` symbol for field `vv` of type `Vector<Vector<Rec>>` ``.
-  With the default written out, the derived copy is deep and both copies drop.
-
-**Example:**
-```saw
-struct Scopes { names: Vector<Vector<Name>> }   // the inner vectors never drop: a leak
-struct Scopes { names: Vector<Vector<Name, GlobalAllocator>> }   // drops once
-```
-
-**Instead:**
-- Let construction type arguments be inferred.
-- In a field type that nests a generic, write every defaulted type argument
-  (`Vector<Vector<Rec, GlobalAllocator>>`). Better still, keep fields one
-  generic deep, with arena indices into a flat `Vector`, which is the subset's
-  layout anyway.
-
-**Checker:** no: **leak only** (Air t15). The missed drop is a leak, and the
-copy face is a loud ICE. The retain and static lookups that the same mangling
-feeds showed no other symptom when probed on main 2fa71814:
-- a Copy-tier `Pair<Pair<String>>`, copied 200 times, reads every string
-  correctly and leaks one allocation per string, with no early free;
-- a static `Pair<Pair<Int>>`, a static method on `Holder<Holder<Int>>`, and a
-  `Vector<Vector<Int>>` literal all give correct values.
-
-So `Vector<Vector<Name>>` and `Map<String, Vector<Rec>>` are fine in the
-compiler source. The Instead's spellings remain the ones that drop.
-
-L15's ICE text matches the copy face here, so L15 (SL-389) may be a second
-trigger of the same missing-symbol path. Check that once before trusting L15's
-candidate shape.
-
-### S14. Argument labels the frozen compiler does not check (SL-285, SL-297)
-
-**Shape:**
-- **SL-285** (silent, missing check): a named `borrows` accessor drops
-  argument labels before checking them, so `v.get(value: 0)` compiles though
-  the parameter is `index:`. This affects every such accessor. Stage 1 refuses
-  it.
-- **SL-297** (silent): a repeated named constructor argument,
-  `Pair(first: 1, second: 2, first: 3)`, is accepted and one value is dropped.
-
-**Instead:** call `get` and the other std accessors positionally (`v.get(i)`)
-or with the declared label. Never repeat a label in one argument list.
-
-**Checker:** yes: refuse a repeated label in one argument list, and labeled
-arguments to the std `borrows` accessors (a list read from `sawc/std/`).
 
 ### S15. Methods called on an indexed element (SL-368)
 
@@ -613,50 +389,6 @@ mismatch.
 
 **Checker:** no: needs types.
 
-### S17. `?` or `??` after a cast target (SL-309)
-
-**Shape:** after `as T`, a following `?` or `??` is read according to
-whitespace, because `??` lexes as one token. `n as Int? ?? 9` targets `Int?`,
-`n as Int?? 9` targets `Int` and then coalesces, and `n as Int? ?` targets
-`Int??`. The ruled grammar refuses all of them. The parse is silent; every
-probed cell then fails type checking, because a cast never produces an
-optional.
-
-**Instead:** coalesce first, then convert: `(n ?? 9) as Int`. Never write `?`
-or `??` directly after a cast target.
-
-**Checker:** yes: refuse a `?` or `??` token directly after the type of an
-`as` cast.
-
-### S18. Names the frozen compiler shares program-wide (SL-319, SL-132, SL-195)
-
-**Shape:** the language gives each declaration its module's identity; the
-frozen compiler keeps some names in one program-wide table.
-- **SL-319** (silent or loud): a qualified call `mine.encode(1)` into a user
-  module can resolve to a std free function of the same name when that std
-  module is compiled in. In the repro it is refused with an error about the
-  std function. When the std signature fits, the wrong function would run.
-- **SL-132** (loud): a free function named like a private std free function
-  (`tcp_socketpair`, `unix_timestamp`) is refused as a duplicate, and
-  redefining one of `__saw_exec_*` is an ICE.
-- **SL-195** (loud): two modules that each declare a `static` of the same name
-  collide even if neither is used, with the error anchored at line 1 of the
-  entry file.
-
-**Example (SL-319):**
-```saw
-import std.json.{JsonEncoder}
-module mine { public func encode(n: Int) -> Int { n + 100 } }
-func main() { print(mine.encode(1)) }   // resolves to std.json's encode<T>
-```
-
-**Instead:** give every free function and every `static` in the compiler
-source a name that is unique across the whole build, std included. Prefix
-module-local helpers with the module's name (`lex_`, `parse_`).
-
-**Checker:** yes: collect free-function and `static` names across the
-compiler source and `sawc/std/`, and refuse duplicates.
-
 ### S19. Type walks bounded by a depth count (SL-390)
 
 **Shape:** several of the frozen compiler's type walks stop at a fixed depth
@@ -693,34 +425,6 @@ It is S7's float twin (Air t8).
 none. If one is ever needed, keep it well inside `Float`'s range.
 
 **Checker:** yes: refuse a float literal token in the compiler source.
-
-### S21. A line break inside an interpolation (SL-401)
-
-**Shape:** when a line break falls inside an interpolation's braces, outside
-any brackets, Stage 0 evaluates only the segment's first line and drops the
-rest. Nothing is reported. This is the "keeps the first token and drops the
-rest" defect of SL:grammar §16, reached through a line break. With `x = 7`:
-- `"plus {x⏎ + 3}"` prints `plus 7`;
-- `"and {x > 0⏎ && x > 9}"` prints `and true`;
-- `"eq {x⏎ == 8}"` prints `eq 7`;
-- `"len {s⏎ .len()}"` prints `len abc`.
-
-A `-` or `*` on the next line is silent too: `"minus {x⏎ - 3}"` prints
-`minus 7`, and `{x⏎ * 3}` prints `3`. Parenthesizing the segment gives the
-right answer (Air, SL-399 r3 review, probes b09, b10, b10c and q3; reproduced
-on main 2fa71814).
-
-**Example:**
-```saw
-let x = 7
-print("and {x > 0
-    && x > 9}")   // prints `and true`
-```
-
-**Instead:** keep each interpolation on one line: a name, a field or a simple
-call, as C3 advises. Compute anything longer into a `let` first.
-
-**Checker:** yes: refuse any line break inside an interpolation's braces.
 
 ### S22. Types declared in an inline module (SL-403)
 
@@ -796,22 +500,6 @@ A temporary passed by value as an argument is dropped by its callee. An owned `m
 - **An exact rule:** refuse an owned operand that `_is_owned_temporary` accepts, at a comparison, an interpolation segment, a format argument or a cast in `compiler/`. String literals are exempt, since they are static.
 - **Today:** that predicate finds 0 leaking comparison operands in sawc2 (the driver, the lexer and the std they use). `compiler/lex` compares bytes as `Int` and builds records with `StringBuilder.append`.
 
-### S24. A reference nested in a parameter's tuple type (SL-462)
-
-**Shape (missing check):** Stage 0 accepts a parameter declared with a reference inside a tuple type, `func f(p: (&Int, Int))`. sawc2's `type.reference-position` refuses it. The declaration is inert under Stage 0: no call can pass it a reference, since `f((&n, 4))` is refused ("`&` here is not a call argument"). Stage 0 already refuses a reference as a generic argument and a `let` annotated with a reference.
-
-**Instead:** write a reference only as a whole parameter type; pass the tuple's parts as separate parameters.
-
-**Checker:** no. sawc2's typecheck refuses it, so Stage 1 rejects any compiler source that Stage 0 let through.
-
-### S25. A write to a by-value capture, or a consume of one in an escaping closure (SL-472, SL-469)
-
-**Shape (missing check):** Stage 0 refuses only the assignment forms on a by-value capture (`n = v`, `n += v`, `s.f = v`, design 132). It accepts a write through an index into a heap-backed container (`{ [move v] in v[0] = 1 }`), a `&var self` method (`v.push(1)`, `o.take()`) and `&var n` of a capture, so copies of an escaping closure share and change one environment (`let g = f`, then `f()`, `g()`, `f()` prints 2, 3, 4). It also compiles a `move` of a capture inside an escaping body, which frees the value twice (DF-255a). Both are now rulings: a by-value, `move` or `copy` capture is a `let` in every closure (SL-472), and an escaping closure never consumes a capture (SL-469). sawc2's typecheck refuses both, as `mutability.immutable` and `capture.escaping-consume`.
-
-**Instead:** avoid both in compiler source. The source takes no closure captures at all (SL:architecture §4).
-
-**Checker:** yes: `closure-capture` refuses every capture in compiler source. The rules themselves come from sawc2, so Stage 1 rejects any source Stage 0 let through.
-
 ### S26. A static or an operator from a bounded extension, on an argument that misses the bound (SL-463)
 
 **Shape (missing check):** a member declared in `extension Cell<T: Equatable> { ... }`, or brought by a bounded conformance `extension Cell<T: Equatable>: Equatable`, exists only where `T` meets the bound. Stage 0 enforces that for an instance method (`a.same(&b)` on a `Cell<Token>` is refused: "has no method `same`: requires `T: Equatable`"), but not for a static, `Cell<Token>.twin(&a, &b)`, nor for an operator that resolves to such a member, `a == b` through the bounded conformance's `equals`. It accepts both, and instantiates the member's body at a type that body was never checked for. sawc2's typecheck refuses both, as `type.bound`, through the one member lookup that methods, statics, subscripts, `for` loops and `init`s share.
@@ -840,103 +528,6 @@ sawc2 searches the importing file's own directory, then its package root, and no
 **Instead:** effects are explicit calls that return a `Result`, never `deinit` work. Write unbuffered (`write(&Data) -> Result<_, SystemError>`) and finish with an explicit `close() -> Result`; wait for a spawned process explicitly (`run()` blocks and returns the exit status); a `deinit` only releases the descriptor. Every site marks the canonical design it replaces: `// Stage 0 workaround (SL:hazards S28): canonical: <the buffered writer / deinit-flushing form>`. They return to it under SL-425, once Stage 0 is retired by the pinned seed binary (SL:open-questions, "Bootstrap seed").
 
 **Checker:** the existing `deinit-body` rule refuses a `deinit` in compiler source. The std modules in the cone are reviewed against this entry in `compiler/tools/std_cone_review.md`, and adding a std write or process API re-checks it (the allowlist pin).
-
-### S29. A temporary on a conditionally evaluated operand: dropped uninitialised, twice, or never (SL-541)
-
-**Shape (silent: an uninitialised or double drop, a hang, or a leak):** Stage 0 drops a temporary made on an operand that only some paths evaluate at the end of its statement, with no flag:
-- **`??`'s right side** (`maybe(k) ?? mk(30 + k).val()`): when the left is present, the never-made temporary is dropped from garbage; when it is absent, the temporary drops twice;
-- **a BARE value-`match` arm** (`case _ -> mk(80 + k).val()`): a garbage drop on a pass that takes another arm. On a pass that TAKES the arm, Stage 0 still drops its temporary at statement end, so the drop ORDER differs from sawc2's arm-end rule (D42) too. An index into a call's result (`case Made -> fields(k)[1]`, a `Vector` temporary) makes Stage 0 ABORT (SIGABRT) on the other arm's pass. With a `Vector` temporary, Stage 0 HANGS. Both block-arm spellings (`case _ -> { … }`) drop correctly;
-- **a plain `match` guard** (`case j if mk(20 + j).ok() ->`): a garbage drop on a pass an earlier arm takes;
-- **the right side of `&&` in a `while` condition**: the temporary is never dropped, a leak.
-
-The right side of `&&`/`||` in an `if` condition or a `let`, a middle operand, and a value `if` arm are right. sawc2 is right everywhere: each such operand is its own temporary scope (SL:open-questions D42). Repros: fe3's `sweep.saw` and `sweep2p.saw` (SL-541), and the Air's reproduction of the live instance (SL-541 c2).
-
-**Live instance in the compiler source** (the Air, SL-541 c2): `cand_param_count`'s `case Memberwise -> self.struct_fields(c.decl).len()` makes an owning `Vector<Int>` temporary in a bare arm. Today's frame layout makes it harmless, which the fixpoint lane shows, but nothing guarantees the slot stays that way.
-
-**Instead:** write the arm as a block, `case Memberwise -> { self.struct_fields(c.decl).len() }`, or bind the operand's value to a `let` before the statement, so no owning temporary sits on a conditional operand. Mark it `// Stage 0 workaround (SL:hazards S29): canonical: <the bare arm>`.
-
-**Checker:** yes: `conditional-temporary` (SL-508.p1). In compiler source it refuses a call's result used as the receiver of a method or a field in a bare value-`match` arm, a `match` guard, or the right side of `??`. A block arm, `&&`/`||` in an `if` or a `let`, and a value `if` arm are not refused, since Stage 0 gets them right. Over the compiler source it found exactly the one live site (now braced under an S29 marker), and 0 in the std profile. A syntactic subset rule refuses, in compiler source, an owning-temporary shape (a call whose result is the receiver of another call, field access or method) in a bare value-`match` arm, a guard, or a `??` right side. The `while … && call` face can only leak, which Stage 1 tolerates ("Leaks are tolerated in Stage 1" above), so the rule doesn't cover it.
-
-### S30. A prefix operator's operand of `as`: Stage 0 casts first (SL-620)
-
-**Shape (silent: a different value):** GRAMMAR.md's precedence table puts the prefix operators (`-`, `~`, `not`, …) above `as`, so `-x as T` is `(-x) as T`, as in the spec's Appendix B, Rust and Swift. The frozen parser casts first, reading `-(x as T)`. So one line of compiler source computes one value in Stage 1, built by Stage 0, and another in Stage 2, built by sawc2. The Air's probes (SL-620 c1, c2):
-
-| source | Stage 0 | sawc2 |
-|---|---|---|
-| `~x as UInt16`, `x: UInt8 = 0` | 65535 | 255 |
-| `-x as Int`, `x: Int32 = Int32.min` | 2147483648 | panic: integer overflow |
-| `-128 as Int8` | refused: "`128` is not representable as `Int8`" | -128 |
-| `~(0 as UInt8) as UInt16` (constant) | refused: "constant expression -1 does not fit in `UInt16`" | 255 |
-| `not t as Bool` | false | false |
-
-The fixpoint compares outputs, not intermediate values, so it sees the difference only when it reaches emitted code. No instance exists in `compiler/` today; the one tree difference across the 172 files both parsers read, `sawc/std/file.saw`'s `-1 as Int32`, is a literal, where both readings give one value.
-
-**Instead:** parenthesize the prefix expression whenever it is the operand of `as`: `(-x) as T` for GRAMMAR.md's meaning, or `-(x as T)` for the other. Both parsers read either spelling alike.
-
-**Checker:** yes: `prefix-cast` (SL-620). In compiler source it refuses a `-` or `~` whose operand, as the frozen parser reads it, is an `as` cast, unless the `as` sits inside a parenthesis directly after the operator (`-(x as T)`). So `-x as T`, `-(x) as T`, `-(-x) as T` and `~(x as A) as B` are refused, interpolation segments included. `(-x) as T` is the spelling for GRAMMAR.md's meaning. `not` is exempt, since its cast to `Bool` agrees. The rule found 0 live sites in the compiler source. The std profile reads `std/` with sawc2 (SL-600) and does not run it.
-
-**The loud face of the same mechanism** (found by SL-620's sweep): Stage 0 parses the operand of `try`, `try?` and `try!` as a whole expression, where GRAMMAR.md gives `try` the prefix tier. So `try! f() as Int`, `try? f() ?? 3`, `try! f() + 1` and `try! f() == 7` compile under sawc2, which reads `(try! f()) as Int`, but Stage 0 refuses each with a type error. Stage 0 never accepts the differing reading, so no checker is needed. **Instead:** parenthesize, `(try! f()) as Int`.
-
-### S31. An escaping closure that captures a reference with `[copy r]` (SL-607)
-
-**Shape (silent: a read of a dead frame):** Stage 0 accepts `{ [copy r] in r.n }` over `r: &Res` in an escaping closure, a returned one for example. The closure copies the reference, not the referent, so once the function returns it points into the dead frame. a1cap's probe (SL-607) confirmed the closure reads that storage. `[r]` and an implicit capture of `r` are refused there, as `capture.escaping-borrow`. sawc2 refuses all three: a reference is a frame borrow under every capture word (SL-607).
-
-**Instead:** capture the value, not the reference: `let n = r.n`, then `{ [n] in n }`.
-
-**Checker:** yes: the subset's `closure-capture` rule refuses a capture list and any capture of an enclosing binding in compiler source, so all three faces are refused there: the escaping `[copy r]`, the non-escaping `[copy r]` of a `&var`, and the implicit capture (the Air's probe, SL:hazards t31).
-
-**The non-escaping face is the same mechanism** (the Air, SL-607 c4): `[copy r]` of a `&var` aliases two exclusive references even when the closure doesn't escape. `both(&var r, { [copy r] in r += 10 })`, with `both(a: &var Int, body:)` doing `a += 1; body(); a += 1`, prints 2 under Stage 0. `a` is a `noalias` `&var` parameter, so the closure's `+= 10` is lost. **Instead:** capture the exclusive reference as `[&var r]`, and never pass it to a call that also takes the reference.
-
-### S32. A plain `copy()` method that Stage 0 runs as a type's copy hook (SL-630)
-
-**Shape (silent: a different value):** Stage 0 finds a type's copy hook by name, so a `copy()` written in an extension that is not the type's `Copy` or `ExplicitCopy` conformance runs on implicit copies anyway. c630hook's probes (SL-630) show two cases:
-- **a type that owns something** (a `String` field, say), copied at a binding or through mono's copy glue: Stage 0 runs the plain method where the spec copies member by member;
-- **a trivial type captured by a closure**, `[a]`, `[copy a]` or implicitly: Stage 0 runs the plain method where the spec copies the bits.
-
-A plain `copy()` on a Copy-tier type at a binding, in a tuple, an Optional, a field or a payload agrees in both compilers. That is the run lane's `copy_hook_plain_method`. sawc2 takes a policy's hook only from the conformance's own extension (`policy_copy`), so both cases above are pinned in sawc2's mir and mono goldens `copy_hooks` instead, since the run lane compares against Stage 0.
-
-No instance exists: every `copy()` in `std/` sits inside its type's own `Copy` or `ExplicitCopy` conformance, and the compiler's source declares none.
-
-**Instead:** write a type's `copy()` only inside its copy-policy conformance, and give any other duplicating method another name.
-
-**Checker:** not needed today, because no compiler-source type declares a `copy()`. If one ever does, a rule would refuse a `copy` member outside a `Copy`/`ExplicitCopy` conformance's extension.
-
-### S33. A raw-backed enum's cast to its integer, from a value no binding holds: Stage 0 never drops it (SL-623)
-
-**Shape (silent: a lost deinit):** a cast from a raw-backed enum to its integer reads only the tag. When its operand is a value no binding holds, the spec destroys that value at the end of the statement (Temporaries). Stage 0 never does, for any of these three forms:
-- a call's result, `make() as UInt8`;
-- a case literal, `Tag.A as Int`;
-- a spelled move, `(move t) as UInt8`.
-
-So a `NoCopy` raw enum with a printing `deinit` prints no `drop` for any of the three. c623cast's probe (SL-623, `.build/scratch/c623/faces_b.saw` in the main root) prints `moved 2 / moved end / case 1 / case end / temp 2 / temp end`. sawc2 prints `drop` after `moved 2`, after `case 1` and after `temp 2`, as the spec requires. The run lane compares against Stage 0, so these forms are pinned by sawc2's MIR golden `raw_enum_casts` and the sawc2-only probe `compiler/tests/run/probes/raw_enum_cast_handoff.saw`.
-
-A place (`t as UInt8`, `r as UInt8` through a reference) agrees in both compilers: the value stays its binding's to drop, and it drops once. Stage 0 also loops forever in an `ExplicitCopy` raw enum's hand-written `copy()` reached this way, which is why the handoff probe is sawc2-only.
-
-**Instead:** bind the value first and cast the binding, `let t = make()` then `t as UInt8`, so the binding drops it at its scope's end in both compilers.
-
-**Checker:** not needed: the compiler's source declares no raw-backed enum with a `deinit`, and its enums are not `NoCopy`, so none of these forms has a deinit to lose.
-
-### S34. A spelled `move` as a comparison operand: Stage 0 never drops the moved value (SL-643)
-
-**Shape (silent: a lost deinit):** a comparison borrows its operands, so `(move a) == b` hands the comparison a value no binding holds, which the spec destroys at the end of the statement (Temporaries). Stage 0 never destroys it, on either side of the operator, so a NoCopy operand with a printing `deinit` prints no `drop`. sawc2 moves the place into a temporary that the comparison borrows and the statement drops, and a later use of `a` is `move.use-after` (SL-643). The positions both compilers agree on, a format argument, an interpolation and a borrowed receiver, are the run program `move_at_borrow.saw`. The comparison rows are the sawc2-only probe `compiler/tests/run/probes/move_at_borrow.saw`.
-
-Stage 0 also refuses `&(move a)` passed to a `&` parameter, which sawc2 accepts and drops at the statement's end. That is a loud difference.
-
-**Instead:** move the value into a binding first, `let x = move a`, then compare `x`, so the binding drops it at its scope's end in both compilers.
-
-**Checker:** not needed: the compiler's source declares no `deinit` with an observable effect (S28), so a lost drop there can only leak, which Stage 1 tolerates.
-
-### S35. A zero-initialized static that Stage 0 accepts and sawc2 refuses (SL-660)
-
-**Shape (silent: a missing check, and in one form a value no case names):** Stage 0 checks only that all-zero is a valid value.
-- It accepts a bare `static P: dep.Port` whose fields are `private`, building a `Port` past its validating `init`.
-- It accepts a raw-backed enum with no case of value 0 inside a bare static. There `as UInt8` reads 0, and an exhaustive `match` silently takes the first arm.
-
-sawc2 refuses both: `static.zero-hidden` names the field, and `static.zero-invalid` names the enum (pins `static.zero-hidden*` and `static.zero-invalid.raw-enum`).
-
-**Instead:** give the static an initializer, or give a raw-backed enum a `= 0` case.
-
-**Checker:** not needed: the compiler's source declares no bare static.
 
 ### S36. A spawn borrow released by joining a rebound handle variable (SL-565)
 
@@ -1107,97 +698,6 @@ and `m.contains_key(k)` for a map.
 `.get(…)`) and SL-28 (a collection literal returned from a function declared
 `-> Result<…>`). SL-291 and SL-292 need the destination type.
 
-### L5. Zero-sized `Result` payloads (SL-85)
-
-**Shape:** a `Result` whose Ok and Err payloads are both zero-sized is an ICE
-at the Err wrap. The enum lowers to its tag alone, and the Err path indexes a
-payload that does not exist.
-
-**Example:**
-```saw
-struct Unreadable {}
-func attempt() -> Result<Void, Unreadable> { return Unreadable() }   // ICE
-```
-
-**Instead:** give every error type at least one field.
-
-**Checker:** yes: refuse a struct declared with no fields.
-
-### L6. Copy tier and conditional conformance (SL-114, SL-270, SL-381)
-
-**Shape:**
-- **SL-270**: an automatically Copy-tier struct (one that owns a `String` and
-  declares nothing) is refused as a `Set` element or `Map` key, though
-  accepted as a `Map` value.
-- **SL-381**: a bounded extension, `extension Box1<T: ExplicitCopy>`, is
-  instantiated for a type argument that fails the bound (`Vector<NoCopyT>`),
-  and the compile fails inside it. The likeliest face for compiler source is
-  `Vector<Vector<T>>` with a move-only `T`: `Vector<Vector<T>>.copy` is
-  instantiated although `T` fails `ExplicitCopy`, so it does not compile at
-  all (Air t9, found by the S13 probe). `Mutex<Vector<Noisy>>` hits the same
-  path through std.
-- **SL-114** (fixed on main): an automatically Copy-tier struct failing a
-  `T: Copy` bound was fixed by design 219 B2. Conformance row V32 pins it. The
-  tracker issue is stale.
-
-**Example (SL-270):**
-```saw
-struct Rec { text: String }
-var s = Set<Rec>()         // refused: "it is move-only, not retainable"
-var m = Map<Rec, Int>()    // refused
-```
-
-**Instead:** key `Map`s and `Set`s by `Int` or `String`. Declare no bounded
-extensions on the compiler's own generic types, and don't instantiate a
-generic that has one at a type argument that fails the bound.
-
-**Checker:** yes for declarations (a bound on a type parameter in an
-`extension` header); key types need types.
-
-### L7. Fixed-size arrays (SL-131, SL-133, SL-191, SL-363)
-
-**Shape:**
-- **SL-191**: an indexed write through a `&var [T; N]` parameter, `a[0] = 9`,
-  is refused, and the hint mentions a `let` that does not exist. The same
-  write through a `&var` struct's array field works.
-- **SL-133**: a repeat literal `[t; N]` whose element has a generic type is
-  refused.
-- **SL-363** (LLVM assertion): a constant repeat or fixed-array literal with
-  more than 65535 leaves, such as `[0; 70_000]`.
-- **SL-131** (likely fixed on main): `.copy()` of a fixed array, or a
-  `T: Copy` bound, over an Optional or tuple with a refcounted payload is
-  refused. `type_satisfies_copy_bound` in `sawc/namespace.py` now answers from
-  the copy tier, which covers both; unprobed.
-
-**Example (SL-191):**
-```saw
-func bump(a: &var [UInt8; 4]) {
-    a[0] = 9   // error: cannot assign to element of immutable array `a`
-}
-```
-
-**Instead:** prefer `Vector` to fixed-size arrays in the compiler source. If a
-fixed array is used, keep it small and its element type concrete, and put it
-inside a struct when a callee must write it.
-
-**Checker:** yes: refuse `[T; N]` types and repeat literals, or at least the
-four shapes above.
-
-### L8. `Box`-linked types (SL-62, SL-63)
-
-**Shape:**
-- **SL-62**: `Box` method forwarding reaches a struct payload's methods but not
-  an enum payload's, so a box-linked recursive enum cannot be traversed with
-  methods: ``type `Box` has no method `rank` ``.
-- **SL-63** (ICE): an optional chain through a `Box<T>?` field,
-  `self.slot?.twice() ?? 0`, is ``BindOptional lowered outside an optional
-  chain``.
-
-**Instead:** link trees by arena index, as the subset already requires, and
-declare no `Box` fields.
-
-**Checker:** yes: refuse `Box<` in type position.
-
 ### L9. Name collisions within a program (SL-5, SL-96, SL-107)
 
 **Shape:**
@@ -1229,18 +729,6 @@ function in the program, std's included: `std.cbor` and `std.json` each declare
 `encode<T>`, so a generic method named `encode` in the compiler source would
 hit it whenever either module is compiled in.
 
-### L10. Static trait requirement through a type parameter (SL-113)
-
-**Shape:** inside `func decode<T: Deserialize>(…)`, the call
-`T.deserialize(from: &var dec)` is ``undefined variable `T` ``. Instance
-requirements dispatch through a bound correctly.
-
-**Instead:** call static requirements on the concrete type, or declare the
-requirement as an instance method.
-
-**Checker:** yes: refuse a call whose receiver is a type parameter of the
-enclosing declaration.
-
 ### L11. Value-position loops (SL-22)
 
 **Shape:** a `while` or `for` used as a value (`let x = while … { break v }`)
@@ -1251,55 +739,6 @@ loop's result is built as an integer constant.
 `break`.
 
 **Checker:** yes: refuse `break` with an operand.
-
-### L12. Leading minus after a block (SL-45, SL-88)
-
-**Shape:**
-- **SL-45**: a tail beginning with `-` after a block statement such as
-  `if … { return … }` is parsed as a subtraction whose left side is the block,
-  and ICEs at the `BinaryOp`.
-- **SL-88**: a line beginning with `-` after a value-`if` statement does the
-  same.
-
-**Example (SL-45):**
-```saw
-func h(b: Int) -> Int {
-    if b >= 48 { return b - 48 }
-    -1   // ICE: 'NoneType' object has no attribute 'type'
-}
-```
-
-**Instead:** never begin a statement or a tail with unary `-`. Write
-`return -1`, or bind the value first.
-
-**Checker:** yes: refuse a line whose first token is `-`.
-
-### L13. Statement match arms (SL-59)
-
-**Shape:** a bare statement (`return`, `break`, `continue`, `let`) as a
-match-arm body is a parse error, "Unexpected token: RETURN". Design 259 R7′
-makes it legal in the new grammar.
-
-**Instead:** brace statement arms and end every arm with a comma:
-`case 0 -> { return 7 },`.
-
-**Checker:** yes: refuse an arm body that begins with a statement keyword.
-
-### L14. Nesting depth and chain length (SL-308, SL-380)
-
-**Shape:**
-- **SL-308**: the parser has no depth guard. Nested parentheses fail at about
-  61 levels, nested `if` blocks at about 48, and nested closures at about 50,
-  with a raw `RecursionError` traceback.
-- **SL-380**: a long left-deep chain ICEs on recursion depth in later passes.
-  `+` and `&&` chains fail between 300 and 400 terms, `else if` chains around
-  300, and builder method and `as` chains by 1000.
-
-**Instead:** keep block nesting under about 30 levels and operator or
-`else if` chains under about 100 terms. Use `match` for long dispatch; a
-1000-arm `match` compiles.
-
-**Checker:** yes: measure nesting depth and chain length syntactically.
 
 ### L15. Unreduced ICE: "no copy symbol for field" (SL-389)
 
@@ -1318,238 +757,6 @@ no copy.
 
 **Checker:** no, not until the shape is confirmed. A lint could flag the
 candidate shape meanwhile.
-
-### L16. A long expression cannot wrap outside brackets (SL-83)
-
-**Shape:** a binary expression cannot continue on the next line unless brackets
-already enclose it. Design 259 R3 rules trailing-operator continuation legal,
-and the frozen parser refuses it. Every long `&&`/`||` condition or arithmetic
-expression meets this (Air t8).
-
-**Example:**
-```saw
-if kind == TokenKind.Ident &&     // refused at Stage 0
-   next.is_open_paren() { … }
-```
-
-**Instead:** wrap a multi-line expression in parentheses:
-`if (kind == TokenKind.Ident &&` on one line, then `next.is_open_paren()) { … }`.
-
-**Checker:** not needed. The frozen parser refuses it loudly, and the entry
-exists so authors don't each rediscover the spelling.
-
-### L17. A type named like a prelude type (SL-71)
-
-**Shape:** a type in a dependency module named like a prelude type (`Token`
-is fine; `Result`, `Vector`, `Duration`, `Path` are not) silently resolves to the
-builtin at a use site, and draws a nonsense refusal.
-
-**Instead:** no compiler type reuses a prelude type name (SL:architecture §4's
-blanket rules).
-
-**Checker:** yes: compare each declared type name against the prelude list.
-
-### L18. An extension of a generic type written without its parameters (SL-402)
-
-**Shape:** `extension Gen { … }` or `extension Gen: NoCopy {}` on a generic
-`struct Gen<T>` makes Stage 0 crash with `internal compiler error: 'Gen'`
-(Air, SL:hazards t13; reproduced on main 2fa71814). A std generic type crashes
-the same way: `extension Vector { … }` (SL-399 r4 review, probe g3). Whether a
-bare generic name is valid in an extension head at all is SL-66's question.
-
-**Instead:** write the parameters: `extension Gen<T> { … }`.
-
-**Checker:** yes: refuse an extension head that names a generic type, whether
-the build's or std's, without type arguments.
-
-### L19. A receiver outside a method (SL-407)
-
-**Shape:** a receiver on a free function (`func f(&self)`) or on an `init`
-(`init(&self)`) is accepted by Stage 0's parser, and the build then ends in an
-internal compiler error. The new grammar refuses both while parsing
-(syntax.rule.receiver-and-static).
-
-**Instead:** a receiver belongs only on a method, and an `init` takes none.
-
-**Checker:** not needed: the build fails loudly.
-
-### L20. A coroutine returning `Result<Void, E>` that falls off the end (SL-431)
-
-**Shape:** a coroutine (a function that suspends) declared `-> Result<Void, E>`
-whose last statement is an `if` that returns, and which then falls off its
-end, crashes Stage 0 with an internal compiler error:
-
-```saw
-func f(i: Int) -> Result<Void, Oops> {
-    yield_now()
-    if i >= 0 { return Oops(text: "no {i}") }
-}
-// internal compiler error (MethodCall): 'NoneType' object has no attribute 'type'
-```
-
-An `else {}`, any statement after the `if`, a trailing `return`, the sync form
-and a `-> Void` coroutine all compile and run correctly. A related loud
-refusal: `yield_now()` as the last statement of such a function is refused as
-"a nested/expression position" (the Air's probe_ice_tryopt).
-
-**Instead:** end a `Result<Void, E>` coroutine with an explicit `return`.
-
-**Checker:** not needed: the build fails loudly, and the self-hosted compiler
-is sync-only.
-
-### L21. An `Int` static as a bare operand against another width (SL-449)
-
-**Shape:** a module `static` declared `Int`, used bare on either side of a
-binary operator or as a compound assignment's right side, against an integer
-of another width, crashes Stage 0 in codegen. Its typechecker adopts the static
-to the peer's width, and codegen still emits it at `i64`:
-
-```saw
-static SHIFT: Int = 3
-func check(flag: UInt32) -> Bool { flag >= SHIFT }
-// error: '%SHIFT' defined with type 'i64' but expected 'i32'
-// `flag + SHIFT`, `x += SHIFT`: "Type of #2 arg mismatch: i32 != i64"
-```
-
-The failure is narrower than any static:
-- a static of another declared width (`UInt`, `Int8`) gets a clean refusal;
-- a bare `Int` static in a slot (a `let`, an argument, a return, a field, an
-  element, a static initializer) is refused cleanly;
-- a constant expression over it, `flag >= (1 << SHIFT)`, builds.
-
-(The Air's probes on t22.)
-
-**Instead:** write `SHIFT as UInt32`. It is checked, free for a constant, and
-builds. `UInt32.from(truncating: SHIFT)` also builds, but it drops high bits
-silently. Or declare the static at the compared width.
-
-**Checker:** not needed: the build fails loudly. The new compiler refuses the
-bare form (SL:open-questions D17).
-
-### L22. An integer widened into an Optional argument or field (SL-450)
-
-**Shape:** a narrower integer passed where an optional of a wider one is
-expected, at a call argument or a memberwise field, ends in an internal
-compiler error. A `let` and a `return` of the same widening build:
-
-```saw
-struct Holder { v: Int? }
-func take(x: Int?) -> Int { x ?? 0 }
-func main() {
-    let small: UInt8 = 7
-    let a = take(small)
-    // internal compiler error (FunctionCall): Can only insert i64 at [1] in {i1, i64}: got i8
-    let h = Holder(v: small)
-    // "cannot store {i1, i8}"
-}
-```
-
-
-**Instead:** widen with `as`, which is total and free for a widening:
-`take(small as Int)`, `Holder(v: small as Int)`. Or bind first, since a `let`
-widening builds: `let wide: Int = small`.
-
-**Checker:** not needed: the build fails loudly.
-
-### L23. Same-named methods in two extensions of one type (SL-451)
-
-**Shape:** two extensions of one type, in different modules, each declaring a
-method of the same name, which is legal, since extensions are import-scoped and
-their methods are private by default. Stage 0's method mangling drops the
-extension's module. The build fails when one of the methods is called from
-inside its own extension's module. It fails whatever their signatures or
-visibility, and even if only one of them is ever called. Two same-named methods
-called only from other modules build and run correctly, and no silent variant
-was found (the Air's five probes on t24):
-
-```saw
-// area.saw:      extension Shape { func fold(&self) -> Int {...}  public func area(&self) -> Int { self.fold() } }
-// perimeter.saw: extension Shape { func fold(&self) -> Int {...}  public func perimeter(&self) -> Int { self.fold() } }
-// internal compiler error (MethodCall): Undefined method: Shape$m$shape.fold
-```
-
-**Instead:** give extension methods of one type distinct names across the
-program.
-
-**Checker:** not needed: the build fails loudly.
-
-### L24. `Vector.clear` on owning elements (SL-464)
-
-**Shape:** Stage 0's `Vector.clear()` sets the length to zero without
-destroying the elements, so a vector of owning elements (a `String`, a
-`Vector`, a struct with a `deinit`) leaks them, and their `deinit` bodies never
-run. Nothing reports it.
-
-**Instead:** let the vector go out of scope, assign a fresh one
-(`v = Vector<T>()`), or `pop` until empty. `StringBuilder.clear` is unaffected.
-
-**Checker:** not needed yet: no `compiler/` source calls `Vector.clear`.
-
-### L25. A multi-byte scalar appended to a full fixed-mode builder (SL-465)
-
-**Shape:** Stage 0's `StringBuilder(bytes:capacity:)` fixed mode can write part
-of a multi-byte scalar when `append(scalar:)` reaches capacity, so the built
-`String` holds invalid UTF-8. A run under Stage 0 confirms it: appending U+1F600
-to a 9-byte builder holding `abc` builds `abc`, then `F0 9F`, then the `…`
-marker. `append(scalar:)` writes the encoding one byte at a time, while
-`append(s:)` scans back to a boundary.
-
-**Instead:** size the scratch with room for a whole scalar (four bytes) beyond
-the text, or append whole strings, which cut on a boundary.
-
-**Checker:** not needed yet: no `compiler/` source uses fixed mode.
-
-### L26. A reborrowing argument to a suspending callee that borrows its by-value parameter (SL-621)
-
-**Shape:** Stage 0 crashes with an internal compiler error when all three hold:
-- a callee suspends;
-- the callee passes `&param` of one of its by-value parameters to a function;
-- the caller's argument for that parameter reads through one of the caller's own reference parameters, either as a call (`text(&n)`) or as a receiver (`jobs.copy()`).
-
-```saw
-func size(s: &String) -> Int { s.len() }
-func call(body: String) -> Int {
-    sleep(Duration.secs(0))
-    return size(&body)
-}
-func text(n: &Int) -> String { "x" }
-func ask(n: &Int) -> Int {
-    return call(text(&n))
-}
-// internal compiler error: LLVM IR parsing error
-//   ret {i1, i8*} %"autowrap_val"   (value doesn't match function result type 'ptr')
-```
-
-The argument is lowered as a closure over the caller's frame, typed against the callee's presence-tagged frame slot, and auto-wrapped, so it returns `{i1, T}` where `T` is declared. It fails at -O0 and -O2. Sawtracker's SAW_NOTES ST-SAW-7 is the same shape, `handle(jobs.copy())` with `jobs: &Channel<Int>`.
-
-**Instead:** bind the argument to a local, then move it: `let body = text(&n)`, then `return call(move body)`.
-
-**Checker:** not needed: the build fails loudly, and the self-hosted compiler is sync-only.
-
-### L27. Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses (SL-641)
-
-**Shape:** the user's Oct 15 ruling (SL-641) made sawc2 refuse these at the declaration, and Stage 0 accepts every one:
-- **two copy policies on one type:** `Copy` + `ExplicitCopy`, in one extension or two, with one `copy()` body (Stage 0's `examples/copy_traits_both_declared_legal.saw`, `EXPECT: success` there); `Copy` + `NoCopy`; `ExplicitCopy` + `NoCopy`; and a bounded `Copy` beside a `NoCopy` (`copy.second-policy`). Stage 0 does refuse two `@synthesize`d `Copy` + `ExplicitCopy` conformances, but only as a duplicate `copy`;
-- **a `copy()` outside a `Copy` or `ExplicitCopy` conformance** on a type that isn't `NoCopy`, a user trait's `copy()` on a Copy type included (`copy.outside-policy`). Stage 0 runs such a method by name (S32);
-- **redeclarations that differ only in how they are written** (`overload.indistinguishable`): two overloads whose type parameters are renamed at any depth (`h<T>(v: T?)` beside `h<U>(v: U?)`), two extensions that name the type's parameter differently, duplicate trait requirements, and `init`s whose labels are reordered.
-
-It is loud: sawc2 refuses each one where it's declared, and a program Stage 0 builds simply fails to build under sawc2.
-
-**Instead:** one policy per type; write a Copy or ExplicitCopy type's `copy()` inside its conformance, and give any other duplicating method another name; don't redeclare an overload under renamed type parameters or reordered labels.
-
-**Checker:** not needed: the fixpoint lane builds the compiler's source with sawc2, which refuses every one, and SL-641's sweep found none in the compiler, std, blade or libs.
-
-### L28. An `init` matching its struct's fields: Stage 0 refuses it, sawc2 accepts it as an override or an overload (SL-648)
-
-**Shape:** Stage 0 refuses every `init` whose labels are exactly the struct's field names, whatever their types: "init method parameters match field names exactly - this is ambiguous with field initialization". sawc2 follows the user's Oct 15 ruling (SL-648) instead:
-- an exact match (labels in any order, types equal) overrides the memberwise construction, which stays reachable only inside the override's own body;
-- an `init` with the same labels but other types (`init(x: Float, y: Float)` on `Int` fields) is an ordinary overload.
-
-So both shapes build under sawc2 and fail under Stage 0. It is loud: Stage 0 refuses at the declaration.
-
-**Instead:** in code Stage 0 builds (`compiler/`, `blade/`, `libs/`, `examples/`), give a validating `init` a label no field has, and keep a converting `init`'s labels off the field names. The override returns after self-hosting.
-
-**Checker:** not needed: Stage 0 refuses loudly.
 
 ### L29. A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms (SL-656)
 
@@ -1571,25 +778,6 @@ So code using a suspending default builds under sawc2 and fails under Stage 0. I
 
 **Checker:** not needed.
 
-### L31. Derivation-only parents: Stage 0 and sawc2 differ (SL-673)
-
-**Shape (loud in two forms, silent in one):** the user's ruling (SL-673) says a trait that lists `Send` or `Sync` as a parent requires it of every conformer and never grants it, and `T: Child` meets `T: Send` in a generic body. Only `NoCopy` and `ExplicitCopy` may list `Deinit` as a parent. sawc2 follows the ruling. Stage 0 differs in three ways:
-1. **`trait X: Deinit` is accepted, and the `deinit` silently disappears (silent).** With `trait Closeable: Deinit {}` and `extension Handle: Closeable { func deinit(&var self) { … } }`, Stage 0 compiles, and no scope exit runs that `deinit`. sawc2 refuses the trait (`trait.deinit-parent`).
-2. **A conformance to a `Send`-refining trait on a non-`Send` type is accepted and grants nothing.** Stage 0 accepts `extension Buf: Shippable {}` on a raw-pointer holder, and `Buf` still fails `T: Send`. sawc2 refuses the conformance (`conformance.derived-parent`), naming the blocking field.
-3. **`T: Shippable` is refused as `T: Send`.** Stage 0 reports that `T` does not satisfy `Send`; sawc2 accepts it.
-
-**Instead:** don't write a trait whose parent is `Deinit`; put a hand-written `deinit` in the type's `NoCopy` or `ExplicitCopy` conformance. Conform only types that derive the parent, or declare `UnsafeSend` where the spec allows it. In code Stage 0 must also compile, write both bounds, `<T: Shippable + Send>` (checked: Stage 0 builds and runs it).
-
-**Checker:** not needed: the compiler's source declares no trait refining `Send`, `Sync` or `Deinit`.
-
-### L32. `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it (SL-675)
-
-**Shape (loud):** the spec's "Three fences" allow the assertion only in a conformance header. sawc2 refuses a trait that lists `UnsafeSend` or `UnsafeSync` as a parent (`trait.assertion-position`, pin `trait.assertion-position.parent`). Stage 0 accepts `trait Shippable: UnsafeSend {}` and conformances to it, and grants nothing through it: a raw-pointer holder conforming to `Shippable` still fails `T: Send`, and a type that already derives `Send` builds and runs unchanged (both checked on Stage 0). So such code builds under Stage 0 and fails under sawc2, at the trait.
-
-**Instead:** declare `UnsafeSend`/`UnsafeSync` in the type's own conformance header, where the spec allows it, and give a user trait `Send` as its parent when it needs one (L31).
-
-**Checker:** not needed: sawc2 refuses at the declaration, and the compiler's source declares no trait refining either assertion.
-
 ### L33. A field read two struct hops away, bound by a `let`: Stage 0 loses the binding when neither struct type is named in the module (SL-649)
 
 **Shape (loud):** a field read that stands alone as a statement's value, with its receiver two struct hops from a parameter or `self`, and neither struct type named in the using module, yields no value in Stage 0:
@@ -1602,14 +790,6 @@ The binding's name is irrelevant. It works when the field is read as a call argu
 
 **Checker:** not needed: the failure is loud, and the shape needs type resolution and import scope, which the subset checker doesn't have.
 
-### L34. A `&any Trait` parameter of a suspending function: Stage 0 refuses it, sawc2 accepts it (SL-721)
-
-**Shape (loud):** the lead's ruling on SL-721 (c3; the Air agreeing, c4) says a reference to an erased value may span a suspension, as the spec's "References may span suspensions" lets any reference. sawc2 holds it in the frame as its two words, the value's address and its vtable's, and a dispatch through it after the resume reaches the same value (probe `compiler/tests/run/probes/erased_reference_across_suspension.saw`, at -O0 and -O2). Stage 0 refuses the parameter, driven or spawned: "`s: &any Shape` cannot be a parameter of the suspending function `spanning`. A reference that spans a suspension is held in the frame as a handle to its referent (design 88), and an erased referent has no size for the frame to name." So such code builds under sawc2 and fails under Stage 0, at the function's declaration. No corpus program has this shape today.
-
-**Instead:** in code Stage 0 builds, take an erased value across a suspension as an owned `Box<any Trait>`, or take the receiver as a generic bound (`<T: Shape>`, `&T`).
-
-**Checker:** not needed: Stage 0 refuses loudly, and the compiler's source is sync.
-
 ## Cases with no issue
 
 
@@ -1617,20 +797,6 @@ The binding's name is irrelevant. It works when the field is read as a call argu
 These four come from codex's review of the parked SL-2.p2 r3 (SL-2 c29, with
 the lead's c30). Two of them are defects of that parked patch rather than of
 main, so each entry says how main behaves.
-
-### C1. Uncharged `move *p`
-
-**Shape:** in the parked depth funnel, `move *p` consumes the `*` without
-charging a nesting level. With 255 parenthesis groups around `move *p`, 257
-constructs are accepted where the limit should refuse at the star. On main
-there is no depth guard at all (L14), and `*p` is raw-pointer code outside the
-subset. Loud on main, through L14.
-
-**Instead:** use no pointer dereference in the compiler source. The new parser
-adopts the sl2u0 funnel (architecture §3.2) and must charge the `*` in
-`move *p`.
-
-**Checker:** yes: refuse `move *`.
 
 ### C2. Trailing backslash at end of file
 
@@ -1668,75 +834,6 @@ comments, braces or nested string literals inside `{…}`.
 **Checker:** yes: lexically, refuse `//`, `{`, `}` and `"` inside an
 interpolation's braces.
 
-### C4. Comma-free next case after an operand-less `return` or `break`
-
-**Shape:** in the parked statement-arm grammar (R7′),
-`match n { case 0 -> return case _ -> return }` fails with "Unexpected token:
-CASE", and `break` fails the same way. Adding the arm comma fixes it. Main
-refuses every bare statement arm (L13), so this spelling is refused on main as
-well. Loud.
-
-**Instead:** brace statement arms and end every arm with a comma (L13).
-
-**Checker:** yes: the L13 rule covers it.
-
-
-### C5. A safe function writing `None` into a raw-pointer place
-
-**Shape:** Stage 0 accepts a function with no `unsafe` declaration that writes
-`None` into an `UnsafePointer<T>?` place, by memberwise construction anywhere
-(`Holder(buffer: None, n: 0)`, in the type's own `init` or in any other
-function, `main` included) or by assignment (`self.buffer = None`). The spec's
-trigger rule makes each of those functions `unsafe`, since its body names a
-value of an unsafe type ("names, binds, receives or returns a value of an unsafe
-type… deliberately broader than 'performs a deref'"). So Stage 0 under-reports
-the effect. Reading the field (`self.buffer.is_some()`) is refused by both
-compilers. It is silent but harmless at run time: no code is wrong, and only the
-declaration lacks its `unsafe` (the Air's probes on t25).
-
-**Instead:** declare each such function `unsafe`. Calling it from safe code
-needs no ceremony, so callers of an `unsafe init` don't change. Code that wants
-its callers unmarked routes construction through the type's own `unsafe init`
-rather than building the struct directly, since a plain construction site is
-itself `unsafe` under sawc2. `std/`'s `StringBuilder.init` carries it, recorded
-as the equivalence exception "Stage 0 under-reports the effect" (SL-456 U5b1).
-
-**Checker:** not needed. sawc2 refuses it wherever it builds the code.
-
-C6 to C9 come from the Air's review of SL-505.p1 (chat file f22). Each was verified by running both compilers, and the lead re-ran C6's shapes.
-
-### C6. A generic parameter written by value into a struct literal
-
-**Shape (silent: a double drop):** in a generic body, Stage 0 copies a by-value parameter of type `T` that is written as a struct-literal field without `move` (`Box2<T>(v: x)`), bit for bit with no retain. It then drops the parameter again when the function returns. With an owning `T`, the value is dropped twice: a `deinit` runs twice, and a `String` is over-released. This reproduces in a free generic function, in a method using the extension's own `T`, and in a method with its own `<C>`. The non-generic spelling is refused ("cannot copy value of type `Noisy`"), so the hole is the generic body's unresolved copy tier. sawc2 moves the value and drops it once.
-
-**Instead:** write `move x` for the field (`Box2<T>(v: move x)`), or bind it first with `let y = move x`. Both drop once under Stage 0.
-
-**Checker:** no. The compiler source has only two generic functions, `put_at` and `trim_to` in `compiler/parse/src/tree.saw`, both bounded `T: Copy`, and neither writes a parameter into a literal. A new generic function in compiler source is reviewed against this entry.
-
-### C7. An unsigned-to-narrower-signed `as`, or `T.from(x)`, out of range
-
-**Shape (silent: a missing check):** `UInt16(65535) as Int8` gives `-1` under Stage 0 instead of panicking, and `Int8.from(x)` from a wider unsigned value has the same hole. The Air found nine width pairs in its cast sweep. sawc2 panics, as the spec's checked conversion says.
-
-**Instead:** use `from(truncating:)` where truncation is meant, and range-check first where it isn't.
-
-**Checker:** no. The compiler source converts only with `from(truncating:)`.
-
-### C8. `Vector<Box<T>>` elements never run `deinit`
-
-**Shape (silent, leak only):** under Stage 0, the elements of a `Vector<Box<Noisy>>` never run `Noisy`'s `deinit` when the vector is destroyed. sawc2 runs it once per element.
-
-**Instead:** none needed. The compiler source declares no `deinit` (checker rule `deinit-body`), so the leak has no observable effect in Stage 1.
-
-**Checker:** covered by `deinit-body`.
-
-### C9. Over-instantiation reports a depth error for a method never called
-
-**Shape (loud):** Stage 0 instantiates every method of a generic type it instantiates, so a polymorphically recursive method that nothing calls still trips its instantiation-depth limit. The program is refused. sawc2's mono starts from the roots and instantiates only what is reached.
-
-**Instead:** don't declare a method whose instantiation grows the type argument without bound, even an unused one.
-
-**Checker:** not needed: the build fails visibly.
-
 ### C10. A consumed `match` on an owned `Optional` keeps its payload to scope end
 
 **Shape (silent: wrong drop timing):** on an owned `Noisy?`, `match o { case Some(n) -> … }` destroys `n` at the end of the enclosing scope under Stage 0, not at the arm's end. The arm binding owns the payload ("Match consumes an owned enum"), so its `deinit` belongs at the arm's end, where sawc2 runs it. A user enum with the same shape drops at the arm's end in both compilers. The repro is the Air's `e9_matchconsume.saw` (chat file f22), and the SL-513 ruling (B) puts the destruction of parts no arm binding takes at the match's completion (C11).
@@ -1758,16 +855,6 @@ Stage 0's own suite pins arm entry deliberately, in `examples/coro_discarded_mat
 
 **Checker:** covered by `deinit-body`.
 
-### C12. A narrow signed argument to a variadic extern arrives zero-extended
-
-**Shape (silent: a wrong value):** Stage 0 passes an `Int8` or `Int16` argument in a C variadic call's `...` part zero-extended, where C's default argument promotions sign-extend a signed type. `dprintf(1, fmt, -5i8, -300i16)` prints `251 65236` under Stage 0. Unsigned narrow types are right either way (`UInt8 250`, `UInt16 65000`). sawc2 promotes correctly: its IR passes each value as a sign- or zero-extended `i32`, and its binary prints `-5 250 -300 65000`. The repro is the Air's `variadic_promote.saw`, from its review of SL-522.p2.
-
-**Instead:** widen explicitly at the call (`x as Int32`) when a narrow signed value goes to a variadic extern.
-
-**Checker:** not needed yet. Neither the compiler source nor `sawc/rt` passes a narrow signed value to a variadic extern; `open` and `fcntl` take `Int32` flags.
-
-(C13 moved to S29, because it has a live instance in the compiler source.)
-
 ## Inventory
 
 Each of the 82 issues the sweep flagged, plus the four promoted after the Air's review and eight found since, mapped to its entry. "Call" is this
@@ -1787,110 +874,57 @@ ledger's reading. Where it differs from the sweep, Notes for the lead says why.
 | SL-38 | L2 Closure literals and call syntax | loud |
 | SL-41 | L2 Closure literals and call syntax | loud |
 | SL-42 | L4 Optional and Result shaping | loud |
-| SL-45 | L12 Leading minus after a block | loud |
 | SL-46 | L4 Optional and Result shaping | loud |
 | SL-49 | S9 Type aliases | silent |
 | SL-50 | S9 Type aliases | silent |
 | SL-52 | S9 Type aliases | loud |
 | SL-53 | L1 Integer literal adoption | loud |
 | SL-56 | L1 Integer literal adoption | loud |
-| SL-59 | L13 Statement match arms | loud |
-| SL-61 | S8 Enum `==` with a hand-written `equals` | silent |
-| SL-62 | L8 `Box`-linked types | loud |
-| SL-63 | L8 `Box`-linked types | loud |
 | SL-65 | L2 Closure literals and call syntax | loud |
 | SL-68 | S20 Float literals out of range | silent (promoted after review) |
 | SL-70 | L1 Integer literal adoption | loud |
-| SL-71 | L17 A type named like a prelude type | loud (promoted after review) |
 | SL-73 | L2 Closure literals and call syntax | loud |
 | SL-74 | S3 Owned values around `try` and `catch` | loud |
 | SL-75 | L1 Integer literal adoption | loud |
 | SL-77 | S9 Type aliases | loud |
 | SL-78 | L3 Module-qualified spellings | loud |
 | SL-80 | S1 `init` in a generic extension | silent |
-| SL-83 | L16 A long expression cannot wrap outside brackets | loud (promoted after review) |
 | SL-84 | L1 Integer literal adoption | loud |
-| SL-85 | L5 Zero-sized `Result` payloads | loud |
-| SL-88 | L12 Leading minus after a block | loud |
 | SL-96 | L9 Name collisions within a program | loud |
 | SL-107 | L9 Name collisions within a program | loud (possibly fixed) |
 | SL-111 | S4 Whole-call exclusivity | loud |
-| SL-113 | L10 Static trait requirement through a type parameter | loud |
-| SL-114 | L6 Copy tier and conditional conformance | fixed on main |
 | SL-115 | L3 Module-qualified spellings | loud |
 | SL-125 | L3 Module-qualified spellings | loud |
-| SL-130 | S5 `&var` into a `let` binding | silent |
-| SL-131 | L7 Fixed-size arrays | loud (likely fixed) |
-| SL-132 | S18 Names shared program-wide | loud |
-| SL-133 | L7 Fixed-size arrays | loud |
 | SL-156 | S16 Generic bodies returning a type parameter | silent |
-| SL-191 | L7 Fixed-size arrays | loud |
-| SL-192 | S2 Moving or re-matching a payload of a borrowed match | silent |
 | SL-194 | L1 Integer literal adoption | loud |
-| SL-195 | S18 Names shared program-wide | loud |
 | SL-199 | L3 Module-qualified spellings | loud |
 | SL-240 | S3 Owned values around `try` and `catch` | silent, leak only |
-| SL-264 | S10 Nested optionals | silent |
-| SL-270 | L6 Copy tier and conditional conformance | loud |
 | SL-284 | S4 Whole-call exclusivity | silent |
-| SL-285 | S14 Argument labels | silent |
 | SL-288 | S12 Consuming an erased box through a projection | silent |
-| SL-290 | S10 Nested optionals | loud |
 | SL-291 | L4 Optional and Result shaping | loud |
 | SL-292 | L4 Optional and Result shaping | loud |
 | SL-293 | L2 Closure literals and call syntax | loud |
 | SL-294 | S4 Whole-call exclusivity | silent |
 | SL-295 | S6 Function exits | loud |
-| SL-297 | S14 Argument labels | silent |
 | SL-298 | S6 Function exits | silent |
-| SL-299 | S7 Integer literal above `Int.max` | silent |
-| SL-435 | S7 Signed-suffix face (`255_i8` wraps) | silent |
-| SL-308 | L14 Nesting depth and chain length | loud |
-| SL-309 | S17 `?` or `??` after a cast target | silent |
 | SL-310 | L2 Closure literals and call syntax | loud |
-| SL-319 | S18 Names shared program-wide | silent or loud |
-| SL-340 | S11 Owning payloads in cells | silent |
 | SL-348 | S3 Owned values around `try` and `catch` | silent, leak only |
 | SL-352 | L2 Closure literals and call syntax | loud |
 | SL-358 | L3 Module-qualified spellings | loud |
-| SL-363 | L7 Fixed-size arrays | loud |
 | SL-368 | S15 Methods called on an indexed element | silent |
-| SL-380 | L14 Nesting depth and chain length | loud |
-| SL-381 | L6 Copy tier and conditional conformance | loud |
-| SL-382 | S13 Explicit nested type arguments | silent, leak only |
 | SL-383 | S9 Type aliases | loud |
 | SL-384 | S9 Type aliases | loud |
 | SL-389 | L15 Unreduced ICE | loud (shape unconfirmed) |
 | SL-390 | S19 Type walks bounded by a depth count | silent (promoted after review) |
-| SL-401 | S21 A line break inside an interpolation | silent (found in the compiler-skeleton review) |
-| SL-402 | L18 An extension of a generic type without its parameters | loud (found in the compiler-skeleton review) |
 | SL-403 | S22 Types declared in an inline module | silent, leak only (found in the compiler-skeleton review) |
 | SL-404 | S23 An owned value consumed without a binding: comparison operands, interpolation segments, format arguments, or a head's receiver | silent, leak only (found in the compiler-skeleton review; widened by sawtracker's ST-64) |
-| SL-407 | L19 A receiver outside a method | loud (found by the grammar-rulings work) |
 | SL-427 | S3 and S23 The error around `try`/`catch`, and a cast operand in std | silent, leak only (found by sawtracker's ST-66; the std half fixed under a freeze exception) |
 | SL-429 | S3 `try?` never releases the error it discards | silent, leak only (found in ST-69's review) |
 | SL-430 | S3 A coroutine's propagating `try` leaks the error | silent, leak only (found in ST-69's review) |
-| SL-431 | L20 A coroutine returning `Result<Void, E>` that falls off the end | loud (found in ST-69's review) |
-| SL-449 | L21 An `Int` static as a bare operand against another width | loud (found by the new typecheck's widening golden) |
-| SL-450 | L22 An integer widened into an Optional argument or field | loud (found in the Air's typecheck probes) |
-| SL-451 | L23 Same-named methods in two extensions of one type | loud (found by the new typecheck's own source) |
-| SL-469 | S25 A consume of a capture in an escaping closure | silent (a ruling, which sawc2's typecheck refuses) |
-| SL-472 | S25 A write to a by-value capture | silent (a ruling, which sawc2's typecheck refuses) |
 | SL-531 | S27 Bare imports inside a package | silent and loud (found by SL-519) |
 | SL-532 | S27 Bare imports inside a package | silent (found in the Air's SL-519.p1 review) |
-| SL-607 | S31 An escaping closure that captures a reference with `[copy r]` | silent (found by SL-607's sweep; unreachable from the subset) |
-| SL-620 | S30 A prefix operator's operand of `as`: Stage 0 casts first | silent (found in the Air's SL-600 review; no live instance) |
-| SL-630 | S32 A plain `copy()` method that Stage 0 runs as a type's copy hook | silent (found by SL-630's sweep; no live instance) |
-| SL-623 | S33 A raw-backed enum's cast to its integer, from a value no binding holds: Stage 0 never drops it | silent, a lost deinit (found by SL-623's sweep; no live instance) |
-| SL-643 | S34 A spelled `move` as a comparison operand: Stage 0 never drops the moved value | silent, a lost deinit (found by SL-642's sweep; no live instance) |
-| SL-621 | L26 A reborrowing argument to a suspending callee that borrows its by-value parameter | loud (found by the sawtracker lead in ST-90; sawtracker's ST-SAW-7) |
-| SL-641 | L27 Copy policies, a stray `copy()` and redeclarations that Stage 0 accepts and sawc2 refuses | loud (a ruling, which sawc2's typecheck refuses; no live instance) |
-| SL-648 | L28 An `init` matching its struct's fields: Stage 0 refuses it, sawc2 accepts it as an override or an overload | loud (Stage 0 refuses at the declaration; no live instance) |
 | SL-656 | L29 A suspending default value: sawc2 charges the caller that leaves it out, and Stage 0 refuses both forms | loud (Stage 0 refuses at the call; no live instance) |
-| SL-660 | S35 A zero-initialized static that Stage 0 accepts and sawc2 refuses | silent (a missing check in Stage 0; no live instance in compiler source) |
 | SL-660 | L30 `ZeroInit`: Stage 0 has none | loud (an unknown name to Stage 0; no live instance) |
-| SL-673 | L31 Derivation-only parents: Stage 0 and sawc2 differ | loud in two forms, silent in one (a deinit reached through `trait X: Deinit` never runs under Stage 0; no live instance) |
-| SL-675 | L32 `UnsafeSend`/`UnsafeSync` as a trait parent: Stage 0 accepts it, sawc2 refuses it | loud (sawc2 refuses at the trait; Stage 0 grants nothing through it; no live instance) |
 | SL-565 | S36 A spawn borrow released by joining a rebound handle variable | silent, a use-after-free (found by the Air reviewing SL-565.p1; no live instance: the compiler spawns no task) |
 | SL-765 | S37 A detached thread that finishes after the detach drops no result | silent, a lost deinit and a leak (found by the Air reviewing SL-765.p3; no live instance: the compiler spawns no thread) |
 | SL-649 | L33 A field read two struct hops away, bound by a `let`, with neither struct type named in the module | loud (Stage 0 reports an undefined variable; one marked instance in `compiler/typecheck/src/conform.saw`) |
