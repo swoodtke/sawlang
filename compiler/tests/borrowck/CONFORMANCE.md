@@ -151,7 +151,7 @@ INDEX.md, or when an owner is not one of the words below.
 | X33 | U6d2 | `loan.window-root`, which is blind to the copy tier: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw` |
 | X40 | U6d2 | `loan.window-root`, blind to the copy tier: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw`; the migrated file is refused first by `result.discarded`, a migration artifact, and by `loan.window-root` once its discards are spelled |
 | X41 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.forced.saw` |
-| X41 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.sibling.saw` |
+| X54 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.sibling.saw` |
 | X42 | U6d2 | accepted: a nested reference onto a distinct root, `compiler/tests/borrowck/golden/calls.saw` |
 | X43 | U6d2 | accepted: a nested reference on a field disjoint from its sibling's, `compiler/tests/borrowck/golden/calls.saw` |
 | X44 | U6d2 | `loan.nested-call`: `compiler/tests/borrowck/refuse/loan.nested-call.receiver.saw`, `compiler/tests/borrowck/refuse/loan.nested-call.window.saw`, `compiler/tests/borrowck/refuse/loan.nested-call.place-window.saw` |

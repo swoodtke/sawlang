@@ -371,7 +371,7 @@ conformance/K50_mt_group_progresses_while_main_sleeps.saw	pass	-	-
 conformance/K51_mt_group_progresses_while_main_yields.saw	pass	-	-
 conformance/K52_mt_two_workers_deliver_before_join.saw	pass	-	-
 conformance/K53_driven_for_range_iteration_count.saw	pass	-	-
-conformance/K53_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
+conformance/K204_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 conformance/K54_mt_task_receives_what_main_sent.saw	pass	-	-
 conformance/K55_mt_same_group_send_and_receive.saw	pass	-	-
 conformance/K56_thread_engine_feeds_main_receive.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
@@ -596,7 +596,7 @@ conformance/X09_disjoint_tuple_elements.saw	pass	-	-
 conformance/X14_push_inside_with_ref.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 10:13 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is re
 conformance/X17_nested_windows.saw	pass	-	-
 conformance/X33_two_windows_implicitcopy_struct.saw	pass	-	loan.window-root: `r` is borrowed exclusively here while the window of `at` opened at 27:11 holds `r` exclusively until the window closes; a window charges its whole root until it closes, so the root
-conformance/X41_nested_call_ref_overlaps_sibling.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call, at 31:10; a call's references are checked together over the whole c
+conformance/X54_nested_call_ref_overlaps_sibling.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call, at 31:10; a call's references are checked together over the whole c
 conformance/X42_nested_call_ref_disjoint_roots.saw	pass	-	-
 conformance/X43_nested_ref_disjoint_from_every_sibling.saw	pass	-	-
 conformance/X44_nested_call_ref_overlaps_receiver.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also the receiver of the call at 31:11, which borrows it for the whole call; bind the nested call's result in a st

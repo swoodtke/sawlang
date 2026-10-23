@@ -1,4 +1,4 @@
-// Conformance row K53 — an MT group's workers persist ACROSS spawns, so work
+// Conformance row K204 — an MT group's workers persist ACROSS spawns, so work
 // enqueued later is picked up by workers already running
 //
 // The pool's lifetime, as opposed to any single task's. Main spawns four tasks

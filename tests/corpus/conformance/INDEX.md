@@ -58,7 +58,7 @@ from the table itself — this header has now gone stale twice, so treat the
 table as the record and this line as a cache; a multi-file row is counted by
 its FIRST file). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
-unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
+unit 1; X42-X45 and X54, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
 K21-K25, design 210 units 1 and 5; S09, O12 and K26, the DF-217a/b/c fixes; O13,
 the DF-217l leak their sweep turned up; K29, design 219 unit A1 (renumbered
@@ -320,7 +320,7 @@ Claim source: spec 4 *Reference Types* + *Places*; designs 34, 106, 141, 188 u2,
 | X33 | two exclusive windows on an AUTO-Copy struct (String member) | `X33_two_windows_implicitcopy_struct.saw` | 188 u2 — was a DEVIATION (accepted on the auto-Copy tier); refused now |
 | X40 | std `Data` (Copy, has `d[i]`) — two windows in one call | `errors/place_window_data_corruption.saw` | 188 u2 — was a DEVIATION (std `Data` corrupted: `d0=1 d1=1`); refused now |
 | X41 | a place reached through a `!` HEAD charges its root too | `errors/place_window_through_a_forced_lend_charges_its_root.saw` | SL-334, found by SL-333's sibling sweep — the row 188 u2 never reached: the access-path walk stepped through a `?.` hop and NOT through a `!`, so a `!`-headed place fell out to "not a path" and never joined the call's access set AT ALL. `setboth(&var b.opt(0)!, &var b.opt(1)!)` — X16's own shape, one spelling over — compiled with both writes landing, and so did a window beside a `&var` of its own root (X31's shape). PRE-EXISTING: reproduced on the design-141 spelling before SL-333 changed anything, and fixed as one clause in the one walk, because `!` is the panicking spelling of a conditional lend's presence and adds no path component for the same reason `?.` adds none |
-| X41 | `sink(&var p.a, reset(&var p))` — a nested call's `&var` overlapping a sibling, no place involved | `X41_nested_call_ref_overlaps_sibling.saw` | 199 — the DF-188j shape; was a DEVIATION (accepted, `a=107 b=200` by evaluation order); refused now |
+| X54 | `sink(&var p.a, reset(&var p))` — a nested call's `&var` overlapping a sibling, no place involved | `X54_nested_call_ref_overlaps_sibling.saw` | 199 — the DF-188j shape; was a DEVIATION (accepted, `a=107 b=200` by evaluation order); refused now |
 | X42 | `f(&var x, g(&y))` — a nested reference onto a disjoint root | `X42_nested_call_ref_disjoint_roots.saw` | 199 — the accept side of the ruling |
 | X43 | a nested reference disjoint from every sibling (different root, and a disjoint field of one root) | `X43_nested_ref_disjoint_from_every_sibling.saw` | 199 — the overlap test is unchanged, only the access set widened |
 | X44 | `p.m(reset(&var p))` — a nested call's `&var` overlapping the RECEIVER | `X44_nested_call_ref_overlaps_receiver.saw` | 199 — probed: the receiver borrow did NOT catch it (printed the pre-reset total); refused now |
@@ -666,7 +666,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K51 | an MT group's tasks progress while main YIELDS | `K51_mt_group_progresses_while_main_yields.saw` | 225 — K50's twin at the other park, so the fix cannot answer only the timer half. `__enqueue` registered into the ambient scheduler's list only when `workers < 2`, so ceding from main reached nothing of an MT group |
 | K52 | TWO tasks of one MT group both deliver before either is joined | `K52_mt_two_workers_deliver_before_join.saw` | 225 — the plural cell: a fix that ran the group on the joining thread would satisfy K48 and fail this. Asserted on the sum, never on arrival order |
 | K53 | a driven `for` over a range runs exactly its sync twin's iterations, both flavours | `K53_driven_for_range_iteration_count.saw` | DF-225m — the row the whole colorless claim rests on, at the one loop the transform rewrites. `_split_while` re-emits the author's condition; `_split_for` hand-writes the header and the step out of frame slots, and wrote them for the exclusive range only, so every driven `a..=b` ran one iteration short and a single-iteration `3..=3` ran none. Five cells against their plain twins, the fifth being `Int.max` — the guarded step is why the fix is design 53's shape and not `<=`, which panics `integer overflow` where the sync twin terminates. Nine further rows in `examples/coro_for_inclusive_range_last_iteration.saw` |
-| K53 | an MT group's workers PERSIST across spawns, so work enqueued later is picked up by workers already running | `K53_mt_group_stays_live_across_spawns.saw` | 225 — the pool's lifetime as opposed to any one task's, and what makes the long-lived-group shape honest to write. Pre-fix, enqueue was main-thread-only BY CONSTRUCTION, since no worker was alive outside a drain |
+| K204 | an MT group's workers PERSIST across spawns, so work enqueued later is picked up by workers already running | `K204_mt_group_stays_live_across_spawns.saw` | 225 — the pool's lifetime as opposed to any one task's, and what makes the long-lived-group shape honest to write. Pre-fix, enqueue was main-thread-only BY CONSTRUCTION, since no worker was alive outside a drain |
 | K54 | control: an MT group's task receives what MAIN sent | `K54_mt_task_receives_what_main_sent.saw` | 225 — the direction that already worked. The value is in the channel before the worker is, so the row says the live pool did not cost the fork-join case its determinism |
 | K55 | control: two tasks of ONE MT group, one sending and one receiving | `K55_mt_same_group_send_and_receive.saw` | 225 — green in the sweep, and by a mechanism the live pool REPLACES (both frames in one drained queue, versus both simply running). The row that catches a fix that made the cross-group case work by breaking the within-group one |
 | K56 | control: the 21b `Thread.spawn {}` thread engine feeds main's cooperative receive | `K56_thread_engine_feeds_main_receive.saw` | 225 — the live-pool PRECEDENT and an evidence line the direction was ruled on: the same program with one engine swapped, and it works |
@@ -1142,7 +1142,7 @@ writing through a place window on INLINE storage was a silent no-op into the
 receiver copy), flipped by design 200 unit 2 and grown into that rule's
 seven-position matrix in the same landing.
 
-Closed: **X41, X44, X45** — written under an XFAIL citing DF-188j (a
+Closed: **X54, X44, X45** — written under an XFAIL citing DF-188j (a
 by-reference argument created by a NESTED call did not join the outer call's
 access set, so all three shapes compiled and answered by argument evaluation
 order), flipped by design 199 unit 3.

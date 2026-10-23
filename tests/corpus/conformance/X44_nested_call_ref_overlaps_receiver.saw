@@ -1,9 +1,9 @@
 // Conformance row X44 — a nested call's `&var` overlapping the RECEIVER
 //
-// The receiver-position variant of X41. Probed Aug 10 before design 199: it
+// The receiver-position variant of X54. Probed Aug 10 before design 199: it
 // COMPILED and printed 10, i.e. the `&self` receiver had already been read at
 // its pre-reset value when the nested `&var` rewrote the same storage — the
-// same order dependence as X41, reached through the one by-reference access
+// same order dependence as X54, reached through the one by-reference access
 // that is not written in the argument list. The receiver borrow does not catch
 // it on its own; the receiver is an ordinary entry in the access set, and it
 // is the nested reference joining that set which makes the two meet.

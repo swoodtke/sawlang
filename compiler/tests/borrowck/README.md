@@ -407,8 +407,7 @@ drop-after-move site it lists must be labelled `elided` or `flagged`.
 `borrowck_lane.py` first checks the ledgers `.gitattributes` merges by union
 (`LEDGERS`: INDEX.md, CONFORMANCE.md and `compiler/tests/drops/conformance.tsv`).
 A union merge keeps every row both sides wrote, so a row id two patches both
-chose lands twice; each id must be carried by one row, save the ids
-`ADMITTED_DUPLICATES` names, each on exactly the rows it admits, and a
+chose lands twice; each id must be carried by exactly one row, and a
 duplicate fails with each of its rows quoted. Every union-merged path must be
 in `LEDGERS`, and each fixture in `ledger/` must fail on its one duplicate.
 It then checks the conformance matrix (every row of the five

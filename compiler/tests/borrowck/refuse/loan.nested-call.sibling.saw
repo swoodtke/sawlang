@@ -1,6 +1,6 @@
 // refuses: loan.nested-call at 18:26
 // a nested call's `&var` overlapping a sibling argument's reference
-// (conformance X41)
+// (conformance X54)
 
 struct Pair { a: Int, b: Int }
 

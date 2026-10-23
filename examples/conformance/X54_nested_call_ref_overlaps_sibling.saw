@@ -1,4 +1,4 @@
-// Conformance row X41 — a nested call's `&var` overlapping a sibling argument
+// Conformance row X54 — a nested call's `&var` overlapping a sibling argument
 //
 // The DF-188j shape, with no place anywhere in sight: `sink(&var p.a,
 // reset(&var p))`. Two by-reference accesses of one root are live over one

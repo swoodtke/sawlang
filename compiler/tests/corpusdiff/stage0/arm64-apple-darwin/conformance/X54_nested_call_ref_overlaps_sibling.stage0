@@ -1,11 +1,11 @@
-program	conformance/X41_nested_call_ref_overlaps_sibling.saw
+program	conformance/X54_nested_call_ref_overlaps_sibling.saw
 triple	arm64-apple-darwin
 twin	same
 expect	error
 build	refused	exclusive access violation: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call — both reach `p`
 meets_expect	yes
 log	"error: exclusive access violation: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call — both reach `p`"
-log	"  --> examples/conformance/X41_nested_call_ref_overlaps_sibling.saw:31:26"
+log	"  --> examples/conformance/X54_nested_call_ref_overlaps_sibling.saw:31:26"
 log	"     |"
 log	" 31 |     sink(&var p.a, reset(&var p))"
 log	"     |                          ^"

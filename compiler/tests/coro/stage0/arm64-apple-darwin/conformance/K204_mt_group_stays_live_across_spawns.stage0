@@ -1,4 +1,4 @@
-program	conformance/K53_mt_group_stays_live_across_spawns.saw
+program	conformance/K204_mt_group_stays_live_across_spawns.saw
 triple	arm64-apple-darwin
 twin	differs
 expect	success

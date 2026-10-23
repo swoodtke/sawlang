@@ -883,8 +883,8 @@ conformance/K52_mt_two_workers_deliver_before_join.saw	arm64-apple-darwin	same	2
 conformance/K52_mt_two_workers_deliver_before_join.saw	x86_64-unknown-linux-gnu	same	2da74886961b	success	not-run	-	-	-	-	3	952	768	3	18	537
 conformance/K53_driven_for_range_iteration_count.saw	arm64-apple-darwin	same	ab93620b5c37	success	ok	0	65:51a43b814b5d	0:e3b0c44298fc	yes	5	360	72	5	49	1094
 conformance/K53_driven_for_range_iteration_count.saw	x86_64-unknown-linux-gnu	same	ab93620b5c37	success	not-run	-	-	-	-	5	360	72	5	49	1094
-conformance/K53_mt_group_stays_live_across_spawns.saw	arm64-apple-darwin	differs	e300babb1adc	success	refused	-	-	-	-	0	0	0	0	0	-
-conformance/K53_mt_group_stays_live_across_spawns.saw	x86_64-unknown-linux-gnu	differs	e300babb1adc	success	not-run	-	-	-	-	0	0	0	0	0	-
+conformance/K204_mt_group_stays_live_across_spawns.saw	arm64-apple-darwin	differs	51f73972335b	success	refused	-	-	-	-	0	0	0	0	0	-
+conformance/K204_mt_group_stays_live_across_spawns.saw	x86_64-unknown-linux-gnu	differs	51f73972335b	success	not-run	-	-	-	-	0	0	0	0	0	-
 conformance/K54_mt_task_receives_what_main_sent.saw	arm64-apple-darwin	same	ab4032a454f4	success	ok	0	11:ade4bb46a51e	0:e3b0c44298fc	yes	1	112	112	1	7	313
 conformance/K54_mt_task_receives_what_main_sent.saw	x86_64-unknown-linux-gnu	same	ab4032a454f4	success	not-run	-	-	-	-	1	112	112	1	7	313
 conformance/K55_mt_same_group_send_and_receive.saw	arm64-apple-darwin	same	452ff3862c75	success	ok	0	10:a8ce1dc515c8	0:e3b0c44298fc	yes	2	184	112	2	8	369

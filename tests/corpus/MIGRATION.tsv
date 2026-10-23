@@ -343,6 +343,7 @@ conformance/K16_spawn_shared_ref_param_composes.saw	copied	-	-
 conformance/K17_spawn_ref_param_across_iterations.saw	copied,expectation-pending	-	-
 conformance/K18_spawn_ref_param_after_group.saw	copied,expectation-pending	-	-
 conformance/K19_spawn_ref_param_mt_send.saw	copied,expectation-pending	-	-
+conformance/K204_mt_group_stays_live_across_spawns.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K20_spawn_ref_param_move_root.saw	copied,expectation-pending	-	-
 conformance/K21_cross_module_embed_private_sibling.saw	copied	-	-
 conformance/K22_cross_module_generic_embed_private_sibling.saw	copied	-	-
@@ -376,7 +377,6 @@ conformance/K50_mt_group_progresses_while_main_sleeps.saw	manual,rewritten	E.loc
 conformance/K51_mt_group_progresses_while_main_yields.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K52_mt_two_workers_deliver_before_join.saw	copied	-	-
 conformance/K53_driven_for_range_iteration_count.saw	copied	-	-
-conformance/K53_mt_group_stays_live_across_spawns.saw	manual,rewritten	E.lock:2,manual.payload-accessor:2	SL-712: a payload method is reached through value() under borrow, since a pointer forwards nothing
 conformance/K54_mt_task_receives_what_main_sent.saw	copied	-	-
 conformance/K55_mt_same_group_send_and_receive.saw	copied	-	-
 conformance/K56_thread_engine_feeds_main_receive.saw	copied	-	-
@@ -601,11 +601,11 @@ conformance/X09_disjoint_tuple_elements.saw	copied	-	-
 conformance/X14_push_inside_with_ref.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:7	re-aimed: now tests `push` inside a shared `borrow let` of an element of the same vector (SL:borrowing §3, §4); `with_ref` is retired (§9)
 conformance/X17_nested_windows.saw	rewritten	A1.field-write:1,G2.nested-read:2	-
 conformance/X33_two_windows_implicitcopy_struct.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:4,reviewed.unseen:1	re-aimed: the accessor is declared `&var self ... -> &var Int`, and two `borrow var` arguments conflict on the root (SL:borrowing §2.2, §3); the use-site upgrade of a `&self` accessor is retired; accessors (SL-421): (b) `Rec.at`: the refusal pins its exclusive root charge (§2.2, §3)
-conformance/X41_nested_call_ref_overlaps_sibling.saw	copied,expectation-pending	-	-
 conformance/X42_nested_call_ref_disjoint_roots.saw	copied	-	-
 conformance/X43_nested_ref_disjoint_from_every_sibling.saw	copied	-	-
 conformance/X44_nested_call_ref_overlaps_receiver.saw	copied,expectation-pending	-	-
 conformance/X45_two_nested_calls_one_root.saw	copied,expectation-pending	-	-
+conformance/X54_nested_call_ref_overlaps_sibling.saw	copied,expectation-pending	-	-
 conformance/Z03_replace_container_during_window.saw	manual,expectation-pending	manual.unseen:1,reviewed.unseen:1	-
 conformance/Z05_escaping_closure_env_deinit_once.saw	copied	-	-
 conformance/k74_refused_at_the_call.saw	reviewed,expectation-pending	reviewed.unseen:1	-

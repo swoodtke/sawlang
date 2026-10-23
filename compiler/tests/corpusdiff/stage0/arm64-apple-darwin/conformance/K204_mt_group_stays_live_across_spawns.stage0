@@ -1,11 +1,11 @@
-program	conformance/K53_mt_group_stays_live_across_spawns.saw
+program	conformance/K204_mt_group_stays_live_across_spawns.saw
 triple	arm64-apple-darwin
 twin	differs
 expect	success
 build	refused	argument `value` expects `Task<Void>` but got `VoidTask`
 meets_expect	no: Stage 0 does not build it
 log	"error: argument `value` expects `Task<Void>` but got `VoidTask`"
-log	"  --> examples/conformance/K53_mt_group_stays_live_across_spawns.saw:36:34"
+log	"  --> examples/conformance/K204_mt_group_stays_live_across_spawns.saw:36:34"
 log	"     |"
 log	" 36 |         try! handles.push(workers.spawn(bump(counter.copy())))"
 log	"     |                                  ^"
