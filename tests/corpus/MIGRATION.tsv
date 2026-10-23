@@ -114,6 +114,7 @@ bitwise_precedence.saw	copied	-	-
 bitwise_ref_wrap_coexistence.saw	copied	-	-
 bitwise_requires_integers.saw	copied,expectation-pending	-	-
 borrowing_field_reads_compose.saw	copied	-	-
+borrowing_iterator_crosses_into_a_threaded_group.saw	copied,expectation-pending	-	-
 borrowing_producer_every_path.saw	copied	-	-
 borrowing_rules_resolve_aliases.saw	copied	-	-
 borrows_declaration_lowers.saw	reviewed	-	accessors (SL-421): (b) `Bag.counted`: its epilogue writes `self`, so no shared twin typechecks (§4), and nothing borrows through it: the file pins the declaration
@@ -1445,7 +1446,6 @@ errors/while_never_unreachable_after.saw	copied,expectation-pending	-	-
 errors/while_true_not_never.saw	copied,expectation-pending	-	-
 errors/window_acquire_mutating_argument.saw	reviewed,expectation-pending	reviewed.unseen:2	-
 errors/window_conflicts.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:1,reviewed.unseen:10	migrated: the `with_var_ref` row is a `borrow var` of an element (SL:borrowing §9)
-errors/window_in_a_threaded_group.saw	copied,expectation-pending	-	-
 errors/window_static_root_write.saw	reviewed,expectation-pending	reviewed.unseen:1	-
 errors/with_var_ref_invalidation.saw	manual,expectation-pending	manual.unseen:1,manual.unseen.companion:12	re-aimed: now tests that a reallocating push inside a `borrow var e = v[0]` block is refused, since the block holds `v` exclusively (SL:borrowing §3), replacing the retired `with_var_ref` closure
 errors/withcstring_escape.saw	copied,expectation-pending	-	-

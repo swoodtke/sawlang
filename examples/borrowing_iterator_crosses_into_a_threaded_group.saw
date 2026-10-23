@@ -1,0 +1,28 @@
+// K146: a borrowing struct crosses to a worker thread when each reference it
+// holds does (SL-788).
+//
+// A collection `for` in a driven body spans a suspension, since the loop's
+// back-edge is charged like every other loop's, so its iterator is a local
+// held across one, and the frame of a task spawned into `threads: 2` must be
+// `Send`. `VectorIterator<Int>` holds a `&Vector<Int>`, which is `Send`
+// because `Vector<Int>` is `Sync`, so the iterator is `Send` and the task
+// runs.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 6
+
+import std.task.{yield_now}
+
+func sum_vector(v: Vector<Int>) -> Int {
+    yield_now()
+    var total = 0
+    for x in v.iter() { total = total + x }
+    total
+}
+
+func main() {
+    var g = try! TaskGroup(threads: 2)
+    var v: Vector<Int> = [1, 2, 3]
+    let h = g.spawn(sum_vector(move v))
+    print("{h.join()}")
+}

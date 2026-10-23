@@ -2,8 +2,9 @@
 // group the form names as the task's queue, through the shared reference the
 // site passes. The receiver is a local, a field, or a `&TaskGroup` parameter a
 // task spawns siblings through; the root is valued, `Void`, owning a String,
-// or never suspending; a group lives in a spawned task's frame across its
-// suspensions (G1); a group handle is cancelled then joined; and a group
+// or never suspending; a group lives in a spawned task's frame (G1), after
+// the task's suspension, since a group is not `Send`; a group handle is
+// cancelled then joined; and a group
 // whose tasks nobody joined runs them at its teardown.
 import std.task.{yield_now}
 
@@ -39,11 +40,12 @@ func spawn_into(group: &TaskGroup, n: Int) -> Int {
     h.join()
 }
 
-// A group resident in a task's frame across its suspensions.
+// A group in a task's frame, made after the task suspends: a spawned frame
+// holding one across a suspension is refused.
 func host(n: Int) -> Int {
+    yield_now()
     var inner = TaskGroup()
     let a = inner.spawn(square(n))
-    yield_now()
     let b = inner.spawn(square(n + 1))
     a.join() + b.join()
 }

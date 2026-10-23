@@ -12,7 +12,7 @@
 // is escaping wherever it is written, and the constructor spelling now says so
 // as the annotation spelling always did.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot spawn `work` into a multi-threaded
+// EXPECT-ERROR-CONTAINS: cannot spawn `work`
 // EXPECT-ERROR-CONTAINS: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`
 
 import std.task.*

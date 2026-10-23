@@ -1,0 +1,730 @@
+// The Send-on-frames position matrix (SL-788), which the unit program
+// compiler/coro/tests/send_matrix.saw lowers and reads the refusals of. Each
+// root is generic over a marker naming the spawn form it is spawned by, so
+// each form's spawn is an instantiation of its own and is judged apart: the
+// verdict must be the same in all four. A root's name says the position (`p`
+// a parameter, `l` a resident local, `c` an embedded child's, `r` the
+// result), the value, and `ok` or `no`. A root spawning a borrow is spawned
+// into the three groups only, since `Task.spawn` accepts no borrows.
+import std.task.{yield_now}
+
+struct G {}
+struct T1 {}
+struct T2 {}
+struct TS {}
+
+// `Send`, and not `Sync`: a shared borrow could mutate it.
+struct Cell {
+    c: UnsafeMutableInterior<Int>
+}
+
+func make_cell() unsafe -> Cell {
+    Cell(c: UnsafeMutableInterior(0))
+}
+
+// Neither `Send` nor `Sync`.
+struct Raw {
+    p: UnsafePointer<Int>
+}
+
+func make_raw() unsafe -> Raw {
+    Raw(p: 0 as UnsafePointer<Int>)
+}
+
+trait Fault: Printable, Send {}
+
+struct Code {
+    n: Int
+}
+
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.n)
+    }
+}
+
+extension Code: Fault {}
+
+extension Code: Error {}
+
+func fault() unsafe -> Box<any Fault> {
+    Box<any Fault>.make(value: Code(n: 1))
+}
+
+func shown() unsafe -> Box<any Printable> {
+    Box<any Printable>.make(value: Code(n: 1))
+}
+
+func raw_box() unsafe -> Box<Raw> {
+    try! Box<Raw>.make(value: make_raw())
+}
+
+func failed() -> Result<Int, Box<any Error>> {
+    Code(n: 1)
+}
+
+struct CellOwner {
+    cell: Cell
+}
+
+func make_owner() unsafe -> CellOwner {
+    CellOwner(cell: make_cell())
+}
+
+// A borrowing struct holding `&CellOwner`: not `Send`, since `CellOwner` is
+// not `Sync`.
+borrows struct Shared {
+    owner: &CellOwner
+    done: Bool
+}
+
+extension CellOwner {
+    func shared(&self) borrows -> Shared {
+        Shared(owner: lends self, done: false)
+    }
+}
+
+extension Shared: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.done {
+            return None
+        }
+        self.done = true
+        1
+    }
+}
+
+struct Holder {
+    f: () -> Int
+}
+
+func one() -> Int {
+    1
+}
+
+func p_ref_shared_ok<F>(r: &Int, form: F) -> Int {
+    yield_now()
+    r
+}
+
+func p_ref_shared_no<F>(r: &Cell, form: F) -> Int {
+    yield_now()
+    1
+}
+
+func p_ref_exclusive_ok<F>(r: &var Cell, form: F) -> Int {
+    yield_now()
+    1
+}
+
+func p_ref_exclusive_no<F>(r: &var Raw, form: F) -> Int {
+    yield_now()
+    1
+}
+
+func c_ref_shared_ok_child(r: &Int) -> Int {
+    yield_now()
+    r
+}
+
+func c_ref_shared_ok<F>(form: F) -> Int {
+    let n = 1
+    c_ref_shared_ok_child(&n)
+}
+
+func c_ref_shared_no_child(r: &Cell) -> Int {
+    yield_now()
+    1
+}
+
+func c_ref_shared_no<F>(form: F) unsafe -> Int {
+    let c = make_cell()
+    c_ref_shared_no_child(&c)
+}
+
+func c_ref_exclusive_ok_child(r: &var Cell) -> Int {
+    yield_now()
+    1
+}
+
+func c_ref_exclusive_ok<F>(form: F) unsafe -> Int {
+    var c = make_cell()
+    c_ref_exclusive_ok_child(&var c)
+}
+
+func l_iter_vector_ok<F>(form: F) unsafe -> Int {
+    let v: Vector<Int> = [1, 2, 3]
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func l_iter_shared_no<F>(form: F) unsafe -> Int {
+    let o = make_owner()
+    var total = 0
+    for x in o.shared() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func c_iter_vector_ok_child() unsafe -> Int {
+    let v: Vector<Int> = [1, 2, 3]
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func c_iter_vector_ok<F>(form: F) unsafe -> Int {
+    c_iter_vector_ok_child()
+}
+
+func c_iter_shared_no_child() unsafe -> Int {
+    let o = make_owner()
+    var total = 0
+    for x in o.shared() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func c_iter_shared_no<F>(form: F) unsafe -> Int {
+    c_iter_shared_no_child()
+}
+
+func p_box_fault_ok<F>(x: Box<any Fault>, form: F) unsafe -> Int {
+    yield_now()
+    1
+}
+
+func l_box_fault_ok<F>(form: F) unsafe -> Int {
+    let x = fault()
+    yield_now()
+    1
+}
+
+func c_box_fault_ok_child() unsafe -> Int {
+    let x = fault()
+    yield_now()
+    1
+}
+
+func c_box_fault_ok<F>(form: F) unsafe -> Int {
+    c_box_fault_ok_child()
+}
+
+func r_box_fault_ok<F>(form: F) unsafe -> Box<any Fault> {
+    yield_now()
+    fault()
+}
+
+func p_box_printable_no<F>(x: Box<any Printable>, form: F) unsafe -> Int {
+    yield_now()
+    1
+}
+
+func l_box_printable_no<F>(form: F) unsafe -> Int {
+    let x = shown()
+    yield_now()
+    1
+}
+
+func c_box_printable_no_child() unsafe -> Int {
+    let x = shown()
+    yield_now()
+    1
+}
+
+func c_box_printable_no<F>(form: F) unsafe -> Int {
+    c_box_printable_no_child()
+}
+
+func r_box_printable_no<F>(form: F) unsafe -> Box<any Printable> {
+    yield_now()
+    shown()
+}
+
+func p_box_raw_no<F>(x: Box<Raw>, form: F) unsafe -> Int {
+    yield_now()
+    1
+}
+
+func l_box_raw_no<F>(form: F) unsafe -> Int {
+    let x = raw_box()
+    yield_now()
+    1
+}
+
+func c_box_raw_no_child() unsafe -> Int {
+    let x = raw_box()
+    yield_now()
+    1
+}
+
+func c_box_raw_no<F>(form: F) unsafe -> Int {
+    c_box_raw_no_child()
+}
+
+func r_box_raw_no<F>(form: F) unsafe -> Box<Raw> {
+    yield_now()
+    raw_box()
+}
+
+func p_pointer_no<F>(x: UnsafePointer<Int>, form: F) unsafe -> Int {
+    yield_now()
+    1
+}
+
+func l_pointer_no<F>(form: F) unsafe -> Int {
+    let x = 0 as UnsafePointer<Int>
+    yield_now()
+    1
+}
+
+func c_pointer_no_child() unsafe -> Int {
+    let x = 0 as UnsafePointer<Int>
+    yield_now()
+    1
+}
+
+func c_pointer_no<F>(form: F) unsafe -> Int {
+    c_pointer_no_child()
+}
+
+func r_pointer_no<F>(form: F) unsafe -> UnsafePointer<Int> {
+    yield_now()
+    0 as UnsafePointer<Int>
+}
+
+func r_error_no<F>(form: F) -> Result<Int, Box<any Error>> {
+    yield_now()
+    failed()
+}
+
+func l_group_no<F>(form: F) -> Int {
+    var inner = TaskGroup()
+    let a = inner.spawn(one())
+    yield_now()
+    a.join()
+}
+
+func c_group_no_child() -> Int {
+    var inner = TaskGroup()
+    let a = inner.spawn(one())
+    yield_now()
+    a.join()
+}
+
+func c_group_no<F>(form: F) -> Int {
+    c_group_no_child()
+}
+
+func p_closure_ok<F>(f: () -> Int, form: F) -> Int {
+    yield_now()
+    f()
+}
+
+func p_closure_no<F>(f: () -> Int, form: F) -> Int {
+    yield_now()
+    f()
+}
+
+func c_closure_passed_ok_child(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func c_closure_passed_ok<F>(f: () -> Int, form: F) -> Int {
+    c_closure_passed_ok_child(f)
+}
+
+func c_closure_passed_no_child(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func c_closure_passed_no<F>(f: () -> Int, form: F) -> Int {
+    c_closure_passed_no_child(f)
+}
+
+func c_closure_literal_no_child(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func c_closure_literal_no<F>(form: F) unsafe -> Int {
+    let c = make_cell()
+    c_closure_literal_no_child({ [&c] in 1 })
+}
+
+func l_env_exclusive_ok_child(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func l_env_exclusive_ok<F>(form: F) unsafe -> Int {
+    var c = make_cell()
+    l_env_exclusive_ok_child({ [&var c] in 1 })
+}
+
+func c_closure_literal_ok_child(g: () -> Int) -> Int {
+    yield_now()
+    g()
+}
+
+func c_closure_literal_ok<F>(n: Int, form: F) -> Int {
+    c_closure_literal_ok_child({ [n] in n + 1 })
+}
+
+func p_closure_field_no<F>(h: Holder, form: F) -> Int {
+    yield_now()
+    1
+}
+
+func main() unsafe {
+    let n = 1
+    var c = make_cell()
+    var raw = make_raw()
+    var g = TaskGroup()
+    var t1 = try! TaskGroup(threads: 1)
+    var t2 = try! TaskGroup(threads: 2)
+
+    let h_p_ref_shared_ok_g = g.spawn(p_ref_shared_ok(&n, G()))
+    let _ = h_p_ref_shared_ok_g.join()
+    let h_p_ref_shared_ok_t1 = t1.spawn(p_ref_shared_ok(&n, T1()))
+    let _ = h_p_ref_shared_ok_t1.join()
+    let h_p_ref_shared_ok_t2 = t2.spawn(p_ref_shared_ok(&n, T2()))
+    let _ = h_p_ref_shared_ok_t2.join()
+
+    let h_p_ref_shared_no_g = g.spawn(p_ref_shared_no(&c, G()))
+    let _ = h_p_ref_shared_no_g.join()
+    let h_p_ref_shared_no_t1 = t1.spawn(p_ref_shared_no(&c, T1()))
+    let _ = h_p_ref_shared_no_t1.join()
+    let h_p_ref_shared_no_t2 = t2.spawn(p_ref_shared_no(&c, T2()))
+    let _ = h_p_ref_shared_no_t2.join()
+
+    let h_p_ref_exclusive_ok_g = g.spawn(p_ref_exclusive_ok(&var c, G()))
+    let _ = h_p_ref_exclusive_ok_g.join()
+    let h_p_ref_exclusive_ok_t1 = t1.spawn(p_ref_exclusive_ok(&var c, T1()))
+    let _ = h_p_ref_exclusive_ok_t1.join()
+    let h_p_ref_exclusive_ok_t2 = t2.spawn(p_ref_exclusive_ok(&var c, T2()))
+    let _ = h_p_ref_exclusive_ok_t2.join()
+
+    let h_p_ref_exclusive_no_g = g.spawn(p_ref_exclusive_no(&var raw, G()))
+    let _ = h_p_ref_exclusive_no_g.join()
+    let h_p_ref_exclusive_no_t1 = t1.spawn(p_ref_exclusive_no(&var raw, T1()))
+    let _ = h_p_ref_exclusive_no_t1.join()
+    let h_p_ref_exclusive_no_t2 = t2.spawn(p_ref_exclusive_no(&var raw, T2()))
+    let _ = h_p_ref_exclusive_no_t2.join()
+
+    let h_c_ref_shared_ok_g = g.spawn(c_ref_shared_ok(G()))
+    let _ = h_c_ref_shared_ok_g.join()
+    let h_c_ref_shared_ok_t1 = t1.spawn(c_ref_shared_ok(T1()))
+    let _ = h_c_ref_shared_ok_t1.join()
+    let h_c_ref_shared_ok_t2 = t2.spawn(c_ref_shared_ok(T2()))
+    let _ = h_c_ref_shared_ok_t2.join()
+    let h_c_ref_shared_ok_ts = Task.spawn(c_ref_shared_ok(TS()))
+    let _ = h_c_ref_shared_ok_ts.join()
+
+    let h_c_ref_shared_no_g = g.spawn(c_ref_shared_no(G()))
+    let _ = h_c_ref_shared_no_g.join()
+    let h_c_ref_shared_no_t1 = t1.spawn(c_ref_shared_no(T1()))
+    let _ = h_c_ref_shared_no_t1.join()
+    let h_c_ref_shared_no_t2 = t2.spawn(c_ref_shared_no(T2()))
+    let _ = h_c_ref_shared_no_t2.join()
+    let h_c_ref_shared_no_ts = Task.spawn(c_ref_shared_no(TS()))
+    let _ = h_c_ref_shared_no_ts.join()
+
+    let h_c_ref_exclusive_ok_g = g.spawn(c_ref_exclusive_ok(G()))
+    let _ = h_c_ref_exclusive_ok_g.join()
+    let h_c_ref_exclusive_ok_t1 = t1.spawn(c_ref_exclusive_ok(T1()))
+    let _ = h_c_ref_exclusive_ok_t1.join()
+    let h_c_ref_exclusive_ok_t2 = t2.spawn(c_ref_exclusive_ok(T2()))
+    let _ = h_c_ref_exclusive_ok_t2.join()
+    let h_c_ref_exclusive_ok_ts = Task.spawn(c_ref_exclusive_ok(TS()))
+    let _ = h_c_ref_exclusive_ok_ts.join()
+
+    let h_l_iter_vector_ok_g = g.spawn(l_iter_vector_ok(G()))
+    let _ = h_l_iter_vector_ok_g.join()
+    let h_l_iter_vector_ok_t1 = t1.spawn(l_iter_vector_ok(T1()))
+    let _ = h_l_iter_vector_ok_t1.join()
+    let h_l_iter_vector_ok_t2 = t2.spawn(l_iter_vector_ok(T2()))
+    let _ = h_l_iter_vector_ok_t2.join()
+    let h_l_iter_vector_ok_ts = Task.spawn(l_iter_vector_ok(TS()))
+    let _ = h_l_iter_vector_ok_ts.join()
+
+    let h_l_iter_shared_no_g = g.spawn(l_iter_shared_no(G()))
+    let _ = h_l_iter_shared_no_g.join()
+    let h_l_iter_shared_no_t1 = t1.spawn(l_iter_shared_no(T1()))
+    let _ = h_l_iter_shared_no_t1.join()
+    let h_l_iter_shared_no_t2 = t2.spawn(l_iter_shared_no(T2()))
+    let _ = h_l_iter_shared_no_t2.join()
+    let h_l_iter_shared_no_ts = Task.spawn(l_iter_shared_no(TS()))
+    let _ = h_l_iter_shared_no_ts.join()
+
+    let h_c_iter_vector_ok_g = g.spawn(c_iter_vector_ok(G()))
+    let _ = h_c_iter_vector_ok_g.join()
+    let h_c_iter_vector_ok_t1 = t1.spawn(c_iter_vector_ok(T1()))
+    let _ = h_c_iter_vector_ok_t1.join()
+    let h_c_iter_vector_ok_t2 = t2.spawn(c_iter_vector_ok(T2()))
+    let _ = h_c_iter_vector_ok_t2.join()
+    let h_c_iter_vector_ok_ts = Task.spawn(c_iter_vector_ok(TS()))
+    let _ = h_c_iter_vector_ok_ts.join()
+
+    let h_c_iter_shared_no_g = g.spawn(c_iter_shared_no(G()))
+    let _ = h_c_iter_shared_no_g.join()
+    let h_c_iter_shared_no_t1 = t1.spawn(c_iter_shared_no(T1()))
+    let _ = h_c_iter_shared_no_t1.join()
+    let h_c_iter_shared_no_t2 = t2.spawn(c_iter_shared_no(T2()))
+    let _ = h_c_iter_shared_no_t2.join()
+    let h_c_iter_shared_no_ts = Task.spawn(c_iter_shared_no(TS()))
+    let _ = h_c_iter_shared_no_ts.join()
+
+    let h_p_box_fault_ok_g = g.spawn(p_box_fault_ok(fault(), G()))
+    let _ = h_p_box_fault_ok_g.join()
+    let h_p_box_fault_ok_t1 = t1.spawn(p_box_fault_ok(fault(), T1()))
+    let _ = h_p_box_fault_ok_t1.join()
+    let h_p_box_fault_ok_t2 = t2.spawn(p_box_fault_ok(fault(), T2()))
+    let _ = h_p_box_fault_ok_t2.join()
+    let h_p_box_fault_ok_ts = Task.spawn(p_box_fault_ok(fault(), TS()))
+    let _ = h_p_box_fault_ok_ts.join()
+
+    let h_l_box_fault_ok_g = g.spawn(l_box_fault_ok(G()))
+    let _ = h_l_box_fault_ok_g.join()
+    let h_l_box_fault_ok_t1 = t1.spawn(l_box_fault_ok(T1()))
+    let _ = h_l_box_fault_ok_t1.join()
+    let h_l_box_fault_ok_t2 = t2.spawn(l_box_fault_ok(T2()))
+    let _ = h_l_box_fault_ok_t2.join()
+    let h_l_box_fault_ok_ts = Task.spawn(l_box_fault_ok(TS()))
+    let _ = h_l_box_fault_ok_ts.join()
+
+    let h_c_box_fault_ok_g = g.spawn(c_box_fault_ok(G()))
+    let _ = h_c_box_fault_ok_g.join()
+    let h_c_box_fault_ok_t1 = t1.spawn(c_box_fault_ok(T1()))
+    let _ = h_c_box_fault_ok_t1.join()
+    let h_c_box_fault_ok_t2 = t2.spawn(c_box_fault_ok(T2()))
+    let _ = h_c_box_fault_ok_t2.join()
+    let h_c_box_fault_ok_ts = Task.spawn(c_box_fault_ok(TS()))
+    let _ = h_c_box_fault_ok_ts.join()
+
+    let h_r_box_fault_ok_g = g.spawn(r_box_fault_ok(G()))
+    let _ = h_r_box_fault_ok_g.join()
+    let h_r_box_fault_ok_t1 = t1.spawn(r_box_fault_ok(T1()))
+    let _ = h_r_box_fault_ok_t1.join()
+    let h_r_box_fault_ok_t2 = t2.spawn(r_box_fault_ok(T2()))
+    let _ = h_r_box_fault_ok_t2.join()
+    let h_r_box_fault_ok_ts = Task.spawn(r_box_fault_ok(TS()))
+    let _ = h_r_box_fault_ok_ts.join()
+
+    let h_p_box_printable_no_g = g.spawn(p_box_printable_no(shown(), G()))
+    let _ = h_p_box_printable_no_g.join()
+    let h_p_box_printable_no_t1 = t1.spawn(p_box_printable_no(shown(), T1()))
+    let _ = h_p_box_printable_no_t1.join()
+    let h_p_box_printable_no_t2 = t2.spawn(p_box_printable_no(shown(), T2()))
+    let _ = h_p_box_printable_no_t2.join()
+    let h_p_box_printable_no_ts = Task.spawn(p_box_printable_no(shown(), TS()))
+    let _ = h_p_box_printable_no_ts.join()
+
+    let h_l_box_printable_no_g = g.spawn(l_box_printable_no(G()))
+    let _ = h_l_box_printable_no_g.join()
+    let h_l_box_printable_no_t1 = t1.spawn(l_box_printable_no(T1()))
+    let _ = h_l_box_printable_no_t1.join()
+    let h_l_box_printable_no_t2 = t2.spawn(l_box_printable_no(T2()))
+    let _ = h_l_box_printable_no_t2.join()
+    let h_l_box_printable_no_ts = Task.spawn(l_box_printable_no(TS()))
+    let _ = h_l_box_printable_no_ts.join()
+
+    let h_c_box_printable_no_g = g.spawn(c_box_printable_no(G()))
+    let _ = h_c_box_printable_no_g.join()
+    let h_c_box_printable_no_t1 = t1.spawn(c_box_printable_no(T1()))
+    let _ = h_c_box_printable_no_t1.join()
+    let h_c_box_printable_no_t2 = t2.spawn(c_box_printable_no(T2()))
+    let _ = h_c_box_printable_no_t2.join()
+    let h_c_box_printable_no_ts = Task.spawn(c_box_printable_no(TS()))
+    let _ = h_c_box_printable_no_ts.join()
+
+    let h_r_box_printable_no_g = g.spawn(r_box_printable_no(G()))
+    let _ = h_r_box_printable_no_g.join()
+    let h_r_box_printable_no_t1 = t1.spawn(r_box_printable_no(T1()))
+    let _ = h_r_box_printable_no_t1.join()
+    let h_r_box_printable_no_t2 = t2.spawn(r_box_printable_no(T2()))
+    let _ = h_r_box_printable_no_t2.join()
+    let h_r_box_printable_no_ts = Task.spawn(r_box_printable_no(TS()))
+    let _ = h_r_box_printable_no_ts.join()
+
+    let h_p_box_raw_no_g = g.spawn(p_box_raw_no(raw_box(), G()))
+    let _ = h_p_box_raw_no_g.join()
+    let h_p_box_raw_no_t1 = t1.spawn(p_box_raw_no(raw_box(), T1()))
+    let _ = h_p_box_raw_no_t1.join()
+    let h_p_box_raw_no_t2 = t2.spawn(p_box_raw_no(raw_box(), T2()))
+    let _ = h_p_box_raw_no_t2.join()
+    let h_p_box_raw_no_ts = Task.spawn(p_box_raw_no(raw_box(), TS()))
+    let _ = h_p_box_raw_no_ts.join()
+
+    let h_l_box_raw_no_g = g.spawn(l_box_raw_no(G()))
+    let _ = h_l_box_raw_no_g.join()
+    let h_l_box_raw_no_t1 = t1.spawn(l_box_raw_no(T1()))
+    let _ = h_l_box_raw_no_t1.join()
+    let h_l_box_raw_no_t2 = t2.spawn(l_box_raw_no(T2()))
+    let _ = h_l_box_raw_no_t2.join()
+    let h_l_box_raw_no_ts = Task.spawn(l_box_raw_no(TS()))
+    let _ = h_l_box_raw_no_ts.join()
+
+    let h_c_box_raw_no_g = g.spawn(c_box_raw_no(G()))
+    let _ = h_c_box_raw_no_g.join()
+    let h_c_box_raw_no_t1 = t1.spawn(c_box_raw_no(T1()))
+    let _ = h_c_box_raw_no_t1.join()
+    let h_c_box_raw_no_t2 = t2.spawn(c_box_raw_no(T2()))
+    let _ = h_c_box_raw_no_t2.join()
+    let h_c_box_raw_no_ts = Task.spawn(c_box_raw_no(TS()))
+    let _ = h_c_box_raw_no_ts.join()
+
+    let h_r_box_raw_no_g = g.spawn(r_box_raw_no(G()))
+    let _ = h_r_box_raw_no_g.join()
+    let h_r_box_raw_no_t1 = t1.spawn(r_box_raw_no(T1()))
+    let _ = h_r_box_raw_no_t1.join()
+    let h_r_box_raw_no_t2 = t2.spawn(r_box_raw_no(T2()))
+    let _ = h_r_box_raw_no_t2.join()
+    let h_r_box_raw_no_ts = Task.spawn(r_box_raw_no(TS()))
+    let _ = h_r_box_raw_no_ts.join()
+
+    let h_p_pointer_no_g = g.spawn(p_pointer_no(0 as UnsafePointer<Int>, G()))
+    let _ = h_p_pointer_no_g.join()
+    let h_p_pointer_no_t1 = t1.spawn(p_pointer_no(0 as UnsafePointer<Int>, T1()))
+    let _ = h_p_pointer_no_t1.join()
+    let h_p_pointer_no_t2 = t2.spawn(p_pointer_no(0 as UnsafePointer<Int>, T2()))
+    let _ = h_p_pointer_no_t2.join()
+    let h_p_pointer_no_ts = Task.spawn(p_pointer_no(0 as UnsafePointer<Int>, TS()))
+    let _ = h_p_pointer_no_ts.join()
+
+    let h_l_pointer_no_g = g.spawn(l_pointer_no(G()))
+    let _ = h_l_pointer_no_g.join()
+    let h_l_pointer_no_t1 = t1.spawn(l_pointer_no(T1()))
+    let _ = h_l_pointer_no_t1.join()
+    let h_l_pointer_no_t2 = t2.spawn(l_pointer_no(T2()))
+    let _ = h_l_pointer_no_t2.join()
+    let h_l_pointer_no_ts = Task.spawn(l_pointer_no(TS()))
+    let _ = h_l_pointer_no_ts.join()
+
+    let h_c_pointer_no_g = g.spawn(c_pointer_no(G()))
+    let _ = h_c_pointer_no_g.join()
+    let h_c_pointer_no_t1 = t1.spawn(c_pointer_no(T1()))
+    let _ = h_c_pointer_no_t1.join()
+    let h_c_pointer_no_t2 = t2.spawn(c_pointer_no(T2()))
+    let _ = h_c_pointer_no_t2.join()
+    let h_c_pointer_no_ts = Task.spawn(c_pointer_no(TS()))
+    let _ = h_c_pointer_no_ts.join()
+
+    let h_r_pointer_no_g = g.spawn(r_pointer_no(G()))
+    let _ = h_r_pointer_no_g.join()
+    let h_r_pointer_no_t1 = t1.spawn(r_pointer_no(T1()))
+    let _ = h_r_pointer_no_t1.join()
+    let h_r_pointer_no_t2 = t2.spawn(r_pointer_no(T2()))
+    let _ = h_r_pointer_no_t2.join()
+    let h_r_pointer_no_ts = Task.spawn(r_pointer_no(TS()))
+    let _ = h_r_pointer_no_ts.join()
+
+    let h_r_error_no_g = g.spawn(r_error_no(G()))
+    let _ = h_r_error_no_g.join()
+    let h_r_error_no_t1 = t1.spawn(r_error_no(T1()))
+    let _ = h_r_error_no_t1.join()
+    let h_r_error_no_t2 = t2.spawn(r_error_no(T2()))
+    let _ = h_r_error_no_t2.join()
+    let h_r_error_no_ts = Task.spawn(r_error_no(TS()))
+    let _ = h_r_error_no_ts.join()
+
+    let h_l_group_no_g = g.spawn(l_group_no(G()))
+    let _ = h_l_group_no_g.join()
+    let h_l_group_no_t1 = t1.spawn(l_group_no(T1()))
+    let _ = h_l_group_no_t1.join()
+    let h_l_group_no_t2 = t2.spawn(l_group_no(T2()))
+    let _ = h_l_group_no_t2.join()
+    let h_l_group_no_ts = Task.spawn(l_group_no(TS()))
+    let _ = h_l_group_no_ts.join()
+
+    let h_c_group_no_g = g.spawn(c_group_no(G()))
+    let _ = h_c_group_no_g.join()
+    let h_c_group_no_t1 = t1.spawn(c_group_no(T1()))
+    let _ = h_c_group_no_t1.join()
+    let h_c_group_no_t2 = t2.spawn(c_group_no(T2()))
+    let _ = h_c_group_no_t2.join()
+    let h_c_group_no_ts = Task.spawn(c_group_no(TS()))
+    let _ = h_c_group_no_ts.join()
+
+    let h_p_closure_ok_g = g.spawn(p_closure_ok({ 1 }, G()))
+    let _ = h_p_closure_ok_g.join()
+    let h_p_closure_ok_t1 = t1.spawn(p_closure_ok({ 1 }, T1()))
+    let _ = h_p_closure_ok_t1.join()
+    let h_p_closure_ok_t2 = t2.spawn(p_closure_ok({ 1 }, T2()))
+    let _ = h_p_closure_ok_t2.join()
+    let h_p_closure_ok_ts = Task.spawn(p_closure_ok({ 1 }, TS()))
+    let _ = h_p_closure_ok_ts.join()
+
+    let h_p_closure_no_g = g.spawn(p_closure_no({ [&c] in 1 }, G()))
+    let _ = h_p_closure_no_g.join()
+    let h_p_closure_no_t1 = t1.spawn(p_closure_no({ [&c] in 1 }, T1()))
+    let _ = h_p_closure_no_t1.join()
+    let h_p_closure_no_t2 = t2.spawn(p_closure_no({ [&c] in 1 }, T2()))
+    let _ = h_p_closure_no_t2.join()
+
+    let h_c_closure_passed_ok_g = g.spawn(c_closure_passed_ok({ 1 }, G()))
+    let _ = h_c_closure_passed_ok_g.join()
+    let h_c_closure_passed_ok_t1 = t1.spawn(c_closure_passed_ok({ 1 }, T1()))
+    let _ = h_c_closure_passed_ok_t1.join()
+    let h_c_closure_passed_ok_t2 = t2.spawn(c_closure_passed_ok({ 1 }, T2()))
+    let _ = h_c_closure_passed_ok_t2.join()
+    let h_c_closure_passed_ok_ts = Task.spawn(c_closure_passed_ok({ 1 }, TS()))
+    let _ = h_c_closure_passed_ok_ts.join()
+
+    let h_c_closure_passed_no_g = g.spawn(c_closure_passed_no({ [&c] in 1 }, G()))
+    let _ = h_c_closure_passed_no_g.join()
+    let h_c_closure_passed_no_t1 = t1.spawn(c_closure_passed_no({ [&c] in 1 }, T1()))
+    let _ = h_c_closure_passed_no_t1.join()
+    let h_c_closure_passed_no_t2 = t2.spawn(c_closure_passed_no({ [&c] in 1 }, T2()))
+    let _ = h_c_closure_passed_no_t2.join()
+
+    let h_c_closure_literal_no_g = g.spawn(c_closure_literal_no(G()))
+    let _ = h_c_closure_literal_no_g.join()
+    let h_c_closure_literal_no_t1 = t1.spawn(c_closure_literal_no(T1()))
+    let _ = h_c_closure_literal_no_t1.join()
+    let h_c_closure_literal_no_t2 = t2.spawn(c_closure_literal_no(T2()))
+    let _ = h_c_closure_literal_no_t2.join()
+    let h_c_closure_literal_no_ts = Task.spawn(c_closure_literal_no(TS()))
+    let _ = h_c_closure_literal_no_ts.join()
+
+    let h_l_env_exclusive_ok_g = g.spawn(l_env_exclusive_ok(G()))
+    let _ = h_l_env_exclusive_ok_g.join()
+    let h_l_env_exclusive_ok_t1 = t1.spawn(l_env_exclusive_ok(T1()))
+    let _ = h_l_env_exclusive_ok_t1.join()
+    let h_l_env_exclusive_ok_t2 = t2.spawn(l_env_exclusive_ok(T2()))
+    let _ = h_l_env_exclusive_ok_t2.join()
+    let h_l_env_exclusive_ok_ts = Task.spawn(l_env_exclusive_ok(TS()))
+    let _ = h_l_env_exclusive_ok_ts.join()
+
+    let h_c_closure_literal_ok_g = g.spawn(c_closure_literal_ok(1, G()))
+    let _ = h_c_closure_literal_ok_g.join()
+    let h_c_closure_literal_ok_t1 = t1.spawn(c_closure_literal_ok(1, T1()))
+    let _ = h_c_closure_literal_ok_t1.join()
+    let h_c_closure_literal_ok_t2 = t2.spawn(c_closure_literal_ok(1, T2()))
+    let _ = h_c_closure_literal_ok_t2.join()
+    let h_c_closure_literal_ok_ts = Task.spawn(c_closure_literal_ok(1, TS()))
+    let _ = h_c_closure_literal_ok_ts.join()
+
+    let h_p_closure_field_no_g = g.spawn(p_closure_field_no(Holder(f: { 1 }), G()))
+    let _ = h_p_closure_field_no_g.join()
+    let h_p_closure_field_no_t1 = t1.spawn(p_closure_field_no(Holder(f: { 1 }), T1()))
+    let _ = h_p_closure_field_no_t1.join()
+    let h_p_closure_field_no_t2 = t2.spawn(p_closure_field_no(Holder(f: { 1 }), T2()))
+    let _ = h_p_closure_field_no_t2.join()
+    let h_p_closure_field_no_ts = Task.spawn(p_closure_field_no(Holder(f: { 1 }), TS()))
+    let _ = h_p_closure_field_no_ts.join()
+}

@@ -116,10 +116,11 @@ extension Thread<T> {
         // The thread's exit leaves the block's negated size in its handshake
         // word once the result is stored (runtime/ABI.md), and only the exit
         // writes it while the handle is live. So once the word is negative
-        // the reap waits for nothing but the thread's own return.
-        let word = self.__saw_exit_word()
-        while __saw_atomic_load_i64_seq_cst(word) >= 0 {
-            __saw_park_thread(__saw_exec_join_park(word))
+        // the reap waits for nothing but the thread's own return. The word's
+        // address is the handle's block, fixed for its life, so it is read
+        // afresh at each use and no pointer stays in the parked frame.
+        while __saw_atomic_load_i64_seq_cst(self.__saw_exit_word()) >= 0 {
+            __saw_park_thread(__saw_exec_join_park(self.__saw_exit_word()))
         }
         self.__saw_reap()
     }

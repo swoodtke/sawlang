@@ -1,6 +1,6 @@
 program	compiler/tests/run/group_spawn.saw
 triple	aarch64-unknown-linux-gnu
-source	62c57499e0ee886a
+source	9c5296bdec8814a4
 build	ok
 exit	0
 stdout	"count 3"

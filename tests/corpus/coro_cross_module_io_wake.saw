@@ -80,12 +80,14 @@ func main() {
     let listener = try! TcpListener.listen(0)
     let port = try! listener.local_port()
     var group = TaskGroup()
-    let hs = group.spawn(server(move listener, 3))
     let h0 = group.spawn(client(port))
     let h1 = group.spawn(client(port))
     let h2 = group.spawn(client(port))
+    // `main` runs the accept loop itself: the loop holds its handlers' group
+    // across each accept, and a group is not `Send`, so a spawned task's frame
+    // may not hold one there (SL-788).
+    let served = server(move listener, 3)
     let total = h0.join() + h1.join() + h2.join()
-    let served = hs.join()
     print(served)   // 3 = server accepted+served all three
     print(total)    // 3 = every client's parked handler woke and answered
 }

@@ -10,15 +10,17 @@ func pool_receive(ch: Channel<Int>) -> Int {
     try! ch.receive()
 }
 
-func waiter(pool: &TaskGroup, ch: Channel<Int>) -> Int {
+// The pool is the waiter's own: a `TaskGroup` is not `Sync`, so a spawned
+// frame cannot hold a reference to one its spawner made.
+func waiter(ch: Channel<Int>) -> Int {
+    var pool = try! TaskGroup(threads: 2)
     let h = pool.spawn(pool_receive(ch))
     h.join()
 }
 
 func main() {
     let ch = try! Channel<Int>()
-    var pool = try! TaskGroup(threads: 2)
     var group = TaskGroup()
-    let b = group.spawn(waiter(&pool, ch))
+    let b = group.spawn(waiter(ch))
     print("joined {}", b.join())
 }

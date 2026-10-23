@@ -114,6 +114,7 @@ bitwise_precedence.saw	pass	-	-
 bitwise_ref_wrap_coexistence.saw	pass	-	-
 bitwise_requires_integers.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `Float`
 borrowing_field_reads_compose.saw	pass	-	-
+borrowing_iterator_crosses_into_a_threaded_group.saw	stage0-wrong	annotated SL-788	sawc2 meets its directives
 borrowing_producer_every_path.saw	pass	-	-
 borrowing_rules_resolve_aliases.saw	refused	typecheck call.arity	missing an argument for `done` of It(source: &borrowing_rules_resolve_aliases.Owner, done: Bool) [borrowing_rules_resolve_aliases]
 borrows_declaration_lowers.saw	pass	-	-
@@ -308,7 +309,7 @@ conformance/G15_main_int_exit_status_truncates.saw	pass	-	-
 conformance/G16_try_propagates_out_of_main.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/K02_nonsend_across_suspend_local_mt.saw	pass	-	coro.spawn-not-send: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension b
+conformance/K02_nonsend_across_suspend_local_mt.saw	pass	-	coro.spawn-not-send: cannot spawn `work`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension but is not `Send`; the function type `() sync ->
 conformance/K100_shutdown_rides_cancellation.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `Command.output` → `io_wait` (parks the task): a spawned thread runs no executor, so there is nothing there to resume
@@ -336,7 +337,7 @@ conformance/K15_spawn_ref_param_exclusion_window.saw	pass	-	loan.read-while-excl
 conformance/K16_spawn_shared_ref_param_composes.saw	pass	-	-
 conformance/K17_spawn_ref_param_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root:
 conformance/K18_spawn_ref_param_after_group.saw	pass	-	loan.drop-while-borrowed: cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (at 30:9 against 29:9), and destruction is LIFO — `buf` is torn down BEFORE `
-conformance/K19_spawn_ref_param_mt_send.saw	pass	-	coro.spawn-not-send: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`: parameter `n` of type `&var Int` is not `Send`, so the task frame cannot cross to a worker thread. Share threa
+conformance/K19_spawn_ref_param_mt_send.saw	stage0-wrong	annotated SL-788	sawc2 meets its directives
 conformance/K20_spawn_ref_param_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 33:30 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
 conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
@@ -347,7 +348,7 @@ conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.u
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
 conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
-conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	-	coro.spawn-not-send: cannot spawn `bump_many` into a multi-threaded `TaskGroup(threads: ...)`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the
+conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	-	coro.spawn-not-send: cannot spawn `bump_many`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Sha
 conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc2 meets its directives
 conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	pass	-	-
@@ -807,7 +808,7 @@ coro_try_catch_suspending.saw	pass	-	-
 coro_try_in_borrowed_place_index.saw	pass	-	-
 coro_try_landing_relinquishes_by_position.saw	stage0-wrong	annotated SL-731	sawc2 meets its directives
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-coro_try_propagate_suspending.saw	pass	-	-
+coro_try_propagate_suspending.saw	refused	coro coro.spawn-not-send	cannot spawn `erased`: its result type `Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>` is not `Send`, so the value cannot travel back from the worker thread to `join()`.
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
 coro_value_inline_catch_hosts_a_move.saw	stage0-wrong	XFAIL SL-231	sawc2 meets its directives
@@ -992,7 +993,7 @@ erased_downcast_nonconforming_error.saw	refused	typecheck slice.not-yet	downcast
 erased_downcast_use_after_take_error.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
 erased_error_across_suspension.saw	pass	-	-
 erased_error_spawned_container_result.saw	refused	typecheck slice.not-yet	downcasting an erased box with `is` or `take` is not in the bootstrap slice yet
-erased_error_spawned_task.saw	pass	-	-
+erased_error_spawned_task.saw	refused	coro coro.spawn-not-send	cannot spawn `fail`: its result type `Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>` is not `Send`, so the value cannot travel back from the worker thread to `join()`.
 erased_result_catch.saw	pass	-	-
 erased_result_return.saw	pass	-	-
 erased_result_try.saw	pass	-	-
@@ -1353,7 +1354,7 @@ errors/synthesize_required_enum.saw	pass	-	synthesize.required: `Shape` conforms
 errors/synthesize_required_equatable.saw	pass	-	synthesize.required: `Named` conforms to `Equatable` with no `Equatable.equals` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_explicit_copy.saw	pass	-	synthesize.required: `Holder` conforms to `ExplicitCopy` with no `ExplicitCopy.copy` written: write it, or mark the extension `@synthesize` to derive it
 errors/synthesize_required_hashable.saw	pass	-	synthesize.required: `Keyed` conforms to `Hashable` with no `Hashable.hash` written: write it, or mark the extension `@synthesize` to derive it
-errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is not `Send`; the fun
+errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot spawn `work`: parameter `jobs` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is not `Send`; the function type `() sync -> Int` is not `sendable`: a
 errors/thread_body_reports_both_violations.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a s
 errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
@@ -1421,7 +1422,6 @@ errors/while_never_unreachable_after.saw	pass	-	type.mismatch: expected `Never`,
 errors/while_true_not_never.saw	pass	-	type.mismatch: expected `Never`, the type of the function's result, which the body's last expression is, and found `Void`
 errors/window_acquire_mutating_argument.saw	pass	-	loan.nested-call: `b` is borrowed by a nested call in this argument list while `b` is also the receiver of the call at 51:14, which borrows it for the whole call; bind the nested call's result in a st
 errors/window_conflicts.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `iter` opened at 39:14 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is
-errors/window_in_a_threaded_group.saw	pass	-	coro.spawn-not-send: cannot spawn `sum_vector` into a multi-threaded `TaskGroup(threads: ...)`: a temporary of type `std.vector.VectorIterator<Int, std.alloc.GlobalAllocator>` is held across a suspens
 errors/window_static_root_write.saw	pass	-	loan.window-root: `ROOT.value` is written here while the window of `iter` opened at 38:14 holds `ROOT` shared until the window closes; a window charges its whole root until it closes, so the root is r
 errors/with_var_ref_invalidation.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 16:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root i
 errors/withcstring_escape.saw	pass	-	escaping.stored: `body` is a non-escaping function value, a parameter whose type does not say `escaping` or a binding of one, and a field holds it past the call: mark the parameter `escaping`, as `()

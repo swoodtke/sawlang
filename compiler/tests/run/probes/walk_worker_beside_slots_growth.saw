@@ -34,10 +34,11 @@ func main() {
         let p = pool.spawn(recv_one(c))
         // A fresh group per round, grown from one slot past several
         // capacities while the worker's walk may read it, then torn down.
+        // `main` spawns into it: a spawned task may not hold a reference to
+        // a `TaskGroup`, which is not `Send` (SL-788).
         var grown = TaskGroup()
+        total = total + spawner(&grown, 64)
         var driver = TaskGroup()
-        let s = driver.spawn(spawner(&grown, 64))
-        total = total + s.join()
         let last = driver.spawn(send_one(c, i))
         let _ = last.join()
         total = total + p.join()

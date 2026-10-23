@@ -8696,8 +8696,9 @@ Observable rules:
     the spawner's storage alive underneath it. See *A task may borrow from the
     frame that spawned it* below. A reference to a task-CONFINED local INSIDE the
     spawned body needs none of that — it points into the task's own frame, which
-    the box keeps alive. A `threads: N` group refuses a reference parameter
-    outright, on `Send`.
+    the box keeps alive. In every group a reference parameter is judged as the
+    rest of the frame is, on `Send`: `&var T` crosses when `T` is `Send`, and
+    `&T` when `T` is `Sync`.
   - A `borrow` WINDOW spans a suspension, whichever form opened it: a block, a
     statement form, a borrowed argument or a `for` head (see
     *The `borrow` construct* under Places). It may hold across a park because
@@ -8707,9 +8708,11 @@ Observable rules:
     extent live at the head or started inside the body is the
     writer-beside-reader error; a `&` extent composes with a SHARED window, and
     inside an exclusive window the body cannot touch the root at all, so a `&`
-    of it there is refused too; a `threads: N` group
-    refuses the frame on `Send` before the question arises, and nothing else in
-    this task runs while the frame is parked. A window opened through a
+    of it there is refused too; and nothing else in this task runs while the
+    frame is parked. In a spawned task the window's borrowing struct is part of
+    the frame, so it must be `Send`, which it is when each reference it holds
+    is: `for x in v.iter()` may span a suspension in a `threads: N` task, since
+    `&Vector<T>` is `Send` when `Vector<T>` is `Sync`. A window opened through a
     `borrows(sync)` accessor, such as a lock's, cannot span one: a suspension
     inside it is a compile error that names the accessor.
 - **`deinit` may not suspend** — a `deinit` is always a `sync` context, so a
@@ -9381,14 +9384,20 @@ threads, no lock).
   single-threaded engine. So a program may still rely on results through handles
   and on shared state through `Arc`/`Mutex`/`Channel`; what it may not rely on is
   a `threads: N` group not having started yet.
-- **Send-on-frames gate.** A frame spawned into a multi-threaded group is handed
-  between workers, so every value it carries across a suspension — the spawned
-  function's parameters, its across-suspension locals (and those of embedded callee
-  sub-frames), and its RESULT type (it travels worker→`join()`) — must be `Send`.
-  The compiler rejects the first non-`Send` value at the spawned function, naming
-  it and its type. Single-threaded groups skip the gate entirely. (A multi-threaded
-  group must be spawned into *directly* for the gate to key on it — `threads:` is
-  tracked on the group's binding, not yet through an opaque helper it is passed to.)
+- **Send-on-frames gate.** Every spawned task's frame must be `Send`, whatever
+  its group: `group.spawn(...)` into `TaskGroup()`, `TaskGroup(threads: 1)` or
+  `TaskGroup(threads: N)`, and `Task.spawn(...)`, accept and refuse exactly the
+  same frames, so a spawn that compiles into one group compiles into any. The
+  frame is every value the task carries across a suspension: the spawned
+  function's parameters, its across-suspension locals (and those of embedded
+  callee sub-frames, their parameters included), and its RESULT type (it travels
+  to `join()`). The compiler rejects the first non-`Send` value at the spawned
+  function, naming it and its type. A reference is judged by Rust's rule at any
+  depth: `&T` is `Send` when `T` is `Sync`, and `&var T` when `T` is `Send`
+  (*Send and Sync*, below). A `TaskGroup` and a `Task` handle are not `Send`, so
+  a spawned task may not hold its own group across a suspension; it suspends
+  before making the group, or joins it first. `Thread.spawn`'s brace keeps its
+  own capture audit.
 - **D6 task confinement (paper 18).** A frame runs on ONE thread at a time; stealing
   moves frames between workers only BETWEEN suspensions. There are no migration
   guarantees beyond Send-correctness; `&var self` driven methods stay task-confined.
@@ -10258,19 +10267,25 @@ let g = group.spawn(bump(&var n))
 
 The group opens the scope it governs, so it is declared at the top of it.
 
-A **`threads: N` group takes the capture spelling only.** A reference
-parameter is not `Send`, so the frame cannot cross to a worker thread. A
-closure that borrows crosses when it is `sendable` (see [Sendable function
-types](#sendable-function-types)): `[&var n]` needs `n` to be `Send`, and
-`[&base]` needs `base` to be `Sync`.
+**Both spellings take the same test in every group,** since a spawned task's
+frame must be `Send` whatever its group. A reference argument crosses by
+Rust's rule: `&var n` needs `n` to be `Send`, and `&base` needs `base` to be
+`Sync`. A closure that borrows crosses when it is `sendable` (see [Sendable
+function types](#sendable-function-types)), which asks the same of each
+borrow: `[&var n]` needs `n` to be `Send`, and `[&base]` needs `base` to be
+`Sync`.
 
 ```saw-fragment
 var group = try! TaskGroup(threads: 2)
-let h = group.spawn(bump(&var n))
-// error: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`:
-//        parameter `n` of type `&var Int` is not `Send` …
+let h = group.spawn(bump(&var n))                        // crosses: `Int` is `Send`
 let c = group.spawn(run({ [&var n] in n = n + 1; n }))   // crosses
+let p = group.spawn(waiter(&pool))
+// error: cannot spawn `waiter`: parameter `pool` of type
+//        `&std.taskgroup.TaskGroup` is not `Send` …
 ```
+
+The last spawn is refused into a `TaskGroup()` too: a `TaskGroup` is not
+`Sync`, so a reference to one is not `Send`.
 
 Share genuinely cross-thread state through an `Arc`, a `Mutex` or a `Channel`.
 
@@ -10925,12 +10940,20 @@ func ship<T: Shippable>(item: &T) {
 A conformance to the child therefore never makes a type `Send` or `Sync`; only
 the members and the declared assertions below do.
 
-Saw has no shared references in flight, so `Sync` is not about `&` travelling.
-A plain `&` never crosses a spawn, and a single-threaded group never consults
-`Sync` at all. It is consulted where handles and statics CREATE parallel shared
-access: an `Arc` sent across a spawn in a `threads: N` group (which is why
-`Arc<T: Send + Sync>` demands it), a lock (`Mutex` and `SpinLock` are `Sync`
-BECAUSE they serialize), and a `static`, which every thread can reach.
+**A reference follows Rust's rule.** `&T` and `&[T]` are `Send` when `T` is
+`Sync`, since the thread holding the reference reads `T` while its owner may
+too; `&var T` and `&var [T]` are `Send` when `T` is `Send`, since only the
+holder reaches `T`; either is `Sync` when `T` is. The rule holds at any depth,
+so a borrowing struct is `Send` when each reference it holds is, and a
+borrowing closure's environment `(&var T,)` is `Send` when `T` is. A spawned
+task's frame (*Send-on-frames gate*, under Multi-threaded execution) is where a
+reference crosses: the spawn-borrow rules keep its referent alive and out of
+the spawner's reach for the task's life.
+
+`Sync` is also consulted where handles and statics CREATE parallel shared
+access: an `Arc` sent across a spawn (which is why `Arc<T: Send + Sync>`
+demands it), a lock (`Mutex` and `SpinLock` are `Sync` BECAUSE they
+serialize), and a `static`, which every thread can reach.
 
 Interior mutability is what makes the two separate axes. A struct with an
 `Atomic` field mutates safely through `&self`, so it is `Send` AND `Sync`. A
@@ -11022,7 +11045,9 @@ let d = group.spawn(run({ [&base] in base * 2 }))         // crosses: `Int` is `
 
 **Status: implemented (design 186).** Some types are thread-safe for a reason
 the derivation cannot see — a `Vector`'s buffer pointer is bookkeeping the Law
-of Exclusivity already governs, an `Arc`'s refcount is updated with atomic
+of Exclusivity already governs, a `Box`'s pointer is its payload's one owner
+(`Box<T, A>` is `Send` when `T` and `A` are, and `Sync` when both are), an
+`Arc`'s refcount is updated with atomic
 read-modify-writes, a `Mutex` serializes every access to its payload. The
 assertion has its own two names:
 
@@ -11185,7 +11210,7 @@ Delete the `UnsafeSend` line and the spawn is refused at the function that would
 have crossed:
 
 ```
-error: cannot spawn `record` into a multi-threaded `TaskGroup(threads: ...)`:
+error: cannot spawn `record`:
        parameter `shared` of type `Arc<Mutex<SampleBuffer>>` is not `Send`, so
        the task frame cannot cross to a worker thread. Share thread-safe state
        via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it
@@ -11293,7 +11318,7 @@ import std.mutex.{Mutex}
 
 // `Box<TaskGroup>` is not `Send`
 func poke(shared: Arc<Mutex<Box<TaskGroup>>>) -> Int { shared.strong_count() }
-// error: cannot spawn `poke` into a multi-threaded `TaskGroup(threads: ...)`:
+// error: cannot spawn `poke`:
 //        parameter `shared` of type `Arc<Mutex<Box<TaskGroup, GlobalAllocator>>>`
 //        is not `Send`, ...
 ```

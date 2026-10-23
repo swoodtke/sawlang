@@ -1,0 +1,178 @@
+// The Send-on-frames position matrix (SL-788): the fixture
+// `compiler/tests/coro/inject/send_matrix.saw` spawns every root in each
+// spawn form it can take, `TaskGroup()`, `TaskGroup(threads: 1)`,
+// `TaskGroup(threads: 2)` and `Task.spawn`, as an instantiation of its own.
+// Each `ok` root must be refused in none of them, and each `no` root in every
+// one, with the message naming the value; that the counts agree is the rule
+// that a frame's verdict does not depend on its group. Paths are the
+// repository root's, where the runner runs.
+import sawcoro.api.{coro_lower_file}
+import sawcoro.program.{CoroProgram}
+import sawmono.dump.{mono_dump_layouts}
+
+struct MatrixCell {
+    name: String
+    // The spawn forms the fixture spawns the root in.
+    forms: Int
+    refused: Bool
+    // What each refusal's message holds, past its lead.
+    fragment: String
+}
+
+// Whether `text` holds `word` at some byte.
+func holds(text: &String, word: &String) -> Bool {
+    let n = text.len()
+    let w = word.len()
+    var at = 0
+    while at + w <= n {
+        var k = 0
+        while k < w && text.byte_at(at + k) == word.byte_at(k) {
+            k = k + 1
+        }
+        if k == w {
+            return true
+        }
+        at = at + 1
+    }
+    false
+}
+
+// Whether `text` begins with `word`.
+func begins(text: &String, word: &String) -> Bool {
+    let w = word.len()
+    if w > text.len() {
+        return false
+    }
+    var k = 0
+    while k < w {
+        if text.byte_at(k) != word.byte_at(k) {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
+// The sentence a refusal of root `name` starts with.
+func lead(name: &String) -> String {
+    var out = StringBuilder()
+    try! out.append("cannot spawn `")
+    try! out.append(name)
+    try! out.append("`: ")
+    out.build()
+}
+
+// How many instantiations of root `name` the fixture's program holds.
+func instances(coro: &CoroProgram, name: &String) -> Int {
+    var head = StringBuilder()
+    try! head.append("send_matrix.")
+    try! head.append(name)
+    try! head.append("(")
+    let want = head.build()
+    var found = 0
+    var k = 0
+    while k < coro.mono.items.len() {
+        let item = coro.mono.item_name(k)
+        if begins(&item, &want) {
+            found = found + 1
+        }
+        k = k + 1
+    }
+    found
+}
+
+func cell(name: String, forms: Int, refused: Bool, fragment: String) -> MatrixCell {
+    MatrixCell(name: name, forms: forms, refused: refused, fragment: fragment)
+}
+
+func cells() -> Vector<MatrixCell> {
+    var out = Vector<MatrixCell>()
+    try! out.push(cell("p_ref_shared_ok", 3, false, ""))
+    try! out.push(cell("p_ref_shared_no", 3, true, "parameter `r` of type `&send_matrix.Cell` is not `Send`"))
+    try! out.push(cell("p_ref_exclusive_ok", 3, false, ""))
+    try! out.push(cell("p_ref_exclusive_no", 3, true, "parameter `r` of type `&var send_matrix.Raw` is not `Send`"))
+    try! out.push(cell("c_ref_shared_ok", 4, false, ""))
+    try! out.push(cell("c_ref_shared_no", 4, true,
+                       "parameter `r` of type `&send_matrix.Cell` in `c_ref_shared_no_child` is not `Send`"))
+    try! out.push(cell("c_ref_exclusive_ok", 4, false, ""))
+    try! out.push(cell("l_iter_vector_ok", 4, false, ""))
+    try! out.push(cell("l_iter_shared_no", 4, true, "of type `send_matrix.Shared`"))
+    try! out.push(cell("c_iter_vector_ok", 4, false, ""))
+    try! out.push(cell("c_iter_shared_no", 4, true, "of type `send_matrix.Shared` in `c_iter_shared_no_child`"))
+    try! out.push(cell("p_box_fault_ok", 4, false, ""))
+    try! out.push(cell("l_box_fault_ok", 4, false, ""))
+    try! out.push(cell("c_box_fault_ok", 4, false, ""))
+    try! out.push(cell("r_box_fault_ok", 4, false, ""))
+    try! out.push(cell("p_box_printable_no", 4, true, "parameter `x` of type `std.box.Box<any Printable"))
+    try! out.push(cell("l_box_printable_no", 4, true, "local `x` of type `std.box.Box<any Printable"))
+    try! out.push(cell("c_box_printable_no", 4, true, "local `x` of type `std.box.Box<any Printable"))
+    try! out.push(cell("r_box_printable_no", 4, true, "its result type `std.box.Box<any Printable"))
+    try! out.push(cell("p_box_raw_no", 4, true, "parameter `x` of type `std.box.Box<send_matrix.Raw"))
+    try! out.push(cell("l_box_raw_no", 4, true, "local `x` of type `std.box.Box<send_matrix.Raw"))
+    try! out.push(cell("c_box_raw_no", 4, true, "local `x` of type `std.box.Box<send_matrix.Raw"))
+    try! out.push(cell("r_box_raw_no", 4, true, "its result type `std.box.Box<send_matrix.Raw"))
+    try! out.push(cell("p_pointer_no", 4, true, "parameter `x` of type `UnsafePointer<Int>"))
+    try! out.push(cell("l_pointer_no", 4, true, "local `x` of type `UnsafePointer<Int>"))
+    try! out.push(cell("c_pointer_no", 4, true, "local `x` of type `UnsafePointer<Int>"))
+    try! out.push(cell("r_pointer_no", 4, true, "its result type `UnsafePointer<Int>"))
+    try! out.push(cell("r_error_no", 4, true, "its result type `Result<Int, std.box.Box<any Error"))
+    try! out.push(cell("l_group_no", 4, true, "local `inner` of type `std.taskgroup.TaskGroup`"))
+    try! out.push(cell("c_group_no", 4, true, "local `inner` of type `std.taskgroup.TaskGroup` in `c_group_no_child`"))
+    try! out.push(cell("p_closure_ok", 4, false, ""))
+    try! out.push(cell("p_closure_no", 3, true, "parameter `f` of type `() -> Int` holds this closure"))
+    try! out.push(cell("c_closure_passed_ok", 4, false, ""))
+    // The root's own parameter holds the closure it passes down, and is
+    // judged first.
+    try! out.push(cell("c_closure_passed_no", 3, true, "parameter `f` of type `() -> Int` holds this closure"))
+    try! out.push(cell("c_closure_literal_ok", 4, false, ""))
+    // The closure's environment, a frame value of the root, is judged before
+    // the child's parameter that holds the closure.
+    try! out.push(cell("c_closure_literal_no", 4, true,
+                       "a temporary of type `(&send_matrix.Cell,)` is held across a suspension"))
+    // The nested `&var`: `(&var Cell,)` is `Send` because `Cell` is, though
+    // `Cell` is not `Sync`.
+    try! out.push(cell("l_env_exclusive_ok", 4, false, ""))
+    try! out.push(cell("p_closure_field_no", 4, true, "is not `sendable`"))
+    move out
+}
+
+func main() {
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    var front = StringBuilder()
+    let coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/send_matrix.saw", std_root: "std",
+                               notes: false, names: &names, dirs: &dirs)
+    assert(not coro.blocked, "the fixture does not reach coroutine lowering: run from the repository root")
+    let table = cells()
+    var counted = 0
+    var c = 0
+    while c < table.len() {
+        let row = table[c]
+        c = c + 1
+        let made = instances(&coro, &row.name)
+        assert(made == row.forms, "{} is spawned in {} forms, not {}", row.name, made, row.forms)
+        let start = lead(&row.name)
+        var refusals = 0
+        var d = 0
+        while d < coro.diags.len() {
+            let diag = coro.diags[d]
+            d = d + 1
+            if not begins(&diag.message, &start) {
+                continue
+            }
+            refusals = refusals + 1
+            assert(holds(&diag.message, &row.fragment), "{}'s refusal does not hold {}: {}", row.name, row.fragment,
+                   diag.message)
+        }
+        let want = if row.refused { row.forms } else { 0 }
+        assert(refusals == want, "{} is refused in {} of its {} forms, not {}", row.name, refusals, row.forms, want)
+        counted = counted + refusals
+    }
+    var d = 0
+    while d < coro.diags.len() {
+        let diag = coro.diags[d]
+        d = d + 1
+        assert(diag.id.equals("coro.spawn-not-send"), "a refusal by another rule: {}: {}", diag.id, diag.message)
+    }
+    assert(counted == coro.diags.len(), "{} refusals name no root of the table", coro.diags.len() - counted)
+}

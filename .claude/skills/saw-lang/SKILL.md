@@ -2336,11 +2336,15 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   widened is WHEN — a task's effects land at an unspecified point between the
   spawn and the join. `join()` is still a barrier for its task, `Deinit` for the
   group, and `TaskGroup()` / `threads: 1` stay single-threaded
-  (byte-identical, deterministic interleaving). Into a multi-threaded group,
-  every value a spawned frame carries across a suspension — params, across-suspend
-  locals, AND the result type — must be `Send` (else a clean compile error naming
-  it). An OWNING CONTAINER is Send iff its CONTENTS are, so moving a
-  `Vector<Int>`, a `Map`, a `Set`, a `Data` or a `StringBuilder` in is fine. A
+  (byte-identical, deterministic interleaving). Every spawned task's frame is
+  `Send` WHATEVER ITS GROUP (`TaskGroup()`, `threads: N`, `Task.spawn` alike):
+  every value it carries across a suspension — params, across-suspend locals,
+  embedded callees' too, AND the result type — must be `Send` (else a clean
+  compile error naming it). A reference follows Rust's rule: `&var T` crosses
+  when `T: Send`, `&T` when `T: Sync`. A `TaskGroup` is not `Send` (nor is
+  `&TaskGroup`), so a spawned task suspends before making its own group, or
+  joins it first. An OWNING CONTAINER is Send iff its CONTENTS are, so moving a
+  `Vector<Int>`, a `Box`, a `Map`, a `Set`, a `Data` or a `StringBuilder` in is fine. A
   FUNCTION TYPE is `Send + Sync` exactly when it says `sendable`
   (`() sync sendable -> Int`, after `escaping` in the slot): a WRITTEN type
   must spell it (`Vector<() sendable -> Int>`, a `Channel` element, a field),

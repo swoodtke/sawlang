@@ -19,12 +19,18 @@ func churn(rounds: Int) -> Int {
     var sum = 0
     var k = 0
     while k < rounds {
-        var inner = try! TaskGroup(threads: 2)
-        let h = inner.spawn(quick(k))
-        sum = sum + h.join()
+        sum = sum + one_round(k)
         k = k + 1
     }
     sum
+}
+
+// One round's pool, made, used and torn down inside the call, so the task's
+// frame never holds a group across its loop's suspension point.
+func one_round(k: Int) -> Int {
+    var inner = try! TaskGroup(threads: 2)
+    let h = inner.spawn(quick(k))
+    h.join()
 }
 
 func main() {

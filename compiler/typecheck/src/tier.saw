@@ -8,7 +8,7 @@
 // argument can be, primitives included (design 109).
 
 import sawresolve.dump.{res_sort_strings}
-import sawresolve.model.{ResDecl, ResDeclKind}
+import sawresolve.model.{ResDecl, ResDeclKind, ResModuleKind}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_EFFECT_SENDABLE, TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
                                TcGeneric, TcObligation, TcSig, TcTier, TcUse}
@@ -894,19 +894,33 @@ extension TcProgram {
                 if tr == self.known.copy || tr == self.known.explicit_copy {
                     return true
                 }
-                if tr == self.known.send || tr == self.known.sync {
-                    let s = self.known.sync
-                    return self.satisfies_in(info.b, s, env_decl, env_ext, &var run)
-                }
-                false
+                self.reference_satisfies(info.b, info.a == 1, tr, env_decl, env_ext, &var run)
             },
             case Slice -> {
                 if tr == self.known.copy || tr == self.known.explicit_copy {
                     return true
                 }
-                false
+                self.reference_satisfies(info.b, info.a == 1, tr, env_decl, env_ext, &var run)
             }
         }
+    }
+
+    // Send and Sync of a reference to `referent`, or to a slice of it, by
+    // Rust's rule at any depth: a shared one is `Send` when its referent is
+    // `Sync`, since both threads may read it; an exclusive one is `Send` when
+    // its referent is, since only the holder reaches it; and either is `Sync`
+    // when its referent is.
+    func reference_satisfies(&var self, referent: Int, exclusive: Bool, tr: Int, env_decl: Int, env_ext: Int,
+                             run: &var TcSatisfyRun) -> Bool {
+        if tr == self.known.send {
+            let needed = if exclusive { self.known.send } else { self.known.sync }
+            return self.satisfies_in(referent, needed, env_decl, env_ext, &var run)
+        }
+        if tr == self.known.sync {
+            let s = self.known.sync
+            return self.satisfies_in(referent, s, env_decl, env_ext, &var run)
+        }
+        false
     }
 
     // The traits a tuple, an Optional or a fixed array meets when each of its
@@ -1268,8 +1282,9 @@ extension TcProgram {
     // Why `t` falls short of `Send` or `Sync` when a function type without
     // `sendable` is the reason, as a sentence to append to a refusal; "" when
     // `t` holds none.
-    public func sendable_hint(&self, t: Int) -> String {
-        let f = self.unmarked_function_in(t, 0)
+    public func sendable_hint(&var self, t: Int) -> String {
+        var seen = Vector<Int>()
+        let f = self.unmarked_function_in(t, 0, &var seen)
         if f < 0 {
             return ""
         }
@@ -1281,8 +1296,11 @@ extension TcProgram {
     }
 
     // The first function type without `sendable` in `t`, -1 when none: `t`
-    // itself, or one of its parts.
-    func unmarked_function_in(&self, t: Int, depth: Int) -> Int {
+    // itself, or one of its parts, a declared type's fields and case payloads
+    // among them, since a function value held in a field keeps its written
+    // type. A type already in `seen` is not walked again, so a type reaching
+    // itself through several fields costs one walk.
+    func unmarked_function_in(&var self, t: Int, depth: Int, seen: &var Vector<Int>) -> Int {
         if t < 0 || depth > TC_INSTANTIATION_DEPTH {
             return -1
         }
@@ -1291,19 +1309,70 @@ extension TcProgram {
             return if (info.a & TC_EFFECT_SENDABLE) == 0 { t } else { -1 }
         }
         if info.kind == TcKind.Nominal || info.kind == TcKind.Tuple {
+            var j = 0
+            while j < seen.len() {
+                if seen[j] == t {
+                    return -1
+                }
+                j = j + 1
+            }
+            try! seen.push(t)
             var k = 0
             while k < info.count {
                 let part = self.types.arg(t, k)
-                let found = self.unmarked_function_in(part, depth + 1)
+                let found = self.unmarked_function_in(part, depth + 1, &var seen)
                 if found >= 0 {
                     return found
                 }
                 k = k + 1
             }
+            // A std type's fields are its own representation, which writing
+            // `sendable` cannot change, so only the program's are walked.
+            if info.kind == TcKind.Nominal && self.res.decls[info.decl].node >= 0 {
+                let m = self.res.decls[info.decl].module
+                if self.res.module(m).kind != ResModuleKind.Std {
+                    return self.unmarked_function_in_members(t, depth, &var seen)
+                }
+            }
             return -1
         }
         if info.kind == TcKind.Ref || info.kind == TcKind.Array {
-            return self.unmarked_function_in(info.b, depth + 1)
+            return self.unmarked_function_in(info.b, depth + 1, &var seen)
+        }
+        return -1
+    }
+
+    // `unmarked_function_in` over declared type `t`'s fields and case
+    // payloads, each with `t`'s arguments in place.
+    func unmarked_function_in_members(&var self, t: Int, depth: Int, seen: &var Vector<Int>) -> Int {
+        let d = self.types.ty(t).decl
+        let arguments = self.nominal_args(t)
+        let subst = TcSubst(owner: d, args: move arguments)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mi = self.res.decls[m]
+            let s = self.sigs[m]
+            if mi.kind == ResDeclKind.Field && s.result >= 0 {
+                let ft = self.subst(s.result, &subst)
+                let found = self.unmarked_function_in(ft, depth + 1, &var seen)
+                if found >= 0 {
+                    return found
+                }
+            } else if mi.kind == ResDeclKind.Case {
+                var j = 0
+                while j < s.param_count {
+                    let p = self.params[s.param_first + j]
+                    let pt = self.subst(p.ty, &subst)
+                    j = j + 1
+                    let found = self.unmarked_function_in(pt, depth + 1, &var seen)
+                    if found >= 0 {
+                        return found
+                    }
+                }
+            }
         }
         return -1
     }

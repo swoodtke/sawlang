@@ -22,7 +22,10 @@ func pool_scope_ends(ch: Channel<Int>) {
     let _ = pool.spawn(pool_receive(ch))
 }
 
-func joiner(pool: &TaskGroup, ch: Channel<Int>) -> Int {
+// The pool is the joiner's own: a `TaskGroup` is not `Sync`, so a spawned
+// frame cannot hold a reference to one its spawner made.
+func joiner(ch: Channel<Int>) -> Int {
+    var pool = try! TaskGroup(threads: 2)
     let h = pool.spawn(pool_receive(ch))
     let v = h.join()
     print("joined {}", v)
@@ -38,9 +41,8 @@ func dropper(ch: Channel<Int>) -> Int {
 func main() {
     let first = try! Channel<Int>()
     let second = try! Channel<Int>()
-    var pool = try! TaskGroup(threads: 2)
     var group = TaskGroup()
-    let j = group.spawn(joiner(&pool, first))
+    let j = group.spawn(joiner(first))
     let s = group.spawn(sender(first, 5))
     let _ = j.join()
     let _ = s.join()

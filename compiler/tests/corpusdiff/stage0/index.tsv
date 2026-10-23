@@ -114,6 +114,7 @@ bitwise_precedence.saw	arm64-apple-darwin	same	f9e423d15250	success	ok	0	16:ed33
 bitwise_ref_wrap_coexistence.saw	arm64-apple-darwin	same	aa511f803127	success	ok	0	9:767b945e0011	0:e3b0c44298fc	-	yes	-
 bitwise_requires_integers.saw	arm64-apple-darwin	same	5f28e3b866c2	error	refused	-	-	-	322:7dc74f3b8504	yes	operator `&` requires integer operands, got `Float` and `Float`
 borrowing_field_reads_compose.saw	arm64-apple-darwin	same	b8c71e2995d3	success	ok	0	28:0ab70b0e98a4	0:e3b0c44298fc	-	yes	-
+borrowing_iterator_crosses_into_a_threaded_group.saw	arm64-apple-darwin	same	cf48621a3b75	success	refused	-	-	-	404:2a280b0fd82f	no: Stage 0 does not build it	cannot spawn `sum_vector` into a multi-threaded `TaskGroup(threads: ...)`: local `__saw_iter0` of type `VectorIterator<Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread.
 borrowing_producer_every_path.saw	arm64-apple-darwin	same	7aa55f4c3799	success	ok	0	70:3c76dba20d5d	0:e3b0c44298fc	-	yes	-
 borrowing_rules_resolve_aliases.saw	arm64-apple-darwin	same	83627877ccbf	success	ok	0	35:7b7537615d36	0:e3b0c44298fc	-	yes	-
 borrows_declaration_lowers.saw	arm64-apple-darwin	same	73a2f4ff41cb	success	ok	0	9:a23c9e491c7f	0:e3b0c44298fc	-	yes	-
@@ -308,7 +309,7 @@ conformance/G15_main_int_exit_status_truncates.saw	arm64-apple-darwin	same	1241b
 conformance/G16_try_propagates_out_of_main.saw	arm64-apple-darwin	same	24e8eb0304ec	success	ok	1	31:57898ea3c4e6	0:e3b0c44298fc	-	yes	-
 conformance/G17_early_return_from_main.saw	arm64-apple-darwin	same	3d7494c9ef81	success	ok	3	6:1925258482b3	0:e3b0c44298fc	-	yes	-
 conformance/G18_main_result_void_ok_exit_zero.saw	arm64-apple-darwin	same	421f68de6ad0	success	ok	0	9:318585d34b81	0:e3b0c44298fc	-	yes	-
-conformance/K02_nonsend_across_suspend_local_mt.saw	arm64-apple-darwin	same	b070fce70970	error	refused	-	-	-	508:dca36614bc4d	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
+conformance/K02_nonsend_across_suspend_local_mt.saw	arm64-apple-darwin	same	0d14cbec3a40	error	refused	-	-	-	508:dca36614bc4d	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
 conformance/K100_shutdown_rides_cancellation.saw	arm64-apple-darwin	same	3870ae92adac	success	refused	-	-	-	600:240f94452e35	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 conformance/K111_suspension_causes_decide_framing.saw	arm64-apple-darwin	same	86d628597f9e	success	ok	0	147:1ab08446ebe7	0:e3b0c44298fc	-	yes	-
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	arm64-apple-darwin	same	30ed89cb8881	error	refused	-	-	-	159:7427bcd2e425	no: no error contains 'cannot suspend in a `Thread.spawn { ... }` body'	Parse error at 41:31: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
@@ -336,7 +337,7 @@ conformance/K15_spawn_ref_param_exclusion_window.saw	arm64-apple-darwin	same	2c7
 conformance/K16_spawn_shared_ref_param_composes.saw	arm64-apple-darwin	same	9b2cdec5c8fc	success	ok	0	81:c28a1c962be3	0:e3b0c44298fc	-	yes	-
 conformance/K17_spawn_ref_param_across_iterations.saw	arm64-apple-darwin	same	7747a51c91a6	error	refused	-	-	-	1338:1195e90abbb5	yes	exclusive access violation: this task's `&var total` argument is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: the task spawned at line 28 holds `&var total` until its group `group` is torn down at the end of this scope (nothing joins its handle)
 conformance/K18_spawn_ref_param_after_group.saw	arm64-apple-darwin	same	d0985e04465e	error	refused	-	-	-	644:fcf0514f9ba9	yes	cannot pass `&var buf` into a task: `buf` is declared AFTER the group `group` it is spawned into (line 30 against line 29), and destruction is LIFO — `buf` is torn down BEFORE `group` joins its children, so the task would reach it after it is gone
-conformance/K19_spawn_ref_param_mt_send.saw	arm64-apple-darwin	same	9177ed0d734b	error	refused	-	-	-	415:1623563e2b62	yes	cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`: parameter `n` of type `&var Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.
+conformance/K19_spawn_ref_param_mt_send.saw	arm64-apple-darwin	same	7b596e723122	success	refused	-	-	-	415:f91ec458afbc	no: Stage 0 does not build it	cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`: parameter `n` of type `&var Int` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in.
 conformance/K20_spawn_ref_param_move_root.saw	arm64-apple-darwin	same	fde3fedf6497	error	refused	-	-	-	560:e321e5f6359d	yes	cannot `move` `buf` while a spawned task borrows it: the task spawned at line 33 holds `&var buf` until `h.join()` releases it
 conformance/K21_cross_module_embed_private_sibling.saw	arm64-apple-darwin	same	bfb8e23546df	success	ok	0	4:ce678067b339	0:e3b0c44298fc	-	yes	-
 conformance/K22_cross_module_generic_embed_private_sibling.saw	arm64-apple-darwin	same	079660505947	success	ok	0	8:977f993694d9	0:e3b0c44298fc	-	yes	-
@@ -662,7 +663,7 @@ coro_closure_capture_reads_by_policy.saw	arm64-apple-darwin	same	a6fc8c29839c	su
 coro_closure_captures_self_nested.saw	arm64-apple-darwin	same	a60a140a6115	success	ok	0	29:a6e942eccaa2	0:e3b0c44298fc	-	yes	-
 coro_closure_deinit_once.saw	arm64-apple-darwin	same	6d31b7f6d7b8	success	ok	0	15:adf83d652dc9	0:e3b0c44298fc	-	yes	-
 coro_closure_local_call.saw	arm64-apple-darwin	same	2a2fbd6bac6a	success	ok	0	6:471377121f3a	0:e3b0c44298fc	-	yes	-
-coro_closure_taskgroup.saw	arm64-apple-darwin	same	86853b21fb5a	success	ok	0	6:b8f4484187b4	0:e3b0c44298fc	-	yes	-
+coro_closure_taskgroup.saw	arm64-apple-darwin	same	9cdb641750eb	success	ok	0	6:b8f4484187b4	0:e3b0c44298fc	-	yes	-
 coro_conditional_move_across_suspend.saw	arm64-apple-darwin	same	65c52a87e1dd	success	ok	0	12:5d617f9f831a	0:e3b0c44298fc	-	yes	-
 coro_conservative_callee_in_spawned_task.saw	arm64-apple-darwin	differs	f11cd76458fc	success	ok	0	58:81388a6489f0	0:e3b0c44298fc	-	yes	-
 coro_conservative_callee_not_embedded.saw	arm64-apple-darwin	differs	254c1fb80ab7	success	ok	0	87:9289f3c7b733	0:e3b0c44298fc	-	yes	-
@@ -672,7 +673,7 @@ coro_conservative_generic_instance_not_promoted.saw	arm64-apple-darwin	same	fb89
 coro_cross_module_free_call_positions.saw	arm64-apple-darwin	same	bdb969dddfee	success	ok	0	27:0294fdd92f55	0:e3b0c44298fc	-	yes	-
 coro_cross_module_generic.saw	arm64-apple-darwin	same	cda69536c597	success	ok	0	12:180b27ab9168	0:e3b0c44298fc	-	yes	-
 coro_cross_module_generic_callee.saw	arm64-apple-darwin	same	57874613fdc5	success	ok	0	10:ec97c02866f5	0:e3b0c44298fc	-	yes	-
-coro_cross_module_io_wake.saw	arm64-apple-darwin	same	2b49f002a3e3	success	refused	-	-	-	732:6412ba32af47	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+coro_cross_module_io_wake.saw	arm64-apple-darwin	same	8fddb7174f25	success	refused	-	-	-	732:65bf4eae4ec9	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
 coro_deinit_across_suspend.saw	arm64-apple-darwin	same	68ae09d050ee	success	ok	0	6:c132b0dc4b97	0:e3b0c44298fc	-	yes	-
 coro_destructure_across_suspend.saw	arm64-apple-darwin	same	5757f59bd6a6	success	ok	0	9:01d357ae9493	0:e3b0c44298fc	-	yes	-
 coro_destructure_nocopy_into_frame.saw	arm64-apple-darwin	same	950cb38e00b3	success	ok	0	69:7dc83add517c	0:e3b0c44298fc	-	yes	-
@@ -1353,7 +1354,7 @@ errors/synthesize_required_enum.saw	arm64-apple-darwin	same	0fac485cf261	error	r
 errors/synthesize_required_equatable.saw	arm64-apple-darwin	same	041c9076e52f	error	refused	-	-	-	331:4791460ec070	yes	`Named` declares `Equatable` with no `equals`: a derived body must be requested explicitly
 errors/synthesize_required_explicit_copy.saw	arm64-apple-darwin	same	b25edebb1260	error	refused	-	-	-	337:c0ba4e249376	yes	`Holder` declares `ExplicitCopy` with no `copy`: a derived body must be requested explicitly
 errors/synthesize_required_hashable.saw	arm64-apple-darwin	same	b549fcc944ac	error	refused	-	-	-	969:88a2e4be2eaa	yes	`Keyed` declares `Hashable` with no `hash`: a derived body must be requested explicitly
-errors/taskgroup_threads_nonsend_reject.saw	arm64-apple-darwin	same	3b7af264cf51	error	refused	-	-	-	598:6c6055fd5831	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
+errors/taskgroup_threads_nonsend_reject.saw	arm64-apple-darwin	same	fdf81a23481d	error	refused	-	-	-	598:6c6055fd5831	yes	cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: parameter `jobs` of type `Vector<() sync escaping -> Int, GlobalAllocator>` is not `Send`, so the task frame cannot cross to a worker thread. Share thread-safe state via `Arc` (and `Mutex` for mutation) or a `Channel` instead of moving it in. `Vector` is `Send` only when its payload is `Send`, and `() sync escaping -> Int` is not — that is the bound to satisfy.
 errors/thread_body_reports_both_violations.saw	arm64-apple-darwin	same	d916afc854eb	error	refused	-	-	-	159:a1f0187d68a6	no: no error contains 'closure calls `boundary` → yield_now'	Parse error at 58:35: two statements on one line need a `;` between them: the first begins with `var`, the second with `{` — write `;` where they meet
 errors/trailing_dot_float.saw	arm64-apple-darwin	same	1bbefd412a18	error	refused	-	-	-	149:33592fb6929e	yes	Parse error at 8:15: Expected field name or tuple index after '.', got NEWLINE — a float literal needs a digit after the point (write `7.0`)
 errors/trait_inheritance_missing_method.saw	arm64-apple-darwin	same	e3e55f26d628	error	refused	-	-	-	219:a3be91278a09	yes	type `Number` does not implement required method `getValue` from trait `Child`
@@ -1421,7 +1422,6 @@ errors/while_never_unreachable_after.saw	arm64-apple-darwin	same	6426bf0fc4b5	er
 errors/while_true_not_never.saw	arm64-apple-darwin	same	8267dcc90f17	error	refused	-	-	-	185:30deb09a70ec	yes	function `spin` should return `Never` but body has no value
 errors/window_acquire_mutating_argument.saw	arm64-apple-darwin	same	65e8045197d0	error	refused	-	-	-	700:196168475543	yes	exclusive access violation: `b` is borrowed by a nested call in this argument list while `b` is also accessed by reference in the same call — both reach `b`
 errors/window_conflicts.saw	arm64-apple-darwin	differs	f0bcf8d611e2	error	refused	-	-	-	4984:bf36a5fd1b89	yes	exclusive access violation: `v` cannot be accessed by reference here — the window opened at line 39 borrows `v` for the whole of the `for` statement that iterates it
-errors/window_in_a_threaded_group.saw	arm64-apple-darwin	same	182e6498c590	error	refused	-	-	-	389:028ff26abd76	yes	cannot spawn `sum_vector` into a multi-threaded `TaskGroup(threads: ...)`: local `__saw_iter0` of type `VectorIterator<Int, GlobalAllocator>` is held across a suspension but is not `Send`, so the task frame cannot cross to a worker thread.
 errors/window_static_root_write.saw	arm64-apple-darwin	same	348be1993cf5	error	refused	-	-	-	602:900bdd989d4c	yes	exclusive access violation: `ROOT` cannot be written here — the window opened at line 38 borrows `ROOT` for the whole of the `for` statement that iterates it
 errors/with_var_ref_invalidation.saw	arm64-apple-darwin	differs	926248642684	error	refused	-	-	-	386:c1ef086b2901	yes	exclusive access violation: `v` is passed as `&var` while also being accessed in the same call
 errors/withcstring_escape.saw	arm64-apple-darwin	same	53c568df70a2	error	refused	-	-	-	456:87ae58d6bef3	yes	cannot store or forward a non-escaping closure into an escaping `(UnsafePointer<Int8>) unsafe escaping -> Void` slot (struct field)
@@ -1928,14 +1928,14 @@ named_tuple_reorder_error.saw	arm64-apple-darwin	same	898c1aaf92b6	error	refused
 nested_closure_captures_frame_local.saw	arm64-apple-darwin	same	b1aa14f200ab	success	ok	0	272:d722b254bfe8	0:e3b0c44298fc	-	no: output line 18 is 'drop 20', expected 'drop 21'	-
 nested_if_iflet_tail.saw	arm64-apple-darwin	same	faefa8068f23	success	ok	0	3:917df3320d77	0:e3b0c44298fc	-	yes	-
 nested_optional_tail_branch_arms.saw	arm64-apple-darwin	same	e56af0390caf	success	ok	0	131:cceb2bf5d483	0:e3b0c44298fc	-	yes	-
-net_accept_loop_concurrent.saw	arm64-apple-darwin	same	897253afc061	success	refused	-	-	-	736:cf23bad02b34	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
-net_accept_loop_eager_fd_close.saw	arm64-apple-darwin	same	6e0fe0cdaa25	success	refused	-	-	-	752:1dccff847f57	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_accept_loop_concurrent.saw	arm64-apple-darwin	same	16a5d87a45b3	success	refused	-	-	-	736:3fcd0acf30aa	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
+net_accept_loop_eager_fd_close.saw	arm64-apple-darwin	same	fc3dcbdeb731	success	refused	-	-	-	752:cd274a3fc082	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
 net_accept_roundtrip.saw	arm64-apple-darwin	same	0165f73a33ab	success	refused	-	-	-	366:793c0110f7af	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
 net_accumulate_across_reads.saw	arm64-apple-darwin	same	8df7f4733b40	success	refused	-	-	-	576:d01a7a70d78d	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_budget_fairness.saw	arm64-apple-darwin	differs	5acc0aff48c8	success	refused	-	-	-	599:5f6249aca7d1	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_cancel_parked_mt.saw	arm64-apple-darwin	same	9e9c2c0e0d9a	success	refused	-	-	-	558:f1edf39bd4f7	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_cancel_parked_read.saw	arm64-apple-darwin	same	10762f545f0e	success	refused	-	-	-	553:67af05416b2b	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
-net_cancel_precise.saw	arm64-apple-darwin	same	15ac4ab8d84b	success	refused	-	-	-	1066:da05b07627fc	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
+net_cancel_precise.saw	arm64-apple-darwin	same	6a9268d02f38	success	refused	-	-	-	1066:0d1466f07be8	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_cancel_unregisters_token.saw	arm64-apple-darwin	same	3677efde07a8	success	refused	-	-	-	820:1aac16974274	no: Stage 0 does not build it	`try` requires a Result type, got `(TcpStream, TcpStream)`
 net_connect_by_name.saw	arm64-apple-darwin	same	ae2050b1d217	success	refused	-	-	-	418:c5e6d0e6fa74	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
 net_connect_dials_the_host_it_was_given.saw	arm64-apple-darwin	same	dcd2ff15fd3b	success	refused	-	-	-	712:60486f95a4e6	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
@@ -2008,7 +2008,7 @@ number_literal_member_access.saw	arm64-apple-darwin	same	b915d758f8fb	success	ok
 offload_cancel_multi_arg.saw	arm64-apple-darwin	same	93ca9ad8450a	success	ok	0	13:974a6240b4f6	0:e3b0c44298fc	-	yes	-
 offload_cancel_parked.saw	arm64-apple-darwin	same	cb58a014b729	success	ok	0	13:974a6240b4f6	0:e3b0c44298fc	-	yes	-
 offload_multi_arg_pipe_read.saw	arm64-apple-darwin	same	fc2c3ad0918d	success	ok	0	52:2c73808396d7	0:e3b0c44298fc	-	yes	-
-offload_pointer_heap_arg.saw	arm64-apple-darwin	same	986c4edb388d	success	ok	0	38:71d3f34447ad	0:e3b0c44298fc	-	yes	-
+offload_pointer_heap_arg.saw	arm64-apple-darwin	same	18b4c89b62f3	success	ok	0	38:71d3f34447ad	0:e3b0c44298fc	-	yes	-
 offload_seam_first_tick.saw	arm64-apple-darwin	same	e355524c906c	success	ok	0	31:a1ff1b0a625f	0:e3b0c44298fc	-	yes	-
 offload_signature_shapes.saw	arm64-apple-darwin	same	e9293755439d	success	ok	0	73:17b5419c5347	0:e3b0c44298fc	-	yes	-
 offload_spawn_interleave.saw	arm64-apple-darwin	same	73ebf1bf1e2d	success	ok	0	9:67df1a21c787	0:e3b0c44298fc	-	yes	-
@@ -2432,7 +2432,7 @@ taskgroup_move_live.saw	arm64-apple-darwin	same	ba78c455f7f2	error	refused	-	-	-
 taskgroup_mt_join_then_respawn.saw	arm64-apple-darwin	same	d7b587c7fcbf	success	ok	0	68:9372b93517ba	0:e3b0c44298fc	-	yes	-
 taskgroup_mt_live_pool_soak.saw	arm64-apple-darwin	same	36b73f81da0a	success	refused	-	-	-	254:519a4959c193	no: Stage 0 does not build it	argument `value` expects `Task<Void>` but got `VoidTask`
 taskgroup_nested_ambient.saw	arm64-apple-darwin	same	45865c524f48	success	ok	0	12:29340536b39d	0:e3b0c44298fc	-	yes	-
-taskgroup_nested_groups.saw	arm64-apple-darwin	same	c7044775ce47	success	ok	0	4:ca2ebdf97d74	0:e3b0c44298fc	-	yes	-
+taskgroup_nested_groups.saw	arm64-apple-darwin	same	ccb35a2fdd68	success	ok	0	4:ca2ebdf97d74	0:e3b0c44298fc	-	yes	-
 taskgroup_producer_consumer.saw	arm64-apple-darwin	same	3a5697e9764d	success	ok	0	4:a720da503907	0:e3b0c44298fc	-	yes	-
 taskgroup_result_joined_once.saw	arm64-apple-darwin	same	c6a84c49b50e	success	ok	0	13:5ffaea2eb604	0:e3b0c44298fc	-	yes	-
 taskgroup_result_unjoined_once.saw	arm64-apple-darwin	same	2570c051093d	success	ok	0	10:99a5de40fc96	0:e3b0c44298fc	-	yes	-

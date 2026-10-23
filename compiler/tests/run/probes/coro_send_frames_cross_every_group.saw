@@ -1,0 +1,102 @@
+// probe: stated
+// about: a frame the uniform Send check accepts runs the same in `TaskGroup()`, `threads: 1`, `threads: 2` and `Task.spawn`: a `&var` parameter, a borrowing iterator, a `Box<any Fault>` and a closure handed down two frames, each held across a suspension, conformance rows K196-K199 (SL-788)
+// stage 0: refuses the `&var` parameter and the iterator in `threads: 2`, and has no `Box<any Fault>` that is `Send` or closure judged by what is passed
+// speeds: -O0 -O2
+// prints: bump 8 9 10
+// prints: sum 6 6 6 6
+// prints: fault 1 1 1 1
+// prints: closure 42 42 42 42
+import std.task.{yield_now}
+
+trait Fault: Printable, Send {}
+
+struct Code {
+    n: Int
+}
+
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.n)
+    }
+}
+
+extension Code: Fault {}
+
+func bump(n: &var Int) -> Int {
+    yield_now()
+    n = n + 1
+    n
+}
+
+func sum(v: Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}
+
+func boxed(n: Int) unsafe -> Box<any Fault> {
+    Box<any Fault>.make(value: Code(n: n))
+}
+
+func fault(n: Int) unsafe -> Int {
+    let b = boxed(n)
+    yield_now()
+    b.to_string().len()
+}
+
+func leaf(h: () -> Int) -> Int {
+    yield_now()
+    h()
+}
+
+func relay(g: () -> Int) -> Int {
+    leaf(g)
+}
+
+func run(f: () -> Int) -> Int {
+    relay(f)
+}
+
+func three() -> Vector<Int> {
+    [1, 2, 3]
+}
+
+func main() unsafe {
+    var n = 7
+    var g = TaskGroup()
+    var t1 = try! TaskGroup(threads: 1)
+    var t2 = try! TaskGroup(threads: 2)
+
+    let b0 = g.spawn(bump(&var n))
+    let r0 = b0.join()
+    let b1 = t1.spawn(bump(&var n))
+    let r1 = b1.join()
+    let b2 = t2.spawn(bump(&var n))
+    let r2 = b2.join()
+    print("bump {} {} {}", r0, r1, r2)
+
+    let s0 = g.spawn(sum(three()))
+    let s1 = t1.spawn(sum(three()))
+    let s2 = t2.spawn(sum(three()))
+    let s3 = Task.spawn(sum(three()))
+    print("sum {} {} {} {}", s0.join(), s1.join(), s2.join(), s3.join())
+
+    let f0 = g.spawn(fault(3))
+    let v0 = f0.join()
+    let f1 = t1.spawn(fault(3))
+    let v1 = f1.join()
+    let f2 = t2.spawn(fault(3))
+    let v2 = f2.join()
+    let f3 = Task.spawn(fault(3))
+    let v3 = f3.join()
+    print("fault {} {} {} {}", v0, v1, v2, v3)
+
+    let c0 = g.spawn(run({ 42 }))
+    let c1 = t1.spawn(run({ 42 }))
+    let c2 = t2.spawn(run({ 42 }))
+    let c3 = Task.spawn(run({ 42 }))
+    print("closure {} {} {} {}", c0.join(), c1.join(), c2.join(), c3.join())
+}

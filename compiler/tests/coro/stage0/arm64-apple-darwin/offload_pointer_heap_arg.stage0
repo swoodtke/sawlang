@@ -8,7 +8,17 @@ stdout	"writer: fed the pipe"
 stdout	"reader: 97,98,99"
 stdout	""
 meets_expect	yes
-frame	__Frame_reader$m$	reader	120	8	states=11	own=116	sub=0	bt=0	root=1	method=0	agrees=1
+frame	__Frame_main	main	680	8	states=3	own=541	sub=128	bt=0	root=0	method=0	agrees=1
+field	fds	own	0	12	4
+field	group	own	16	432	8
+field	hw	own	448	64	8
+field	__sub0	sub	512	128	8	callee=__Frame_reader$m$	live=1
+field	__state	own	640	8	8
+field	__wake	own	648	8	8
+field	__io_tok	own	656	8	8
+field	__io_deadline	own	664	8	8
+field	__cancel	own	672	1	1
+frame	__Frame_reader$m$	reader	128	8	states=11	own=117	sub=0	bt=1	root=0	method=0	agrees=1
 field	fd	own	0	4	4
 field	__saw_loop_budget	own	8	8	8
 field	buf	own	16	16	8
@@ -22,14 +32,16 @@ field	__state	own	80	8	8
 field	__wake	own	88	8	8
 field	__io_tok	own	96	8	8
 field	__io_deadline	own	104	8	8
-field	__cellp	own	112	8	8
-frame	__Frame_writer$m$	writer	48	8	states=1	own=44	sub=0	bt=1	root=1	method=0	agrees=1
+field	__cancel	own	112	1	1
+field	__result	own	120	8	8
+frame	__Frame_writer$m$	writer	48	8	states=1	own=44	sub=0	bt=2	root=1	method=0	agrees=1
 field	fd	own	0	4	4
 field	__state	own	8	8	8
 field	__wake	own	16	8	8
 field	__io_tok	own	24	8	8
 field	__io_deadline	own	32	8	8
 field	__cellp	own	40	8	8
-bt	409	strtab=121	version=1	word_bits=64
+bt	487	strtab=139	version=1	word_bits=64
+btframe	__Frame_main	main	offload_pointer_heap_arg.saw	640	0 66>1@512 0
 btframe	__Frame_reader$m$	reader	offload_pointer_heap_arg.saw	80	0 0 0 0 0 0 34 35 0 0 0
 btframe	__Frame_writer$m$	writer	offload_pointer_heap_arg.saw	8	0

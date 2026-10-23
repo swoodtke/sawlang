@@ -426,8 +426,10 @@ written. Where a position cannot host one, the compiler says so at the call —
 a suspension inside a closure body is refused, because a closure is reached
 through a function value and its body is not a frame. There is no third
 outcome: a suspending call is driven, or it is a compile error. A single cooperative scheduler runs spawned tasks eagerly, backed by
-an I/O reactor (kqueue or epoll). `TaskGroup(threads: N)` opts into multiple
-threads, with `Send` checked at every spawn; the default stays single-threaded.
+an I/O reactor (kqueue or epoll). Every spawned task's frame must be `Send`,
+whatever its group, so a spawn that compiles into one group compiles into any.
+`TaskGroup(threads: N)` opts into multiple threads; the default stays
+single-threaded.
 That constructor starts a worker pool, so it allocates and reports: write
 `var pool = try TaskGroup(threads: 4)`, or `try!` where a refusal should end the
 program. The single-threaded `TaskGroup()` is infallible and needs neither.

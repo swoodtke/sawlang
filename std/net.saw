@@ -468,38 +468,27 @@ extern "C" {
     blocking func __saw_rt_resolve_ipv4(host: UnsafePointer<Int8>, out: UnsafePointer<UInt32>, max: Int) -> Int
 }
 
-// The NUL ending the C string the resolver reads a host name from.
-static HOST_NAME_END: Int8 = 0
-
 // The first IPv4 address `host` resolves to, as the address word `dial`
 // takes. A name with no IPv4 address leaves nowhere to dial, which is
 // `NotFound`.
 //
 // The worker thread reads the name and writes `found` while this task is
-// parked, so both outlive the call: the name is heap storage freed after the
-// call returns, and `found` is a local of this suspended frame. A cancelled
-// task still waits for the call before it leaves (runtime/ABI.md,
-// "Blocking-extern offload").
+// parked, so both outlive the call: the name is `host`'s own NUL-terminated
+// bytes, and `found` is a local of this suspended frame. Each pointer is made
+// in the call's arguments, so none stays in the suspended frame, which a
+// spawned task needs to be `Send`. A cancelled task still waits for the call
+// before it leaves (runtime/ABI.md, "Blocking-extern offload").
 func resolve_first(host: String) unsafe -> Result<Int, IoError> {
     let length = host.len()
-    let size = length + 1
-    guard let name = GlobalAllocator().alloc(size, 1) else {
-        return resolve_error(host, IoErrorKind.ResourcesExhausted)
-    }
     var i = 0
     while i < length {
-        let b = host.byte_at(i)
-        if b == 0 {
-            GlobalAllocator().dealloc(name, size, 1)
+        if host.byte_at(i) == 0 {
             return resolve_error(host, IoErrorKind.InvalidArgument)
         }
-        name[i] = Int8.from(truncating: b)
         i = i + 1
     }
-    name[length] = HOST_NAME_END
     var found: UInt32 = 0
-    let n = __saw_rt_resolve_ipv4(name, (&found) as UnsafePointer<UInt32>, 1)
-    GlobalAllocator().dealloc(name, size, 1)
+    let n = __saw_rt_resolve_ipv4(host.c_bytes(), (&found) as UnsafePointer<UInt32>, 1)
     if n < 0 {
         return resolve_error(host, IoErrorKind.of(0 - n))
     }

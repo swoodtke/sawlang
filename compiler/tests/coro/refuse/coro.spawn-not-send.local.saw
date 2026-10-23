@@ -1,10 +1,8 @@
-// refuses: coro.spawn-not-send at 11:1
-// message: cannot spawn `work` into a multi-threaded `TaskGroup(threads: ...)`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension but is not `Send`
+// refuses: coro.spawn-not-send at 9:1
+// message: cannot spawn `work`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension but is not `Send`
 // A local held across a suspension, from
 // `tests/corpus/conformance/K02_nonsend_across_suspend_local_mt`: a closure is
-// not `Send`, so a `Vector` of them is not. The group is bound with `let`,
-// and `threads:` is traced through the `try!` that unwraps its
-// constructor's `Result`.
+// not `Send`, so a `Vector` of them is not.
 
 import std.task.*
 

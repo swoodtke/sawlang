@@ -2,6 +2,9 @@
 // `work` frame builds two closures (across suspensions), so the frame — boxed as
 // `Box<any Resumable>` and driven by the group executor — carries opt-encoded
 // closure fields. The closures capture the frame-resident `base` by value.
+// Each local takes its closure's own type, which is `sendable` because `base`
+// is, so the frame is `Send`; a written `() -> Int` would promise neither
+// (SL-788).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 34
@@ -9,9 +12,9 @@
 
 import std.task.*
 func work(base: Int) -> Int {
-    let f: () -> Int = { base * 10 }
+    let f = { base * 10 }
     yield_now()
-    let g: () -> Int = { base + 1 }
+    let g = { base + 1 }
     yield_now()
     f() + g()
 }

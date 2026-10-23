@@ -1,22 +1,24 @@
-// refuses: coro.spawn-not-send at 11:1
-// message: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`: parameter `n` of type `&var Int` is not `Send`
-// message: A reference into the spawner never crosses to another thread
-// A reference parameter of a root spawned into a `threads:` group, from
-// `tests/corpus/conformance/K19_spawn_ref_param_mt_send`. `Int` is `Sync`,
-// so `&var Int` is `Send`: the root's reference is refused outright, at the
-// root's declaration, because it points into the spawner.
-
+// refuses: coro.spawn-not-send at 9:1
+// message: cannot spawn `waiter`: parameter `pool` of type `&std.taskgroup.TaskGroup` is not `Send`
+// A reference parameter of a root spawned into a single-threaded group: a
+// spawned frame is `Send` whatever its group, and `&T` is `Send` only when
+// `T` is `Sync`, which a `TaskGroup` is not, since a cooperative group
+// belongs to the thread that drives it.
 import std.task.*
 
-func bump(n: &var Int) -> Int {
+func waiter(pool: &TaskGroup) -> Int {
+    let h = pool.spawn(one())
     yield_now()
-    n = n + 1
-    n
+    h.join()
+}
+
+func one() -> Int {
+    1
 }
 
 func main() {
-    var n = 7
-    var group = try! TaskGroup(threads: 2)
-    let h = group.spawn(bump(&var n))
-    print("task saw {h.join()}")
+    var pool = try! TaskGroup(threads: 2)
+    var group = TaskGroup()
+    let b = group.spawn(waiter(&pool))
+    print(b.join())
 }

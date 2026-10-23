@@ -1,0 +1,24 @@
+// refuses: coro.spawn-not-send at 9:1
+// message: cannot spawn `host`: local `inner` of type `std.taskgroup.TaskGroup` is held across a suspension but is not `Send`
+// A group held across a suspension by a task spawned into a single-threaded
+// group: a `TaskGroup` is not `Send` in any group, so a spawned frame that
+// holds one across a suspension is refused whatever the group that runs it.
+// The accepted spelling suspends before the group exists, or joins it first.
+import std.task.{yield_now}
+
+func host(n: Int) -> Int {
+    var inner = TaskGroup()
+    let a = inner.spawn(square(n))
+    yield_now()
+    a.join()
+}
+
+func square(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(host(6))
+    print(h.join())
+}

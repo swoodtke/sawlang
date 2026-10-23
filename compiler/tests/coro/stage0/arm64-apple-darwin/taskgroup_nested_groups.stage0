@@ -32,6 +32,6 @@ field	__io_deadline	own	24	8	8
 field	__cancel	own	32	1	1
 field	__result	own	40	8	8
 bt	365	strtab=137	version=1	word_bits=64
-btframe	__Frame_inner$m$	inner	taskgroup_nested_groups.saw	568	0 22
+btframe	__Frame_inner$m$	inner	taskgroup_nested_groups.saw	568	0 21
 btframe	__Frame_leaf$m$	leaf	taskgroup_nested_groups.saw	8	0 14
 btframe	__Frame_outer$m$	outer	taskgroup_nested_groups.saw	0	0

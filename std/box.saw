@@ -29,6 +29,12 @@ extension Box<T, A: Allocator = GlobalAllocator> {
     }
 }
 
+// The pointer blocks the derivation, but it is the box's own storage: moving
+// or sharing a box is safe exactly when moving or sharing its payload and its
+// allocator is.
+extension Box<T: Send, A: Send>: UnsafeSend {}
+extension Box<T: Sync, A: Sync>: UnsafeSync {}
+
 extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
     public func deinit(&var self) unsafe {
         drop_in_place(self.ptr)

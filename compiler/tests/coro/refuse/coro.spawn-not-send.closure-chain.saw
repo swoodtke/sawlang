@@ -1,0 +1,32 @@
+// refuses: coro.spawn-not-send at 25:11
+// message: cannot spawn `run`: parameter `g` of type `() -> Int` in `relay` holds this closure, and the closure is not `sendable`
+// An embedded child's function-typed parameter is judged by what flows into
+// it: here the closure written at the root's call of `relay`, which passes
+// it on to `leaf`. The closure owns a value that is `Send` but not `Sync`,
+// so it is not `sendable`, and the refusal sits at the closure, where the
+// capture to change is written.
+import std.task.{yield_now}
+
+struct Cell {
+    c: UnsafeMutableInterior<Int>
+}
+
+func leaf(h: () -> Int) -> Int {
+    yield_now()
+    h()
+}
+
+func relay(g: () -> Int) -> Int {
+    leaf(g)
+}
+
+func run(n: Int) unsafe -> Int {
+    let c = Cell(c: UnsafeMutableInterior(n))
+    relay({ [c] in 1 })
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(run(1))
+    print(h.join())
+}

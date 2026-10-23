@@ -15,11 +15,13 @@ func leaf(n: Int) -> Int {
     return n * 2
 }
 
+// `inner` suspends before its group exists: a group is not `Send`, so a
+// spawned task may not hold one across a suspension (SL-788).
 func inner(base: Int) -> Int {
+    sleep(Duration.ms(1))
     var g = TaskGroup()
     let a = g.spawn(leaf(base))
     let b = g.spawn(leaf(base + 1))
-    sleep(Duration.ms(1))
     return a.join() + b.join()       // 2*base + 2*(base+1)
 }
 

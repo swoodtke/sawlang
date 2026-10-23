@@ -1,5 +1,5 @@
-// refuses: coro.spawn-not-send at 6:1
-// message: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` holds the closure passed here, and the closure is not `sendable`, since it captures `inner` of type `std.taskgroup.TaskGroup` by borrow
+// refuses: coro.spawn-not-send at 15:29
+// message: cannot spawn `run`: parameter `f` of type `() -> Int` holds this closure, and the closure is not `sendable`, since it captures `inner` of type `std.taskgroup.TaskGroup` by borrow
 // A root's function-typed parameter is judged by the closure the spawn site
 // passes it (SL-795): a borrow of a value that is not `Sync` keeps the
 // closure from crossing, though a capture-less closure crosses the same root.

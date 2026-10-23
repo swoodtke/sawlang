@@ -77,8 +77,8 @@ coro_closure_deinit_once.saw	arm64-apple-darwin	same	6d31b7f6d7b8	success	ok	0	1
 coro_closure_deinit_once.saw	x86_64-unknown-linux-gnu	same	6d31b7f6d7b8	success	not-run	-	-	-	-	1	104	104	1	2	234
 coro_closure_local_call.saw	arm64-apple-darwin	same	2a2fbd6bac6a	success	ok	0	6:471377121f3a	0:e3b0c44298fc	yes	2	208	120	2	5	312
 coro_closure_local_call.saw	x86_64-unknown-linux-gnu	same	2a2fbd6bac6a	success	not-run	-	-	-	-	2	208	120	2	5	312
-coro_closure_taskgroup.saw	arm64-apple-darwin	same	86853b21fb5a	success	ok	0	6:b8f4484187b4	0:e3b0c44298fc	yes	1	112	112	1	3	246
-coro_closure_taskgroup.saw	x86_64-unknown-linux-gnu	same	86853b21fb5a	success	not-run	-	-	-	-	1	112	112	1	3	246
+coro_closure_taskgroup.saw	arm64-apple-darwin	same	9cdb641750eb	success	ok	0	6:b8f4484187b4	0:e3b0c44298fc	yes	1	112	112	1	3	246
+coro_closure_taskgroup.saw	x86_64-unknown-linux-gnu	same	9cdb641750eb	success	not-run	-	-	-	-	1	112	112	1	3	246
 coro_conditional_move_across_suspend.saw	arm64-apple-darwin	same	65c52a87e1dd	success	ok	0	12:5d617f9f831a	0:e3b0c44298fc	yes	1	72	72	1	2	248
 coro_conditional_move_across_suspend.saw	x86_64-unknown-linux-gnu	same	65c52a87e1dd	success	not-run	-	-	-	-	1	72	72	1	2	248
 coro_conservative_callee_in_spawned_task.saw	arm64-apple-darwin	differs	f11cd76458fc	success	ok	0	58:81388a6489f0	0:e3b0c44298fc	yes	7	1472	696	7	38	1083
@@ -97,8 +97,8 @@ coro_cross_module_generic.saw	arm64-apple-darwin	same	cda69536c597	success	ok	0	
 coro_cross_module_generic.saw	x86_64-unknown-linux-gnu	same	cda69536c597	success	not-run	-	-	-	-	5	488	216	5	13	843
 coro_cross_module_generic_callee.saw	arm64-apple-darwin	same	57874613fdc5	success	ok	0	10:ec97c02866f5	0:e3b0c44298fc	yes	6	656	160	6	12	785
 coro_cross_module_generic_callee.saw	x86_64-unknown-linux-gnu	same	57874613fdc5	success	not-run	-	-	-	-	6	656	160	6	12	785
-coro_cross_module_io_wake.saw	arm64-apple-darwin	same	2b49f002a3e3	success	refused	-	-	-	-	0	0	0	0	0	-
-coro_cross_module_io_wake.saw	x86_64-unknown-linux-gnu	same	2b49f002a3e3	success	not-run	-	-	-	-	0	0	0	0	0	-
+coro_cross_module_io_wake.saw	arm64-apple-darwin	same	8fddb7174f25	success	refused	-	-	-	-	0	0	0	0	0	-
+coro_cross_module_io_wake.saw	x86_64-unknown-linux-gnu	same	8fddb7174f25	success	not-run	-	-	-	-	0	0	0	0	0	-
 coro_deinit_across_suspend.saw	arm64-apple-darwin	same	68ae09d050ee	success	ok	0	6:c132b0dc4b97	0:e3b0c44298fc	yes	1	72	72	1	2	238
 coro_deinit_across_suspend.saw	x86_64-unknown-linux-gnu	same	68ae09d050ee	success	not-run	-	-	-	-	1	72	72	1	2	238
 coro_destructure_across_suspend.saw	arm64-apple-darwin	same	5757f59bd6a6	success	ok	0	9:01d357ae9493	0:e3b0c44298fc	yes	3	216	80	3	6	411
@@ -485,10 +485,10 @@ match_borrowed_payload_in_a_driven_body.saw	arm64-apple-darwin	same	6567295f3455
 match_borrowed_payload_in_a_driven_body.saw	x86_64-unknown-linux-gnu	same	6567295f3455	success	not-run	-	-	-	-	2	264	176	2	7	368
 nested_closure_captures_frame_local.saw	arm64-apple-darwin	same	b1aa14f200ab	success	ok	0	272:d722b254bfe8	0:e3b0c44298fc	no: output line 18 is 'drop 20', expected 'drop 21'	3	192	64	3	6	475
 nested_closure_captures_frame_local.saw	x86_64-unknown-linux-gnu	same	b1aa14f200ab	success	not-run	-	-	-	-	3	192	64	3	6	475
-net_accept_loop_concurrent.saw	arm64-apple-darwin	same	897253afc061	success	refused	-	-	-	-	0	0	0	0	0	-
-net_accept_loop_concurrent.saw	x86_64-unknown-linux-gnu	same	897253afc061	success	not-run	-	-	-	-	0	0	0	0	0	-
-net_accept_loop_eager_fd_close.saw	arm64-apple-darwin	same	6e0fe0cdaa25	success	refused	-	-	-	-	0	0	0	0	0	-
-net_accept_loop_eager_fd_close.saw	x86_64-unknown-linux-gnu	same	6e0fe0cdaa25	success	not-run	-	-	-	-	0	0	0	0	0	-
+net_accept_loop_concurrent.saw	arm64-apple-darwin	same	16a5d87a45b3	success	refused	-	-	-	-	0	0	0	0	0	-
+net_accept_loop_concurrent.saw	x86_64-unknown-linux-gnu	same	16a5d87a45b3	success	not-run	-	-	-	-	0	0	0	0	0	-
+net_accept_loop_eager_fd_close.saw	arm64-apple-darwin	same	fc3dcbdeb731	success	refused	-	-	-	-	0	0	0	0	0	-
+net_accept_loop_eager_fd_close.saw	x86_64-unknown-linux-gnu	same	fc3dcbdeb731	success	not-run	-	-	-	-	0	0	0	0	0	-
 net_accept_roundtrip.saw	arm64-apple-darwin	same	0165f73a33ab	success	refused	-	-	-	-	0	0	0	0	0	-
 net_accept_roundtrip.saw	x86_64-unknown-linux-gnu	same	0165f73a33ab	success	not-run	-	-	-	-	0	0	0	0	0	-
 net_accumulate_across_reads.saw	arm64-apple-darwin	same	8df7f4733b40	success	refused	-	-	-	-	0	0	0	0	0	-
@@ -499,8 +499,8 @@ net_cancel_parked_mt.saw	arm64-apple-darwin	same	9e9c2c0e0d9a	success	refused	-	
 net_cancel_parked_mt.saw	x86_64-unknown-linux-gnu	same	9e9c2c0e0d9a	success	not-run	-	-	-	-	0	0	0	0	0	-
 net_cancel_parked_read.saw	arm64-apple-darwin	same	10762f545f0e	success	refused	-	-	-	-	0	0	0	0	0	-
 net_cancel_parked_read.saw	x86_64-unknown-linux-gnu	same	10762f545f0e	success	not-run	-	-	-	-	0	0	0	0	0	-
-net_cancel_precise.saw	arm64-apple-darwin	same	15ac4ab8d84b	success	refused	-	-	-	-	0	0	0	0	0	-
-net_cancel_precise.saw	x86_64-unknown-linux-gnu	same	15ac4ab8d84b	success	not-run	-	-	-	-	0	0	0	0	0	-
+net_cancel_precise.saw	arm64-apple-darwin	same	6a9268d02f38	success	refused	-	-	-	-	0	0	0	0	0	-
+net_cancel_precise.saw	x86_64-unknown-linux-gnu	same	6a9268d02f38	success	not-run	-	-	-	-	0	0	0	0	0	-
 net_cancel_unregisters_token.saw	arm64-apple-darwin	same	3677efde07a8	success	refused	-	-	-	-	0	0	0	0	0	-
 net_cancel_unregisters_token.saw	x86_64-unknown-linux-gnu	same	3677efde07a8	success	not-run	-	-	-	-	0	0	0	0	0	-
 net_connect_by_name.saw	arm64-apple-darwin	same	ae2050b1d217	success	refused	-	-	-	-	0	0	0	0	0	-
@@ -575,8 +575,8 @@ offload_cancel_parked.saw	arm64-apple-darwin	same	cb58a014b729	success	ok	0	13:9
 offload_cancel_parked.saw	x86_64-unknown-linux-gnu	same	cb58a014b729	success	not-run	-	-	-	-	2	120	72	2	6	340
 offload_multi_arg_pipe_read.saw	arm64-apple-darwin	same	fc2c3ad0918d	success	ok	0	52:2c73808396d7	0:e3b0c44298fc	yes	2	152	104	2	6	340
 offload_multi_arg_pipe_read.saw	x86_64-unknown-linux-gnu	same	fc2c3ad0918d	success	not-run	-	-	-	-	2	152	104	2	6	340
-offload_pointer_heap_arg.saw	arm64-apple-darwin	same	986c4edb388d	success	ok	0	38:71d3f34447ad	0:e3b0c44298fc	yes	2	168	120	2	12	409
-offload_pointer_heap_arg.saw	x86_64-unknown-linux-gnu	same	986c4edb388d	success	not-run	-	-	-	-	2	168	120	2	12	409
+offload_pointer_heap_arg.saw	arm64-apple-darwin	same	18b4c89b62f3	success	ok	0	38:71d3f34447ad	0:e3b0c44298fc	yes	3	856	680	3	15	487
+offload_pointer_heap_arg.saw	x86_64-unknown-linux-gnu	same	18b4c89b62f3	success	not-run	-	-	-	-	3	856	680	3	15	487
 offload_seam_first_tick.saw	arm64-apple-darwin	same	e355524c906c	success	ok	0	31:a1ff1b0a625f	0:e3b0c44298fc	yes	2	104	56	2	6	338
 offload_seam_first_tick.saw	x86_64-unknown-linux-gnu	same	e355524c906c	success	not-run	-	-	-	-	2	104	56	2	6	338
 offload_signature_shapes.saw	arm64-apple-darwin	same	e9293755439d	success	ok	0	73:17b5419c5347	0:e3b0c44298fc	yes	1	96	96	1	17	420
@@ -701,8 +701,8 @@ taskgroup_mt_live_pool_soak.saw	arm64-apple-darwin	same	36b73f81da0a	success	ref
 taskgroup_mt_live_pool_soak.saw	x86_64-unknown-linux-gnu	same	36b73f81da0a	success	not-run	-	-	-	-	0	0	0	0	0	-
 taskgroup_nested_ambient.saw	arm64-apple-darwin	same	45865c524f48	success	ok	0	12:29340536b39d	0:e3b0c44298fc	yes	2	88	48	2	3	297
 taskgroup_nested_ambient.saw	x86_64-unknown-linux-gnu	same	45865c524f48	success	not-run	-	-	-	-	2	88	48	2	3	297
-taskgroup_nested_groups.saw	arm64-apple-darwin	same	c7044775ce47	success	ok	0	4:ca2ebdf97d74	0:e3b0c44298fc	yes	3	704	608	3	5	365
-taskgroup_nested_groups.saw	x86_64-unknown-linux-gnu	same	c7044775ce47	success	not-run	-	-	-	-	3	704	608	3	5	365
+taskgroup_nested_groups.saw	arm64-apple-darwin	same	ccb35a2fdd68	success	ok	0	4:ca2ebdf97d74	0:e3b0c44298fc	yes	3	704	608	3	5	365
+taskgroup_nested_groups.saw	x86_64-unknown-linux-gnu	same	ccb35a2fdd68	success	not-run	-	-	-	-	3	704	608	3	5	365
 taskgroup_producer_consumer.saw	arm64-apple-darwin	same	3a5697e9764d	success	ok	0	4:a720da503907	0:e3b0c44298fc	yes	2	176	96	2	18	492
 taskgroup_producer_consumer.saw	x86_64-unknown-linux-gnu	same	3a5697e9764d	success	not-run	-	-	-	-	2	176	96	2	18	492
 taskgroup_result_joined_once.saw	arm64-apple-darwin	same	c6a84c49b50e	success	ok	0	13:5ffaea2eb604	0:e3b0c44298fc	yes	1	64	64	1	3	260

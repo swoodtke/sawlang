@@ -1,5 +1,5 @@
 // refuses: coro.spawn-not-send at 14:1
-// message: cannot spawn `make` into a multi-threaded `TaskGroup(threads: ...)`: its result type `coro.spawn-not-send.result.Holder` is not `Send`
+// message: cannot spawn `make`: its result type `coro.spawn-not-send.result.Holder` is not `Send`
 // message: so the value cannot travel back from the worker thread to `join()`
 // A root's result: every value the frame carries crosses, but the closure
 // the result holds is made after the suspension, so the result is the

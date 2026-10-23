@@ -1,0 +1,23 @@
+// refuses: coro.spawn-not-send at 14:1
+// message: cannot spawn `run`: parameter `h` of type `coro.spawn-not-send.closure-field.Holder` is not `Send`
+// message: the function type `() -> Int` is not `sendable`
+// A function value held in a field keeps its written type, whatever closure
+// was stored there: only a value passed straight to the parameter, or through
+// the frames between, is judged by its closure. The fix is to write the
+// field's type `() sendable -> Int`, which the message names.
+import std.task.{yield_now}
+
+struct Holder {
+    f: () -> Int
+}
+
+func run(h: Holder) -> Int {
+    yield_now()
+    h.f()
+}
+
+func main() {
+    var group = TaskGroup()
+    let t = group.spawn(run(Holder(f: { 1 })))
+    print(t.join())
+}

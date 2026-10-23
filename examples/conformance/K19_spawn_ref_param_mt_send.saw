@@ -1,17 +1,13 @@
 // Conformance row K19 — a reference argument into a MULTI-THREADED group
 //
-// The fence design 201 leaves standing. A single-threaded group's task runs on
-// the thread that spawned it, so the extent rule is the whole argument; a
-// `threads: N` group hands the frame to a worker, and a reference is not
-// `Send`. The refusal comes from the Send gate rather than from a rule about
-// references — which is the right reason: what fails is the thread crossing,
-// not the extent.
-//
-// A regression row: this is the error the tree already printed, kept honest
-// after the confinement refusal that used to run first was retired.
-// EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`
-// EXPECT-ERROR-CONTAINS: parameter `n` of type `&var Int` is not `Send`
+// A spawned task's frame is `Send` whatever its group, and a reference is
+// judged by Rust's rule: `&var T` is `Send` when `T` is, so `&var Int`
+// crosses to a worker thread (SL-788). The extent rule keeps `n` alive and
+// out of the spawner's reach until the join, as for a single-threaded group,
+// so the task's write is what the join sees.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// task saw 8
 
 import std.task.*
 

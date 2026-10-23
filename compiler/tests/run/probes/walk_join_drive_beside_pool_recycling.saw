@@ -4,6 +4,7 @@
 // speeds: -O0 -O2
 // prints: total 19900
 import std.channel.{Channel}
+import std.task.{yield_now}
 
 func relay(a: Channel<Int>, b: Channel<Int>) -> Int {
     let v = try! a.receive()
@@ -20,13 +21,12 @@ func recv_one(b: Channel<Int>) -> Int {
     try! b.receive()
 }
 
-func joiner(pool: &TaskGroup, a: Channel<Int>, b: Channel<Int>, c: Channel<Int>) -> Int {
-    let _ = pool.spawn(relay(a, b))
-    let h = pool.spawn(recv_one(c))
-    h.join()
-}
-
+// `main` joins the pool's task itself: a spawned task may not hold a
+// `TaskGroup` reference, which is not `Send` (SL-788), and the pool lives
+// across every round, so its slots are recycled. `main` suspends, so it runs
+// as a task, and its join drives the thread as a task's does.
 func main() {
+    yield_now()
     var pool = try! TaskGroup(threads: 2)
     var group = TaskGroup()
     var total = 0
@@ -35,10 +35,11 @@ func main() {
         let a = try! Channel<Int>()
         let b = try! Channel<Int>()
         let c = try! Channel<Int>()
-        let j = group.spawn(joiner(&pool, a, b, c))
         let s = group.spawn(send_one(a, i))
         let r = group.spawn(relay(b, c))
-        total = total + j.join()
+        let _ = pool.spawn(relay(a, b))
+        let h = pool.spawn(recv_one(c))
+        total = total + h.join()
         let _ = s.join()
         let _ = r.join()
         i = i + 1

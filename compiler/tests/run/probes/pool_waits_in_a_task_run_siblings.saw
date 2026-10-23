@@ -28,7 +28,10 @@ func pool_scope_ends() {
     let _ = pool.spawn(napper())
 }
 
-func waiter(pool: &TaskGroup) -> Int {
+// The pool is the waiter's own: a `TaskGroup` is not `Sync`, so a spawned
+// frame cannot hold a reference to one its spawner made.
+func waiter() -> Int {
+    var pool = try! TaskGroup(threads: 2)
     let h = pool.spawn(napper())
     let before_join = TICKS.load()
     let v = h.join()
@@ -42,10 +45,9 @@ func waiter(pool: &TaskGroup) -> Int {
 }
 
 func main() {
-    var pool = try! TaskGroup(threads: 2)
     var group = TaskGroup()
     let a = group.spawn(ticker())
-    let b = group.spawn(waiter(&pool))
+    let b = group.spawn(waiter())
     let _ = b.join()
     let _ = a.join()
 }
