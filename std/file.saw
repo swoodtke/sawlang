@@ -80,18 +80,17 @@ extension File {
     }
 
     // The one open(2) call `open`, `create` and `open_append` share.
-    // The check ahead of `c_string()!` is the absent path, so the `!` never
-    // panics.
     static func opened(path: Path, mode: OpenMode, permission: Int) unsafe -> Result<File, SystemError> {
         let text = path.as_string()
-        if text.index_of(0).is_some() {
+        if borrow let name = text.c_string() {
+            let fd = __saw_rt_fs_open(name, (mode as UInt8) as Int, permission)
+            if fd < 0 {
+                return SystemError.of("open", 0 - fd)
+            }
+            return File(descriptor: fd)
+        } else {
             return SystemError.raised("open", SystemErrorKind.InvalidArgument)
         }
-        let fd = __saw_rt_fs_open(borrow text.c_string()!, (mode as UInt8) as Int, permission)
-        if fd < 0 {
-            return SystemError.of("open", 0 - fd)
-        }
-        File(descriptor: fd)
     }
 
     /// Reads the rest of the file, from the current position up to the length
@@ -211,10 +210,11 @@ extension File {
     /// may reach it; a path holding a NUL byte names nothing.
     public static func exists(path: Path) unsafe -> Bool {
         let text = path.as_string()
-        if text.index_of(0).is_some() {
-            return false
+        if borrow let name = text.c_string() {
+            access(name, 0 as Int32) == (0 as Int32)
+        } else {
+            false
         }
-        access(text.c_bytes(), 0 as Int32) == (0 as Int32)
     }
 
     /// Removes the file at `path`.
@@ -223,14 +223,15 @@ extension File {
     /// `InvalidArgument` for a path holding a NUL byte.
     public static func remove(path: Path) unsafe -> Result<Void, SystemError> {
         let text = path.as_string()
-        if text.index_of(0).is_some() {
+        if borrow let name = text.c_string() {
+            let status = __saw_rt_fs_unlink(name)
+            if status != 0 {
+                return SystemError.of("unlink", 0 - status)
+            }
+            return
+        } else {
             return SystemError.raised("unlink", SystemErrorKind.InvalidArgument)
         }
-        let status = __saw_rt_fs_unlink(text.c_bytes())
-        if status != 0 {
-            return SystemError.of("unlink", 0 - status)
-        }
-        return
     }
 
     /// Renames or moves the file at `from_path` to `to_path`, replacing a file
@@ -241,14 +242,16 @@ extension File {
     public static func rename(from_path: Path, to_path: Path) unsafe -> Result<Void, SystemError> {
         let old = from_path.as_string()
         let new = to_path.as_string()
-        if old.index_of(0).is_some() || new.index_of(0).is_some() {
-            return SystemError.raised("rename", SystemErrorKind.InvalidArgument)
+        if borrow let from = old.c_string() {
+            if borrow let to = new.c_string() {
+                let status = __saw_rt_fs_rename(from, to)
+                if status != 0 {
+                    return SystemError.of("rename", 0 - status)
+                }
+                return
+            }
         }
-        let status = __saw_rt_fs_rename(old.c_bytes(), new.c_bytes())
-        if status != 0 {
-            return SystemError.of("rename", 0 - status)
-        }
-        return
+        return SystemError.raised("rename", SystemErrorKind.InvalidArgument)
     }
 
     /// Closes the file now, and reports what close(2) found.

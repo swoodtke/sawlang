@@ -49,11 +49,14 @@ extension Directory {
     /// which no `String` may hold.
     public static func list(path: Path) unsafe -> Result<Vector<Path>, SystemError> {
         let text = path.as_string()
-        if text.index_of(0).is_some() {
+        var status = 0
+        var opened: UnsafePointer<Int8>? = None
+        if borrow let name = text.c_string() {
+            opened = __saw_rt_fs_opendir(name, (&status) as UnsafePointer<Int>)
+        } else {
             return SystemError.raised("opendir", SystemErrorKind.InvalidArgument)
         }
-        var status = 0
-        guard let stream = __saw_rt_fs_opendir(text.c_bytes(), (&status) as UnsafePointer<Int>) else {
+        guard let stream = opened else {
             return SystemError.of("opendir", status)
         }
         var result = Vector<Path>()
@@ -92,14 +95,15 @@ extension Directory {
     /// holding a NUL byte is `InvalidArgument`.
     public static func create(path: Path) unsafe -> Result<Void, SystemError> {
         let text = path.as_string()
-        if text.index_of(0).is_some() {
+        if borrow let name = text.c_string() {
+            let status = __saw_rt_fs_mkdir(name, DIRECTORY_MODE)
+            if status != 0 {
+                return SystemError.of("mkdir", 0 - status)
+            }
+            return
+        } else {
             return SystemError.raised("mkdir", SystemErrorKind.InvalidArgument)
         }
-        let status = __saw_rt_fs_mkdir(text.c_bytes(), DIRECTORY_MODE)
-        if status != 0 {
-            return SystemError.of("mkdir", 0 - status)
-        }
-        return
     }
 
     /// Removes the empty directory at `path`.
@@ -110,14 +114,15 @@ extension Directory {
     /// `InvalidArgument`.
     public static func remove(path: Path) unsafe -> Result<Void, SystemError> {
         let text = path.as_string()
-        if text.index_of(0).is_some() {
+        if borrow let name = text.c_string() {
+            let status = __saw_rt_fs_rmdir(name)
+            if status != 0 {
+                return SystemError.of("rmdir", 0 - status)
+            }
+            return
+        } else {
             return SystemError.raised("rmdir", SystemErrorKind.InvalidArgument)
         }
-        let status = __saw_rt_fs_rmdir(text.c_bytes())
-        if status != 0 {
-            return SystemError.of("rmdir", 0 - status)
-        }
-        return
     }
 
     /// Returns whether a file or directory exists at `path` and the process

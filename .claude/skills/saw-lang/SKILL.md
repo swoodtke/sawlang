@@ -4203,7 +4203,7 @@ satisfying a SAFE requirement is the redundant form above.
 contact stays local. (std's C-string boundary is a lend, not a callback:
 `strlen(borrow s.c_string()!)` passes `String.c_string`'s pointer for the call
 and panics on an interior NUL; `if borrow let p = s.c_string() { … }` takes the
-absent path once SL-686 gives sawc2's backend the conditional borrow.)
+absent path.)
 Contact BEYOND the signature (a captured pointer, an unsafe binding written in
 the closure body) belongs to the ENCLOSING function: there is NO closure-level
 marker, so a safe-signature closure with an unsafe body needs the enclosing
