@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 10:13
+// a constant default folds at the type this call gives its parameter, and
+// 200 + 100 overflows `UInt8`
+
+func sum<T>(x: T = 200 + 100) -> T {
+    x
+}
+
+func main() {
+    let x = sum<UInt8>()
+}

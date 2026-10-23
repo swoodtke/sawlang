@@ -31,7 +31,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.erasure.{tc_check_object_safety}
-import sawtypecheck.arith.{TcFault, tc_arith_literal, tc_arith_max, tc_arith_min, tc_arith_text}
+import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
@@ -68,7 +68,6 @@ static TC_OPS_ARITHMETIC: Int = 1
 static TC_OPS_INTEGRAL: Int = 2
 static TC_OPS_LOGICAL: Int = 4
 static TC_OPS_WRAPPING: Int = 8
-static TC_INT_MAX: Int = 9223372036854775807
 
 // The positions the expected-type funnel serves, which its refusals name.
 public enum TcPosition {
@@ -1537,67 +1536,24 @@ extension TcProgram {
             self.refuse_ambiguous_result(e, slot)
             return from
         }
-        self.check_literal_range(e)
+        self.check_slot_constant(e)
         slot
     }
 
-    // A bare integer literal, or its negation, must fit the integer type it
-    // adopts (spec, Primitive Types: "range-checked at the literal"). A
-    // literal inside a larger constant expression is not checked alone: the
-    // folded value is, with a static or a raw-backed case as a leaf, and so is
-    // a lone case adopted by an integer slot (spec, Flag enums).
-    func check_literal_range(&var self, e: Int) {
+    // An expression an integer slot takes: a bare literal, or its negation,
+    // was settled where it was typed (`settle_literal`); a larger constant
+    // expression is judged by its folded value, with a static or a raw-backed
+    // case as a leaf, and so is a lone case adopted by an integer slot (spec,
+    // Flag enums).
+    func check_slot_constant(&var self, e: Int) {
         var lit = e
-        var negated = false
         if self.has_alt(e, Alt.Expr_Unary_Negate) {
             lit = self.res.first_node_child(e)
-            negated = true
         }
-        if not self.has_alt(lit, Alt.Expr_Int) {
-            self.check_constant_range(e)
+        if self.has_alt(lit, Alt.Expr_Int) {
             return
         }
-        if self.is_suffixed_literal(lit) {
-            return
-        }
-        let t = self.adopted_type(lit)
-        if not self.is_integer(t) {
-            return
-        }
-        let v = self.literal_magnitude(lit)
-        let unsigned = self.is_unsigned(t)
-        let w = self.int_width(t)
-        var fits = true
-        if negated && unsigned {
-            fits = v == 0
-        } else if w < 64 {
-            let top = if unsigned { (1 << w) - 1 } else { (1 << (w - 1)) - 1 }
-            let bottom = if unsigned { 0 } else { 1 << (w - 1) }
-            let bound = if negated { bottom } else { top }
-            fits = v >= 0 && v <= bound
-        } else if not negated && not unsigned {
-            // A magnitude past `Int.max` reads as -1; a negated one may still
-            // be the 64-bit minimum, and an unsigned one may still fit.
-            fits = v >= 0
-        }
-        if fits {
-            return
-        }
-        let m = self.current
-        let leaf = self.res.first_leaf(lit)
-        let at = if leaf >= 0 { leaf } else { lit }
-        var msg = StringBuilder()
-        try! msg.append("integer literal ")
-        if negated {
-            try! msg.append("-")
-        }
-        try! msg.append(self.text(m, at))
-        try! msg.append(" does not fit in `")
-        try! msg.append(self.type_text(t))
-        try! msg.append("` (range ")
-        try! msg.append(self.int_range_text(t))
-        try! msg.append(")")
-        self.refuse(e, "type.mismatch", msg.build())
+        self.check_constant_range(e)
     }
 
     // A constant expression, or a lone raw-backed case, must fold at the
@@ -1631,6 +1587,11 @@ extension TcProgram {
     // the other faults are the run-time panics a constant turns into compile
     // errors, each by name.
     func refuse_constant_fault(&var self, v: &TcFold, at: Int, t: Int) {
+        if v.fault == TcFault.NotFit && v.at >= 0 && self.has_alt(v.at, Alt.Expr_Int) {
+            // A literal that does not fit was refused where it was typed
+            // (`settle_literal`).
+            return
+        }
         if v.fault == TcFault.NotFit && v.at == at && self.has_alt(at, Alt.Expr_Cast) {
             self.refuse_constant_cast(&v, at)
             return
@@ -2345,43 +2306,6 @@ extension TcProgram {
         a.start >= b.start && a.end <= b.end
     }
 
-    // A literal with a signed width suffix fits the width's signed range
-    // (SL:open-questions D6); the magnitude of its minimum is allowed only
-    // under a unary minus, as `-128_i8`.
-    func check_signed_suffix(&var self, e: Int, t: Int) {
-        if self.is_unsigned(t) {
-            return
-        }
-        let w = self.int_width(t)
-        let negated = self.negated_literal == e
-        let m = self.current
-        let leaf = self.res.first_leaf(e)
-        let at = if leaf >= 0 { leaf } else { e }
-        let text = self.text(m, at)
-        // The magnitude as a 64-bit pattern read unsigned: negative past
-        // `Int.max`, `Int.min` at exactly 2^63.
-        let v = tc_arith_literal(&text)
-        var fits = true
-        if w < 64 {
-            let top = (1 << (w - 1)) - 1
-            fits = v.ok && v.bits >= 0 && (v.bits <= top || (negated && v.bits == top + 1))
-        } else {
-            fits = v.ok && (v.bits >= 0 || (negated && v.bits == Int.min))
-        }
-        if fits {
-            return
-        }
-        var msg = StringBuilder()
-        try! msg.append("integer literal ")
-        try! msg.append(text)
-        try! msg.append(" does not fit in `")
-        try! msg.append(self.type_text(t))
-        try! msg.append("` (range ")
-        try! msg.append(self.int_range_text(t))
-        try! msg.append("): a signed suffix holds its literal to the signed range, and only a unary minus reaches its minimum")
-        self.refuse(e, "type.mismatch", msg.build())
-    }
-
     // The integer type literal `e` took: the one it adopted, or its own.
     func adopted_type(&self, e: Int) -> Int {
         var a = self.adj_head[e]
@@ -2393,51 +2317,6 @@ extension TcProgram {
             a = adj.next
         }
         self.expr_types[e]
-    }
-
-    // An unsuffixed integer literal's value, or -1 past `Int.max`.
-    func literal_magnitude(&self, e: Int) -> Int {
-        let m = self.current
-        let leaf = self.res.first_leaf(e)
-        let at = if leaf >= 0 { leaf } else { e }
-        let text = self.text(m, at)
-        var radix = 10
-        var i = 0
-        let n = text.len()
-        if n > 2 && (text.byte_at(0) as Int) == 48 {
-            let letter = text.byte_at(1) as Int
-            if letter == 120 {
-                radix = 16
-                i = 2
-            } else if letter == 111 {
-                radix = 8
-                i = 2
-            } else if letter == 98 {
-                radix = 2
-                i = 2
-            }
-        }
-        var value = 0
-        while i < n {
-            let b = text.byte_at(i) as Int
-            i = i + 1
-            var digit = -1
-            if b >= 48 && b <= 57 {
-                digit = b - 48
-            } else if b >= 97 && b <= 102 {
-                digit = b - 87
-            } else if b >= 65 && b <= 70 {
-                digit = b - 55
-            }
-            if b == 95 {
-                continue
-            }
-            if digit < 0 || digit >= radix || value > (TC_INT_MAX - digit) / radix {
-                return -1
-            }
-            value = value * radix + digit
-        }
-        value
     }
 
     // Integer type `t`'s range, as the refusal spells it.
@@ -3042,7 +2921,8 @@ extension TcProgram {
     }
 
     // An integer literal: `Int`, or its suffix's type; a bare one adopts an
-    // integer type its position expects (design 87).
+    // integer type its position expects (design 87). A literal is typed once,
+    // so the type it is written at is final here.
     func int_literal(&var self, e: Int, want: Int) -> Int {
         let m = self.current
         let leaf = self.res.first_leaf(e)
@@ -3050,15 +2930,72 @@ extension TcProgram {
         let text = self.text(m, at)
         let suffixed = self.suffix_type(&text)
         if suffixed >= 0 {
-            self.check_signed_suffix(e, suffixed)
-            return self.set_type(e, suffixed, false)
+            let _ = self.set_type(e, suffixed, false)
+            self.settle_literal(e, suffixed, want, true)
+            return suffixed
         }
         let t = self.int_type()
         let _ = self.set_type(e, t, false)
+        var written = t
         if want >= 0 && want != t && self.is_integer(want) {
             self.add_adjust(e, TcAdjustKind.Adopt, want)
+            written = want
         }
+        self.settle_literal(e, written, want, false)
         t
+    }
+
+    // The literal funnel: integer literal `e`, written at type `t` where
+    // its position expects `want`, must fit `t` (spec, Primitive Types: "a
+    // compile error *at the literal*"), and with nothing expected `t` is its
+    // own `Int`. A negated literal is one literal, so `-9223372036854775808`
+    // is `Int.min`. The rule is the fold's (`fold_literal`), and the platform
+    // pair's range is `int_width`'s, so a 32-bit target narrows it there. A
+    // literal under a poisoned or non-integer slot is that slot's mismatch
+    // alone. A generic default's literals take their type per call, so they
+    // are judged by the per-call route instead: `check_used_defaults` calls
+    // `fold_default`, which writes each at the call's type.
+    //
+    // ENTRY POINTS (settle_literal):
+    //     int_literal
+    func settle_literal(&var self, e: Int, t: Int, want: Int, suffixed: Bool) {
+        if suffixed && self.is_unsigned(t) {
+            // The lexer holds an unsigned suffix to its width.
+            return
+        }
+        if not suffixed {
+            if self.generic_default || (want >= 0 && (self.has_error(want) || not self.is_integer(want))) {
+                return
+            }
+        }
+        let negated = self.negated_literal == e
+        let v = self.fold_literal(e, t, negated)
+        if v.ok || v.fault != TcFault.NotFit {
+            return
+        }
+        let m = self.current
+        let leaf = self.res.first_leaf(e)
+        let text = self.text(m, if leaf >= 0 { leaf } else { e })
+        var msg = StringBuilder()
+        try! msg.append("integer literal ")
+        if negated && not suffixed {
+            try! msg.append("-")
+        }
+        try! msg.append(text)
+        try! msg.append(" does not fit in `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` (range ")
+        try! msg.append(self.int_range_text(t))
+        try! msg.append(")")
+        if suffixed {
+            try! msg.append(": a signed suffix holds its literal to the signed range, and only a unary minus reaches its minimum")
+        } else if want < 0 && not negated {
+            try! msg.append(": a literal with no expected type is an `Int`; write `")
+            try! msg.append(text)
+            try! msg.append("u64` for a `UInt64`")
+        }
+        let at = if negated && not suffixed && self.negation >= 0 { self.negation } else { e }
+        self.refuse(at, "type.mismatch", msg.build())
     }
 
     // The type a literal's suffix names (`255u8`, `7_i32`), or -1.
@@ -3647,15 +3584,21 @@ extension TcProgram {
     func unary_expr(&var self, e: Int, want: Int, which: Int) -> Int {
         let operand = self.res.first_node_child(e)
         let outer = self.negated_literal
+        let outer_negation = self.negation
         if which == 0 {
             self.negated_literal = operand
+            self.negation = e
         }
         if which != 1 && self.is_constant_expr(e) && want >= 0 && self.is_integer(want) {
             self.constant_part(operand, want)
         } else {
-            let _ = self.expr(operand, TC_WANT_NONE)
+            // A negated literal is one literal, so it sees its slot even
+            // where it adopts none.
+            let hint = if which == 0 && self.has_alt(operand, Alt.Expr_Int) { want } else { TC_WANT_NONE }
+            let _ = self.expr(operand, hint)
         }
         self.negated_literal = outer
+        self.negation = outer_negation
         self.consume(operand)
         let t = self.through_refs(operand)
         if self.has_error(t) {
@@ -10159,7 +10102,10 @@ extension TcProgram {
             let _ = self.set_type(value, poisoned, false)
             return
         }
+        let outer = self.generic_default
+        self.generic_default = true
         let _ = self.expr(value, TC_WANT_NONE)
+        self.generic_default = outer
         self.consume(value)
     }
 
@@ -10261,8 +10207,9 @@ extension TcProgram {
     }
 
     // Checks each used default against the type this call gives its
-    // parameter: `None` needs an Optional, a bare integer an integer type it
-    // adopts, and any other literal must fit.
+    // parameter: `None` needs an Optional, a bare integer or a constant
+    // expression an integer type whose fold at it holds every literal and
+    // result, and any other literal must fit.
     func check_used_defaults(&var self, e: Int, c: TcCand, params: &Vector<Int>, sub: &TcSubst, solve: &TcSolve) {
         var k = 0
         while k < params.len() {
@@ -10280,7 +10227,8 @@ extension TcProgram {
             if self.is_none_literal(v) {
                 fits = self.is_optional(target)
             } else if self.is_constant_expr(v) && self.is_integer(target) {
-                fits = true
+                let folded = self.fold_default(v, target)
+                fits = folded.ok || folded.fault == TcFault.NotConstant || folded.fault == TcFault.Cycle
             } else {
                 let own = self.default_literal_type(v)
                 let allow = self.allowance(TcPosition.Default)

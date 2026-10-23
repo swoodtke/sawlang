@@ -1,0 +1,264 @@
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:26:13	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:27:13	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:28:13	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:29:13	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:30:16	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:31:16	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:32:13	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:33:13	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:34:17	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:35:17	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:36:11	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:37:11	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:38:14	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:38:35	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:39:14	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:39:35	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:40:14	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:40:35	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:41:19	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:41:45	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:42:13	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:43:17	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:44:13	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `9223372036854775808u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:45:13	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:46:20	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:47:15	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:48:13	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:49:11	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:54:14	integer literal 9223372036854775808 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:55:14	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:58:21	integer literal 18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807): a literal with no expected type is an `Int`; write `18446744073709551615u64` for a `UInt64`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:59:25	integer literal 300 does not fit in `UInt8` (range 0..=255)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:66:13	integer literal -9223372036854775809 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:67:13	integer literal -18446744073709551615 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:68:18	integer literal -9223372036854775809 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:69:20	integer literal -18446744073709551615 does not fit in `Int64` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:70:18	integer literal -9223372036854775809 does not fit in `Int` (range -9223372036854775808..=9223372036854775807)
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:74:13	this call uses the default value of `x`, which does not fit `Int`, the type this call gives it; pass the argument
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:75:13	this call uses the default value of `x`, which does not fit `Int`, the type this call gives it; pass the argument
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:77:13	this call uses the default value of `x`, which does not fit `UInt8`, the type this call gives it; pass the argument
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:79:13	this call uses the default value of `x`, which does not fit `UInt8`, the type this call gives it; pass the argument
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:84:21	expected `String`, the type of the annotated binding, and found `Int`
+ERROR	type.mismatch	compiler/tests/typecheck/golden/literal_default_range.saw:85:21	expected `String`, the type of the annotated binding, and found `Int`
+(Module literal_default_range
+  (declarations
+    (enum Perm 9:6 private (raw UInt8))
+    (case Perm.Read 9:25)
+    (case Perm.Write 9:40)
+    (func id 11:6 private (signature (generics (T)) (params (x T owned)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func take 13:6 private (signature (params (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func half 15:6 private (signature (generics (T)) (params (x T owned default)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func widest 17:6 private (signature (generics (T)) (params (x T owned default)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func sum 19:6 private (signature (generics (T)) (params (x T owned default)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func doubled 21:6 private (signature (generics (T)) (params (x T owned default)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func below 23:6 private (signature (generics (T)) (params (x T owned default)) -> T) (summary body (suspends no) (sync-callable yes)))
+    (func positions 25:6 private (signature (params (c Bool owned) (n Int owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func negations 62:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func defaults 73:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func slots 83:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
+    (func main 88:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (literal_default_range.Perm
+      (case Read private declared)
+      (case Write private declared)
+      (static from public (synthesized raw))))
+  (views
+    (literal_default_range.Perm Read Write from))
+  (conformances)
+  (copy-tier
+    (literal_default_range.Perm Copy))
+  (bodies
+    (Perm.Read 9:25
+      (9:32-9:33 IntLit Int (adopt UInt8) value temp))
+    (Perm.Write 9:40
+      (9:48-9:49 IntLit Int (adopt UInt8) value temp))
+    (id 11:6
+      (11:25-11:26 Name T place move))
+    (take 13:6
+      (13:28-13:29 Name Int place copy))
+    (half 15:6
+      (15:21-15:40 IntLit Int value temp)
+      (15:49-15:50 Name T place move))
+    (widest 17:6
+      (17:23-17:43 IntLit Int value temp)
+      (17:52-17:53 Name T place move))
+    (sum 19:6
+      (19:20-19:29 Binary Int value temp (op +))
+      (19:20-19:23 IntLit Int value temp)
+      (19:26-19:29 IntLit Int value temp)
+      (19:38-19:39 Name T place move))
+    (doubled 21:6
+      (21:24-21:33 Binary Int value temp (op +))
+      (21:24-21:27 IntLit Int value temp)
+      (21:30-21:33 IntLit Int value temp)
+      (21:42-21:43 Name T place move))
+    (below 23:6
+      (23:22-23:24 Unary.negate Int value temp (op -))
+      (23:23-23:24 IntLit Int value temp)
+      (23:33-23:34 Name T place move))
+    (positions 25:6
+      (26:9-26:10 BindingName Int place temp)
+      (26:13-26:32 IntLit Int value temp)
+      (27:9-27:10 BindingName Int place temp)
+      (27:13-27:33 IntLit Int value temp)
+      (28:9-28:10 BindingName Int place temp)
+      (28:13-28:32 IntLit Int value temp)
+      (29:9-29:10 BindingName Int place temp)
+      (29:13-29:33 IntLit Int value temp)
+      (30:9-30:10 BindingName Int place temp)
+      (30:13-30:36 Call.paren Int value temp (call literal_default_range.id(x: T) (inst Int)))
+      (30:16-30:35 IntLit Int value temp)
+      (31:9-31:10 BindingName Int place temp)
+      (31:13-31:37 Call.paren Int value temp (call literal_default_range.id(x: T) (inst Int)))
+      (31:16-31:36 IntLit Int value temp)
+      (32:5-32:35 Call.paren Void value temp (builtin print))
+      (32:11-32:34 Interp String value temp)
+      (32:13-32:32 IntLit Int value borrow)
+      (33:5-33:36 Call.paren Void value temp (builtin print))
+      (33:11-33:35 Interp String value temp)
+      (33:13-33:33 IntLit Int value borrow)
+      (34:5-34:37 Call.paren Void value temp (builtin print))
+      (34:11-34:15 Interp String value temp)
+      (34:17-34:36 IntLit Int value borrow)
+      (35:5-35:38 Call.paren Void value temp (builtin print))
+      (35:11-35:15 Interp String value temp)
+      (35:17-35:37 IntLit Int value borrow)
+      (36:5-36:31 Call.paren Void value temp (builtin print))
+      (36:11-36:30 IntLit Int value borrow)
+      (37:5-37:32 Call.paren Void value temp (builtin print))
+      (37:11-37:31 IntLit Int value borrow)
+      (38:9-38:10 BindingName (Int, Int) place temp)
+      (38:13-38:56 Tuple.positional (Int, Int) value temp)
+      (38:14-38:33 IntLit Int value temp)
+      (38:35-38:55 IntLit Int value temp)
+      (39:9-39:10 BindingName [Int; 2] place temp)
+      (39:13-39:56 Array [Int; 2] value temp)
+      (39:14-39:33 IntLit Int value temp)
+      (39:35-39:55 IntLit Int value temp)
+      (40:9-40:10 BindingName std.set.Set<Int, std.alloc.GlobalAllocator> place temp)
+      (40:13-40:56 Set std.set.Set<Int, std.alloc.GlobalAllocator> value temp)
+      (40:14-40:33 IntLit Int value temp)
+      (40:35-40:55 IntLit Int value temp)
+      (41:9-41:10 BindingName std.map.Map<String, Int, std.alloc.GlobalAllocator> place temp)
+      (41:13-41:66 Map.entries std.map.Map<String, Int, std.alloc.GlobalAllocator> value temp)
+      (41:14-41:17 StringLit String value temp)
+      (41:19-41:38 IntLit Int value temp)
+      (41:40-41:43 StringLit String value temp)
+      (41:45-41:65 IntLit Int value temp)
+      (42:9-42:10 BindingName Int place temp)
+      (42:13-42:36 Binary Int value temp (op +))
+      (42:13-42:32 IntLit Int value temp)
+      (42:35-42:36 IntLit Int value temp)
+      (43:9-43:10 BindingName Int place temp)
+      (43:13-43:37 Binary Int value temp (op +))
+      (43:13-43:14 IntLit Int value temp)
+      (43:17-43:37 IntLit Int value temp)
+      (44:9-44:10 BindingName UInt64 place temp)
+      (44:13-44:42 Cast UInt64 value temp)
+      (44:13-44:32 IntLit Int value temp)
+      (45:9-45:10 BindingName UInt64 place temp)
+      (45:13-45:43 Cast UInt64 value temp)
+      (45:13-45:33 IntLit Int value temp)
+      (46:9-46:10 BindingName Int place temp)
+      (46:13-46:53 If Int value temp)
+      (46:16-46:17 Name Bool place copy)
+      (46:20-46:40 IntLit Int value temp)
+      (46:50-46:51 IntLit Int value temp)
+      (47:9-47:10 BindingName () sendable -> Int place temp)
+      (47:13-47:37 Closure () sendable -> Int value temp)
+      (47:15-47:35 IntLit Int value temp)
+      (48:9-48:10 BindingName Bool place temp)
+      (48:13-48:38 Binary.pair Bool value temp (op ==))
+      (48:13-48:33 IntLit Int value borrow)
+      (48:37-48:38 IntLit Int value borrow)
+      (49:5-52:6 Match Void value temp)
+      (49:11-49:31 IntLit Int value test)
+      (50:14-50:15 LiteralPat.int Int value test)
+      (50:19-50:27 Call.paren Void value temp (builtin print))
+      (50:25-50:26 IntLit Int value borrow)
+      (51:14-51:15 WildcardPat Int value test)
+      (51:19-51:27 Call.paren Void value temp (builtin print))
+      (51:25-51:26 IntLit Int value borrow)
+      (53:5-57:6 Match Void value temp)
+      (53:11-53:12 Name Int place test)
+      (54:14-54:33 LiteralPat.int Int value test)
+      (54:37-54:45 Call.paren Void value temp (builtin print))
+      (54:43-54:44 IntLit Int value borrow)
+      (55:14-55:34 LiteralPat.int Int value test)
+      (55:38-55:46 Call.paren Void value temp (builtin print))
+      (55:44-55:45 IntLit Int value borrow)
+      (56:14-56:15 WildcardPat Int value test)
+      (56:19-56:27 Call.paren Void value temp (builtin print))
+      (56:25-56:26 IntLit Int value borrow)
+      (58:5-58:42 Call.paren Void value temp (builtin assert))
+      (58:12-58:13 Name Bool place copy)
+      (58:15-58:19 Interp String value temp)
+      (58:21-58:41 IntLit Int value borrow)
+      (59:9-59:10 BindingName UInt8 place temp)
+      (59:13-59:28 Binary UInt8 value temp (op |))
+      (59:13-59:22 Member literal_default_range.Perm (adopt UInt8) value temp (case literal_default_range.Perm.Read (owner literal_default_range.Perm)))
+      (59:25-59:28 IntLit Int (adopt UInt8) value temp))
+    (negations 62:6
+      (63:9-63:14 BindingName Int place temp)
+      (63:17-63:37 Unary.negate Int value temp (op -))
+      (63:18-63:37 IntLit Int value temp)
+      (64:9-64:14 BindingName Int place temp)
+      (64:17-64:39 Unary.negate Int value temp (op -))
+      (64:19-64:38 IntLit Int value temp)
+      (65:9-65:13 BindingName Int place temp)
+      (65:21-65:41 Unary.negate Int value temp (op -))
+      (65:22-65:41 IntLit Int value temp)
+      (66:9-66:10 BindingName Int place temp)
+      (66:13-66:33 Unary.negate Int value temp (op -))
+      (66:14-66:33 IntLit Int value temp)
+      (67:9-67:10 BindingName Int place temp)
+      (67:13-67:34 Unary.negate Int value temp (op -))
+      (67:14-67:34 IntLit Int value temp)
+      (68:9-68:10 BindingName Int place temp)
+      (68:18-68:38 Unary.negate Int value temp (op -))
+      (68:19-68:38 IntLit Int value temp)
+      (69:9-69:10 BindingName Int64 place temp)
+      (69:20-69:41 Unary.negate Int64 value temp (op -))
+      (69:21-69:41 IntLit Int (adopt Int64) value temp)
+      (70:9-70:10 BindingName Int place temp)
+      (70:13-70:39 Call.paren Int value temp (call literal_default_range.take(n: Int)))
+      (70:18-70:38 Unary.negate Int value temp (op -))
+      (70:19-70:38 IntLit Int value temp))
+    (defaults 73:6
+      (74:9-74:10 BindingName Int place temp)
+      (74:13-74:19 Call.paren Int value temp (call literal_default_range.half(x: T) (inst Int) (bind x=default)))
+      (75:9-75:10 BindingName Int place temp)
+      (75:13-75:21 Call.paren Int value temp (call literal_default_range.widest(x: T) (inst Int) (bind x=default)))
+      (76:9-76:10 BindingName UInt64 place temp)
+      (76:13-76:29 Call.paren UInt64 value temp (call literal_default_range.widest(x: T) (inst UInt64) (bind x=default)))
+      (77:9-77:10 BindingName UInt8 place temp)
+      (77:13-77:25 Call.paren UInt8 value temp (call literal_default_range.sum(x: T) (inst UInt8) (bind x=default)))
+      (78:9-78:10 BindingName UInt8 place temp)
+      (78:13-78:29 Call.paren UInt8 value temp (call literal_default_range.doubled(x: T) (inst UInt8) (bind x=default)))
+      (79:9-79:10 BindingName UInt8 place temp)
+      (79:13-79:27 Call.paren UInt8 value temp (call literal_default_range.below(x: T) (inst UInt8) (bind x=default)))
+      (80:9-80:10 BindingName Int place temp)
+      (80:13-80:20 Call.paren Int value temp (call literal_default_range.below(x: T) (inst Int) (bind x=default))))
+    (slots 83:6
+      (84:9-84:10 BindingName String place temp)
+      (84:21-84:40 IntLit Int value temp)
+      (85:9-85:10 BindingName String place temp)
+      (85:21-85:41 Unary.negate Int value temp (op -))
+      (85:22-85:41 IntLit Int value temp))
+    (main 88:6
+      (89:5-89:23 Call.paren Void value temp (call literal_default_range.positions(c: Bool, n: Int)))
+      (89:15-89:19 BoolLit.true Bool value temp)
+      (89:21-89:22 IntLit Int value temp)
+      (90:5-90:16 Call.paren Void value temp (call literal_default_range.negations()))
+      (91:5-91:15 Call.paren Void value temp (call literal_default_range.defaults()))
+      (92:5-92:12 Call.paren Void value temp (call literal_default_range.slots()))))
+  (string-positions
+    (32:11 interpolation std.stringbuilder.StringBuilder)
+    (33:11 interpolation std.stringbuilder.StringBuilder)
+    (34:11 format std.stringbuilder.StringBuilder)
+    (35:11 format std.stringbuilder.StringBuilder)
+    (41:14 literal std.string.string_literal)
+    (41:40 literal std.string.string_literal)
+    (58:15 format std.stringbuilder.StringBuilder)
+    (58:5 panic std.panic.panic_sink)))

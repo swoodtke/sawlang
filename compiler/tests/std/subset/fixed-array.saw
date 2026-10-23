@@ -1,7 +1,6 @@
 // Fixed-size arrays are a std feature: a constant table a static holds, and
 // stack scratch. An element of an array literal whose written element type is
-// `UInt64` adopts it, so a constant past `Int.max` there needs no suffix; the
-// same constant with no typed slot still wraps in Stage 0 and is reported.
+// `UInt64` adopts it, so a constant past `Int.max` there needs no suffix.
 
 static WIDE_TABLE: [UInt64; 3] = [
     0xFFFF_FFFF_FFFF_FFFF, 0x8000_0000_0000_0000,
@@ -14,7 +13,5 @@ public func scratch() -> Int {
     var digits: [UInt8; 17] = [0; 17]
     digits[0] = 1
     let local: [UInt64; 2] = [18446744073709551615, 2]
-    let narrow: [Int; 1] = [9223372036854775808] // refuses: int-literal-range
-    let untyped = [0xFFFF_FFFF_FFFF_FFFF, 1] // refuses: int-literal-range
     3
 }

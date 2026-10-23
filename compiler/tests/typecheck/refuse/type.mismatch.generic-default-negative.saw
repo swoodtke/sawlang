@@ -1,0 +1,10 @@
+// refuses: type.mismatch at 9:13
+// a negated literal default does not fit the unsigned type this call gives it
+
+func below<T>(x: T = -1) -> T {
+    x
+}
+
+func main() {
+    let x = below<UInt8>()
+}

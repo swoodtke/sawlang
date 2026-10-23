@@ -274,9 +274,17 @@ public struct TcProgram {
     // Each problem the summary verifier found, and its module.
     summary_problems: Vector<String>
     summary_problem_modules: Vector<Int>
-    // The literal a unary minus is typing, or -1: a signed suffix's minimum
-    // is allowed only there (SL:open-questions D6).
+    // The literal a unary minus is typing, or -1, and that minus: a negated
+    // literal is one literal, so its range is its negation's (SL:open-questions
+    // D6), and a refusal of it is anchored at the minus.
     negated_literal: Int
+    negation: Int
+    // Whether a generic default value is being typed: its literals take
+    // their type per call, so none is settled where it is written.
+    generic_default: Bool
+    // The type a generic default's literals are folded at for one call, or
+    // -1 (`fold_default`).
+    fold_written: Int
     // By declaration: the trait whose requirement a written member meets, or
     // -1.
     meets_trait: Vector<Int>
@@ -437,7 +445,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                                           labels: Vector<String>()),
                       untabled: Vector<Int>(),
                       summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
-                      negated_literal: -1, meets_trait: Vector<Int>(), closures: Vector<Int>(),
+                      negated_literal: -1, negation: -1, generic_default: false, fold_written: -1,
+                      meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),
                       capture_count: Vector<Int>(), captures: Vector<TcCapture>(),
                       closure_index: ResIndex(), closure_escaping: Vector<Bool>(),

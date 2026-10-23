@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:18
+// a negated literal is one literal, and -(2^63 + 1) is below `Int.min`
+
+func main() {
+    let x: Int = -9223372036854775809
+}

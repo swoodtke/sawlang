@@ -97,6 +97,17 @@ extension TcProgram {
         self.fold_at(e, &var chain)
     }
 
+    // Generic default `e`'s value at `t`, the type a call gives its
+    // parameter. The default is typed once, at `Int`, so each call folds it
+    // with every unsuffixed literal written at `t` instead (design 108).
+    public func fold_default(&var self, e: Int, t: Int) -> TcFold {
+        let outer = self.fold_written
+        self.fold_written = t
+        let v = self.fold_constant(e)
+        self.fold_written = outer
+        v
+    }
+
     // `e`'s value, `chain` the statics being folded around it, newest last.
     func fold_at(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         if e < 0 {
@@ -117,7 +128,8 @@ extension TcProgram {
             if adj.kind != TcAdjustKind.Adopt && adj.kind != TcAdjustKind.Widen {
                 return TcFold(fault: TcFault.NotConstant, ty: cur.ty, at: e)
             }
-            cur = self.fold_convert(cur, adj.to, e)
+            let to = if self.fold_written >= 0 { self.fold_written } else { adj.to }
+            cur = self.fold_convert(cur, to, e)
             if not cur.ok {
                 return cur
             }
@@ -139,7 +151,7 @@ extension TcProgram {
                     // A negated literal is one constant, so `-128` is an
                     // `Int8` though `128` is not (SL:open-questions D6).
                     var t = self.expr_types[e]
-                    if self.adj_head[operand] >= 0 {
+                    if self.adj_head[operand] >= 0 || self.fold_written >= 0 {
                         t = self.literal_type(operand)
                     }
                     return self.fold_literal(operand, t, true)
@@ -244,8 +256,13 @@ extension TcProgram {
     }
 
     // The type a literal is written at: the integer type it adopts, as a
-    // literal adopts its slot whole, or its own.
+    // literal adopts its slot whole, or its own; an unsuffixed one in a
+    // generic default is written at the type its call gives (`fold_default`).
     func literal_type(&self, e: Int) -> Int {
+        let own = self.expr_types[e]
+        if self.fold_written >= 0 && own >= 0 && self.nominal_decl(own) == self.known.int {
+            return self.fold_written
+        }
         let a = self.adj_head[e]
         if a >= 0 && self.adjusts[a].kind == TcAdjustKind.Adopt {
             return self.adjusts[a].to
@@ -253,8 +270,9 @@ extension TcProgram {
         self.expr_types[e]
     }
 
-    // Integer literal `e` at type `t`, negated with `negated`.
-    func fold_literal(&var self, e: Int, t: Int, negated: Bool) -> TcFold {
+    // Integer literal `e` at type `t`, negated with `negated`: a `NotFit` at
+    // `e` when `t` cannot hold it, the one literal rule (`settle_literal`).
+    public func fold_literal(&var self, e: Int, t: Int, negated: Bool) -> TcFold {
         if t < 0 || not self.is_integer(t) {
             return TcFold(fault: TcFault.NotConstant, ty: t, at: e)
         }

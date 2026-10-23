@@ -1,0 +1,93 @@
+// flags: --std-root std
+// A literal with no expected type is an `Int`, range-checked at the literal at
+// every position it takes that default (SL-822): each value past `Int.max`
+// below is refused once, in the order the walk meets it. A negated literal is
+// one literal, so `-9223372036854775808` is `Int.min` and only a magnitude past
+// it is refused; a literal at a non-integer slot is that slot's mismatch alone;
+// and a generic default folds at the type each call gives it.
+
+enum Perm: UInt8 { case Read = 1, case Write = 2 }
+
+func id<T>(x: T) -> T { x }
+
+func take(n: Int) -> Int { n }
+
+func half<T>(x: T = 9223372036854775808) -> T { x }
+
+func widest<T>(x: T = 18446744073709551615) -> T { x }
+
+func sum<T>(x: T = 200 + 100) -> T { x }
+
+func doubled<T>(x: T = 100 + 100) -> T { x }
+
+func below<T>(x: T = -1) -> T { x }
+
+func positions(c: Bool, n: Int) {
+    let a = 9223372036854775808
+    let b = 18446744073709551615
+    var v = 9223372036854775808
+    var w = 18446744073709551615
+    let g = id(9223372036854775808)
+    let h = id(18446744073709551615)
+    print("{9223372036854775808}")
+    print("{18446744073709551615}")
+    print("{}", 9223372036854775808)
+    print("{}", 18446744073709551615)
+    print(9223372036854775808)
+    print(18446744073709551615)
+    let t = (9223372036854775808, 18446744073709551615)
+    let r = [9223372036854775808, 18446744073709551615]
+    let s = {9223372036854775808, 18446744073709551615}
+    let m = {"a": 9223372036854775808, "b": 18446744073709551615}
+    let p = 9223372036854775808 + 0
+    let q = 0 + 18446744073709551615
+    let x = 9223372036854775808 as UInt64
+    let y = 18446744073709551615 as UInt64
+    let i = if c { 18446744073709551615 } else { 1 }
+    let f = { 18446744073709551615 }
+    let e = 18446744073709551615 == 1
+    match 18446744073709551615 {
+        case 1 -> print(1),
+        case _ -> print(2)
+    }
+    match n {
+        case 9223372036854775808 -> print(1),
+        case 18446744073709551615 -> print(2),
+        case _ -> print(3)
+    }
+    assert(c, "{}", 18446744073709551615)
+    let k = Perm.Read | 300
+}
+
+func negations() {
+    let least = -9223372036854775808
+    let paren = -(9223372036854775808)
+    let slot: Int = -9223372036854775808
+    let a = -9223372036854775809
+    let b = -18446744073709551615
+    let c: Int = -9223372036854775809
+    let d: Int64 = -18446744073709551615
+    let e = take(-9223372036854775809)
+}
+
+func defaults() {
+    let a = half()
+    let b = widest()
+    let c = widest<UInt64>()
+    let d = sum<UInt8>()
+    let e = doubled<UInt8>()
+    let f = below<UInt8>()
+    let g = below()
+}
+
+func slots() {
+    let a: String = 9223372036854775808
+    let b: String = -9223372036854775809
+}
+
+func main() {
+    positions(true, 1)
+    negations()
+    defaults()
+    slots()
+}

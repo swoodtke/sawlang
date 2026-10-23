@@ -588,7 +588,6 @@ so it is compiled by itself, without the source rules.
 | `borrowed-match-payload` | `move` of an arm binding, or a `match` on one, when the scrutinee is borrowed | S2 |
 | `optional-try` | every `try?` | S3 |
 | `root-reuse` | an argument reading the receiver's or a `&` argument's root; an index write whose right side reads its root | S4 |
-| `int-literal-range` | an unsuffixed integer literal above `Int.max`, except as a `UInt64` binding's value or as `-9223372036854775808`; a literal with a signed suffix above its width's signed maximum, in any context, except the magnitude of the width's minimum under a unary minus (`-128_i8`) | S7 |
 | `index-receiver-call` | a method not known to only read, on storage reached through `x[i]`, `m[k]?.` or a tuple element | S15 |
 | `float-literal` | any float literal | §4, S20 |
 | `inline-module` | every inline `module name { }` | S22 |

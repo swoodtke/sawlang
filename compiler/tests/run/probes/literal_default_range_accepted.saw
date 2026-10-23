@@ -1,0 +1,81 @@
+// probe: stated
+// about: a literal at its default `Int` holds `Int.max` and `Int.min`, and a wider slot or a generic default at a 64-bit `T` keeps a value past `Int.max` (SL-822)
+// stage 0: refuses a constant-expression generic default at a `T` other than `Int`, `doubled<UInt64>()`
+// speeds: -O0 -O2
+// prints: 9223372036854775807
+// prints: -9223372036854775808
+// prints: -9223372036854775808
+// prints: -9223372036854775808
+// prints: -9223372036854775808
+// prints: 9223372036854775807
+// prints: -9223372036854775808
+// prints: 9223372036854775807
+// prints: -9223372036854775808
+// prints: 18446744073709551615
+// prints: 9223372036854775808
+// prints: 18446744073709551615
+// prints: 9223372036854775808
+// prints: 18446744073709551615
+// prints: 18446744073709551615
+// prints: 200
+// prints: 200
+// prints: -9223372036854775808
+// prints: 18446744073709551615
+// prints: 18446744073709551615
+// prints: 18446744073709551615
+// prints: -128
+// prints: max
+//
+// The values the literal funnel accepts, each read back: a negated literal is
+// one literal, so `Int.min` is written as one. Generic defaults run here at a
+// 64-bit `T` only; the narrow-width run is SL-830's pin.
+
+func id<T>(x: T) -> T { x }
+
+func widest<T>(x: T = 18446744073709551615) -> T { x }
+
+func doubled<T>(x: T = 100 + 100) -> T { x }
+
+func lowest<T>(x: T = -9223372036854775808) -> T { x }
+
+func wide(x: UInt64 = 18446744073709551615) -> UInt64 { x }
+
+static WIDE: UInt64 = 18446744073709551615
+
+func main() {
+    let a = 9223372036854775807
+    print(a)
+    print(-9223372036854775808)
+    let b = -9223372036854775808
+    print(b)
+    let c: Int = -9223372036854775808
+    print(c)
+    print(-(9223372036854775808))
+    print("{9223372036854775807}")
+    print("{}", -9223372036854775808)
+    print(id(9223372036854775807))
+    let t = (9223372036854775807, -9223372036854775808)
+    print(t.1)
+    let u: UInt64 = 18446744073709551615
+    print(u)
+    let v: UInt64 = 9223372036854775808
+    print(v)
+    print(id<UInt64>(18446744073709551615))
+    let arr: [UInt64; 2] = [18446744073709551615, 9223372036854775808]
+    print(arr[1])
+    let pair: (UInt64, Int) = (18446744073709551615, 1)
+    print(pair.0)
+    print(widest<UInt64>())
+    print(doubled<UInt64>())
+    print(doubled())
+    print(lowest())
+    print(wide())
+    print(WIDE)
+    let y: UInt64 = 1
+    print(y + 18446744073709551614)
+    print(-128_i8)
+    match u {
+        case 18446744073709551615 -> print("max"),
+        case _ -> print("other")
+    }
+}

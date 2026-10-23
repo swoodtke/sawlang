@@ -644,9 +644,20 @@ an expected type is unchanged: each arm takes the slot. A bare module static
 in an arm is a named value, not a literal, and keeps its declared type
 (Peers).
 
-A bare integer literal, or its negation, that stands at a funnel position is
-range-checked against the integer type it adopts, its own `Int` when it adopts
-none (spec, Primitive Types: "range-checked *at the literal*"). A larger
+Every integer literal, or its negation, is range-checked against the type it
+is written at where it is typed (`settle_literal`): the integer type it
+adopts, and its own `Int` when it adopts none, so a literal past `Int.max`
+with no expected type is refused at a `let`, an interpolation, a `print` or
+format argument, a tuple or collection element, a cast's operand, an
+all-literal branch, a closure's tail and a scrutinee alike (literal-default,
+golden literal_default_range). A negated literal is one literal: `-2^63` is
+`Int.min` and a magnitude past it is refused at every 64-bit signed type
+(literal-negated-range). A literal at a non-integer slot is that slot's
+mismatch alone. A generic default's literals take their type per call: each
+call folds the default at the type it gives the parameter
+(`fold_default`), so `200 + 100` and `-1` are refused at `UInt8`
+(generic-default-overflow, generic-default-negative) and `100 + 100` is
+accepted there (spec, Primitive Types: "range-checked *at the literal*"). A larger
 constant expression is folded (`fold.saw`) by typed arithmetic
 (SL:architecture §3.10), with a module static of an integer type and a
 raw-backed enum's case as leaves: each literal is written at the type the
@@ -656,11 +667,11 @@ not fit", so `b >= (BIG + 0)` with `BIG = 1000` and a `UInt8` peer is refused
 as "constant expression 1000 does not fit in `UInt8`" (static-leaf); an
 operation that leaves its type's range is refused as overflowing it,
 `constant.overflow`, so `255 + 1` at `UInt8` is (constant.overflow), and so
-is `256 - 1`, as `type.mismatch`, whose `256` does not fit; a shift count
+is `256 - 1`, as `type.mismatch`, whose `256` is refused as the literal that
+does not fit; a shift count
 outside the shifted type's width and a division by zero are refused too, as
-`constant.shift-range` and `constant.divide-by-zero`. `1 << 63` at `UInt64` is 2^63. A 64-bit magnitude past
-`Int.max` is refused only where it certainly does not fit: a non-negated one
-at a signed type. A literal with a signed width suffix is held to the width's
+`constant.shift-range` and `constant.divide-by-zero`. `1 << 63` at `UInt64` is
+2^63. A literal with a signed width suffix is held to the width's
 signed range wherever it stands, with the minimum's magnitude allowed only
 under a unary minus, `-128_i8` (SL:open-questions D6; signed-suffix).
 
@@ -877,7 +888,7 @@ Every body construct in the slice, and how it is typed:
 | a `borrow` block, `borrow` place, `if borrow let` | the place's type, borrowed | borrows |
 | `lends self`, a reference field's value in the construction a `borrows -> S` function returns | `&Self`, shared, typed as `&self` is; any other operand, a `&var self` receiver, and every other position refused (the origin funnel, below) | declarations; lends.origin, lends.position, slice.not-yet.lends-exclusive |
 | `borrow var PLACE`, `borrow PLACE` where a `&var T` or `&T` parameter expects it | the place passed by reference, `&var T` or `&T` (SL:borrowing §2.2) | borrow_arguments |
-| a default value whose parameter's type is a type parameter, `b: T = 0` | a literal typed as written, whose type drives each call's inference, or `None`, which needs each call's `T` optional; checked against each call's `T` (design 108) | generic_defaults; generic-default |
+| a default value whose parameter's type is a type parameter, `b: T = 0` | a literal typed as written, whose type drives each call's inference, or `None`, which needs each call's `T` optional; checked against each call's `T`, a literal or constant expression folded at it (design 108) | generic_defaults; literal_default_range; generic-default, generic-default-overflow, generic-default-negative |
 | patterns: wildcard, literal, range, tuple, variant, name, `None`, borrow binding | the matched type; bindings copy, take, move or alias | patterns, places |
 | a lone name pattern resolve took for a case | that case of the matched enum, else refused (D13) | patterns, multi/cases |
 

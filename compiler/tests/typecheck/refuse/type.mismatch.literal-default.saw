@@ -1,0 +1,6 @@
+// refuses: type.mismatch at 5:13
+// a literal with no expected type is an `Int`, and 2^63 does not fit it
+
+func main() {
+    let x = 9223372036854775808
+}

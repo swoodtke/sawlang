@@ -58,7 +58,6 @@ RULES = {
     "borrowed-match-payload": "SL:hazards S2",
     "optional-try": "SL:hazards S3",
     "root-reuse": "SL:hazards S4",
-    "int-literal-range": "SL:hazards S7",
     "index-receiver-call": "SL:hazards S15",
     "float-literal": ARCH + "; SL:hazards S20",
     "inline-module": "SL:hazards S22",
@@ -189,9 +188,6 @@ POINTER_TYPE_NAMES = ("UnsafePointer", "UnsafeConstPointer")
 # The generic prelude types the frozen typechecker declares itself, so no std
 # source names them.
 BUILTIN_GENERIC_TYPES = ("Optional", "Result")
-UNSIGNED_64 = (A.TypeKind.UINT, A.TypeKind.UINT64)
-INT_MAX = (1 << 63) - 1
-SIGNED_SUFFIX_WIDTHS = {"i8": 8, "i16": 16, "i32": 32, "i64": 64}
 
 # Methods a call may reach through an indexed receiver or a `get` result: each
 # only reads it, so a copy of the element gives the same answer.
@@ -962,33 +958,10 @@ class FileChecker:
     # -- literals ------------------------------------------------------------
 
     def check_literals(self):
-        """Integer literals past their signed maximum and float literals,
-        wherever an expression can sit, interpolations included."""
-        allowed = set()
+        """Float literals, wherever an expression can sit, interpolations
+        included."""
         for n in walk(self.src.program):
-            if isinstance(n, A.LetStatement):
-                _allow_typed(n.value, n.type_annotation, allowed)
-            elif isinstance(n, A.StaticDecl):
-                _allow_typed(n.initializer, n.type, allowed)
-            elif isinstance(n, A.UnaryOp) and n.op == "-" \
-                    and isinstance(n.operand, A.IntLiteral) \
-                    and _signed_max(n.operand) is not None \
-                    and n.operand.value == _signed_max(n.operand) + 1:
-                allowed.add(id(n.operand))
-        for n in walk(self.src.program):
-            if isinstance(n, A.IntLiteral) and _signed_max(n) is not None \
-                    and isinstance(n.value, int) and n.value > _signed_max(n) \
-                    and id(n) not in allowed:
-                if n.suffix is None:
-                    self.report(n.line, "int-literal-range",
-                                "an unsuffixed integer literal above Int.max wraps; give it "
-                                "a suffix or a `UInt64` binding")
-                else:
-                    self.report(n.line, "int-literal-range",
-                                "an `%s` literal above %d wraps; give it the unsigned suffix "
-                                "`u%s` or a typed binding"
-                                % (n.suffix, _signed_max(n), n.suffix[1:]))
-            elif isinstance(n, A.FloatLiteral):
+            if isinstance(n, A.FloatLiteral):
                 self.report(n.line, "float-literal", "the subset has no float literals")
 
     # -- declarations and bodies ---------------------------------------------
@@ -1112,31 +1085,6 @@ class FileChecker:
                         and inner.element_types[0].kind == A.TypeKind.FUNCTION)):
                     self.report(line, "closure-syntax",
                                 "keep function values out of optional slots")
-
-
-def _allow_typed(value, annotation, allowed):
-    """The typed binding SL:hazards S7 recommends for a constant past `Int.max`:
-    a scalar slot, or an element of an array literal whose written element
-    type is that wide, which the literal adopts the same way."""
-    if annotation is None:
-        return
-    if isinstance(value, A.IntLiteral) and value.suffix is None \
-            and annotation.kind in UNSIGNED_64:
-        allowed.add(id(value))
-    elif isinstance(value, A.ArrayLiteral) and annotation.kind == A.TypeKind.ARRAY:
-        for element in value.elements:
-            _allow_typed(element, annotation.array_element_type, allowed)
-
-
-def _signed_max(lit):
-    """The largest value an integer literal may spell without wrapping, or None
-    for an unsigned suffix, which the lexer already holds to its width. A signed
-    suffix outranks any context type, so it is judged alone (SL:hazards S7)."""
-    if lit.suffix is None:
-        return INT_MAX
-    if lit.suffix in SIGNED_SUFFIX_WIDTHS:
-        return (1 << (SIGNED_SUFFIX_WIDTHS[lit.suffix] - 1)) - 1
-    return None
 
 
 def _significant_newlines(toks):
