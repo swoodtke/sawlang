@@ -1335,15 +1335,17 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   scalar and appends it. Validity is not in the signature, because a `Scalar`
   is a scalar by construction, so the only failure left is the allocator. The
   round-trip is the identity on the whole domain.
-- **FFI: `withCString`.** `s.withCString { ptr in ... }` hands a closure an
-  `UnsafePointer<Int8>` to the string's NUL-terminated bytes, valid for the
-  duration of the call. The payload is already NUL-terminated, so the pointer is
-  passed directly with no copy. The closure is a **non-escaping** parameter (the
-  default, per the closures design): the compiler forbids it from being stored or
-  outliving the call, which is the whole safety story — the borrowed pointer
-  cannot leak. The closure returns `Void`; a result is produced by
-  borrow-capturing an enclosing variable
-  (`s.withCString { [&var n] ptr in n = strlen(ptr) }`).
+- **FFI: `c_string`.** `c_string(&self) unsafe borrows -> &UnsafePointer<Int8>?`
+  lends the string's bytes as a C string, or nothing when the string holds a
+  NUL byte, which would end the C string early. Every string's bytes are
+  already NUL-terminated, so nothing is copied: the pointer is the string's
+  own, valid for the window. It is a conditional lend (see
+  [Conditional lends](#conditional-lends-borrows--t)), so the window holds the
+  string, and moving or replacing it inside the window is refused. As an
+  argument, `strlen(borrow s.c_string()!)` passes the pointer for the call and
+  panics on an interior NUL; `if borrow let p = s.c_string() { … } else { … }`
+  takes the absent path instead. The function is `unsafe`, since its lent type
+  names a pointer, and so is any function that binds the place.
 - **Splitting**: `split(separator: String) -> Result<Vector<String>, AllocError>`
   divides on every occurrence of `separator` (content comparison, same as literal
   patterns); adjacent separators yield empty pieces, and a string with no
@@ -8153,7 +8155,7 @@ iterator, though: a map entry is a key and a value, and no item shape for
 lending one is specified. So a map has two iteration forms:
 
 - **Visitors** (the zero-allocation primitive) — non-escaping closures, same
-  borrow discipline as `Vector.sort_by`/`withCString`:
+  borrow discipline as `Vector.sort_by`:
   `each(body: (&K, &V) -> Void)`, `each_key((&K) -> Void)`,
   `each_value((&V) -> Void)`. Keys and values are **lent**, not handed over:
   visiting is observation, so the entry is reached where the map stores it, the

@@ -1,0 +1,19 @@
+// refuses: loan.drop-while-borrowed at 12:9
+// `c_string` lends the string's own bytes (SL-813), so replacing the `String`
+// inside the window, which drops the bytes the pointer names, is refused.
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> UInt
+}
+
+func measured(s: String) unsafe -> UInt {
+    var held = s
+    borrow let p = held.c_string()! {
+        held = "other"
+        strlen(p)
+    }
+}
+
+func main() {
+    print(measured("abc"))
+}

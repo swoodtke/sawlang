@@ -1927,7 +1927,7 @@ bb6:
   %t30 = icmp ne i8 %t29, 0
   br i1 %t30, label %bb10, label %bb11
 bb7:
-  call void @__saw_fail(ptr @.bytes.36, i64 10, i64 767, ptr @.bytes.37, i64 63)
+  call void @__saw_fail(ptr @.bytes.36, i64 10, i64 787, ptr @.bytes.37, i64 63)
   unreachable
   unreachable
 bb8:
@@ -1952,7 +1952,7 @@ bb13:
   %t36 = extractvalue { i64, i1 } %t34, 1
   br i1 %t36, label %check.0, label %checked.1
 check.0:
-  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 771)
+  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 791)
   unreachable
 checked.1:
   store i64 %t35, ptr %l17
@@ -1979,7 +1979,7 @@ checked.1:
   %t51 = extractvalue { i64, i1 } %t49, 1
   br i1 %t51, label %check.2, label %checked.3
 check.2:
-  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 773)
+  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 793)
   unreachable
 checked.3:
   store i64 %t50, ptr %l23
@@ -1989,7 +1989,7 @@ checked.3:
   %t55 = extractvalue { i64, i1 } %t53, 1
   br i1 %t55, label %check.4, label %checked.5
 check.4:
-  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 773)
+  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 793)
   unreachable
 checked.5:
   store i64 %t54, ptr %l24
@@ -2606,7 +2606,7 @@ bb8:
   store ptr @.bytes.40, ptr %t43
   %t44 = getelementptr i8, ptr %t32, i64 112
   store i64 1, ptr %t44
-  call void @__saw_fail_parts(ptr @.bytes.36, i64 10, i64 214, ptr @.bytes.41, i64 0, ptr %t32, i64 5)
+  call void @__saw_fail_parts(ptr @.bytes.36, i64 10, i64 234, ptr @.bytes.41, i64 0, ptr %t32, i64 5)
   unreachable
   unreachable
 }

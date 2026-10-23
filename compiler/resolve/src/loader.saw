@@ -445,6 +445,7 @@ extension ResProgram {
         self.std_module("numeric")
         self.std_module("float")
         self.std_module("slab")
+        self.std_module("json")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

@@ -1,0 +1,124 @@
+// probe: stated
+// about: `JsonValue.parse` reports each decode fault at the byte that stopped it, `max_depth` and `max_size` hold at their bounds, and `to_json_string` reports its encode faults (SL-813)
+// stage 0: its `JsonValue.parse` is a different decoder, which reports some faults at other offsets
+// speeds: -O0 -O2
+// prints: the empty text: decode error at byte 0: the input ended in the middle of an item
+// prints: [1,: decode error at byte 3: the input ended in the middle of an item
+// prints: {"a":: decode error at byte 5: the input ended in the middle of an item
+// prints: "abc: decode error at byte 0: the input ended in the middle of an item
+// prints: [1: decode error at byte 2: the input ended in the middle of an item
+// prints: "\u12: decode error at byte 5: the input ended in the middle of an item
+// prints: [1,]: decode error at byte 3: the bytes are not a well-formed item
+// prints: {"a":1,}: decode error at byte 7: the bytes are not a well-formed item
+// prints: 01: decode error at byte 1: bytes remain after the top-level item
+// prints: 1.: decode error at byte 2: the bytes are not a well-formed item
+// prints: 1e: decode error at byte 2: the bytes are not a well-formed item
+// prints: -: decode error at byte 0: the bytes are not a well-formed item
+// prints: +1: decode error at byte 0: the bytes are not a well-formed item
+// prints: nul: decode error at byte 0: the bytes are not a well-formed item
+// prints: tru: decode error at byte 0: the bytes are not a well-formed item
+// prints: NaN: decode error at byte 0: the bytes are not a well-formed item
+// prints: [1 2]: decode error at byte 3: the bytes are not a well-formed item
+// prints: {1:2}: decode error at byte 1: the bytes are not a well-formed item
+// prints: {"a" 1}: decode error at byte 5: the bytes are not a well-formed item
+// prints: "\x": decode error at byte 1: the bytes are not a well-formed item
+// prints: "\u00G0": decode error at byte 5: the bytes are not a well-formed item
+// prints: a raw tab in a string: decode error at byte 1: the bytes are not a well-formed item
+// prints: // c: decode error at byte 0: the bytes are not a well-formed item
+// prints: 1 2: decode error at byte 2: bytes remain after the top-level item
+// prints: [] x: decode error at byte 3: bytes remain after the top-level item
+// prints: null between spaces: accepted
+// prints: [[0]] at depth 2 size 100: accepted
+// prints: [[[0]]] at depth 2 size 100: decode error at byte 2: nesting is deeper than the decoder allows
+// prints: {"a":[0]} at depth 1 size 100: decode error at byte 5: nesting is deeper than the decoder allows
+// prints: [0] at depth 64 size 3: accepted
+// prints: [0] and a space at depth 64 size 3: decode error at byte 0: the input is larger than the decoder allows
+// prints: wrote 0.0
+// prints: write: encode error: the value has no representation in this format
+// prints: write: encode error: the value has no representation in this format
+// prints: 64 levels: 132
+// prints: write: encode error: nesting is deeper than the encoder allows
+
+import std.json.{JsonValue}
+
+func reject(text: String) {
+    named(text, text)
+}
+
+// `label` stands in for a text whose bytes would not print on one line.
+func named(label: String, text: String) {
+    match JsonValue.parse(text: text) {
+        case Ok(_) -> print("{}: accepted", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func limited(label: String, text: String, depth: Int, size: Int) {
+    match JsonValue.parse(text: text, max_depth: depth, max_size: size) {
+        case Ok(_) -> print("{} at depth {} size {}: accepted", label, depth, size),
+        case Err(e) -> print("{} at depth {} size {}: {}", label, depth, size, e)
+    }
+}
+
+func write(v: JsonValue) {
+    match v.to_json_string() {
+        case Ok(text) -> print("wrote {}", text),
+        case Err(e) -> print("write: {}", e)
+    }
+}
+
+func nested(levels: Int) -> JsonValue {
+    var v = JsonValue.Null
+    var i = 0
+    while i < levels {
+        var items = Vector<JsonValue>()
+        try! items.push(move v)
+        v = JsonValue.Array(items: move items)
+        i = i + 1
+    }
+    move v
+}
+
+func main() {
+    // Truncated: the input ends inside an item.
+    named("the empty text", "")
+    reject("[1,")
+    reject("\{\"a\":")
+    reject("\"abc")
+    reject("[1")
+    reject("\"\\u12")
+    // Malformed: the bytes cannot start or continue an item.
+    reject("[1,]")
+    reject("\{\"a\":1,\}")
+    reject("01")
+    reject("1.")
+    reject("1e")
+    reject("-")
+    reject("+1")
+    reject("nul")
+    reject("tru")
+    reject("NaN")
+    reject("[1 2]")
+    reject("\{1:2\}")
+    reject("\{\"a\" 1\}")
+    reject("\"\\x\"")
+    reject("\"\\u00G0\"")
+    named("a raw tab in a string", "\"\t\"")
+    reject("// c")
+    // TrailingBytes: a whole value, then more.
+    reject("1 2")
+    reject("[] x")
+    named("null between spaces", "  null  ")
+    // The two limits, at and past their bounds.
+    limited("[[0]]", "[[0]]", 2, 100)
+    limited("[[[0]]]", "[[[0]]]", 2, 100)
+    limited("\{\"a\":[0]\}", "\{\"a\":[0]\}", 1, 100)
+    limited("[0]", "[0]", 64, 3)
+    limited("[0] and a space", "[0] ", 64, 3)
+    // Encode faults.
+    write(JsonValue.Float(value: 0.0))
+    write(JsonValue.Float(value: Float.from(bits: 0x7FF8_0000_0000_0000)))
+    write(JsonValue.Float(value: Float.from(bits: 0x7FF0_0000_0000_0000)))
+    print("64 levels: {}", (try! nested(64).to_json_string()).len())
+    write(nested(65))
+}

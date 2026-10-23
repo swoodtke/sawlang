@@ -1,0 +1,19 @@
+// probe: panics
+// about: `borrow s.c_string()!` on a string holding a NUL byte takes the absent path, which the `!` turns into a panic before any C code sees the bytes (SL-813)
+// stage 0: its std has no `c_string`, and it cannot parse a `borrow`
+// speeds: -O0 -O2
+// prints: 3
+// panics: force unwrap of None
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> UInt
+}
+
+func measured(s: String) unsafe -> UInt {
+    strlen(borrow s.c_string()!)
+}
+
+func main() {
+    print(measured("abc"))
+    print(measured("a\0b"))
+}

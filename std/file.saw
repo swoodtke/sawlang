@@ -46,7 +46,6 @@ static NO_PERMISSION: Int = 0
 static CREATED_PERMISSION: Int = 420
 // The descriptor of a closed file, which the deinit leaves alone.
 static CLOSED: Int = -1
-static NUL_BYTE: Int8 = 0
 
 /// A file opened for reading or created for writing, its descriptor
 /// released when it is destroyed.
@@ -58,8 +57,7 @@ extension File {
     /// Opens the file at `path` for reading.
     ///
     /// Returns `Err(SystemError)` with the reason open(2) refused. A path
-    /// holding a NUL byte, which no system path can, is `InvalidArgument`,
-    /// and a path whose C string cannot be allocated is `ResourcesExhausted`.
+    /// holding a NUL byte, which no system path can, is `InvalidArgument`.
     public static func open(path: Path) unsafe -> Result<File, SystemError> {
         File.opened(path, OpenMode.Read, NO_PERMISSION)
     }
@@ -67,7 +65,7 @@ extension File {
     /// Creates the file at `path` for writing, emptying a file already there.
     ///
     /// Returns `Err(SystemError)` with the reason open(2) refused, or
-    /// `InvalidArgument` and `ResourcesExhausted` as `open` does.
+    /// `InvalidArgument` as `open` does.
     public static func create(path: Path) unsafe -> Result<File, SystemError> {
         File.opened(path, OpenMode.WriteTruncate, CREATED_PERMISSION)
     }
@@ -76,37 +74,23 @@ extension File {
     /// each write lands at the end of the file.
     ///
     /// Returns `Err(SystemError)` with the reason open(2) refused, or
-    /// `InvalidArgument` and `ResourcesExhausted` as `open` does.
+    /// `InvalidArgument` as `open` does.
     public static func open_append(path: Path) unsafe -> Result<File, SystemError> {
         File.opened(path, OpenMode.Append, CREATED_PERMISSION)
     }
 
     // The one open(2) call `open`, `create` and `open_append` share.
+    // The check ahead of `c_string()!` is the absent path, so the `!` never
+    // panics.
     static func opened(path: Path, mode: OpenMode, permission: Int) unsafe -> Result<File, SystemError> {
         let text = path.as_string()
-        let length = text.len()
-        let size = length + 1
-        guard let name = GlobalAllocator().alloc(size, 1) else {
-            return SystemError.raised("open", SystemErrorKind.ResourcesExhausted)
+        if text.index_of(0).is_some() {
+            return SystemError.raised("open", SystemErrorKind.InvalidArgument)
         }
-        var i = 0
-        while i < length {
-            let b = text.byte_at(i)
-            if b == 0 {
-                GlobalAllocator().dealloc(name, size, 1)
-                return SystemError.raised("open", SystemErrorKind.InvalidArgument)
-            }
-            name[i] = Int8.from(truncating: b)
-            i = i + 1
-        }
-        name[length] = NUL_BYTE
-        let fd = __saw_rt_fs_open(name, (mode as UInt8) as Int, permission)
+        let fd = __saw_rt_fs_open(borrow text.c_string()!, (mode as UInt8) as Int, permission)
         if fd < 0 {
-            let failure = SystemError.of("open", 0 - fd)
-            GlobalAllocator().dealloc(name, size, 1)
-            return move failure
+            return SystemError.of("open", 0 - fd)
         }
-        GlobalAllocator().dealloc(name, size, 1)
         File(descriptor: fd)
     }
 

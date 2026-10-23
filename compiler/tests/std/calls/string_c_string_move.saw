@@ -1,0 +1,21 @@
+// refuses: loan.move-while-borrowed at 14:20
+// `c_string` lends the string's own bytes (SL-813), so the window holds the
+// `String` and a move of it inside the window is refused.
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> UInt
+}
+
+func sink(s: String) -> Int { s.len() }
+
+func measured(s: String) unsafe -> UInt {
+    var held = s
+    borrow let p = held.c_string()! {
+        let gone = sink(move held)
+        strlen(p)
+    }
+}
+
+func main() {
+    print(measured("abc"))
+}

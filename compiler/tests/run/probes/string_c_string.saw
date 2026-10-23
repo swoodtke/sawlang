@@ -1,0 +1,51 @@
+// probe: stated
+// about: `borrow s.c_string()!` hands a C function the string's own NUL-terminated bytes, and `File.open` opens through it, refusing a path with a NUL (SL-813)
+// stage 0: its std has no `c_string`, and it cannot parse a `borrow`
+// speeds: -O0 -O2
+// prints: 5
+// prints: 0
+// prints: 6
+// prints: 2
+// prints: true
+// prints: opened
+// prints: open failed (not found)
+// prints: open failed (invalid argument)
+
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> UInt
+}
+
+func measured(s: String) unsafe -> UInt {
+    strlen(borrow s.c_string()!)
+}
+
+// The lent pointer is the string's own block, which a copy of the `String`
+// shares: a C string copied out would sit at another address each time.
+func same_bytes(s: String) unsafe -> Bool {
+    let shared = s
+    let first = borrow s.c_string()!
+    let second = borrow shared.c_string()!
+    first == second
+}
+
+func opened(path: String) -> String {
+    match File.open(Path(s: path)) {
+        case Ok(_) -> "opened",
+        case Err(e) -> "{e}"
+    }
+}
+
+func main() {
+    print(measured("hello"))
+    print(measured(""))
+    print(measured("héllo"))
+    let built = "{measured("ab")}{measured("cde")}"
+    print(measured(built))
+    print(same_bytes(built))
+    print(opened("/dev/null"))
+    print(opened("/dev/no-such-sawlang-probe-file"))
+    print(opened("/dev/null\0x"))
+}

@@ -1,0 +1,120 @@
+// probe: stated
+// about: every `JsonValue` case round-trips through `parse` and `to_json_string`, and the accessors read each case and lend the containers in place (SL-813)
+// stage 0: it cannot parse a `borrow`, which every read through `as_array` and `as_object` is
+// speeds: -O0 -O2
+// prints: null -> null
+// prints: true -> true
+// prints: false -> false
+// prints: 0 -> 0
+// prints: -0 -> 0
+// prints: 9223372036854775807 -> 9223372036854775807
+// prints: -9223372036854775808 -> -9223372036854775808
+// prints: 9223372036854775808 -> 9.223372036854776e+18
+// prints: 1.0 -> 1.0
+// prints: -2.5e-3 -> -0.0025
+// prints: 1E2 -> 100.0
+// prints: "" -> ""
+// prints: "saw" -> "saw"
+// prints: [] -> []
+// prints: {} -> {}
+// prints: [ 1 , [ true , null ] , { "k" : "v" } ] -> [1,[true,null],{"k":"v"}]
+// prints: {"outer":{"inner":[[], {}]}} -> {"outer":{"inner":[[],{}]}}
+// prints: null
+// prints: bool false
+// prints: int 7
+// prints: float 7.0
+// prints: text seven
+// prints: array
+// prints: object
+// prints: int as float: none
+// prints: float as int: none
+// prints: members of the object element: 1
+// prints: member: 1
+// prints: copy kept: {"list":[1]}
+// prints: built len: 2
+// prints: inner len: 2
+// Each object printed has one key, so no line depends on the map's order.
+
+import std.json.{JsonValue}
+
+func round(text: String) {
+    match JsonValue.parse(text: text) {
+        case Ok(v) -> {
+            match v.to_json_string() {
+                case Ok(out) -> print("{} -> {}", text, out),
+                case Err(e) -> print("{} -> {}", text, e)
+            }
+        },
+        case Err(e) -> print("{} -> {}", text, e)
+    }
+}
+
+// A shared root reaches only the shared twins of the two accessors.
+func describe(v: &JsonValue) -> String {
+    if v.is_null() {
+        return "null"
+    }
+    if let b = v.as_bool() {
+        return "bool {b}"
+    }
+    if let n = v.as_int() {
+        return "int {n}"
+    }
+    if let f = v.as_float() {
+        return "float {f}"
+    }
+    if let t = v.as_text() {
+        return "text {t}"
+    }
+    match v {
+        case Array(_) -> "array",
+        case Object(_) -> "object",
+        case _ -> "other"
+    }
+}
+
+func array_len(v: &JsonValue) -> Int {
+    borrow v.as_array()!.len()
+}
+
+func main() {
+    round("null")
+    round("true")
+    round("false")
+    round("0")
+    round("-0")
+    round("9223372036854775807")
+    round("-9223372036854775808")
+    round("9223372036854775808")
+    round("1.0")
+    round("-2.5e-3")
+    round("1E2")
+    round("\"\"")
+    round("\"saw\"")
+    round("[]")
+    round("\{\}")
+    round("[ 1 , [ true , null ] , \{ \"k\" : \"v\" \} ]")
+    round("\{\"outer\":\{\"inner\":[[], \{\}]\}\}")
+
+    let doc = try! JsonValue.parse(text: "[null, false, 7, 7.0, \"seven\", [1, 2], \{\"n\": 1\}]")
+    var i = 0
+    while i < array_len(&doc) {
+        print(describe(borrow doc.as_array()![i]))
+        i = i + 1
+    }
+    print("int as float: {}", if let _ = (try! JsonValue.parse(text: "7")).as_float() { "some" } else { "none" })
+    print("float as int: {}", if let _ = (try! JsonValue.parse(text: "7.0")).as_int() { "some" } else { "none" })
+    print("members of the object element: {}",borrow doc.as_array()![6].as_object()!.len())
+    print("member: {}", borrow doc.as_array()![6].as_object()!["n"].as_int() ?? -1)
+
+    // Exclusive lends write in place, and `copy()` is deep.
+    var tree = try! JsonValue.parse(text: "\{\"list\": [1]\}")
+    let before = tree.copy()
+    try! borrow var tree.as_object()!.insert("more", JsonValue.Bool(value: true))
+    var list = JsonValue.Array(items: Vector<JsonValue>())
+    try! borrow var list.as_array()!.push(JsonValue.Number(value: 2))
+    try! borrow var list.as_array()!.push(move tree)
+    print("copy kept: {}", try! before.to_json_string())
+    print("built len: {}", array_len(&list))
+    print("inner len: {}", borrow list.as_array()![1].as_object()!.len())
+}

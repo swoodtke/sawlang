@@ -34,7 +34,8 @@ profile, the lang-item table, and the API equivalence of the two stds.
   directory of the lane's FILE_FIXTURES;
 - each `calls/` program, which only the new std's API can type, checks clean
   through drop elaboration against `std/`, or, headed `// refuses: RULE at
-  L:C`, is refused first there by that rule;
+  L:C`, is refused first there by that rule, a `loan.*` or `drop.*` rule in
+  the drops stage's records and any other in typecheck's;
 - each `exec/` program, which builds coroutine frames by hand with their
   descriptors and drives them through the executor's entries, builds with
   sawc2 against `std/` at -O0 and -O2 and prints exactly its `NAME.out` on
@@ -764,10 +765,18 @@ def file_sections(output):
     return out
 
 
+# The rules only a stage after typecheck refuses by, which a `calls/` header
+# is checked against `sawc2 drops`'s records for.
+LATE_RULE_PREFIXES = ("loan.", "drop.")
+
+
 def check_calls(failures, counts):
     """Each `calls/` program against the new std alone, where Stage 0's std
     cannot say it: one headed `// refuses: RULE at L:C` is refused first there,
-    by that rule, and any other checks clean through drop elaboration."""
+    by that rule, and any other checks clean through drop elaboration. A
+    header is read against `sawc2 typecheck`'s records, or against `sawc2
+    drops`'s, which run the borrow check, when RULE is a borrow-check or drops
+    rule (`loan.*`, `drop.*`)."""
     programs = sorted(glob.glob(os.path.join(CALLS, "*.saw")))
     headers = {}
     for path in programs:
@@ -782,7 +791,8 @@ def check_calls(failures, counts):
                 failures.append("std call %s: %s" % (path, line))
             counts["std call programs"] = counts.get("std call programs", 0) + 1
             continue
-        errors = [l.split("\t") for l in typed.get(path, []) if l.startswith("ERROR\t")]
+        records = dropped if m.group(1).startswith(LATE_RULE_PREFIXES) else typed
+        errors = [l.split("\t") for l in records.get(path, []) if l.startswith("ERROR\t")]
         if not errors:
             failures.append("std call %s: expected %s, nothing refused" % (path, m.group(1)))
         elif errors[0][1] != m.group(1) or not errors[0][2].endswith(":" + m.group(2)):

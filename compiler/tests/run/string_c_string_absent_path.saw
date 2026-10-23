@@ -1,0 +1,23 @@
+// due: the backend lowers no conditional borrow, which `if borrow let p = s.c_string()` opens (SL-686)
+// refuses: backend.not-yet at 13:23
+// `c_string` lends the bytes of a string with no NUL, and nothing for one
+// with a NUL, whose `else` runs with the string free. Typecheck, the borrow
+// check and drops accept it. Stage 0 cannot parse a `borrow`, so once sawc2
+// builds this it becomes a stated probe printing `5` and `-1`.
+
+extern "C" {
+    func strlen(s: UnsafePointer<Int8>) -> UInt
+}
+
+func measured(s: String) unsafe -> Int {
+    if borrow let p = s.c_string() {
+        return strlen(p) as Int
+    } else {
+        return -1
+    }
+}
+
+func main() {
+    print(measured("hello"))
+    print(measured("a\0b"))
+}

@@ -1,0 +1,55 @@
+// probe: stated
+// about: `JsonValue` decodes every escape, combines surrogate pairs, refuses a lone surrogate, keeps an interior NUL and non-ASCII text, and writes each control byte back escaped (SL-813)
+// stage 0: it cannot parse the `borrow` that reads the array these texts sit in
+// speeds: -O0 -O2
+// prints: 5 bytes, written "\" \\ /"
+// prints: 5 bytes, written "\b\f\n\r\t"
+// prints: 6 bytes, written "Aé日"
+// prints: 1 bytes, written "\u0000"
+// prints: 3 bytes, written "a\u0000b"
+// prints: 3 bytes, written "\u0001\u001F "
+// prints: 8 bytes, written "é日本"
+// prints: 4 bytes, written "😀"
+// prints: 4 bytes, written "😀"
+// prints: decode error at byte 1: the bytes are not a well-formed item
+// prints: decode error at byte 1: the bytes are not a well-formed item
+// prints: decode error at byte 1: the bytes are not a well-formed item
+// prints: decode error at byte 1: the bytes are not a well-formed item
+// prints: decode error at byte 1: the bytes are not a well-formed item
+// prints: key: v
+// prints: built: "tab\tquote\""
+
+import std.json.{JsonValue}
+
+// The text's byte count and its re-encoding, which spells every control byte.
+func decoded(text: String) {
+    match JsonValue.parse(text: text) {
+        case Ok(v) -> {
+            let length = (v.as_text() ?? "").len()
+            print("{} bytes, written {}", length, try! v.to_json_string())
+        },
+        case Err(e) -> print("{}", e)
+    }
+}
+
+func main() {
+    decoded("\"\\\" \\\\ \\/\"")
+    decoded("\"\\b\\f\\n\\r\\t\"")
+    decoded("\"\\u0041\\u00e9\\u65E5\"")
+    decoded("\"\\u0000\"")
+    decoded("\"a\\u0000b\"")
+    decoded("\"\\u0001\\u001f\\u0020\"")
+    decoded("\"é日本\"")
+    decoded("\"\\ud83d\\ude00\"")
+    decoded("\"😀\"")
+    decoded("\"\\ud800\"")
+    decoded("\"\\udc00\"")
+    decoded("\"\\ud800\\u0041\"")
+    decoded("\"\\ud800x\"")
+    decoded("\"\\ud800\\\"\"")
+
+    // A key takes the same escapes, and an escaped key reads back unescaped.
+    let doc = try! JsonValue.parse(text: "[\{\"k\\u00e9y\": \"v\"\}]")
+    print("key: {}", borrow doc.as_array()![0].as_object()!["kéy"].as_text() ?? "absent")
+    print("built: {}", try! JsonValue.Text(value: "tab\tquote\"").to_json_string())
+}

@@ -1,0 +1,896 @@
+//! JSON (RFC 8259) as a tree: `JsonValue`, its parser and its writer.
+//!
+//! ```saw
+//! import std.json.{JsonValue}
+//!
+//! let doc = try JsonValue.parse(text: "\{\"port\": 8080\}")
+//! let port = borrow doc.as_object()!["port"].as_int() ?? 0
+//! let text = try doc.to_json_string()
+//! ```
+//!
+//! Decoding is strict: no leading zero (except a lone `0`), no trailing
+//! comma, no comment, no `NaN` or `Infinity`, and every `\uXXXX` escape is
+//! validated, surrogate pairs included. Malformed input never panics: every
+//! rejection is a `DecodeError` naming the byte offset that stopped it.
+//! Writing is compact, with no whitespace between tokens.
+//!
+//! Memory the allocator refuses for an array, an object or a builder's
+//! buffer is the `Alloc` fault. A string's text and a fractional number's
+//! digits become `String`s, and the String layer panics on a refused
+//! allocation, so those two refusals panic.
+
+// The token layer (`JsonReader`, `JsonWriter`) knows nothing of the tree, so
+// a streaming encoder and decoder can sit on the same two types.
+
+// The bytes the grammar names.
+static BYTE_TAB: Int = 9
+static BYTE_NEWLINE: Int = 10
+static BYTE_RETURN: Int = 13
+static BYTE_SPACE: Int = 32
+static BYTE_QUOTE: Int = 34
+static BYTE_PLUS: Int = 43
+static BYTE_COMMA: Int = 44
+static BYTE_MINUS: Int = 45
+static BYTE_DOT: Int = 46
+static BYTE_SLASH: Int = 47
+static BYTE_ZERO: Int = 48
+static BYTE_NINE: Int = 57
+static BYTE_COLON: Int = 58
+static BYTE_UPPER_A: Int = 65
+static BYTE_UPPER_E: Int = 69
+static BYTE_UPPER_F: Int = 70
+static BYTE_LEFT_BRACKET: Int = 91
+static BYTE_BACKSLASH: Int = 92
+static BYTE_RIGHT_BRACKET: Int = 93
+static BYTE_LOWER_A: Int = 97
+static BYTE_LOWER_B: Int = 98
+static BYTE_LOWER_E: Int = 101
+static BYTE_LOWER_F: Int = 102
+static BYTE_LOWER_N: Int = 110
+static BYTE_LOWER_R: Int = 114
+static BYTE_LOWER_T: Int = 116
+static BYTE_LOWER_U: Int = 117
+static BYTE_LEFT_BRACE: Int = 123
+static BYTE_RIGHT_BRACE: Int = 125
+// The control bytes a short escape names.
+static BYTE_BACKSPACE: Int = 8
+static BYTE_FORM_FEED: Int = 12
+// Every byte below this one is a control byte, escaped on output and refused
+// raw inside a string on input.
+static FIRST_PRINTABLE: Int = 32
+
+// The UTF-16 surrogate ranges a `\uXXXX` pair combines (RFC 8259 section 7).
+static HIGH_SURROGATE_FIRST: Int = 0xD800
+static HIGH_SURROGATE_LAST: Int = 0xDBFF
+static LOW_SURROGATE_FIRST: Int = 0xDC00
+static LOW_SURROGATE_LAST: Int = 0xDFFF
+static SUPPLEMENTARY_BASE: Int = 0x1_0000
+static SURROGATE_SPAN: Int = 0x400
+
+// How deeply `to_json_string` nests arrays and objects: `parse`'s default.
+static WRITE_DEPTH: Int = 64
+
+// =============================================================================
+// Faults
+// =============================================================================
+
+/// What stopped a value from being written out.
+///
+/// `std.serde` will hold this type, beside the encoder seam every format
+/// shares.
+public enum EncodeFault: UInt8 {
+    case BufferFull = 1,
+    case TooDeep = 2,
+    case CountMismatch = 3,
+    case Unsupported = 4,
+    case Alloc = 5
+}
+
+extension EncodeFault {
+    /// Returns a one-line description of the fault.
+    public func describe(&self) -> String {
+        match self {
+            case BufferFull -> "the output buffer is full",
+            case TooDeep -> "nesting is deeper than the encoder allows",
+            case CountMismatch -> "an array or map got a different number of items than it declared",
+            case Unsupported -> "the value has no representation in this format",
+            case Alloc -> "the encoder could not allocate memory"
+        }
+    }
+}
+
+/// A failure raised while encoding.
+///
+/// `std.serde` will hold this type, beside the encoder seam every format
+/// shares.
+public struct EncodeError {
+    fault: EncodeFault
+}
+
+extension EncodeError: Error {
+    /// Writes `encode error: ` and the fault's description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("encode error: ")
+        try! into.append(self.fault.describe())
+    }
+}
+
+/// What stopped a value from being read back.
+///
+/// `std.serde` will hold this type, beside the decoder seam every format
+/// shares.
+public enum DecodeFault: UInt8 {
+    case Truncated = 1,
+    case Malformed = 2,
+    case TypeMismatch = 3,
+    case TooDeep = 4,
+    case TooLarge = 5,
+    case TooManyItems = 6,
+    case NotCanonical = 7,
+    case Unsupported = 8,
+    case TrailingBytes = 9,
+    case OutOfRange = 10,
+    case UnknownCase = 11,
+    case CountMismatch = 12,
+    case Alloc = 13
+}
+
+extension DecodeFault {
+    /// Returns a one-line description of the fault.
+    public func describe(&self) -> String {
+        match self {
+            case Truncated -> "the input ended in the middle of an item",
+            case Malformed -> "the bytes are not a well-formed item",
+            case TypeMismatch -> "the item is not of the expected type",
+            case TooDeep -> "nesting is deeper than the decoder allows",
+            case TooLarge -> "the input is larger than the decoder allows",
+            case TooManyItems -> "the input holds more items than the decoder allows",
+            case NotCanonical -> "the item is not in the deterministic encoding",
+            case Unsupported -> "the item has no representation in this language",
+            case TrailingBytes -> "bytes remain after the top-level item",
+            case OutOfRange -> "the value does not fit the destination type",
+            case UnknownCase -> "no case of the enum carries that raw value",
+            case CountMismatch -> "the array or map holds a different number of items than expected",
+            case Alloc -> "the decoder could not allocate memory"
+        }
+    }
+}
+
+/// A failure raised while decoding, at the byte offset where it was found.
+///
+/// `std.serde` will hold this type, beside the decoder seam every format
+/// shares.
+public struct DecodeError {
+    offset: Int
+    fault: DecodeFault
+}
+
+extension DecodeError: Error {
+    /// Writes `decode error at byte N: ` and the fault's description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("decode error at byte ")
+        try! into.append(self.offset)
+        try! into.append(": ")
+        try! into.append(self.fault.describe())
+    }
+}
+
+// =============================================================================
+// The token layer
+// =============================================================================
+
+// The text being written, and how deep the open arrays and objects nest.
+struct JsonWriter {
+    out: StringBuilder
+    depth: Int
+    max_depth: Int
+}
+
+extension JsonWriter: NoCopy {}
+
+extension JsonWriter {
+    init(max_depth: Int) -> JsonWriter {
+        JsonWriter(out: StringBuilder(), depth: 0, max_depth: max_depth)
+    }
+
+    func byte(&var self, b: Int) -> Result<Void, EncodeError> {
+        json_encoded(self.out.append(Byte(UInt8.from(truncating: b))))
+    }
+
+    func text(&var self, s: String) -> Result<Void, EncodeError> {
+        json_encoded(self.out.append(s))
+    }
+
+    func open(&var self, opener: Int) -> Result<Void, EncodeError> {
+        if self.depth >= self.max_depth {
+            return EncodeError(fault: EncodeFault.TooDeep)
+        }
+        self.depth = self.depth + 1
+        self.byte(opener)
+    }
+
+    func close(&var self, closer: Int) -> Result<Void, EncodeError> {
+        self.depth = self.depth - 1
+        self.byte(closer)
+    }
+
+    func integer(&var self, v: Int) -> Result<Void, EncodeError> {
+        json_encoded(self.out.append(v))
+    }
+
+    // Every spelling `StringBuilder.append(value: Float)` gives a finite
+    // value is a JSON number; JSON has none for NaN or an infinity.
+    func float(&var self, v: Float) -> Result<Void, EncodeError> {
+        if not v.is_finite() {
+            return EncodeError(fault: EncodeFault.Unsupported)
+        }
+        json_encoded(self.out.append(v))
+    }
+
+    // A string literal with the escapes RFC 8259 requires. `s` is valid
+    // UTF-8, so a multi-byte scalar's bytes are copied through unexamined.
+    func string(&var self, s: &String) -> Result<Void, EncodeError> {
+        try self.byte(BYTE_QUOTE)
+        let n = s.len()
+        var i = 0
+        while i < n {
+            let b = s.byte_at(i)
+            let u = b as Int
+            if u == BYTE_QUOTE {
+                try self.text("\\\"")
+            } else if u == BYTE_BACKSLASH {
+                try self.text("\\\\")
+            } else if u == BYTE_BACKSPACE {
+                try self.text("\\b")
+            } else if u == BYTE_FORM_FEED {
+                try self.text("\\f")
+            } else if u == BYTE_NEWLINE {
+                try self.text("\\n")
+            } else if u == BYTE_RETURN {
+                try self.text("\\r")
+            } else if u == BYTE_TAB {
+                try self.text("\\t")
+            } else if u < FIRST_PRINTABLE {
+                try self.text("\\u00")
+                try self.byte(hex_digit(u / 16))
+                try self.byte(hex_digit(u % 16))
+            } else {
+                try json_encoded(self.out.append(b))
+            }
+            i = i + 1
+        }
+        self.byte(BYTE_QUOTE)
+    }
+}
+
+// The uppercase hex digit of `d` (0 to 15), as a byte.
+func hex_digit(d: Int) -> Int {
+    if d < 10 {
+        return BYTE_ZERO + d
+    }
+    BYTE_UPPER_A + (d - 10)
+}
+
+func json_encoded(r: Result<Void, AllocError>) -> Result<Void, EncodeError> {
+    match r {
+        case Ok(_) -> {},
+        case Err(_) -> { return EncodeError(fault: EncodeFault.Alloc) }
+    }
+    return
+}
+
+// The text being read, the offset reached, and how deep the open arrays and
+// objects nest.
+struct JsonReader {
+    input: String
+    pos: Int
+    len: Int
+    depth: Int
+    max_depth: Int
+}
+
+extension JsonReader {
+    func at(&self, i: Int) -> Int {
+        self.input.byte_at(i) as Int
+    }
+
+    func peek(&self) -> Int? {
+        let here = self.pos
+        if here >= self.len {
+            return None
+        }
+        self.at(here)
+    }
+
+    func peek_is(&self, b: Int) -> Bool {
+        if let v = self.peek() {
+            return v == b
+        }
+        false
+    }
+
+    func fault(&self, fault: DecodeFault) -> DecodeError {
+        DecodeError(offset: self.pos, fault: fault)
+    }
+
+    // `Truncated` at the end of the input, else `Malformed`.
+    func unexpected(&self) -> DecodeError {
+        if self.pos >= self.len {
+            return self.fault(DecodeFault.Truncated)
+        }
+        self.fault(DecodeFault.Malformed)
+    }
+
+    func skip_whitespace(&var self) {
+        while self.pos < self.len {
+            let here = self.pos
+            let b = self.at(here)
+            if b != BYTE_SPACE && b != BYTE_TAB && b != BYTE_NEWLINE && b != BYTE_RETURN {
+                return
+            }
+            self.pos = here + 1
+        }
+    }
+
+    // Consumes `word` (`null`, `true` or `false`) byte for byte.
+    func literal(&var self, word: String) -> Result<Void, DecodeError> {
+        let start = self.pos
+        let n = word.len()
+        if start + n > self.len {
+            return self.fault(DecodeFault.Malformed)
+        }
+        var i = 0
+        while i < n {
+            if self.at(start + i) != word.byte_at(i) as Int {
+                return self.fault(DecodeFault.Malformed)
+            }
+            i = i + 1
+        }
+        self.pos = start + n
+        return
+    }
+
+    // Opens an array or object: one level deeper, past its opening byte.
+    func open(&var self) -> Result<Void, DecodeError> {
+        if self.depth >= self.max_depth {
+            return self.fault(DecodeFault.TooDeep)
+        }
+        self.depth = self.depth + 1
+        self.pos = self.pos + 1
+        self.skip_whitespace()
+        return
+    }
+
+    // After an item: `Ok(true)` past a comma when another item follows,
+    // `Ok(false)` past the closer.
+    func next_item(&var self, closer: Int) -> Result<Bool, DecodeError> {
+        self.skip_whitespace()
+        guard let b = self.peek() else {
+            return self.fault(DecodeFault.Truncated)
+        }
+        if b == closer {
+            self.pos = self.pos + 1
+            self.depth = self.depth - 1
+            return false
+        }
+        if b != BYTE_COMMA {
+            return self.fault(DecodeFault.Malformed)
+        }
+        self.pos = self.pos + 1
+        self.skip_whitespace()
+        if self.peek_is(closer) {
+            return self.fault(DecodeFault.Malformed)
+        }
+        return true
+    }
+
+    func hex4(&var self) -> Result<Int, DecodeError> {
+        var v = 0
+        var i = 0
+        while i < 4 {
+            guard let b = self.peek() else {
+                return self.fault(DecodeFault.Truncated)
+            }
+            let d = hex_value(b)
+            if d < 0 {
+                return self.fault(DecodeFault.Malformed)
+            }
+            v = v * 16 + d
+            self.pos = self.pos + 1
+            i = i + 1
+        }
+        return v
+    }
+
+    // The scalar a `\u` escape at `escape` names, its first four hex digits
+    // next; a high surrogate takes the low one after it.
+    func escaped_scalar(&var self, escape: Int) -> Result<Scalar, DecodeError> {
+        let high = try self.hex4()
+        var value = high
+        if high >= HIGH_SURROGATE_FIRST && high <= HIGH_SURROGATE_LAST {
+            if not self.peek_is(BYTE_BACKSLASH) {
+                return DecodeError(offset: escape, fault: DecodeFault.Malformed)
+            }
+            self.pos = self.pos + 1
+            if not self.peek_is(BYTE_LOWER_U) {
+                return DecodeError(offset: escape, fault: DecodeFault.Malformed)
+            }
+            self.pos = self.pos + 1
+            let low = try self.hex4()
+            if low < LOW_SURROGATE_FIRST || low > LOW_SURROGATE_LAST {
+                return DecodeError(offset: escape, fault: DecodeFault.Malformed)
+            }
+            value = (SUPPLEMENTARY_BASE + (high - HIGH_SURROGATE_FIRST) * SURROGATE_SPAN
+                     + (low - LOW_SURROGATE_FIRST))
+        } else if high >= LOW_SURROGATE_FIRST && high <= LOW_SURROGATE_LAST {
+            return DecodeError(offset: escape, fault: DecodeFault.Malformed)
+        }
+        // Every value that reaches here is a scalar; the decoder never panics,
+        // so the init's refusal is matched rather than forced.
+        match Scalar(value: value) {
+            case Ok(s) -> s,
+            case Err(_) -> DecodeError(offset: escape, fault: DecodeFault.Malformed)
+        }
+    }
+
+    // A string literal, its opening quote next, unescaped. The input is a
+    // `String`, so a raw multi-byte scalar is already valid UTF-8. The text
+    // is built into a `String`, whose refused allocation panics.
+    func string(&var self) -> Result<String, DecodeError> {
+        let start = self.pos
+        self.pos = start + 1
+        var out = StringBuilder()
+        while {
+            guard let b = self.peek() else {
+                return DecodeError(offset: start, fault: DecodeFault.Truncated)
+            }
+            let here = self.pos
+            if b == BYTE_QUOTE {
+                self.pos = here + 1
+                return out.build()
+            }
+            if b < FIRST_PRINTABLE {
+                return self.fault(DecodeFault.Malformed)
+            }
+            if b != BYTE_BACKSLASH {
+                try json_decoded(out.append(Byte(UInt8.from(truncating: b))), here)
+                self.pos = here + 1
+                continue
+            }
+            self.pos = here + 1
+            guard let e = self.peek() else {
+                return DecodeError(offset: here, fault: DecodeFault.Truncated)
+            }
+            self.pos = here + 2
+            if e == BYTE_LOWER_U {
+                let scalar = try self.escaped_scalar(here)
+                try json_decoded(out.append(scalar), here)
+                continue
+            }
+            let plain = short_escape(e)
+            if plain < 0 {
+                return DecodeError(offset: here, fault: DecodeFault.Malformed)
+            }
+            try json_decoded(out.append(Byte(UInt8.from(truncating: plain))), here)
+        }
+    }
+
+    // A number token, its first byte next. `Ok(true)` when it is
+    // float-shaped: a fraction or an exponent.
+    func number(&var self) -> Result<Bool, DecodeError> {
+        let start = self.pos
+        var is_float = false
+        if self.peek_is(BYTE_MINUS) {
+            self.pos = self.pos + 1
+        }
+        guard let first = self.peek() else {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        if first == BYTE_ZERO {
+            self.pos = self.pos + 1
+        } else if is_digit(first) {
+            self.digits()
+        } else {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        if self.peek_is(BYTE_DOT) {
+            is_float = true
+            self.pos = self.pos + 1
+            try self.required_digits()
+        }
+        if self.peek_is(BYTE_LOWER_E) || self.peek_is(BYTE_UPPER_E) {
+            is_float = true
+            self.pos = self.pos + 1
+            if self.peek_is(BYTE_PLUS) || self.peek_is(BYTE_MINUS) {
+                self.pos = self.pos + 1
+            }
+            try self.required_digits()
+        }
+        return is_float
+    }
+
+    func digits(&var self) {
+        while self.pos < self.len {
+            let here = self.pos
+            if not is_digit(self.at(here)) {
+                return
+            }
+            self.pos = here + 1
+        }
+    }
+
+    func required_digits(&var self) -> Result<Void, DecodeError> {
+        guard let d = self.peek() else {
+            return self.fault(DecodeFault.Malformed)
+        }
+        if not is_digit(d) {
+            return self.fault(DecodeFault.Malformed)
+        }
+        self.digits()
+        return
+    }
+
+    // The integral token in `start..<end` as an `Int`, or `None` past its
+    // range. It accumulates negatively, so `Int.min` is reached.
+    func integer(&self, start: Int, end: Int) -> Int? {
+        var i = start
+        let negative = self.at(i) == BYTE_MINUS
+        if negative {
+            i = i + 1
+        }
+        var acc = 0
+        while i < end {
+            let d = self.at(i) - BYTE_ZERO
+            if acc < (Int.min + d) / 10 {
+                return None
+            }
+            acc = acc * 10 - d
+            i = i + 1
+        }
+        if negative {
+            return acc
+        }
+        if acc == Int.min {
+            return None
+        }
+        0 - acc
+    }
+}
+
+func is_digit(b: Int) -> Bool {
+    b >= BYTE_ZERO && b <= BYTE_NINE
+}
+
+// The value of hex digit `b`, or -1 for a byte that is not one.
+func hex_value(b: Int) -> Int {
+    if is_digit(b) {
+        return b - BYTE_ZERO
+    }
+    if b >= BYTE_LOWER_A && b <= BYTE_LOWER_F {
+        return b - BYTE_LOWER_A + 10
+    }
+    if b >= BYTE_UPPER_A && b <= BYTE_UPPER_F {
+        return b - BYTE_UPPER_A + 10
+    }
+    -1
+}
+
+// The byte a one-letter escape stands for, or -1 for no such escape.
+func short_escape(e: Int) -> Int {
+    if e == BYTE_QUOTE || e == BYTE_BACKSLASH || e == BYTE_SLASH {
+        return e
+    }
+    if e == BYTE_LOWER_B {
+        return BYTE_BACKSPACE
+    }
+    if e == BYTE_LOWER_F {
+        return BYTE_FORM_FEED
+    }
+    if e == BYTE_LOWER_N {
+        return BYTE_NEWLINE
+    }
+    if e == BYTE_LOWER_R {
+        return BYTE_RETURN
+    }
+    if e == BYTE_LOWER_T {
+        return BYTE_TAB
+    }
+    -1
+}
+
+// A refused allocation while reading, reported at `at`.
+func json_decoded(r: Result<Void, AllocError>, at: Int) -> Result<Void, DecodeError> {
+    match r {
+        case Ok(_) -> {},
+        case Err(_) -> { return DecodeError(offset: at, fault: DecodeFault.Alloc) }
+    }
+    return
+}
+
+// =============================================================================
+// The tree
+// =============================================================================
+
+/// A JSON value, parsed from text or built as a tree.
+///
+/// A number token that is integral and fits `Int` is a `Number`; any other
+/// (a fraction, an exponent, an integer past `Int`) is a `Float`, correctly
+/// rounded. So `1` is `Number(1)` and `1.0` is `Float(1.0)`, and a round trip
+/// keeps the two apart. Object key order is not kept.
+///
+/// `copy()` is deep, through every array and object.
+public enum JsonValue {
+    case Null,
+    case Bool(value: Bool),
+    case Number(value: Int),
+    case Float(value: Float),
+    case Text(value: String),
+    case Array(items: Vector<JsonValue>),
+    case Object(fields: Map<String, JsonValue>)
+}
+
+@synthesize
+extension JsonValue: ExplicitCopy {}
+
+extension JsonValue {
+    /// Parses `text` as one JSON value, with only whitespace after it.
+    ///
+    /// `max_depth` bounds how deeply arrays and objects nest, and `max_size`
+    /// the text's length in bytes. Returns `Err(DecodeError)` with the offset
+    /// and the fault that stopped the parse: `TrailingBytes` for anything
+    /// after the value, `TooDeep` and `TooLarge` past the two limits, and
+    /// `Alloc` when the allocator refuses an array, an object or a string's
+    /// buffer. Panics when it refuses the `String` a JSON string or a
+    /// fractional number becomes.
+    public static func parse(text: String, max_depth: Int = 64,
+                             max_size: Int = 16_777_216) -> Result<JsonValue, DecodeError> {
+        let n = text.len()
+        if n > max_size {
+            return DecodeError(offset: 0, fault: DecodeFault.TooLarge)
+        }
+        var reader = JsonReader(input: text, pos: 0, len: n, depth: 0, max_depth: max_depth)
+        reader.skip_whitespace()
+        let value = try JsonValue.read(&var reader)
+        reader.skip_whitespace()
+        if reader.pos != n {
+            return reader.fault(DecodeFault.TrailingBytes)
+        }
+        return move value
+    }
+
+    // One value at the reader's position, past any whitespace before it.
+    static func read(reader: &var JsonReader) -> Result<JsonValue, DecodeError> {
+        guard let b = reader.peek() else {
+            return reader.fault(DecodeFault.Truncated)
+        }
+        if b == BYTE_QUOTE {
+            let s = try reader.string()
+            return JsonValue.Text(value: s)
+        }
+        if b == BYTE_LEFT_BRACKET {
+            return JsonValue.read_array(&var reader)
+        }
+        if b == BYTE_LEFT_BRACE {
+            return JsonValue.read_object(&var reader)
+        }
+        if b == BYTE_LOWER_T {
+            try reader.literal("true")
+            return JsonValue.Bool(value: true)
+        }
+        if b == BYTE_LOWER_F {
+            try reader.literal("false")
+            return JsonValue.Bool(value: false)
+        }
+        if b == BYTE_LOWER_N {
+            try reader.literal("null")
+            return JsonValue.Null
+        }
+        if b == BYTE_MINUS || is_digit(b) {
+            return JsonValue.read_number(&var reader)
+        }
+        reader.fault(DecodeFault.Malformed)
+    }
+
+    // The token's text is a `String` for `to_float`, whose refused allocation
+    // panics.
+    static func read_number(reader: &var JsonReader) -> Result<JsonValue, DecodeError> {
+        let start = reader.pos
+        let is_float = try reader.number()
+        let end = reader.pos
+        if not is_float {
+            if let n = reader.integer(start, end) {
+                return JsonValue.Number(value: n)
+            }
+        }
+        // The token passed the JSON grammar, which `to_float` accepts whole.
+        guard let f = reader.input.substring(start, end).to_float() else {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        JsonValue.Float(value: f)
+    }
+
+    static func read_array(reader: &var JsonReader) -> Result<JsonValue, DecodeError> {
+        try reader.open()
+        var items = Vector<JsonValue>()
+        if reader.peek_is(BYTE_RIGHT_BRACKET) {
+            let _ = try reader.next_item(BYTE_RIGHT_BRACKET)
+            return JsonValue.Array(items: move items)
+        }
+        var more = true
+        while more {
+            let at = reader.pos
+            let item = try JsonValue.read(&var reader)
+            try json_decoded(items.push(move item), at)
+            more = try reader.next_item(BYTE_RIGHT_BRACKET)
+        }
+        JsonValue.Array(items: move items)
+    }
+
+    static func read_object(reader: &var JsonReader) -> Result<JsonValue, DecodeError> {
+        try reader.open()
+        var fields = Map<String, JsonValue>()
+        if reader.peek_is(BYTE_RIGHT_BRACE) {
+            let _ = try reader.next_item(BYTE_RIGHT_BRACE)
+            return JsonValue.Object(fields: move fields)
+        }
+        var more = true
+        while more {
+            let at = reader.pos
+            if not reader.peek_is(BYTE_QUOTE) {
+                return reader.unexpected()
+            }
+            let key = try reader.string()
+            reader.skip_whitespace()
+            if not reader.peek_is(BYTE_COLON) {
+                return reader.unexpected()
+            }
+            reader.pos = reader.pos + 1
+            reader.skip_whitespace()
+            let value = try JsonValue.read(&var reader)
+            match fields.insert(key, move value) {
+                case Ok(_) -> {},
+                case Err(_) -> { return DecodeError(offset: at, fault: DecodeFault.Alloc) }
+            }
+            more = try reader.next_item(BYTE_RIGHT_BRACE)
+        }
+        JsonValue.Object(fields: move fields)
+    }
+
+    /// Writes `self` as compact JSON text.
+    ///
+    /// Returns `Err(EncodeError)`: `Unsupported` for a `Float` that is NaN or
+    /// infinite, which JSON cannot spell; `TooDeep` past 64 levels of
+    /// nesting; `Alloc` when the allocator refuses the text's buffer. Panics
+    /// when it refuses the finished `String`.
+    public func to_json_string(&self) -> Result<String, EncodeError> {
+        var writer = JsonWriter(max_depth: WRITE_DEPTH)
+        try self.write(&var writer)
+        return writer.out.build()
+    }
+
+    func write(&self, writer: &var JsonWriter) -> Result<Void, EncodeError> {
+        match self {
+            case Null -> writer.text("null"),
+            case Bool(value) -> {
+                if value {
+                    return writer.text("true")
+                }
+                writer.text("false")
+            },
+            case Number(value) -> writer.integer(value),
+            case Float(value) -> writer.float(value),
+            case Text(borrow let value) -> writer.string(&value),
+            case Array(borrow let items) -> JsonValue.write_array(&items, &var writer),
+            case Object(borrow let fields) -> JsonValue.write_object(&fields, &var writer)
+        }
+    }
+
+    static func write_array(items: &Vector<JsonValue>, writer: &var JsonWriter) -> Result<Void, EncodeError> {
+        try writer.open(BYTE_LEFT_BRACKET)
+        let n = items.len()
+        var i = 0
+        while i < n {
+            if i > 0 {
+                try writer.byte(BYTE_COMMA)
+            }
+            try borrow items[i].write(&var writer)
+            i = i + 1
+        }
+        writer.close(BYTE_RIGHT_BRACKET)
+    }
+
+    static func write_object(fields: &Map<String, JsonValue>, writer: &var JsonWriter) -> Result<Void, EncodeError> {
+        try writer.open(BYTE_LEFT_BRACE)
+        let keys = try json_encoded_keys(fields.keys())
+        let n = keys.len()
+        var i = 0
+        while i < n {
+            if i > 0 {
+                try writer.byte(BYTE_COMMA)
+            }
+            let key = keys[i]
+            try writer.string(&key)
+            try writer.byte(BYTE_COLON)
+            try borrow fields[key].write(&var writer)
+            i = i + 1
+        }
+        writer.close(BYTE_RIGHT_BRACE)
+    }
+
+    /// Returns whether `self` is JSON `null`.
+    public func is_null(&self) -> Bool {
+        match self {
+            case Null -> true,
+            case _ -> false
+        }
+    }
+
+    /// Returns the value of a JSON boolean, or `None`.
+    public func as_bool(&self) -> Bool? {
+        match self {
+            case Bool(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// Returns the value of an integral JSON number, or `None`.
+    ///
+    /// A number written with a fraction or an exponent, or too large for
+    /// `Int`, is a `Float` and answers `None` here; `as_float` reads it.
+    public func as_int(&self) -> Int? {
+        match self {
+            case Number(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// Returns the value of a `Float` JSON number, or `None`.
+    ///
+    /// This answers `None` for `1` and `1.0` for `1.0`: the token decides
+    /// the case.
+    public func as_float(&self) -> Float? {
+        match self {
+            case Float(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// Returns the text of a JSON string, or `None`.
+    public func as_text(&self) -> String? {
+        match self {
+            case Text(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// Lends the array where it sits, or nothing when `self` is not one.
+    ///
+    /// `borrow v.as_array()!.len()` reads it, and
+    /// `borrow var v.as_array()!.push(x)` grows it in place.
+    @synthesize(shared)
+    public func as_array(&var self) borrows -> &var Vector<JsonValue>? {
+        match self {
+            case Array(borrow var items) -> { lend items },
+            case _ -> { return None }
+        }
+    }
+
+    /// Lends the object where it sits, or nothing when `self` is not one.
+    ///
+    /// `borrow v.as_object()!["key"]` reads a member, and
+    /// `borrow var v.as_object()!.insert(k, x)` adds one in place.
+    @synthesize(shared)
+    public func as_object(&var self) borrows -> &var Map<String, JsonValue>? {
+        match self {
+            case Object(borrow var fields) -> { lend fields },
+            case _ -> { return None }
+        }
+    }
+}
+
+func json_encoded_keys(r: Result<Vector<String>, AllocError>) -> Result<Vector<String>, EncodeError> {
+    match r {
+        case Ok(keys) -> move keys,
+        case Err(_) -> EncodeError(fault: EncodeFault.Alloc)
+    }
+}

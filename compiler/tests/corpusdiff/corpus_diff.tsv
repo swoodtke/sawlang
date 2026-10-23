@@ -311,7 +311,7 @@ conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 conformance/K02_nonsend_across_suspend_local_mt.saw	pass	-	coro.spawn-not-send: cannot spawn `work`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension but is not `Send`; the function type `() sync ->
 conformance/K100_shutdown_rides_cancellation.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
-conformance/K111_suspension_causes_decide_framing.saw	refused	resolve import.unknown-module	no module `std.json`
+conformance/K111_suspension_causes_decide_framing.saw	pass	-	-
 conformance/K112_thread_body_refuses_a_multi_cause_std_method.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `Command.output` → `io_wait` (parks the task): a spawned thread runs no executor, so there is nothing there to resume
 conformance/K113_test_suspend_is_a_frame_boundary_not_an_executor.saw	refused	coro coro.drive-in-suspending	`__saw_drive` may not appear in `main`, which itself suspends. This body already runs inside an executor, so `driven(...)` needs no drive site: call it directly and the suspending call embeds here (de
 conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `__saw_suspend`: a spawned thread runs no executor, so there is nothing there to resume a suspension, an
@@ -665,8 +665,8 @@ coro_closure_deinit_once.saw	pass	-	-
 coro_closure_local_call.saw	pass	-	-
 coro_closure_taskgroup.saw	pass	-	-
 coro_conditional_move_across_suspend.saw	pass	-	-
-coro_conservative_callee_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.json`
-coro_conservative_callee_not_embedded.saw	refused	resolve import.unknown-module	no module `std.json`
+coro_conservative_callee_in_spawned_task.saw	pass	-	-
+coro_conservative_callee_not_embedded.saw	pass	-	-
 coro_conservative_free_callee_not_framed.saw	pass	-	-
 coro_conservative_generic_instance_in_spawned_task.saw	pass	-	-
 coro_conservative_generic_instance_not_promoted.saw	pass	-	-
@@ -725,7 +725,7 @@ coro_imported_callee_discovery_matrix.saw	pass	-	-
 coro_imported_private_helper_parks_on_io.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
 coro_imported_private_helper_suspends.saw	pass	-	-
 coro_inline_catch_loop_exit_in_child_positions.saw	pass	-	-
-coro_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
+coro_json_encode_in_task.saw	pass	-	-
 coro_labeled_call_positions.saw	pass	-	-
 coro_locals_across_suspend.saw	pass	-	-
 coro_match_arm_binding_early_exit.saw	pass	-	-
@@ -738,7 +738,7 @@ coro_match_move_out_releases_once_in_loop_try_and_task.saw	pass	-	-
 coro_match_moved_payload_survives_return.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
 coro_method_root_and_embedded.saw	pass	-	-
 coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc2 meets its directives
-coro_module_json_encode_in_task.saw	refused	resolve import.unknown-module	no module `std.json`
+coro_module_json_encode_in_task.saw	pass	-	-
 coro_module_tagged_free_callee_discovery.saw	pass	-	-
 coro_move_in_a_while_condition_driven.saw	pass	-	-
 coro_move_in_split_if_head.saw	pass	-	-
@@ -823,7 +823,7 @@ d144_private_type_identity.saw	refused	llvm backend.not-yet	this conversion is n
 d144_public_same_name_alias.saw	pass	-	-
 d249_bare_import_tie_names_both_origins_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: chime(n: Int) [modules.d249_tie_b]; chime(n: Int) [modules.d249_tie_a
 d249_bare_imports_merge_into_one_overload_set.saw	pass	-	-
-d249_both_std_encoders_bare_is_a_tie_error.saw	refused	resolve import.unknown-module	no module `std.json`
+d249_both_std_encoders_bare_is_a_tie_error.saw	refused	resolve import.unknown-module	no module `std.cbor`
 d249_glob_import_binds_whole_overload_set.saw	pass	-	-
 d249_module_twins_qualified.saw	pass	-	-
 d249_own_declaration_beside_bare_std_import_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: dump_tasks() [d249_own_declaration_beside_bare_std_import_error]; dum
@@ -831,8 +831,8 @@ d249_own_declaration_wins_over_unimported_std_name.saw	pass	-	-
 d249_prelude_gate_over_a_std_free_function.saw	pass	-	name.not-in-prelude: `dump_tasks` is not in the prelude and must be imported: `import std.task.{dump_tasks}` selects it
 d249_selective_import_binds_whole_overload_set.saw	pass	-	-
 d249_selective_import_of_one_twin.saw	pass	-	-
-d249_std_json_and_cbor_both_name_encode.saw	refused	resolve import.unknown-module	no module `std.json`
-d249_std_selective_import_of_a_two_owner_name.saw	refused	resolve import.unknown-module	no module `std.json`
+d249_std_json_and_cbor_both_name_encode.saw	refused	resolve import.unknown-module	no module `std.cbor`
+d249_std_selective_import_of_a_two_owner_name.saw	refused	resolve import.unknown-symbol	`encode` is not defined in `std.json`
 data_advanced.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
 data_cow_self_append.saw	pass	-	-
 data_cow_slice.saw	pass	-	-
@@ -1096,7 +1096,7 @@ errors/coro_method_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspen
 errors/coro_mutual_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `pong -> ping -> pong` has no compile-time frame size, since a callee's frame is embedded in its caller's by value
 errors/coro_reject_anchored.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `slow -> slow` has no compile-time frame size, since a callee's frame is embedded in its caller's by value. Break
 errors/coro_spawn_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `recurse -> recurse` has no compile-time frame size, since a callee's frame is embedded in its caller's by value.
-errors/coro_suspending_closure_body_at_a_user_method_call.saw	refused	resolve import.unknown-module	no module `std.json`
+errors/coro_suspending_closure_body_at_a_user_method_call.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_suspending_closure_body_in_a_visitor.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure
 errors/coro_suspending_recursion.saw	pass	-	coro.suspending-cycle: suspending recursion is not allowed: the suspending-call cycle `loop -> loop` has no compile-time frame size, since a callee's frame is embedded in its caller's by value. Break
 errors/coro_value_while_suspending_condition.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
@@ -1730,20 +1730,20 @@ iterator_generic_type.saw	pass	-	-
 iterator_simple.saw	pass	-	-
 iterator_string.saw	pass	-	-
 iterator_struct.saw	pass	-	-
-json_escape_grid.saw	refused	resolve import.unknown-module	no module `std.json`
-json_map_keys.saw	refused	resolve import.unknown-module	no module `std.json`
-json_number_edges.saw	refused	resolve import.unknown-module	no module `std.json`
-json_roundtrip_struct.saw	refused	resolve import.unknown-module	no module `std.json`
-json_structural_reject.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_accessors.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_deinit.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_escape_grid.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_number_edges.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_object_deinit_no_copy.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_object_serialize.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_roundtrip.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_structural_reject.saw	refused	resolve import.unknown-module	no module `std.json`
-json_value_synthesized_deep_copy.saw	refused	resolve import.unknown-module	no module `std.json`
+json_escape_grid.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
+json_map_keys.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
+json_number_edges.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
+json_roundtrip_struct.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
+json_structural_reject.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
+json_value_accessors.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+json_value_deinit.saw	refused	mir slice.not-yet	a `borrow` block binding a conditional lend is not lowered to MIR in the bootstrap slice yet
+json_value_escape_grid.saw	pass	-	-
+json_value_number_edges.saw	pass	-	-
+json_value_object_deinit_no_copy.saw	pass	-	-
+json_value_object_serialize.saw	pass	-	-
+json_value_roundtrip.saw	pass	-	-
+json_value_structural_reject.saw	pass	-	-
+json_value_synthesized_deep_copy.saw	refused	typecheck subscript.role	this subscript is used as a writable place: its `[]` lends read-only (`std.map.Map<String, std.json.JsonValue, std.alloc.GlobalAllocator>` declares or derives no such role)
 kernel_slab_idiom.saw	pass	-	-
 l18_module_qualified_annotation.saw	pass	-	-
 l3_private_struct_bare.saw	refused	resolve name.undefined	cannot find `Secret` in scope

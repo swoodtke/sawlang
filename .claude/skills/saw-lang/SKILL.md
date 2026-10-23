@@ -4199,8 +4199,11 @@ satisfying a SAFE requirement is the redundant form above.
 **Closures: judged on their SIGNATURE, and they INHERIT the enclosing domain.**
 `v.each { e in print(e) }` sees only `&T` and stays safe even though
 `each` is unsafe. A closure whose signature names an unsafe type carries
-`unsafe` in its type and fits the `unsafe` slot that handed it the value
-(`String.withCString`'s callback is the std case) — that contact stays local.
+`unsafe` in its type and fits the `unsafe` slot that handed it the value — that
+contact stays local. (std's C-string boundary is a lend, not a callback:
+`strlen(borrow s.c_string()!)` passes `String.c_string`'s pointer for the call
+and panics on an interior NUL; `if borrow let p = s.c_string() { … }` takes the
+absent path once SL-686 gives sawc2's backend the conditional borrow.)
 Contact BEYOND the signature (a captured pointer, an unsafe binding written in
 the closure body) belongs to the ENCLOSING function: there is NO closure-level
 marker, so a safe-signature closure with an unsafe body needs the enclosing

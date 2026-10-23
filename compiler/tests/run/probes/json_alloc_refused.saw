@@ -1,0 +1,56 @@
+// probe: stated
+// about: an allocation refused while `JsonValue` parses or writes is the `Alloc` fault at the offset it was met, never a panic, everywhere but the String layer (SL-813)
+// stage 0: its std reports a refused parse as `TooLarge` and has no `Alloc` fault
+// speeds: -O0 -O2
+// prints: [1, 2, [3]] with 0 allowed: decode error at byte 1: the decoder could not allocate memory
+// prints: [1, 2, [3]] with 1 allowed: decode error at byte 8: the decoder could not allocate memory
+// prints: [1, 2, [3]] with 2 allowed: ok
+// prints: {} with 0 allowed: ok
+// prints: {"k": 1} with 0 allowed: decode error at byte 2: the decoder could not allocate memory
+// prints: {"k": 1} with 2 allowed: decode error at byte 1: the decoder could not allocate memory
+// prints: ["text"] with 0 allowed: decode error at byte 2: the decoder could not allocate memory
+// prints: 7 with 0 allowed: ok
+// prints: write: encode error: the encoder could not allocate memory
+// prints: after: [1,[true,null]]
+// The String layer panics on a refused allocation, so the finished `String`
+// of a JSON string, of a fractional number's digits and of `to_json_string`'s
+// text is out of reach here: each parse below refuses before one is built.
+
+import std.json.{JsonValue}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+// The budget is disarmed before anything is printed, since rendering the
+// error allocates.
+func parse_with(text: String, allow: Int) {
+    __saw_rt_alloc_deny_after(allow)
+    let r = JsonValue.parse(text: text)
+    __saw_rt_alloc_deny_after(-1)
+    match r {
+        case Ok(_) -> print("{} with {} allowed: ok", text, allow),
+        case Err(e) -> print("{} with {} allowed: {}", text, allow, e)
+    }
+}
+
+func main() {
+    parse_with("[1, 2, [3]]", 0)
+    parse_with("[1, 2, [3]]", 1)
+    parse_with("[1, 2, [3]]", 2)
+    parse_with("\{\}", 0)
+    parse_with("\{\"k\": 1\}", 0)
+    parse_with("\{\"k\": 1\}", 2)
+    parse_with("[\"text\"]", 0)
+    parse_with("7", 0)
+
+    let doc = try! JsonValue.parse(text: "[1, [true, null]]")
+    __saw_rt_alloc_deny_after(0)
+    let written = doc.to_json_string()
+    __saw_rt_alloc_deny_after(-1)
+    match written {
+        case Ok(text) -> print("write: {}", text),
+        case Err(e) -> print("write: {}", e)
+    }
+    print("after: {}", try! doc.to_json_string())
+}
