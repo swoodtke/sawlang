@@ -4,7 +4,8 @@
 //! line, so each argument reaches it as one element, whatever bytes it holds.
 //! `wait` blocks the calling thread until the child exits and never suspends.
 //! `output` is cooperative: it parks the task on the child's pipe and on its
-//! exit, so siblings run for the child's whole life. A `Command` holds no
+//! exit, so siblings run for the child's whole life. `env` sets a variable in
+//! the child's environment only. A `Command` holds no
 //! process, so its deinit has nothing to wait for (SL:hazards S28).
 //!
 //! A wait that is cancelled leaves its child running. The child's record is
@@ -20,6 +21,10 @@ extern "C" {
     // A job handle (`> 0`) or a negated portable tag; `argv` is the program's
     // name, then its arguments, then NULL (runtime/ABI.md, "Process spawn").
     func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<UnsafePointer<Int8>>, flags: Int) -> Int
+    // The same spawn with `envp`, a NULL-terminated array of `NAME=VALUE`
+    // entries the child gets on top of this process's environment, each
+    // replacing an inherited variable of its name.
+    func __saw_rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<UnsafePointer<Int8>>, envp: UnsafePointer<UnsafePointer<Int8>>, flags: Int) -> Int
     // The raw POSIX wait status of a child that has exited, `-WouldBlock`
     // while it runs, or another negated tag; every answer but `-WouldBlock`
     // destroys the job.
@@ -63,6 +68,8 @@ static POLL_MAX_NS: UInt64 = 32_000_000
 static PARK_POLL_START_MS: UInt64 = 1
 static PARK_POLL_MAX_MS: UInt64 = 32
 static ARGV_END_BYTE: Int8 = 0
+// `=`, which ends an environment entry's name, so a name may not hold one.
+static NAME_END: Byte = 61
 // The most one read of the child's stdout takes.
 static DRAIN_CHUNK: Int = 4096
 // The answer of a drain that std itself refused, by the growth of the captured
@@ -93,6 +100,11 @@ public struct Command {
     private args: Vector<String>
     // Whether the child's standard error follows its standard output.
     private merged_stderr: Bool
+    // The child's environment overrides, one `NAME=VALUE` entry per name.
+    private environment: Vector<String>
+    // Whether `env` was given a name or value no environment entry can
+    // carry, which the spawn reports.
+    private bad_environment: Bool
 }
 
 /// What a command that ran to completion printed on standard output, and how
@@ -116,7 +128,8 @@ extension Command {
     /// Creates a command that runs `program`, found on `PATH` when it names no
     /// directory, with no arguments.
     public init(program: String) -> Command {
-        Command(program: program, args: Vector<String>(), merged_stderr: false)
+        Command(program: program, args: Vector<String>(), merged_stderr: false,
+                environment: Vector<String>(), bad_environment: false)
     }
 
     /// Adds one argument, which the child receives as exactly one element of
@@ -125,6 +138,41 @@ extension Command {
     /// Returns `Err(AllocError)` when the argument list cannot grow.
     public func arg(&var self, argument: String) -> Result<Void, AllocError> {
         self.args.push(argument)
+    }
+
+    /// Sets the environment variable `name` to `value` for the child only;
+    /// this process's own environment is unchanged.
+    ///
+    /// The child inherits this process's environment, with each variable set
+    /// here added or replacing the inherited value. Setting one name twice
+    /// keeps the later value, so the child sees each name once. Like an
+    /// argument, the name and value reach the child as given, with nothing
+    /// expanded.
+    ///
+    /// Returns `Err(AllocError)` when the entry cannot be stored. A name that
+    /// is empty or holds `=`, or a name or value holding a NUL byte, is no
+    /// environment entry, and `wait()` and `output()` then report
+    /// `InvalidArgument` without launching anything.
+    public func env(&var self, name: String, value: String) -> Result<Void, AllocError> {
+        if name.is_empty() || name.contains("=") || process_holds_nul(name) || process_holds_nul(value) {
+            self.bad_environment = true
+            return
+        }
+        var entry = StringBuilder()
+        try entry.append(name)
+        try entry.append("=")
+        try entry.append(value)
+        let text = entry.build()
+        var i = 0
+        while i < self.environment.len() {
+            let existing = self.environment.get(i) ?? ""
+            if process_names(existing, name) {
+                self.environment.set(i, text)
+                return
+            }
+            i = i + 1
+        }
+        self.environment.push(text)
     }
 
     /// Sends the child's standard error wherever its standard output goes: into
@@ -145,7 +193,8 @@ extension Command {
     /// never reads as success. Returns `Err(SystemError)` when the program
     /// cannot be launched: the spawn's cause, `LaunchFailed` when the child
     /// cannot execute it, and `InvalidArgument` for a program or argument
-    /// holding a NUL byte, which no argument vector can carry. A program
+    /// holding a NUL byte, which no argument vector can carry, or for a
+    /// variable `env` could not set (see `env`). A program
     /// that itself exits 127 reads as `LaunchFailed` too.
     public func wait(&self) unsafe -> Result<Int32, SystemError> {
         let flags = self.redirection(false)
@@ -260,7 +309,7 @@ extension Command {
     // Spawns the child with `flags` and returns its job handle, or the cause
     // the spawn gave.
     func spawned(&self, flags: Int) unsafe -> Result<Int, SystemError> {
-        if process_holds_nul(self.program) {
+        if process_holds_nul(self.program) || self.bad_environment {
             return SystemError.raised("spawn", SystemErrorKind.InvalidArgument)
         }
         let count = self.args.len()
@@ -291,7 +340,43 @@ extension Command {
             k = k + 1
         }
         process_sweep()
-        let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, flags)
+        let answer = self.spawn_seam(argv, flags)
+        GlobalAllocator().dealloc(block, size, align)
+        answer
+    }
+
+    // Spawns through the plain seam, or, for a command with environment
+    // overrides, through the one that takes an `envp` built from them.
+    func spawn_seam(&self, argv: UnsafePointer<UnsafePointer<Int8>>, flags: Int) unsafe -> Result<Int, SystemError> {
+        if self.environment.is_empty() {
+            let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, flags)
+            if job < 0 {
+                return SystemError.of("spawn", 0 - job)
+            }
+            return job
+        }
+        let count = self.environment.len()
+        let slots = count + 1
+        let size = slots * sizeof<UnsafePointer<Int8>>()
+        let align = alignof<UnsafePointer<Int8>>()
+        guard let block = GlobalAllocator().alloc(size, align) else {
+            return SystemError.raised("spawn", SystemErrorKind.ResourcesExhausted)
+        }
+        let envp = block as UnsafePointer<UnsafePointer<Int8>>
+        var i = 0
+        while i < count {
+            let entry = self.environment.get(i) ?? ""
+            envp[i] = entry.c_bytes()
+            i = i + 1
+        }
+        // The NULL that ends the array, as `argv`'s is written.
+        var k = 0
+        let end = count * sizeof<UnsafePointer<Int8>>()
+        while k < sizeof<UnsafePointer<Int8>>() {
+            block[end + k] = ARGV_END_BYTE
+            k = k + 1
+        }
+        let job = __saw_rt_proc_spawn_env(self.program.c_bytes(), argv, envp, flags)
         if job < 0 {
             let failure = SystemError.of("spawn", 0 - job)
             GlobalAllocator().dealloc(block, size, align)
@@ -463,6 +548,13 @@ func process_exit_code(status: Int) -> Int32 {
     } else {
         Int32.from(truncating: 128 + low)
     }
+}
+
+// Whether the `NAME=VALUE` entry is the one for `name`: `PATH=/bin` names
+// `PATH` and not `PAT`.
+func process_names(entry: String, name: String) -> Bool {
+    let n = name.len()
+    entry.len() > n && entry.byte_at(n) == NAME_END && entry.starts_with(name)
 }
 
 // Whether `text` holds a NUL byte, which would end its C string early.

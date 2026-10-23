@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc2's typecheck dump by compiler/tools/std_cone.py.
-# 178 declarations in 17 modules
+# 181 declarations in 17 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -119,8 +119,9 @@ std.prelude: 15
   struct Atomic
   struct UnsafeMutableInterior
 
-std.process: 16
+std.process: 18
   extern __saw_rt_proc_spawn
+  extern __saw_rt_proc_spawn_env
   extern __saw_rt_proc_try_wait
   extern __saw_rt_sleep_ns
   func orphans_sweep
@@ -132,6 +133,7 @@ std.process: 16
   init Command.init
   method Command.arg
   method Command.redirection
+  method Command.spawn_seam
   method Command.spawned
   method Command.wait
   struct Command
@@ -203,12 +205,13 @@ std.utf8: 4
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 9
+std.vector: 10
   init Vector.init
   method Vector.copy
   method Vector.deinit
   method Vector.get
   method Vector.grow_target
+  method Vector.is_empty
   method Vector.len
   method Vector.push
   method Vector.reserve_slots

@@ -1,0 +1,77 @@
+// probe: stated
+// about: `File.read(size:)` makes one bounded read, so a regular file reads in chunks to an empty end of file, and a pipe, which `read()` refuses for having no length, reads the same way (SL-847)
+// stage 0: cannot run it, since its `std.file` reports an `IoError` and its `read(size:)` sizes nothing by itself
+// speeds: -O0 -O2
+// leaks: none
+// prints: file [0123] [4567] [89] end true
+// prints: positional [0123]
+// prints: pipe whole read refused true
+// prints: pipe [hell] [o pi] [pe] end true
+
+import std.data.{Data}
+import std.file.{File}
+import std.path.{Path}
+
+extern "C" {
+    func pipe(fds: UnsafePointer<Int32>) -> Int32
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
+    func getpid() -> Int32
+}
+
+static CHUNK: Int = 4
+
+// The next chunk as text, bracketed so an empty one shows.
+func chunk_text(f: &var File) -> String {
+    let bytes = try! f.read(size: CHUNK)
+    let text = try! bytes.to_string()
+    "[{text}]"
+}
+
+func regular_file() {
+    let path = Path(s: "/tmp/saw_probe_read_size_{getpid()}")
+    let created = try! File.create(path)
+    let _ = try! created.write(try! "0123456789".to_data())
+    var f = try! File.open(path)
+    let a = chunk_text(&var f)
+    let b = chunk_text(&var f)
+    let c = chunk_text(&var f)
+    let end = try! f.read(size: CHUNK)
+    print("file {} {} {} end {}", a, b, c, end.is_empty())
+    var g = try! File.open(path)
+    let first = try! g.read(CHUNK)
+    print("positional [{}]", try! first.to_string())
+    try! File.remove(path)
+}
+
+// Writes `text` into the descriptor whole.
+func put(fd: Int32, text: String) unsafe {
+    if borrow let bytes = text.c_string() {
+        let n = write(fd, bytes, text.len())
+        assert(n == text.len(), "wrote {} of {}", n, text.len())
+    }
+}
+
+func pipe_end() unsafe {
+    var fds: [Int32; 2] = [0; 2]
+    assert(pipe((&fds) as UnsafePointer<Int32>) == 0, "pipe failed")
+    var f = try! File.open(Path(s: "/dev/fd/{fds[0]}"))
+    let _ = close(fds[0])
+    let refused = match f.read() {
+        case Ok(_) -> false,
+        case Err(_) -> true
+    }
+    print("pipe whole read refused {}", refused)
+    put(fds[1], "hello pipe")
+    let _ = close(fds[1])
+    let a = chunk_text(&var f)
+    let b = chunk_text(&var f)
+    let c = chunk_text(&var f)
+    let end = try! f.read(size: CHUNK)
+    print("pipe {} {} {} end {}", a, b, c, end.is_empty())
+}
+
+func main() {
+    regular_file()
+    pipe_end()
+}

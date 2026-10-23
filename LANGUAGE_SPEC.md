@@ -4981,7 +4981,9 @@ borrow var n = counter.lock() {
 
 #### Subscripts: getitem, setitem and the place
 
-**Status: planned.** A subscript has three roles, and each is an ordinary
+**Status: implemented in sawc2** for the three roles, declared and derived, and
+std's `Map` declares the whole family described here; the `default:` subscript
+and `KeyedPlace` are planned. A subscript has three roles, and each is an ordinary
 method, so its receiver mode, effects, visibility, overloads, doc comment and
 `@synthesize` apply unchanged. A method named `[]` with a `borrows` effect is
 the place accessor, one without is the getitem, and `[]=` is the setitem, whose
@@ -8092,7 +8094,8 @@ element it owns, which is a copy at the source.
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
 **Status: implemented** (`designs/48-ord-hash.md`, unified by `designs/54`);
-the subscript roles, `find` and `default:` below are planned.
+the subscript roles and `find` below ship in the new std (`std/map.saw`), and
+`default:` is planned.
 `Map` is **THE dictionary type** — an **open-addressing** hash table (linear
 probing, tombstone deletion) over a `Vector` of slot enums. (The old
 Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
@@ -8111,8 +8114,11 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
   for an absent key (see
   [Subscripts](#subscripts-getitem-setitem-and-the-place)). The copying forms
   need a Copy-tier `V`; reach a move-only value through a borrow
-  (`borrow m[k].method()`) or take it out with `remove`. `m[k, default: e]`
-  supplies a value for a missing key, and `Map` conforms to `KeyedPlace`.
+  (`borrow m[k].method()`) or take it out with `remove`. Both accessors are
+  declared `(&var self)` with a `@synthesize(shared)` twin, so a read through
+  `borrow` works on a `let` map and shares its root, while a write charges the
+  root exclusively. The planned `m[k, default: e]` supplies a value for a
+  missing key, once `Map` conforms to `KeyedPlace`.
 - **A key is any `Hashable + Equatable` type, in any copy tier.** The container
   never needs a copy of a key: a **NoCopy** key is hashed and compared in place,
   and a copyable one may be copied by a probe as its tier allows. A key is moved
@@ -13731,16 +13737,21 @@ so the module list below is also the import list: a leaf name is what
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
 `Thread<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
-`Command`/`ProcessError` (std.process — a real argv spawn, never a shell: one
+`Command`/`CommandOutput` (std.process — a real argv spawn, never a shell: one
 `arg()` is one argv element and nothing in it is split, expanded or executed;
 run `/bin/sh -c` explicitly if a shell is what you want, design 122. `env(name:
-value:)` sets one environment variable for the child under the same rule, on top
-of the environment it inherits; `merge_stderr()` sends its standard error
-wherever its standard output goes. `run()` and `output()` are both COOPERATIVE:
-the wait parks on the child's exit through the reactor and the stdout drain runs
-on a worker thread, so siblings run for the child's whole lifetime and no thread
-waits. Cancelling the task ends the WAIT — the child keeps running, and
-`ProcessError.cancelled()` tells that apart from a launch failure),
+value:)` sets one environment variable in the child's environment only, under
+the same rule, on top of the environment it inherits; a name that is empty or
+holds `=`, or a NUL byte in a name, value, program or argument, is
+`InvalidArgument` when the command runs. `merge_stderr()` sends the child's
+standard error wherever its standard output goes. `wait() -> Result<Int32,
+SystemError>` blocks the calling thread until the child exits and never
+suspends, so a `sync` function may call it. `output() -> Result<CommandOutput,
+SystemError>` is COOPERATIVE: the stdout drain runs on a worker thread and the
+wait parks on the child's exit through the reactor, so siblings run for the
+child's whole lifetime and no thread waits. A program that cannot be executed
+is `LaunchFailed`, and cancelling an `output()` ends the WAIT with
+`Interrupted` while the child keeps running),
 `std.net` (`TcpListener`/`TcpStream`),
 `std.duration` (`Duration`) and `std.time` (`Instant`), plus `Int`/`Float`
 numeric extensions and the
@@ -13759,6 +13770,14 @@ it, and neither does libc when it reads the environment for itself: glibc's
 resolver reads `LOCALDOMAIN` and `RES_OPTIONS` while `TcpStream.connect`
 resolves a name. Such a read racing an `Env.set` is outside what the lock
 guarantees.
+
+**`File` reads.** `read()` reads the rest of a regular file, sized by the length
+lseek(2) reports, so a pipe or FIFO, which has no length, is its `Err`.
+`read(size:)` makes one read(2) of at most `size` bytes and never consults
+lseek, so it reads regular files, pipes and terminals alike: it returns what that
+read gave, fewer bytes when fewer are there, and an empty `Ok` at end of file. A
+`size` that is not positive panics, since the empty `Ok` a zero-byte read
+answers would read as end of file. Both report a failure as `SystemError`.
 
 ### The modules
 
@@ -13789,7 +13808,7 @@ need one of the three [import forms](#imports).
 | `std.file` / `std.directory` / `std.path` | `File`, `Directory`, `Path` | no |
 | `std.net` | `TcpListener`, `TcpStream`, `IoError`, `Timed<T>` | no |
 | `std.signal` | `Signal`, `SignalWatch` | no |
-| `std.process` / `std.env` | `Command`, `ProcessError`, `Env` | no |
+| `std.process` / `std.env` | `Command`, `CommandOutput`, `Env` | no |
 | `std.duration` | `Duration` | yes |
 | `std.time` | `Instant`, `unix_timestamp` | no |
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
@@ -15085,8 +15104,9 @@ match frames.push(Frame(id: 1)) {
 The operations are `Vector.push`/`reserve`/`map`, `Map.insert`/`keys`/`values`,
 `Set.insert` and its algebra, `Data.push`/`set`/`append`/`append_bytes`/
 `reserve`/`detached`, `StringBuilder.append`,
-`Box.make`, `String.split`/`to_data`, `Env.args`, `Command.arg`/`env`/`output`,
-and the constructors `Vector(capacity:)`, `Data(capacity:)`,
+`Box.make`, `String.split`/`to_data`, `Env.args`, `Command.arg`/`env`
+(`Command.output` reports a capture that cannot grow as `ResourcesExhausted`,
+inside its `SystemError`), and the constructors `Vector(capacity:)`, `Data(capacity:)`,
 `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()` and
 `TaskGroup(threads:)`. A constructor reports through the `Result<Self, E>` init
 form, so the call keeps its spelling and the caller gains one word.

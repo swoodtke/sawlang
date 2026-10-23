@@ -1828,16 +1828,23 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   uninteresting/expected absence. NEVER a `Void` return that drops the error, and
   NEVER a sentinel that collides with a valid value (an empty `Data` must not mean
   BOTH EOF and error). A genuine boolean QUESTION (`exists`, `contains`) stays
-  `Bool`. std follows this: `file.remove/rename`, `directory.create/remove/
-  set_current`, `env.set/unset/set_cwd` → `Result<Void, IoError>`; net read/write/
-  accept → Result (see the net section). `Result<Void, E>`: a bare `return` in
-  such a function is `Ok(())`; `match r { case Ok(_) -> …, case Err(e) -> … }`.
-  Design 132 finished the sweep in std.file/std.directory — the whole opening
-  and reading surface carries its cause now: `File.open`/`create`/`open_append`
-  → `Result<File, IoError>`, `File.read` → `Result<Data, IoError>` (an empty Ok
-  means the file had nothing left, distinct from a failure), `File.write` →
-  `Result<Int, IoError>` (bytes written), `File.seek_*`/`position` →
-  `Result<Int, IoError>`, `Directory.list` → `Result<Vector<Path>, IoError>`.
+  `Bool`. std follows this: `File.remove/rename`, `Directory.create/remove`,
+  `Env.set/unset/set_cwd` → `Result<Void, SystemError>` (`import
+  std.systemerror.{SystemError}`; `e.kind()` is the branchable
+  `SystemErrorKind`); net read/write/accept → `Result<_, IoError>` (see the net
+  section). `Result<Void, E>`: a bare `return` in such a function is `Ok(())`;
+  `match r { case Ok(_) -> …, case Err(e) -> … }`. The whole opening and
+  reading surface of std.file/std.directory carries its cause:
+  `File.open`/`create`/`open_append` → `Result<File, SystemError>`, `File.read()`
+  → `Result<Data, SystemError>` (the rest of a regular file; an empty Ok means
+  nothing was left, distinct from a failure; a pipe has no length, so it is an
+  `Err`), `File.read(size: n)` → `Result<Data, SystemError>` (ONE read(2) of at
+  most `n` bytes, never consulting lseek: regular files, pipes and ttys alike,
+  fewer bytes when fewer are there, an empty Ok at end of file; `n` must be
+  positive or it panics, since a zero-byte read would read as end of file),
+  `File.write` → `Result<Int, SystemError>` (bytes written),
+  `File.seek_*`/`position` → `Result<Int, SystemError>`, `Directory.list` →
+  `Result<Vector<Path>, SystemError>`.
   There is no `if let` over a Result, so bind them with `try`, an inline
   catch, or `match`:
   ```saw-fragment
@@ -1853,8 +1860,9 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   ```
   Reach for `match` when both arms are peer control flow; the inline catch
   reads better when the Err path handles and leaves.
-  `Directory.current` stays `Path?` — `None` means getcwd(2) failed, and since
-  design 132 a long path is returned whole rather than becoming that `None`.
+  The working directory is `Env.cwd() -> Result<Path, SystemError>`, carrying
+  the cause getcwd(3) gave (`NotFound` once the directory is removed), and
+  `Env.set_cwd(path)` changes it. There is no `Directory.current`.
 
 ## Traits & generics
 ```saw-fragment
@@ -3778,7 +3786,8 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 per operation; the signature says whether it can fail. That is
 `push`/`append`/`insert`/`reserve`/`set`/`detached`/`map`/
 `keys`/`values`/`Box.make`/`String.split`/`String.to_data`/`Env.args`/
-`Command.arg`/`env`/`output`, and the constructors `Vector(capacity:)`,
+`Command.arg`/`env` (`Command.output` reports a capture that cannot grow as
+`ResourcesExhausted`, inside its `SystemError`), and the constructors `Vector(capacity:)`,
 `Data(capacity:)`, `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()`,
 `TaskGroup(threads:)` (a fallible `init` returns `Result<Self, E>` — DF-245a —
 so the CALL keeps its spelling and gains one word). `Mutex(value:)` allocates
@@ -4698,9 +4707,17 @@ construct in the owner and lend `&driver` down.
   once; panics if absent). `v[i].field` copies the whole element, then reads the
   field. `m.get(k)` / `v.get(i)` are OPTIONAL COPIES; `m.find(&k)` /
   `v.find(i)` are the conditional lends (`borrows -> &var V?`, with shared
-  twins). `m[k, default: e]` (lazy `e`, via the `KeyedPlace` trait):
-  `counts[w, default: 0] += 1`, `borrow var s = sessions[id, default:
-  Session()] { … }`. Multi-arg `m[r, c]` with `[]=(r, c, value:)`.
+  twins). std `Map` ships the family: a declared inserting `[]=`, a
+  `@synthesize(shared)` `[](&var self, key: K) borrows -> &var V` (panics on a
+  missing key) and `find(&var self, key: &K) borrows -> &var V?` (no window on
+  a miss, so the else branch may insert): `m[k] = v`, `borrow var m[k] += 1`,
+  `borrow var m[k].push(x)`, `borrow var e = m[k] { … }`,
+  `if borrow var e = m.find(&k) { … } else { try m.insert(k, fresh) }`,
+  `borrow var m.find(&k)?.n += 1`, at any copy tier of `V`. `m[k, default: e]`
+  (lazy `e`, via the `KeyedPlace` trait): `counts[w, default: 0] += 1`,
+  `borrow var s = sessions[id, default: Session()] { … }` — specified, not yet
+  shipped (std has no `KeyedPlace`). Multi-arg `m[r, c]` with
+  `[]=(r, c, value:)`.
   Everything below in this entry is STAGE 0's model, which `blade/`, `libs/`,
   `examples/` and `compiler/` still compile against:
 - **STAGE 0: `v[i]` is a PLACE, not a copy** (design 146) — `Data` has the same `d[i]`.
@@ -4950,31 +4967,32 @@ construct in the owner and lend `&driver` down.
   var c = Command(program: "git")
   try! c.arg("clone")
   try! c.arg(url)
-  let code = try! c.run()
+  let code = try! c.wait()
   ```
-  `run() -> Result<Int32, ProcessError>`: Ok(code) = launched + exited (signal
-  death = 128+signum, never a bogus 0); Err = could not launch (spawn failed, or
-  the child could not exec -> 127). `ProcessError: Error` names the program.
-  `.output() -> Result<CommandOutput?, AllocError>` captures stdout (stderr is
-  inherited); the `None` inside the `Ok` is the cancelled case, below.
-  `run()` AND `output()` ARE BOTH COOPERATIVE (designs 182 + 187) — `run` parks
-  on the child's exit, and `output` additionally drains the stdout pipe on a
-  worker thread (the seam is `blocking`, so design 183 offloads it), so a task
-  running or capturing a child no longer starves its siblings and no thread is
-  spent waiting. Consequence for callers: BOTH SUSPEND, so a `sync` function can
-  call neither. `output()` is spawnable into a `threads: N` group. Cancelling
-  the task ends the WAIT, not the child (which keeps running, unreaped);
-  `ProcessError.cancelled()` distinguishes that Err from a launch failure, and a
-  cancelled `output()` answers `None`.
-  `env(name:value:)` (design 155) sets ONE environment variable for the child,
-  under `arg`'s discipline — the name and the value are bytes the child receives
-  verbatim, nothing parsed or expanded. The child INHERITS this process's
-  environment and the overrides win; a second `env` for one name replaces the
-  value, so the child never sees a variable twice. `env_count()` reports how
-  many. A name that is empty or contains `=` panics (it could never be a
-  variable). `merge_stderr()` sends the child's stderr wherever its stdout goes
-  — into the capture under `output()`, plain `2>&1` under `run()` — which is how
-  a tool that runs children it EXPECTS to fail keeps its own output readable.
+  `wait() -> Result<Int32, SystemError>` BLOCKS the calling thread until the
+  child exits and never suspends, so a `sync` function may call it: Ok(code) =
+  launched + exited (signal death = 128+signum, never a bogus 0); Err = could
+  not launch — the spawn's cause, `LaunchFailed` when the child could not exec
+  (exit 127), `InvalidArgument` for a NUL byte in the program or an argument.
+  `output() -> Result<CommandOutput, SystemError>` captures stdout (stderr is
+  inherited) and is COOPERATIVE: the drain runs on a worker thread (the seam is
+  `blocking`, so it is offloaded) and the wait parks on the child's exit, so
+  siblings run for the child's whole life. It SUSPENDS, so a `sync` function
+  cannot call it. Cancelling the task ends the WAIT, not the child (which keeps
+  running; a later spawn reaps it), and the Err is `Interrupted`. A capture that
+  is not UTF-8 is `InvalidArgument`, one that cannot grow `ResourcesExhausted`.
+  There is no `run()` and no `ProcessError`.
+  `env(name:value:)` sets ONE environment variable for the CHILD only, under
+  `arg`'s discipline — the name and the value are bytes the child receives
+  verbatim, nothing parsed or expanded, and this process's environment is
+  untouched. The child INHERITS this process's environment and the overrides
+  win; a second `env` for one name replaces the value, so the child never sees
+  a variable twice. A name that is empty or holds `=`, or a NUL byte in the
+  name or value, is no environment entry: `wait()`/`output()` then report
+  `InvalidArgument` without launching, as for a NUL in an `arg`.
+  `merge_stderr()` sends the child's stderr wherever its stdout goes — into the
+  capture under `output()`, plain `2>&1` under `wait()` — which is how a tool
+  that runs children it EXPECTS to fail keeps its own output readable.
   Capturing stderr on its own is not expressible yet.
   ```saw-fragment
   var c = Command(program: python)

@@ -98,7 +98,8 @@ extension File {
     ///
     /// A file that grows during the read is cut at that length, and the bytes
     /// written past it are left for a later `read`. A pipe or FIFO has no
-    /// length to report, so reading one is the `Err` of its lseek(2).
+    /// length to report, so reading one is the `Err` of its lseek(2);
+    /// `read(size:)` reads one in pieces.
     ///
     /// An empty `Ok` means nothing was left. Returns `Err(SystemError)` with
     /// the cause of a failing lseek(2) or read(2); `UnexpectedEnd` when the
@@ -138,6 +139,39 @@ extension File {
             }
         }
         data
+    }
+
+    /// Reads at most `size` bytes from the current position, in one read(2).
+    ///
+    /// Returns what that read gave, which may be fewer bytes than asked: a
+    /// pipe or a terminal answers with what has arrived, a regular file with
+    /// what is left. It never consults lseek(2), so it reads pipes, FIFOs and
+    /// terminals as it reads regular files, waiting in read(2) until bytes
+    /// arrive or the writer closes. An empty `Ok` means end of file. A
+    /// signal's interruption is retried, not reported.
+    ///
+    /// Returns `Err(SystemError)` with the cause of a failing read(2), and
+    /// `ResourcesExhausted` when the `size`-byte buffer cannot be allocated.
+    /// Panics if `size` is not positive.
+    public func read(&var self, size: Int) unsafe -> Result<Data, SystemError> {
+        // A zero-byte read answers an empty `Ok`, which would read as end of
+        // file, so zero is refused with the negative counts.
+        if size <= 0 {
+            panic("File.read: size {} is not positive", size)
+        }
+        guard var data = Data.reserved(size) else {
+            return SystemError.raised("read", SystemErrorKind.ResourcesExhausted)
+        }
+        while {
+            let n = __saw_rt_fs_read(self.descriptor, data.spare(), size)
+            if n >= 0 {
+                data.grow(n)
+                return data
+            }
+            if not file_interrupted(0 - n) {
+                return SystemError.of("read", 0 - n)
+            }
+        }
     }
 
     /// Writes all of `data` at the current position, and returns how many

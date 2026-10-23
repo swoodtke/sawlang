@@ -1,0 +1,14 @@
+// probe: panics
+// about: a write through `Map.[]`'s place panics on a missing key rather than inserting, since `find` is the lend for a key that may be absent (SL-847)
+// stage 0: cannot build it, since it does not parse `borrow`
+// speeds: -O0 -O2
+// prints: before 1
+// panics: Map.[]: no entry for the key
+
+func main() {
+    var counts = Map<String, Int>()
+    counts["a"] = 1
+    print("before {}", counts["a"])
+    borrow var counts["missing"] += 1
+    print("after {}", counts.len())
+}

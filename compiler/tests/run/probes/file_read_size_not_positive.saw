@@ -1,0 +1,16 @@
+// probe: panics
+// about: `File.read(size: 0)` panics, since the empty `Ok` a zero-byte read answers would read as end of file (SL-847)
+// stage 0: cannot run it, since its `File.read(size: 0)` reads the whole rest of the file
+// speeds: -O0 -O2
+// prints: opened
+// panics: File.read: size 0 is not positive
+
+import std.file.{File}
+import std.path.{Path}
+
+func main() {
+    var f = try! File.open(Path(s: "/dev/null"))
+    print("opened")
+    let bytes = try! f.read(size: 0)
+    print("read {}", bytes.len())
+}

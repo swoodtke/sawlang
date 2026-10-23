@@ -104,41 +104,54 @@ extension Map<K, V, A: Allocator = GlobalAllocator> {
         value_of(move old)
     }
 
-    // Read-only on purpose: a writable `[]` would derive a setitem that
-    // replaces and panics on a missing key, where `m[k] = v` inserts, and the
-    // std profile cannot read the `[]=` that says so (SL-600).
-    /// Lends the value stored under `key` where it sits, read-only.
+    // Declared rather than derived: the setitem a place accessor derives
+    // replaces and panics on a missing key, where `m[k] = v` inserts.
+    /// Stores `value` under `key`: `m[k] = v` inserts a new entry, or
+    /// replaces the value of a present one and destroys the old value.
     ///
-    /// A read of `m[k]` copies the value out, so the value must be Copy.
-    /// Panics if no entry for `key` is present; `find` is the lend that opens
-    /// no window for an absent key.
-    public func [](&self, key: K) unsafe borrows -> &V {
+    /// Panics if a new key needs a larger table and `A` refuses, since a
+    /// setitem has no error channel; `insert` is the spelling that reports.
+    public func []=(&var self, key: K, value: V) unsafe {
+        match self.insert(move key, move value) {
+            case Ok(_) -> {},
+            case Err(e) -> { panic("Map.[]=: {}", e) }
+        }
+    }
+
+    /// Lends the value stored under `key` where it sits.
+    ///
+    /// A plain `m[k]` copies the value out, so the value must be Copy;
+    /// `borrow m[k]` reads it in place and `borrow var m[k]` writes it there,
+    /// at any copy tier. Panics if no entry for `key` is present; `find` is
+    /// the lend that opens no window for an absent key.
+    @synthesize(shared)
+    public func [](&var self, key: K) unsafe borrows -> &var V {
         let found = self.bucket_of(&key)
         if found < 0 {
             panic("Map.[]: no entry for the key")
         }
         let buf = self.table()
         match buf[found] {
-            case Occupied(_, v) -> { lend v },
+            case Occupied(_, borrow var v) -> { lend v },
             case Empty -> { panic("Map.[]: the entry's slot is empty") },
             case Tombstone -> { panic("Map.[]: the entry's slot is removed") }
         }
     }
 
-    // Read-only until a slot's payload can be lent writably, which takes a
-    // `borrow var` pattern the std profile cannot read (SL-600).
     /// Lends the value stored under `key` where it sits, or nothing when no
     /// entry is present.
     ///
-    /// The absent path opens no window, so the map is free to use there.
-    public func find(&self, key: &K) unsafe borrows -> &V? {
+    /// The absent path opens no window, so the map is free to use there, as
+    /// an insert on a miss does.
+    @synthesize(shared)
+    public func find(&var self, key: &K) unsafe borrows -> &var V? {
         let found = self.bucket_of(&key)
         if found < 0 {
             return None
         }
         let buf = self.table()
         match buf[found] {
-            case Occupied(_, v) -> { lend v },
+            case Occupied(_, borrow var v) -> { lend v },
             case Empty -> { return None },
             case Tombstone -> { return None }
         }

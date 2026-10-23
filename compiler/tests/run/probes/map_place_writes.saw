@@ -1,0 +1,84 @@
+// probe: stated
+// about: `Map`'s writable family writes a value where it sits: `m[k] = v` inserts and replaces, `borrow var` reaches `[]` and `find`, and a miss through `find` leaves the map free to insert (SL-847)
+// stage 0: cannot build it, since it does not parse `borrow` and its `Map.[]` is a conditional lend
+// speeds: -O0 -O2
+// leaks: none
+// prints: inserted 1 2
+// prints: replaced 10 aa
+// prints: compound 25
+// prints: pushed 3
+// prints: found 4
+// prints: inserted on a miss 1
+// prints: chained 7 absent wrote nothing true
+// prints: move-only hits 3 log 2
+// prints: shared read 4
+// prints: entries 2 2 1 1
+
+struct Tally { n: Int }
+
+// A move-only value: owning, and no copy policy but `NoCopy`.
+struct Ledger {
+    hits: Int
+    log: Vector<String>
+}
+extension Ledger: NoCopy {}
+
+func main() {
+    var counts = Map<String, Int>()
+    counts["a"] = 1
+    counts["b"] = 2
+    print("inserted {} {}", counts["a"], counts["b"])
+
+    var names = Map<String, String>()
+    names["k"] = "a"
+    names["k"] = "aa"
+    counts["a"] = 10
+    print("replaced {} {}", counts["a"], names["k"])
+
+    borrow var counts["b"] += 23
+    print("compound {}", counts["b"])
+
+    var lists = Map<String, Vector<Int>>()
+    lists["xs"] = Vector<Int>()
+    try! borrow var lists["xs"].push(1)
+    borrow var xs = lists["xs"] {
+        try! xs.push(2)
+        try! xs.push(3)
+    }
+    print("pushed {}", borrow lists["xs"].len())
+    if borrow var found = lists.find(&"xs") {
+        try! found.push(4)
+    }
+    print("found {}", borrow lists["xs"].len())
+
+    if borrow var ys = lists.find(&"ys") {
+        try! ys.push(0)
+    } else {
+        let _ = try! lists.insert("ys", [9])
+    }
+    print("inserted on a miss {}", borrow lists["ys"].len())
+
+    var tallies = Map<String, Tally>()
+    tallies["t"] = Tally(n: 6)
+    borrow var tallies.find(&"t")?.n += 1
+    borrow var tallies.find(&"u")?.n += 1
+    print("chained {} absent wrote nothing {}", tallies["t"].n, not tallies.contains_key("u"))
+
+    var ledgers = Map<String, Ledger>()
+    let _ = try! ledgers.insert("main", Ledger(hits: 0, log: Vector<String>()))
+    borrow var ledgers["main"].hits += 1
+    borrow var entry = ledgers["main"] {
+        entry.hits += 1
+        try! entry.log.push("second")
+    }
+    if borrow var again = ledgers.find(&"main") {
+        again.hits += 1
+        try! again.log.push("third")
+    }
+    print("move-only hits {} log {}", borrow ledgers["main"].hits, borrow ledgers["main"].log.len())
+
+    let frozen = move lists
+    print("shared read {}", borrow frozen["xs"].len())
+
+    print("entries {} {} {} {}", counts.len(), frozen.len(), names.len(), ledgers.len())
+}

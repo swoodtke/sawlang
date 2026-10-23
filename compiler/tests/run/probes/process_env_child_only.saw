@@ -1,0 +1,57 @@
+// probe: stated
+// about: `Command.env` sets a variable in the child's environment and never the parent's: the child sees it verbatim, a second `env` replaces the first, an inherited variable is overridden, and a name no entry can carry is `InvalidArgument` at the spawn (SL-847)
+// stage 0: cannot run it, since its `Command` has no `output()` that returns a `Result<CommandOutput, SystemError>`
+// speeds: -O0 -O2
+// leaks: none
+// prints: child saw [second|x $HOME y|child]
+// prints: parent has first false
+// prints: parent keeps parent true
+// prints: empty name InvalidArgument true
+// prints: name with = InvalidArgument true
+// prints: NUL in value InvalidArgument true
+
+import std.env.{Env}
+import std.process.{Command, CommandOutput}
+import std.systemerror.{SystemErrorKind}
+
+// The child prints the three variables, bracketed, as it received them.
+func script() -> String {
+    "printf '[%s|%s|%s]' \"$SAW_PROBE_FIRST\" \"$SAW_PROBE_SECOND\" \"$SAW_PROBE_INHERITED\""
+}
+
+// Whether running `c` is refused with `InvalidArgument` before anything runs.
+func refused(c: &Command) -> Bool {
+    match c.wait() {
+        case Ok(_) -> false,
+        case Err(e) -> {
+            match e.kind() {
+                case InvalidArgument -> true,
+                case _ -> false
+            }
+        }
+    }
+}
+
+func bad(name: String, value: String) -> Bool {
+    var c = Command(program: "/bin/true")
+    try! c.env(name, value)
+    refused(&c)
+}
+
+func main() {
+    try! Env.set("SAW_PROBE_INHERITED", "parent")
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg(script())
+    try! c.env("SAW_PROBE_FIRST", "first")
+    try! c.env("SAW_PROBE_FIRST", "second")
+    try! c.env("SAW_PROBE_SECOND", "x $HOME y")
+    try! c.env("SAW_PROBE_INHERITED", "child")
+    let out = try! c.output()
+    print("child saw {}", out.stdout)
+    print("parent has first {}", Env.contains("SAW_PROBE_FIRST"))
+    print("parent keeps parent {}", (Env.get("SAW_PROBE_INHERITED") ?? "") == "parent")
+    print("empty name InvalidArgument {}", bad("", "v"))
+    print("name with = InvalidArgument {}", bad("A=B", "v"))
+    print("NUL in value InvalidArgument {}", bad("SAW_PROBE_NUL", "a\0b"))
+}
