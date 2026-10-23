@@ -26,10 +26,10 @@ D43 left Linux a host split to owe: `_NSGetExecutablePath` is macOS-only, so Sta
 **Amended (the Air, on SL-536):** the seam is REQUIRED on every host, never optional, since std calls it. sos-hosted and kernel/none define a one-line stub returning NULL, which std reports as `Err(Unknown)`. On Linux, a binary deleted while running reads `… (deleted)`, `realpath` fails, and the result is the same `Err(Unknown)`.
 
 ### D43. `Env.executable_path()` is added to the frozen `sawc/std` as well as `std/` (Oct 12; U7c M2b, SL-522)
-sawc2 found its runtime manifest beside `argv[0]`, which breaks when it is run by bare name through `PATH` or through a symlink (the Air's SL-522.p1 note). That is exactly how the seed will be installed. The driver compiles under both stds, so the fix needs the API in both. **Decided:** `Env.executable_path()` (`_NSGetExecutablePath`, then `realpath`; libc externs only, no new seam) in `std/env.saw`, and additively in `sawc/std/env.saw`. It is the same pattern, and the same rewrite-blocker allowance, as the user's ruling "SL-522 (Stage 0 std)" for `File.close`/`Command.wait`. It goes away with Stage 0's std. It is macOS-only for now; Linux (`/proc/self/exe`) needs a host split, owed by SL-534 and SL-536. **Amended after the Air's review of SL-522.p3:** it reads NO errno. `rt/ABI.md` forbids std calling `__saw_rt_last_syserror` after a bare libc op. On a `realpath`/`_NSGetExecutablePath` failure it returns a fixed `SystemError` naming the operation. That is still a surfaced error, needs no ABI.md exception and no new seam, and the failure is near-impossible for the running binary. **Since D44:** on Linux a binary deleted while running makes `/proc/self/exe` read `… (deleted)`, `realpath` fails, and that is the same `Err(Unknown)`. The seam answers only a path or NULL, so an allocation failure inside it is `Unknown` too; `ResourcesExhausted` is no longer reported (agent linux). **Flagged for the user's morning review.**
+sawc found its runtime manifest beside `argv[0]`, which breaks when it is run by bare name through `PATH` or through a symlink (the Air's SL-522.p1 note). That is exactly how the seed will be installed. The driver compiles under both stds, so the fix needs the API in both. **Decided:** `Env.executable_path()` (`_NSGetExecutablePath`, then `realpath`; libc externs only, no new seam) in `std/env.saw`, and additively in `sawc/std/env.saw`. It is the same pattern, and the same rewrite-blocker allowance, as the user's ruling "SL-522 (Stage 0 std)" for `File.close`/`Command.wait`. It goes away with Stage 0's std. It is macOS-only for now; Linux (`/proc/self/exe`) needs a host split, owed by SL-534 and SL-536. **Amended after the Air's review of SL-522.p3:** it reads NO errno. `rt/ABI.md` forbids std calling `__saw_rt_last_syserror` after a bare libc op. On a `realpath`/`_NSGetExecutablePath` failure it returns a fixed `SystemError` naming the operation. That is still a surfaced error, needs no ABI.md exception and no new seam, and the failure is near-impossible for the running binary. **Since D44:** on Linux a binary deleted while running makes `/proc/self/exe` read `… (deleted)`, `realpath` fails, and that is the same `Err(Unknown)`. The seam answers only a path or NULL, so an allocation failure inside it is `Unknown` too; `ResourcesExhausted` is no longer reported (agent linux). **Flagged for the user's morning review.**
 
 ### D42. A temporary on a conditionally evaluated operand dies at the end of that operand (Oct 12; SL-508, agent fe3)
-A temporary made on an operand that only some paths evaluate cannot be dropped at the end of its statement without a runtime drop flag. That covers the right side or a middle operand of `&&`/`||`, and every `??` operand after the first. sawc2 did exactly that, and the MIR verifier rightly flagged a double drop in a loop. **Decided:** such an operand is its own temporary scope, so its temporaries die when the operand completes, before any later temporary of the statement exists. That is Stage 0's behaviour (the run lane's oracle), Rust's (a lazy boolean operand is a temporary scope), and the principle of the user's ruling SL-513 (B): a part dies when the construct that took it completes. It needs no drop flags; the flagged drops over sawc2's own build go from 10 to 1. The spec gains a sentence where it states a temporary's lifetime, and SL:architecture §3.7's "Temporaries are dropped at the end of their statement" gains the exception. **Amended after the Air's review of SL-508.p1:** the same holds for every construct only some paths run. A bare `match` arm is a temporary scope of its own, as a braced arm is, so `match k { case 0 -> 0, case _ -> mk(1).val() } + mk(2).val()` drops `1` then `2`. A block ends its own temporaries, its tail expression's included. sawc2 already does both, with no flag; the spec states them. **Reversal:** statement-end drop with a runtime flag per conditional temporary. **Flagged for the user's morning review:** this is a timing refinement.
+A temporary made on an operand that only some paths evaluate cannot be dropped at the end of its statement without a runtime drop flag. That covers the right side or a middle operand of `&&`/`||`, and every `??` operand after the first. sawc did exactly that, and the MIR verifier rightly flagged a double drop in a loop. **Decided:** such an operand is its own temporary scope, so its temporaries die when the operand completes, before any later temporary of the statement exists. That is Stage 0's behaviour (the run lane's oracle), Rust's (a lazy boolean operand is a temporary scope), and the principle of the user's ruling SL-513 (B): a part dies when the construct that took it completes. It needs no drop flags; the flagged drops over sawc's own build go from 10 to 1. The spec gains a sentence where it states a temporary's lifetime, and SL:architecture §3.7's "Temporaries are dropped at the end of their statement" gains the exception. **Amended after the Air's review of SL-508.p1:** the same holds for every construct only some paths run. A bare `match` arm is a temporary scope of its own, as a braced arm is, so `match k { case 0 -> 0, case _ -> mk(1).val() } + mk(2).val()` drops `1` then `2`. A block ends its own temporaries, its tail expression's included. sawc already does both, with no flag; the spec states them. **Reversal:** statement-end drop with a runtime flag per conditional temporary. **Flagged for the user's morning review:** this is a timing refinement.
 
 ### D38. The new std's `Atomic<T>` wraps `UnsafeMutableInterior<T>`; `Atomic(<int>)` folds as a constant through a lang role (Oct 11; U7c M2 census, SL-522)
 The spec already rules the surface:
@@ -42,7 +42,7 @@ The spec already rules the surface:
 - `std/` gains `UnsafeMutableInterior<T>`, layout-transparent with `ptr(&self) unsafe`, and `Atomic<T>` as a struct over one.
 - `Atomic(<int>)` is a lang role (`atomic`) whose construction the one constant evaluator folds as an aggregate. It's the named form the spec lists, not a general relaxation of "an `init` is not a constant" (SL-493's ruling stands).
 - The backend emits a static holding an interior cell as a writable global, and never marks a receiver read-only when its pointee is a cell.
-- **Amended after the Air's review:** `Atomic<T>` states Stage 0's two declarations, `extension Atomic<T>: NoCopy {}` (design 202: a copy would be a second counter) and `extension Atomic<T>: UnsafeSync {}` (design 186: without it, `static HITS: Atomic<Int>` is refused as non-`Sync`). Another `T` must be a refusal, not an `i64` intrinsic over a narrower cell. **Second amendment (u7c found sawc2 refuses every specialized extension, `slice.not-yet`):** rather than build specialized extensions here, the operations stay in `extension Atomic<T>` over the `Int` word, and the `atomic` lang role refuses `Atomic<X>` for any `X` but `Int` by the INSTANTIATED type, not its spelling (the Air's third note: `Atomic(value: 5i8)` and a generic `Atomic<T>` at `T = Int8` write no type at all). It is checked at the one type-formation point typecheck has for a nominal type, written or inferred, and at mono for a generic instantiation. No user conformance can widen that. When specialized extensions land, move the operations to `extension Atomic<Int>` and retire the role check. Pins: a copy refused, the static accepted, and `Atomic<Int8>` refused where it is written.
+- **Amended after the Air's review:** `Atomic<T>` states Stage 0's two declarations, `extension Atomic<T>: NoCopy {}` (design 202: a copy would be a second counter) and `extension Atomic<T>: UnsafeSync {}` (design 186: without it, `static HITS: Atomic<Int>` is refused as non-`Sync`). Another `T` must be a refusal, not an `i64` intrinsic over a narrower cell. **Second amendment (u7c found sawc refuses every specialized extension, `slice.not-yet`):** rather than build specialized extensions here, the operations stay in `extension Atomic<T>` over the `Int` word, and the `atomic` lang role refuses `Atomic<X>` for any `X` but `Int` by the INSTANTIATED type, not its spelling (the Air's third note: `Atomic(value: 5i8)` and a generic `Atomic<T>` at `T = Int8` write no type at all). It is checked at the one type-formation point typecheck has for a nominal type, written or inferred, and at mono for a generic instantiation. No user conformance can widen that. When specialized extensions land, move the operations to `extension Atomic<Int>` and retire the role check. Pins: a copy refused, the static accepted, and `Atomic<Int8>` refused where it is written.
 
 ### D39. D23's atomic intrinsics grow to the orderings the `Atomic<Int>` section names (Oct 11; U7c M2 census)
 Stage 0's `Atomic` operations are sequentially consistent. **Decided:** add `__saw_atomic_*` intrinsics for a seq_cst load, store, compare-exchange and fetch-add, spelled in Stage 0's vocabulary, and nothing more. As D23's reversal clause says, this changes only `std/`'s internals and the builtin table.
@@ -50,13 +50,13 @@ Stage 0's `Atomic` operations are sequentially consistent. **Decided:** add `__s
 ### D40. A `static_assert` over a layout is checked once layouts exist, at mono (Oct 11; U7c M2 census; the spec per SL-493)
 The spec allows `sizeof`/`alignof` of any type inside a `static_assert`. Layouts are computed by `compiler/target`, which only mono reaches. **Decided (amended after the Air's review):** the evaluator defers a `static_assert` whose condition needs a code-generation layout. A pending assertion over NON-generic types is checked right after typecheck, against `sawtarget`'s layout of typecheck's types, in every body and at top level, in every mode (`--check` included). That matches how SL-494 already checks every non-layout `static_assert`, reachable or not. Only an assertion that mentions a type parameter waits for mono, which checks it per instantiation; one in a never-instantiated generic body is never checked, the usual post-monomorphization rule. A false assertion is `static_assert.failed` at the assert. **Where the check lives:** `sawtarget` imports `sawtypecheck`, so the post-typecheck check can't sit inside typecheck without making the packages depend on each other. It is a driver-level funnel, which every mode calls right after typecheck, with its entry points named in its docstring; the driver already imports both. Everything else is unchanged: `static.not-constant` outside `static_assert` (SL-493).
 
-### D41. sawc2 builds the runtime through a `sawc2 runtime --out DIR` command, and doesn't cache (Oct 11; U7c M2 census)
-Caching inside sawc2 would need directory, exists and rename APIs, which is more std surface in both stds. **Decided:**
-- sawc2 gets a runtime-build mode, the spec'd feature (designs 113b/149): exports checked against a generated Saw ABI table, made from `sawc/runtime_abi.py` and kept current by `run.py`, as `stdsuspension.saw` is. The table is checked in, so it outlives Stage 0.
-- `sawc2 runtime --out DIR` writes one object per runtime source, plus `shim.o`, at the module's target, into a directory that already exists.
+### D41. sawc builds the runtime through a `sawc runtime --out DIR` command, and doesn't cache (Oct 11; U7c M2 census)
+Caching inside sawc would need directory, exists and rename APIs, which is more std surface in both stds. **Decided:**
+- sawc gets a runtime-build mode, the spec'd feature (designs 113b/149): exports checked against a generated Saw ABI table, made from `sawc/runtime_abi.py` and kept current by `run.py`, as `stdsuspension.saw` is. The table is checked in, so it outlives Stage 0.
+- `sawc runtime --out DIR` writes one object per runtime source, plus `shim.o`, at the module's target, into a directory that already exists.
 - `build.py` keys and caches it in development. The seed bootstrap (SL-534) can run it unconditionally, in seconds, or the seed release can ship the objects; that is SL-534's choice.
-- Building the runtime at sawc2's target removes M1's linker warnings.
-- **Reversal:** add caching to sawc2 once the std grows a directory API anyway.
+- Building the runtime at sawc's target removes M1's linker warnings.
+- **Reversal:** add caching to sawc once the std grows a directory API anyway.
 
 ### D36. `File`'s deinit calls `close(2)` directly (Oct 10; U5b3, SL-456.p3; the Air confirmed)
 `sawc/rt/ABI.md` has no close seam, and adding one would be an ABI change. Stage 0 does the same, and `std.file` is hosted-only. A failed close of a read-only descriptor loses no data, so its status is dropped. EINTR isn't retried, which is correct, since on Linux the descriptor is already released.
@@ -71,7 +71,7 @@ The spec decides the parameter half:
 - a non-escaping parameter (the default) "is forbidden from being stored or outliving the call";
 - "forwarding a closure into a *non-escaping* parameter is a lend".
 
-It never says whether `struct H { f: () -> Int }` declares an escaping slot. Stage 0 treats every storage slot as escaping, and prints the field as `() escaping -> Int`. sawc2 treats the `escaping` bit as type identity, so it is wrong in both directions: it stores a plain parameter, and refuses to store an `escaping` one.
+It never says whether `struct H { f: () -> Int }` declares an escaping slot. Stage 0 treats every storage slot as escaping, and prints the field as `() escaping -> Int`. sawc treats the `escaping` bit as type identity, so it is wrong in both directions: it stores a plain parameter, and refuses to store an `escaping` one.
 
 **Decided (Stage 0's model, written down):**
 - **Where a function type is escaping:** in every position that holds a value past the call. That is a field, an enum payload, a generic argument (`Vector<() -> Int>`, `T?`), a static, a return type, and an *escaping* closure's capture. A capture into a non-escaping closure is bounded by that closure's call, so it keeps the captured value's kind (the Air, m441: `v.each({ … f(e) })` forwards a non-escaping visitor). A type argument, written or inferred, is a storage position too: a non-escaping function type cannot instantiate a type parameter, because a generic body may hold its `T` past the call (`id(f)` is refused at the call). This is the `type.reference-position` precedent.
@@ -162,12 +162,12 @@ The pick is made among the inner accessors the outer's receiver can reach (the A
 ### D29. A plain subscript in a rendering or comparison position is a getitem (Oct 10; SL-482, spec482's question; the Air's probes)
 `print(v[0])`, `"{v[0]}"`, `print("{}", v[0])` and `v[0] == w[0]` over a `Vector<Res>` with `Res: NoCopy`. LANGUAGE_SPEC's "Value reads" said these places are borrowed where they sit, and both compilers accept them.
 
-**Decided:** each is a getitem, so a NoCopy element is refused, and an ExplicitCopy one needs `.copy()`. The in-place read is spelled `borrow v[0]`, which parses at all four positions in sawc2. This follows from:
+**Decided:** each is a getitem, so a NoCopy element is refused, and an ExplicitCopy one needs `.copy()`. The in-place read is spelled `borrow v[0]`, which parses at all four positions in sawc. This follows from:
 - the user's §1 ruling, "if it looks like a copy, then just copy";
 - §5.1: "plain subscripts are values and `borrow` subscripts are places; the spelling at the call site picks the role";
 - §2.2's own example, `print(borrow doc.section("net").name)`.
 
-Copy-tier elements are unaffected. SL-482 writes the rule into the spec, and SL-486 makes sawc2 refuse the plain forms.
+Copy-tier elements are unaffected. SL-482 writes the rule into the spec, and SL-486 makes sawc refuse the plain forms.
 
 **Rejected:** a per-position exception ("a position that keeps nothing borrows"). It would make a plain subscript's role depend on where it sits, which §5.1's spelling rule replaces.
 
@@ -176,7 +176,7 @@ Copy-tier elements are unaffected. SL-482 writes the rule into the spec, and SL-
 ### D28. "`&self` is read-only all the way down" stops at a raw pointer's pointee (Oct 9; SL-479, the spec rewrite agent's open question 1)
 SL:borrowing §9 retires design 200's heap carve-out: a `&self` body may not write storage the receiver reaches, `self.rows[0].push(9)` included. §9 doesn't say whether that covers a write through an `UnsafePointer` field.
 
-**Decided:** it doesn't. A write through a raw pointer writes the pointee, not the receiver, and the receiver's type is what declared the pointer unsafe. This matches the SL-472 capture rule, where the only unsafe allowance is a raw pointer's pointee, and sawc2's K150 row. std's `Task.cancel` relies on it. The LANGUAGE_SPEC rewrite (SL-479) states it this way.
+**Decided:** it doesn't. A write through a raw pointer writes the pointee, not the receiver, and the receiver's type is what declared the pointer unsafe. This matches the SL-472 capture rule, where the only unsafe allowance is a raw pointer's pointee, and sawc's K150 row. std's `Task.cancel` relies on it. The LANGUAGE_SPEC rewrite (SL-479) states it this way.
 
 **Rejected:** refusing the write, which would force every std type over a raw buffer to take `&var self` for an interior write it guards itself.
 
@@ -196,7 +196,7 @@ SL:borrowing §9 retires design 200's heap carve-out: a `&self` body may not wri
 ### D26. An assignment through an accessor runs its right side before the accessor's prologue (Oct 9; U6d2, SL-460.p2; the Air's review)
 In `g[k] = f()` and `g[k] += f()`, where `[]` is a `borrows` accessor, the order of the right side and the accessor's prologue (user code) is observable. Stage 0 runs `k`, then the prologue, then `f()`, unless the right side reads the root, in which case it runs `f()` first. So its order depends on what the right side mentions.
 
-**Decided:** sawc2 always runs the target's operands (`k`), then the right side, then opens the window (the prologue), then writes. That is SL:borrowing §2.2/§5.4, "right side first, then the left borrow", and it matches Stage 0's own M38 hint, "the right-hand side is evaluated first". It is one order whatever the right side says, and an exclusive window is never open while the right side runs. A method-call receiver is different (SL-473): it opens before the arguments, as the spec's "the receiver is evaluated before the arguments" requires.
+**Decided:** sawc always runs the target's operands (`k`), then the right side, then opens the window (the prologue), then writes. That is SL:borrowing §2.2/§5.4, "right side first, then the left borrow", and it matches Stage 0's own M38 hint, "the right-hand side is evaluated first". It is one order whatever the right side says, and an exclusive window is never open while the right side runs. A method-call receiver is different (SL-473): it opens before the arguments, as the spec's "the receiver is evaluated before the arguments" requires.
 
 **Rejected:** Stage 0's content-dependent order.
 
@@ -218,7 +218,7 @@ SL:architecture §3.6 says a `ref` loan lives until its last use. Under that rul
 ### D24. String's sentinel check is a relaxed atomic load, not a plain one (Oct 9; SL-466; the Air's SL-456.p2 review)
 The spec's String section says a literal's sentinel refcount is checked with a "plain (non-atomic) load" before any atomic operation, and Stage 0 emits exactly that. The fact being read, "is this block immortal", never changes over a live block, so the result is right in practice. But in the C++/LLVM memory model a non-atomic load that races with another thread's atomic read-modify-write of the same word is a data race, and its result is `undef`. A relaxed (monotonic) atomic load compiles to the same instruction on every mainstream target and has no race.
 
-**Decided:** the check is a relaxed atomic load. The builtin module gains `__saw_atomic_load_i64_relaxed`, alongside D23's three. `std/string.saw`'s `copy` and `deinit` use it, and the spec's String section says "relaxed atomic load". The property that matters is unchanged: a literal's block, which may be read-only, is never written. sawc2's backend emits a monotonic load. Stage 0's plain load is left as it is, since `sawc/` is frozen and the two compile to the same machine code.
+**Decided:** the check is a relaxed atomic load. The builtin module gains `__saw_atomic_load_i64_relaxed`, alongside D23's three. `std/string.saw`'s `copy` and `deinit` use it, and the spec's String section says "relaxed atomic load". The property that matters is unchanged: a literal's block, which may be read-only, is never written. sawc's backend emits a monotonic load. Stage 0's plain load is left as it is, since `sawc/` is frozen and the two compile to the same machine code.
 
 **Rejected:** keeping the plain load, which is formally undefined behaviour under the model the backend targets.
 
@@ -240,7 +240,7 @@ Under the user's ruling that "the builtins should not be magic", `std/prelude.sa
 
 **Decided:** the grammar admits `None` as a case name in an enum declaration, everywhere, so the grammar stays context-free. A semantic rule refuses a `case None` declaration in every enum except the one bound to the Optional lang item, and the lang-item shape check requires it there, payload-free. The `None` literal and the `None` pattern keep their one meaning: Optional's case.
 
-**Who and when:** U5b1 makes the grammar edit itself, in its own commits: GRAMMAR.md with a lint fixture, the reference recognizer and its corpus expectations, and sawc2's parser. Its boundary was extended for this in the lead's direct message. It lands no later than `std/prelude.saw`, and U5b1's gate includes `grammarcorpus` (the Air, t15).
+**Who and when:** U5b1 makes the grammar edit itself, in its own commits: GRAMMAR.md with a lint fixture, the reference recognizer and its corpus expectations, and sawc's parser. Its boundary was extended for this in the lead's direct message. It lands no later than `std/prelude.saw`, and U5b1's gate includes `grammarcorpus` (the Air, t15).
 
 **Rejected:**
 - spelling the case another way and mapping `None` to it, which keeps magic in the mapping and changes a user-visible name;
@@ -249,10 +249,10 @@ Under the user's ruling that "the builtins should not be magic", `std/prelude.sa
 **Reversal:** let `case None` be declared in any enum, with the literal resolved by expected type, which would change what `None` means.
 
 ### D21. Two typecheck readings from SL-447.p3's review (Sep 30; the Air)
-1. **A suspending implementation is refused where it is coerced to `any Trait`,** not where it is dispatched. Stage 0 refuses at the dispatch, so a coercion that is never dispatched is accepted by Stage 0 and refused by sawc2. Refusing at the coercion is sound, and it is the site a modular checker can see: the dispatch may be in another module. Decision 3 of U6b3 rests on it.
+1. **A suspending implementation is refused where it is coerced to `any Trait`,** not where it is dispatched. Stage 0 refuses at the dispatch, so a coercion that is never dispatched is accepted by Stage 0 and refused by sawc. Refusing at the coercion is sound, and it is the site a modular checker can see: the dispatch may be in another module. Decision 3 of U6b3 rests on it.
 2. **Exhaustiveness reasons over closed types at any depth.** `(Bool, Bool)` covered by `(true, true)`, `(true, false)` and `(false, _)` is exhaustive, and so is `A(X)`, `A(Y)`, `C` over nested payload cases. The spec's "never prove it on an **open** type" supports this, since `Bool` and enum constructors are closed. Stage 0 refuses both ("literal, range, and guarded arms do not prove exhaustiveness"). `compiler/` meets Stage 0's stricter rule regardless.
 
-**Reversal:** (1) move the refusal to the dispatch; (2) require a wildcard wherever a tuple or nested payload is matched. Each refuses programs sawc2 now accepts, or the reverse, and neither touches `compiler/`.
+**Reversal:** (1) move the refusal to the dispatch; (2) require a wildcard wherever a tuple or nested payload is matched. Each refuses programs sawc now accepts, or the reverse, and neither touches `compiler/`.
 
 ### D20. In a generic body, a borrow after a by-value read makes that read a copy (Sep 30; U6b3, SL-447)
 Design 219's inferred Copy requirement is per path (spec: "The rule is per PATH, not per mention"). A `T` local read by value once on a path is moved, and a second by-value read on the same path duplicates it. The spec doesn't say what a *borrow* after the by-value read means: `let a = sink(x); look(&x)`.
@@ -266,16 +266,16 @@ SL:architecture §3.4 says a call through a generic bound is conservatively may-
 
 **Decided:** judged per instantiation. The generic's summary records the condition, `(refuses-when (sync T.Trait.req))`. A call site with concrete type arguments evaluates it, and refuses there when the instantiated requirement isn't sync-callable. The message names the generic's `sync` body and the requirement. A call site whose type arguments are themselves type parameters (`func outer<U: Trait>(u: U) { inner(u) }`) doesn't evaluate it. It composes it into its own summary, as `(refuses-when (sync U.Trait.req))`, so it is evaluated only at a concrete call further out (the Air, t14, verified on SL-447.p3). Naming a generic function as a value at an instantiation isn't in the language before self-hosting (SL-415), so no other use needs the evaluation. It is sound, because every concrete use is checked, and it accepts exactly the instantiations that are sync-safe. §3.4's "conservative inside a generic body" still holds for may-suspend (framing and the borrow check), which this doesn't change.
 
-**Reversal:** refuse at the definition, and require the bound's requirement to be declared `sync`. That refuses programs sawc2 now accepts.
+**Reversal:** refuse at the definition, and require the bound's requirement to be declared `sync`. That refuses programs sawc now accepts.
 
 **Also recorded (U6b3):** the parking-module cross-check leaves out the executor intrinsics (`__saw_exec_*`), which serve the sync drive loop. So the derived set is channel, net, process, signal and task, and Stage 0 finds no suspending function in `std.taskgroup`.
 
 ### D18. An undeclared generic POD struct auto-conforms per instantiation (Sep 30; the Air, SL-447.p2 approval)
-`struct Pair<T> { a: T, b: T }`, with no conformance written, then `Pair<Int>(…) == Pair<Int>(…)`. The spec's auto-conformance covers "trivial (POD) structs" and doesn't say whether a generic declaration qualifies. Stage 0 refuses it ("does not conform to `Equatable`"). sawc2 accepts it.
+`struct Pair<T> { a: T, b: T }`, with no conformance written, then `Pair<Int>(…) == Pair<Int>(…)`. The spec's auto-conformance covers "trivial (POD) structs" and doesn't say whether a generic declaration qualifies. Stage 0 refuses it ("does not conform to `Equatable`"). sawc accepts it.
 
 **Decided:** accepted. A generic struct's automatic Equatable and Hashable are judged per instantiation, like its Copy tier, which is already a rule over its arguments (U6b1's reading). So `Pair<Int>` qualifies and `Pair<String>` doesn't. One rule then answers "what does this type get for free", for every automatic trait. In a generic body, `Pair<T>` is not Equatable, since whether it is POD depends on `T`. Code generic over it writes the conformance, `@synthesize extension Pair<T>: Equatable` (the Air, t13).
 
-**Reversal:** automatic conformance only for non-generic structs. That refuses programs sawc2 now accepts, and none of them is in `compiler/`.
+**Reversal:** automatic conformance only for non-generic structs. That refuses programs sawc now accepts, and none of them is in `compiler/`.
 
 ### D17. A bare module static carries its declared type (Sep 30; the Air, SL:hazards t22)
 `static SHIFT: Int = 3`, then `flag >= SHIFT` with `flag: UInt32`. The spec pulls two ways:
@@ -312,7 +312,7 @@ The spec states how deep an implicit `Optional` wrap goes, whether a `Result` wr
 - **`let` and the return positions:** any depth;
 - **return:** erases.
 
-sawc2's typecheck now enforces a per-position matrix through one conversion path. The full table, with a spec quote per cell, is in `compiler/tests/typecheck/README.md`, "The wrap and erasure matrix". Where the spec is silent:
+sawc's typecheck now enforces a per-position matrix through one conversion path. The full table, with a spec quote per cell, is in `compiler/tests/typecheck/README.md`, "The wrap and erasure matrix". Where the spec is silent:
 
 **Decided:**
 1. **No erasure at `let`, assignment or `static`.** The spec states erasure only at the return boundary, since it needs the allocator that position supplies.
@@ -364,7 +364,7 @@ GRAMMAR's `syntax.rule.name-pattern` leaves it to resolution whether a lone name
 **Reversal:** a different home for builtins (for example, the new std declaring them), or an exclusion list.
 
 ### D11. `syntax.lex.ascii-identifier` covers every non-ASCII character outside strings and comments (Sep 30; the Air, SL-410 c4)
-§2.7 words the rule as "a letter outside ASCII cannot start or continue [an identifier]". sawc2's lexer refuses every non-ASCII character outside a string literal or a comment alike, as "Unexpected character": `é`, `ï` and `→` all get that. Naming the rule only for letters needs a Unicode letter table in the subset.
+§2.7 words the rule as "a letter outside ASCII cannot start or continue [an identifier]". sawc's lexer refuses every non-ASCII character outside a string literal or a comment alike, as "Unexpected character": `é`, `ï` and `→` all get that. Naming the rule only for letters needs a Unicode letter table in the subset.
 
 **Decided:** reword §2.7. Saw source is ASCII outside the text of string literals and comments, and an interpolation's expression is source (the Air, c6). Any other character there is refused as `syntax.lex.ascii-identifier`. The message names the character and says that identifiers and source outside strings are ASCII.
 - Every such character is refused either way, so only the name changes. No program changes meaning.
@@ -372,11 +372,11 @@ GRAMMAR's `syntax.rule.name-pattern` leaves it to resolution whether a lone name
 **Reversal:** narrow the rule to letters with a letter table, and give a non-letter its own name.
 
 ### D10. A `{` right after `while` opens the infinite loop's body (Sep 29; U4i)
-GRAMMAR.md is ambiguous at `while {`. The recognizer accepts `while { a } { }` as `While.conditional` with a closure literal as its condition. It finds `while { a }`, then a line break, then `{ }` ambiguous, since the infinite loop followed by a closure statement is also a tree. sawc2 and the frozen compiler both read `while {` as the infinite loop, and 81 tracked files use that form.
+GRAMMAR.md is ambiguous at `while {`. The recognizer accepts `while { a } { }` as `While.conditional` with a closure literal as its condition. It finds `while { a }`, then a line break, then `{ }` ambiguous, since the infinite loop followed by a closure statement is also a tree. sawc and the frozen compiler both read `while {` as the infinite loop, and 81 tracked files use that form.
 
 **Decided:** add a §13 rule that a `{` right after `while` begins the infinite loop's body, never a condition. The recognizer gets the matching filter. A closure condition either can't typecheck, since a closure is not a `Bool`, or it is refused. An immediately called closure, `while { check() }() { step() }`, would typecheck under the old reading, but under D10 the `{` opens the body, so the text is refused rather than re-read (the Air, t6). The frozen compiler refuses it the same way. So no program silently changes meaning.
 - **To pin:** `while { c }() { }` is refused by the new rule's name, and `while ({ c }()) { }` is accepted as a conditional loop.
-- **sawc2 changes too** (the Air, t7). Today sawc2 refuses the first at the `(` as `block-tail`, whose hint, "parenthesize the loop to use its value", points the wrong way. The unit makes sawc2 name the new rule at that token instead, with the hint `while ({ check() }()) { step() }`. The frozen parser's refusal of the second pin is §16's existing `syntax.expr.call` row (SL-73), not a D10 matter.
+- **sawc changes too** (the Air, t7). Today sawc refuses the first at the `(` as `block-tail`, whose hint, "parenthesize the loop to use its value", points the wrong way. The unit makes sawc name the new rule at that token instead, with the hint `while ({ check() }()) { step() }`. The frozen parser's refusal of the second pin is §16's existing `syntax.expr.call` row (SL-73), not a D10 matter.
 
 **Reversal:** drop the rule and parenthesize, as in `while ({ a }) { }`.
 
@@ -457,7 +457,7 @@ Correction: the lead first wrote "B", which is not a §12 code. The SL-426 agent
 
 ### Q-noalias. A live `&var` borrow is exclusive against unsafe code too, and codegen assumes it (Oct 12; the USER's ruling; SL-592)
 While a `&var` borrow of a place is live, reading or writing that place through a raw pointer that did not come from the borrow is outside the language's guarantees. This matches Saw's unsafe model: an unsafe function with all-safe parameters must be sound for every input, so the unsafe author carries the obligation. Stage 0 already emits `noalias` on `&var self`, so this is today's behaviour, made explicit. **Consequences:**
-- sawc2 emits `noalias` on every `&var` parameter (SL-592);
+- sawc emits `noalias` on every `&var` parameter (SL-592);
 - shared `&` parameters get it only where the pointee is not cell-carrying, as the spec's cell-carrying section already says;
 - raw pointers get nothing.
 
@@ -506,23 +506,23 @@ The driver's link code compiles under both stds: Stage 1 is built by Stage 0 aga
 
 The lead's accompanying decision: the module's triple is the fixed `arm64-apple-macosx11.0.0`, passed to clang as `-target` too, with no output capture. The linker warnings about Stage 0-built runtime objects (built for macOS 26) stand until M2 builds the runtime at the same target.
 
-### Bootstrap seed. A pinned sawc2 seed binary replaces Python Stage 0 as the bootstrap (Oct 11; the USER's ruling, option b)
-With U7b (SL-533) merged, sawc2 builds itself and the Stage 1 = Stage 2 fixpoint holds. What builds sawc2 on a fresh checkout?
+### Bootstrap seed. A pinned sawc seed binary replaces Python Stage 0 as the bootstrap (Oct 11; the USER's ruling, option b)
+With U7b (SL-533) merged, sawc builds itself and the Stage 1 = Stage 2 fixpoint holds. What builds sawc on a fresh checkout?
 - (a) Python Stage 0 forever, which keeps every Stage 0 workaround and the subset restrictions on `compiler/`;
-- **(b) a pinned seed binary** (Rust's stage0 model): each sawlang release publishes a sawc2 binary per host, and a checkout fetches the pinned one through `tools/toolchain.py`'s resolver;
+- **(b) a pinned seed binary** (Rust's stage0 model): each sawlang release publishes a sawc binary per host, and a checkout fetches the pinned one through `tools/toolchain.py`'s resolver;
 - (c) both.
 
 **Ruled: (b).** Stage 0 retires once the seed is proven. `compiler/` is then free of the subset, and SL-425 reverts every `// Stage 0 workaround (SL:hazards …)` marker to its canonical spelling. The lead's plan: keep `sawc/` in the repository, frozen, until the first seed release has bootstrapped a clean checkout end to end, then retire it. Its order:
-1. SL-522 (a self-contained sawc2);
+1. SL-522 (a self-contained sawc);
 2. the seed release mechanism;
 3. switching the lanes to the seed;
 4. SL-425.
 
-### SL-522. sawc2 writes its own output and runs clang: unbuffered writes with explicit close, and a blocking process API (Oct 11; the USER's ruling, with a caveat)
+### SL-522. sawc writes its own output and runs clang: unbuffered writes with explicit close, and a blocking process API (Oct 11; the USER's ruling, with a caveat)
 **Ruled:**
 - `File.create(path)` and `write(&Data) -> Result`, with an explicit `close() -> Result`; the `deinit` only releases the descriptor;
 - `Command(program:).arg(…).run() -> Result<ExitStatus, SystemError>`, blocking, with no pipes in the first cut;
-- sawc2 builds the runtime from `sawc/rt/`'s Saw sources, plus `shim.c` through clang.
+- sawc builds the runtime from `sawc/rt/`'s Saw sources, plus `shim.c` through clang.
 
 **The caveat (the user):** this shape exists because Stage 1 tolerates leaks while Stage 0 builds it, so a `deinit` must have no observable effect (SL:hazards S28). It is therefore a Stage 0 workaround. Every site carries `// Stage 0 workaround (SL:hazards S28): canonical: <the buffered, deinit-flushing form>`, and SL-425 reverts it with the rest once the seed retires Stage 0.
 
@@ -536,7 +536,7 @@ White-box testing has its own route, already ruled in SL:testing: an `@test { �
 **Consequences:**
 - The corpus twin `module_tests/pkg232n/tests/package_tier_same_package_reach.saw` flips to a refusal (a `manual` row; the `examples/` original tests Stage 0 and stays).
 - Nothing in `blade/` or `libs/` changes.
-- Until sawc2 implements `@test` and sidecars, a `public(package)` helper is testable only through the public API, which is a reason to schedule SL:testing soon after self-hosting.
+- Until sawc implements `@test` and sidecars, a `public(package)` helper is testable only through the public API, which is a reason to schedule SL:testing soon after self-hosting.
 
 **Where it lands:** SL-531 adds the spec sentence in Package Structure and the corpus twin; its two Stage 0 hazard entries are recorded with it.
 
@@ -556,7 +556,7 @@ The spec's import search names "its package root" without defining it. Stage 0 r
 - **Its tests:** `import <package>.layout`, with the package's own `--module-path`.
 - **From outside:** unchanged, `import <package>` and `import <package>.sub`, as Blade already passes `<dep>/src`.
 
-**Where it lands:** SL-518 for `compiler/`, queued in the gap after SL-505 and SL-456.p3; then SL-519 for the spec, Blade, `libs/` and sawc2's resolver.
+**Where it lands:** SL-518 for `compiler/`, queued in the gap after SL-505 and SL-456.p3; then SL-519 for the spec, Blade, `libs/` and sawc's resolver.
 
 **With it (the user, the same day), a style convention, not a rule change:** a field's visibility is written only when it narrows. The spec already makes a field inherit its declaring type's tier ("The tier is stated once, on the type"), and both compilers implement that. So `public` on a field of a `public struct` is redundant and is dropped. SL-518 does this for `compiler/` and `std/` and adds a subset-checker rule; the saw-lang skill gains the idiom.
 
@@ -580,14 +580,14 @@ A `match` on an owned NoCopy or ExplicitCopy enum still consumes its scrutinee, 
 
 **Rejected:** A (arm entry), which releases a guard-like payload before the arm runs; C (scrutinee scope end), which contradicts consumption; and a match that binds no owning part borrowing instead, which needs a second rule for little gain.
 
-**Where it lands:** SL-513 (the spec sentence, sawc2's MIR, run-lane pins). Stage 0 destroys at arm entry, and at scope end in its guard and `Optional` cases; those are SL:hazards C10 and C11. Stage 0's suite pins arm entry in four examples, which test the frozen compiler and are not the contract.
+**Where it lands:** SL-513 (the spec sentence, sawc's MIR, run-lane pins). Stage 0 destroys at arm entry, and at scope end in its guard and `Optional` cases; those are SL:hazards C10 and C11. Stage 0's suite pins arm entry in four examples, which test the frozen compiler and are not the contract.
 
 ### SL-513 (A, SUPERSEDED by B above). A consumed `match` destroys what no arm binding takes at arm entry (Oct 10; the USER's first ruling, reversed the same day)
-A `match` on an owned NoCopy or ExplicitCopy enum consumes its scrutinee, but the spec never said when the parts no arm binding takes are destroyed: a `_` inside a pattern, a pattern like `Full(_)` that binds nothing, or a `case _` arm. Stage 0 destroys them at arm entry. sawc2 did so only when the arm bound part of the payload, and at arm end when it bound nothing.
+A `match` on an owned NoCopy or ExplicitCopy enum consumes its scrutinee, but the spec never said when the parts no arm binding takes are destroyed: a `_` inside a pattern, a pattern like `Full(_)` that binds nothing, or a `case _` arm. Stage 0 destroys them at arm entry. sawc did so only when the arm bound part of the payload, and at arm end when it bound nothing.
 
 **Ruled (option A):** what a consumed `match` doesn't bind dies at arm entry, before the arm body runs. (The order among several discarded fields is the lead's scope, not part of the ruling: reverse declaration order, as a consuming body releases the fields that did not leave.) This is the meaning `_` already has in `let _ = e` and `let (a, _) = pair`: discard now. The arm's own bindings die at the arm's end, as before. The ruling rejected arm end (B) and scrutinee scope end (C). A guard-like payload discarded with `_` is therefore released before the arm runs, the same as `let _ = lock()`.
 
-**Where it lands:** a sentence in the spec's "Match consumes an owned enum", plus sawc2's MIR match lowering for arms that bind nothing, pinned with deinit-order run-lane programs (SL-513).
+**Where it lands:** a sentence in the spec's "Match consumes an owned enum", plus sawc's MIR match lowering for arms that bind nothing, pinned with deinit-order run-lane programs (SL-513).
 
 Stage 0 is wrong on an owned `Optional` scrutinee: `case Some(n)` destroys `n` at the enclosing scope's end, not the arm's. That case is SL:hazards C10.
 
@@ -649,7 +649,7 @@ func first<T: Container>(c: T) -> ??? { c.get(i: 0)! }
 
 ### W2. The one-element tuple pattern (user, Sep 29): (b2)
 **Ruling:** a one-element tuple pattern is spelled `(p,)`, as in expressions and types. A bare `(p)` in a pattern is refused, with a hint naming `(p,)`. No text silently changes meaning, and no real program in sawlang, sawtracker or sawos uses `(p)`.
-- **GRAMMAR.md §8:** `tuple-pattern` gains the `(p,)` form, and `(p)` becomes a removed form with its fixit. §16 records sawc, which reads `(p)` as a one-tuple.
+- **GRAMMAR.md §8:** `tuple-pattern` gains the `(p,)` form, and `(p)` becomes a removed form with its fixit. §16 records sawc0, which reads `(p)` as a one-tuple.
 - **The parser:** U4e's one commented spot in `parse_tuple_pattern_body` flips, with its three pins.
 - **Trailing comma (user, Sep 29): allowed.** A tuple pattern of any length takes one trailing comma, `(a, b,)`, as tuple expressions do. The Air's pin `case (a, b,)` flips from refused to accepted. **Variant payloads too (user, Sep 29, revising "tuples only"):** a variant's payload list also takes an optional trailing comma, so `Some(x,)` is accepted, matching the call that builds the value (the Air, t4). The user's reason: refusing it slightly complicates parsing and buys nothing. U4e's `case Some(x,)` pin flips to accepted.
 - **One element:** in a tuple pattern the comma stays required (`(p,)`, with `(p)` refused). In a payload it is optional: `Some(x)` and `Some(x,)` are the same.
