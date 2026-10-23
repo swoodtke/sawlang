@@ -4,7 +4,7 @@
 &UnsafeMutableInterior<Int>: size 8 align 8 pointer
 &var Result<Void, Int8>: size 8 align 8 pointer
 &var voids.Carrier: size 8 align 8 pointer
-(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 16 align 8 closure
+(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 24 align 8 closure
 (Void?, UInt8): size 2 align 1 record offsets 0 1
 Bool: size 1 align 1 int
 Int: size 8 align 8 int

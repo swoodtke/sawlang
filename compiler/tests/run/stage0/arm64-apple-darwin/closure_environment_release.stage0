@@ -1,0 +1,15 @@
+program	compiler/tests/run/closure_environment_release.saw
+triple	arm64-apple-darwin
+source	a8c7980e796e43aa
+build	ok
+exit	0
+stdout	"string 11 11"
+stdout	"moved in 1"
+stdout	"drop 1"
+stdout	"drop 2"
+stdout	"count alone 1"
+stdout	"count captured 2"
+stdout	"count copied 2 2 2 2"
+stdout	"drop 3"
+stdout	"end"
+stdout	""

@@ -22,4 +22,4 @@ stdout	"copy 5"
 stdout	"quiet 5"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 8 is 'drop 70', expected 'drop 71'

@@ -29,4 +29,4 @@ stdout	"plain 22"
 stdout	"borrow 22"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 8 is 'drop 11', expected 'drop 12'

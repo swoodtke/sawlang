@@ -1,0 +1,21 @@
+// refuses: coro.blocking-drop-position at 19:29
+// message: an escaping closure captures `p: coro.blocking-drop-position.escaping-capture.main.Pool`, whose drop blocks its thread (blocking deinit)
+// The escaping capture from a `main` that runs no executor, refused there
+// too: the position is refused in any context, as an `Arc` payload is
+// (conformance row K195).
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.n)
+    }
+}
+
+func main() blocking {
+    let p = Pool(n: 3)
+    let f: () sync -> Int = { [move p] in p.n }
+    print(f())
+}

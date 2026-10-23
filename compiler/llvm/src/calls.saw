@@ -10,6 +10,7 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_UNSIGNED, LlParts,
                       ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.closures.{ll_dealloc_declaration}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
 import sawllvm.render.{ll_spelled}
@@ -162,6 +163,13 @@ extension LlEmitter {
                     self.extern_call(&var mono, &var target, callee.decl, &info)
                     return
                 }
+                // A function value's `copy()` reaches its copy glue, which
+                // has no body to read a signature from: the copy of the
+                // receiver's referent into the call's destination.
+                if mono.function_value_glue(item) {
+                    self.builtin_copy(&var mono, &var target, &info)
+                    return
+                }
                 let body = callee.body
                 let info_f = mono.dp.bc.mir.funcs[body]
                 var params = Vector<Int>()
@@ -256,11 +264,18 @@ extension LlEmitter {
     }
 
     // A call of a function value: its code pointer, called with its
-    // environment first.
+    // environment first. The callee is read where it lives, never copied:
+    // a copy would retain an environment nothing then releases.
     func value_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
         let node = info.node
-        let fty = mono.dp.bc.mir.operands[info.callee].ty
-        let addr = self.operand_addr(&var mono, &var target, info.callee, fty, node)
+        let callee = mono.dp.bc.mir.operands[info.callee]
+        let fty = callee.ty
+        var addr = ""
+        if callee.kind == MirOperandKind.Const {
+            addr = self.operand_addr(&var mono, &var target, info.callee, fty, node)
+        } else {
+            addr = self.place_addr(&var mono, &var target, callee.place, node)
+        }
         let code = self.load("ptr", addr)
         let env_at = self.offset_addr(addr, target.closure_env_offset())
         let env = self.load("ptr", env_at)
@@ -1422,7 +1437,8 @@ extension LlEmitter {
         let frame_env = self.load("ptr", frame_env_at)
         var env = "null"
         if el.size > 0 {
-            env = self.thread_environment(&var mono, word, &el, node)
+            let align = if el.align > 0 { el.align } else { 1 }
+            env = self.compiler_allocation(&var mono, word, el.size, align, "Thread.spawn", node)
             self.memcpy(env, frame_env, el.size)
         }
         let none = Vector<String>()
@@ -1477,55 +1493,10 @@ extension LlEmitter {
         }
     }
 
-    // A heap environment of layout `el` for a thread body; returns its
-    // address. A refused allocation panics, an allocation the compiler
-    // inserts having no error channel; the site's `Result` is for the
-    // operating system's refusal of the thread.
-    func thread_environment(&var self, mono: &var MonoProgram, word: String, el: &TargetLayout, node: Int) -> String {
-        var seam = StringBuilder()
-        try! seam.append("declare ptr @__saw_rt_alloc(")
-        try! seam.append(word)
-        try! seam.append(", ")
-        try! seam.append(word)
-        try! seam.append(")")
-        self.declare("__saw_rt_alloc", seam.build())
-        let align = if el.align > 0 { el.align } else { 1 }
-        var call = StringBuilder()
-        try! call.append("call ptr @__saw_rt_alloc(")
-        try! call.append(word)
-        try! call.append(" ")
-        try! call.append(el.size)
-        try! call.append(", ")
-        try! call.append(word)
-        try! call.append(" ")
-        try! call.append(align)
-        try! call.append(")")
-        let env = self.assign(call.build())
-        var test = StringBuilder()
-        try! test.append("icmp ne ptr ")
-        try! test.append(env)
-        try! test.append(", null")
-        let made = self.assign(test.build())
-        let pass = self.new_label("thread.environment")
-        let fail = self.new_label("thread.environment.refused")
-        self.branch(made, pass, fail)
-        self.put_label(fail)
-        var text = StringBuilder()
-        try! text.append("Thread.spawn: allocation of ")
-        try! text.append(el.size)
-        try! text.append(" bytes (align ")
-        try! text.append(align)
-        try! text.append(") failed")
-        let message = self.text_bytes(text.build())
-        self.fail_message(&var mono, node, &message)
-        self.put_label(pass)
-        env
-    }
-
     // Frees thread environment `env`, of layout `el`, whose captures were
     // taken or dropped.
     func free_environment(&var self, word: String, el: &TargetLayout, env: String) {
-        self.declare("__saw_rt_dealloc", ll_thread_dealloc_declaration(word))
+        self.declare("__saw_rt_dealloc", ll_dealloc_declaration(word))
         let text = ll_thread_dealloc_call(word, env, &el)
         self.put(text)
     }
@@ -1614,7 +1585,7 @@ extension LlEmitter {
             try! text.append(" %value, ptr %result.at\n")
         }
         if el.size > 0 {
-            self.declare("__saw_rt_dealloc", ll_thread_dealloc_declaration(word))
+            self.declare("__saw_rt_dealloc", ll_dealloc_declaration(word))
             try! text.append("  ")
             try! text.append(ll_thread_dealloc_call(word, "%env", &el))
             try! text.append("\n")
@@ -1640,17 +1611,6 @@ func ll_thread_environment(mono: &MonoProgram, site: &MonoThreadSpawn) -> Int {
     let body = mono.items[site.body].body
     let first = mono.dp.bc.mir.funcs[body].local_first
     mono.dp.bc.mir.locals[first + 1].ty
-}
-
-// The runtime's deallocation seam, declared with `word` sizes.
-func ll_thread_dealloc_declaration(word: String) -> String {
-    var out = StringBuilder()
-    try! out.append("declare void @__saw_rt_dealloc(ptr, ")
-    try! out.append(word)
-    try! out.append(", ")
-    try! out.append(word)
-    try! out.append(")")
-    out.build()
 }
 
 // The instruction freeing thread environment `env` of layout `el`.

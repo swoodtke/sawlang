@@ -166,6 +166,8 @@ fn closures.held(x: T) -> Int {
     bb2: {
         _10 = Add(move _5, move _9);
         _0 = move _10;
+        drop(_6);
+        drop(_2);
         drop(_1);
         return;
     }

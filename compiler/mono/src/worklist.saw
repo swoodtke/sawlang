@@ -403,14 +403,24 @@ extension MonoProgram {
                     self.need_drop(k, result, it.origin_node)
                 }
             },
+            // A function value's glue is its environment's release and
+            // retain, which the backend writes (`emit_function_value_glue`).
             case DropGlue -> {
+                if self.function_value_glue(k) {
+                    return
+                }
                 if self.dp.bc.mir.tc.dispatched_existential(it.glue_type) >= 0 {
                     self.erased_box_glue(k)
                 } else {
                     self.build_drop_glue(k)
                 }
             },
-            case CopyGlue -> self.build_copy_glue(k),
+            case CopyGlue -> {
+                if self.function_value_glue(k) {
+                    return
+                }
+                self.build_copy_glue(k)
+            },
             case MemberGlue -> self.build_member_glue(k),
             case Extern -> {}
         }
@@ -529,10 +539,8 @@ extension MonoProgram {
     }
 
     // A drop of type `t` in item `k`: its glue, unless the type owns nothing.
-    // A function value owns nothing in this slice: a closure capturing an
-    // owning value is refused where it is built.
     func need_drop(&var self, k: Int, t: Int, node: Int) {
-        if not self.dp.bc.mir.owns(t) || self.dp.bc.mir.tc.kind_of(t) == TcKind.Func {
+        if not self.dp.bc.mir.owns(t) {
             return
         }
         let _ = self.glue_of(t, MONO_KEY_DROP, k, node)
@@ -887,14 +895,11 @@ extension MonoProgram {
     }
 
     // A closure construction's body is an item under its parent's arguments.
-    // A capture that owns something would need the environment's release when
-    // the closure value drops, which this slice does not make, so it is
-    // refused rather than leaked. The backend builds every environment in the
-    // frame that creates the closure, so an escaping closure that captures
-    // anything is refused too: its environment would be read after that frame
-    // is gone (SL-525).
-    // A `Thread.spawn` brace's environment is neither: its site moves it to
-    // the heap, and its body takes each capture as a parameter
+    // An escaping closure that captures something keeps its captures on the
+    // heap, and its release drops them through the drop glue of their tuple,
+    // made here (`closure_release`). A non-escaping closure's environment is
+    // a local of its builder, which drops it as any local, and a
+    // `Thread.spawn` brace's body takes each capture as a parameter
     // (`resolve_thread_spawn`).
     func resolve_closure(&var self, k: Int, r: Int, node: Int) {
         let rv = self.dp.bc.mir.rvalues[r]
@@ -924,18 +929,11 @@ extension MonoProgram {
                 j = j + 1
             }
         }
-        j = 0
-        while j < captured.len() && not threaded {
-            let t = captured[j]
-            if self.dp.bc.mir.owns(t) {
-                self.refuse(node, "mono.not-yet", "a closure capturing a value that owns something is not in the backend slice yet")
-                return
-            }
-            j = j + 1
-        }
-        if rv.count > 0 && not threaded && self.closure_escapes(rv.decl) {
-            self.refuse(node, "mono.not-yet", "an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)")
-            return
+        let heap = rv.count > 0 && not threaded && not self.dp.bc.mir.closure_environment(rv.decl)
+        if heap {
+            let none = Vector<Int>()
+            let env_tuple = self.dp.bc.mir.tc.mk_tuple(&captured, &none)
+            self.need_drop(k, env_tuple, node)
         }
         let item = self.closure_body_item(k, body, node)
         self.set_closure_item(r, item)
@@ -958,21 +956,6 @@ extension MonoProgram {
             j = j + 1
         }
         self.function_item(body, it.type_decl, &args, it.func_decl, &inst, it.self_type, k, node, MONO_KEY_FUNCTION)
-    }
-
-    // Whether the closure written at node `e` escapes, as typecheck's
-    // `closure_escapes` decided it. That decision is by elimination: the one
-    // non-escaping position is a direct argument whose parameter is a
-    // function type that does not say `escaping`, so a field, a payload, an
-    // element, a return, a binding or a type argument escapes without a rule
-    // of its own. A closure with no capture table is taken to escape.
-    func closure_escapes(&self, e: Int) -> Bool {
-        let at = self.dp.bc.mir.tc.closure_index.first(e, 0)
-        if at < 0 {
-            return true
-        }
-        let ordinal = self.dp.bc.mir.tc.closure_index.value(at)
-        ordinal >= self.dp.bc.mir.tc.closure_escaping.len() || self.dp.bc.mir.tc.closure_escaping[ordinal]
     }
 
     func resolve_call(&var self, k: Int, c: Int) {

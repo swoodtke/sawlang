@@ -128,12 +128,13 @@ answers (`glued`):
   (run programs `explicit_copy_bound_every_owner`,
   `vector_iter_owning_elements`).
 
-A type that owns nothing has no glue, and neither does a function value: a
-closure capturing a value that owns something is refused where it is built.
-So is an escaping closure, by typecheck's `closure_escaping`, that captures
-anything: the backend builds every environment in the frame that creates the
-closure, and a heap environment is unbuilt (SL-525). Typecheck through drop
-elaboration accept such a closure; only mono refuses it.
+A type that owns nothing has no glue. A function value's drop glue and copy
+glue are items with no MIR body, which the backend writes as the release and
+the retain of the environment the value may share (`function_value_glue`;
+compiler/tests/run/README.md, "Closures"), and a call of one never suspends.
+An escaping closure that captures something, by typecheck's
+`closure_escaping`, keeps its captures on the heap, so mono makes the drop
+glue of their tuple for its release (SL-525).
 
 **Member glue** is made once per (requirement, concrete type) by its own
 funnel (`member_glue_of`), the body a conformance has with nothing written:
@@ -190,9 +191,8 @@ the backend cannot compare in place, SL-759) pin the kinds at each position
 (an operator, a bound, an interpolation, a `Map` key or `Set` element,
 `Vector.sort`), and the probe
 `automatic_hashable_through_bound` the one Stage 0 refuses. A `copy()` on a
-struct, an enum, a tuple or an array is its copy glue (above), and one on a
-function value is refused (SL-525); every other hook on any other type is
-refused as `mono.not-yet`.
+struct, an enum, a tuple, an array or a function value is its copy glue
+(above); every other hook on any other type is refused as `mono.not-yet`.
 
 **Task roots.** A cooperative spawn site (`Task.spawn(f(x))`) is no call of
 its root: the task runs the root in a *task root*, a separate specialization
@@ -323,7 +323,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, a closure capturing an owning value, an escaping closure that captures anything, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet`, `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, and the escaping closure at each position it escapes through, `mono.not-yet.escaping-*` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make, a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.format`, `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `transfer.no-move` | a generic body's move out of a place, which typecheck records where the type names a type parameter, at an instantiation that makes the type `NoMove`: the first such move of each declaration at each set of arguments, its body's, its closures' and its accessor halves' together. A spelled `move`, a `[move x]` capture and a local's by-value read at its last use all count; the fresh placement of a by-value parameter no reference has named does not. A concrete type's is typecheck's (SL-662) | `transfer.no-move`, a `Vector`'s growth; `.element`, `Vector.pop`'s move out of its buffer; `.forward`, a read at its last use; `.capture`, a `[move x]` capture; `.placement-after-borrow`, the placement once a reference named the parameter; `.take`, an Optional's payload; `.map`, a `Map`'s entries |

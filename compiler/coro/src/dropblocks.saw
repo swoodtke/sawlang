@@ -15,12 +15,13 @@
 // reaches no edge of the walk. The positions that hide where a value drops
 // are refused in any context
 // (`coro.blocking-drop-position`): an `Arc` payload, a `Channel` element, an
-// owning erasure to `any`, and a task's result.
+// owning erasure to `any`, a task's result, and an escaping closure's capture.
 //
 // ENTRY POINTS of the blocking-drop check:
 //   coro_check_blocking_drops
 
 import sawcoro.program.{CoroProgram}
+import sawmir.build.{mir_func_local}
 import sawmir.model.{MirAggregate, MirCallKind, MirRvalueKind, MirStmtKind, MirTermKind}
 import sawmono.program.{MONO_KEY_DROP, MonoItemKind}
 import sawresolve.model.{ResDeclKind}
@@ -397,9 +398,14 @@ func coro_append_place(coro: &CoroProgram, item: Int, p: Int, msg: &var StringBu
     try! msg.append("`")
 }
 
-// The positions refused in any context: an `Arc` or `Channel` whose payload's
-// drop blocks, an owning erasure of a value whose drop blocks, and a task
-// root whose result's does. Each once, at the first item that reaches it.
+// THE POSITIONS refused in any context: an `Arc` or `Channel` whose payload's
+// drop blocks, an owning erasure of a value whose drop blocks, a task root
+// whose result's does, and an escaping closure's capture whose does. Each
+// once, at the first item that reaches it.
+// ENTRY POINTS:
+//     coro_check_shared_payload
+//     coro_check_erasures
+//     coro_check_escaping_captures
 func coro_check_drop_positions(coro: &var CoroProgram, facts: &CoroDropFacts) {
     let arc = coro_std_type(&coro, "std.arc", "Arc")
     let channel = coro_std_type(&coro, "std.channel", "Channel")
@@ -430,6 +436,7 @@ func coro_check_drop_positions(coro: &var CoroProgram, facts: &CoroDropFacts) {
         }
         if it.body >= 0 {
             coro_check_erasures(&var coro, &facts, item, it.body)
+            coro_check_escaping_captures(&var coro, &facts, item, it.body)
         }
         if coro.mono.is_task_root(item) && it.body >= 0 {
             let f = it.body
@@ -519,6 +526,69 @@ func coro_check_erasures(coro: &var CoroProgram, facts: &CoroDropFacts, item: In
             coro.refuse(item, stmt.node, "coro.blocking-drop-position", text)
         }
     }
+}
+
+// A capture whose drop blocks, by value or by move, into an escaping
+// closure's heap environment: the environment is shared by every copy of the
+// closure and drops its captures with whichever copy goes last, as an `Arc`
+// drops its payload, and its release is glue the backend writes, which no
+// edge of the walk reaches. A non-escaping closure's environment is a local
+// whose drop the walk reads, and a `Thread.spawn` brace hands its captures
+// to the thread.
+func coro_check_escaping_captures(coro: &var CoroProgram, facts: &CoroDropFacts, item: Int, f: Int) {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    var b = 0
+    while b < info.block_count {
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+        b = b + 1
+        var s = block.first
+        while s >= 0 {
+            let stmt = coro.mono.dp.bc.mir.stmts[s]
+            s = stmt.next
+            if stmt.kind != MirStmtKind.Assign {
+                continue
+            }
+            let r = stmt.rvalue
+            let rv = coro.mono.dp.bc.mir.rvalues[r]
+            if rv.kind != MirRvalueKind.Aggregate || rv.aggregate != MirAggregate.Closure || rv.count == 0 {
+                continue
+            }
+            if coro.mono.dp.bc.mir.closure_environment(rv.decl) || coro_thread_brace(&coro, r) {
+                continue
+            }
+            var j = 0
+            while j < rv.count {
+                let o = coro.mono.dp.bc.mir.lists[rv.first + j]
+                j = j + 1
+                let op = coro.mono.dp.bc.mir.operands[o]
+                if not coro_type_blocks(&coro, &facts, op.ty) {
+                    continue
+                }
+                var msg = StringBuilder()
+                try! msg.append("an escaping closure captures ")
+                if op.place >= 0 {
+                    coro_append_place(&coro, item, op.place, &var msg)
+                } else {
+                    try! msg.append("a `")
+                    try! msg.append(coro.mono.dp.bc.mir.tc.type_text(op.ty))
+                    try! msg.append("`")
+                }
+                try! msg.append(", whose drop blocks its thread (blocking deinit), and an escaping closure's captures drop with whichever copy of it goes last, in whatever context that is, which no check can follow. Keep the value with one owner, and hand it to a `Thread.spawn` body to drop it")
+                coro.refuse(item, stmt.node, "coro.blocking-drop-position", msg.build())
+            }
+        }
+    }
+}
+
+// Whether closure construction `r` is a `Thread.spawn` brace, whose body
+// runs on the thread it starts.
+func coro_thread_brace(coro: &CoroProgram, r: Int) -> Bool {
+    let item = coro.mono.closure_item(r)
+    if item < 0 {
+        return false
+    }
+    let body = coro.mono.items[item].body
+    body >= 0 && coro.mono.dp.bc.mir.thread_body(body)
 }
 
 func coro_erasure_text(coro: &CoroProgram, concrete: Int, erased: Int) -> String {

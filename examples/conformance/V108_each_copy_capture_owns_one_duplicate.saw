@@ -33,10 +33,10 @@
 // `Arc.strong_count()`, which is the memory-safety oracle: a premature release
 // is visible as a count, and the read after it is the use-after-free.
 //
-// DROP ORDER differs between the twins and that is not this row's subject: a
-// driven body releases its frame-resident source at frame teardown, which lands
-// it before the duplicates rather than after (the same skew V107 records). What
-// this row asserts is the COUNT and the OWNERSHIP.
+// DROP ORDER is the same in both twins. Each closure's environment holds its
+// duplicate and is declared at the closure, after `d`, so it dies first: the
+// duplicates drop before the source, in a driven body exactly as in its sync
+// twin. What this row asserts is the COUNT and the OWNERSHIP.
 //
 // INVOCATION COUNTS: rows A-E and G-H invoke each closure ONCE; row F invokes
 // each of its two closures TWICE, which is V107's dimension crossed with this
@@ -53,9 +53,9 @@
 // EXPECT-OUTPUT: -- B two literals, non-escaping, driven, 1 call each
 // EXPECT-OUTPUT: copy 20 -> 21
 // EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
 // EXPECT-OUTPUT: drop 20
-// EXPECT-OUTPUT: drop 21
-// EXPECT-OUTPUT: drop 21
 // EXPECT-OUTPUT: = 42
 // EXPECT-OUTPUT: -- C two literals, escaping, sync, 1 call each
 // EXPECT-OUTPUT: copy 30 -> 31
@@ -75,10 +75,10 @@
 // EXPECT-OUTPUT: copy 40 -> 41
 // EXPECT-OUTPUT: copy 40 -> 41
 // EXPECT-OUTPUT: copy 40 -> 41
+// EXPECT-OUTPUT: drop 41
+// EXPECT-OUTPUT: drop 41
+// EXPECT-OUTPUT: drop 41
 // EXPECT-OUTPUT: drop 40
-// EXPECT-OUTPUT: drop 41
-// EXPECT-OUTPUT: drop 41
-// EXPECT-OUTPUT: drop 41
 // EXPECT-OUTPUT: = 123
 // EXPECT-OUTPUT: -- F two literals, escaping, driven, 2 calls each
 // EXPECT-OUTPUT: copy 50 -> 51
@@ -97,8 +97,8 @@
 // EXPECT-OUTPUT: copy 60 -> 61
 // EXPECT-OUTPUT: copy 61 -> 62
 // EXPECT-OUTPUT: drop 62
-// EXPECT-OUTPUT: drop 60
 // EXPECT-OUTPUT: drop 61
+// EXPECT-OUTPUT: drop 60
 // EXPECT-OUTPUT: = 62
 // EXPECT-OUTPUT: end
 

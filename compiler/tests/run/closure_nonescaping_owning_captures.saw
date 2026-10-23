@@ -1,0 +1,89 @@
+// A non-escaping closure's environment is a local of the function that
+// builds it, and it owns what its copy captures copied until the statement
+// that built the closure ends (SL-525): a `[copy d]` duplicate released once
+// at a tail, a `let`, an assignment and an argument; a heap `String` copied
+// in by a plain capture; and a function value lent to the closure. A
+// `[move r]` capture is taken when the body runs, so the body releases it,
+// and a closure the callee never calls leaves it to its own scope.
+struct Dup { n: Int }
+
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup {
+        print("copy {} -> {}", self.n, self.n + 1)
+        Dup(n: self.n + 1)
+    }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+struct Res { n: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop res {}", self.n) }
+}
+
+func run_int(body: () sync -> Int) -> Int { body() }
+func never(body: () sync -> Int) -> Int { 0 }
+func identity(n: Int) -> Int { n }
+
+func tail(d: Dup) -> Int { run_int({ [copy d] in d.n }) }
+
+func bound(d: Dup) -> Int {
+    let got = run_int({ [copy d] in d.n })
+    print("after the let")
+    got
+}
+
+func assigned(d: Dup) -> Int {
+    var acc = 0
+    acc = run_int({ [copy d] in d.n })
+    print("after the assignment")
+    acc
+}
+
+func argument(d: Dup) -> Int { identity(run_int({ [copy d] in d.n })) }
+
+func heap_text(seed: String) -> String {
+    var sb = StringBuilder()
+    try! sb.append(seed)
+    try! sb.append("-built")
+    sb.build()
+}
+
+func string_capture() -> Int {
+    let s = heap_text("label")
+    run_int({ s.len() })
+}
+
+func apply(f: (Int) -> Int) -> Int { f(1) }
+
+func lent(values: &Vector<Int>, f: (Int) -> Int) -> Int {
+    var total = 0
+    values.each({ n in print("lent {} -> {}", n, apply(f)) })
+    total + apply(f)
+}
+
+func taken() -> Int {
+    let r = Res(n: 5)
+    let got = run_int({ [move r] in r.n })
+    print("taken {}", got)
+    got
+}
+
+func untaken() -> Int {
+    let r = Res(n: 6)
+    let got = never({ [move r] in r.n })
+    print("untaken {}", got)
+    got
+}
+
+func main() {
+    print("= {}", tail(Dup(n: 10)))
+    print("= {}", bound(Dup(n: 20)))
+    print("= {}", assigned(Dup(n: 30)))
+    print("= {}", argument(Dup(n: 40)))
+    print("string {}", string_capture())
+    let values: Vector<Int> = [7, 8]
+    print("lent {}", lent(&values, { n in n * 10 }))
+    print("= {}", taken())
+    print("= {}", untaken())
+}

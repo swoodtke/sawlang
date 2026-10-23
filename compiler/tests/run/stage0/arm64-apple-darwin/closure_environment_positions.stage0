@@ -1,0 +1,17 @@
+program	compiler/tests/run/closure_environment_positions.saw
+triple	arm64-apple-darwin
+source	bf12b4a35cc18d37
+build	ok
+exit	0
+stdout	"return 11"
+stdout	"field 22"
+stdout	"element 33"
+stdout	"payload 55"
+stdout	"box held"
+stdout	"tuple 77 78"
+stdout	"escaping parameter 89"
+stdout	"binding 100"
+stdout	"generic 100 110"
+stdout	"live while held 8"
+stdout	"live after 0"
+stdout	""

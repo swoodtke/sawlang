@@ -26,7 +26,7 @@ frame #9: drive_site.made(id: Int) task root  (size 24 align 8, lower bound 24)
     (*frame).[8: drive_site.Token]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param id  (across 1)
     stack: _2
-frame #18: drive_site.work(n: Int, label: String)  (size 32 align 8, lower bound 32)
+frame #19: drive_site.work(n: Int, label: String)  (size 32 align 8, lower bound 32)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result

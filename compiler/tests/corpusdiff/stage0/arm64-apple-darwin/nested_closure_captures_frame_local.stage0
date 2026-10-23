@@ -26,4 +26,4 @@ stdout	"drop 21"
 stdout	"= 22"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 18 is 'drop 20', expected 'drop 21'

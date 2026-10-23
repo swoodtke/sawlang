@@ -8341,13 +8341,19 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   last owner, runs the env deinit (releasing owned captures exactly once and
   freeing the block) under the normal LIFO + drop-flag rules, wherever the value
   lives (a `let`/`var`, a struct field, a `Vector` element, a returned result).
-  A **capture-less** closure has a null env (no refcount word) and is trivially
-  copyable. Forwarding a closure into a *non-escaping* (borrowing) parameter is a
-  **lend** — no retain, and the caller keeps ownership (drops once). For `spawn`
+  The env deinit drops the captures in reverse capture order, as a tuple's
+  elements drop. A **capture-less** closure has a null env (no refcount word),
+  and copying or dropping it does nothing. Forwarding a closure into a
+  *non-escaping* (borrowing) parameter is a **lend**: the closure stays alive
+  for the call, its captures are not copied, and the caller keeps ownership
+  (drops once). For `spawn`
   the task frame owns the closure's reference and the trampoline release is THE
   release — the env is torn down on the task thread exactly once. Non-escaping
-  closures (a direct call argument, e.g. `Vector.each`'s body) keep a stack env and
-  own nothing. Borrow captures remain non-escaping-only, in all three of their
+  closures (a direct call argument, e.g. `Vector.each`'s body) keep their env in
+  the frame that builds them. That env owns only what its copy captures copied,
+  and releases it when the statement that built the closure ends; a closure
+  passed straight to the call that runs it cannot outlive that statement.
+  Borrow captures remain non-escaping-only, in all three of their
   spellings: `[&x]`/`[&var x]`, a reference parameter, and `self` (see
   [Capturing `self` and reference parameters](#capturing-self-and-reference-parameters)). *(This
   closed design 71's residual gap: an owning closure in a copyable struct that is
@@ -8374,9 +8380,10 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   func store(f: () -> Int) -> Handler { Handler(run: f) }        // error: `f` is non-escaping
   ```
 - **A `move` capture into a non-escaping closure transfers when the body runs.**
-  A non-escaping closure keeps its environment on the stack and has no teardown
-  of its own, so it cannot own a value from creation the way an escaping
-  environment does. Its environment holds a pointer to the local, and the body
+  A non-escaping closure keeps its environment in the frame that builds it,
+  and a `move` capture does not hand that environment the value at creation
+  the way an escaping environment takes it. Its environment holds a pointer to
+  the local, and the body
   takes the value as it starts. The source therefore stops owning it on exactly
   the paths that run the body. A body that never runs (a closure the callee did
   not call) leaves the local alone, and it deinits at the end of its own scope.
@@ -9890,9 +9897,14 @@ refused in them wherever they are written, thread context included: the
 payload of an `Arc`, which drops with whichever handle goes last; a `Channel`
 element, which drops wherever the queue is drained or its last handle goes;
 an erasure into a box, `Box<any Trait>` or the boxed error of a
-`Result<T, Box<any Error>>`, whose drop runs through the erased type; and a
-task's result, which drops on the executor when no join takes it. A borrow
-erased to `&any Trait` drops nothing, and is not refused.
+`Result<T, Box<any Error>>`, whose drop runs through the erased type; a
+task's result, which drops on the executor when no join takes it; and a
+capture by value or by `move` into an escaping closure, whose environment is
+shared by every copy of the closure and drops its captures with whichever
+copy goes last. A borrow erased to `&any Trait` drops nothing, and is not
+refused. A `Thread.spawn` brace's capture list is the hand-off to the thread
+and is not one of these positions, and a closure passed straight to the call
+that runs it is judged by the rule above.
 
 Within a module the compiler infers whether a type's drop blocks. **A public
 type says so**, because its declaration is what another module reads: when a

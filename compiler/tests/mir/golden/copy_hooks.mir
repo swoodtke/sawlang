@@ -214,6 +214,7 @@ fn copy_hooks.dup(d: copy_hooks.Dup) -> Int {
 
     bb2: {
         _0 = move _7;
+        drop(_4);
         drop(_1);
         return;
     }

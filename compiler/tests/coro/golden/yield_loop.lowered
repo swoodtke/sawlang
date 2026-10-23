@@ -27,7 +27,7 @@ fn yield_loop.main() -> Void {
 resume #5: yield_loop.tally(rounds: Int)  (frame size 64 align 8, pointer _13, context _14)
     state 0: bb0
     state 1: bb7 park ready
-    state 2: bb4 drive #11 std.task.yield_now() at (*frame).[16]
+    state 2: bb4 drive #12 std.task.yield_now() at (*frame).[16]
 fn yield_loop.tally(rounds: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param rounds
@@ -97,7 +97,7 @@ fn yield_loop.tally(rounds: Int) -> Int {
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
     }
 }
-resume #11: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #12: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {

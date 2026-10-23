@@ -1,0 +1,29 @@
+// probe: stated
+// about: an escaping closure's environment drops its captures in reverse capture order at its last release, as every structural teardown drops its parts in reverse declaration order (SL-525)
+// stage 0: drops a heap environment's captures in capture order
+// speeds: -O0 -O2
+// prints: sum 3
+// prints: drop second
+// prints: drop first
+// prints: end
+struct Res { name: String, n: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func make() -> () -> Int {
+    let a = Res(name: "first", n: 1)
+    let b = Res(name: "second", n: 2)
+    return { [move a, move b] in a.n + b.n }
+}
+
+func run() {
+    let f = make()
+    print("sum {}", f())
+}
+
+func main() {
+    run()
+    print("end")
+}

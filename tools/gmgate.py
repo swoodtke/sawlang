@@ -23,14 +23,15 @@ programs police. A category names three kinds of program:
   blocked    twins sawc2 refuses today, each with the rule of its first
              refusal and the unit that clears it (or `unfiled`).
 A tests/corpus program is judged by its own directives; a compiler/tests/run
-program by Stage 0's recorded run of it, as the run lane judges it. Every
+program by Stage 0's recorded run of it, as the run lane judges it, and a
+stated probe there by the lines its header states. Every
 run of every program must meet its oracle: a fault, a signal or wrong output
 fails. A blocked program is still built, and fails the lane once sawc2 builds
 it or refuses it by another rule, so the list cannot go stale silently.
 
-COVERAGE: ownership runs a program in 6 of its 6 categories, and 19 of its 26
+COVERAGE: ownership runs a program in 6 of its 6 categories, and 24 of its 26
 Stage 0 programs build; concurrency runs a program in 8 of its 8 categories,
-and 22 of its 25 Stage 0 programs build.
+and 24 of its 25 Stage 0 programs build.
 
 THE SELF-TEST. `gmgate_surplus_release.saw` releases one block twice. Before
 the lanes count, it must pass natively and fault under Guard Malloc; a lane
@@ -81,8 +82,6 @@ Category = collections.namedtuple("Category", "name shape twins stand_ins blocke
 # `why` is the gap in a few words; `rule` is the first refusal's rule.
 Blocked = collections.namedtuple("Blocked", "path rule unit why")
 
-CLOSURE_OWNING = "a closure capturing a value that owns something is not in the backend"
-
 OWNERSHIP = (
     Category(
         "copy tier", "the undeclared Copy tier and implicit copies, at every transfer site",
@@ -94,6 +93,9 @@ OWNERSHIP = (
             # overwritten; a repeat literal retaining once per slot.
             CORPUS + "df139a_copy_then_overwrite.saw",
             CORPUS + "repeat_literal_implicit_copy.saw",
+            # Every transfer class of the undeclared tier, a closure field
+            # copied twice among them, balanced against an Arc's count.
+            CORPUS + "df151b_implicit_tier_transfers.saw",
         ),
         stand_ins=(
             # Heap Strings copied through an enum payload and a struct field
@@ -103,22 +105,26 @@ OWNERSHIP = (
             # body, a field and a payload.
             RUN_LANE + "copy_hook_conformance.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "df151b_implicit_tier_transfers.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
-        )),
+        blocked=()),
     Category(
         "closure environments", "a closure environment retained through copies and released once",
-        twins=(),
+        twins=(
+            # A closure in a struct copied twice, an Arc capture released by
+            # the environment, and a closure lent to a non-escaping parameter.
+            CORPUS + "closure_copyable_struct_copied.saw",
+            CORPUS + "closure_deinit_arc_balance.saw",
+            CORPUS + "closure_borrow_lend_balance.saw",
+        ),
         stand_ins=(
             # Non-escaping environments: explicit, implicit and `[copy p]`
             # captures, and a closure built inside another.
             RUN_LANE + "closure_captures.saw",
+            # Heap environments at every escaping position, and one closure
+            # copied into a binding and a struct, each holder releasing it.
+            RUN_LANE + "closure_environment_positions.saw",
+            RUN_LANE + "closure_environment_release.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "closure_copyable_struct_copied.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
-            Blocked(CORPUS + "closure_deinit_arc_balance.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
-            Blocked(CORPUS + "closure_borrow_lend_balance.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
-        )),
+        blocked=()),
     Category(
         "container read-out", "an owning value copied out of a container that keeps its own",
         twins=(
@@ -128,6 +134,9 @@ OWNERSHIP = (
             # A generic body's `for` over Arc-holding elements releases each
             # iteration's copy.
             CORPUS + "generic_for_loop_owning_balance.saw",
+            # Closures read out of a Vector and its copy, each element's
+            # environment retained by the read.
+            CORPUS + "closure_vector_copy_get.saw",
         ),
         stand_ins=(
             # A String-holding element read out of a Vector, and the copy and
@@ -145,10 +154,7 @@ OWNERSHIP = (
             CORPUS + "map_nocopy_key_literal_error.saw",
             CORPUS + "set_nocopy_key_error.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "closure_vector_copy_get.saw", "mono.not-yet", "SL-525",
-                    "an escaping closure's environment is not built"),
-        )),
+        blocked=()),
     Category(
         "optional, match and tuple transfers",
         "copies into optional destinations, match scrutinee temporaries, tuple glue, assignment sources",
@@ -238,17 +244,17 @@ CONCURRENCY = (
             CORPUS + "spawn_capture_declared_before.saw",
             CORPUS + "spawn_capture_join_releases.saw",
             CORPUS + "conformance/K14_spawn_ref_param_join_releases.saw",
+            # A closure holding an Arc across a suspension in a driven frame,
+            # and closures a TaskGroup child frame owns.
+            CORPUS + "coro_closure_deinit_once.saw",
+            CORPUS + "coro_closure_taskgroup.saw",
         ),
         stand_ins=(
             # Closures in a suspending method, each holding its own handle to
             # the frame's receiver, one nested in another.
             CORPUS + "coro_closure_captures_self_nested.saw",
         ),
-        blocked=(
-            Blocked(CORPUS + "coro_closure_deinit_once.saw", "mono.not-yet", "SL-525", CLOSURE_OWNING),
-            Blocked(CORPUS + "coro_closure_taskgroup.saw", "mono.not-yet", "SL-525",
-                    "an escaping closure's environment is not built"),
-        )),
+        blocked=()),
     Category(
         "join and teardown", "who drops a task's values, and when",
         twins=(
@@ -336,6 +342,9 @@ CONCURRENCY = (
             CORPUS + "conformance/K90_thread_detach_is_a_fate.saw",
             # A `blocking` extern run directly on the thread.
             CORPUS + "conformance/K84_thread_spawn_permits_a_blocking_extern.saw",
+            # One closure's heap environment released by two threads at
+            # once, either of which may run its teardown: the count is atomic.
+            RUN_LANE + "probes/thread_closure_shared_release.saw",
         ),
         blocked=()),
     Category(
@@ -457,6 +466,14 @@ def judge(path, code, stdout, stderr):
     """None when a run meets `path`'s oracle, else the first way it does not."""
     if code is None:
         return "timed out after %ds" % RUN_TIMEOUT
+    if path.startswith(RUN_LANE + "probes/"):
+        header = run_lane.probe_header(os.path.join(REPO, path))
+        if header.get("probe") != ["stated"]:
+            return "a probe here states its output, `// probe: stated`"
+        want = "".join(line + "\n" for line in header["prints"])
+        if code != 0 or stdout != want:
+            return "exit %s, prints %r, not %r" % (code, stdout[:300], want)
+        return None
     if path.startswith(RUN_LANE):
         rec, why = run_lane.stage0_run(os.path.join(REPO, path))
         if rec is None:

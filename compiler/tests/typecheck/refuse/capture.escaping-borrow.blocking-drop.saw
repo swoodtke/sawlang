@@ -1,0 +1,21 @@
+// refuses: capture.escaping-borrow at 19:32
+// A borrow capture of a value whose drop blocks into an escaping closure is
+// refused before any drop is judged: an escaping closure captures no borrow
+// (conformance row K195, beside the by-value and `move` captures the
+// blocking-drop check refuses).
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.n)
+    }
+}
+
+func main() blocking {
+    let p = Pool(n: 3)
+    let f: () sync -> Int = { [&p] in p.n }
+    print(f())
+}

@@ -115,23 +115,20 @@ fn captures.let_plain() -> Int {
 fn closure#0 of captures.let_plain() -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // s
+    let _2: &String;  // ref s
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn captures.let_move_copy_tier() -> Int {
@@ -160,23 +157,20 @@ fn captures.let_move_copy_tier() -> Int {
 fn closure#0 of captures.let_move_copy_tier() -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // s
+    let _2: &String;  // ref s
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn captures.let_copy_copy_tier() -> Int {
@@ -207,23 +201,20 @@ fn captures.let_copy_copy_tier() -> Int {
 fn closure#0 of captures.let_copy_copy_tier() -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // s
+    let _2: &String;  // ref s
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn captures.let_copy() -> Int {
@@ -339,23 +330,20 @@ fn captures.returned_plain() -> () -> Int {
 fn closure#0 of captures.returned_plain() -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // s
+    let _2: &String;  // ref s
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn captures.stored_move() -> Int {
@@ -461,33 +449,32 @@ fn captures.local_plain() -> Int {
 
     bb1: {
         _0 = move _5;
+        drop(_2);
         drop(_1);
         return;
     }
 
+    glue (String,): structural
     glue String: builtin
 }
 
 fn closure#0 of captures.local_plain() -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // s
+    let _2: &String;  // ref s
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn captures.local_copy_copy_tier() -> Int {
@@ -508,33 +495,32 @@ fn captures.local_copy_copy_tier() -> Int {
 
     bb1: {
         _0 = move _5;
+        drop(_2);
         drop(_1);
         return;
     }
 
+    glue (String,): structural
     glue String: builtin
 }
 
 fn closure#0 of captures.local_copy_copy_tier() -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // s
+    let _2: &String;  // ref s
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn captures.local_copy() -> Int {
@@ -564,10 +550,12 @@ fn captures.local_copy() -> Int {
 
     bb2: {
         _0 = move _8;
+        drop(_5);
         drop(_1);
         return;
     }
 
+    glue (std.vector.Vector<Int, std.alloc.GlobalAllocator>,): structural
     glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
 }
 

@@ -1343,8 +1343,10 @@ on one side alone.
 - **The frame descriptor**, a constant the compiler emits for each frame
   the executor drives, laid out as std's `FrameDescriptor`: `{ resume, size,
   align, result_offset, result_size, result_align, drop_result, backtrace
-  }`. `resume` and `drop_result` are function values, a code pointer then a
-  null environment, word by word, each called as a Saw function value is:
+  }`. `resume` and `drop_result` are function values, a code pointer, a
+  null environment and a null release, word by word (a null release makes
+  copying or dropping the value do nothing), each called as a Saw function
+  value is:
   `resume` as `void (ptr poll_out, ptr env, ptr frame, ptr cx)`, since a
   `Poll` is returned through `sret` ahead of the environment and the code
   writes its `i32` tag there, and `drop_result` as `void (ptr env, ptr

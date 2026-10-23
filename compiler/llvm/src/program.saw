@@ -7,6 +7,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
+import sawllvm.closures.{ll_env_lead}
 import sawllvm.erased.{ll_drop_nothing}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
@@ -88,6 +89,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         let it = mono.items[k]
         if it.body >= 0 {
             e.emit_function(&var mono, &var target, k)
+        } else if mono.function_value_glue(k) {
+            e.emit_function_value_glue(&var mono, &var target, k)
         } else if it.kind == MonoItemKind.DropGlue {
             e.emit_erased_drop(&var mono, &var target, k)
         }
@@ -273,8 +276,8 @@ extension LlEmitter {
     // a result in place, and the backtrace index, the root's frame in the
     // program's backtrace table (`bt_index_of`), where a task dump's walk of
     // the task starts. The two functions are function values, a code
-    // pointer and a null environment, so each code pointer is a thunk that
-    // takes the environment first, as a function value's call passes it: the
+    // pointer, a null environment and a null release, so each code pointer
+    // is a thunk that takes the environment first, as a function value's call passes it: the
     // resume's calls the resume function, and the drop's runs the result
     // type's drop glue, or nothing for a type that has none.
     func descriptor(&var self, mono: &var MonoProgram, target: &var Target, k: Int) -> String {
@@ -306,7 +309,7 @@ extension LlEmitter {
         try! out.append("  ret void\n\}\n\n")
         try! out.append(ll_descriptor_symbol(&mono, k))
         let w = self.word
-        try! out.append(" = private unnamed_addr constant \{ ptr, ptr, ")
+        try! out.append(" = private unnamed_addr constant \{ ptr, ptr, ptr, ")
         try! out.append(w)
         try! out.append(", ")
         try! out.append(w)
@@ -316,11 +319,11 @@ extension LlEmitter {
         try! out.append(w)
         try! out.append(", ")
         try! out.append(w)
-        try! out.append(", ptr, ptr, ")
+        try! out.append(", ptr, ptr, ptr, ")
         try! out.append(w)
         try! out.append(" \} \{ ptr ")
         try! out.append(ll_resume_value_symbol(&mono, k))
-        try! out.append(", ptr null, ")
+        try! out.append(", ptr null, ptr null, ")
         try! out.append(w)
         try! out.append(" ")
         try! out.append(resume.size)
@@ -342,7 +345,7 @@ extension LlEmitter {
         try! out.append(if l.align > 0 { l.align } else { 1 })
         try! out.append(", ptr ")
         try! out.append(ll_result_drop_symbol(&mono, k))
-        try! out.append(", ptr null, ")
+        try! out.append(", ptr null, ptr null, ")
         try! out.append(w)
         try! out.append(" ")
         try! out.append(self.bt_index_of(k))

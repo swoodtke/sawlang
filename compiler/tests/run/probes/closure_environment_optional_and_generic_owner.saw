@@ -1,0 +1,45 @@
+// probe: stated
+// about: the two escaping positions of conformance V125 Stage 0 is no oracle for, an optional's payload and a generic closure that owns its capture at an owning instantiation, each releasing its owned `Res` once (SL-525)
+// stage 0: refuses an optional of a closure, and its generic closure's teardown never drops the captured `Res`, so the live count ends at 1
+// speeds: -O0 -O2
+// prints: optional 44
+// prints: generic 100
+// prints: live while held 2
+// prints: live after 0
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { n: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(n: Int) -> Res {
+    LIVE.fetch_add(1)
+    Res(n: n)
+}
+
+func optional(base: Int) -> (() -> Int)? {
+    let r = res(4)
+    return { [base, move r] in base + r.n }
+}
+
+func generic<T>(value: T, base: Int) -> () -> Int {
+    { [base, move value] in base }
+}
+
+func run() {
+    if let o = optional(40) {
+        print("optional {}", o())
+    }
+    let g = generic(res(11), 100)
+    let kept = optional(0)
+    print("generic {}", g())
+    print("live while held {}", LIVE.load())
+    let _ = move kept
+}
+
+func main() {
+    run()
+    print("live after {}", LIVE.load())
+}

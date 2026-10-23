@@ -63,7 +63,7 @@ stdout	"drop 61"
 stdout	"= 62"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 11 is 'drop 20', expected 'drop 21'
 frame	__Frame_b_driven$m$	b_driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
 field	d	own	0	16	8
 field	__state	own	16	8	8

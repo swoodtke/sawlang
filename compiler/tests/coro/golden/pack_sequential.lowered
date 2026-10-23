@@ -1,9 +1,9 @@
 resume #5: pack_sequential.run() task root  (frame size 48 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #11 pack_sequential.a() at (*frame).[8]
-    state 2: bb1 drive #12 pack_sequential.b() at (*frame).[8]
-    state 3: bb2 drive #13 pack_sequential.first(k: Int) at (*frame).[8]
-    state 4: bb3 drive #14 pack_sequential.second(k: Int, label: String) at (*frame).[8]
+    state 1: bb0 drive #12 pack_sequential.a() at (*frame).[8]
+    state 2: bb1 drive #13 pack_sequential.b() at (*frame).[8]
+    state 3: bb2 drive #14 pack_sequential.first(k: Int) at (*frame).[8]
+    state 4: bb3 drive #15 pack_sequential.second(k: Int, label: String) at (*frame).[8]
 fn pack_sequential.run() -> Int {
     let _0: Int;  // return
     let _1: Int;  // x
@@ -46,7 +46,7 @@ fn pack_sequential.run() -> Int {
         goto -> bb4;
     }
 }
-resume #11: pack_sequential.a()  (frame size 8 align 8, pointer _1, context _2)
+resume #12: pack_sequential.a()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn pack_sequential.a() -> Void {
@@ -63,7 +63,7 @@ fn pack_sequential.a() -> Void {
         return;
     }
 }
-resume #12: pack_sequential.b()  (frame size 8 align 8, pointer _1, context _2)
+resume #13: pack_sequential.b()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn pack_sequential.b() -> Void {
@@ -80,7 +80,7 @@ fn pack_sequential.b() -> Void {
         return;
     }
 }
-resume #13: pack_sequential.first(k: Int)  (frame size 32 align 8, pointer _5, context _6)
+resume #14: pack_sequential.first(k: Int)  (frame size 32 align 8, pointer _5, context _6)
     state 0: bb0
     state 1: bb0 park ready
 fn pack_sequential.first(k: Int) -> Int {
@@ -105,7 +105,7 @@ fn pack_sequential.first(k: Int) -> Int {
         return;
     }
 }
-resume #14: pack_sequential.second(k: Int, label: String)  (frame size 32 align 8, pointer _7, context _8)
+resume #15: pack_sequential.second(k: Int, label: String)  (frame size 32 align 8, pointer _7, context _8)
     state 0: bb0
     state 1: bb0 park ready
 fn pack_sequential.second(k: Int, label: String) -> Int {

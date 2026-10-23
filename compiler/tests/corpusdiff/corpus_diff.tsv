@@ -128,7 +128,7 @@ byte_append_discrimination.saw	crash	INVARIANT	66:32 an expression has no type
 byte_data_reads.saw	crash	INVARIANT	77:24 an expression has no type
 byte_type_flow.saw	pass	-	-
 capture_exclusivity_disjoint.saw	pass	-	-
-capture_write_allowed_forms.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+capture_write_allowed_forms.saw	pass	-	-
 cast170_checked_as.saw	refused	resolve name.reserved	`Byte` is a prelude name, so it is reserved and cannot be declared again
 cast170_from_family.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 cast170_narrowing_panics.saw	pass	-	-
@@ -152,8 +152,8 @@ channel_recv_buried_expr.saw	pass	-	-
 channel_recv_cancel.saw	pass	-	-
 channel_recv_nested.saw	pass	-	-
 channel_recv_producer_consumer.saw	pass	-	-
-closure_body_owns_its_own_statement_temporaries.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_borrow_lend_balance.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+closure_body_owns_its_own_statement_temporaries.saw	pass	-	-
+closure_borrow_lend_balance.saw	pass	-	-
 closure_captureless_copyable.saw	pass	-	-
 closure_captures_block_match_arm.saw	pass	-	-
 closure_captures_reference_param.saw	pass	-	-
@@ -161,25 +161,25 @@ closure_captures_reference_param_escaping_error.saw	pass	-	capture.escaping-borr
 closure_captures_self.saw	pass	-	-
 closure_captures_self_escaping_error.saw	pass	-	capture.escaping-borrow: an escaping closure cannot capture `self`: a method's receiver is a borrow of storage the caller owns, and a borrow may not outlive the frame it points into: pass the closure
 closure_captures_self_suspending.saw	pass	-	-
-closure_copy_binding.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_copyable_struct_copied.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_arc_balance.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_called_then_dropped.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_conditional_move.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_drop_order.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_dropped_uncalled.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_returned.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_struct_field.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-closure_deinit_vector.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+closure_copy_binding.saw	pass	-	-
+closure_copyable_struct_copied.saw	pass	-	-
+closure_deinit_arc_balance.saw	pass	-	-
+closure_deinit_called_then_dropped.saw	pass	-	-
+closure_deinit_conditional_move.saw	pass	-	-
+closure_deinit_drop_order.saw	pass	-	-
+closure_deinit_dropped_uncalled.saw	pass	-	-
+closure_deinit_returned.saw	pass	-	-
+closure_deinit_struct_field.saw	pass	-	-
+closure_deinit_vector.saw	pass	-	-
 closure_escaping_move_capture_consumed_once.saw	pass	-	capture.escaping-consume: this `move` takes `h` out of an escaping closure's environment, which every copy of the closure shares and which outlives each call, so the body reads what it captured and ne
 closure_leaves_enclosing_void_local_visible.saw	pass	-	-
 closure_module_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_move_capture_transfers_when_body_runs.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 closure_nested_ref_param_capture.saw	stage0-wrong	XFAIL DF-248b	sawc2 meets its directives
 closure_propagates_to_its_own_result_not_the_enclosing_catch.saw	pass	-	-
-closure_pushed_into_a_vector_keeps_its_captures.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+closure_pushed_into_a_vector_keeps_its_captures.saw	pass	-	-
 closure_return_is_local.saw	pass	-	-
-closure_satisfies_copy_bound.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+closure_satisfies_copy_bound.saw	pass	-	-
 closure_shorthand_parameter_inside_a_try.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closure_spawn_arc_balance.saw	stage0-wrong	annotated SL-765	sawc2 meets its directives
 closure_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -187,12 +187,12 @@ closure_tail_adopts_expected_return_type.saw	pass	-	-
 closure_tail_autowraps_result.saw	pass	-	-
 closure_tail_result_ambiguous_payloads.saw	pass	-	type.ambiguous-result: both payloads of `Result<Int32, Int32>` can take this value, so it names neither: write `.Ok(value: ...)` or `.Err(error: ...)`
 closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow i
-closure_vector_copy_get.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-closure_vector_deinit_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+closure_vector_copy_get.saw	pass	-	-
+closure_vector_deinit_once.saw	pass	-	-
 closures_basic.saw	pass	-	-
 closures_borrow_capture.saw	pass	-	-
-closures_capture.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-closures_escaping_heap.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+closures_capture.saw	pass	-	-
+closures_escaping_heap.saw	pass	-	-
 closures_infer.saw	pass	-	-
 closures_ref_param.saw	pass	-	-
 closures_shorthand.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
@@ -342,7 +342,7 @@ conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.n
 conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
 conformance/K24_frame_slot_payload_binding_not_a_copy.saw	pass	-	-
 conformance/K25_cross_module_embed_private_static_const_position.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
-conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	pass	-	-
 conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
@@ -479,15 +479,15 @@ conformance/U32_funcpointer_capture_local_error.saw	refused	resolve name.undefin
 conformance/U33_funcpointer_capture_list_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/U34_funcpointer_capture_self_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot move out of `x`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
-conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V101_copy_family_carries_the_tier.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	pass	-	-
+conformance/V101_copy_family_carries_the_tier.saw	pass	-	-
 conformance/V102_derived_copy_duplicates_every_field.saw	pass	-	-
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	pass	-	-
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc2 "if 5", Stage 0 "drop 4"
-conformance/V105_copy_capture_releases_its_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V106_driven_copy_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V107_capture_survives_repeated_invocation.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-conformance/V108_each_copy_capture_owns_one_duplicate.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+conformance/V105_copy_capture_releases_its_duplicate.saw	pass	-	-
+conformance/V106_driven_copy_capture_duplicates_once.saw	stage0-wrong	annotated SL-525	sawc2 meets its directives
+conformance/V107_capture_survives_repeated_invocation.saw	stage0-wrong	annotated SL-525	sawc2 meets its directives
+conformance/V108_each_copy_capture_owns_one_duplicate.saw	stage0-wrong	annotated SL-525	sawc2 meets its directives
 conformance/V109_move_in_a_while_condition.saw	pass	-	move.use-after: `r` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 conformance/V110_loop_head_moves_that_stay_legal.saw	pass	-	-
 conformance/V111_discard_let_retains_a_projection.saw	pass	-	-
@@ -539,11 +539,11 @@ conformance/V67_building_casts_are_untouched.saw	pass	-	-
 conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
 conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
-conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
+conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	pass	-	-
 conformance/V72_std_visitors_lend.saw	pass	-	-
 conformance/V73_closure_by_value_parameter_is_owned.saw	pass	-	-
 conformance/V74_closure_parameter_moved_into_a_new_owner.saw	pass	-	-
-conformance/V75_escaping_and_non_escaping_release_identically.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+conformance/V75_escaping_and_non_escaping_release_identically.saw	pass	-	-
 conformance/V76_fold_threads_its_accumulator.saw	pass	-	-
 conformance/V77_value_branch_arm_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V77_value_branch_arm_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borr
 conformance/V78_value_arm_refusal_is_position_blind.saw	pass	-	transfer.implicit-copy: this reads a place of type `V78_value_arm_refusal_is_position_blind.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
@@ -553,7 +553,7 @@ conformance/V81_value_arm_fence_is_narrow.saw	pass	-	-
 conformance/V82_closure_tail_takes_the_transfer_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V82_closure_tail_takes_the_transfer_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borr
 conformance/V83_closure_tail_refusal_reaches_every_source.saw	pass	-	transfer.implicit-copy: this reads a place of type `V83_closure_tail_refusal_reaches_every_source.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borro
 conformance/V84_copy_tier_closure_tail_retains_exactly_once.saw	pass	-	-
-conformance/V85_closure_tail_fence_is_narrow.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
+conformance/V85_closure_tail_fence_is_narrow.saw	pass	-	-
 conformance/V86_self_receiver_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V86_self_receiver_read_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to m
 conformance/V87_try_subject_read_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<V87_try_subject_read_is_a_transfer.Res, V87_try_subject_read_is_a_transfer.Bad>`, which is NoCopy, by value: only a Copy type copies silently
 conformance/V88_auto_wrapped_return_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V88_auto_wrapped_return_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a field is not moved out on its own, so bor
@@ -563,8 +563,8 @@ conformance/V91_try_catch_copies_per_path.saw	refused	typecheck transfer.implici
 conformance/V92_merged_results_copy_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V92_merged_results_copy_once.Counted, V92_merged_results_copy_once.Bad>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or
 conformance/V93_specialization_judges_the_instance.saw	pass	-	-
 conformance/V94_driven_body_keeps_the_sync_decision.saw	pass	-	-
-conformance/V95_materialized_capture_releases_once.saw	refused	llvm backend.not-yet	a `[move]` capture's take is not in the backend slice yet
-conformance/V96_driven_capture_duplicates_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+conformance/V95_materialized_capture_releases_once.saw	pass	-	-
+conformance/V96_driven_capture_duplicates_once.saw	stage0-wrong	XFAIL SL-267	sawc2: output line 3 is 'copy 1', expected 'nonescaping 1'
 conformance/V97_frame_read_retains_once.saw	pass	-	-
 conformance/V98_driven_generic_judges_each_instance.saw	pass	-	-
 conformance/V99_every_payload_read_retains_once.saw	pass	-	-
@@ -601,7 +601,7 @@ conformance/X43_nested_ref_disjoint_from_every_sibling.saw	pass	-	-
 conformance/X44_nested_call_ref_overlaps_receiver.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also the receiver of the call at 31:11, which borrows it for the whole call; bind the nested call's result in a st
 conformance/X45_two_nested_calls_one_root.saw	pass	-	loan.nested-call: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call, at 28:24; a call's references are checked together over the whole cal
 conformance/Z03_replace_container_during_window.saw	pass	-	loan.nested-call: `v` is borrowed by a nested call in this argument list while `v` is also accessed by reference in the same call, at 17:10; a call's references are checked together over the whole cal
-conformance/Z05_escaping_closure_env_deinit_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+conformance/Z05_escaping_closure_env_deinit_once.saw	pass	-	-
 conformance/k74_refused_at_the_call.saw	pass	-	type.bound: `k74_refused_at_the_call.Cell` does not satisfy `Sync`, the bound on `T` of `fan_arc`
 conformance/k74_refused_unbounded.saw	pass	-	spawn.send: cannot `Thread.spawn`: captured `v` of type `T` is not `Send`. Only Send values may cross to another thread; share through `Arc` (and `Mutex` for mutation)
 conformance/k84_blocking_refused_in_an_ordinary_sync_body.saw	pass	-	effect.sync: `nap` is declared `sync`, and it calls `__saw_rt_blocking_sleep`, which may suspend
@@ -644,7 +644,7 @@ copy_bound_generic.saw	pass	-	-
 copy_policy_hook_sync.saw	pass	-	-
 copy_traits_both_declared_legal.saw	pass	-	copy.second-policy: `Buf` conforms to `ExplicitCopy`, a second copy policy beside `Copy` at 22:16: a type has one of `Copy`, `ExplicitCopy` and `NoCopy`, bounded or not, so a transfer of it copies sil
 coro_autowrap_argument_in_driven_body.saw	pass	-	-
-coro_bind_id_closure_local.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+coro_bind_id_closure_local.saw	pass	-	-
 coro_bind_id_for_var_derived.saw	pass	-	-
 coro_bind_id_guardlet_nonspanning.saw	pass	-	-
 coro_bind_id_iflet_nonspanning.saw	pass	-	-
@@ -658,15 +658,15 @@ coro_bind_id_sibling_scopes.saw	pass	-	-
 coro_break_reentered_in_loop.saw	pass	-	-
 coro_channel_receive_moves_element.saw	refused	typecheck member.through-pointer	`ident` is a method of the payload, `coro_channel_receive_moves_element.Held`, not of the `Arc`; reach it with `borrow a.value().ident(…)`
 coro_closure_capture_positions.saw	pass	-	-
-coro_closure_capture_reads_by_policy.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+coro_closure_capture_reads_by_policy.saw	pass	-	-
 coro_closure_captures_self_nested.saw	pass	-	-
-coro_closure_deinit_once.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-coro_closure_local_call.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
-coro_closure_taskgroup.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+coro_closure_deinit_once.saw	pass	-	-
+coro_closure_local_call.saw	pass	-	-
+coro_closure_taskgroup.saw	pass	-	-
 coro_conditional_move_across_suspend.saw	pass	-	-
 coro_conservative_callee_in_spawned_task.saw	refused	resolve import.unknown-module	no module `std.json`
 coro_conservative_callee_not_embedded.saw	refused	resolve import.unknown-module	no module `std.json`
-coro_conservative_free_callee_not_framed.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+coro_conservative_free_callee_not_framed.saw	pass	-	-
 coro_conservative_generic_instance_in_spawned_task.saw	pass	-	-
 coro_conservative_generic_instance_not_promoted.saw	pass	-	-
 coro_cross_module_free_call_positions.saw	pass	-	-
@@ -877,7 +877,7 @@ df140d_result_optional_autowrap.saw	pass	-	-
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
 df140h_std_private_static_two_files.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
-df151b_implicit_tier_transfers.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+df151b_implicit_tier_transfers.saw	pass	-	-
 df151c_optional_dest_copy.saw	pass	-	-
 df151d_match_temporary_scrutinee.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 df151e_optional_element_array.saw	pass	-	-
@@ -1925,7 +1925,7 @@ named_tuple_mixed_labeling_error.saw	pass	-	resolve.parse-refused: the parser re
 named_tuple_pattern_deferred_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/named_tuple_pattern_deferred_error.saw` (syntax.pat.refused-named-tuple), so its declarations are not available
 named_tuple_positional_destructure.saw	pass	-	-
 named_tuple_reorder_error.saw	pass	-	type.mismatch: expected `(x: Int, y: Int)`, the type of the annotated binding, and found `(y: Int, x: Int)`
-nested_closure_captures_frame_local.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+nested_closure_captures_frame_local.saw	stage0-wrong	annotated SL-525	sawc2 meets its directives
 nested_if_iflet_tail.saw	refused	typecheck type.mismatch	expected `Int?`, the type of the value the branches merge into, and found `Void`
 nested_optional_tail_branch_arms.saw	pass	-	-
 net_accept_loop_concurrent.saw	stage0-wrong	annotated SL-768	sawc2 meets its directives
@@ -1989,7 +1989,7 @@ no_copy_return_error.saw	pass	-	transfer.implicit-copy: this reads a place of ty
 no_hidden_alloc_escaping_closure.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 no_hidden_alloc_interpolation.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 no_hidden_alloc_named_allocations.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
-no_hidden_alloc_off_by_default.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+no_hidden_alloc_off_by_default.saw	pass	-	-
 no_hidden_alloc_panic_interpolation.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 no_hidden_alloc_print_printable.saw	refused	driver driver.usage	sawc2 build takes no --no-hidden-alloc
 nocopy_array_elem_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_array_elem_requires_move.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f` to take it, or borrow it
@@ -1998,7 +1998,7 @@ nocopy_call_arg_with_move.saw	pass	-	-
 nocopy_enum_payload_requires_move.saw	pass	-	copy.undeclared-policy: `Slot` holds `Slot.Full` of type `nocopy_enum_payload_requires_move.FileHandle`, which is NoCopy, so it declares its own policy: `extension Slot: NoCopy {}`, or `@synthesize` a
 nocopy_explicit_return_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_explicit_return_requires_move.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f` to take it, or borrow
 nocopy_explicit_return_with_move.saw	pass	-	-
-nocopy_override_implicit_tier.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+nocopy_override_implicit_tier.saw	pass	-	-
 nocopy_struct_field_init.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_struct_field_init.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f` to take it, or borrow it
 nocopy_struct_field_init_with_move.saw	pass	-	-
 nomove_placement_into_its_home.saw	refused	resolve slice.not-yet	the compiler intrinsic `__saw_deinit_in_place` is not in the bootstrap slice yet
@@ -2108,7 +2108,7 @@ panic_builtin.saw	pass	-	-
 panic_location_bounds.saw	pass	-	-
 panic_location_divzero.saw	pass	-	-
 panic_location_overflow.saw	pass	-	-
-panic_location_shift.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+panic_location_shift.saw	pass	-	-
 panic_message_truncated.saw	pass	-	-
 panic_never_diverges.saw	pass	-	-
 panic_non_string_error.saw	wrong	accepts a refusal test	`panic` expects a String message, got `Int`
@@ -2505,9 +2505,9 @@ tuple_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer liter
 tuple_index_member_access.saw	refused	mono mono.not-yet	a synthesized `Printable.format(into: &var std.stringbuilder.StringBuilder)` on `Float` is not in the backend slice yet: a Float's `format` waits for `std.float`'s formatter (SL-722 U5)
 tuples.saw	pass	-	-
 tuples_advanced.saw	pass	-	-
-two_copy_arc.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-two_copy_captures.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
-two_escaping_copies.saw	refused	mono mono.not-yet	a closure capturing a value that owns something is not in the backend slice yet
+two_copy_arc.saw	pass	-	-
+two_copy_captures.saw	stage0-wrong	annotated SL-525	sawc2 meets its directives
+two_escaping_copies.saw	pass	-	-
 two_modules_export_distinct_c_symbols.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 type_alias.saw	pass	-	-
 type_alias_chained.saw	pass	-	-
@@ -2536,7 +2536,7 @@ unicode_escape_malformed_error.saw	pass	-	resolve.parse-refused: the parser refu
 unicode_escape_oversized_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/unicode_escape_oversized_error.saw` (syntax.lex.escape), so its declarations are not available
 unicode_escape_surrogate_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/unicode_escape_surrogate_error.saw` (syntax.lex.escape), so its declarations are not available
 unknown_type_name_diagnostic.saw	refused	resolve name.undefined	cannot find `MissingAlias` in scope
-unsafe_closure_domain.saw	refused	mono mono.not-yet	an escaping closure that captures a value is not in the backend slice yet: its environment would live in the frame that builds it, and heap environments are unbuilt (SL-525)
+unsafe_closure_domain.saw	pass	-	-
 unsafe_conformance_effects.saw	pass	-	-
 unsafe_declarations_accepted.saw	pass	-	-
 unsafe_effect_slot.saw	pass	-	-

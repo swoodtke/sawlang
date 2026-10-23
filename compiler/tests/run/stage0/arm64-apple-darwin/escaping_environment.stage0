@@ -1,0 +1,7 @@
+program	compiler/tests/run/escaping_environment.saw
+triple	arm64-apple-darwin
+source	fb5aeed74ddb568a
+build	ok
+exit	0
+stdout	"42"
+stdout	""

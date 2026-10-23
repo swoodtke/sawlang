@@ -399,7 +399,7 @@ extension LlEmitter {
     // and line `site_text` spells as `FILE:LINE`, or its whole text and line
     // -1, which the helpers render without a line, for a node with no source
     // position.
-    func fail_site(&var self, mono: &MonoProgram, node: Int) -> String {
+    public func fail_site(&var self, mono: &MonoProgram, node: Int) -> String {
         let text = mono.site_text(node)
         let n = text.len()
         var colon = -1
@@ -443,7 +443,7 @@ extension LlEmitter {
     }
 
     // Constant `bytes` as a helper's `ptr ADDRESS, i64 LENGTH` arguments.
-    func fail_bytes(&var self, bytes: &Vector<Int>) -> String {
+    public func fail_bytes(&var self, bytes: &Vector<Int>) -> String {
         let g = self.pooled(&bytes, false, 0)
         var out = StringBuilder()
         try! out.append("ptr ")

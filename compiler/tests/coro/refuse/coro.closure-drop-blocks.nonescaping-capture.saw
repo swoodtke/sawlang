@@ -1,0 +1,34 @@
+// refuses: coro.closure-drop-blocks at 27:9
+// message: the closure at 27:9 → drops `p: coro.closure-drop-blocks.nonescaping-capture.Pool` (blocking deinit)
+// The non-escaping control for conformance row K195: a closure passed
+// straight to the call that runs it moves a `Pool` in, and its body takes
+// and drops it, so the existing analysis reads the drop and refuses it at
+// the closure, then at the task (`coro.task-drop-blocks`), never as the
+// escaping capture's position (the Air's SL-812 c1 `b1`).
+
+import std.task.*
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.n)
+    }
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func work() -> Int {
+    let p = Pool(n: 1)
+    run({ [move p] in p.n })
+}
+
+func main() {
+    var group = TaskGroup()
+    let job = group.spawn(work())
+    print(job.join())
+}

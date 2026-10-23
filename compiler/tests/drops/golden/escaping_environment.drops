@@ -136,16 +136,13 @@ fn escaping_environment.generic(x: T) -> () -> T {
 fn closure#0 of escaping_environment.generic(x: T) -> T {
     let _0: T;  // return
     let _1: &(T,);  // env
-    let _2: T;  // x
+    let _2: &T;  // ref x
 
     bb0: {
-        _2 = copy (*_1).0;
-        _0 = copy _2;
-        drop(_2);
+        _2 = ref(shared, (*_1).0);
+        _0 = copy (*_2);
         return;
     }
-
-    glue T: per instantiation
 }
 
 fn escaping_environment.main() -> Void {

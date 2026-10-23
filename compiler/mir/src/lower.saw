@@ -697,15 +697,15 @@ extension MirProgram {
     // an escaping closure's, whose environment every copy of the closure
     // shares and its last owner releases, and a copy capture of any closure,
     // made at creation. A call never takes ownership out of the environment:
-    // a value that owns nothing, or one of the Copy tier, is copied into a
-    // local the call drops, retained by its copy; any other is read in place,
-    // through a reference the capture's name reads through. Typecheck refuses
-    // every consuming use of an escaping closure's capture
-    // (`capture.escaping-consume`), so no move out of it is left to lower
-    // (SL-475).
+    // a value that owns nothing is copied into a local of the call's; any
+    // other, a Copy-tier one included, is read in place, through a reference
+    // the capture's name reads through, so a call retains nothing it does
+    // not pass on (as Stage 0 reads it). Typecheck refuses every consuming
+    // use of an escaping closure's capture (`capture.escaping-consume`), so
+    // no move out of it is left to lower (SL-475).
     func load_owned_capture(&var self, cap: &TcCapture, part: Int, name: Int) {
         let et = self.place_type(part)
-        if self.owns(et) && not self.mir_copies_silently(et) {
+        if self.owns(et) {
             let rv = self.rv_ref(false, part)
             let rt = self.rvalues[rv].ty
             let l = self.new_local(rt, MirLocalKind.User, name, cap.binding)
@@ -4280,10 +4280,11 @@ extension MirProgram {
     // A closure: its captures, each taken as typecheck's capture table says,
     // its body lowered after the function it is written in (SL:architecture
     // §3.5). An environment this function keeps (`closure_environment`) is a
-    // local of its own, built from the captures, and the closure's one
-    // operand is a reference to it, exclusive when a capture is: a loan the
-    // borrow check holds the closure value to, and storage the frame layout
-    // places. Any other closure is the aggregate of its captures.
+    // local of its own, built from the captures and dropped with its
+    // statement's temporaries, and the closure's one operand is a reference
+    // to it, exclusive when a capture is: a loan the borrow check holds the
+    // closure value to, and storage the frame layout places. Any other
+    // closure is the aggregate of its captures.
     func closure(&var self, e: Int) -> Int {
         let t = self.tc.expr_types[e]
         let at = self.tc.closure_index.first(e, 0)
@@ -4301,6 +4302,10 @@ extension MirProgram {
             let env = self.new_local(env_tuple, MirLocalKind.Environment, -1, e)
             let built = self.rv_aggregate(MirAggregate.Tuple, -1, env_tuple, &captures)
             self.assign_local(env, built)
+            // The environment owns what its copy captures copied, until the
+            // statement that built the closure ends: the closure is passed
+            // straight to the call that runs it, so nothing outlives that.
+            self.scope_owned(env)
             var exclusive = false
             var j = 0
             while j < elements.len() {

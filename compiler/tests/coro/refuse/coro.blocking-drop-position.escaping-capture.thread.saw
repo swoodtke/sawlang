@@ -1,0 +1,31 @@
+// refuses: coro.blocking-drop-position at 20:12
+// message: an escaping closure captures `p: coro.blocking-drop-position.escaping-capture.thread.Pool`, whose drop blocks its thread (blocking deinit)
+// The escaping capture in thread context: a `Thread.spawn` body builds the
+// closure, and is refused all the same, since a copy of the closure can
+// leave the thread and its last release decides where the `Pool` drops
+// (conformance row K195).
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.n)
+    }
+}
+
+func holder(n: Int) -> () sync -> Int {
+    let p = Pool(n: n)
+    return { [move p] in p.n }
+}
+
+func use_once() sync -> Int {
+    let f = holder(3)
+    f()
+}
+
+func main() {
+    var t = try! Thread.spawn { use_once() }
+    print(t.join())
+}

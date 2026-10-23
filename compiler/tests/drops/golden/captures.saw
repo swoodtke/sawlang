@@ -1,10 +1,10 @@
 // An escaping closure's environment is shared by every copy of the closure
 // and released once, at its last owner, so a call never takes ownership out of
-// it (SL-475). A capture that owns something and is not of the Copy tier is
-// read in place, through a reference into the environment, and dropped by no
-// call: `readonly` calls its closure twice and `r` is released once, by the
-// closure's own drop. A Copy-tier capture is copied into a local the call
-// drops. One function per closure kind (let-bound, returned, stored in a field,
+// it (SL-475). A capture that owns something, of any copy tier, is read in
+// place, through a reference into the environment, and dropped by no call:
+// `readonly` calls its closure twice and `r` is released once, by the
+// closure's own drop, and a Copy-tier capture takes no retain per call.
+// One function per closure kind (let-bound, returned, stored in a field,
 // passed to an `escaping` parameter, and non-escaping) and capture kind
 // (plain, `move`, `copy`). A `[copy v]` of an ExplicitCopy `Vector` calls its
 // `copy()` once at creation, in either kind, and the environment and `v` are

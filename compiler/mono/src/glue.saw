@@ -27,14 +27,18 @@ import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
 // Whether a copy of type `t` is the bits alone: a trivially copyable type, a
-// reference, a slice, or a function value.
+// reference or a slice. A function value's copy retains the environment it
+// may share, so it runs its copy glue.
 public func mono_copies_bitwise(tc: &var TcProgram, t: Int) -> Bool {
     if t < 0 {
         return true
     }
     let kind = tc.kind_of(t)
-    if kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func {
+    if kind == TcKind.Ref || kind == TcKind.Slice {
         return true
+    }
+    if kind == TcKind.Func {
+        return false
     }
     tc.is_trivial(t)
 }
@@ -344,12 +348,13 @@ extension MonoProgram {
         self.dp.bc.mir.assign_local(i, rv)
     }
 
-    // Whether `build_copy_glue` builds a copy of concrete type `t`: a struct,
-    // an enum, a tuple or an array. A scalar's copy is its member glue, and a
-    // function value's is not in the slice (SL-525).
+    // Whether copy glue answers a copy of concrete type `t`: a struct, an
+    // enum, a tuple or an array, which `build_copy_glue` builds, or a
+    // function value, whose glue the backend writes (its retain). A scalar's
+    // copy is its member glue.
     public func copy_glue_builds(&var self, t: Int) -> Bool {
         let info = self.dp.bc.mir.tc.types.ty(t)
-        if info.kind == TcKind.Tuple || info.kind == TcKind.Array {
+        if info.kind == TcKind.Tuple || info.kind == TcKind.Array || info.kind == TcKind.Func {
             return true
         }
         if info.kind != TcKind.Nominal {

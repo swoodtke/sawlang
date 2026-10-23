@@ -26,7 +26,7 @@ stdout	"drop 21"
 stdout	"= 22"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 18 is 'drop 20', expected 'drop 21'
 frame	__Frame_authored_outer_driven$m$	authored_outer_driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
 field	t	own	0	16	8
 field	__state	own	16	8	8

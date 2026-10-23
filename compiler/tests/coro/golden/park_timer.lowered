@@ -21,7 +21,7 @@ fn park_timer.main() -> Void {
 }
 resume #6: park_timer.nap(span: std.duration.Duration)  (frame size 32 align 8, pointer _2)
     state 0: bb0
-    state 1: bb1 drive #11 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
+    state 1: bb1 drive #12 std.task.sleep(duration: std.duration.Duration) at (*frame).[8]
 fn park_timer.nap(span: std.duration.Duration) -> Void {
     let _0: Void;  // return
     let _1: std.duration.Duration;  // param span
@@ -44,7 +44,7 @@ fn park_timer.nap(span: std.duration.Duration) -> Void {
         return;
     }
 }
-resume #11: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
+resume #12: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
     state 0: bb0
     state 1: bb3 park timer
 fn std.task.sleep(duration: std.duration.Duration) -> Void {

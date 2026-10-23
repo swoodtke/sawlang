@@ -376,7 +376,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a take capture, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, an offload of a variadic extern or of one returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow, an aggregate crossing the C convention, an offload of a variadic extern or of one returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
@@ -422,11 +422,29 @@ the refusal of a cycle at a build. The offload (SL:coroutines A14a, A14b):
 offloaded call is in flight: the task waits for the call, which writes into
 its frame after the cancel, before it leaves.
 
-**Closures.** A closure's environment is a slot of the frame that builds it,
-which is sound only for a closure that does not escape; mono refuses an
-escaping closure that captures anything (`compiler/tests/mono/README.md`).
-`closure_captures` runs the non-escaping forms, and the due program
-`escaping_environment` pins the refusal at a build until SL-525.
+**Closures** (spec, Escaping-closure heap environments; SL-525). A function
+value is three words, its code, its environment and its release, and
+`closure_into` in `compiler/llvm/src/closures.saw` is its one construction.
+A non-escaping closure's environment is a local of the function that builds
+it (SL-805), which owns its copy captures until the statement ends, and a
+`[move r]` capture there is `take`'s pair of addresses, the value's and its
+take flag's. An escaping closure that captures something keeps its captures
+in a heap block from the compiler's allocation (`compiler_allocation`, a
+refusal panicking with `closure environment: allocation of N bytes (align A)
+failed`), the word before them an atomic count set to one, and its release
+is the closure's own teardown: the captures' drop glue, in reverse capture
+order, then the block freed. Every other value's release is null. A function
+value's copy glue copies the three words and, for a release that is not null,
+adds one to the count (monotonic); its drop glue subtracts one (release
+ordering), and the value that took the count to zero fences with acquire and
+runs the release; a count already at zero panics as an over-release. A
+function value's callee is read in place, never copied. `closure_captures`
+runs the non-escaping forms, `closure_nonescaping_owning_captures` their
+owning captures, `escaping_environment`, `closure_environment_positions` and
+`closure_environment_release` the escaping ones, and the probes
+`closure_environment_optional_and_generic_owner`, `closure_release_order`,
+`coro_sendable_heap_capture_crosses` and `thread_closure_shared_release`
+what Stage 0 is no oracle for.
 
 ## The lane
 

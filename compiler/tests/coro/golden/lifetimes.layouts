@@ -53,19 +53,19 @@ frame #9: lifetimes.sequential()  (size 40 align 8, lower bound 40)
     (*frame).[8: frame lifetimes.step_a(k: Int)]  size 24 align 8  child  (across 1)
     (*frame).[8: frame lifetimes.step_b(k: Int)]  size 24 align 8  child  (across 2)
     stack: _2 _3
-frame #15: lifetimes.child(k: Int)  (size 24 align 8, lower bound 24)
+frame #16: lifetimes.child(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param k  (across 1)
     stack: _2
-frame #23: lifetimes.step_a(k: Int)  (size 24 align 8, lower bound 24)
+frame #24: lifetimes.step_a(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result
     (*frame).[16: Int]  size 8 align 8  _1 param k  (across 1)
     stack: _2
-frame #24: lifetimes.step_b(k: Int)  (size 24 align 8, lower bound 24)
+frame #25: lifetimes.step_b(k: Int)  (size 24 align 8, lower bound 24)
     suspend 1: bb0 call __saw_suspend
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Int]  size 8 align 8  _0 result

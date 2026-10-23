@@ -1,7 +1,7 @@
-resume #10: index_reads.store(p: UnsafePointer<Int>, i: Int) task root  (frame size 72 align 8, pointer _9)
+resume #11: index_reads.store(p: UnsafePointer<Int>, i: Int) task root  (frame size 72 align 8, pointer _9)
     state 0: bb0
-    state 1: bb0 drive #14 index_reads.slow(v: Int) at (*frame).[8]
-    state 2: bb1 drive #14 index_reads.slow(v: Int) at (*frame).[8]
+    state 1: bb0 drive #15 index_reads.slow(v: Int) at (*frame).[8]
+    state 2: bb1 drive #15 index_reads.slow(v: Int) at (*frame).[8]
 fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
     let _0: Int;  // return
     let _1: UnsafePointer<Int>;  // param p
@@ -48,9 +48,9 @@ fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
         goto -> bb2;
     }
 }
-resume #14: index_reads.slow(v: Int)  (frame size 24 align 8, pointer _2)
+resume #15: index_reads.slow(v: Int)  (frame size 24 align 8, pointer _2)
     state 0: bb0
-    state 1: bb0 drive #18 std.task.yield_now() at (*frame).[8]
+    state 1: bb0 drive #19 std.task.yield_now() at (*frame).[8]
 fn index_reads.slow(v: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param v
@@ -65,7 +65,7 @@ fn index_reads.slow(v: Int) -> Int {
         return;
     }
 }
-resume #18: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #19: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {
@@ -83,7 +83,7 @@ fn std.task.yield_now() -> Void {
     }
 }
 driver #5: index_reads.run()
-    drive bb0 task root #10 index_reads.store(p: UnsafePointer<Int>, i: Int) task root, descriptor _7, frame _8
+    drive bb0 task root #11 index_reads.store(p: UnsafePointer<Int>, i: Int) task root, descriptor _7, frame _8
 fn index_reads.run() -> Void {
     let _0: Void;  // return
     let _1: index_reads.Pair;  // q

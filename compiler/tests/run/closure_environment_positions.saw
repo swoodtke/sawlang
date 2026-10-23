@@ -1,0 +1,106 @@
+// Every position an escaping closure leaves the frame that built it through
+// (conformance V125): a return, a struct field, a `Vector` element, an enum
+// case's payload, a `Box`, a tuple, an `escaping` parameter, a local binding,
+// and a generic's closure at two instantiations. The probe
+// `closure_environment_optional_and_generic_owner` holds the two Stage 0 has
+// no oracle for: an optional's payload, which it does not build, and a
+// generic closure owning a `Res`, whose capture it never drops.
+// Each closure captures an `Int` by value and owns a `Res` it was handed, so
+// its environment is on the heap; the live count of `Res` values is back to
+// zero once every closure is gone, which a capture dropped twice or never
+// would break (SL-525).
+static LIVE: Atomic<Int> = Atomic(0)
+
+struct Res { n: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { LIVE.fetch_add(0 - 1) }
+}
+
+func res(n: Int) -> Res {
+    LIVE.fetch_add(1)
+    Res(n: n)
+}
+
+struct Holder { f: () -> Int }
+
+enum Slot {
+    case Full(f: () -> Int),
+    case Empty
+}
+
+func returned(base: Int) -> () -> Int {
+    let r = res(1)
+    return { [base, move r] in base + r.n }
+}
+
+func stored(base: Int) -> Holder {
+    let r = res(2)
+    Holder(f: { [base, move r] in base + r.n })
+}
+
+func element(base: Int) -> Vector<() -> Int> {
+    let r = res(3)
+    var v = Vector<() -> Int>()
+    try! v.push({ [base, move r] in base + r.n })
+    move v
+}
+
+func payload(base: Int) -> Slot {
+    let r = res(5)
+    Slot.Full(f: { [base, move r] in base + r.n })
+}
+
+func boxed(base: Int) -> Box<() -> Int> {
+    let r = res(6)
+    try! Box<() -> Int>.make({ [base, move r] in base + r.n })
+}
+
+func paired(base: Int) -> (() -> Int, () -> Int) {
+    let r = res(7)
+    let q = res(8)
+    ({ [base, move r] in base + r.n }, { [base, move q] in base + q.n })
+}
+
+func keep(f: () escaping -> Int) -> Holder {
+    Holder(f: f)
+}
+
+func generic<T>(value: T, base: Int) -> () -> Int {
+    { [base, move value] in base }
+}
+
+func run() {
+    let a = returned(10)
+    print("return {}", a())
+    let h = stored(20)
+    print("field {}", h.f())
+    let v = element(30)
+    let e = v[0]
+    print("element {}", e())
+    match payload(50) {
+        case Full(f) -> print("payload {}", f()),
+        case Empty -> print("payload none")
+    }
+    // The boxed closure is held, not called: what the row checks is that
+    // the box's drop releases it.
+    let b = boxed(60)
+    print("box held")
+    let (p, q) = paired(70)
+    print("tuple {} {}", p(), q())
+    let r = res(9)
+    let k = keep({ [move r] in r.n + 80 })
+    print("escaping parameter {}", k.f())
+    let s = res(10)
+    let bound = { [move s] in s.n + 90 }
+    print("binding {}", bound())
+    let g1 = generic(true, 100)
+    let g2 = generic(7, 110)
+    print("generic {} {}", g1(), g2())
+    print("live while held {}", LIVE.load())
+}
+
+func main() {
+    run()
+    print("live after {}", LIVE.load())
+}

@@ -110,7 +110,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #8
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #9
     }
 
     bb1: {
@@ -128,7 +128,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #9
+        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #10
     }
 
     bb1: {
@@ -150,7 +150,7 @@ fn -> Bool {
 
     bb0: {
         _4 = ref(shared, (*_1));
-        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #10
+        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #11
     }
 
     bb1: {
@@ -159,7 +159,9 @@ fn -> Bool {
     }
 }
 
-item #8: std.string.String.len()  (from #4)
+item #8: copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void  (from #1)
+
+item #9: std.string.String.len()  (from #4)
 fn -> Int {
     let _0: Int;  // return
     let _1: &String;  // self
@@ -176,7 +178,7 @@ fn -> Int {
     }
 }
 
-item #9: atomic_load_word(a: &Atomic<T>) inst Int  (from #5)
+item #10: atomic_load_word(a: &Atomic<T>) inst Int  (from #5)
 fn -> Int {
     let _0: Int;  // return
     let _1: &Atomic<Int>;  // param a
@@ -187,7 +189,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1).value);
-        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #11
+        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #12
     }
 
     bb1: {
@@ -201,7 +203,7 @@ fn -> Int {
     }
 }
 
-item #10: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #7)
+item #11: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #7)
 fn -> Bool {
     let _0: Bool;  // return
     let _1: &Atomic<Int>;  // param a
@@ -214,7 +216,7 @@ fn -> Bool {
 
     bb0: {
         _4 = ref(shared, (*_1).value);
-        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #11
+        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #12
     }
 
     bb1: {
@@ -228,7 +230,7 @@ fn -> Bool {
     }
 }
 
-item #11: UnsafeMutableInterior.ptr() args Int  (from #9)
+item #12: UnsafeMutableInterior.ptr() args Int  (from #10)
 fn -> UnsafePointer<Int> {
     let _0: UnsafePointer<Int>;  // return
     let _1: &UnsafeMutableInterior<Int>;  // self

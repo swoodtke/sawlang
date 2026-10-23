@@ -20,7 +20,7 @@ stdout	"drop 21"
 stdout	"= 42"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 11 is 'drop 20', expected 'drop 21'
 frame	__Frame_pair_driven$m$	pair_driven	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
 field	d	own	0	16	8
 field	__state	own	16	8	8
@@ -30,4 +30,4 @@ field	__io_deadline	own	40	8	8
 field	__cancel	own	48	1	1
 field	__result	own	56	8	8
 bt	243	strtab=99	version=1	word_bits=64
-btframe	__Frame_pair_driven$m$	pair_driven	two_copy_captures.saw	16	0 51
+btframe	__Frame_pair_driven$m$	pair_driven	two_copy_captures.saw	16	0 52

@@ -1,0 +1,26 @@
+// probe: stated
+// about: one escaping closure over a heap `String`, copied into one thread and moved into another, so the two threads release its shared environment at once and either may run its teardown; the count is atomic, and the gmgate lane runs it under Guard Malloc (SL-525)
+// stage 0: has no `sendable`, and cannot build a `Thread.spawn` body that calls a function value
+// speeds: -O0 -O2
+// prints: total 4000
+
+func heap_text(n: Int) -> String {
+    var sb = StringBuilder()
+    try! sb.append("captured-")
+    try! sb.append(n)
+    sb.build()
+}
+
+func main() {
+    var total = 0
+    var round = 0
+    while round < 200 {
+        let s = heap_text(round % 10)
+        let f: () sync sendable -> Int = { [s] in s.len() }
+        var a = try! Thread.spawn { [f] in f() }
+        var b = try! Thread.spawn { [move f] in f() }
+        total = total + a.join() + b.join()
+        round = round + 1
+    }
+    print("total {}", total)
+}

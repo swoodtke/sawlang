@@ -44,7 +44,7 @@ entry:
   %l7 = alloca i8, align 1
   %l8 = alloca ptr, align 8
   %l9 = alloca i8, align 1
-  %l10 = alloca [16 x i8], align 8
+  %l10 = alloca [24 x i8], align 8
   %l11 = alloca ptr, align 8
   %l12 = alloca i64, align 8
   store ptr %p1, ptr %l1
@@ -95,9 +95,9 @@ bb7:
   store i64 0, ptr %l12
   %t17 = load ptr, ptr %l11
   %t18 = load i64, ptr %l12
-  %t19 = mul i64 %t18, 16
+  %t19 = mul i64 %t18, 24
   %t20 = getelementptr i8, ptr %t17, i64 %t19
-  call void @llvm.memcpy.p0.p0.i64(ptr %l10, ptr %t20, i64 16, i1 false)
+  call void @"saw copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void"(ptr %l10, ptr %t20)
   %t21 = load ptr, ptr %l10
   %t22 = getelementptr i8, ptr %l10, i64 8
   %t23 = load ptr, ptr %t22
@@ -212,6 +212,23 @@ bb1:
   store i8 %t5, ptr %l0
   %t6 = load i8, ptr %l0
   ret i8 %t6
+}
+
+define internal void @"saw copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void"(ptr %p1, ptr %p2) #0 {
+entry:
+  call void @llvm.memcpy.p0.p0.i64(ptr %p1, ptr %p2, i64 24, i1 false)
+  %env.at = getelementptr i8, ptr %p1, i64 8
+  %env = load ptr, ptr %env.at
+  %release.at = getelementptr i8, ptr %p1, i64 16
+  %release = load ptr, ptr %release.at
+  %owns = icmp ne ptr %release, null
+  br i1 %owns, label %owned, label %done
+owned:
+  %count.at = getelementptr i8, ptr %env, i64 -8
+  %old = atomicrmw add ptr %count.at, i64 1 monotonic
+  br label %done
+done:
+  ret void
 }
 
 define internal i64 @"saw std.string.String.len()"(ptr noalias %p1) #0 {

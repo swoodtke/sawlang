@@ -1,0 +1,19 @@
+// refuses: coro.spawn-not-send at 10:1
+// message: cannot spawn `run` into a multi-threaded `TaskGroup(threads: ...)`: parameter `f` of type `() -> Int` holds the closure passed here, and the closure is not `sendable`, since it captures `c` of type `coro.spawn-not-send.heap-capture.Counter`, which is not `Sync`: every copy of a closure shares what it captured, so each capture must be `Send` and `Sync`, so the task frame cannot cross to a worker thread.
+// An escaping closure's heap environment is shared by every copy of it, so
+// an owned capture that is `Send` but not `Sync` keeps it from crossing to a
+// worker, named by the refusal (SL-525).
+struct Counter { cell: UnsafeMutableInterior<Int> }
+
+func counter() unsafe -> Counter { Counter(cell: UnsafeMutableInterior(0)) }
+
+func run(f: () escaping -> Int) -> Int {
+    f()
+}
+
+func main() {
+    let c = counter()
+    var group = try! TaskGroup(threads: 2)
+    let h = group.spawn(run({ [move c] in 1 }))
+    print(h.join())
+}

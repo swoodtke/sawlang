@@ -32,7 +32,8 @@ public enum TargetKind {
 
 // How a memory type's parts are found: members at offsets (a struct, a
 // tuple, a slice), cases under a tag (an enum), a payload under a presence
-// flag (`Optional`), a closure's code and environment, or array elements.
+// flag (`Optional`), a closure's code, environment and release, or array
+// elements.
 public enum TargetShape {
     case Scalar,
     case Record,
@@ -251,7 +252,7 @@ extension Target {
             case Func -> {
                 var l = TargetLayout.blank(TargetKind.Memory)
                 l.shape = TargetShape.Closure
-                l.size = 2 * self.word
+                l.size = 3 * self.word
                 l.align = self.word
                 l
             },
@@ -614,6 +615,14 @@ extension Target {
     // is at 0.
     public func closure_env_offset(&self) -> Int {
         self.word
+    }
+
+    // Where a closure value keeps its release: the function that tears a
+    // heap environment down at its last release, or null for a value that
+    // owns no environment, which makes its retain and release nothing
+    // (spec, Escaping-closure heap environments).
+    public func closure_release_offset(&self) -> Int {
+        2 * self.word
     }
 
     // Which functions keep a frame pointer on this target, the one answer

@@ -42,8 +42,8 @@
 // EXPECT-OUTPUT: copy 20 -> 21
 // EXPECT-OUTPUT: copy 21 -> 22
 // EXPECT-OUTPUT: drop 22
-// EXPECT-OUTPUT: drop 20
 // EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
 // EXPECT-OUTPUT: = 22
 // EXPECT-OUTPUT: end
 

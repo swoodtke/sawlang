@@ -94,23 +94,20 @@ fn glue.kinds(n: Int) -> Int {
 fn closure#0 of glue.kinds(n: Int) -> Int {
     let _0: Int;  // return
     let _1: &(String,);  // env
-    let _2: String;  // tag
+    let _2: &String;  // ref tag
     let _3: &String;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call std.string.String.len() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue String: builtin
 }
 
 fn glue.hold(x: T) -> Int {

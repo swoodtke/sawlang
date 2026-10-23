@@ -12,7 +12,8 @@ import sawmir.build.{mir_func_local}
 import sawmir.program.{MirProgram}
 import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
-import sawmir.model.{MirDiag}
+import sawmir.model.{MirDiag, MirSuspend}
+import sawtypecheck.types.{TcKind}
 import sawparse.tree.{AstNode}
 import sawresolve.names.{ResIndex}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
@@ -483,11 +484,31 @@ extension MonoProgram {
         false
     }
 
+    // Concrete call `c` reaches item `item`. A function value's glue is a
+    // count changed by one atomic step and, at a last release, its captures'
+    // drops, so a call of it never suspends, whatever the generic call it
+    // came from could reach.
     public func set_call_item(&var self, c: Int, item: Int) {
         while self.call_items.len() <= c {
             try! self.call_items.push(-1)
         }
         self.call_items[c] = item
+        if self.function_value_glue(item) {
+            var info = self.dp.bc.mir.calls[c]
+            info.suspend = MirSuspend.Never
+            self.dp.bc.mir.calls[c] = info
+        }
+    }
+
+    // Whether item `k` is a function value type's drop glue or copy glue,
+    // which has no MIR body: the backend writes its release and its retain.
+    public func function_value_glue(&self, k: Int) -> Bool {
+        if k < 0 || k >= self.items.len() {
+            return false
+        }
+        let it = self.items[k]
+        let glue = it.kind == MonoItemKind.DropGlue || it.kind == MonoItemKind.CopyGlue
+        glue && it.glue_type >= 0 && self.dp.bc.mir.tc.kind_of(it.glue_type) == TcKind.Func
     }
 
     public func set_closure_item(&var self, r: Int, item: Int) {

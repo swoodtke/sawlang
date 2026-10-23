@@ -166,7 +166,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #15
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #16
     }
 
     bb1: {
@@ -301,7 +301,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call generic.Weigh.doubled() (owner generic.Crate) [move _2] -> [return: bb1] suspends when T.Weigh.doubled; => #16
+        _3 = call generic.Weigh.doubled() (owner generic.Crate) [move _2] -> [return: bb1] suspends when T.Weigh.doubled; => #17
     }
 
     bb1: {
@@ -352,7 +352,7 @@ fn -> Void {
 
     bb0: {
         _2 = ref(exclusive, (*_1));
-        call std.string.String.deinit() (owner String) [move _2] -> [return: bb1]; => #17
+        call std.string.String.deinit() (owner String) [move _2] -> [return: bb1]; => #18
     }
 
     bb1: {
@@ -369,7 +369,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #18
+        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #19
     }
 
     bb1: {
@@ -391,7 +391,7 @@ fn -> Bool {
 
     bb0: {
         _4 = ref(shared, (*_1));
-        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #19
+        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #20
     }
 
     bb1: {
@@ -400,7 +400,9 @@ fn -> Bool {
     }
 }
 
-item #15: std.string.String.len()  (from #4)
+item #15: copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void  (from #1)
+
+item #16: std.string.String.len()  (from #4)
 fn -> Int {
     let _0: Int;  // return
     let _1: &String;  // self
@@ -417,7 +419,7 @@ fn -> Int {
     }
 }
 
-item #16: generic.Weigh.doubled() self generic.Crate  (from #8)
+item #17: generic.Weigh.doubled() self generic.Crate  (from #8)
 fn -> Int {
     let _0: Int;  // return
     let _1: &generic.Crate;  // self
@@ -427,7 +429,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1));
-        _3 = call generic.Weigh.weight() (owner generic.Crate) [move _2] -> [return: bb1] suspends when Self.Weigh.weight; => #20
+        _3 = call generic.Weigh.weight() (owner generic.Crate) [move _2] -> [return: bb1] suspends when Self.Weigh.weight; => #21
     }
 
     bb1: {
@@ -437,7 +439,7 @@ fn -> Int {
     }
 }
 
-item #17: std.string.String.deinit()  (from #11)
+item #18: std.string.String.deinit()  (from #11)
 fn -> Void {
     let _0: Void;  // return
     let _1: &var String;  // self
@@ -538,7 +540,7 @@ fn -> Void {
         _22 = copy static std.string.LENGTH_SLOT;
         _23 = Add(move _21, copy _2[_22]);
         _24 = Add(move _23, const 1: Int);
-        call std.string.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [move _20, move _24, copy static std.string.BLOCK_ALIGN] -> [return: bb14]; => #21
+        call std.string.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [move _20, move _24, copy static std.string.BLOCK_ALIGN] -> [return: bb14]; => #22
     }
 
     bb14: {
@@ -546,7 +548,7 @@ fn -> Void {
     }
 }
 
-item #18: atomic_load_word(a: &Atomic<T>) inst Int  (from #12)
+item #19: atomic_load_word(a: &Atomic<T>) inst Int  (from #12)
 fn -> Int {
     let _0: Int;  // return
     let _1: &Atomic<Int>;  // param a
@@ -557,7 +559,7 @@ fn -> Int {
 
     bb0: {
         _2 = ref(shared, (*_1).value);
-        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #22
+        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #23
     }
 
     bb1: {
@@ -571,7 +573,7 @@ fn -> Int {
     }
 }
 
-item #19: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #14)
+item #20: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #14)
 fn -> Bool {
     let _0: Bool;  // return
     let _1: &Atomic<Int>;  // param a
@@ -584,7 +586,7 @@ fn -> Bool {
 
     bb0: {
         _4 = ref(shared, (*_1).value);
-        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #22
+        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #23
     }
 
     bb1: {
@@ -598,7 +600,7 @@ fn -> Bool {
     }
 }
 
-item #20: generic.Crate.weight()  (from #16)
+item #21: generic.Crate.weight()  (from #17)
 fn -> Int {
     let _0: Int;  // return
     let _1: &generic.Crate;  // self
@@ -609,9 +611,9 @@ fn -> Int {
     }
 }
 
-item #21: extern __saw_rt_dealloc  (from #17)
+item #22: extern __saw_rt_dealloc  (from #18)
 
-item #22: UnsafeMutableInterior.ptr() args Int  (from #18)
+item #23: UnsafeMutableInterior.ptr() args Int  (from #19)
 fn -> UnsafePointer<Int> {
     let _0: UnsafePointer<Int>;  // return
     let _1: &UnsafeMutableInterior<Int>;  // self

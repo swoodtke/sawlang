@@ -1,9 +1,9 @@
 resume #5: pack_p2_layout.caller() task root  (frame size 80 align 8, pointer _12)
     state 0: bb0
-    state 1: bb0 drive #11 pack_p2_layout.child(k: Int) at (*frame).[8]
-    state 2: bb1 drive #11 pack_p2_layout.child(k: Int) at (*frame).[8]
-    state 3: bb2 drive #11 pack_p2_layout.child(k: Int) at (*frame).[8]
-    state 4: bb3 drive #11 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 1: bb0 drive #12 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 2: bb1 drive #12 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 3: bb2 drive #12 pack_p2_layout.child(k: Int) at (*frame).[8]
+    state 4: bb3 drive #12 pack_p2_layout.child(k: Int) at (*frame).[8]
 fn pack_p2_layout.caller() -> Int {
     let _0: Int;  // return
     let _1: Int;  // w
@@ -71,7 +71,7 @@ fn pack_p2_layout.caller() -> Int {
         goto -> bb4;
     }
 }
-resume #11: pack_p2_layout.child(k: Int)  (frame size 48 align 8, pointer _9, context _10)
+resume #12: pack_p2_layout.child(k: Int)  (frame size 48 align 8, pointer _9, context _10)
     state 0: bb0
     state 1: bb0 park ready
 fn pack_p2_layout.child(k: Int) -> Int {

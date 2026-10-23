@@ -74,23 +74,20 @@ fn generics.later_copy(x: T) -> () -> Int {
 fn closure#0 of generics.later_copy(x: T) -> Int {
     let _0: Int;  // return
     let _1: &(T,);  // env
-    let _2: T;  // x
+    let _2: &T;  // ref x
     let _3: &T;
     let _4: Int;
 
     bb0: {
-        _2 = copy (*_1).0;
-        _3 = ref(shared, _2);
+        _2 = ref(shared, (*_1).0);
+        _3 = ref(shared, (*_2));
         _4 = call generics.measure(x: &T) (inst T) [move _3] -> [return: bb1];
     }
 
     bb1: {
         _0 = move _4;
-        drop(_2);
         return;
     }
-
-    glue T: per instantiation
 }
 
 fn generics.copied(x: T) -> Int {
@@ -117,10 +114,12 @@ fn generics.copied(x: T) -> Int {
 
     bb2: {
         _0 = move _7;
+        drop(_4);
         drop(_1);
         return;
     }
 
+    glue (T,): per instantiation
     glue T: per instantiation
 }
 

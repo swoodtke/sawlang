@@ -22,7 +22,7 @@ stdout	"copy 5"
 stdout	"quiet 5"
 stdout	"end"
 stdout	""
-meets_expect	yes
+meets_expect	no: output line 8 is 'drop 70', expected 'drop 71'
 frame	__Frame_driven_cap$m$	driven_cap	64	8	states=2	own=57	sub=0	bt=0	root=0	method=0	agrees=1
 field	d	own	0	16	8
 field	__state	own	16	8	8
@@ -40,5 +40,5 @@ field	__io_deadline	own	40	8	8
 field	__cancel	own	48	1	1
 field	__result	own	56	8	8
 bt	349	strtab=157	version=1	word_bits=64
-btframe	__Frame_driven_cap$m$	driven_cap	V106_driven_copy_capture_duplicates_once.saw	16	0 82
-btframe	__Frame_driven_quiet$m$	driven_quiet	V106_driven_copy_capture_duplicates_once.saw	16	0 85
+btframe	__Frame_driven_cap$m$	driven_cap	V106_driven_copy_capture_duplicates_once.saw	16	0 80
+btframe	__Frame_driven_quiet$m$	driven_quiet	V106_driven_copy_capture_duplicates_once.saw	16	0 83

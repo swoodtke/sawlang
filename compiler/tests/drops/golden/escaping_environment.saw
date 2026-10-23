@@ -1,8 +1,8 @@
 // Escaping closures that capture a value, at each position a closure escapes
 // through: a return, a struct field, a vector element, an optional's payload
-// and a generic's result. Typecheck through drop elaboration accept them;
-// only mono refuses them, until the backend builds heap environments
-// (SL-608; compiler/tests/mono/refuse/mono.not-yet.escaping-*).
+// and a generic's result. Drop elaboration drops each closure value where
+// its owner ends, and the release runs the environment's teardown (SL-525;
+// compiler/tests/run/closure_environment_positions.saw).
 struct Res { n: Int }
 
 struct Holder {

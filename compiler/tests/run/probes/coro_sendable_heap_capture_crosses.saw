@@ -1,0 +1,36 @@
+// probe: stated
+// about: an escaping closure whose heap environment holds a heap `String` crosses to a `TaskGroup(threads: 2)` worker and reads its capture there, passed at the spawn as a literal and by a `sendable` binding, the capture-proven half of SL-795 (SL-525)
+// stage 0: has no `sendable`, and refuses every closure-typed parameter of a root spawned into a `threads:` group
+// speeds: -O0 -O2
+// prints: literal 13
+// prints: bound 111
+import std.task.*
+
+func heap_text(seed: String) -> String {
+    var sb = StringBuilder()
+    try! sb.append(seed)
+    try! sb.append("-built")
+    sb.build()
+}
+
+func run(f: () escaping -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func run_held(f: () sendable -> Int) -> Int {
+    yield_now()
+    f()
+}
+
+func main() {
+    let s = heap_text("literal")
+    var group = try! TaskGroup(threads: 2)
+    let a = group.spawn(run({ [s] in s.len() }))
+    let t = heap_text("bound")
+    let f: () sendable -> Int = { [t] in t.len() + 100 }
+    let b = group.spawn(run_held(f))
+    yield_now()
+    print("literal {}", a.join())
+    print("bound {}", b.join())
+}

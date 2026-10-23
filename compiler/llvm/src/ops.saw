@@ -9,6 +9,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
+import sawllvm.closures.{ll_env_lead}
 import sawllvm.prims.{LL_FAIL_DIVIDE, LL_FAIL_OVERFLOW, LL_FAIL_SHIFT, LL_MESSAGE_LIMIT}
 import sawllvm.erased.{ll_vtable_symbol}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_value_type}
@@ -60,7 +61,7 @@ extension LlEmitter {
             case Interpolate -> self.interpolation_into(&var mono, &var target, &rv, dest, node),
             case Erase -> self.erase_into(&var mono, &var target, r, dest, node),
             case Slice -> self.refuse_here(&var mono, node, "a slice is not in the backend slice yet"),
-            case Take -> self.refuse_here(&var mono, node, "a `[move]` capture's take is not in the backend slice yet")
+            case Take -> self.take_into(&var mono, &var target, &rv, dest, node)
         }
     }
 
@@ -109,51 +110,17 @@ extension LlEmitter {
         }
     }
 
-    // A closure value, the body's code beside its environment's address. An
-    // environment the building function keeps in a local of its own arrives
-    // as the closure's one operand, that local's address, so it lives where
-    // the frame layout put the local (`closure_environment`). Any other is
-    // written here into an entry-block slot: a capture-less closure's, which
-    // nothing reads, and a `Thread.spawn` brace's, which its site copies to
-    // the heap in the same terminator.
-    func closure_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String, node: Int) {
-        let rv = mono.dp.bc.mir.rvalues[r]
-        let item = mono.closure_item(r)
-        if item < 0 {
-            self.refuse_here(&var mono, node, "a closure whose body mono did not reach")
-            return
-        }
-        if mono.dp.bc.mir.closure_environment(rv.decl) {
-            let lent = mono.dp.bc.mir.lists[rv.first]
-            let address = self.operand_value(&var mono, &var target, lent, node)
-            let symbol = self.plain_symbol(&var mono, item)
-            self.store("ptr", symbol, dest)
-            let lent_at = self.offset_addr(dest, target.closure_env_offset())
-            self.store("ptr", address, lent_at)
-            return
-        }
-        let body = mono.items[item].body
-        let env_local = mono.dp.bc.mir.funcs[body].local_first + 1
-        let env_ref = mono.dp.bc.mir.locals[env_local].ty
-        // A thread body takes its environment by value; its spawn site moves
-        // this one to the heap (`thread_spawn`).
-        let referent = mono.dp.bc.mir.tc.referent(env_ref)
-        let env_type = if referent >= 0 { referent } else { env_ref }
-        let env_layout = self.lay_at(&var mono, &var target, env_type, node)
-        let env = self.slot(env_layout.size, env_layout.align)
-        var k = 0
-        while k < rv.count {
-            let o = mono.dp.bc.mir.lists[rv.first + k]
-            let t = mono.dp.bc.mir.operands[o].ty
-            let off = target.member_offset(&var mono.dp.bc.mir.tc, env_type, k)
-            let at = self.offset_addr(env, off)
-            self.operand_into(&var mono, &var target, o, at, t, node)
-            k = k + 1
-        }
-        let code = self.plain_symbol(&var mono, item)
-        self.store("ptr", code, dest)
-        let env_at = self.offset_addr(dest, target.closure_env_offset())
-        self.store("ptr", env, env_at)
+    // `take(P, F)`, a take capture's environment entry: the addresses of
+    // local place `P` and of its take flag `F`, the two exclusive references
+    // its tuple holds. The closure body takes the value through them and
+    // clears the flag, which drop elaboration made `P`'s drop flag (SL-477).
+    func take_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                   node: Int) {
+        let value = self.place_addr(&var mono, &var target, rv.place, node)
+        self.store("ptr", value, dest)
+        let flag = self.place_addr(&var mono, &var target, rv.flag, node)
+        let flag_at = self.offset_addr(dest, target.member_offset(&var mono.dp.bc.mir.tc, rv.ty, 1))
+        self.store("ptr", flag, flag_at)
     }
 
     // Whether integer type `t` is signed, a raw-backed enum by its backing;

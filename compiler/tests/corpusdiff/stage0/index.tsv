@@ -485,9 +485,9 @@ conformance/V102_derived_copy_duplicates_every_field.saw	arm64-apple-darwin	same
 conformance/V103_copy_funnel_duplicates_exactly_once.saw	arm64-apple-darwin	differs	7c56580e5b5a	success	ok	0	92:cafdcb1d4f0a	0:e3b0c44298fc	-	yes	-
 conformance/V104_unbound_value_is_released.saw	arm64-apple-darwin	same	e1d396dd2d28	success	ok	0	263:021946f18943	0:e3b0c44298fc	-	yes	-
 conformance/V105_copy_capture_releases_its_duplicate.saw	arm64-apple-darwin	same	c578182371b4	success	ok	0	348:1608ecd6747d	0:e3b0c44298fc	-	yes	-
-conformance/V106_driven_copy_capture_duplicates_once.saw	arm64-apple-darwin	same	46c705557a2d	success	ok	0	180:9c845ec4f84a	0:e3b0c44298fc	-	yes	-
-conformance/V107_capture_survives_repeated_invocation.saw	arm64-apple-darwin	same	5c33f5e9d1a8	success	ok	0	370:024dd361dba9	0:e3b0c44298fc	-	yes	-
-conformance/V108_each_copy_capture_owns_one_duplicate.saw	arm64-apple-darwin	differs	3d1e248866bd	success	ok	0	882:cf561d3b808e	0:e3b0c44298fc	-	yes	-
+conformance/V106_driven_copy_capture_duplicates_once.saw	arm64-apple-darwin	same	cc8aff7bf52d	success	ok	0	180:9c845ec4f84a	0:e3b0c44298fc	-	no: output line 8 is 'drop 70', expected 'drop 71'	-
+conformance/V107_capture_survives_repeated_invocation.saw	arm64-apple-darwin	same	4004f1cab5a3	success	ok	0	370:024dd361dba9	0:e3b0c44298fc	-	no: output line 8 is 'drop 11', expected 'drop 12'	-
+conformance/V108_each_copy_capture_owns_one_duplicate.saw	arm64-apple-darwin	differs	eeaddec1f87b	success	ok	0	882:cf561d3b808e	0:e3b0c44298fc	-	no: output line 11 is 'drop 20', expected 'drop 21'	-
 conformance/V109_move_in_a_while_condition.saw	arm64-apple-darwin	same	b5b8891110fb	error	refused	-	-	-	466:e6872f5de999	yes	use of moved variable `r` across loop iterations
 conformance/V110_loop_head_moves_that_stay_legal.saw	arm64-apple-darwin	same	35cffbee6c04	success	ok	0	113:b4201105d53f	0:e3b0c44298fc	-	yes	-
 conformance/V111_discard_let_retains_a_projection.saw	arm64-apple-darwin	same	26a240edbc20	success	ok	0	166:e4d0ec184d04	0:e3b0c44298fc	-	yes	-
@@ -1925,7 +1925,7 @@ named_tuple_mixed_labeling_error.saw	arm64-apple-darwin	same	0bd687f31e6b	error	
 named_tuple_pattern_deferred_error.saw	arm64-apple-darwin	same	5ab4b87cde75	error	refused	-	-	-	122:3491d6606ba8	yes	Parse error at 8:10: named tuple patterns (`(x: a)`) are not supported yet; use positional destructuring (`(a, b)`)
 named_tuple_positional_destructure.saw	arm64-apple-darwin	same	62c9647cf499	success	ok	0	4:1ddb914da913	0:e3b0c44298fc	-	yes	-
 named_tuple_reorder_error.saw	arm64-apple-darwin	same	898c1aaf92b6	error	refused	-	-	-	217:5e79c6e73dab	yes	cannot assign `(y: Int, x: Int)` to variable of type `(x: Int, y: Int)`
-nested_closure_captures_frame_local.saw	arm64-apple-darwin	same	919385e1a441	success	ok	0	272:d722b254bfe8	0:e3b0c44298fc	-	yes	-
+nested_closure_captures_frame_local.saw	arm64-apple-darwin	same	b1aa14f200ab	success	ok	0	272:d722b254bfe8	0:e3b0c44298fc	-	no: output line 18 is 'drop 20', expected 'drop 21'	-
 nested_if_iflet_tail.saw	arm64-apple-darwin	same	faefa8068f23	success	ok	0	3:917df3320d77	0:e3b0c44298fc	-	yes	-
 nested_optional_tail_branch_arms.saw	arm64-apple-darwin	same	e56af0390caf	success	ok	0	131:cceb2bf5d483	0:e3b0c44298fc	-	yes	-
 net_accept_loop_concurrent.saw	arm64-apple-darwin	same	897253afc061	success	refused	-	-	-	736:cf23bad02b34	no: Stage 0 does not build it	`try` requires a Result type, got `Int`
@@ -2506,7 +2506,7 @@ tuple_index_member_access.saw	arm64-apple-darwin	same	2e312927422c	success	ok	0	
 tuples.saw	arm64-apple-darwin	same	65d9cf623724	success	ok	0	9:a1852ec81c3b	0:e3b0c44298fc	-	yes	-
 tuples_advanced.saw	arm64-apple-darwin	same	b40066e1760d	success	ok	0	14:993346371d90	0:e3b0c44298fc	-	yes	-
 two_copy_arc.saw	arm64-apple-darwin	differs	f9924d4ec62c	success	ok	0	134:21bb37beba16	0:e3b0c44298fc	-	yes	-
-two_copy_captures.saw	arm64-apple-darwin	same	f1a3f6d80257	success	ok	0	136:dd976bba9456	0:e3b0c44298fc	-	yes	-
+two_copy_captures.saw	arm64-apple-darwin	same	7f3d5464db12	success	ok	0	136:dd976bba9456	0:e3b0c44298fc	-	no: output line 11 is 'drop 20', expected 'drop 21'	-
 two_escaping_copies.saw	arm64-apple-darwin	same	bf29a093cbce	success	ok	0	136:f91754a85621	0:e3b0c44298fc	-	yes	-
 two_modules_export_distinct_c_symbols.saw	arm64-apple-darwin	same	809e63ad308a	success	ok	0	18:3cbb2d131e72	0:e3b0c44298fc	-	yes	-
 type_alias.saw	arm64-apple-darwin	same	d53ddb39fb17	success	ok	0	7:727efd85ec3f	0:e3b0c44298fc	-	yes	-

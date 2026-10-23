@@ -11,7 +11,7 @@
 &var layouts.Shape?: size 8 align 8 pointer
 &var std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 8 align 8 pointer
 (Int, Bool): size 16 align 8 record offsets 0 8
-(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 16 align 8 closure
+(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 24 align 8 closure
 Bool: size 1 align 1 int
 Bool?: size 2 align 1 optional tag 1, Some=1 @1, None=0
 Int: size 8 align 8 int

@@ -37,7 +37,7 @@ fn drive_and_park.main() -> Int {
 }
 resume #5: drive_and_park.outer()  (frame size 40 align 8, pointer _4)
     state 0: bb0
-    state 1: bb0 drive #13 drive_and_park.inner() at (*frame).[8]
+    state 1: bb0 drive #14 drive_and_park.inner() at (*frame).[8]
     state 2: bb1 drive #6 std.task.yield_now() at (*frame).[8]
 fn drive_and_park.outer() -> Void {
     let _0: Void;  // return
@@ -83,7 +83,7 @@ fn std.task.yield_now() -> Void {
         return;
     }
 }
-resume #13: drive_and_park.inner()  (frame size 24 align 8, pointer _5)
+resume #14: drive_and_park.inner()  (frame size 24 align 8, pointer _5)
     state 0: bb0
     state 1: bb1 drive #6 std.task.yield_now() at (*frame).[16]
     state 2: bb3 drive #6 std.task.yield_now() at (*frame).[16]

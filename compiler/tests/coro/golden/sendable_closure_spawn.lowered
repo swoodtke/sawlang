@@ -75,9 +75,9 @@ fn sendable_closure_spawn.main() -> Void {
         _13 = call std.taskgroup.Task.__saw_spawn(group: UnsafePointer<std.taskgroup.TaskGroup>, descriptor: UnsafePointer<std.taskgroup.FrameDescriptor>, frame: UnsafePointer<UInt8>, provenance: std.taskgroup.TaskProvenance) (owner std.taskgroup.Task<Int>) [copy _18, copy _16, copy _17, move _19] -> [return: bb2];
     }
 }
-resume #7: sendable_closure_spawn.run(f: () -> Int) task root  (frame size 32 align 8, pointer _3)
+resume #7: sendable_closure_spawn.run(f: () -> Int) task root  (frame size 40 align 8, pointer _3)
     state 0: bb0
-    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[24]
+    state 1: bb0 drive #12 std.task.yield_now() at (*frame).[32]
 fn sendable_closure_spawn.run(f: () -> Int) -> Int {
     let _0: Int;  // return
     let _1: () -> Int;  // param f
@@ -93,7 +93,7 @@ fn sendable_closure_spawn.run(f: () -> Int) -> Int {
     }
 
     bb2: {
-        (*_3).[24: Int] = move _2;
+        (*_3).[32: Int] = move _2;
         drop((*_3).[8: () -> Int]);
         return;
     }

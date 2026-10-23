@@ -48,8 +48,8 @@
 // EXPECT-OUTPUT: = 24
 // EXPECT-OUTPUT: -- B non-escaping [copy], driven, 2 calls
 // EXPECT-OUTPUT: copy 11 -> 12
-// EXPECT-OUTPUT: drop 11
 // EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: drop 11
 // EXPECT-OUTPUT: = 24
 // EXPECT-OUTPUT: -- C escaping [copy], sync, 2 calls
 // EXPECT-OUTPUT: copy 11 -> 12

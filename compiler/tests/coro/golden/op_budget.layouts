@@ -25,7 +25,7 @@ frame #8: op_budget.spin(limit: Int) task root  (size 40 align 8, lower bound 40
     (*frame).[24: Int]  size 8 align 8  _1 param limit  (across 1)
     (*frame).[32: Int]  size 8 align 8  _2 i  (across 1)
     stack: _3 _4 _5
-frame #13: std.task.yield_now()  (size 8 align 8, lower bound 8)
+frame #14: std.task.yield_now()  (size 8 align 8, lower bound 8)
     suspend 1: bb0 call __saw_park_ready
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[8: Void]  size 0 align 1  _0 result

@@ -1,0 +1,59 @@
+// An escaping closure's heap environment releases what it owns exactly
+// once, at its last holder's drop (SL-525): a heap `String` capture read
+// after the frame that built it is gone; a NoCopy value moved in, released
+// in the closure's own LIFO position and not where the value was declared;
+// and one closure copied into a binding and a struct, then released by
+// every holder, whose `Arc` capture is retained once by the environment and
+// released once by it.
+struct Res { n: Int }
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+struct Holder { f: () -> Int }
+
+func heap_text(seed: String) -> String {
+    var sb = StringBuilder()
+    try! sb.append(seed)
+    try! sb.append("-built")
+    sb.build()
+}
+
+// The String lives in the environment; the frame's own copy is gone.
+func greeter() -> () -> Int {
+    let s = heap_text("hello")
+    return { [s] in s.len() }
+}
+
+func string_capture() {
+    let f = greeter()
+    print("string {} {}", f(), f())
+}
+
+// `m` is declared between the capture and the closure, so the order of the
+// two drops says whose drop released the capture.
+func moved_in() {
+    let a = Res(n: 1)
+    let m = Res(n: 2)
+    let f = { [move a] in a.n }
+    print("moved in {}", f())
+}
+
+func copied() {
+    let shared = try! Arc<Res>(value: Res(n: 3))
+    print("count alone {}", shared.strong_count())
+    let f = { [shared] in shared.strong_count() }
+    print("count captured {}", shared.strong_count())
+    let g = f
+    let h = Holder(f: g)
+    let h2 = h
+    print("count copied {} {} {} {}", f(), g(), h.f(), h2.f())
+}
+
+func main() {
+    string_capture()
+    moved_in()
+    copied()
+    print("end")
+}

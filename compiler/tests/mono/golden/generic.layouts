@@ -7,7 +7,7 @@
 &var String: size 8 align 8 pointer
 &var generic.Crate: size 8 align 8 pointer
 &var generic.Slot: size 8 align 8 pointer
-(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 16 align 8 closure
+(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 24 align 8 closure
 Bool: size 1 align 1 int
 Int: size 8 align 8 int
 Never: size 0 align 1 zero

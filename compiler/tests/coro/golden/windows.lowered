@@ -1,6 +1,6 @@
 resume #5: windows.held(n: Int) task root  (frame size 80 align 8, pointer _12)
     state 0: bb0
-    state 1: bb1 drive #14 std.task.yield_now() at (*frame).[72]
+    state 1: bb1 drive #15 std.task.yield_now() at (*frame).[72]
 fn windows.held(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -46,8 +46,8 @@ fn windows.held(n: Int) -> Int {
 }
 resume #7: windows.halves(n: Int) task root  (frame size 96 align 8, pointer _12)
     state 0: bb0
-    state 1: bb0 drive #18 prologue windows.Grid.slow() receiver exclusive at (*frame).[8]
-    state 2: bb1 drive #19 epilogue windows.Grid.slow() receiver exclusive at (*frame).[8]
+    state 1: bb0 drive #19 prologue windows.Grid.slow() receiver exclusive at (*frame).[8]
+    state 2: bb1 drive #20 epilogue windows.Grid.slow() receiver exclusive at (*frame).[8]
 fn windows.halves(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -96,8 +96,8 @@ fn windows.halves(n: Int) -> Int {
 }
 resume #8: windows.beside(n: Int) task root  (frame size 64 align 8, pointer _11)
     state 0: bb0
-    state 1: bb0 drive #14 std.task.yield_now() at (*frame).[32]
-    state 2: bb3 drive #14 std.task.yield_now() at (*frame).[32]
+    state 1: bb0 drive #15 std.task.yield_now() at (*frame).[32]
+    state 2: bb3 drive #15 std.task.yield_now() at (*frame).[32]
 fn windows.beside(n: Int) -> Int {
     let _0: Int;  // return
     let _1: Int;  // param n
@@ -142,7 +142,7 @@ fn windows.beside(n: Int) -> Int {
         return;
     }
 }
-resume #14: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
+resume #15: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
     state 0: bb0
     state 1: bb0 park ready
 fn std.task.yield_now() -> Void {
@@ -159,9 +159,9 @@ fn std.task.yield_now() -> Void {
         return;
     }
 }
-resume #18: prologue windows.Grid.slow() receiver exclusive  (frame size 32 align 8, pointer _5)
+resume #19: prologue windows.Grid.slow() receiver exclusive  (frame size 32 align 8, pointer _5)
     state 0: bb0
-    state 1: bb0 drive #14 std.task.yield_now() at (*frame).[8]
+    state 1: bb0 drive #15 std.task.yield_now() at (*frame).[8]
 fn prologue windows.Grid.slow() -> &var Int {
     let _0: &var Int;  // return
     let _1: &var (&var windows.Grid,);  // record
@@ -186,9 +186,9 @@ fn prologue windows.Grid.slow() -> &var Int {
         return;
     }
 }
-resume #19: epilogue windows.Grid.slow() receiver exclusive  (frame size 32 align 8, pointer _4)
+resume #20: epilogue windows.Grid.slow() receiver exclusive  (frame size 32 align 8, pointer _4)
     state 0: bb0
-    state 1: bb1 drive #14 std.task.yield_now() at (*frame).[24]
+    state 1: bb1 drive #15 std.task.yield_now() at (*frame).[24]
 fn epilogue windows.Grid.slow() -> Void {
     let _0: Void;  // return
     let _1: &var (&var windows.Grid,);  // record

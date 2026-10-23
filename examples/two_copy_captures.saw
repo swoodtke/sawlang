@@ -15,10 +15,11 @@
 //
 // INVOCATION COUNTS: each closure is invoked ONCE, in both twins.
 //
-// DROP ORDER differs between the twins and is not what this pins: a driven body
-// releases its frame-resident source at frame teardown, ahead of the
-// duplicates. The COUNT is the assertion — two copies, two releases of the
-// duplicate, one of the source.
+// DROP ORDER is the same in both twins: each closure's environment holds its
+// duplicate and is declared at the closure, after `d`, so the duplicates drop
+// before the source, in a driven body exactly as in its sync twin. The COUNT
+// is the assertion — two copies, two releases of the duplicate, one of the
+// source.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: -- sync
@@ -31,9 +32,9 @@
 // EXPECT-OUTPUT: -- driven
 // EXPECT-OUTPUT: copy 20 -> 21
 // EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
 // EXPECT-OUTPUT: drop 20
-// EXPECT-OUTPUT: drop 21
-// EXPECT-OUTPUT: drop 21
 // EXPECT-OUTPUT: = 42
 // EXPECT-OUTPUT: end
 

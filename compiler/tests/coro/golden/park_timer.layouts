@@ -11,7 +11,7 @@ frame #6: park_timer.nap(span: std.duration.Duration)  (size 32 align 8, lower b
     (*frame).[24: std.duration.Duration]  size 8 align 8  _1 param span  (across 1)
     (*frame).[8: frame std.task.sleep(duration: std.duration.Duration)]  size 16 align 8  child  (across 1)
     stack: none
-frame #11: std.task.sleep(duration: std.duration.Duration)  (size 16 align 8, lower bound 16)
+frame #12: std.task.sleep(duration: std.duration.Duration)  (size 16 align 8, lower bound 16)
     suspend 1: bb1 call __saw_park_timer
     (*frame).[0: Int]  size 8 align 8  state
     (*frame).[16: Void]  size 0 align 1  _0 result

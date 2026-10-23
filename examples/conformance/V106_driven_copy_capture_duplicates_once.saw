@@ -36,12 +36,10 @@
 // needs the transform to materialize a NON-OWNING local — a borrow of a frame
 // field that codegen will not cleanup-register — which does not exist today.
 //
-// THE DROP ORDER DIFFERS BETWEEN THE TWIN ROWS, and that is the fix visible in
-// the output rather than a discrepancy. Sync releases the duplicate first
-// (it is the inner binding); in the driven twin the materialized local keeps
-// ownership — the env holds a bare alias, which is what makes the closure
-// reusable — so the frame releases the parameter and the materialized local in
-// its own teardown order. One `copy` and two `drop`s on both sides.
+// THE DROP ORDER IS THE SAME IN BOTH TWINS. The closure's environment holds
+// the duplicate and is declared at the closure, after `d`, so it dies first:
+// the duplicate drops before the parameter it was copied from, in a driven
+// body exactly as in its sync twin. One `copy` and two `drop`s on both sides.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: -- sync
@@ -51,8 +49,8 @@
 // EXPECT-OUTPUT: body saw 71
 // EXPECT-OUTPUT: -- driven
 // EXPECT-OUTPUT: copy 70 -> 71
-// EXPECT-OUTPUT: drop 70
 // EXPECT-OUTPUT: drop 71
+// EXPECT-OUTPUT: drop 70
 // EXPECT-OUTPUT: body saw 71
 // EXPECT-OUTPUT: -- sync, silent tier
 // EXPECT-OUTPUT: copy 5

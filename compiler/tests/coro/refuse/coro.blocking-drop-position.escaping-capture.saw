@@ -1,0 +1,36 @@
+// refuses: coro.blocking-drop-position at 24:12
+// message: an escaping closure captures `p: coro.blocking-drop-position.escaping-capture.Pool`, whose drop blocks its thread (blocking deinit)
+// message: an escaping closure's captures drop with whichever copy of it goes last
+// A helper returns an escaping closure that moves in a `Pool` whose `deinit`
+// is `blocking`, and a group task calls it and drops it: the closure's heap
+// environment drops the `Pool` with whichever copy goes last, here on the
+// executor's thread, so the capture is refused (conformance row K195; the
+// Air's SL-525 c7 `h1`).
+
+import std.task.*
+
+struct Pool {
+    n: Int
+}
+
+extension Pool: NoCopy {
+    func deinit(&var self) blocking {
+        print("retired a pool of {}", self.n)
+    }
+}
+
+func holder(n: Int) -> () -> Int {
+    let p = Pool(n: n)
+    return { [move p] in p.n }
+}
+
+func use_once() -> Int {
+    let f = holder(3)
+    f()
+}
+
+func main() {
+    var group = TaskGroup()
+    let job = group.spawn(use_once())
+    print(job.join())
+}
