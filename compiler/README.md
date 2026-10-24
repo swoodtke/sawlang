@@ -107,6 +107,7 @@ compiler/
     lex/              golden token fixtures
     subset/           the subset checker's own fixtures
     funnel/           the depth-funnel lane's own fixtures
+    prelude_doc/      the spec's std module table against resolve's prelude
     grammar/          the tools over GRAMMAR.md: extract.py, lint.py, the
                       reference recognizer (recognize.py, contexts.py, and
                       lexdump.py, which reads sawc's token dump), the corpus
@@ -342,6 +343,10 @@ below that runs sawc runs Stage 2. It checks these things.
   (`tests/oracle.py`'s `v0_root`), refuses unless the std modules holding a
   suspending row are those whose bodies spell a cooperative primitive, and
   rewrites both; review the difference.
+- **The spec's std module table** (`prelude_doc`): `tests/prelude_doc/check_prelude_doc.py`
+  reads LANGUAGE_SPEC.md's "The modules" table and the prelude list in
+  `resolve/src/prelude.saw`, and fails on each name or module they disagree on;
+  its `agrees` and `disagrees` fixtures prove it passes and fails when it should.
 - **The runtime ABI table**: `tools/runtime_table.py` reads every
   `__saw_rt_*` seam's signature out of `runtime/ABI.md` (the seam set is
   its `RUNTIME_SEAMS`), with its owner, each host's runtime

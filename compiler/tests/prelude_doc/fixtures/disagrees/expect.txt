@@ -1,0 +1,4 @@
+the spec calls `Missing` prelude, but resolve gates it
+the spec gates `AllocError`
+the Prelude cell 'no' does not name `sleep`
+the spec gates `Path`

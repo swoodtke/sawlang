@@ -14214,16 +14214,16 @@ need one of the three [import forms](#imports).
 |---|---|---|
 | `std.vector` | `Vector<T, A>` | yes |
 | `std.map` / `std.set` | `Map<K, V, A>`, `Set<T, A>` | yes |
-| `std.string` | `String` methods, `Utf8Error` | `String` only |
+| `std.string` | `String` methods, `Utf8Error` | `String`, `StringBytes`, `StringScalars` |
 | `std.scalar` | `Scalar`, `InvalidScalar` | yes |
 | `std.stringbuilder` | `StringBuilder` | yes |
 | `std.arc` / `std.box` | `Arc<T>`, `Box<T, A>` | yes |
-| `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator` |
+| `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator`, `AllocError` |
 | `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | no |
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.float` | `Float` ↔ text, and the bit accessors | yes (methods only) |
 | `std.taskgroup` | `TaskGroup`, `Task<T>` | yes |
-| `std.task` | `yield_now`, `Thread<T>` (the `Thread.spawn` handle) | no |
+| `std.task` | `yield_now`, `Thread<T>` (the `Thread.spawn` handle) | `sleep`, `cancelled` |
 | `std.channel` | `Channel<T>`, `ChannelError` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
 | `std.once` | `Once<T>` | no |
@@ -14256,7 +14256,8 @@ and no `UdpSocket` yet.
 `std.slab` and `std.spinlock` were the two rows this table got wrong: both
 documented as gated, and neither listed in the compiler's set, so `SlabHead` and
 `SpinLock` resolved with no import at all. Both are gated now. The table above is
-checked against the compiler's list on every run of `make preludegate`, so a
+checked against the compiler's list by `compiler/tests/run.py`'s `prelude_doc`
+step on every patch, so a
 future row and the behaviour behind it cannot drift apart in silence.
 
 **`std.fixedbuf`** is **implemented** (`std/fixedbuf.saw`) and works in both

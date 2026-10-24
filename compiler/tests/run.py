@@ -44,7 +44,8 @@ each to its plain build and requires an overlap injected past the verifier
 to be reported at its access; and checks that the Stage 0
 snapshot in `coro/stage0/` is whole and prints the coroutine census, which
 gates nothing; and checks that a serial and a parallel run print the same
-(`parallel_order.py`). The lanes' oracles are Stage 0's recorded snapshots
+(`parallel_order.py`); and checks LANGUAGE_SPEC.md's std module table against
+resolve's prelude list, with its fixtures (`prelude_doc/`). The lanes' oracles are Stage 0's recorded snapshots
 (`oracle.py`); no step runs Stage 0 over the compiler's own source.
 The inventory of Stage 0 workaround markers prints first, then each failure as
 one line in a fixed order; the summary comes last, and any failure exits 1.
@@ -91,6 +92,9 @@ import test_recognize  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "seed"))
 import test_seed_store  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "prelude_doc"))
+import check_prelude_doc  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "resolve"))
 import resolve_lane  # noqa: E402
@@ -677,6 +681,12 @@ def run_census(run):
     run.inventory += lines
 
 
+def run_prelude_doc(run):
+    """The spec's std module table against resolve's prelude list, and the
+    checker against its agreeing and disagreeing fixtures."""
+    _run_module(run, check_prelude_doc)
+
+
 def run_parallel_order(run):
     """The runners print the same at every worker count, an injected failure
     included (compiler/tests/parallel_order.py)."""
@@ -710,6 +720,7 @@ STEPS = (
     Step("golden", "built"),
     Step("subset", "built"),
     Step("std_suspension", "after build"),
+    Step("prelude_doc", "always"),
     Step("seed", "always"),
     Step("version", "built"),
     Step("frozen", "always"),

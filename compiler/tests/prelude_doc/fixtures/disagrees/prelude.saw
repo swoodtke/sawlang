@@ -1,0 +1,7 @@
+public func res_declare_prelude(p: &var ResProgram) {
+    p.prelude_name("Allocator", "std.alloc")
+    p.prelude_name("AllocError", "std.alloc")
+    p.prelude_name("sleep", "std.task")
+    p.prelude_name("Vector", "std.vector")
+    p.prelude_name("Path", "std.file")
+}
