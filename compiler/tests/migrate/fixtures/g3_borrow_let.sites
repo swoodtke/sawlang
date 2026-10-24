@@ -1,2 +1,0 @@
-status: rewritten
-7 G3.borrow-let rewritten => print(borrow v[0].n)

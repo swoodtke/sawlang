@@ -1,2 +1,0 @@
-status: rewritten
-21 G2.accessor-read rewritten => print(borrow b.at(1).n)

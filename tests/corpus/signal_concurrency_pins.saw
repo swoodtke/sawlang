@@ -19,7 +19,7 @@
 //
 // So the pins are C, in two files that differ in ONE respect:
 //
-//   * `tools/signal_race_probe.c` links `sawc/rt/shim.c` EXACTLY AS SHIPPED.
+//   * `tools/signal_race_probe.c` links `runtime/shim.c` EXACTLY AS SHIPPED.
 //     Everything provable without touching the runtime is proved there.
 //   * `tools/signal_inflight_probe.c` links a GENERATED copy
 //     (`tools/signal_hook_shim.py` substitutes one marker for a hook call and
@@ -34,7 +34,7 @@
 // in-flight cells reproduce the r3 reviewer's (`stale deliveries accepted=1`).
 //
 // The repo root is found by walking UP from the working directory to the
-// marker `sawc/rt/shim.c`, because nothing promises the suite runs a binary
+// marker `runtime/shim.c`, because nothing promises the suite runs a binary
 // from any particular place and `#file` carries only the basename.
 // EXPECT: success
 // EXPECT-OUTPUT-CONTAINS: signal race probe: all cells hold
@@ -52,7 +52,7 @@ import std.env
 static MAX_DEPTH: Int = 16
 
 // The repo root: the nearest ancestor of the working directory holding
-// `sawc/rt/shim.c`. Walking to a marker rather than trusting the working
+// `runtime/shim.c`. Walking to a marker rather than trusting the working
 // directory is what makes this work whether the suite runs the binary from the
 // repo root, from `.build`, or from anywhere else.
 func find_root() -> Path? {
@@ -62,7 +62,7 @@ func find_root() -> Path? {
     var here = start
     var depth = 0
     while depth < MAX_DEPTH {
-        let marker = here.join("sawc").join("rt").join("shim.c")
+        let marker = here.join("runtime").join("shim.c")
         if File.exists(marker) {
             return here
         }
@@ -109,7 +109,7 @@ func main() {
         return
     }
     let root = root_path.as_str()
-    let shim = "{root}/sawc/rt/shim.c"
+    let shim = "{root}/runtime/shim.c"
     // A FRESH checkout (the server's per-patch worktree) has no `.build/` at
     // all, and the linker does not create parent directories — the r2 gate
     // failed exactly there. Create both levels; AlreadyExists is fine.

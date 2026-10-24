@@ -29,7 +29,26 @@ tools/battery.sh corpusdiff
 The corpus programs are found as `test_runner.py` finds the suite's under
 `examples/`: every `.saw` below `tests/corpus/` outside a `modules`
 directory, but those marked `EXPECT: skip`. Each is paired with the file of
-the same path below `examples/` (SL:architecture §5), which every program has.
+the same path below `examples/` (SL:architecture §5), its twin.
+
+**The twin relation** (`oracle.twin_state`, SL-667). `examples/` is frozen:
+it is the key of the snapshot, never edited. Each row of `stage0/index.tsv`
+holds the twin's bytes (`twin_sha`) and the corpus program's bytes at the
+freeze (`frozen_sha`), so a program is in one of four states:
+
+- `same` or `differs`: unchanged since the freeze, and judged against its
+  record as below;
+- `detached`: edited since, so its record no longer describes it. It keeps
+  its row and record, unused, and is judged by its own directives alone:
+  `pass` under the key `judged by its own directives (edited since its
+  oracle)`, or `wrong` with `fails its own directives (edited since its
+  oracle)`; a refusal is keyed as any other. The key move fails the gate until
+  the patch records the baseline, so losing the oracle is a reviewed change;
+- `native`: a new program with no twin. It needs no row, and is judged the
+  same way, under `judged by its own directives (no oracle)`.
+
+Neither a detached nor a native program reaches `stage0-wrong`, and no
+annotation applies to one.
 
 ## The Stage 0 snapshot
 
@@ -53,17 +72,21 @@ program to `stage0/TRIPLE/PATH.stage0`, in the format
 - every record says whether Stage 0 met the twin's own directives
   (`meets_expect`).
 
-`stage0/index.tsv` has one row per program, with the twin's SHA-256 prefix
-and the sizes and hashes of what its record holds. `check` holds the snapshot
-whole: a row and a record for every corpus program and none for anything
-else, each row the summary of its record, and each twin unchanged since its
-record was written. A corpus program added or a twin edited is caught there,
-and `snapshot --reuse PATH...` writes just that record: `--reuse` keeps each
-raw result saved under `.build/corpusdiff/stage0-raw/` whose twin has not
-changed, so an interrupted write resumes where it stopped. The snapshot is
-the oracle that outlives `sawc/`: `check` and `run` only read it, and only
-`snapshot` runs Stage 0, through `oracle.v0_root`, the one place the v0
-compiler's checkout is named.
+`stage0/index.tsv` has one row per program, with the twin's and the frozen
+program's SHA-256 prefixes and the sizes and hashes of what its record holds.
+`check` holds the snapshot whole: a row and a record for every corpus program
+with a twin and none for anything else, each row the summary of its record,
+and each twin unchanged since its record was written. `snapshot --reuse
+PATH...` writes just the records named: `--reuse` keeps each raw result saved
+under `.build/corpusdiff/stage0-raw/` whose twin and program have not
+changed, so an interrupted write resumes where it stopped. It refuses a
+detached or native program, and a whole write keeps a detached program's row
+and record as they are. The snapshot is the oracle that outlives `sawc/`:
+`check` and `run` only read it, and only `snapshot` runs Stage 0, through
+`oracle.v0_root`, which asks the toolchain resolver for v0.18.0's checkout
+(`SAWLANG_V0_ROOT`, else fetched and cached). Its records therefore hold
+v0.18.0's std and runtime, as they stood at the freeze; a std file's path
+reads `sawc/std/...` wherever that checkout is (`oracle.unrooted`).
 
 ## The measurement
 
@@ -80,7 +103,7 @@ The buckets:
 
 | bucket | means | keys |
 |---|---|---|
-| `pass` | sawc does what Stage 0 did | `-` |
+| `pass` | sawc does what Stage 0 did, or meets a detached or native program's own directives | `-`, `judged by its own directives (edited since its oracle)`, `judged by its own directives (no oracle)` |
 | `refused` | sawc refuses a program Stage 0 builds, or a refusal test by a gap rule | the stage and the rule: `resolve name.undefined`, `driver driver.usage` |
 | `crash` | an `INVARIANT` line, sawc's own panic or signal, a signal in its binary, or a hang | `INVARIANT`, `sawc panic`, `sawc SIGNAL`, `sawc exit N`, `run SIGNAL`, `hang in build`, `hang in run` |
 | `link` | clang or the link fails on sawc's `.ll` | `clang or the link` |

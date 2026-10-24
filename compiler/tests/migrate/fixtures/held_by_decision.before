@@ -1,6 +1,0 @@
-// EXPECT: success
-// EXPECT-OUTPUT: 1
-
-func main() {
-    print(1)
-}

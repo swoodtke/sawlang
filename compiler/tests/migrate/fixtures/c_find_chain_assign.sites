@@ -1,2 +1,0 @@
-status: rewritten
-7 C.find-chain-assign rewritten => borrow var m.find(&key)?.n = 5

@@ -87,8 +87,9 @@ compiler/
     grammar_tables.py writes parse/src/grammar.saw from GRAMMAR.md
     depth_funnel.py   the parser's depth-funnel lane
     comma_funnel.py   the parser's comma-list-funnel lane
-    frozen_compare.py the one-time comparison with the frozen parser, not a lane;
-                      sawc_reading.py reads sawc's dumps with its reader
+    ast_nodes.py      the frozen parser's tree classes, v0.18.0's, which
+                      sawc_reading.py builds
+    token_type.py     the frozen parser's token kinds, v0.18.0's
     std_cone.py       a program's cone against the new std, which the std lane's
                       recorded cones hold (tests/std/cone/)
     std_suspension.py each std function's suspension verdict from Stage 0's std
@@ -153,8 +154,6 @@ compiler/
                       and `sawc runtime`'s specification (README.md), and
                       programs whose sawc-built binaries' output must agree
                       with Stage 0's recorded runs (stage0/)
-    migrate/          the corpus rewriter's golden fixtures, over the
-                      instrument's recorded records (stage0/)
     corpusdiff/       the whole-corpus differential against Stage 0's snapshot
                       (stage0/), for information
     fixpoint/         the fixpoint lane (fixpoint_lane.py): Stage 2, sawc
@@ -347,16 +346,14 @@ below that runs sawc runs Stage 2. It checks these things.
   rewrites both; review the difference.
 - **The runtime ABI table**: `tools/runtime_table.py` reads every
   `__saw_rt_*` seam's signature out of `runtime/ABI.md` (the seam set is
-  Stage 0's, `sawc/runtime_abi.py`), with its owner, each host's runtime
+  its `RUNTIME_SEAMS`), with its owner, each host's runtime
   sources and the seams its C shim defines, and fails when
   `typecheck/src/runtimeabi.saw` differs from that reading, or when a host's
-  sources and shim do not export the runtime's seams exactly once each. It
-  also fails when Stage 0's copy of the runtime, `sawc/rt/`, differs from
-  `runtime/` in any file, or when Stage 0 reads the ABI differently: the
-  recorded oracles hold programs Stage 0 linked against its copy beside
-  programs sawc links against `runtime/`, so the two trees are one runtime, and a runtime
-  change is made in both until `sawc/` is deleted. Rerun it with `--write` after an ABI or
-  runtime-source change, and review the difference. The table is checked in
+  sources and shim do not export the runtime's seams exactly once each. The
+  recorded oracles hold programs Stage 0 linked against v0.18.0's runtime,
+  which is `runtime/` as it stood then, so a later runtime change that moves
+  a recorded verdict shows as that lane's failure. Rerun it with `--write`
+  after an ABI or runtime-source change, and review the difference. The table is checked in
   so that it outlives Stage 0 (SL:open-questions D41).
 - **The seed's fetch** (`tests/seed/test_seed_store.py`): `seed_blob` and
   `build_seed` against a blob host on 127.0.0.1, with a small seed of the
@@ -427,7 +424,7 @@ below that runs sawc runs Stage 2. It checks these things.
   refuses by, checks the compiler's own source whole and the new std with no
   refusal and no invariant, requires `tests/borrowck/CONFORMANCE.md` to
   account for every row of the five borrow-check sections of
-  `examples/conformance/INDEX.md`, holds every tests/corpus/ program that
+  `tests/corpus/conformance/INDEX.md`, holds every tests/corpus/ program that
   expects a move error to a borrow-check refusal or a stated reason, and
   every program that expects a loan error, or that a loan rule refuses
   though it expects to succeed, to a loan refusal or a stated mechanism. The

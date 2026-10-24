@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Unit tests for the toolchain resolver (design 238 unit 4).
 
-All four resolution steps, the version check and the refusal. `resolve()` takes
+All four resolution steps, the version check, the refusal, and the v0
+compiler's checkout (`v0_root`: named, refused, fetched). `resolve()` takes
 its environment and its consumer root as PARAMETERS precisely so this file can
 drive every step without mutating the process — and without a network: step 3
 is exercised through a pre-populated cache (the steady state) and through its
@@ -27,8 +28,8 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from toolchain import (MODULE_DIRS, PIN_FILE,  # noqa: E402
-                       ToolchainError, resolve)
+from toolchain import (MODULE_DIRS, PIN_FILE, V0_ENV, V0_SHA,  # noqa: E402
+                       V0_TAG, V0_VERSION, ToolchainError, resolve, v0_root)
 
 FAILURES = []
 
@@ -352,6 +353,49 @@ def test_pin_parsing(tmp):
     os.remove(os.path.join(c, PIN_FILE))
 
 
+# ---------------------------------------------------------------------------
+# The v0 compiler's checkout
+# ---------------------------------------------------------------------------
+
+def make_v0_tree(base, name, version):
+    """A tree holding `sawc/sawc.py`, whose `sawc/version.py` says `version`
+    (none when `version` is None)."""
+    root = os.path.join(base, name)
+    os.makedirs(os.path.join(root, "sawc"))
+    with open(os.path.join(root, "sawc", "sawc.py"), "w") as f:
+        f.write("# a stand-in v0 compiler\n")
+    if version is not None:
+        with open(os.path.join(root, "sawc", "version.py"), "w") as f:
+            f.write(f'"""The version."""\n\nSAWC_VERSION = "{version}"\n')
+    return root
+
+
+def test_v0_root(tmp):
+    print("the v0 compiler's checkout")
+    named = make_v0_tree(tmp, "v0", V0_VERSION)
+    check("a named v0 checkout is used",
+          v0_root(env={V0_ENV: named, "PATH": ""}) == named)
+
+    wrong = make_v0_tree(tmp, "later", "0.19.0")
+    expect_error("a named checkout of another version is refused, naming both",
+                 lambda: v0_root(env={V0_ENV: wrong, "PATH": ""}),
+                 V0_ENV, wrong, "0.19.0", V0_VERSION, V0_TAG)
+    expect_error("a named tree with no Stage 0 is refused",
+                 lambda: v0_root(env={V0_ENV: tmp, "PATH": ""}),
+                 V0_ENV, "no sawc/sawc.py", V0_VERSION)
+
+    # Unnamed, it is the pinned tag's fetch: a cache hit touches no network,
+    # since PATH is empty and `git` could not even be found.
+    cache = os.path.join(tmp, "cache")
+    os.makedirs(cache)
+    make_checkout(cache, V0_SHA)
+    check("unnamed, the cached fetch of the tag is used",
+          v0_root(env={"PATH": "", "SAW_TOOLCHAIN_CACHE": cache}) == os.path.join(cache, V0_SHA))
+    expect_error("an uncached fetch with no git refuses, naming it",
+                 lambda: v0_root(env={"PATH": "", "SAW_TOOLCHAIN_CACHE": os.path.join(tmp, "empty")}),
+                 "needs `git`")
+
+
 def test_unknown_package(tmp):
     print("the package table")
     tc = resolve(env={"PATH": ""})
@@ -374,6 +418,7 @@ TESTS = [
     test_step3_missing_prereq,
     test_step4_refusal,
     test_pin_parsing,
+    test_v0_root,
     test_unknown_package,
 ]
 

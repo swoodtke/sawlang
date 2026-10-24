@@ -21,7 +21,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import sawc_reading  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
+import ast_nodes as A  # noqa: E402
 
 RULES = {
     "grammar": "GRAMMAR.md: sawc's parser must accept the source",

@@ -1,2 +1,0 @@
-status: rewritten
-21 G1.accessor-read rewritten => let t = borrow b.total()

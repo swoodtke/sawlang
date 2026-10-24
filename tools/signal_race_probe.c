@@ -2,7 +2,7 @@
  * (SL-228 review r1, scope corrected after r3).
  *
  * These cells are expressible in C against the shim EXACTLY AS SHIPPED: they
- * link `sawc/rt/shim.c` itself, never a copy, because a pin built against a
+ * link `runtime/shim.c` itself, never a copy, because a pin built against a
  * transcription of the code under test pins the transcription. What they can
  * therefore NOT do is stop a handler in the middle — nothing outside the
  * runtime can. Every cell below says which of the two it is.

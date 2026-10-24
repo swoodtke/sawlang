@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a scheduling-hook copy of sawc/rt/shim.c for the signal race pins.
+"""Generate a scheduling-hook copy of runtime/shim.c for the signal race pins.
 
 Design 272 unit 3 / SL-228 review r3. Two of the pins have to PAUSE A REAL
 SIGNAL HANDLER at one exact point — after it takes its state snapshot and
@@ -7,7 +7,7 @@ before it writes — and neither Saw nor C-from-outside can do that to code it
 does not compile. So the pins compile the shim themselves, with one hook call
 inserted at a marker that lives in the real source.
 
-GENERATE, NEVER FORK. The output is `sawc/rt/shim.c` byte for byte except for
+GENERATE, NEVER FORK. The output is `runtime/shim.c` byte for byte except for
 one substituted line. If the marker is missing, or appears more than once, this
 exits non-zero rather than emitting something that merely resembles the runtime
 — a pin built against a stale transcription of the code under test pins the

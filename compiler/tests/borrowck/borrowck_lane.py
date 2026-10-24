@@ -12,7 +12,7 @@ directory specifies:
 
 - each ledger `.gitattributes` merges by union (`LEDGERS`) gives every row
   an id of its own, and each fixture in `ledger/` fails that check;
-- CONFORMANCE.md accounts for every row of `examples/conformance/INDEX.md`'s
+- CONFORMANCE.md accounts for every row of `tests/corpus/conformance/INDEX.md`'s
   five borrow-check sections, each with an owner from the matrix's own
   table, every `compiler/tests/` path it names exists, and every row the
   borrow check owns (U6d1 or U6d2) names a fixture or golden of this
@@ -64,7 +64,7 @@ import oracle  # noqa: E402
 # Stage 0's recorded builds of the fixtures the loan differential says it
 # compiles, one directory per host triple.
 STAGE0 = os.path.join(HERE, "stage0")
-INDEX = os.path.join(REPO, "examples", "conformance", "INDEX.md")
+INDEX = os.path.join(REPO, "tests", "corpus", "conformance", "INDEX.md")
 MATRIX = os.path.join(HERE, "CONFORMANCE.md")
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
@@ -82,7 +82,7 @@ LEDGER_FIXTURES = os.path.join(HERE, "ledger")
 # the header. A union merge keeps both sides' rows, so two patches that chose
 # one id both land, and `check_ledgers` is what refuses that.
 LEDGERS = (
-    ("examples/conformance/INDEX.md", "table"),
+    ("tests/corpus/conformance/INDEX.md", "table"),
     ("compiler/tests/borrowck/CONFORMANCE.md", "table"),
     ("compiler/tests/drops/conformance.tsv", "tsv"),
 )

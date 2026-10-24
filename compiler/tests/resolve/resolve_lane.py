@@ -23,7 +23,7 @@ directory specifies:
 - the compiler's own source, the sawc build and each unit program, resolves
   with no refusal;
 - no record anywhere carries an `INVARIANT` line from the verifier;
-- the interface parse's checks in `interface_pin.py` pass.
+- the checks on a modified std in `interface_pin.py` pass.
 """
 import glob
 import os

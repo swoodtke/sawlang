@@ -24,11 +24,17 @@ gate's worker budget that fails when any program's verdict moved from
 corpus_diff.tsv's. `snapshot` and `run` measure one program at a time unless
 `--jobs` says otherwise, and none of the three takes the suite lock. README.md
 has the buckets and the gate's rule.
+
+`examples/` is frozen, and each row's `frozen_sha` holds its corpus program's
+bytes at the freeze (`oracle.twin_state`). A program edited since is detached:
+its record stays, unused, and its own directives judge it under a key of its
+own, so the move fails the gate until the baseline records it. A program with
+no twin is native, needs no record, and is judged the same way. `snapshot`
+refuses both, since Stage 0 has no twin of theirs to compile.
 """
 import argparse
 import collections
 import concurrent.futures
-import hashlib
 import json
 import os
 import re
@@ -59,8 +65,15 @@ OUT = os.path.join(REPO, ".build", "corpusdiff")
 RAW = os.path.join(OUT, "stage0-raw")
 
 RUN_KINDS = ("success", "panic")
-INDEX_COLUMNS = ("path", "triple", "twin", "twin_sha", "expect", "build", "exit", "stdout", "stderr", "log",
-                 "meets_expect", "error")
+INDEX_COLUMNS = ("path", "triple", "twin", "twin_sha", "frozen_sha", "expect", "build", "exit", "stdout", "stderr",
+                 "log", "meets_expect", "error")
+# The columns the files determine rather than the record.
+FILE_COLUMNS = ("twin_sha", "frozen_sha")
+# The key a passing detached or native program is judged under, and the
+# reason a failing one gives.
+UNJUDGED_KEYS = {"detached": "judged by its own directives (edited since its oracle)",
+                 "native": "judged by its own directives (no oracle)"}
+UNJUDGED_WHY = {"detached": "edited since its oracle", "native": "no oracle"}
 RESULT_COLUMNS = ("path", "bucket", "key", "detail")
 ANNOTATION_COLUMNS = ("path", "kind", "reason")
 ANNOTATION_KINDS = ("stage0-wrong", "nondeterministic")
@@ -106,8 +119,18 @@ def programs():
 
 
 def twin_sha(path):
-    with open(os.path.join(EXAMPLES, path), "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()[:12]
+    return oracle.file_sha(os.path.join(EXAMPLES, path))
+
+
+def corpus_sha(path):
+    return oracle.file_sha(os.path.join(CORPUS, path))
+
+
+def states(paths, rows=None):
+    """{path: `oracle.twin_state`} for `paths`, by the index's rows."""
+    if rows is None:
+        rows = {r["path"]: r for r in read_index()} if os.path.exists(INDEX) else {}
+    return {p: oracle.twin_state(p, rows[p]["frozen_sha"] if p in rows else None) for p in paths}
 
 
 def record_path(path, triple):
@@ -125,7 +148,7 @@ def load():
 
 
 def summary(rec):
-    """The index row a record determines, but for `twin_sha`."""
+    """The index row a record determines, but for `FILE_COLUMNS`."""
     if not rec.ran:
         exit_text = "-"
     else:
@@ -139,8 +162,9 @@ def summary(rec):
 # --- the wholeness check ------------------------------------------------------
 
 def check():
-    """(failures, counts): one row and one record per corpus program, each
-    record the row it is in, and each row's twin unchanged since."""
+    """(failures, counts): one row and one record per corpus program with a
+    twin, each record the row it is in, and each row's twin unchanged since
+    (a program edited since is detached, which is no failure)."""
     failures = []
     try:
         rows = read_index()
@@ -150,12 +174,17 @@ def check():
     if len(set(paths)) != len(paths):
         failures.append("corpusdiff snapshot: index.tsv names a program twice")
     corpus = programs()
+    native = 0
     for path in sorted(set(corpus) - set(paths)):
+        if oracle.twin_state(path, None) == "native":
+            native += 1
+            continue
         failures.append("corpusdiff snapshot: corpus program %s has no record: run `corpusdiff.py snapshot "
                         "--reuse %s`" % (path, path))
     for path in sorted(set(paths) - set(corpus)):
         failures.append("corpusdiff snapshot: %s is no corpus program" % path)
     expected = set()
+    detached = 0
     for row in rows:
         expected.add(os.path.normpath(record_path(row["path"], row["triple"])))
         if row["path"] not in corpus:
@@ -166,15 +195,19 @@ def check():
             failures.append("corpusdiff snapshot %s: unreadable: %s" % (row["path"], e))
             continue
         for column in INDEX_COLUMNS:
-            if column != "twin_sha" and row[column] != got[column]:
+            if column not in FILE_COLUMNS and row[column] != got[column]:
                 failures.append("corpusdiff snapshot %s: index.tsv has %s %s, the record %s"
                                 % (row["path"], column, row[column], got[column]))
         if row["twin_sha"] != twin_sha(row["path"]):
-            failures.append("corpusdiff snapshot %s: examples/%s has changed since its record was written"
-                            % (row["path"], row["path"]))
-        elif row["twin"] != oracle.twin_of(row["path"])[1]:
+            failures.append("corpusdiff snapshot %s: examples/%s has changed since its record was written, "
+                            "and examples/ is frozen" % (row["path"], row["path"]))
+            continue
+        state = oracle.twin_state(row["path"], row["frozen_sha"])
+        if state == "detached":
+            detached += 1
+        elif row["twin"] != state:
             failures.append("corpusdiff snapshot %s: the twin is %s now, %s in its record"
-                            % (row["path"], oracle.twin_of(row["path"])[1], row["twin"]))
+                            % (row["path"], state, row["twin"]))
     files = [INDEX, BASELINE, ANNOTATIONS]
     for root, _, names in os.walk(SNAPSHOT):
         for name in names:
@@ -185,7 +218,8 @@ def check():
                     failures.append("corpusdiff snapshot: %s is in no row of index.tsv" % rel(path))
     for path in files:
         failures.extend(whitespace_problems(path))
-    return failures, {"corpusdiff snapshot records": len(rows), "corpus programs": len(corpus)}
+    return failures, {"corpusdiff snapshot records": len(rows), "corpus programs": len(corpus),
+                      "corpus programs detached": detached, "corpus programs native": native}
 
 
 def whitespace_problems(path):
@@ -225,7 +259,8 @@ def collect(path):
         # text is what an `EXPECT: docs` test is judged by.
         with open(binary, encoding="utf-8") as fh:
             log = fh.read() + log
-    raw = {"path": path, "twin": same, "twin_sha": twin_sha(path), "expect": d.expect or "-",
+    raw = {"path": path, "twin": same, "twin_sha": twin_sha(path), "frozen_sha": corpus_sha(path),
+           "expect": d.expect or "-",
            "build_exit": code, "build_seconds": round(time.monotonic() - start, 2), "log": oracle.unrooted(log),
            "runs": []}
     if code == 0 and d.expect in RUN_KINDS:
@@ -242,13 +277,15 @@ def collect(path):
 
 
 def cached(path):
-    """The raw results saved for `path`, when its twin is unchanged since."""
+    """The raw results saved for `path`, when neither side of its twin has
+    changed since."""
     try:
         with open(raw_path(path)) as fh:
             raw = json.load(fh)
     except (OSError, ValueError):
         return None
-    return raw if raw.get("twin_sha") == twin_sha(path) else None
+    current = raw.get("twin_sha") == twin_sha(path) and raw.get("frozen_sha") == corpus_sha(path)
+    return raw if current else None
 
 
 def render(raw, triple):
@@ -284,14 +321,22 @@ def render(raw, triple):
 
 def write_snapshot(args):
     corpus = programs()
-    wanted = args.paths or corpus
-    unknown = [p for p in wanted if p not in corpus]
+    unknown = [p for p in args.paths if p not in corpus]
     if unknown:
         raise SystemExit("corpusdiff: no corpus program %s" % ", ".join(unknown))
+    state = states(corpus)
+    unjudged = [p for p in args.paths if state[p] in oracle.UNJUDGED]
+    if unjudged:
+        raise SystemExit("corpusdiff: %s %s no twin Stage 0 compiles as its oracle, so it has no record to "
+                         "write" % (", ".join("%s (%s)" % (p, state[p]) for p in unjudged),
+                                    "has" if len(unjudged) == 1 else "have"))
+    # A detached program's row and record stay as they are, unused.
+    writable = [p for p in corpus if state[p] not in oracle.UNJUDGED]
+    wanted = args.paths or writable
     triple = build.host_triple()
     raws = {}
     if args.reuse:
-        raws = {p: r for p in corpus for r in [cached(p)] if r is not None}
+        raws = {p: r for p in writable for r in [cached(p)] if r is not None}
     todo = [p for p in wanted if p not in raws]
     print("corpusdiff snapshot: Stage 0 over %d programs, %d at a time" % (len(todo), args.jobs), flush=True)
     start = time.monotonic()
@@ -318,6 +363,7 @@ def write_snapshot(args):
             fh.write("\n".join(render(raws[path], triple)) + "\n")
         row = summary(oracle.read_record(out, oracle.Record(path)))
         row["twin_sha"] = raws[path]["twin_sha"]
+        row["frozen_sha"] = raws[path]["frozen_sha"]
         rows.append(row)
     listed = {os.path.normpath(record_path(r["path"], r["triple"])) for r in rows}
     for root, _, names in os.walk(SNAPSHOT):
@@ -503,13 +549,14 @@ def build_verdict(src, d, rec, code, found, log, wrong_refusal=False):
     if problems:
         return "crash", "INVARIANT", one_line(problems[0].split("\t")[-1])
     if d.expect == "error" and not wrong_refusal:
-        stage0_error = (rec.build_error or "") if rec.expect == "error" else ""
+        stage0_error = (rec.build_error or "") if rec is not None and rec.expect == "error" else ""
         outcome, detail = oracle.judge_refusal(stage0_error, code, found)
         if outcome == "pass":
             message = next(m for r, _, m in found if r == detail)
             return "pass", "-", one_line("%s: %s" % (detail, message))
         if outcome == "accepted":
-            return "wrong", "accepts a refusal test", one_line(stage0_error or "Stage 0 builds it too")
+            return "wrong", "accepts a refusal test", one_line(
+                stage0_error or ("Stage 0 builds it too" if rec is not None else "its directives expect a refusal"))
         if outcome == "other":
             return "wrong", "refused by another rule", one_line(detail)
         if outcome == "blocked":
@@ -539,13 +586,18 @@ def build_verdict(src, d, rec, code, found, log, wrong_refusal=False):
     return "crash", "sawc exit %d" % code, one_line(lines[0] if lines else "no output")
 
 
-def run_verdict(path, d, rec, code, stdout, stderr, annotations):
-    """(bucket, key, detail) for a program sawc built and ran."""
+def run_verdict(path, d, rec, code, stdout, stderr, annotations, state=None):
+    """(bucket, key, detail) for a program sawc built and ran; `rec` is None
+    for a detached or native program (`state`), which its directives alone
+    judge."""
     own = expect.judge(d, code, stdout, stderr)
     met = "sawc meets its directives" if own is None else "sawc: " + own
     panicked = code == -signal.SIGABRT and _PANIC.search(stdout + stderr) is not None
-    if code is not None and code < 0 and not panicked and code != rec.exit:
+    if code is not None and code < 0 and not panicked and code != (rec.exit if rec is not None else None):
         return "crash", "run %s" % oracle.exit_text(code), one_line(stdout + stderr or "no output")
+    if rec is None:
+        return ("pass", UNJUDGED_KEYS[state], "-") if own is None else \
+            ("wrong", "fails its own directives (%s)" % UNJUDGED_WHY[state], one_line(own))
     if d.expect == "error":
         # A refusal test states no run, so the detail is what the run did.
         met = "sawc builds it, and its run " + (
@@ -571,7 +623,7 @@ def run_verdict(path, d, rec, code, stdout, stderr, annotations):
         return "stage0-wrong", "Stage 0 does not build it (unannotated)", met
     if rec.meets_expect != "yes":
         return "stage0-wrong", "Stage 0 fails its directives (unannotated)", one_line(rec.meets_expect)
-    diff = oracle.compare_run(rec, code, stdout, stderr)
+    diff = oracle.compare_run(rec, code, stdout, stderr, state)
     if diff is None:
         return "pass", "-", "-"
     what, detail = diff
@@ -580,9 +632,14 @@ def run_verdict(path, d, rec, code, stdout, stderr, annotations):
     return "wrong", "%s differs" % what, one_line(detail)
 
 
-def measure(path, rec, annotations, scale=1):
+def measure(path, rec, annotations, state=None, scale=1):
     """One program's result: its bucket, key and detail, or `timeout` with
-    the phase and seconds, and the seconds each phase took."""
+    the phase and seconds, and the seconds each phase took. A detached or
+    native program (`state`) is judged with no record and no annotation, and
+    passes under its own key."""
+    unjudged = state in oracle.UNJUDGED
+    if unjudged:
+        rec = None
     src = os.path.join(CORPUS, path)
     d = expect.read(src)
     binary = os.path.join(OUT, "bin", flat(path))
@@ -592,7 +649,7 @@ def measure(path, rec, annotations, scale=1):
     result = {"path": path, "build_seconds": build_seconds, "run_seconds": 0.0}
     if code is None:
         return dict(result, bucket="timeout", phase="build", seconds=build_seconds)
-    wrong_refusal = annotations.get(path, (None,))[0] == "stage0-wrong"
+    wrong_refusal = not unjudged and annotations.get(path, (None,))[0] == "stage0-wrong"
     verdict = build_verdict(src, d, rec, code, found, log, wrong_refusal)
     if verdict is None:
         rc, out, err, run_seconds = oracle.run_binary(binary, oracle.RUN_TIMEOUT * scale)
@@ -600,7 +657,7 @@ def measure(path, rec, annotations, scale=1):
         if rc is None:
             return dict(result, bucket="timeout", phase="run", seconds=run_seconds)
         verdict = run_verdict(path, d, rec, rc, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"),
-                              annotations)
+                              annotations, state)
         if verdict[0] == "wrong":
             # A run that differs from Stage 0's is run again: one that differs
             # from itself says the program decides less than its output shows.
@@ -608,13 +665,15 @@ def measure(path, rec, annotations, scale=1):
             if again[:3] != (rc, out, err):
                 verdict = ("nondeterministic", "sawc's two runs differ", verdict[2])
     bucket, key, detail = verdict
+    if unjudged and bucket == "pass":
+        key = UNJUDGED_KEYS[state]
     return dict(result, bucket=bucket, key=key, detail=detail)
 
 
-def retried(first, path, rec, annotations):
+def retried(first, path, rec, annotations, state=None):
     """A timed-out program's result after one more try at twice the
     timeouts: `slow` when it finishes, a hang when it does not."""
-    again = measure(path, rec, annotations, scale=2)
+    again = measure(path, rec, annotations, state, scale=2)
     seconds = again["build_seconds"] + again["run_seconds"]
     if again["bucket"] == "timeout":
         return dict(again, bucket="crash", key="hang in %s" % again["phase"],
@@ -671,7 +730,8 @@ def measure_all(args):
     elif args.paths:
         rows = {r["path"]: r for r in read_index()}
         failures = ["corpusdiff snapshot %s: no current record" % p for p in args.paths
-                    if p not in rows or rows[p]["twin_sha"] != twin_sha(p)]
+                    if (p not in rows and oracle.twin_state(p, None) != "native")
+                    or (p in rows and rows[p]["twin_sha"] != twin_sha(p))]
     else:
         failures, _ = check()
     if failures:
@@ -687,8 +747,9 @@ def measure_all(args):
             return 1
     records = load()
     annotations = read_annotations()
-    paths = args.paths or sorted(records)
-    unknown = [p for p in paths if p not in records]
+    paths = args.paths or programs()
+    state = states(paths)
+    unknown = [p for p in paths if p not in records and state[p] != "native"]
     if unknown:
         raise SystemExit("corpusdiff: no record for %s" % ", ".join(unknown))
     head, base = commit()
@@ -700,7 +761,7 @@ def measure_all(args):
     done = [0]
 
     def one(path):
-        result = measure(path, records[path], annotations)
+        result = measure(path, records.get(path), annotations, state[path])
         with lock:
             done[0] += 1
             if done[0] % 250 == 0:
@@ -710,7 +771,7 @@ def measure_all(args):
     results = {r["path"]: r for r in gate_jobs.map_ordered(one, paths, most=jobs)}
     late = [p for p in paths if results[p]["bucket"] == "timeout"]
     for path in late:
-        results[path] = retried(results[path], path, records[path], annotations)
+        results[path] = retried(results[path], path, records.get(path), annotations, state[path])
     wall = time.monotonic() - start
     rows = [results[p] for p in paths]
     os.makedirs(OUT, exist_ok=True)
@@ -832,7 +893,8 @@ def report(rows, head, base, wall, records):
             if len(ranked) > 8:
                 lines.append("  - and %d more details, %d programs"
                              % (len(ranked) - 8, sum(len(m) for _, m in ranked[8:])))
-    kinds = collections.Counter((records[r["path"]].expect, r["bucket"]) for r in rows)
+    kinds = collections.Counter((records[r["path"]].expect if r["path"] in records else "(no twin)", r["bucket"])
+                                for r in rows)
     lines += ["", "## by kind", "", "| twin's EXPECT | " + " | ".join(BUCKETS) + " |",
               "|---|" + "---:|" * len(BUCKETS)]
     for kind in sorted({k for k, _ in kinds}):

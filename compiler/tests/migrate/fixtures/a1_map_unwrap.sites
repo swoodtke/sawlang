@@ -1,2 +1,0 @@
-status: rewritten
-6 A1.field-write+map-unwrap rewritten => borrow var m["k"].n += 1

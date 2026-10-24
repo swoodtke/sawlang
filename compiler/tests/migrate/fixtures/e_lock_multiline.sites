@@ -1,2 +1,0 @@
-status: rewritten
-5 E.lock rewritten => let seen = borrow var c = m.lock() {\n}

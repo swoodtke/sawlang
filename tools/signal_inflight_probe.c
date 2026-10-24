@@ -7,7 +7,7 @@
  * the shim as-is — the pause has to happen INSIDE the handler.
  *
  * So this links a GENERATED copy of the shim: `tools/signal_hook_shim.py`
- * substitutes one marker in `sawc/rt/shim.c` for a call to the hook below and
+ * substitutes one marker in `runtime/shim.c` for a call to the hook below and
  * changes nothing else. The generator refuses to emit anything if the marker
  * has moved, so a pin can never end up testing a stale transcription.
  *

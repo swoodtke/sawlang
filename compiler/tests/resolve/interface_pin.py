@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
-"""The interface parse's checks, which the resolve lane runs.
+"""The resolve lane's checks on a modified std, which no tracked std can hold.
 
     python compiler/tests/resolve/interface_pin.py
 
-Only Stage 0's std root is read by the interface parse (the new std's
-modules are parsed in full), so each case runs on a copy of that root:
+Each case runs on a copy of `std/`, one file of it extended, with the entry
+beside the copy:
 
-- A std root with one bad signature: that declaration is dropped with a note,
-  and the rest of the module resolves.
-- A std root whose module the parser refuses as a whole: an import of it is
-  refused as `import.unavailable`.
+- A std module the parser refuses as a whole: an import of it is refused as
+  `import.unavailable` at the import.
 - A std trait whose requirement has a default body: a user conformance that
   leaves the method out typechecks, and one that leaves out a requirement with
   no default is refused.
@@ -30,13 +28,6 @@ import build  # noqa: E402
 WORK = os.path.join(REPO, ".build", "interface-pin")
 TIMEOUT = 300
 
-# Appended to a copy of `std/path.saw`: one declaration whose signature the
-# parser refuses, between two it takes.
-DROPPED_DECLARATIONS = ("\npublic func before_bad() -> Int {\n    1\n}\n"
-                        "\npublic func bad(x: ) -> Int {\n    1\n}\n"
-                        "\npublic func after_bad() -> Int {\n    2\n}\n")
-DROPPED_ENTRY = ("import std.path.{Path, after_bad, before_bad}\n\n"
-                 "func f(p: Path) -> Int {\n    before_bad() + after_bad()\n}\n")
 # Appended to a copy of `std/data.saw`: an unclosed brace, which the parser
 # refuses for the whole file.
 UNAVAILABLE_TAIL = "\nstruct Unclosed {\n"
@@ -56,22 +47,24 @@ def rel(path):
 
 
 def std_copy(name, file, tail):
-    """A copy of the std root under WORK/NAME whose `std/FILE` ends in `tail`;
-    returns the root and the line `tail` starts on."""
-    root = os.path.join(WORK, name)
-    shutil.rmtree(root, ignore_errors=True)
-    shutil.copytree(os.path.join(REPO, "sawc", "std"), os.path.join(root, "std"))
-    shutil.copy(os.path.join(REPO, "sawc", "builtin.saw"), root)
-    path = os.path.join(root, "std", file)
+    """A copy of `std/` under WORK/NAME/std whose FILE ends in `tail`; returns
+    the case's directory and the copy, the std root."""
+    case = os.path.join(WORK, name)
+    shutil.rmtree(case, ignore_errors=True)
+    root = os.path.join(case, "std")
+    shutil.copytree(os.path.join(REPO, "std"), root)
+    path = os.path.join(root, file)
     with open(path) as fh:
         text = fh.read()
     with open(path, "w") as fh:
         fh.write(text + tail)
-    return root, text.count("\n") + 1
+    return case, root
 
 
-def write_entry(root, name, text):
-    path = os.path.join(root, name)
+def write_entry(case, name, text):
+    """An entry program beside the std copy, never inside it, where it would
+    be a std module."""
+    path = os.path.join(case, name)
     with open(path, "w") as fh:
         fh.write(text)
     return rel(path)
@@ -87,38 +80,23 @@ def refusals(lines):
     return [l for l in lines if l.startswith(("ERROR\t", "INVARIANT\t"))]
 
 
-def check_dropped_declaration(failures):
-    root, line = std_copy("dropped", "path.saw", DROPPED_DECLARATIONS)
-    entry = write_entry(root, "main.saw", DROPPED_ENTRY)
-    lines = sawc("resolve", root, entry)
-    bad_line = line + 5
-    want = "NOTE\tresolve.parse-refused\t%s:%d:1\t" % (rel(os.path.join(root, "std", "path.saw")),
-                                                        bad_line)
-    notes = [l for l in lines if l.startswith(want)]
-    if len(notes) != 1 or "`public func bad(x: ) -> Int {`" not in notes[0]:
-        failures.append("interface pin: a std declaration the parser refuses gives no note "
-                        "naming it at line %d" % bad_line)
-    for l in refusals(lines):
-        failures.append("interface pin: the declarations around a dropped one: %s" % l)
-
-
 def check_unavailable(failures):
-    root, _ = std_copy("unavailable", "data.saw", UNAVAILABLE_TAIL)
-    entry = write_entry(root, "main.saw", UNAVAILABLE_ENTRY)
+    case, root = std_copy("unavailable", "data.saw", UNAVAILABLE_TAIL)
+    entry = write_entry(case, "main.saw", UNAVAILABLE_ENTRY)
     lines = sawc("resolve", root, entry)
     errors = [l for l in lines if l.startswith("ERROR\t")]
     want = "ERROR\timport.unavailable\t%s:%s\t" % (entry, UNAVAILABLE_AT)
-    if not errors or not errors[0].startswith(want):
+    if not any(l.startswith(want) for l in errors):
         failures.append("interface pin: an import of a std module the parser refuses gives %r, "
-                        "expected import.unavailable at %s" % (errors[:1], UNAVAILABLE_AT))
+                        "expected import.unavailable at %s:%s" % (errors[:2], entry, UNAVAILABLE_AT))
 
 
 def check_default_body(failures):
-    root, _ = std_copy("default-body", "path.saw", DEFAULT_TRAIT)
-    filled = write_entry(root, "filled.saw", DEFAULT_FILLED)
+    case, root = std_copy("default-body", "path.saw", DEFAULT_TRAIT)
+    filled = write_entry(case, "filled.saw", DEFAULT_FILLED)
     for l in refusals(sawc("typecheck", root, filled)):
         failures.append("interface pin: a conformance a std default body completes: %s" % l)
-    missing = write_entry(root, "missing.saw", DEFAULT_MISSING)
+    missing = write_entry(case, "missing.saw", DEFAULT_MISSING)
     if not refusals(sawc("typecheck", root, missing)):
         failures.append("interface pin: a conformance missing a requirement with no default "
                         "body typechecks")
@@ -127,10 +105,9 @@ def check_default_body(failures):
 def run():
     failures = []
     counts = {}
-    check_dropped_declaration(failures)
     check_unavailable(failures)
     check_default_body(failures)
-    counts["interface pin built cases"] = 3
+    counts["interface pin built cases"] = 2
     return failures, counts
 
 

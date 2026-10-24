@@ -22,12 +22,10 @@ sawc/              # Stage 0, `sawc0`: the frozen compiler, Python + llvmlite
   codegen/         # LLVM IR generation (mixin classes)
   coro_transform.py# Source-level coroutine transform
   builtin.saw      # Built-in traits; std/ = stdlib (.saw)
-  rt/              # Stage 0's copy of runtime/ (below), byte for byte:
-                   # Stage 0 builds it (--runtime-build), caches it under
-                   # .build/rt/ and links it into its hosted builds, the
-                   # oracles' among them. compiler/tools/runtime_table.py fails on any
-                   # difference, so a runtime change is made in BOTH trees
-                   # until sawc/ is deleted (SL-661).
+  rt/              # Stage 0's copy of runtime/ as v0.18.0 froze it: Stage 0
+                   # builds it (--runtime-build), caches it under .build/rt/
+                   # and links it into its hosted builds. Nothing gates it;
+                   # a runtime change is made in runtime/ alone (SL-667).
 runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
                    # the __saw_rt_* seam contract; the seam bodies are AUTHORED
                    # IN SAW here — common/ (os_ops.saw = status-carrying tcp/fs/
@@ -61,7 +59,8 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # The parser corpus derived from the grammar (the canonical
                    # AST dump, a snippet per alternative, the coverage lane)
                    # arrives as tests/parse/ in SL-406 phase 2.
-examples/          # Compiler test suite programs (test_runner.py)
+examples/          # FROZEN: the Stage 0 snapshots' key (Testing); the live
+                   # programs are tests/corpus/
 blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
 tools/blade_bootstrap.py  # Self-hosting bootstrap loop
@@ -118,7 +117,7 @@ bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
 bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...
 bin/sawc runtime ...       # `bin/sawc --help` lists every form
 bin/sawc --version         # `sawc 0.18.0`: driver_version, held equal to
-                           # sawc/version.py and .sawtracker/version by run.py
+                           # .sawtracker/version by run.py
 ```
 With no `--std-root`, it compiles against the checkout's `std/`. The lanes
 run the stage binaries directly (`build.SAWC`; `SAWC_STAGE=1` selects Stage
@@ -228,13 +227,23 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   Name a pin file for the BEHAVIOR it pins, never with an `_xfail`
   suffix (user, Aug 9) — the marker is the transient part, and the file
   outlives it as the regression test.
-- `examples/conformance/` (design 191) is the standing safety-guarantee
+- `tests/corpus/conformance/` (design 191) is the standing safety-guarantee
   suite: one row per guarantee the language claims, with
-  `examples/conformance/INDEX.md` naming the covering test for every
-  row — including the rows an existing `examples/` test already covers,
-  which is what makes the ledger auditable. Its programs' twins under
-  `tests/corpus/conformance/` are measured by the corpusdiff gate, and a
-  brief touching a safety guarantee updates its rows FIRST (obligation 3).
+  `tests/corpus/conformance/INDEX.md`, THE ledger, naming the covering test
+  for every row — including the rows an existing `tests/corpus/` test
+  already covers, which is what makes the ledger auditable. Its programs are
+  measured by the corpusdiff gate, and a brief touching a safety guarantee
+  updates its rows FIRST (obligation 3).
+- **`examples/` is FROZEN (SL-667): never edit it.** It is the key of the
+  Stage 0 snapshots, which recorded v0.18.0 compiling each corpus program's
+  `examples/` twin; `examples/conformance/INDEX.md` there is the ledger as it
+  stood then, not the live one. The live programs are `tests/corpus/`. A
+  corpus program edited after the freeze is DETACHED (`oracle.twin_state`,
+  the snapshots' `frozen_sha`) and judged by its own directives, a new
+  program with no twin is NATIVE and judged the same way, and either one's
+  verdict move is recorded with `corpusdiff.py run --baseline`. Regenerating a
+  snapshot runs v0.18.0's checkout (`SAWLANG_V0_ROOT`, else fetched and
+  cached; `tools/toolchain.py v0-root`).
 - Never run two suite invocations at once.
 - Tests support a `// COMPILE-FLAGS:` directive (`{TESTDIR}`
   placeholder), and — for warnings, which are reported on the SUCCESS
@@ -355,8 +364,8 @@ with TWO exceptions that are ours: `.sawtracker/tests.json`, which tells
 the server how to test a submitted patch
 (`./build.sh test --changed-since HEAD^`), and
 `.sawtracker/version`, the release tag name (ST-46): a patch that changes it
-(next to the same bump of `SAWC_VERSION` in `sawc/version.py` and the
-driver's `driver_version`, which run.py's `version` step holds equal) makes the server create
+(next to the same bump of the driver's `driver_version`, which run.py's
+`version` step holds equal) makes the server create
 that annotated tag at its merge commit. Never reuse a name.
 
 **THE MERGE PATH (user, Sep 8 2026): GitHub is DOWNSTREAM of
@@ -420,7 +429,7 @@ editor — NEVER `checkout --theirs/--ours` on a shared accumulator file
 discards the other side's non-conflicted entries (this happened Aug 17;
 recovered from history). After any accumulator-file resolution,
 sanity-grep a couple of entries that exist only on the other side. The
-conformance ledgers (`examples/conformance/INDEX.md`,
+conformance ledgers (`tests/corpus/conformance/INDEX.md`,
 `compiler/tests/borrowck/CONFORMANCE.md`, `compiler/tests/drops/conformance.tsv`)
 merge by union (`.gitattributes`), so rows appended at one place both land
 and a duplicated row id fails the borrowck lane, but a row one side deleted
@@ -534,7 +543,7 @@ Four BRIEF OBLIGATIONS (1-3 from design 190's Aug-9 quality analysis;
    cooperative `run()` deleted a throttle irdet relied on; loadavg >700.)
 3. **A safety-surface brief writes its conformance rows first.** Since
    design 191 landed, a brief touching a safety guarantee adds/updates its
-   `examples/conformance/` rows as its FIRST unit.
+   `tests/corpus/conformance/` rows as its FIRST unit.
 4. **A DF finding is presumed to be a CLASS until a sweep says otherwise.**
    Before a DF's fix is dispatched, name the MECHANISM that produced it (a
    bypassed funnel, an incompletely built scope, a missing check on one of

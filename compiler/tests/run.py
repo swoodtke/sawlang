@@ -15,12 +15,11 @@ kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; compares the std suspension
 table with `tools/std_suspension.txt`; holds the seed's fetch funnel to its
 cases against a local blob host (`seed/`); requires the driver's release
-number, what `--version` prints, Stage 0's and the release tag to agree; compares the runtime ABI table compiled
-into sawc with `runtime/ABI.md` and the runtime's sources, and Stage 0's copy of
-the runtime with `runtime/`; and runs the grammar lint,
+number, what `--version` prints and the release tag to agree; compares the
+runtime ABI table compiled into sawc with `runtime/ABI.md` and the runtime's
+sources; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
-checks over `parse/`; runs the corpus rewriter's golden fixtures in
-`migrate/`; checks that the parser's grammar tables are current and that its
+checks over `parse/`; checks that the parser's grammar tables are current and that its
 speculation ledgers, the parser's and the tree builder's, name every field, runs the
 depth-funnel lane with its fixtures in `funnel/`, runs the parse lane, which
 holds `sawc parse` to the parser corpus as far as `compiler/parse/CLAIMS.tsv`
@@ -82,15 +81,12 @@ import runtime_table  # noqa: E402
 import std_suspension  # noqa: E402
 import subset_check  # noqa: E402
 import sawc_reading  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
+import ast_nodes as A  # noqa: E402
 import line_length  # noqa: E402
 import parse_lane  # noqa: E402
 import test_lint  # noqa: E402
 import test_parse  # noqa: E402
 import test_recognize  # noqa: E402
-
-sys.path.insert(0, os.path.join(HERE, "migrate"))
-import test_migrate  # noqa: E402
 
 sys.path.insert(0, os.path.join(HERE, "seed"))
 import test_seed_store  # noqa: E402
@@ -223,7 +219,6 @@ def run_fixture_whitespace(run):
     paths.append(std_suspension.TABLE_FILE)
     paths += glob.glob(os.path.join(GRAMMAR_FIXTURES, "**", "*.*"), recursive=True)
     paths += glob.glob(os.path.join(PARSE_CORPUS, "**", "*.*"), recursive=True)
-    paths += glob.glob(os.path.join(test_migrate.FIXTURES, "*"))
     for suffix in ("*.saw", "*.resolve"):
         paths += glob.glob(os.path.join(RESOLVE_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.typecheck"):
@@ -240,7 +235,6 @@ def run_fixture_whitespace(run):
         paths += glob.glob(os.path.join(MONO_CORPUS, "**", suffix), recursive=True)
     for suffix in ("*.saw", "*.ll", "*.md", "*.stage0"):
         paths += glob.glob(os.path.join(RUN_CORPUS, "**", suffix), recursive=True)
-    paths += glob.glob(os.path.join(test_migrate.STAGE0, "**", "*.stage0"), recursive=True)
     for suffix in ("*.saw", "*.coro", "*.layouts", "*.md", "*.tsv", "*.stage0"):
         paths += glob.glob(os.path.join(CORO_CORPUS, "**", suffix), recursive=True)
     for path in sorted(paths):
@@ -431,17 +425,15 @@ def run_seed(run):
 
 
 DRIVER_SOURCE = os.path.join(COMPILER, "driver", "src", "main.saw")
-STAGE0_VERSION = os.path.join(REPO, "sawc", "version.py")
 RELEASE_TAG = os.path.join(REPO, ".sawtracker", "version")
 _DRIVER_VERSION = re.compile(r'func driver_version\(\) -> String \{\s*"([^"]+)"\s*\}')
-_STAGE0_VERSION = re.compile(r'^SAWC_VERSION = "([^"]+)"$', re.M)
 
 
 def run_version(run):
     """The one release number, wherever it is written: the driver's
-    `driver_version`, what `sawc --version` prints, Stage 0's `SAWC_VERSION`
-    and the release tag `.sawtracker/version` all name it, so a consumer's pin
-    means the same compiler whichever it asks."""
+    `driver_version`, what `sawc --version` prints and the release tag
+    `.sawtracker/version` all name it, so a consumer's pin means the same
+    compiler whichever it asks."""
     with open(DRIVER_SOURCE, encoding="utf-8") as fh:
         m = _DRIVER_VERSION.search(fh.read())
     if m is None:
@@ -450,9 +442,6 @@ def run_version(run):
         return
     version = m.group(1)
     found = {}
-    with open(STAGE0_VERSION, encoding="utf-8") as fh:
-        m = _STAGE0_VERSION.search(fh.read())
-    found[os.path.relpath(STAGE0_VERSION, REPO)] = m.group(1) if m else "no SAWC_VERSION"
     with open(RELEASE_TAG, encoding="utf-8") as fh:
         tag = fh.read().strip()
     found[os.path.relpath(RELEASE_TAG, REPO)] = tag[1:] if tag.startswith("v") else "tag %r" % tag
@@ -467,8 +456,7 @@ def run_version(run):
 
 def run_runtime_table(run):
     """The runtime ABI table compiled into sawc against a fresh reading of
-    runtime/ABI.md, each host's runtime sources and shim against it, and
-    Stage 0's copy of the runtime against `runtime/`."""
+    runtime/ABI.md, and each host's runtime sources and shim against it."""
     failures, counts = runtime_table.check()
     for failure in failures:
         run.fail(failure)
@@ -499,15 +487,6 @@ def run_recognizer(run):
 def run_grammar_parse(run):
     """The parser corpus's checks."""
     _run_module(run, test_parse)
-
-
-def run_migrate(run):
-    """The corpus rewriter's golden fixtures (compiler/tools/migrate)."""
-    failures, counts = test_migrate.run()
-    for failure in failures:
-        run.fail(failure)
-    for key, n in counts.items():
-        run.count(key, n)
 
 
 def run_parser(run):
@@ -700,7 +679,6 @@ STEPS = (
     Step("grammar_lint", "after build"),
     Step("recognizer", "after build"),
     Step("grammar_parse", "after build", calls_overlap=True),
-    Step("migrate", "after build", calls_overlap=True),
     Step("parser", "built", calls_overlap=True),
     Step("resolver", "built"),
     Step("typechecker", "built"),
@@ -721,7 +699,7 @@ STEP_BY_NAME = {step.name: step for step in STEPS}
 # The longest steps start first, so that the short ones fill in around them;
 # the rest start in `STEPS` order. Only the wall time depends on this.
 LONG_STEPS = ("units", "subset", "drops", "borrowck", "grammar_parse", "eval", "programs",
-              "std", "typechecker", "parser", "migrate", "parallel_order")
+              "std", "typechecker", "parser", "parallel_order")
 
 STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 

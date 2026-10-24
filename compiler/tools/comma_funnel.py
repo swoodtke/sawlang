@@ -36,7 +36,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 
 import subset_check  # noqa: E402
-import ast_nodes as A  # noqa: E402  (on sys.path through sawc_reading)
+import ast_nodes as A  # noqa: E402
 
 PACKAGE = os.path.join(REPO, "compiler", "parse", "src")
 FUNNEL_FILE = os.path.join(PACKAGE, "parser.saw")

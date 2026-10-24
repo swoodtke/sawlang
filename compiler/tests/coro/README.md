@@ -875,11 +875,14 @@ builds and passes and the refusal tests it refuses by the plan's rule.
 which `oracle.v0_compiler` finds; nothing else does.
 
 Every row of `index.tsv` and `refusals.tsv` carries the `twin_sha` of its
-program's `examples/` twin, computed by `corpusdiff.twin_sha`, and the check
-recomputes it, and the `twin` relation, from the files. A program whose twin
-changed since its record was written fails the check (and so the census),
-naming the program and the `snapshot.py --write` to run; `--write --reuse`
-keeps only the raw results whose twin is unchanged.
+program's `examples/` twin, computed by `corpusdiff.twin_sha`, and the
+program's own bytes at the freeze, `frozen_sha`; the check recomputes both,
+and the relation `oracle.twin_state` gives, from the files. `examples/` is
+frozen, so a twin that changed fails the check (and so the census). A program
+edited since the freeze is detached: no failure, its rows and records stay as
+they are, unused, and `--write` keeps them so and refuses a list naming it.
+`--write --reuse` keeps only the raw results whose twin and program are
+unchanged.
 
 The layout goldens' frames are the first cut's (golden `yield_loop`, a loop
 whose suspension carries values across it, and whose op-budget point gives

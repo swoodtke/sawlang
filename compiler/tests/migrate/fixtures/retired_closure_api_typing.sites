@@ -1,2 +1,0 @@
-status: flagged
-6 E flagged -- tests a retired closure API: the file's header spells the closure typing of `lock`

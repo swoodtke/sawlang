@@ -14,7 +14,7 @@ resolve/
                      `--module-path NAME=package/NAME/src`: src/main.saw and each
                      tests/*.saw, each with its expected record beside it
   refuse/            RULE[.VARIANT].saw, or RULE[.VARIANT]/main.saw and its modules
-  interface_pin.py   the interface parse's checks, on copies of Stage 0's std root
+  interface_pin.py   the checks on a modified std, on copies of `std/`
   FROZEN_CHECK.md    the record of a retired one-time check against the frozen compiler
   corpus_info.py     how much of tests/corpus/ resolves, for information
 ```
@@ -299,12 +299,10 @@ so no fixture holds the mismatch (`WAIVED`).
   the stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;
 - no record carries an `INVARIANT` line;
-- the interface parse's checks, `interface_pin.py`, three cases on copies of
-  Stage 0's std root, the one std the interface parse reads: a declaration whose signature the parser refuses is
-  dropped with a `resolve.parse-refused` note while its neighbours resolve, an
-  import of a std module the parser refuses whole is `import.unavailable`, and
-  a std requirement's default body completes a user conformance that
-  typechecks.
+- the checks on a modified std, `interface_pin.py`, two cases on copies of
+  `std/`: an import of a std module the parser refuses whole is
+  `import.unavailable` at the import, and a std requirement's default body
+  completes a user conformance that typechecks.
 
 ## For information
 

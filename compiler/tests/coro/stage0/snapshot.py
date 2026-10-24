@@ -6,7 +6,9 @@ compare sawc with it never run Stage 0 (SL:coroutines §4, unit A0b).
     python compiler/tests/coro/stage0/snapshot.py --write    # rerun Stage 0, rewrite it
         [--programs LIST] [--refusals LIST] [--jobs N] [--reuse]
 
-`--write` runs the v0 compiler that `oracle.v0_compiler` finds.
+`--write` runs the v0 compiler that `oracle.v0_compiler` finds. A program
+edited since the freeze is detached (`oracle.twin_state`): `--write` keeps its
+rows and records as they are, and refuses a list that names it.
 
 The programs are the rows of `index.tsv` and the refusal tests the rows of
 `refusals.tsv`; `--programs` and `--refusals` name other lists, one corpus
@@ -66,9 +68,11 @@ TRIPLES = ("arm64-apple-darwin", "x86_64-unknown-linux-gnu")
 RUNS = oracle.RUNS
 WRITE_COMMAND = "./.venv/bin/python compiler/tests/coro/stage0/snapshot.py"
 
-INDEX_COLUMNS = ("path", "triple", "twin", "twin_sha", "expect", "build", "exit", "stdout", "stderr", "meets_expect",
-                 "frames", "frame_bytes", "largest_frame", "bt_frames", "bt_states", "bt_bytes")
-REFUSAL_COLUMNS = ("path", "twin", "twin_sha", "exit", "meets_expect", "errors", "error")
+INDEX_COLUMNS = ("path", "triple", "twin", "twin_sha", "frozen_sha", "expect", "build", "exit", "stdout", "stderr",
+                 "meets_expect", "frames", "frame_bytes", "largest_frame", "bt_frames", "bt_states", "bt_bytes")
+REFUSAL_COLUMNS = ("path", "twin", "twin_sha", "frozen_sha", "exit", "meets_expect", "errors", "error")
+# The columns the files determine rather than the record.
+FILE_COLUMNS = ("twin_sha", "frozen_sha")
 
 
 def rel(path):
@@ -177,8 +181,8 @@ def load(triple=None):
 
 
 def summary(rec):
-    """The index.tsv row a record determines, but for `twin_sha`, which the
-    files determine."""
+    """The index.tsv row a record determines, but for `FILE_COLUMNS`, which
+    the files determine."""
     sizes = [rec.frames[s]["size"] for s in rec.frame_order]
     if not rec.ran:
         exit_text = "-"
@@ -205,17 +209,21 @@ def summary(rec):
 
 def stale_twin(row):
     """The failures of a row whose twin changed since its record was written:
-    the twin's bytes (`twin_sha`) and whether it still equals the corpus
-    file, both recomputed from the files, never taken from the record."""
+    the twin's bytes (`twin_sha`), which `examples/` being frozen keeps, and
+    the relation `oracle.twin_state` gives, both recomputed from the files,
+    never taken from the record. A detached program is no failure: its record
+    stays, and only its own directives judge it."""
     path = row["path"]
     try:
         sha = corpusdiff.twin_sha(path)
-        relation = oracle.twin_of(path)[1]
-    except (OSError, SystemExit) as e:
+        relation = oracle.twin_state(path, row["frozen_sha"])
+    except OSError as e:
         return ["stage0 snapshot %s: its examples/ twin cannot be read: %s" % (path, e)]
     if row["twin_sha"] != sha:
-        return ["stage0 snapshot %s: examples/%s has changed since its record was written: run `%s --write`"
-                % (path, path, WRITE_COMMAND)]
+        return ["stage0 snapshot %s: examples/%s has changed since its record was written, and examples/ is "
+                "frozen" % (path, path)]
+    if relation == "detached":
+        return []
     if row["twin"] != relation:
         return ["stage0 snapshot %s: the twin is %s now, %s in its record: run `%s --write`"
                 % (path, relation, row["twin"], WRITE_COMMAND)]
@@ -241,7 +249,7 @@ def check():
             failures.append("stage0 snapshot %s (%s): unreadable: %s" % (row["path"], row["triple"], e))
             continue
         for column in INDEX_COLUMNS:
-            if column != "twin_sha" and row[column] != got[column]:
+            if column not in FILE_COLUMNS and row[column] != got[column]:
                 failures.append("stage0 snapshot %s (%s): index.tsv has %s %s, the record %s"
                                 % (row["path"], row["triple"], column, row[column], got[column]))
         failures.extend(stale_twin(row))
@@ -285,7 +293,8 @@ def collect_program(path, host, others):
     d = expect.read(src)
     work = os.path.join(RAW, "work", os.path.splitext(path)[0].replace("/", "__"))
     os.makedirs(work, exist_ok=True)
-    raw = {"path": path, "twin": twin, "twin_sha": corpusdiff.twin_sha(path), "expect": d.expect or "-", "triples": {}}
+    raw = {"path": path, "twin": twin, "twin_sha": corpusdiff.twin_sha(path), "frozen_sha": corpusdiff.corpus_sha(path),
+           "expect": d.expect or "-", "triples": {}}
     for triple in (host,) + others:
         target = [] if triple == host else ["--target", triple]
         entry = {}
@@ -317,7 +326,8 @@ def collect_refusal(path):
     work = os.path.join(RAW, "work", "refuse__" + os.path.splitext(path)[0].replace("/", "__"))
     os.makedirs(work, exist_ok=True)
     code, log = oracle.stage0(src, os.path.join(work, "bin"), d.flags)
-    return {"path": path, "twin": twin, "twin_sha": corpusdiff.twin_sha(path), "exit": code, "errors": oracle.errors(log) if code else [],
+    return {"path": path, "twin": twin, "twin_sha": corpusdiff.twin_sha(path), "frozen_sha": corpusdiff.corpus_sha(path),
+            "exit": code, "errors": oracle.errors(log) if code else [],
             "first_error": oracle.first_error(log) if code else "-", "log": oracle.unrooted(log)}
 
 
@@ -330,7 +340,7 @@ def refusal_row(raw):
     found = raw["errors"]
     meets = oracle.refusal_meets_expect(d, raw["exit"], raw["log"])
     named = [e for e in found if d.error_contains and d.error_contains[0] in e]
-    return [raw["path"], raw["twin"], raw["twin_sha"], str(raw["exit"]), meets.replace("\t", " "),
+    return [raw["path"], raw["twin"], raw["twin_sha"], raw["frozen_sha"], str(raw["exit"]), meets.replace("\t", " "),
             str(len(found)), named[0] if named else raw["first_error"]]
 
 
@@ -413,6 +423,30 @@ def render(raw, triple, host):
 def write(args):
     program_list = read_list(args.programs) if args.programs else programs()
     refusal_list = read_list(args.refusals) if args.refusals else [r["path"] for r in read_refusals()]
+    # A detached program's rows and records stay as they are, unused; a list
+    # that names a detached or native program is refused, since Stage 0 has
+    # no twin of its bytes to compile.
+    index_rows = read_index() if os.path.exists(INDEX) else []
+    refusal_rows = {r["path"]: r for r in read_refusals()} if os.path.exists(REFUSALS) else {}
+    frozen = {r["path"]: r["frozen_sha"] for r in index_rows}
+    frozen.update({p: r["frozen_sha"] for p, r in refusal_rows.items()})
+    state = {p: oracle.twin_state(p, frozen.get(p)) for p in set(program_list) | set(refusal_list)}
+    named = [p for p in (program_list if args.programs else []) + (refusal_list if args.refusals else [])
+             if state[p] in oracle.UNJUDGED]
+    if named:
+        raise SystemExit("snapshot: %s: no twin Stage 0 compiles as the oracle, so there is no record to write"
+                         % ", ".join("%s (%s)" % (p, state[p]) for p in named))
+    kept_programs = [p for p in program_list if state[p] == "detached"]
+    kept_refusals = [p for p in refusal_list if state[p] == "detached"]
+    kept = {}
+    for path in kept_programs:
+        for triple in TRIPLES:
+            with open(record_path(path, triple), encoding="utf-8") as fh:
+                kept[record_path(path, triple)] = fh.read()
+    for path in kept_refusals:
+        with open(refusal_path(path), encoding="utf-8") as fh:
+            kept[refusal_path(path)] = fh.read()
+    kept_rows = {(r["path"], r["triple"]): r for r in index_rows if r["path"] in kept_programs}
     host = detect_host()
     if host not in TRIPLES:
         raise SystemExit("snapshot: this host builds for %s, which TRIPLES does not name" % host)
@@ -423,12 +457,15 @@ def write(args):
         with open(cache) as fh:
             raws = json.load(fh)
         for kind in ("programs", "refusals"):
-            raws[kind] = {p: r for p, r in raws.get(kind, {}).items() if r.get("twin_sha") == corpusdiff.twin_sha(p)}
-    todo = [p for p in program_list if p not in raws.get("programs", {})]
+            raws[kind] = {p: r for p, r in raws.get(kind, {}).items()
+                          if r.get("twin_sha") == corpusdiff.twin_sha(p)
+                          and r.get("frozen_sha") == corpusdiff.corpus_sha(p)}
+    todo = [p for p in program_list if p not in raws.get("programs", {}) and p not in kept_programs]
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         got = list(pool.map(lambda p: collect_program(p, host, others), todo))
         refused = list(pool.map(collect_refusal, [p for p in refusal_list
-                                                  if "log" not in raws.get("refusals", {}).get(p, {})]))
+                                                  if "log" not in raws.get("refusals", {}).get(p, {})
+                                                  and p not in kept_refusals]))
     raws.setdefault("programs", {}).update({r["path"]: r for r in got})
     raws.setdefault("refusals", {}).update({r["path"]: r for r in refused})
     with open(cache, "w") as fh:
@@ -438,6 +475,14 @@ def write(args):
     rows = []
     headers = {}
     for path in program_list:
+        if path in kept_programs:
+            for triple in TRIPLES:
+                out = record_path(path, triple)
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                with open(out, "w", encoding="utf-8") as fh:
+                    fh.write(kept[out])
+                rows.append(kept_rows[(path, triple)])
+            continue
         raw = raws["programs"][path]
         d = expect.read(os.path.join(EXAMPLES, path))
         raw["meets_expect"] = oracle.meets_expect(d, raw["build"] == "ok", raw["runs"])
@@ -455,7 +500,8 @@ def write(args):
             with open(out, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(head + body) + "\n")
         for triple in TRIPLES:
-            rows.append(dict(summary(read_record(path, triple)), twin_sha=raw["twin_sha"]))
+            rows.append(dict(summary(read_record(path, triple)), twin_sha=raw["twin_sha"],
+                             frozen_sha=raw["frozen_sha"]))
     for triple, seen in headers.items():
         if len(seen) != 1:
             raise SystemExit("snapshot: the table's executor header differs between programs on %s: %s"
@@ -469,13 +515,16 @@ def write(args):
     with open(REFUSALS, "w", encoding="utf-8") as fh:
         fh.write("\t".join(REFUSAL_COLUMNS) + "\n")
         for path in refusal_list:
-            fh.write("\t".join(refusal_row(raws["refusals"][path])) + "\n")
+            if path in kept_refusals:
+                fh.write("\t".join(refusal_rows[path][c] for c in REFUSAL_COLUMNS) + "\n")
+            else:
+                fh.write("\t".join(refusal_row(raws["refusals"][path])) + "\n")
     shutil.rmtree(os.path.join(HERE, "refusals"), ignore_errors=True)
     for path in refusal_list:
         out = refusal_path(path)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, "w", encoding="utf-8") as fh:
-            fh.write(refusal_record(raws["refusals"][path]))
+            fh.write(kept[out] if path in kept_refusals else refusal_record(raws["refusals"][path]))
     return 0
 
 

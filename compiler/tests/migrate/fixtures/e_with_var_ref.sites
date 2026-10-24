@@ -1,2 +1,0 @@
-status: rewritten
-5 E.with-var-ref rewritten => borrow var c = v[0] { c.n += 1 }

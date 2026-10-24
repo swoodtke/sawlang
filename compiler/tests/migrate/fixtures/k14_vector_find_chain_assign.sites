@@ -1,2 +1,0 @@
-status: rewritten
-5 K14.vector-find-chain-assign rewritten => borrow var v.find(0)?.n = 8

@@ -24,10 +24,15 @@ how the coroutine snapshot adds frame layouts. Every text is written with the
 checkout's root removed, so two checkouts write the same bytes, and a stream
 that differs between runs is `varies`, with no lines. A record with a
 `source` line is stale once its program's bytes change, and `load_run`
-refuses it then.
+refuses it then. A corpus program's relation to the record of its twin is
+`twin_state`'s.
+
+The v0 compiler is v0.18.0's checkout (`v0_root`), so the snapshots record
+v0.18.0's std and runtime.
 
 ENTRY POINTS
     read_record
+    twin_state
     load_run
     render_run
     record_run
@@ -103,43 +108,90 @@ def rel(path):
 
 
 def unrooted(text):
-    """`text` with this checkout's root removed from every path in it."""
+    """`text` with the v0 compiler's checkout, once `v0_root` has named one,
+    and this checkout's root removed from every path in it, so a record names
+    a std file as `sawc/std/...` wherever the v0 checkout is."""
+    if _V0_ROOT:
+        text = text.replace(_V0_ROOT + os.sep, "")
     return text.replace(REPO + os.sep, "")
 
 
+# --- the twin relation ----------------------------------------------------------
+
+# A corpus program's relation to its oracle, Stage 0's record of the frozen
+# `examples/` twin: `same` or `differs` while the program keeps the bytes it
+# had when the snapshots froze; `detached` once it is edited after, so it is
+# judged by its own directives; `native` for a program with no twin, which
+# only its directives judge (SL-667).
+TWIN_STATES = ("same", "differs", "detached", "native")
+UNJUDGED = ("detached", "native")
+
+
+def file_sha(path):
+    """The 12 hex digits a snapshot's `twin_sha` and `frozen_sha` columns
+    hold for the file at `path`."""
+    with open(path, "rb") as fh:
+        return hashlib.sha256(fh.read()).hexdigest()[:12]
+
+
+def twin_state(path, frozen_sha):
+    """The twin relation of corpus program `path` (one of `TWIN_STATES`),
+    `frozen_sha` its row's `frozen_sha`, or None for a program no snapshot row
+    names. A row's relation is the one its record was made under, so editing
+    either side of it detaches the program or, for `examples/`, which is
+    frozen, fails the snapshot's check (`twin_sha`).
+
+    ENTRY POINTS
+        twin_of
+        corpusdiff.check, corpusdiff.measure_all, corpusdiff.write_snapshot
+        coro/stage0/snapshot.stale_twin, snapshot.write
+        compare_run
+    """
+    original = os.path.join(EXAMPLES, path)
+    if frozen_sha is None and not os.path.exists(original):
+        return "native"
+    if frozen_sha is not None and file_sha(os.path.join(CORPUS, path)) != frozen_sha:
+        return "detached"
+    with open(original, "rb") as a, open(os.path.join(CORPUS, path), "rb") as b:
+        return "same" if a.read() == b.read() else "differs"
+
+
 def twin_of(path):
-    """(the examples/ twin's path, `same` or `differs`) for corpus `path`."""
+    """(the examples/ twin's path, or None; its relation, `twin_state`'s for
+    a program no row names yet) for corpus `path`."""
     src = os.path.join(EXAMPLES, path)
-    if not os.path.exists(src):
-        raise SystemExit("oracle: %s has no twin under examples/" % path)
-    with open(src, "rb") as a, open(os.path.join(CORPUS, path), "rb") as b:
-        return src, "same" if a.read() == b.read() else "differs"
+    state = twin_state(path, None)
+    return (None if state == "native" else src), state
 
 
 # --- Stage 0 -----------------------------------------------------------------
 
-# The checkout whose `sawc/sawc.py` is `sawc0`, the v0 compiler. This tree
-# holds it until `sawc/` is deleted; then this one line names SAWLANG_V0_ROOT
-# (SL-667).
-V0_ROOT = REPO
+# The v0 compiler's checkout, once `v0_root` has resolved it.
+_V0_ROOT = None
 
 
 def v0_root():
-    """The checkout of `sawc0`, the v0 compiler: `V0_ROOT`, or an exit naming
-    why it holds none. Every regeneration of a Stage 0 snapshot reaches Stage
-    0 through here, and nothing else runs it.
+    """The checkout of `sawc0`, the v0 compiler, from the toolchain resolver
+    (`toolchain.v0_root`: `SAWLANG_V0_ROOT`, else v0.18.0 fetched and cached),
+    or an exit naming why there is none. Every regeneration of a Stage 0
+    snapshot reaches Stage 0 through here, and nothing else runs it.
 
     ENTRY POINTS
         v0_compiler
         v0_python
         stage0
         std_suspension.use_v0_checkout
-        migrate/instrument.py
     """
-    if not os.path.isfile(os.path.join(V0_ROOT, "sawc", "sawc.py")):
-        raise SystemExit("oracle: %s holds no v0 compiler (sawc/sawc.py), and regenerating a Stage 0 "
-                         "snapshot needs one" % V0_ROOT)
-    return V0_ROOT
+    global _V0_ROOT
+    if _V0_ROOT is None:
+        # Imported here, so the gate's readers, which never run Stage 0, do
+        # not import the resolver.
+        import toolchain
+        try:
+            _V0_ROOT = toolchain.v0_root()
+        except toolchain.ToolchainError as e:
+            raise SystemExit("oracle: regenerating a Stage 0 snapshot needs the v0 compiler: %s" % e)
+    return _V0_ROOT
 
 
 def v0_compiler():
@@ -530,12 +582,15 @@ def comparable(text, path, same_twin):
     return _PANIC_AT.sub(location, text)
 
 
-def compare_run(rec, code, stdout, stderr):
+def compare_run(rec, code, stdout, stderr, state=None):
     """None when sawc's run (exit `code`, the two streams as text) is Stage
     0's recorded run `rec`, or (what, detail): what is `exit`, `stdout` or
     `stderr`, the first that differs. A stream recorded as `varies` is not
-    compared."""
-    same = rec.twin == "same"
+    compared. `state` is the program's `twin_state`, when it has a twin; a
+    detached or native program has no recorded run to be held to."""
+    if state in UNJUDGED:
+        raise ValueError("oracle: %s is %s, so no Stage 0 run judges it" % (rec.path, state))
+    same = (state or rec.twin) == "same"
     if rec.exit != "varies" and code != rec.exit:
         return "exit", "sawc %s, Stage 0 %s" % (exit_text(code), exit_text(rec.exit))
     for name, got, want in (("stdout", stdout, rec.stdout), ("stderr", stderr, rec.stderr)):

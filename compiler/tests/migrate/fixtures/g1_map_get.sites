@@ -1,2 +1,0 @@
-status: rewritten
-4 G1.map-get rewritten => let x = m.get("k")!

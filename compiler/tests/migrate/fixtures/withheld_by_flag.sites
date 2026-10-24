@@ -1,3 +1,0 @@
-status: flagged
-7 A1.field-write withheld -- withheld: the file keeps a flagged site, C at 10:6
-10 C flagged -- the key is not a binding, a field path or a literal, the keys the rewriter spells as `find(&k)`

@@ -1,8 +1,8 @@
 # The borrow check's conformance matrix
 
-Every row of `examples/conformance/INDEX.md`'s five borrow-check sections, and
-what in sawc answers it. A row's verdict was read from `sawc mir --check`
-over its covering file's migrated copy in `tests/corpus/`. The borrowck lane
+Every row of `tests/corpus/conformance/INDEX.md`'s five borrow-check sections,
+and what in sawc answers it. A row's verdict was read from `sawc mir --check`
+over its covering file in `tests/corpus/`. The borrowck lane
 fails when a row of those sections is missing here, when a row here is not in
 INDEX.md, or when an owner is not one of the words below.
 

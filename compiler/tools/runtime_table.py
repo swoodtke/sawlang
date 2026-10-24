@@ -4,7 +4,7 @@
     python compiler/tools/runtime_table.py          # fails if the table is stale
     python compiler/tools/runtime_table.py --write  # rewrites it
 
-`sawc/runtime_abi.py` holds the frozen `__saw_rt_*` symbol set. This reads each
+`RUNTIME_SEAMS` is the frozen `__saw_rt_*` symbol set. This reads each
 seam's signature out of `runtime/ABI.md` as machine classes (`word`, `i64`,
 `i32`, `void`, `noreturn`) and writes the rows into
 `compiler/typecheck/src/runtimeabi.saw`, so the table sawc compiles in
@@ -20,10 +20,9 @@ requires their exports and the shim's seams to be the runtime's seams, each
 once; this tool requires the same of the sources' `@export` spellings, so the
 table cannot describe a runtime the tree does not hold.
 
-Stage 0 builds its own copy, `sawc/rt/`, and links every program it builds
-against it, the oracles' programs among them. The check requires that copy to be `runtime/` byte for byte, and Stage 0's reading
-of its ABI.md to be this one, so a runtime change is made in both trees until
-`sawc/` is deleted (`copy_drift`).
+The Stage 0 snapshots the oracles read were linked against v0.18.0's runtime,
+which is `runtime/` as it stood then; a later runtime change that moves a
+recorded verdict shows as that lane's failure, never silently.
 """
 import argparse
 import os
@@ -32,12 +31,109 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-SAWC = os.path.join(REPO, "sawc")
 RT = os.path.join(REPO, "runtime")
 ABI_DOC = os.path.join(RT, "ABI.md")
 SHIM = os.path.join(RT, "shim.c")
-STAGE0_RT = os.path.join(SAWC, "rt")
 SAW_FILE = os.path.join(REPO, "compiler", "typecheck", "src", "runtimeabi.saw")
+
+# The frozen runtime ABI: the functions a runtime implements and the compiler
+# only declares and calls. It is stated here, apart from ABI.md, so that
+# `tools/test_runtime_abi_doc.py` can hold the document to it; adding or
+# removing a name is an ABI change every runtime must follow. Grouped as
+# ABI.md groups them; membership is what matters.
+RUNTIME_SEAMS = frozenset({
+    # Allocation, output and panic.
+    "__saw_rt_alloc",
+    "__saw_rt_dealloc",
+    "__saw_rt_alloc_deny_after",
+    "__saw_rt_write",
+    "__saw_rt_write_line",
+    "__saw_rt_output_lock",
+    "__saw_rt_output_unlock",
+    "__saw_rt_write_error",
+    "__saw_rt_panic",
+    # Time.
+    "__saw_rt_sleep_ns",
+    "__saw_rt_clock_monotonic_nanos",
+    "__saw_rt_unix_timestamp_secs",
+    # Errors: the portable tag, and the raw platform code beside it.
+    "__saw_rt_last_syserror",
+    "__saw_rt_last_raw_code",
+    # Sockets and the status-carrying network operations.
+    "__saw_rt_set_nonblocking",
+    "__saw_rt_sin_set_family",
+    "__saw_rt_tcp_listen",
+    "__saw_rt_tcp_listen_on",
+    "__saw_rt_tcp_listen_with",
+    "__saw_rt_socket_set_option",
+    "__saw_rt_tcp_local_port",
+    "__saw_rt_tcp_accept",
+    "__saw_rt_tcp_connect_start",
+    "__saw_rt_tcp_connect_check",
+    "__saw_rt_tcp_read",
+    "__saw_rt_tcp_write",
+    "__saw_rt_tcp_socketpair",
+    # Hostname resolution, the one seam whose contract is blocking.
+    "__saw_rt_resolve_ipv4",
+    # The status-carrying filesystem and environment operations.
+    "__saw_rt_fs_unlink",
+    "__saw_rt_fs_rename",
+    "__saw_rt_fs_mkdir",
+    "__saw_rt_fs_rmdir",
+    "__saw_rt_fs_chdir",
+    "__saw_rt_fs_open",
+    "__saw_rt_fs_read",
+    "__saw_rt_fs_write",
+    "__saw_rt_fs_lseek",
+    "__saw_rt_fs_opendir",
+    "__saw_rt_fs_getcwd",
+    "__saw_rt_fs_realpath",
+    "__saw_rt_fs_dirent_name",
+    "__saw_rt_env_set",
+    "__saw_rt_env_unset",
+    "__saw_rt_env_get",
+    "__saw_rt_env_contains",
+    # Process spawn, and the child wait no thread sits in.
+    "__saw_rt_proc_spawn",
+    "__saw_rt_proc_spawn_env",
+    "__saw_rt_proc_read_stdout",
+    "__saw_rt_proc_exit_fd",
+    "__saw_rt_proc_wait_fd",
+    "__saw_rt_proc_try_wait",
+    "__saw_rt_proc_release",
+    # The cooperative scheduler's fairness budget and executor word.
+    "__saw_rt_op_budget_tick",
+    "__saw_rt_op_budget_reset",
+    "__saw_rt_thread_executor",
+    "__saw_rt_set_thread_executor",
+    # The IO reactor.
+    "__saw_rt_reactor_create",
+    "__saw_rt_reactor_register",
+    "__saw_rt_reactor_unregister",
+    "__saw_rt_reactor_poll",
+    "__saw_rt_reactor_wake",
+    "__saw_rt_reactor_destroy",
+    # Threads and locks.
+    "__saw_rt_thread_spawn",
+    "__saw_rt_thread_join",
+    "__saw_rt_thread_detach",
+    "__saw_rt_pthread_mutex_init_default",
+    "__saw_rt_pthread_cond_init_default",
+    "__saw_rt_lock_acquire",
+    "__saw_rt_lock_release",
+    "__saw_rt_lock_owner",
+    # The blocking-extern offload.
+    "__saw_rt_offload_start",
+    "__saw_rt_offload_done",
+    "__saw_rt_offload_pipe_fd",
+    "__saw_rt_offload_take",
+    "__saw_rt_blocking_sleep",
+    # Program arguments, which the program defines.
+    "__saw_rt_get_argc",
+    "__saw_rt_get_argv",
+    # The executable's path.
+    "__saw_rt_executable_path",
+})
 
 # The seams the program defines, which a runtime must not (ABI.md, "Program
 # arguments").
@@ -72,14 +168,6 @@ ABI_CLASSES = {
 }
 
 
-def stage0_abi():
-    """Stage 0's `runtime_abi` module: the frozen symbol set, and its own
-    reading of `sawc/rt/ABI.md`."""
-    sys.path.insert(0, SAWC)
-    import runtime_abi  # noqa: E402
-    return runtime_abi
-
-
 def abi_class(spelling):
     """The machine class of one ABI.md type spelling; an unknown spelling is
     returned as itself, lowercased, for the caller to refuse."""
@@ -112,43 +200,12 @@ def abi_signatures(path=ABI_DOC):
     return found
 
 
-def copy_drift():
-    """Every way Stage 0's copy of the runtime differs from `runtime/`, file by
-    file, and how many files `runtime/` holds. The oracles compare programs
-    Stage 0 links against its copy with programs sawc links against the one
-    Stage 1 builds from `runtime/`, so both must be one runtime."""
-    def files(root):
-        out = {}
-        for directory, subdirs, names in os.walk(root):
-            subdirs.sort()
-            for name in names:
-                path = os.path.join(directory, name)
-                out[os.path.relpath(path, root)] = path
-        return out
-    if not os.path.isdir(STAGE0_RT):
-        return ["runtime table: Stage 0's copy of the runtime, %s, is missing" % os.path.relpath(STAGE0_RT, REPO)], 0
-    ours, theirs = files(RT), files(STAGE0_RT)
-    failures = []
-    for rel in sorted(set(ours) | set(theirs)):
-        if rel not in theirs:
-            failures.append("runtime table: runtime/%s has no copy in sawc/rt/" % rel)
-        elif rel not in ours:
-            failures.append("runtime table: sawc/rt/%s has no copy in runtime/" % rel)
-        else:
-            with open(ours[rel], "rb") as a, open(theirs[rel], "rb") as b:
-                if a.read() != b.read():
-                    failures.append("runtime table: runtime/%s and sawc/rt/%s differ; Stage 0 links its copy "
-                                    "into Stage 1, so a runtime change is made in both" % (rel, rel))
-    return failures, len(ours)
-
-
 def abi_rows():
     """[(seam, param classes, result class, owner)], sorted by seam."""
-    runtime_abi = stage0_abi()
     signatures = abi_signatures()
     rows = []
     missing = []
-    for name in sorted(runtime_abi.RUNTIME_ABI_SYMBOLS):
+    for name in sorted(RUNTIME_SEAMS):
         sig = signatures.get(name)
         if sig is None:
             missing.append(name)
@@ -300,15 +357,11 @@ def saw_text(rows):
 
 
 def check():
-    """(failures, counts): the Saw table against a fresh reading, the tree
-    against the table, and Stage 0's copy of the runtime against `runtime/`."""
+    """(failures, counts): the Saw table against a fresh reading, and the tree
+    against the table."""
     rows, missing = abi_rows()
     failures = ["runtime table: `%s` has no signature in runtime/ABI.md" % name for name in missing]
     failures += consistency(rows)
-    drift, compared = copy_drift()
-    failures += drift
-    if not drift and abi_signatures() != stage0_abi().abi_signatures():
-        failures.append("runtime table: this tool and sawc/runtime_abi.py read the same ABI.md differently")
     try:
         with open(SAW_FILE) as fh:
             current = fh.read()
@@ -317,7 +370,7 @@ def check():
     if current != saw_text(rows):
         failures.append("runtime table: %s is stale; rerun compiler/tools/runtime_table.py --write and "
                         "review the difference" % os.path.relpath(SAW_FILE, REPO))
-    return failures, {"runtime ABI seams": len(rows), "runtime files Stage 0's copy matches": compared}
+    return failures, {"runtime ABI seams": len(rows)}
 
 
 def main():

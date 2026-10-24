@@ -585,10 +585,11 @@ until `sawc/` is deleted, then a checkout of the last tag that holds `sawc/`
 as `tools/linux.py seed` copies the seed.
 
 A record says which program bytes it was made from, not which Stage 0 made
-it, so a change under `sawc/` rerecords every snapshot that compares with
-Stage 0: this lane's, the mono, std, borrowck and migrate lanes' (each lane's
-`--stage0`), `compiler/tools/std_suspension.py --write`, and the coro and
-corpusdiff snapshots' writers.
+it: every snapshot that compares with Stage 0 is v0.18.0's, regenerated only
+through `oracle.v0_root` (`SAWLANG_V0_ROOT`, else the tag fetched and cached):
+this lane's, the mono, std and borrowck lanes' (each lane's `--stage0`),
+`compiler/tools/std_suspension.py --write`, and the coro and corpusdiff
+snapshots' writers.
 
 ## Probes
 

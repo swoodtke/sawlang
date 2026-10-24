@@ -15,7 +15,7 @@ reaches the borrow check.
 ```
 borrowck/
   README.md              this specification
-  CONFORMANCE.md         every borrow-check row of examples/conformance/INDEX.md, and its owner
+  CONFORMANCE.md         every borrow-check row of tests/corpus/conformance/INDEX.md, and its owner
   borrowck_lane.py       the lane compiler/tests/run.py runs
   golden/                NAME.saw, a program, and NAME.borrowck, its expected record
   refuse/                RULE.saw or RULE.VARIANT.saw, a program the check refuses

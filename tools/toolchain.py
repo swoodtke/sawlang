@@ -15,8 +15,9 @@ its ENTRY POINTS are:
     `SAWLANG_ROOT` explicitly (below) so the resolution is visible in the log.
 
 Nothing else may compute a sawlang path. What this module owns is exactly:
-the compiler, the package manager, and the three Saw packages a consumer
-compiles against — `imgformat`, `toml`, `semver`.
+the compiler, the package manager, the three Saw packages a consumer
+compiles against — `imgformat`, `toml`, `semver` — and the v0 compiler's
+checkout (`v0_root`), which regenerates the Stage 0 snapshots.
 
 RESOLUTION ORDER (design 238 D-b, ruled Aug 19): explicit intent first, then
 `$PATH`, then a pinned fetch, then a refusal naming all three.
@@ -53,9 +54,9 @@ TWO ASYMMETRIES, STATED RATHER THAN PAPERED OVER.
   * A `$PATH` sawc is checked by VERSION, a fetched one by SHA. A semver
     string cannot separate two commits that share it, which for an unreleased
     compiler is the normal case, so the `$PATH` guarantee is the weaker of the
-    two — accepted and documented, design 238 D-b2 option (b). See
-    `sawc/version.py` for the policy that travels with it, and the driver's
-    `driver_version`, which compiler/tests/run.py holds equal to it. A pin the found
+    two — accepted and documented, design 238 D-b2 option (b). The driver's
+    `driver_version` is the number, which compiler/tests/run.py holds equal to
+    the release tag `.sawtracker/version`. A pin the found
     compiler disagrees with is a loud refusal naming both, never a silent
     build; a consumer with NO pin has stated no requirement, and gets a note
     on stderr rather than a failure.
@@ -92,6 +93,14 @@ MODULE_DIRS = {
 }
 
 PIN_FILE = "sawlang.pin"
+
+# The v0 compiler, `sawc0`: the last release whose tree holds the frozen Python
+# compiler in `sawc/`. The Stage 0 snapshots were recorded by it, and only a
+# snapshot's regeneration or a frozen source's build runs it (`v0_root`).
+V0_ENV = "SAWLANG_V0_ROOT"
+V0_TAG = "v0.18.0"
+V0_VERSION = "0.18.0"
+V0_SHA = "4ab60f12ce2cd1359682b633869942bc0394d5d5"
 
 # How long `sawc --version` may take: a self-hosted `bin/sawc` builds its
 # compiler on first use, which is minutes, before it can answer.
@@ -379,6 +388,49 @@ def _fetch(sha, env, verbose=False):
     return dest
 
 
+def _v0_version(root):
+    """The `SAWC_VERSION` a checkout's `sawc/version.py` states, or None."""
+    try:
+        with open(os.path.join(root, "sawc", "version.py")) as f:
+            text = f.read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("SAWC_VERSION = "):
+            return line.split("=", 1)[1].strip().strip('"')
+    return None
+
+
+def v0_root(env=None, verbose=False):
+    """The checkout of the v0 compiler, `sawc0`: `SAWLANG_V0_ROOT` when it is
+    set, else `V0_TAG` fetched and cached by SHA as step 3 fetches a pin. A
+    named tree that holds no `sawc/sawc.py`, or whose `sawc/version.py` is not
+    `V0_VERSION`, is refused naming both.
+
+    ENTRY POINTS
+        oracle.v0_root
+        bin/sawc0 (`toolchain.py v0-root`)
+    """
+    env = os.environ if env is None else env
+    named = env.get(V0_ENV)
+    if named:
+        root = os.path.abspath(os.path.expanduser(named))
+        has_compiler = os.path.isfile(os.path.join(root, "sawc", "sawc.py"))
+        found = _v0_version(root)
+        if not has_compiler or found != V0_VERSION:
+            what = ("no sawc/sawc.py" if not has_compiler
+                    else f"sawc/version.py says {found or 'no SAWC_VERSION'}")
+            raise ToolchainError(
+                f"{V0_ENV}={root} is not a checkout of the v0 compiler.\n"
+                f"\n"
+                f"  found:    {what}\n"
+                f"  required: sawc/sawc.py, and sawc/version.py at {V0_VERSION} ({V0_TAG})\n"
+                f"\n"
+                f"Name a checkout of {V0_TAG}, or unset {V0_ENV} so it is fetched.")
+        return root
+    return _fetch(V0_SHA, env, verbose=verbose)
+
+
 def _refusal(consumer_root, tried):
     """The step-4 message. It names all three steps AND why each did not fire.
 
@@ -479,8 +531,16 @@ def resolve(env=None, consumer_root=None, verbose=False):
 
 
 def main(argv=None):
-    """`python tools/toolchain.py` — report what would be resolved, and how."""
+    """`python tools/toolchain.py` — report what would be resolved, and how.
+    `python tools/toolchain.py v0-root` prints the v0 compiler's checkout."""
     argv = sys.argv[1:] if argv is None else argv
+    if argv == ["v0-root"]:
+        try:
+            print(v0_root())
+        except ToolchainError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
+        return 0
     try:
         tc = resolve(verbose=True)
     except ToolchainError as e:

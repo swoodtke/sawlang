@@ -21,12 +21,11 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-sys.path.insert(0, os.path.join(REPO, "sawc"))
 sys.path.insert(0, HERE)
 
 import ast_nodes as A  # noqa: E402
 import build  # noqa: E402
-from lexer import TokenType as T  # noqa: E402
+from token_type import TokenType as T  # noqa: E402
 
 WORK = os.path.join(REPO, ".build", "sawc-reading")
 TIMEOUT = 300
@@ -295,13 +294,59 @@ def parse_files(paths):
     return result
 
 
+class Node:
+    """One node of the canonical dump: its kind and its children, each a Node
+    or a leaf's text (compiler/tests/parse/README.md, The canonical dump)."""
+
+    def __init__(self, kind):
+        self.kind = kind
+        self.children = []
+
+    @property
+    def base(self):
+        return self.kind.split(".")[0]
+
+    def nodes(self, base=None):
+        return [c for c in self.children if isinstance(c, Node) and (base is None or c.base == base)]
+
+    def leaves(self):
+        return [c for c in self.children if isinstance(c, str)]
+
+
 def read_dump(text):
-    """The canonical dump as `frozen_compare.Node`s, by that tool's reader.
-    Imported here, not at the top, since importing it puts the grammar tools
-    on `sys.path`, which a process that only imports the subset checker has
-    no use for."""
-    import frozen_compare
-    return frozen_compare.read_dump(text)
+    """The canonical dump's S-expression, as Nodes."""
+    stack, root, i, n = [], None, 0, len(text)
+    while i < n:
+        c = text[i]
+        if c.isspace():
+            i += 1
+        elif c == "(":
+            j = i + 1
+            while j < n and not text[j].isspace() and text[j] != ")":
+                j += 1
+            node = Node(text[i + 1:j])
+            if stack:
+                stack[-1].children.append(node)
+            else:
+                root = node
+            stack.append(node)
+            i = j
+        elif c == ")":
+            stack.pop()
+            i += 1
+        else:
+            j = i
+            if c == '"':
+                j += 1
+                while text[j] != '"':
+                    j += 2 if text[j] == "\\" else 1
+                j += 1
+            else:
+                while j < n and not text[j].isspace() and text[j] != ")":
+                    j += 2 if text[j] == "\\" else 1
+            stack[-1].children.append(text[i:j])
+            i = j
+    return root
 
 
 # ---------------------------------------------------------------------------
