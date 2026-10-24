@@ -1,0 +1,20 @@
+// probe: stated
+// about: a `constexpr` function is sync-callable: a `sync` function and a `deinit` call it (SL-862)
+// stage 0: is no oracle for sawc's effect rule on `constexpr`, so the probe states its output
+// speeds: -O0
+// prints: 4
+// prints: drop 3
+func double(n: Int) constexpr -> Int { n * 2 }
+
+func total(n: Int) sync -> Int { double(n) + 2 }
+
+struct Holder { n: Int }
+
+extension Holder: NoCopy {
+    func deinit(&var self) { print("drop {}", double(self.n) - 1) }
+}
+
+func main() {
+    let h = Holder(n: 2)
+    print("{}", total(1))
+}

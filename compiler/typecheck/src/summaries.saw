@@ -21,7 +21,7 @@ import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKING, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_CLOSURE_CALL,
                                TC_CAUSE_COOPERATIVE, TC_CAUSE_DISPATCH, TC_CAUSE_PAIRED, TC_CAUSE_TEST_SUSPEND,
                                TC_CAUSE_UNCLASSIFIED,
-                               TC_COPY_COVERED, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
+                               TC_COPY_COVERED, TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC,TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
                                TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TC_ITEM_CALL,
                                TC_ITEM_COPY,
                                TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
@@ -210,7 +210,7 @@ extension TcProgram {
             summary.suspends = blocking
             summary.nonsync = blocking
             summary.causes = if blocking { TC_CAUSE_BLOCKING } else { 0 }
-        } else if (s.effects & TC_EFFECT_SYNC) != 0 {
+        } else if self.declares_sync(d) {
             summary.state = TC_SUMMARY_DECLARED
         } else if self.is_interface(info.module) {
             let row = self.std_row_of(d)
@@ -241,9 +241,10 @@ extension TcProgram {
         self.summaries[d] = summary
     }
 
-    // Whether requirement `req`, or the type of a function value, is `sync`.
+    // Whether declaration `d` is `sync`, which `constexpr` implies: the one
+    // read of a declared `sync`.
     public func declares_sync(&self, d: Int) -> Bool {
-        (self.sigs[d].effects & TC_EFFECT_SYNC) != 0
+        (self.sigs[d].effects & (TC_EFFECT_SYNC | TC_EFFECT_CONSTEXPR)) != 0
     }
 
     // Whether `d` is a park point: a lang item whose calls suspend, which is

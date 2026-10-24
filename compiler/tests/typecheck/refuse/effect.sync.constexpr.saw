@@ -1,0 +1,13 @@
+// refuses: effect.sync at 7:5
+// a `constexpr` function is `sync`: a suspending call in its body is refused
+
+import std.task.{yield_now}
+
+func settle() constexpr -> Int {
+    yield_now()
+    1
+}
+
+func main() {
+    print("{}", settle())
+}

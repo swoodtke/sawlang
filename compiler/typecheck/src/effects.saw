@@ -368,7 +368,11 @@ extension TcProgram {
                 hook = true
                 try! msg.append("` is a `deinit`, which runs where nothing may suspend, and it calls ")
             } else {
-                try! msg.append("` is declared `sync`, and it calls ")
+                if (self.sigs[owner].effects & TC_EFFECT_SYNC) == 0 {
+                    try! msg.append("` is declared `constexpr`, which implies `sync`, and it calls ")
+                } else {
+                    try! msg.append("` is declared `sync`, and it calls ")
+                }
             }
         }
         try! msg.append(self.blamed_call_text(e, owner, acc.suspends))
