@@ -57,7 +57,7 @@ CASES = (
     ({"tools/patch_gate.py"}, ALL),
     ({".sawtracker/tests.json"}, ALL),
     ({"designs/todo.md"}, ("compiler tests",)),
-    ({"sawc/codegen/calls.py"}, ("compiler tests", "fixpoint")),
+    ({"sawc/codegen/calls.py"}, ("compiler tests",)),
     ({"test_runner.py"}, ("compiler tests",)),
     ({"tests/freestanding/cases/hello.saw"}, ("compiler tests", GRAMMAR_FILES)),
     ({"blade/src/main.saw", "libs/toml/src/lib.saw"}, ("compiler tests", GRAMMAR_FILES)),

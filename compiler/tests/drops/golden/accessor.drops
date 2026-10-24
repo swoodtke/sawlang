@@ -8,53 +8,60 @@ fn prologue accessor.Board.noted(i: Int, tag: String, keep: Bool) -> &var Int {
     let _4: String;  // param tag
     let _5: Bool;  // param keep
     let _6: String;  // note
-    let _7: String;
-    let _8: &var std.vector.Vector<String, std.alloc.GlobalAllocator>;
-    let _9: Result<Void, std.alloc.AllocError>;
-    let _10: Int;
-    let _11: &var Int;
-    let _12: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _7: &String;
+    let _8: String;
+    let _9: String;
+    let _10: &var std.vector.Vector<String, std.alloc.GlobalAllocator>;
+    let _11: Result<Void, std.alloc.AllocError>;
+    let _12: Int;
     let _13: &var Int;
-    let _14: Bool;  // flag _6
+    let _14: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _15: &var Int;
+    let _16: Bool;  // flag _6
     window w0: std.vector.Vector.[](index: Int) exclusive;
 
     bb0: {
-        _14 = const false: Bool;
-        _6 = copy _4;
-        _14 = const true: Bool;
-        switch copy _5 -> [true: bb2, false: bb3];
+        _16 = const false: Bool;
+        _7 = ref(shared, _4);
+        _8 = call std.string.String.copy() (owner String) [move _7] -> [return: bb1];
     }
 
     bb1: {
-        _10 = copy _3;
-        _12 = ref(exclusive, (*_2).cells);
-        _11 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _12, move _10] -> [present: bb5];
+        _6 = move _8;
+        _16 = const true: Bool;
+        switch copy _5 -> [true: bb3, false: bb4];
     }
 
     bb2: {
-        _7 = move _6;
-        _14 = const false: Bool;
-        _8 = ref(exclusive, (*_2).log);
-        _9 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _8, move _7] -> [return: bb4];
+        _12 = copy _3;
+        _14 = ref(exclusive, (*_2).cells);
+        _13 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _14, move _12] -> [present: bb6];
     }
 
     bb3: {
-        goto -> bb1;
+        _9 = move _6;
+        _16 = const false: Bool;
+        _10 = ref(exclusive, (*_2).log);
+        _11 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) [move _10, move _9] -> [return: bb5];
     }
 
     bb4: {
-        drop(_9);
-        goto -> bb1;
+        goto -> bb2;
     }
 
     bb5: {
-        _13 = ref(exclusive, (*_11));
-        _0 = move _13;
+        drop(_11);
+        goto -> bb2;
+    }
+
+    bb6: {
+        _15 = ref(exclusive, (*_13));
+        _0 = move _15;
         (*_1).0 = move _2;
         (*_1).1 = move _4;
-        (*_1).3 = copy _14;
+        (*_1).3 = copy _16;
         (*_1).2 = move _6;
-        _14 = const false: Bool;
+        _16 = const false: Bool;
         return;
     }
 
@@ -127,7 +134,7 @@ fn epilogue accessor.Board.noted(i: Int, tag: String, keep: Bool) -> Void {
         return;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn accessor.main() -> Void {

@@ -115,8 +115,8 @@ compiler/
                       hand-checked dumps, the generated cases, their waivers
     resolve/          the resolve lane (resolve_lane.py): the dump's specification
                       (README.md), golden dumps, refusal fixtures, the interface
-                      parse's equivalence pin over std (interface_pin.py), and the
-                      one-time frozen-compiler check (prelude_check.py, FROZEN_CHECK.md)
+                      parse's checks (interface_pin.py), and the record of the
+                      one-time frozen-compiler check (FROZEN_CHECK.md)
     typecheck/        the typecheck lane (typecheck_lane.py): the dump's
                       specification (README.md), golden dumps and refusal fixtures
     mir/              the MIR lane (mir_lane.py): the dump's specification
@@ -169,8 +169,7 @@ default: with no `--std-root`, a command compiles against the `std/` of the
 tree its binary was built in, which is the parent of the directory holding
 the binary, whatever the working directory, and `sawc runtime` reads that
 tree's `runtime/` the same way. A root holding no std is refused, naming the
-path. `--std-root sawc` names Stage 0's frozen std, which the lanes'
-fixtures written against it pass explicitly. Its prelude module declares what Stage
+path. Its prelude module declares what Stage
 0's builtin module synthesizes, and resolve's lang-item table (resolve/README.md)
 binds the compiler's vocabulary to it.
 

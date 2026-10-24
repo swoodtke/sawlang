@@ -50,10 +50,11 @@ ERROR	transfer.implicit-copy	compiler/tests/typecheck/golden/implicit_copy_hints
       (field r implicit_copy_hints.Res private declared)
       (field o implicit_copy_hints.Res? private declared)
       (method own_payload private (extension implicit_copy_hints))
-      (method shared_payload private (extension implicit_copy_hints))))
+      (method shared_payload private (extension implicit_copy_hints))
+      (method deinit public (synthesized Deinit))))
   (views
     (implicit_copy_hints.Res n)
-    (implicit_copy_hints.Holder r o own_payload shared_payload))
+    (implicit_copy_hints.Holder r o own_payload shared_payload deinit))
   (conformances
     (implicit_copy_hints.Res NoCopy 12:16 (deinit implicit))
     (implicit_copy_hints.Holder NoCopy 15:19 (deinit implicit)))

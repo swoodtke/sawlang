@@ -10,15 +10,15 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, resolves to
   exactly the record in `golden/NAME.resolve` or `multi/NAME.resolve`, with
-  the flags a first line `// flags: ...` passes, and under a std root other
-  than the frozen one the record leaves out the `std.` modules' dumps;
+  the flags a first line `// flags: ...` passes, and the record leaves out
+  the `std.` modules' dumps;
 - each package entry, `package/NAME/src/main.saw` or `package/NAME/tests/*.saw`,
   resolved with `--module-path NAME=package/NAME/src`, resolves to exactly the
   record in the `.resolve` file beside it;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names, checked with the flags a second
-  line `// flags: ...` passes (`--std-root std`, for the new std);
+  line `// flags: ...` passes;
 - every rule resolve refuses by has a fixture, unless `WAIVED` says why not;
 - the compiler's own source, the sawc build and each unit program, resolves
   with no refusal;
@@ -58,7 +58,8 @@ _RULE_ID = re.compile(r'"((?:name|import|visibility|conformance|test|slice|resol
 # checks with a case it builds itself (`check_built_cases`) is named here too.
 WAIVED = {
     "resolve.prelude-table": "a note on the builtin module when the prelude table names a "
-                             "declaration its module lacks; prelude_check.py covers the tables",
+                             "declaration its std module lacks; the table and std are tracked "
+                             "together, so no fixture can hold the mismatch",
     "import.unreadable": "an entry file or std module that cannot be read; the lane checks it "
                          "by naming a file that does not exist",
     "resolve.parse-refused": "an imported module the parser refuses; a tracked .saw file the "
@@ -77,13 +78,6 @@ BUILT_DIR = os.path.join(REPO, ".build", "resolve-lane")
 PARSE_REFUSED_ENTRY = "import broken.{thing}\n\nfunc f() -> Int {\n    thing()\n}\n"
 PARSE_REFUSED_MODULE = "public func thing() -> Int {\n    let = 1\n}\n"
 PARSE_REFUSED_AT = "broken.saw:2:9"
-# The interface case: a copy of the std root whose `std/path.saw` gains a
-# signature spelling resolve does not build yet. An interface module's
-# refusal is a note, and the verifier checks the signatures it walked.
-INTERFACE_ROOT = os.path.join(BUILT_DIR, "interface-root")
-INTERFACE_DECLARATION = ("\npublic func first_item<T: Iterator>(items: &var T) -> T.Item.Key? {\n"
-                         "    items.next()\n}\n")
-INTERFACE_RULE = "slice.not-yet"
 
 
 def rel(path):
@@ -96,21 +90,9 @@ def sawc(args):
     return r.returncode, r.stdout
 
 
-# The std a call names when its arguments name none: Stage 0's frozen one,
-# which this lane's fixtures are written against unless a `// flags:` line
-# names another. sawc's own default is the new std.
-FROZEN_STD_ROOT = "sawc"
-
-
 def with_std_root(args):
-    """`args`, naming the frozen std when they name no `--std-root`."""
-    return list(args) if "--std-root" in args else ["--std-root", FROZEN_STD_ROOT] + list(args)
-
-
-def std_root_of(args):
-    """The std root a call with `args` compiles against."""
-    full = with_std_root(args)
-    return full[full.index("--std-root") + 1]
+    """`args`, naming the checkout's std when they name no `--std-root`."""
+    return list(args) if "--std-root" in args else ["--std-root", "std"] + list(args)
 
 
 def package_args():
@@ -189,11 +171,10 @@ def check_golden(failures, counts, write):
 
 
 def without_std_modules(record):
-    """The record with each `std.` module's dump left out. Under the new std
-    its modules are resolved in full and dumped beside the
-    program's, and they are std's lane's to hold, so an edit to std moves no
-    golden of this lane. A line outside every module, an `ERROR` or
-    `INVARIANT` among them, is kept."""
+    """The record with each `std.` module's dump left out. Std's modules are
+    resolved in full and dumped beside the program's, and they are std's
+    lane's to hold, so an edit to std moves no golden of this lane. A line
+    outside every module, an `ERROR` or `INVARIANT` among them, is kept."""
     out = []
     keep = True
     for line in record.split("\n"):
@@ -208,13 +189,16 @@ def without_std_modules(record):
 
 def compare_records(failures, counts, write, cases, args):
     code, out = sawc(["--dump"] + args + [rel(src) for src, _ in cases])
-    got = records(out)
-    if std_root_of(args) != FROZEN_STD_ROOT:
-        got = {path: without_std_modules(record) for path, record in got.items()}
+    got = {path: without_std_modules(record) for path, record in records(out).items()}
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:
             failures.append("resolve golden %s: no record" % rel(src))
+            continue
+        # The strip must keep the entry's own dump: an empty record would
+        # match an empty golden.
+        if os.path.splitext(os.path.basename(src))[0] not in module_names(record):
+            failures.append("resolve golden %s: the record holds no dump of its entry module" % rel(src))
             continue
         if write:
             with open(exp, "w") as fh:
@@ -339,8 +323,7 @@ def check_catalog(failures, counts, named):
 
 def check_built_cases(failures, counts):
     """The refusals no tracked fixture holds, written under .build: a missing
-    entry file, an imported module the parser refuses, and a std signature
-    outside the slice."""
+    entry file and an imported module the parser refuses."""
     missing = rel(os.path.join(HERE, "no-such-entry.saw"))
     code, out = sawc(["--check", missing])
     found = first_error(records(out).get(missing, ""))
@@ -358,34 +341,8 @@ def check_built_cases(failures, counts):
     if found != ("resolve.parse-refused", PARSE_REFUSED_AT):
         failures.append("resolve: an imported module the parser refuses gives %r, expected "
                         "resolve.parse-refused at %s" % (found, PARSE_REFUSED_AT))
-    check_interface_note(failures)
-    counts["resolve built cases"] = 3
+    counts["resolve built cases"] = 2
     check_identity_cases(failures, counts)
-
-
-def check_interface_note(failures):
-    """A std signature outside the slice is a NOTE with its rule, never an
-    ERROR or an INVARIANT."""
-    std_dir = os.path.join(INTERFACE_ROOT, "std")
-    shutil.rmtree(INTERFACE_ROOT, ignore_errors=True)
-    shutil.copytree(os.path.join(REPO, "sawc", "std"), std_dir)
-    shutil.copy(os.path.join(REPO, "sawc", "builtin.saw"), INTERFACE_ROOT)
-    path = os.path.join(std_dir, "path.saw")
-    with open(path) as fh:
-        text = fh.read()
-    line = text.count("\n") + 2
-    with open(path, "w") as fh:
-        fh.write(text + INTERFACE_DECLARATION)
-    code, out = sawc(["--check", "--notes", "--std-root", rel(INTERFACE_ROOT),
-                       rel(os.path.join(HERE, "golden", "types.saw"))])
-    lines = out.split("\n")
-    want = "NOTE\t%s\t%s:%d:" % (INTERFACE_RULE, rel(path), line)
-    if not any(l.startswith(want) for l in lines):
-        failures.append("resolve: a std signature outside the slice gives no %s note at %s:%d"
-                        % (INTERFACE_RULE, rel(path), line))
-    for l in lines:
-        if l.startswith(("ERROR\t", "INVARIANT\t")):
-            failures.append("resolve interface case: %s" % l)
 
 
 IDENTITY_DIR = os.path.join(BUILT_DIR, "identity")
@@ -414,6 +371,11 @@ IDENTITY_CASE = "import pk.Layout\n\nfunc f() -> Int {\n    1\n}\n"
 def module_names(record):
     """The names of the modules a resolve dump holds, in order."""
     return [line[len("(Module "):] for line in record.split("\n") if line.startswith("(Module ")]
+
+
+def program_modules(record):
+    """The names of the modules a resolve dump holds that are not std's, in order."""
+    return [name for name in module_names(record) if not name.startswith("std.")]
 
 
 def check_identity_cases(failures, counts):
@@ -453,13 +415,13 @@ def check_identity_cases(failures, counts):
                       + [rel(os.path.join(IDENTITY_DIR, name)) for name in sorted(cases)])
     got = records(out)
     links = got.get(rel(os.path.join(IDENTITY_DIR, "links.saw")), "")
-    if module_names(links) != ["links", "pk.layout", "pk.sub.user"] or "ERROR\t" in links:
+    if program_modules(links) != ["links", "pk.layout", "pk.sub.user"] or "ERROR\t" in links:
         failures.append("resolve identity: symbolic links give the modules %r, expected one module "
-                        "per file, ['links', 'pk.layout', 'pk.sub.user']" % module_names(links))
+                        "per file, ['links', 'pk.layout', 'pk.sub.user']" % program_modules(links))
     hard = got.get(rel(os.path.join(IDENTITY_DIR, "hard.saw")), "")
-    if module_names(hard) != ["hard", "pk.layout", "pk.hard"]:
+    if program_modules(hard) != ["hard", "pk.layout", "pk.hard"]:
         failures.append("resolve identity: a hard link gives the modules %r, expected the "
-                        "documented two, ['hard', 'pk.layout', 'pk.hard']" % module_names(hard))
+                        "documented two, ['hard', 'pk.layout', 'pk.hard']" % program_modules(hard))
     case_entry = rel(os.path.join(IDENTITY_DIR, "case.saw"))
     found = first_error(got.get(case_entry, ""), case_entry)
     insensitive = os.path.exists(os.path.join(src, "LAYOUT.saw"))

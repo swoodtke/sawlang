@@ -69,4 +69,8 @@
       (40:19-40:23 Name Int place copy)
       (40:26-40:27 Name Int place copy)
       (40:30-40:37 Member Int place copy)
-      (40:30-40:31 Name inference.Pair<Int, String> place project))))
+      (40:30-40:31 Name inference.Pair<Int, String> place project)))
+  (string-positions
+    (33:30 literal std.string.string_literal)
+    (36:21 literal std.string.string_literal)
+    (39:36 literal std.string.string_literal)))

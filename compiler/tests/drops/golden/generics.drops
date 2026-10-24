@@ -256,5 +256,5 @@ fn generics.main() -> Void {
     }
 
     glue () -> Int: closure environment
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }

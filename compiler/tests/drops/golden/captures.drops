@@ -91,25 +91,32 @@ fn captures.let_plain() -> Int {
     let _0: Int;  // return
     let _1: String;  // s
     let _2: () sendable -> Int;  // f
-    let _3: () sendable -> Int;
-    let _4: Int;
+    let _3: &String;
+    let _4: String;
+    let _5: () sendable -> Int;
+    let _6: Int;
 
     bb0: {
         _1 = const "abc": String;
-        _3 = closure#0 of captures.let_plain() [copy _1];
-        _2 = move _3;
-        _4 = call value copy _2 [] -> [return: bb1];
+        _3 = ref(shared, _1);
+        _4 = call std.string.String.copy() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _4;
+        _5 = closure#0 of captures.let_plain() [move _4];
+        _2 = move _5;
+        _6 = call value copy _2 [] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _6;
         drop(_2);
         drop(_1);
         return;
     }
 
     glue () sendable -> Int: closure environment
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn closure#0 of captures.let_plain() -> Int {
@@ -177,25 +184,32 @@ fn captures.let_copy_copy_tier() -> Int {
     let _0: Int;  // return
     let _1: String;  // s
     let _2: () sendable -> Int;  // f
-    let _3: () sendable -> Int;
-    let _4: Int;
+    let _3: &String;
+    let _4: String;
+    let _5: () sendable -> Int;
+    let _6: Int;
 
     bb0: {
         _1 = const "abc": String;
-        _3 = closure#0 of captures.let_copy_copy_tier() [copy _1];
-        _2 = move _3;
-        _4 = call value copy _2 [] -> [return: bb1];
+        _3 = ref(shared, _1);
+        _4 = call std.string.String.copy() (owner String) [move _3] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _4;
+        _5 = closure#0 of captures.let_copy_copy_tier() [move _4];
+        _2 = move _5;
+        _6 = call value copy _2 [] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _6;
         drop(_2);
         drop(_1);
         return;
     }
 
     glue () sendable -> Int: closure environment
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn closure#0 of captures.let_copy_copy_tier() -> Int {
@@ -255,7 +269,7 @@ fn captures.let_copy() -> Int {
     }
 
     glue () sendable -> Int: closure environment
-    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
 }
 
 fn closure#0 of captures.let_copy() -> Int {
@@ -314,17 +328,24 @@ fn closure#0 of captures.returned_move() -> Int {
 fn captures.returned_plain() -> () -> Int {
     let _0: () -> Int;  // return
     let _1: String;  // s
-    let _2: () -> Int;
+    let _2: &String;
+    let _3: String;
+    let _4: () -> Int;
 
     bb0: {
         _1 = const "abc": String;
-        _2 = closure#0 of captures.returned_plain() [copy _1];
-        _0 = move _2;
+        _2 = ref(shared, _1);
+        _3 = call std.string.String.copy() (owner String) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        _4 = closure#0 of captures.returned_plain() [move _3];
+        _0 = move _4;
         drop(_1);
         return;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn closure#0 of captures.returned_plain() -> Int {
@@ -434,28 +455,35 @@ fn closure#0 of captures.passed_move() -> Int {
 fn captures.local_plain() -> Int {
     let _0: Int;  // return
     let _1: String;  // s
-    let _2: (String,);  // environment
-    let _3: &(String,);
-    let _4: () -> Int;
-    let _5: Int;
+    let _2: &String;
+    let _3: String;
+    let _4: (String,);  // environment
+    let _5: &(String,);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _1 = const "abc": String;
-        _2 = (copy _1,);
-        _3 = ref(shared, _2);
-        _4 = closure#0 of captures.local_plain() [move _3];
-        _5 = call captures.run(body: () -> Int) [move _4] -> [return: bb1];
+        _2 = ref(shared, _1);
+        _3 = call std.string.String.copy() (owner String) [move _2] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _5;
-        drop(_2);
+        _4 = (move _3,);
+        _5 = ref(shared, _4);
+        _6 = closure#0 of captures.local_plain() [move _5];
+        _7 = call captures.run(body: () -> Int) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _7;
+        drop(_4);
         drop(_1);
         return;
     }
 
     glue (String,): structural
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn closure#0 of captures.local_plain() -> Int {
@@ -480,28 +508,35 @@ fn closure#0 of captures.local_plain() -> Int {
 fn captures.local_copy_copy_tier() -> Int {
     let _0: Int;  // return
     let _1: String;  // s
-    let _2: (String,);  // environment
-    let _3: &(String,);
-    let _4: () -> Int;
-    let _5: Int;
+    let _2: &String;
+    let _3: String;
+    let _4: (String,);  // environment
+    let _5: &(String,);
+    let _6: () -> Int;
+    let _7: Int;
 
     bb0: {
         _1 = const "abc": String;
-        _2 = (copy _1,);
-        _3 = ref(shared, _2);
-        _4 = closure#0 of captures.local_copy_copy_tier() [move _3];
-        _5 = call captures.run(body: () -> Int) [move _4] -> [return: bb1];
+        _2 = ref(shared, _1);
+        _3 = call std.string.String.copy() (owner String) [move _2] -> [return: bb1];
     }
 
     bb1: {
-        _0 = move _5;
-        drop(_2);
+        _4 = (move _3,);
+        _5 = ref(shared, _4);
+        _6 = closure#0 of captures.local_copy_copy_tier() [move _5];
+        _7 = call captures.run(body: () -> Int) [move _6] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _7;
+        drop(_4);
         drop(_1);
         return;
     }
 
     glue (String,): structural
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn closure#0 of captures.local_copy_copy_tier() -> Int {
@@ -556,7 +591,7 @@ fn captures.local_copy() -> Int {
     }
 
     glue (std.vector.Vector<Int, std.alloc.GlobalAllocator>,): structural
-    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue std.vector.Vector<Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
 }
 
 fn closure#0 of captures.local_copy() -> Int {

@@ -345,7 +345,7 @@ fn fates.stored(keeper: &var fates.Keeper) -> Void {
     }
 
     glue Result<Void, std.alloc.AllocError>: structural
-    glue std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue std.vector.Vector<std.taskgroup.Task<Int>, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
 }
 
 fn fates.main() -> Void {

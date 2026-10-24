@@ -96,7 +96,7 @@
       (48:14-48:18 SelfExpr declarations.Account place project)
       (48:27-48:32 Name Int place copy))
     (Account.find 51:17
-      (52:14-52:37 Call.paren Int? place borrow (call std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
+      (52:14-52:37 Call.paren Int? value borrow (call std.vector.Vector.get(index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>)))
       (52:14-52:26 Member std.vector.Vector<Int, std.alloc.GlobalAllocator> (borrow &std.vector.Vector<Int, std.alloc.GlobalAllocator>) place borrow)
       (52:14-52:18 SelfExpr declarations.Account place project)
       (52:31-52:36 Name Int place copy))
@@ -110,4 +110,6 @@
     (Account.raw 63:17
       (64:9-64:13 NoneLit UnsafePointer<Int>? value temp))
     (run 68:13
-      (69:5-69:6 IntLit Int value temp))))
+      (69:5-69:6 IntLit Int value temp)))
+  (string-positions
+    (35:64 literal std.string.string_literal)))

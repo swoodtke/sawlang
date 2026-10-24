@@ -574,7 +574,7 @@ fn takes.copy_tier() -> Int {
         return;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn closure#0 of takes.copy_tier() -> Int {
@@ -605,7 +605,7 @@ fn closure#0 of takes.copy_tier() -> Int {
         return;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn takes.trivial() -> Int {

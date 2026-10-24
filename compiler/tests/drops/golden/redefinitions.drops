@@ -196,7 +196,7 @@ fn redefinitions.text() -> Int {
         return;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn redefinitions.temporary() -> Int {

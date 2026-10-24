@@ -42,10 +42,12 @@ extension Counter {
 
 // A `&self` method of an interior cell, on a value captured by `move`.
 func locked(m: Mutex<Int>) -> Int {
-    run({ [move m] in m.lock({ &var c in
-        c = c + 1
-        c
-    }) })
+    run({ [move m] in
+        borrow var c = m.lock() {
+            c = c + 1
+            c
+        }
+    })
 }
 
 // The pointee of a captured raw pointer, in a closure that escapes too.
@@ -94,7 +96,7 @@ func into_window() -> Int {
     var slots: Vector<Vector<Res>> = Vector<Vector<Res>>()
     try! slots.push(Vector<Res>())
     let h = Res(id: 2)
-    try! slots[0].push(move h)
+    try! borrow var slots[0].push(move h)
     borrow slots[0].len()
 }
 

@@ -56,4 +56,7 @@
       (26:5-26:22 Call.paren Void value temp (builtin print))
       (26:11-26:21 Call.paren Bool value borrow (call comparisons.less(a: T, b: T) (inst Int)))
       (26:16-26:17 IntLit Int value temp)
-      (26:19-26:20 IntLit Int value temp))))
+      (26:19-26:20 IntLit Int value temp)))
+  (string-positions
+    (21:17 literal std.string.string_literal)
+    (22:17 literal std.string.string_literal)))

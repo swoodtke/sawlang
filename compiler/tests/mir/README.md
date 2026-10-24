@@ -360,7 +360,7 @@ through a reference to stay a reported move.
 | `&&`, `\|\|` | a switch per operand; each operand after the first a scope of its own, its temporaries dropped on its own path before the paths join | branches, short_circuits |
 | `??` | a discriminant switch per operand, peeling one layer of a nested Optional, keeping the left operand whole against an Optional default of its own type; each operand after the first a scope of its own, ended on each of its edges | branches, peel, short_circuits |
 | `borrow p` handed to a `&` or `&var` parameter | a reference taken inside the window, which stays open to the statement's end | windows |
-| `borrow v.get(i)` in `if let` or `??` | the conditional window `v.get(i)` opens | windows |
+| `borrow r.find(i)` in `if let` or `??` | the conditional window `r.find(i)` opens | windows |
 | each kind of body | a function of its own | bodies |
 | `try`, `try!`, `try?` | a switch with a return of `Err`; the `Ok!` projection; a switch building an Optional | branches, adjustments |
 | `try e catch { … }` | a switch: the `Ok` payload into the destination, or dropped with the Result where nothing reads it; on `Err` the error moved into the catch block's `error`, a local the catch block's scope owns, then the catch block into the destination | catches `valued`, `discarded`, `taken`, `looped` |

@@ -39,4 +39,8 @@
       (24:25-24:26 IntLit Int value temp)
       (25:5-25:25 Call.paren Void value temp (builtin print))
       (25:11-25:24 Call.paren String value temp (call Printable.to_string() (owner split_conformance.DbErr)))
-      (25:11-25:12 Name split_conformance.DbErr (borrow &split_conformance.DbErr) place borrow))))
+      (25:11-25:12 Name split_conformance.DbErr (borrow &split_conformance.DbErr) place borrow)))
+  (string-positions
+    (12:26 literal std.string.string_literal)
+    (20:5 interpolation std.stringbuilder.StringBuilder)
+    (25:11 argument std.string.string_bytes std.string.string_length)))

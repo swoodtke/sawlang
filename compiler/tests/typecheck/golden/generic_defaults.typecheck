@@ -30,4 +30,11 @@
       (18:19-18:20 IntLit Int (some Int?) value temp)
       (19:5-19:23 Call.paren Void value temp (builtin print))
       (19:11-19:22 Call.paren String value temp (call generic_defaults.describe(a: T, b: T) (inst Int?) (bind a=0 b=default)))
-      (19:20-19:21 Name Int? place copy))))
+      (19:20-19:21 Name Int? place copy)))
+  (string-positions
+    (7:5 interpolation std.stringbuilder.StringBuilder)
+    (11:5 literal std.string.string_literal)
+    (15:11 argument std.string.string_bytes std.string.string_length)
+    (16:11 argument std.string.string_bytes std.string.string_length)
+    (17:11 argument std.string.string_bytes std.string.string_length)
+    (19:11 argument std.string.string_bytes std.string.string_length)))

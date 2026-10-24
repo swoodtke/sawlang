@@ -77,4 +77,6 @@
     (NARROW 28:8
       (28:22-28:24 IntLit Int value temp))
     (Wide.Fits 29:26
-      (29:33-29:36 IntLit Int (adopt UInt16) value temp))))
+      (29:33-29:36 IntLit Int (adopt UInt16) value temp)))
+  (string-positions
+    (23:11 format std.stringbuilder.StringBuilder)))

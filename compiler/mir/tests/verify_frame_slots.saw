@@ -97,7 +97,7 @@ func write_through_param(p: &var MirProgram, m: Int) -> Int {
 // itself, 2 a slot at offset -8 after the dereference.
 func edited(names: &Vector<String>, dirs: &Vector<String>, edit: Int) -> MirProgram {
     var lowerings = 0
-    var p = mir_lower_file("compiler/tests/mir/inject/frame_slots.saw", "sawc", &names, &dirs, &var lowerings)
+    var p = mir_lower_file("compiler/tests/mir/inject/frame_slots.saw", "std", &names, &dirs, &var lowerings)
     let m = module_index(&p, "frame_slots")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")

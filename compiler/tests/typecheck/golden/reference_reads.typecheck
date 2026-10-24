@@ -172,4 +172,7 @@
       (63:17-63:18 Name Int place borrow)
       (63:22-63:29 Call.paren Int value temp (call reference_reads.ret(p: &Int)))
       (63:26-63:28 Ref.shared &Int value temp)
-      (63:27-63:28 Name Int place borrow))))
+      (63:27-63:28 Name Int place borrow)))
+  (string-positions
+    (41:11 interpolation std.stringbuilder.StringBuilder)
+    (42:11 format std.stringbuilder.StringBuilder)))

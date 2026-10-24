@@ -152,4 +152,7 @@
       (62:67-62:71 BoolLit.true Bool value temp)
       (62:75-62:85 Call.paren Int value temp (call overload_shapes.Account.tag(x: Int) (owner overload_shapes.Account)))
       (62:75-62:78 Name overload_shapes.Account (borrow &overload_shapes.Account) place borrow)
-      (62:83-62:84 IntLit Int value temp))))
+      (62:83-62:84 IntLit Int value temp)))
+  (string-positions
+    (61:47 literal std.string.string_literal)
+    (62:11 format std.stringbuilder.StringBuilder)))

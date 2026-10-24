@@ -247,8 +247,8 @@ error, an unclosed bracket or a misplaced `//!`, is about the file as a whole.
 A `///` run inside skipped tokens is never refused as documenting nothing.
 `tree_problem` refuses a skipped node in a tree that is not an interface's
 (`AstTree.interface`), and `interface_difference` compares an interface with
-the same file's full parse: `compiler/tests/resolve/interface_pin.py` holds
-every std file to it.
+the same file's full parse: the unit program `compiler/parse/tests/interface.saw`
+holds it to its cases.
 
 ## `sawc parse`
 

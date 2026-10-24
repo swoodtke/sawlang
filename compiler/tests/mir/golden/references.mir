@@ -10,7 +10,7 @@ fn prologue references.Grid.slot() -> (&var Int)? {
 
     bb0: {
         _2 = ref(shared, (*_1).flag);
-        _3 = call builtin is_none (owner Int?) [move _2] -> [return: bb2];
+        _3 = call Optional.is_none() (owner Int?) [move _2] -> [return: bb2];
     }
 
     bb1: {
@@ -56,7 +56,7 @@ fn prologue references.Grid.peek() -> (&Int)? {
 
     bb0: {
         _2 = ref(shared, (*_1).flag);
-        _3 = call builtin is_none (owner Int?) [move _2] -> [return: bb2];
+        _3 = call Optional.is_none() (owner Int?) [move _2] -> [return: bb2];
     }
 
     bb1: {

@@ -79,4 +79,6 @@
       (43:29-43:32 StringLit String value temp)
       (44:9-44:10 BindingName Int place temp)
       (44:13-44:24 Call.paren Int value temp (call generic_captures.inferred(x: T) (inst Int)))
-      (44:22-44:23 IntLit Int value temp))))
+      (44:22-44:23 IntLit Int value temp)))
+  (string-positions
+    (43:29 literal std.string.string_literal)))

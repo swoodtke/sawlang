@@ -159,7 +159,7 @@ func check_forward(p: &BorrowckProgram, f: Int, facts: &BorrowckLoans) {
 // gives; returns how many functions held a loop or a window.
 func check(path: String, name: String, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var lowerings = 0
-    let lowered = mir_lower_file(path, "sawc", &names, &dirs, &var lowerings)
+    let lowered = mir_lower_file(path, "std", &names, &dirs, &var lowerings)
     assert(lowered.diags.len() == 0 && lowered.tc.error_count() == 0, "a golden is refused")
     let p = borrowck_program(move lowered)
     let m = module_index(&p, name)

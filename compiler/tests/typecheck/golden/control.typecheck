@@ -71,4 +71,9 @@
       (47:17-47:28 Call.paren Int value temp (value (owner (Int) -> Int)))
       (47:17-47:24 Name (Int) -> Int place borrow)
       (47:25-47:27 Unary.negate Int value temp (op -))
-      (47:26-47:27 IntLit Int value temp))))
+      (47:26-47:27 IntLit Int value temp)))
+  (string-positions
+    (8:9 literal std.string.string_literal)
+    (10:9 literal std.string.string_literal)
+    (12:9 literal std.string.string_literal)
+    (30:15 message std.string.string_literal)))

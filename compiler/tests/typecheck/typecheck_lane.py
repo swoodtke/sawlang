@@ -10,8 +10,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw` or `multi/NAME/main.saw`, checks to
   exactly the record in `golden/NAME.typecheck` or `multi/NAME.typecheck`;
-  a first line `// flags: ...` passes those flags, and under a std root
-  other than the frozen one the record leaves out the `std.` modules' dumps;
+  a first line `// flags: ...` passes those flags, and the record leaves
+  out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names, checked with the flags a second
@@ -62,21 +62,9 @@ def sawc(args):
     return r.returncode, r.stdout
 
 
-# The std a call names when its arguments name none: Stage 0's frozen one,
-# which this lane's fixtures are written against unless a `// flags:` line
-# names another. sawc's own default is the new std.
-FROZEN_STD_ROOT = "sawc"
-
-
 def with_std_root(args):
-    """`args`, naming the frozen std when they name no `--std-root`."""
-    return list(args) if "--std-root" in args else ["--std-root", FROZEN_STD_ROOT] + list(args)
-
-
-def std_root_of(args):
-    """The std root a call with `args` compiles against."""
-    full = with_std_root(args)
-    return full[full.index("--std-root") + 1]
+    """`args`, naming the checkout's std when they name no `--std-root`."""
+    return list(args) if "--std-root" in args else ["--std-root", "std"] + list(args)
 
 
 def package_args():
@@ -140,10 +128,9 @@ def golden_flags(src):
 
 
 def without_std_modules(record):
-    """The record with each `std.` module's dump left out. Under the new std
-    its modules are dumped beside the program's, and they are std's
-    lane's to hold. A line outside every module, an `ERROR` or `INVARIANT`
-    among them, is kept."""
+    """The record with each `std.` module's dump left out. Std's modules are
+    dumped beside the program's, and they are std's lane's to hold. A line
+    outside every module, an `ERROR` or `INVARIANT` among them, is kept."""
     out = []
     keep = True
     for line in record.split("\n"):
@@ -156,6 +143,11 @@ def without_std_modules(record):
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+def module_names(record):
+    """The names of the modules a dump holds, in order."""
+    return [line[len("(Module "):] for line in record.split("\n") if line.startswith("(Module ")]
+
+
 def check_golden(failures, counts, write):
     groups = {}
     for src, exp in golden_cases():
@@ -166,13 +158,16 @@ def check_golden(failures, counts, write):
 
 def check_golden_group(failures, counts, write, flags, cases):
     code, out = sawc(["--dump"] + list(flags) + [rel(src) for src, _ in cases])
-    got = records(out)
-    if std_root_of(flags) != FROZEN_STD_ROOT:
-        got = {path: without_std_modules(record) for path, record in got.items()}
+    got = {path: without_std_modules(record) for path, record in records(out).items()}
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:
             failures.append("typecheck golden %s: no record" % rel(src))
+            continue
+        # The strip must keep the entry's own dump: an empty record would
+        # match an empty golden.
+        if os.path.splitext(os.path.basename(src))[0] not in module_names(record):
+            failures.append("typecheck golden %s: the record holds no dump of its entry module" % rel(src))
             continue
         if write:
             with open(exp, "w") as fh:

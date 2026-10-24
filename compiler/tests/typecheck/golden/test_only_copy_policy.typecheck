@@ -115,4 +115,8 @@
       (68:19-68:20 Name test_only_copy_policy.Buffer place project)
       (68:28-68:32 Member Int place copy)
       (68:28-68:29 Name test_only_copy_policy.Handle place project)
-      (68:36-68:37 IntLit Int value borrow))))
+      (68:36-68:37 IntLit Int value borrow)))
+  (string-positions
+    (45:15 format std.stringbuilder.StringBuilder)
+    (56:19 format std.stringbuilder.StringBuilder)
+    (68:5 panic std.panic.panic_sink)))

@@ -170,4 +170,6 @@
       (132:9-132:23 Member Ordering value temp (case Ordering.Equal (owner Ordering))))
     (main 136:6
       (137:5-137:16 Call.paren Void value temp (builtin print))
-      (137:11-137:15 StringLit String value temp))))
+      (137:11-137:15 StringLit String value temp)))
+  (string-positions
+    (137:11 message std.string.string_literal)))

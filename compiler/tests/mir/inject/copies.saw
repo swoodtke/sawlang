@@ -1,8 +1,9 @@
 // The program compiler/mir/tests/verify_copies.saw lowers, then edits: `keep`
 // moves a NoCopy value, which the edit turns into the bitwise copy the MIR
-// verifier must refuse. `name_of` copies a `String`, an owning value that
-// copies silently, and `tag_of` reads a NoCopy raw-backed enum's tag through
-// a cast, which reads only the tag; both stay clean.
+// verifier must refuse. `name_of` reads a `String` field through a reference,
+// which the program edits into a bitwise copy of that owning, silently copying
+// value, and `tag_of` reads a NoCopy raw-backed enum's tag through a cast,
+// which reads only the tag; both stay clean.
 
 struct Res {
     n: Int

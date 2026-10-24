@@ -64,4 +64,6 @@
       (35:48-35:54 Ref.shared &std.taskgroup.TaskGroup value temp)
       (35:49-35:54 Name std.taskgroup.TaskGroup place borrow)
       (36:5-36:13 Call.paren Void value temp (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Void>)))
-      (36:5-36:6 Name std.taskgroup.Task<Void> (borrow &std.taskgroup.Task<Void>) place borrow))))
+      (36:5-36:6 Name std.taskgroup.Task<Void> (borrow &std.taskgroup.Task<Void>) place borrow)))
+  (string-positions
+    (35:11 format std.stringbuilder.StringBuilder)))

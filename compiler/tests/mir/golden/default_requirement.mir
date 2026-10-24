@@ -148,7 +148,7 @@ fn default_requirement.interface_fills() -> Bool {
     let _0: Bool;  // return
     let _1: Int;
     let _2: Int;
-    let _3: Result<std.json.JsonValue, std.serde.DecodeError>;
+    let _3: Result<std.json.JsonValue, std.json.DecodeError>;
 
     bb0: {
         _1 = call default std.json.JsonValue.parse(text: String, max_depth: Int, max_size: Int).max_depth (owner std.json.JsonValue) [] -> [return: bb1];

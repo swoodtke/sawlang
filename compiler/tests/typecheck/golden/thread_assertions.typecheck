@@ -55,4 +55,6 @@
       (36:16-36:17 Name &thread_assertions.Cell<Int> (deref thread_assertions.Cell<Int>) place borrow))
     (main 39:6
       (40:5-40:16 Call.paren Void value temp (builtin print))
-      (40:11-40:15 StringLit String value temp))))
+      (40:11-40:15 StringLit String value temp)))
+  (string-positions
+    (40:11 message std.string.string_literal)))

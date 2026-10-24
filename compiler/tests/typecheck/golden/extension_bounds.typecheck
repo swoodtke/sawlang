@@ -98,4 +98,6 @@
       (33:78-33:80 Ref.shared &extension_bounds.Cell<Int> value temp)
       (33:79-33:80 Name extension_bounds.Cell<Int> place borrow)
       (33:82-33:84 Ref.shared &extension_bounds.Cell<Int> value temp)
-      (33:83-33:84 Name extension_bounds.Cell<Int> place borrow))))
+      (33:83-33:84 Name extension_bounds.Cell<Int> place borrow)))
+  (string-positions
+    (33:11 format std.stringbuilder.StringBuilder)))

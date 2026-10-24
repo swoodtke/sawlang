@@ -1,9 +1,7 @@
-// refuses: mutability.immutable at 29:9
-// a `&var self` method through a `[move h]` capture of an `UnsafeRef`: a
-// capture is judged exactly as a `let` of its type, so `h.deref()` opens no
+// refuses: mutability.immutable at 32:24
+// an exclusive `borrows` accessor through a `[move h]` capture of a handle:
+// a capture is judged exactly as a `let` of its type, so `h.deref()` opens no
 // exclusive window, as on a `let h` (SL-472)
-
-import std.compiler.frame.{UnsafeRef}
 
 struct Counter {
     n: Int
@@ -15,18 +13,23 @@ extension Counter {
     }
 }
 
+struct Handle {
+    c: Counter
+}
+
+extension Handle {
+    func deref(&var self) borrows -> &var Counter {
+        lend self.c
+    }
+}
+
 func run_int(body: () sync -> Int) -> Int {
     body()
 }
 
-func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
-    UnsafeRef<Counter>(p: (&c) as UnsafePointer<Counter>)
-}
-
-func through_capture(c: &var Counter) unsafe -> Int {
-    var h = mint(&var c)
+func through_capture(h: Handle) -> Int {
     run_int({ [move h] in
-        h.deref().bump()
+        borrow var c = h.deref() { c.bump() }
         1
     })
 }

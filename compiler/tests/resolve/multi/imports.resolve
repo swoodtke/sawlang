@@ -118,12 +118,12 @@
   (extensions util))
 (Module extra
   (names
-    (4:26 String (type builtin String))
-    (4:37 String (type builtin String))
+    (4:26 String (struct std.string String))
+    (4:37 String (struct std.string String))
     (5:5 text (local text 4:20)))
   (calls)
   (declarations
-    (func helper 4:13 public (signature (text: builtin.String) -> builtin.String)))
+    (func helper 4:13 public (signature (text: std.string.String) -> std.string.String)))
   (surface
     (helper (overload extra helper)))
   (imports)

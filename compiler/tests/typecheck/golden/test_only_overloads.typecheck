@@ -88,4 +88,6 @@
       (52:72-52:84 Call.paren Int value temp (call test_only_overloads.Clock.read(x: Int) (owner test_only_overloads.Clock)))
       (52:72-52:73 Name test_only_overloads.Clock (borrow &test_only_overloads.Clock) place borrow)
       (52:82-52:83 IntLit Int value temp)
-      (52:87-52:88 IntLit Int value borrow))))
+      (52:87-52:88 IntLit Int value borrow)))
+  (string-positions
+    (52:5 panic std.panic.panic_sink)))

@@ -215,4 +215,12 @@
       (90:9-90:10 BindingName Int place temp)
       (90:13-90:20 Call.paren Int value temp (call plain_subscript_reads.tag(v: &std.vector.Vector<plain_subscript_reads.Slot, std.alloc.GlobalAllocator>)))
       (90:17-90:19 Ref.shared &std.vector.Vector<plain_subscript_reads.Slot, std.alloc.GlobalAllocator> value temp)
-      (90:18-90:19 Name std.vector.Vector<plain_subscript_reads.Slot, std.alloc.GlobalAllocator> place borrow))))
+      (90:18-90:19 Name std.vector.Vector<plain_subscript_reads.Slot, std.alloc.GlobalAllocator> place borrow)))
+  (string-positions
+    (72:11 interpolation std.stringbuilder.StringBuilder)
+    (73:11 rendered std.prelude.Printable)
+    (74:11 format std.stringbuilder.StringBuilder)
+    (75:40 format std.stringbuilder.StringBuilder)
+    (75:5 panic std.panic.panic_sink)
+    (83:11 interpolation std.stringbuilder.StringBuilder)
+    (84:11 format std.stringbuilder.StringBuilder)))

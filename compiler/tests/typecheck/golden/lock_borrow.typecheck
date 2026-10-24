@@ -1,0 +1,16 @@
+(Module lock_borrow
+  (declarations
+    (func peek 6:6 private (signature (params (m &std.mutex.Mutex<Int> shared)) -> Bool) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (peek 6:6
+      (7:5-7:38 BorrowBlock Bool value temp)
+      (7:16-7:17 BindingName Int place borrow-var)
+      (7:20-7:28 Call.paren Int place borrow-var (call std.mutex.Mutex.lock() (owner std.mutex.Mutex<Int>)))
+      (7:20-7:21 Name &std.mutex.Mutex<Int> (deref std.mutex.Mutex<Int>) (borrow-var &var std.mutex.Mutex<Int>) place borrow-var)
+      (7:31-7:36 Binary.pair Bool value temp (op >))
+      (7:31-7:32 Name Int place borrow)
+      (7:35-7:36 IntLit Int value borrow))))

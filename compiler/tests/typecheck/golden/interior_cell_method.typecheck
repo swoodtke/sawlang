@@ -1,0 +1,13 @@
+(Module interior_cell_method
+  (declarations
+    (func peek 5:6 private (signature (params (c &UnsafeMutableInterior<Int> shared)) (effects unsafe) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (peek 5:6
+      (6:9-6:10 BindingName UnsafePointer<Int> place temp)
+      (6:13-6:20 Call.paren UnsafePointer<Int> value temp (call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>)))
+      (6:13-6:14 Name &UnsafeMutableInterior<Int> (deref UnsafeMutableInterior<Int>) (borrow &UnsafeMutableInterior<Int>) place borrow)
+      (7:5-7:6 IntLit Int value temp))))

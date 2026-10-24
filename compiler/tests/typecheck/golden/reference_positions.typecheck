@@ -32,13 +32,14 @@
       (field flag Bool? private declared)
       (method at private (extension reference_positions))
       (method at_var private (extension reference_positions))
-      (method maybe private (extension reference_positions)))
+      (method maybe private (extension reference_positions))
+      (method deinit public (synthesized Deinit)))
     (reference_positions.Walker
       (field grid &reference_positions.Grid private declared)
       (field index Int private declared)))
   (views
     (reference_positions.Square side area)
-    (reference_positions.Grid cells flag at at_var maybe)
+    (reference_positions.Grid cells flag at at_var maybe deinit)
     (reference_positions.Walker grid index))
   (conformances
     (reference_positions.Square reference_positions.Shape 14:19 (area written)))
@@ -65,7 +66,7 @@
       (31:25-31:26 Name Int place copy))
     (Grid.maybe 34:10
       (35:9-37:10 If Void value temp)
-      (35:12-35:31 Call.paren Bool value temp (builtin is_none (owner Bool?)))
+      (35:12-35:31 Call.paren Bool value temp (call Optional.is_none() (owner Bool?)))
       (35:12-35:21 Member Bool? (borrow &Bool?) place borrow)
       (35:12-35:16 SelfExpr reference_positions.Grid place project)
       (36:20-36:24 NoneLit Bool? value temp)

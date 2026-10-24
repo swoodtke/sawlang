@@ -3,8 +3,6 @@
 // and the prelude, the names in scope with no import. The prelude is an
 // inclusion list, so a new std module is gated until it is listed here. The
 // third table, the std modules, is `load_std_modules` in loader.saw.
-// compiler/tests/resolve/prelude_check.py compares all three with the frozen
-// compiler's view of today's std.
 
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResDeclKind, ResVis}

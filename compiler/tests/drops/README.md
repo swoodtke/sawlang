@@ -275,15 +275,15 @@ fails, and becomes a rejection pin, once the limit is closed.
 
 `drops_lane.py` checks that each golden program's record equals its `.drops`
 file byte for byte (`--write` rewrites them; a first line `// flags: ...`
-passes flags, and under `--std-root` the expectation holds the entry module's
-dump alone); that each fixture in `refuse/` is refused first at its header's
+passes flags, and the expectation holds the entry module's dump alone); that
+each fixture in `refuse/` is refused first at its header's
 position, a due row by the refusal in its way, and every rule has a fixture;
 that the compiler's own source, the sawc build and each unit program, and
 the new std's entry under `--std-root std`, elaborate with no refusal and no
 invariant; that every tests/corpus program that elaborates does so with no
 invariant; and that every conformance row CONFORMANCE.md gives `§3.7` names a
 fixture here and its program in `conformance.tsv` gives the summary recorded
-there. It counts the drop flags over the sawc build and over tests/corpus.
+there, counted over the program's own module. It counts the drop flags over the sawc build and over tests/corpus.
 
 | aspect | golden |
 |---|---|

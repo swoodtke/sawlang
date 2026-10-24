@@ -36,11 +36,13 @@ fn glue.kinds(n: Int) -> Int {
     let _19: (glue.Handle, Int);
     let _20: String;  // tag
     let _21: () sendable -> Int;  // f
-    let _22: () sendable -> Int;
-    let _23: Int;
-    let _24: Int;
+    let _22: &String;
+    let _23: String;
+    let _24: () sendable -> Int;
     let _25: Int;
     let _26: Int;
+    let _27: Int;
+    let _28: Int;
 
     bb0: {
         _3 = glue.Handle { fd: copy _1 };
@@ -62,16 +64,21 @@ fn glue.kinds(n: Int) -> Int {
         _19 = (move _18, const 7: Int);
         _16 = move _19;
         _20 = const "tag": String;
-        _22 = closure#0 of glue.kinds(n: Int) [copy _20];
-        _21 = move _22;
-        _23 = Add(copy _2.fd, copy _4.handle.fd);
-        _24 = Add(move _23, copy _16.1);
-        _25 = call value copy _21 [] -> [return: bb1];
+        _22 = ref(shared, _20);
+        _23 = call std.string.String.copy() (owner String) [move _22] -> [return: bb1];
     }
 
     bb1: {
-        _26 = Add(move _24, move _25);
-        _0 = move _26;
+        _24 = closure#0 of glue.kinds(n: Int) [move _23];
+        _21 = move _24;
+        _25 = Add(copy _2.fd, copy _4.handle.fd);
+        _26 = Add(move _25, copy _16.1);
+        _27 = call value copy _21 [] -> [return: bb2];
+    }
+
+    bb2: {
+        _28 = Add(move _26, move _27);
+        _0 = move _28;
         drop(_21);
         drop(_20);
         drop(_16);
@@ -84,7 +91,7 @@ fn glue.kinds(n: Int) -> Int {
 
     glue () sendable -> Int: closure environment
     glue (glue.Handle, Int): structural
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
     glue glue.Handle: deinit glue.Handle.deinit() in the NoCopy conformance, then structural
     glue glue.Handle?: structural
     glue glue.Owner: structural

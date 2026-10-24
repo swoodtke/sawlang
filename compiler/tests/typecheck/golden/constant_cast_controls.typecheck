@@ -78,4 +78,6 @@
       (35:53-35:58 Name UInt8 place borrow)
       (35:61-35:65 Name UInt8 place borrow)
       (35:68-35:76 Name UInt8 place borrow)
-      (35:79-35:90 Call.paren UInt8 value borrow (call constant_cast_controls.narrow() (inst 7))))))
+      (35:79-35:90 Call.paren UInt8 value borrow (call constant_cast_controls.narrow() (inst 7)))))
+  (string-positions
+    (35:11 interpolation std.stringbuilder.StringBuilder)))

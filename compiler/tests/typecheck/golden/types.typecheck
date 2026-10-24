@@ -48,4 +48,9 @@
       (43:5-43:9 BoolLit.true Bool value temp))
     (no_result 46:6
       (47:5-47:18 Call.paren Void value temp (builtin print))
-      (47:11-47:17 StringLit String value temp))))
+      (47:11-47:17 StringLit String value temp)))
+  (string-positions
+    (23:5 literal std.string.string_literal)
+    (35:11 message std.string.string_literal)
+    (35:5 panic std.panic.panic_sink)
+    (47:11 message std.string.string_literal)))

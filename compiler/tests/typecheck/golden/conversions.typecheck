@@ -96,4 +96,8 @@
       (71:17-71:41 Call.paren Result<Int, conversions.Fault> (erase Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>) value temp (call conversions.outcome(n: Int, fault: conversions.Fault)))
       (71:25-71:26 Name Int place copy)
       (71:28-71:40 Member conversions.Fault value temp (case conversions.Fault.Broken (owner conversions.Fault)))
-      (72:5-72:6 Name Int (ok Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>) place copy))))
+      (72:5-72:6 Name Int (ok Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>) place copy)))
+  (string-positions
+    (36:11 message std.string.string_literal)
+    (36:5 panic std.panic.panic_sink)
+    (64:29 literal std.string.string_literal)))

@@ -69,4 +69,7 @@
       (38:17-38:26 Array [Int; 3] value temp)
       (38:18-38:19 IntLit Int value temp)
       (38:21-38:22 IntLit Int value temp)
-      (38:24-38:25 IntLit Int value temp))))
+      (38:24-38:25 IntLit Int value temp)))
+  (string-positions
+    (31:11 argument std.string.string_bytes std.string.string_length)
+    (32:11 argument std.string.string_bytes std.string.string_length)))

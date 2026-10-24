@@ -142,7 +142,7 @@ func main() {
     let names = Vector<String>()
     let dirs = Vector<String>()
     var lowerings = 0
-    var p = mir_lower_file("compiler/tests/mir/inject/operator_operands.saw", "sawc", &names, &dirs,
+    var p = mir_lower_file("compiler/tests/mir/inject/operator_operands.saw", "std", &names, &dirs,
                            &var lowerings)
     let m = module_index(&p, "operator_operands")
     assert(m >= 0, "the fixture did not load: run from the repository root")

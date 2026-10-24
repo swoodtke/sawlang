@@ -48,7 +48,7 @@ INDEX.md, or when an owner is not one of the words below.
 | M22 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.accessor-root.saw` |
 | M23 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-closure-parameter.saw` |
 | M24 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-epilogue.saw`; the migrated file is refused first by `result.discarded`, a migration artifact |
-| M25 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.map-force.saw`; the migrated file is refused first by `member.unknown`, a migration artifact |
+| M25 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.map-subscript.saw`; the migrated file is refused first by `member.unknown`, a migration artifact |
 | M26 | typecheck | `mutability.immutable`: `compiler/tests/typecheck/refuse/mutability.immutable.copy-receiver.saw` |
 | M27 | typecheck | accepted: a `&self` method of an interior cell borrows shared, which the writability funnel never asks about; the migrated file checks through MIR with no refusal, and its dispatches through `any Trait` borrow as their requirements declare (SL-721) |
 | M28 | typecheck | `mutability.immutable`, language changed (SL:borrowing §9, SL-483): `self.rows[0].push(9)` at `&self`, `compiler/tests/typecheck/refuse/mutability.immutable.shared-receiver-heap-method.saw`, and `widen` in the migrated M32 file; the row's covering file is refused first by `slice.not-yet`, a `borrow` block over `SpinLock.lock`, which lends through a closure parameter |

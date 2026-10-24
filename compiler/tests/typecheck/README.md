@@ -866,7 +866,7 @@ Every body construct in the slice, and how it is typed:
 | `print`, `panic`, `assert` with a message or format arguments; `sizeof`, `alignof` | `Void`, `Never`, `Int` | format, inference |
 | `Task.spawn(f(x))`, under a std root declaring `Task` beside `TaskGroup` | `Task<T>` for a root of type `T`, `Task<Void>` for a `Void` one; the root's call is the task's, so its suspension is not the spawner's | task_spawn |
 | `group.spawn(f(x))` on a `TaskGroup`, a local, a field or through a `&TaskGroup` | the group borrowed shared for the spawn; the handle and the root as `Task.spawn`'s | group_spawn |
-| `Thread.spawn { ... }`, under a std root declaring `std.task.Thread` and `std.systemerror.SystemError` | `Result<Thread<T>, SystemError>` for a body of type `T`, `Void` included; a builtin call whose brace is its operand (`Thread.spawn` under Stage 0's std, which has no `SystemError`, is `slice.not-yet`, its brace still checked) | thread_spawn; thread_body_std_table |
+| `Thread.spawn { ... }`, under a std root declaring `std.task.Thread` and `std.systemerror.SystemError` | `Result<Thread<T>, SystemError>` for a body of type `T`, `Void` included; a builtin call whose brace is its operand (`Thread.spawn` under Stage 0's std, which has no `SystemError`, is `slice.not-yet`, its brace still checked; no fixture runs under that root) | thread_spawn; thread_body_std_table |
 | a subscript | a getitem, setitem or place accessor call, or an array's builtin | places, funnel |
 | `o!`, `-x`, `not b`, `~x`, `&x`, `&var x`, `move x`, `move o!`, `*p` | the payload place, the operand's type, a reference, the moved value, the payload moved out of the optional place (design 131), the pointee | places, operators, conversions, builtin_values |
 | arithmetic, bit, shift, comparison, logic, `??`, `as`, `a..b` | agreeing operands; builtin or a declared `equals`/`compare` | operators |
@@ -909,11 +909,9 @@ Every body construct in the slice, and how it is typed:
 | a call whose signature names a type from a std module the parser refuses | `slice.not-yet` |
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
-| constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet` (builtin-construction) |
-| a `borrow` block over a method that lends through a closure parameter, as `borrow var c = m.lock() { ... }` | `slice.not-yet` (lock-borrow) |
-| calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet` (func-pointer) |
+| constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet`, under Stage 0's std only, the one declaring `UnsafeMemory`; no fixture runs under that root |
+| calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet`, under Stage 0's std only, the one declaring `FuncPointer`; no fixture runs under that root |
 | downcasting an erased box, `b.is<T>()` and `b.take<T>()` | `slice.not-yet` (erased-box-downcast) |
-| a method of the interior cell, `c.ptr()` | `slice.not-yet` (cell-method) |
 
 ## The summary and check position matrices
 
@@ -1171,7 +1169,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | a tuple element of a `let` | refused | mutability.immutable.tuple-element |
 | a fixed-array element of a `let`, plain and compound, through a field | refused | mutability.immutable.array-element, mutability.immutable.array-element-compound |
 | a `Vector` element of a `let` root (an exclusive window) | refused | mutability.immutable.vector-element |
-| `m[k]! = v` on a `let` `Map` root | refused | mutability.immutable.map-force |
+| `borrow var m[k] = v` on a `let` `Map` root | refused | mutability.immutable.map-subscript |
 | the payload of a `let` optional, `o!.n = v` | refused | mutability.immutable.optional-payload |
 | a hand-written accessor's window on a `let` root | refused | mutability.immutable.accessor-root |
 | a `&var self` method on a `let`, NoCopy and automatic Copy | refused | mutability.immutable.exclusive-receiver, mutability.immutable.copy-receiver |
@@ -1216,7 +1214,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | a nested `[&var n]` of an outer `[&var n]`; the counter through a non-escaping `[&var v]` | allowed | capture_rules |
 | an implicit `self` capture's write under `&var self`; a write through a plain capture of a `&var` parameter; a closure's own `&var` parameter written | allowed | capture_rules |
 | a `&self` cell method (`Mutex.lock`) on a `move` capture; a captured raw pointer's pointee, escaping too | allowed | capture_rules |
-| a `&var self` method through a `[move h]` capture of an `UnsafeRef`, as through a `let h` | refused | mutability.immutable.capture-unsafe-handle |
+| an exclusive `borrows` accessor through a `[move h]` capture of a handle, as through a `let h` | refused | mutability.immutable.capture-unsafe-handle |
 | a move into a place window, `slots[0].push(move h)`; the non-escaping `[move v]` idiom `var w = move v` | allowed | capture_rules |
 | an `unsafe static var` | allowed | mutability |
 | a raw pointer's pointee, through a `let` pointer or a `&self` receiver | allowed | mutability |
@@ -1357,9 +1355,8 @@ paths end at a different part.
 "The automatic `Copy` tier"; `check_containment`). The members whose retain
 the compiler handles itself put a struct on the automatic tier with no
 policy owed; a field of a declared Copy type does not. The two golden
-programs run under `--std-root std`, where `String`'s Copy is a written
-conformance and still owes nothing (SL-515); the fixtures run under Stage 0's
-std, the only one with an `Arc`; `c.` abbreviates
+programs and the fixtures run under the checkout's std, where `String`'s Copy
+is a written conformance and still owes nothing (SL-515); `c.` abbreviates
 `refuse/copy.undeclared-policy.`:
 
 | member | verdict | covered by |
@@ -1439,7 +1436,6 @@ the chain is written through, in front of the chain. Under
 | a write through a subscript's place: a field, a compound, a `&var self` method | refused, `borrow var` | u.subscript-assign, u.subscript-compound, u.subscript-method |
 | each position spelled `borrow`; a `lend` operand; a `for` head over a borrowing struct; a subscript's getitem, setitem and `+=` | allowed | borrows_marked_calls |
 | a call lending a borrowing struct elsewhere; a sigil in front of the chain | `borrowing.containment`; `borrowing.sigil-place` | borrowing.containment, borrowing.sigil-place |
-| an accessor of the frozen std (`--std-root sawc`), while it is a std root (SL-667) | allowed | the mir and typecheck goldens' `v.get(i)` |
 
 **Escaping function values** (SL:open-questions D35). A function type in a
 storage position is escaping whatever it spells: only a parameter's keeps the
@@ -1511,7 +1507,7 @@ fixture.
 | M10, M11, M12 | `m.shared-reference`, `m.shared-reference-replace`, `m.shared-reference-receiver` |
 | M13, M14, M15, M16 | `m.shared-receiver`, `m.shared-receiver-call`, `m.shared-receiver-field-call`, `m.shared-receiver-projection` |
 | M17, M18, M19, M20, M21 | `m.for-binding`, `m.if-let`, `m.parameter`, `m.value-capture`, `m.value-capture-field` |
-| M22, M23, M24, M25, M26 | `m.accessor-root`, `m.shared-closure-parameter`, `m.shared-receiver-epilogue`, `m.map-force`, `m.copy-receiver` |
+| M22, M23, M24, M25, M26 | `m.accessor-root`, `m.shared-closure-parameter`, `m.shared-receiver-epilogue`, `m.map-subscript`, `m.copy-receiver` |
 | M27 | accepted: an interior cell's `&self` method borrows shared, which no row of the funnel asks about; a `&var self` requirement through `&any` or a `let` box is `m.existential-receiver`, `m.erased-box-receiver` |
 | M28, M32, M41 | language changed (SL:borrowing §9, SL-483): `m.shared-receiver-heap-method` (M28), `m.shared-receiver-heap-chain` (M32), `m.shared-receiver-heap`, `-heap-compound`, `-heap-accessor` and `-heap-chain` (M41) |
 | M34, M35 | accepted: golden `mutability` (writes under `&var self`) |
@@ -1788,9 +1784,8 @@ valid), or a type declaring `ZeroInit`. One funnel answers it, `zero_fault`
 (`compiler/typecheck/src/bodies.saw`), whose docstring names its two entry
 points, a bare static and a `ZeroInit` declaration; both run in
 `check_zero_inits`, once every body is typed, so a raw-backed case's value is
-folded wherever its enum sits. `ZeroInit` is a lang item of the new std's
-prelude and unbound under Stage 0's, so a row that declares it runs with
-`--std-root std`. `golden/zero_init` is abbreviated `z.` and
+folded wherever its enum sits. `ZeroInit` is a lang item of the std's
+prelude, unbound under Stage 0's. `golden/zero_init` is abbreviated `z.` and
 `multi/zero_init_modules` `zm.`:
 
 | row | verdict | covered by |
@@ -1804,11 +1799,10 @@ prelude and unbound under Stage 0's, so a row that declares it runs with
 | a conditional `ZeroInit` (`Lock<T: ZeroInit>`) at a scalar, at a `ZeroInit` type, and at a struct of the static's module with no declaration | accepted: the condition's argument is walked by the same rule, at the static's module | `zm.` |
 | another module's struct with a private field: at the top, in a field, in an array, behind a generic argument | refused, naming the field | `static.zero-hidden`, `.nested`, `.array`, `.generic` |
 | a conditional `ZeroInit` at an argument with a hidden field | refused, naming the argument's field | `static.zero-hidden.conditional` |
-| Stage 0's `SpinLock`, `Mutex` or `Once` under Stage 0's root, whose std cannot declare `ZeroInit` | refused, naming the private field | `static.zero-hidden.frozen-std` |
 | a `String`, directly or as a conditional `ZeroInit`'s argument | refused: a `String` owns its bytes | `static.zero-invalid`, `static.zero-invalid.conditional` |
 | an enum with a payload case | refused | `static.zero-invalid.payload-enum` |
 | a raw-backed enum with no case of value 0 | refused: zero is a value no case names | `static.zero-invalid.raw-enum` |
-| a function value; a `FuncPointer` (Stage 0's root, the std that declares it) | refused: a zero one names no function | `static.zero-invalid.function`, `static.zero-invalid.func-pointer` |
+| a function value; a `FuncPointer` (Stage 0's root, the std that declares it, which no fixture runs under) | refused: a zero one names no function | `static.zero-invalid.function` |
 | a struct with an override, at any depth | refused, naming the override | the override matrix above |
 | a reference | refused where it is written, never a second time | `type.reference-position.static` |
 | `ZeroInit` on a struct with an override | refused at the declaration | `zeroinit.override` |

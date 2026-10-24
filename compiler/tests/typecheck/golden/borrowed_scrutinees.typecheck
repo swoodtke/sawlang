@@ -53,9 +53,9 @@
     (unwrapped 24:6
       (25:5-31:6 If Void value temp)
       (25:19-25:23 BindingName borrowed_scrutinees.Slot place borrow)
-      (25:26-25:38 Call.paren borrowed_scrutinees.Slot? place borrow (call std.vector.Vector.get(index: Int) (owner std.vector.Vector<borrowed_scrutinees.Slot, std.alloc.GlobalAllocator>)))
+      (25:26-25:39 Call.paren borrowed_scrutinees.Slot? place borrow (call std.vector.Vector.find(index: Int) (owner std.vector.Vector<borrowed_scrutinees.Slot, std.alloc.GlobalAllocator>)))
       (25:26-25:31 Name &var std.vector.Vector<borrowed_scrutinees.Slot, std.alloc.GlobalAllocator> (deref std.vector.Vector<borrowed_scrutinees.Slot, std.alloc.GlobalAllocator>) (borrow &std.vector.Vector<borrowed_scrutinees.Slot, std.alloc.GlobalAllocator>) place borrow)
-      (25:36-25:37 Name Int place copy)
+      (25:37-25:38 Name Int place copy)
       (26:16-30:10 Match Int value temp)
       (26:22-26:26 Name borrowed_scrutinees.Slot place test)
       (27:18-27:29 VariantPat borrowed_scrutinees.Slot value test (case borrowed_scrutinees.Slot.Occupied (owner borrowed_scrutinees.Slot)))
@@ -104,4 +104,6 @@
       (48:66-48:67 IntLit Int value temp)
       (48:70-48:96 Call.paren Int value borrow (call borrowed_scrutinees.captured(s: borrowed_scrutinees.Slot)))
       (48:79-48:95 Call.paren borrowed_scrutinees.Slot value temp (case borrowed_scrutinees.Slot.Count (owner borrowed_scrutinees.Slot)))
-      (48:93-48:94 IntLit Int value temp))))
+      (48:93-48:94 IntLit Int value temp)))
+  (string-positions
+    (48:11 format std.stringbuilder.StringBuilder)))

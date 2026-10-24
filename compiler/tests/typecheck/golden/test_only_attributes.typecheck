@@ -49,4 +49,7 @@
       (40:12-40:27 Call.paren test_only_attributes.Price value borrow (memberwise test_only_attributes.Price (owner test_only_attributes.Price)))
       (40:25-40:26 IntLit Int value temp)
       (40:31-40:46 Call.paren test_only_attributes.Price value borrow (memberwise test_only_attributes.Price (owner test_only_attributes.Price)))
-      (40:44-40:45 IntLit Int value temp))))
+      (40:44-40:45 IntLit Int value temp)))
+  (string-positions
+    (39:5 panic std.panic.panic_sink)
+    (40:5 panic std.panic.panic_sink)))

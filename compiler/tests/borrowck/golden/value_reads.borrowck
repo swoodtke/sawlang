@@ -2,10 +2,17 @@ module value_reads
 
 fn value_reads.Res.label() {
     place _0: String;  // _0
+    place _3: String;  // _3
+    loan L0: shared (*_1).name;  // argument at 13:35
 
     bb0: {
-        [U] _0 = copy (*_1).name;
-        [W] return;
+        [U U] {} _2 = ref(shared, (*_1).name);
+        [U U] {L0} _3 = call std.string.String.copy() (owner String) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [U W] {} _0 = move _3;
+        [W M] {} return;
     }
 }
 

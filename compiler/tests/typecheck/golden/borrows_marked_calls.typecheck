@@ -315,4 +315,6 @@
       (128:5-128:16 Call.paren Void value temp (builtin print))
       (128:11-128:15 Subscript.single Int place borrow (place borrows_marked_calls.Grid.[](i: Int) (owner borrows_marked_calls.Grid)))
       (128:11-128:12 Name borrows_marked_calls.Grid (borrow &borrows_marked_calls.Grid) place borrow)
-      (128:13-128:14 IntLit Int value temp))))
+      (128:13-128:14 IntLit Int value temp)))
+  (string-positions
+    (109:15 interpolation std.stringbuilder.StringBuilder)))

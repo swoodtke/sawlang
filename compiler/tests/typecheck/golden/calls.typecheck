@@ -121,4 +121,7 @@
       (72:22-72:29 Call.paren Int value temp (call calls.Counter.get() (owner calls.Counter)))
       (72:22-72:23 Name calls.Counter (borrow &calls.Counter) place borrow)
       (72:32-72:39 Call.paren Int value temp (call calls.Counter.get() (owner calls.Counter)))
-      (72:32-72:33 Name calls.Counter (borrow &calls.Counter) place borrow))))
+      (72:32-72:33 Name calls.Counter (borrow &calls.Counter) place borrow)))
+  (string-positions
+    (64:30 literal std.string.string_literal)
+    (67:22 literal std.string.string_literal)))

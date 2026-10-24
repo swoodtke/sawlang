@@ -101,4 +101,6 @@
       (72:18-72:19 Name Int place borrow)
       (74:5-74:8 Call.paren String value temp (value (owner () sendable -> String)))
       (74:5-74:6 Name () sendable -> String place borrow))
-    (main 77:6)))
+    (main 77:6))
+  (string-positions
+    (72:16 interpolation std.stringbuilder.StringBuilder)))

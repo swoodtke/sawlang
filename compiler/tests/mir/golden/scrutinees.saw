@@ -115,8 +115,8 @@ func match_capture_copy() -> Int {
     } })
 }
 
-func match_lend_payload(slots: &Vector<Slot>, i: Int) -> Int {
-    if borrow let e = slots.get(i) {
+func match_lend_payload(slots: &var Vector<Slot>, i: Int) -> Int {
+    if borrow let e = slots.find(i) {
         match e {
             case Empty -> 0,
             case Occupied(borrow let k) -> k.name.len()

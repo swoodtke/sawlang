@@ -1,0 +1,8 @@
+// A `borrow` block over `Mutex.lock()`, a `borrows(sync)` accessor of a
+// `&self` receiver lending `&var T`: the block's binding is the lent value.
+
+import std.mutex.{Mutex}
+
+func peek(m: &Mutex<Int>) -> Bool {
+    borrow var c = m.lock() { c > 0 }
+}

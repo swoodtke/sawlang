@@ -31,7 +31,9 @@
       (17:11-17:12 Name ports.Gate place project)
       (17:21-17:33 Call.paren Int value temp (call main.bump(p: &var ports.Port)))
       (17:26-17:32 Ref.exclusive &var ports.Port value temp)
-      (17:31-17:32 Name ports.Port place borrow-var))))
+      (17:31-17:32 Name ports.Port place borrow-var)))
+  (string-positions
+    (16:24 literal std.string.string_literal)))
 
 (Module ports
   (declarations

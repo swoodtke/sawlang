@@ -105,4 +105,6 @@
       (67:16-67:17 Name &thread_assertion_legality.Choice (deref thread_assertion_legality.Choice) place borrow))
     (main 70:6
       (71:5-71:16 Call.paren Void value temp (builtin print))
-      (71:11-71:15 StringLit String value temp))))
+      (71:11-71:15 StringLit String value temp)))
+  (string-positions
+    (71:11 message std.string.string_literal)))

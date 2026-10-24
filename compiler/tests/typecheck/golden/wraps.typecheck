@@ -31,14 +31,16 @@
       (method to_string public (default Printable)))
     (wraps.Holder
       (field slot Int? private declared)
-      (field outcome Result<Int, wraps.Fault> private declared))
+      (field outcome Result<Int, wraps.Fault> private declared)
+      (method deinit public (synthesized Deinit)))
     (wraps.Cell
       (case Full private declared)
-      (case Done private declared)))
+      (case Done private declared)
+      (method deinit public (synthesized Deinit))))
   (views
     (wraps.Fault code format to_string)
-    (wraps.Holder slot outcome)
-    (wraps.Cell Full Done))
+    (wraps.Holder slot outcome deinit)
+    (wraps.Cell Full Done deinit))
   (conformances
     (wraps.Fault Printable 13:18 (format written) (to_string default))
     (wraps.Fault Error 19:18 (format written) (to_string default)))
@@ -176,4 +178,7 @@
       (105:30-105:31 Name Int place borrow)
       (105:34-105:35 IntLit Int value borrow)
       (105:38-105:40 IntLit Int (some Int?) value temp)
-      (105:50-105:51 Name Int? place copy))))
+      (105:50-105:51 Name Int? place copy)))
+  (string-positions
+    (15:29 literal std.string.string_literal)
+    (97:50 literal std.string.string_literal)))

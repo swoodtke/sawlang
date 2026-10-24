@@ -43,4 +43,6 @@
       (31:5-31:26 Call.paren Void value temp (builtin print))
       (31:11-31:15 Interp String value temp)
       (31:17-31:25 Call.paren Int value borrow (call std.taskgroup.Task.join() (owner std.taskgroup.Task<Int>)))
-      (31:17-31:18 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow))))
+      (31:17-31:18 Name std.taskgroup.Task<Int> (borrow &std.taskgroup.Task<Int>) place borrow)))
+  (string-positions
+    (31:11 format std.stringbuilder.StringBuilder)))

@@ -9,7 +9,8 @@
 directory specifies:
 
 - each golden program, `golden/NAME.saw`, evaluates to exactly the record in
-  `golden/NAME.eval`, which carries no `INVARIANT` line;
+  `golden/NAME.eval`, which carries no `INVARIANT` line and leaves out the
+  `std.` modules' constants;
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
   refused first by RULE at the position its `// refuses:` header names, and
   every rule the evaluator refuses by (`eval_rules` in
@@ -62,9 +63,25 @@ def sawc(args):
     return r.returncode, r.stdout
 
 
-# Stage 0's frozen std, which this lane's golden and refusal fixtures and its
-# corpus reading are written against. sawc's own default is the new std.
-FROZEN_STD_ROOT = "sawc"
+def without_std_modules(record):
+    """The record with each `std.` module's constants left out: std's are
+    evaluated beside the program's, and they are std's lane's to hold, so an
+    edit to std moves no golden or corpus count of this lane. An `ERROR` or
+    `INVARIANT` line is kept wherever it stands."""
+    out = []
+    keep = True
+    for line in record.split("\n"):
+        if line.startswith("module "):
+            keep = not line[len("module "):].startswith("std.")
+        if keep or line.startswith(("ERROR\t", "INVARIANT\t")):
+            out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def holds_entry_module(record, src):
+    """Whether `record` still holds the dump of `src`'s own module, which the
+    strip must keep: an empty record would match an empty golden."""
+    return ("module " + os.path.splitext(os.path.basename(src))[0]) in record.split("\n")
 
 
 def package_args():
@@ -106,12 +123,15 @@ def first_difference(expected, got):
 def check_golden(failures, counts, write):
     cases = [(src, os.path.splitext(src)[0] + ".eval")
              for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
-    code, out = sawc(["--dump", "--std-root", FROZEN_STD_ROOT] + [rel(src) for src, _ in cases])
-    got = records(out)
+    code, out = sawc(["--dump", "--std-root", "std"] + [rel(src) for src, _ in cases])
+    got = {path: without_std_modules(record) for path, record in records(out).items()}
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:
             failures.append("eval golden %s: no record" % rel(src))
+            continue
+        if not holds_entry_module(record, src):
+            failures.append("eval golden %s: the record holds no dump of its entry module" % rel(src))
             continue
         if write:
             with open(exp, "w") as fh:
@@ -162,8 +182,8 @@ def evaluator_rules():
 
 def check_refusals(failures, counts, fill):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc(["--check", "--std-root", FROZEN_STD_ROOT] + [rel(p) for p in cases])
-    got = records(out)
+    code, out = sawc(["--check", "--std-root", "std"] + [rel(p) for p in cases])
+    got = {path: without_std_modules(record) for path, record in records(out).items()}
     covered = set()
     for path in cases:
         record = got.get(rel(path), "")
@@ -241,9 +261,9 @@ def evaluate_all(rels, listing):
     while pending:
         with open(listing, "w") as fh:
             fh.write("".join(p + "\n" for p in pending))
-        r = subprocess.run([build.SAWC, "eval", "--dump", "--std-root", FROZEN_STD_ROOT, "@" + rel(listing)], cwd=REPO,
+        r = subprocess.run([build.SAWC, "eval", "--dump", "--std-root", "std", "@" + rel(listing)], cwd=REPO,
                            capture_output=True, text=True, timeout=TIMEOUT)
-        found = records(r.stdout)
+        found = {path: without_std_modules(record) for path, record in records(r.stdout).items()}
         if r.returncode in (0, 1):
             got.update(found)
             break

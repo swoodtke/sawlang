@@ -92,4 +92,6 @@
       (36:14-36:18 Name &var std.stringbuilder.StringBuilder (deref std.stringbuilder.StringBuilder) (borrow-var &var std.stringbuilder.StringBuilder) place borrow-var)
       (36:26-36:34 StringLit String value temp))
     (Stack.top 68:10
-      (69:9-69:13 NoneLit T? value temp))))
+      (69:9-69:13 NoneLit T? value temp)))
+  (string-positions
+    (36:26 literal std.string.string_literal)))

@@ -26,4 +26,6 @@ ERROR	type.bound	compiler/tests/typecheck/golden/derived_parent_grants_nothing.s
       (16:16-16:17 Name &derived_parent_grants_nothing.Buf (deref derived_parent_grants_nothing.Buf) place borrow))
     (main 19:6
       (20:5-20:16 Call.paren Void value temp (builtin print))
-      (20:11-20:15 StringLit String value temp))))
+      (20:11-20:15 StringLit String value temp)))
+  (string-positions
+    (20:11 message std.string.string_literal)))

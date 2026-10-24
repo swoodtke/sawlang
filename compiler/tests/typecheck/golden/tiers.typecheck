@@ -96,7 +96,8 @@
       (case Nothing private declared))
     (tiers.Pairing
       (field both (tiers.Tag, Int) private declared)
-      (field maybe tiers.Tag? private declared))
+      (field maybe tiers.Tag? private declared)
+      (method deinit public (synthesized Deinit)))
     (tiers.Counter
       (field slot UnsafeMutableInterior<Int> private declared)
       (method deinit public (synthesized Deinit))))
@@ -114,7 +115,7 @@
     (tiers.Tuples both call deinit)
     (tiers.Tag id copy)
     (tiers.Carry One Nothing)
-    (tiers.Pairing both maybe)
+    (tiers.Pairing both maybe deinit)
     (tiers.Counter slot deinit))
   (conformances
     (tiers.Owner NoCopy 19:18 (deinit implicit))

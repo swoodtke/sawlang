@@ -14,8 +14,8 @@ resolve/
                      `--module-path NAME=package/NAME/src`: src/main.saw and each
                      tests/*.saw, each with its expected record beside it
   refuse/            RULE[.VARIANT].saw, or RULE[.VARIANT]/main.saw and its modules
-  prelude_check.py   the prelude and std tables against the frozen compiler's
-  FROZEN_CHECK.md    the record of the check above
+  interface_pin.py   the interface parse's checks, on copies of Stage 0's std root
+  FROZEN_CHECK.md    the record of a retired one-time check against the frozen compiler
   corpus_info.py     how much of tests/corpus/ resolves, for information
 ```
 
@@ -26,9 +26,10 @@ resolve/
 ```
 
 Each FILE is the entry of its own program, which is resolved with every module
-it imports. `--std-root` names the directory that holds `std/` and
-`builtin.saw` (by default the checkout's own `std/`, found from the binary's
-location; the lane's fixtures name the frozen `sawc` explicitly); `--module-path` maps a package to its
+it imports. `--std-root` names the std's directory, the one holding
+`prelude.saw` (by default the checkout's own `std/`, found from the binary's
+location; the lane names `std` explicitly), or Stage 0's root, the one holding
+`builtin.saw` and `std/`; `--module-path` maps a package to its
 directory, as the frozen compiler's flag does. `@LIST` names a file of entry
 paths, one per line. Each entry gets one record, starting with the line
 `FILE<TAB>path`, holding in order:
@@ -242,7 +243,7 @@ whose `main.saw` is the entry (SL:testing §5). A fixture's first line is
 and its first `ERROR` must carry that rule at that position; a position in
 another module of the fixture is written `FILE.saw:L:C`. The second line says
 what the fixture shows, unless it is `// flags: ...`, whose flags the fixture
-is resolved with (`--std-root std`, for the new std).
+is resolved with.
 
 | rule | refuses |
 |---|---|
@@ -265,7 +266,7 @@ is resolved with (`--std-root std`, for the new std).
 | `import.duplicate-qualifier` | two whole-module imports binding one qualifier to two modules |
 | `import.cycle` | modules that import each other, at the first participant's import |
 | `import.module-path-overlap` | a `--module-path` whose directory, by real path, is another mapping's or lies inside or around it, at the entry's start, naming both mappings (`.dotdot`, `.nested`, `.holding`) |
-| `import.std-path` | a path other than `std.` that reaches a file of std, under either std root (`.frozen`, `.inside`) |
+| `import.std-path` | a path other than `std.` that reaches a file of std (`.inside`) |
 | `import.case-mismatch` | a segment a case-insensitive file system matched in another case; the lane's identity cases check it, since whether the volume ignores case is the host's |
 | `import.prelude-name` | a selective import binding a prelude name to another declaration |
 | `import.unavailable` | an import of a module that could not be read or parsed |
@@ -277,7 +278,8 @@ is resolved with (`--std-root std`, for the new std).
 | `slice.not-yet` | a construct outside the bootstrap slice |
 
 `resolve.prelude-table` is a note, never a refusal: the prelude table names a
-declaration its module does not have. `prelude_check.py` covers the tables.
+declaration its module does not have. The table and std are tracked together,
+so no fixture holds the mismatch (`WAIVED`).
 
 ## The lane
 
@@ -291,30 +293,22 @@ declaration its module does not have. `prelude_check.py` covers the tables.
 - every rule the resolver's source refuses by has a fixture, but the ones its
   `WAIVED` table names, and a missing entry file is refused as
   `import.unreadable`;
-- a std signature outside the slice is a `NOTE` with its rule, never an
-  `ERROR` or an `INVARIANT`: the lane copies the std root under `.build`, adds
-  `-> T.Item.Key?` to `std/path.saw`, and resolves a golden program against it;
+- each golden record leaves out the `std.` modules' dumps and holds its entry
+  module's own;
 - the compiler's own source resolves with no refusal: the sawc build, with
   the stage packages mapped, and each unit program; a unit program the parser
   refuses is counted apart;
 - no record carries an `INVARIANT` line;
-- the interface parse's checks, `interface_pin.py`: every `sawc/std` file and
-  `builtin.saw` parsed both ways by `interface_pin.saw`, the two trees agreeing
-  but for the skipped nodes, or, for a file the full parse refuses
-  (`FULL_REFUSED`), the interface parse taking it whole; and three cases on
-  copies of the std root: a declaration whose signature the parser refuses is
+- the interface parse's checks, `interface_pin.py`, three cases on copies of
+  Stage 0's std root, the one std the interface parse reads: a declaration whose signature the parser refuses is
   dropped with a `resolve.parse-refused` note while its neighbours resolve, an
   import of a std module the parser refuses whole is `import.unavailable`, and
   a std requirement's default body completes a user conformance that
   typechecks.
 
-## The one-time checks
+## For information
 
-- `prelude_check.py` compares resolve's three tables, the synthetic builtin
-  declarations, the std modules and the prelude, with the frozen compiler's
-  view of today's std, and prints every difference.
-- `corpus_info.py` resolves every file of `tests/corpus/` and prints how many
-  resolve with no refusal, and the rules the rest are refused by.
-
-Neither gates; each is kept runnable. `FROZEN_CHECK.md` records what the
-first found.
+`corpus_info.py` resolves every file of `tests/corpus/` and prints how many
+resolve with no refusal, and the rules the rest are refused by. It gates
+nothing. `FROZEN_CHECK.md` records a retired one-time comparison with the
+frozen compiler.

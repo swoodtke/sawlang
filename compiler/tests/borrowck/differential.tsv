@@ -13,7 +13,6 @@ tests/corpus/coro_hoist_move_diagnostic.saw	typecheck: transfer.implicit-copy, a
 tests/corpus/erased_downcast_use_after_take_error.saw	slice.not-yet: a method call on an existential
 tests/corpus/errors/consumes_field_move_outside_a_consuming_body.saw	typecheck: consumes.move-self
 tests/corpus/errors/consumes_receiver_through_a_field_or_place.saw	SL-462: moving out of a field or element is a source rule; until it lands, the MIR verifier reports the whole drop as an invariant
-tests/corpus/errors/move_in_a_while_condition_positions.saw	slice.not-yet: a construct in the file outside the bootstrap slice
 tests/corpus/errors/optional_move_unwrap_field.saw	SL-462: moving out of a field is a source rule; until it lands, the MIR verifier reports the whole drop as an invariant
 tests/corpus/errors/partial_move_field.saw	SL-462: moving out of a field is a source rule, and MIR reads an Int field as a copy
 tests/corpus/errors/partial_move_index.saw	SL-462: moving out of an element is a source rule

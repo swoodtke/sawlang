@@ -109,4 +109,7 @@
       (62:40-62:48 Member Int place borrow)
       (62:40-62:42 Name copy_method_shapes.Money place project)
       (62:50-62:54 Member Int place borrow)
-      (62:50-62:52 Name copy_method_shapes.Counted place project))))
+      (62:50-62:52 Name copy_method_shapes.Counted place project)))
+  (string-positions
+    (29:15 format std.stringbuilder.StringBuilder)
+    (62:11 format std.stringbuilder.StringBuilder)))

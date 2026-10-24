@@ -33,13 +33,13 @@
   (extensions main spellings.layout spellings.sub.user))
 (Module spellings.layout
   (names
-    (3:22 Atomic (struct builtin Atomic))
+    (3:22 Atomic (struct std.prelude Atomic))
     (3:29 Int (type builtin Int))
-    (3:36 Atomic (struct builtin Atomic))
+    (3:36 Atomic (struct std.prelude Atomic))
     (6:12 Int (type builtin Int))
     (10:5 COUNT (static spellings.layout COUNT)))
   (calls
-    (3:36 init (struct builtin Atomic))
+    (3:36 init (struct std.prelude Atomic))
     (10:5 method))
   (declarations
     (static COUNT 3:15 public)

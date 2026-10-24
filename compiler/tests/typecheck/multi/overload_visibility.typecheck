@@ -20,7 +20,9 @@
       (11:34-11:46 Call.paren Int value temp (call util.pick(x: Int)))
       (11:44-11:45 IntLit Int value temp)
       (11:49-11:60 Call.paren Int value temp (call util.early(x: Int)))
-      (11:58-11:59 IntLit Int value temp))))
+      (11:58-11:59 IntLit Int value temp)))
+  (string-positions
+    (11:11 format std.stringbuilder.StringBuilder)))
 
 (Module util
   (declarations

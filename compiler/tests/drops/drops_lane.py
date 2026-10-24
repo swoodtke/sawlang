@@ -11,8 +11,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw`, elaborates to exactly the record in
   `golden/NAME.drops`, which carries no `ERROR` or `INVARIANT` line; a first
-  line `// flags: ...` passes those flags, and under a std root other than
-  the frozen one the record keeps the entry module's dump alone;
+  line `// flags: ...` passes those flags, and the record keeps the entry
+  module's dump alone;
 - each fixture in `refuse/` is refused first at its header's position: by its
   rule, or, for a due row, by the refusal standing in its way, until that one
   is lifted, checked with the flags a `// flags: ...` line after its header
@@ -26,7 +26,7 @@ directory specifies:
   build and over the corpus are counted;
 - each conformance row CONFORMANCE.md gives drop elaboration (owner `§3.7`)
   names a fixture of this directory, and `conformance.tsv` holds each row's
-  program to its summary.
+  program to its summary, counted over the program's own module.
 """
 import glob
 import os
@@ -100,8 +100,10 @@ def check_golden(failures, counts, write):
             if record is None:
                 failures.append("drops golden %s: no record" % rel(src))
                 continue
-            if borrowck_lane.std_root_of(flags) != borrowck_lane.FROZEN_STD_ROOT:
-                record = entry_module_only(record, os.path.splitext(os.path.basename(src))[0])
+            record = entry_module_only(record, os.path.splitext(os.path.basename(src))[0])
+            if not borrowck_lane.holds_entry_module(record, src):
+                failures.append("drops golden %s: the record holds no dump of its entry module" % rel(src))
+                continue
             if write:
                 with open(exp, "w") as fh:
                     fh.write(record)
@@ -147,7 +149,7 @@ def check_refusals(failures, counts):
     got = {}
     for flags, paths in sorted(groups.items()):
         code, out = sawc(["--check"] + list(flags) + [rel(p) for p in paths])
-        got.update(borrowck_lane.records(out))
+        got.update(borrowck_lane.stripped_records(out))
     rules = drops_rules()
     covered = set()
     for path in cases:
@@ -223,7 +225,7 @@ def corpus_records():
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
     code, out = sawc(["--dump", "@" + rel(listing)])
-    return code, rels, borrowck_lane.records(out)
+    return code, rels, borrowck_lane.stripped_records(out)
 
 
 def elaborated(record):
@@ -287,7 +289,8 @@ def check_conformance(failures, counts, got):
         if record is None:
             failures.append("drops conformance %s: row %s's program %s has no record" % (rel(CONFORMANCE_TSV), row, path))
             continue
-        have = summary(record)
+        # The row's own program is counted, not the modules it imports.
+        have = summary(entry_module_only(record, os.path.splitext(os.path.basename(path))[0]))
         if have != want:
             failures.append("drops conformance %s: row %s's program %s gives `%s`, not `%s`"
                             % (rel(CONFORMANCE_TSV), row, path, have, want))

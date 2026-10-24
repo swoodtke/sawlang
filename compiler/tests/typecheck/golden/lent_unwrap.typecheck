@@ -215,4 +215,6 @@
       (112:17-112:20 Member Int place copy)
       (112:17-112:18 Name lent_unwrap.P place project)
       (114:5-114:6 Name Int place copy))
-    (main 117:6)))
+    (main 117:6))
+  (string-positions
+    (78:19 message std.string.string_literal)))

@@ -64,7 +64,7 @@ fn temporaries.both(n: Int) -> Int {
         return;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn temporaries.short(n: Int, check: Bool) -> Bool {
@@ -107,7 +107,7 @@ fn temporaries.short(n: Int, check: Bool) -> Bool {
         goto -> bb1;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
 }
 
 fn temporaries.spare(n: Int) -> String? {
@@ -260,7 +260,7 @@ fn temporaries.looped(n: Int) -> Int {
         goto -> bb1;
     }
 
-    glue String: builtin
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
     glue String?: structural
 }
 

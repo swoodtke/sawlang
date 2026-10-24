@@ -11508,7 +11508,7 @@ extension TcProgram {
             return false
         }
         let s = self.sigs[c.target]
-        if (s.effects & TC_EFFECT_BORROWS) == 0 || self.frozen_std_accessor(c.target) {
+        if (s.effects & TC_EFFECT_BORROWS) == 0 {
             return false
         }
         let e = c.node
@@ -11516,14 +11516,6 @@ extension TcProgram {
             return c.role == TcRole.Place && self.expr_use[e] != TcUse.Update && self.use_writes(e, &parents)
         }
         s.lending != TcLend.BorrowingStruct
-    }
-
-    // Whether accessor `d` is Stage 0's std's, whose callers spell its
-    // windows inline. The exemption lasts while `sawc/std` can be a std root
-    // and goes with it (SL-667).
-    func frozen_std_accessor(&self, d: Int) -> Bool {
-        let m = self.res.decls[d].module
-        m >= 0 && self.res.modules[m].kind == ResModuleKind.Std && not self.res.std_new
     }
 
     // The outermost node of the place chain call `e` sits in. Each step is a
@@ -11849,19 +11841,13 @@ extension TcProgram {
     // The receiver decides, not the lend: a cell-carrying `&self` accessor
     // lending `&var` serves a `let` root (SL:borrowing §3). A hand-written
     // `&self` twin is chosen for a read by the overload filter, so it never
-    // reaches here. Stage 0's std predates declared modes: each of its
-    // accessors serves both from one declaration, the use site choosing
-    // (design 141).
+    // reaches here.
     public func accessor_exclusive_only(&self, d: Int) -> Bool {
         if d < 0 {
             return false
         }
         let s = self.sigs[d]
         if (s.effects & TC_EFFECT_BORROWS) == 0 || (s.flags & TC_FLAG_SYNTHESIZE_SHARED) != 0 {
-            return false
-        }
-        let m = self.res.decls[d].module
-        if m >= 0 && self.res.modules[m].kind == ResModuleKind.Std && not self.res.std_new {
             return false
         }
         s.receiver == TcReceiver.Exclusive

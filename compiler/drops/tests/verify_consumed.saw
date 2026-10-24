@@ -87,7 +87,7 @@ func verify_without(field: String) -> Vector<String> {
     let names = Vector<String>()
     let dirs = Vector<String>()
     var lowerings = 0
-    let lowered = mir_lower_file("compiler/tests/drops/inject/consumed.saw", "sawc", &names, &dirs, &var lowerings)
+    let lowered = mir_lower_file("compiler/tests/drops/inject/consumed.saw", "std", &names, &dirs, &var lowerings)
     var bc = borrowck_program(move lowered)
     var m = 0
     while m < bc.mir.tc.res.module_count() {

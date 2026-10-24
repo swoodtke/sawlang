@@ -18,7 +18,8 @@ directory specifies:
   borrow check owns (U6d1 or U6d2) names a fixture or golden of this
   directory;
 - each golden program, `golden/NAME.saw`, checks to exactly the record in
-  `golden/NAME.borrowck`, which carries no `ERROR` or `INVARIANT` line;
+  `golden/NAME.borrowck`, which carries no `ERROR` or `INVARIANT` line and
+  leaves out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
   refused first by RULE at the position its `// refuses:` header names, with
   no `INVARIANT` line under `sawc borrowck` nor under `sawc mir`, and every
@@ -140,21 +141,36 @@ def sawc(args, stage="borrowck"):
     return r.returncode, r.stdout
 
 
-# The std a call names when its arguments name none: Stage 0's frozen one,
-# which this lane's and the drops lane's fixtures are written against unless
-# a `// flags:` line names another. sawc's own default is the new std.
-FROZEN_STD_ROOT = "sawc"
-
-
 def with_std_root(args):
-    """`args`, naming the frozen std when they name no `--std-root`."""
-    return list(args) if "--std-root" in args else ["--std-root", FROZEN_STD_ROOT] + list(args)
+    """`args`, naming the checkout's std when they name no `--std-root`."""
+    return list(args) if "--std-root" in args else ["--std-root", "std"] + list(args)
 
 
-def std_root_of(args):
-    """The std root a call with `args` compiles against."""
-    full = with_std_root(args)
-    return full[full.index("--std-root") + 1]
+def without_std_modules(record):
+    """The record with each `std.` module's dump left out: std's functions
+    are checked and dumped beside the program's, and they are std's lane's
+    to hold, so an edit to std moves no golden or corpus count of this lane
+    or the drops lane. An `ERROR` or `INVARIANT` line is kept wherever it
+    stands."""
+    out = []
+    keep = True
+    for line in record.split("\n"):
+        if line.startswith("module "):
+            keep = not line[len("module "):].startswith("std.")
+        if keep or line.startswith(("ERROR\t", "INVARIANT\t")):
+            out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def stripped_records(output):
+    """`records(output)`, each without the `std.` modules' dumps."""
+    return {path: without_std_modules(record) for path, record in records(output).items()}
+
+
+def holds_entry_module(record, src):
+    """Whether `record` still holds the dump of `src`'s own module, which the
+    strip must keep: an empty record would match an empty golden."""
+    return ("module " + os.path.splitext(os.path.basename(src))[0]) in record.split("\n")
 
 
 def package_args():
@@ -314,11 +330,14 @@ def check_golden(failures, counts, write):
     cases = [(src, os.path.splitext(src)[0] + ".borrowck")
              for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
     code, out = sawc(["--dump"] + [rel(src) for src, _ in cases])
-    got = records(out)
+    got = stripped_records(out)
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:
             failures.append("borrowck golden %s: no record" % rel(src))
+            continue
+        if not holds_entry_module(record, src):
+            failures.append("borrowck golden %s: the record holds no dump of its entry module" % rel(src))
             continue
         if write:
             with open(exp, "w") as fh:
@@ -370,9 +389,9 @@ def borrowck_rules():
 def check_refusals(failures, counts, fill):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
     code, out = sawc(["--check"] + [rel(p) for p in cases])
-    got = records(out)
+    got = stripped_records(out)
     code, lowered_out = sawc(["--check"] + [rel(p) for p in cases], stage="mir")
-    lowered = records(lowered_out)
+    lowered = stripped_records(lowered_out)
     covered = set()
     for path in cases:
         record = got.get(rel(path), "")
@@ -613,9 +632,9 @@ def check_corpus(failures, counts):
     os.makedirs(os.path.dirname(listing), exist_ok=True)
     with open(listing, "w") as fh:
         fh.write("".join(p + "\n" for p in rels))
-    r = subprocess.run([build.SAWC, "borrowck", "--dump", "--std-root", FROZEN_STD_ROOT, "@" + rel(listing)],
+    r = subprocess.run([build.SAWC, "borrowck", "--dump", "--std-root", "std", "@" + rel(listing)],
                        cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
-    got = records(r.stdout)
+    got = stripped_records(r.stdout)
     if r.returncode not in (0, 1):
         failures.append("borrowck corpus: sawc exited %d" % r.returncode)
     reasons = read_differential()

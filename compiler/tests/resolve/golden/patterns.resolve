@@ -1,6 +1,6 @@
 (Module patterns
   (names
-    (7:21 String (type builtin String))
+    (7:21 String (struct std.string String))
     (8:21 Int (type builtin Int))
     (8:33 Int (type builtin Int))
     (11:18 Token (enum patterns Token))
@@ -18,19 +18,19 @@
     (24:24 o (local o 11:33))
     (28:28 counted (local counted 12:9))
     (28:37 ranged (local ranged 18:9))
-    (29:11 Result (enum builtin Result))
+    (29:11 Result (enum std.prelude Result))
     (29:18 Int (type builtin Int))
-    (29:23 String (type builtin String))
-    (29:31 Ok (case builtin Result.Ok))
-    (30:14 Ok (cases Ok builtin.Result.Ok))
+    (29:23 String (struct std.string String))
+    (29:31 Ok (case std.prelude Result.Ok))
+    (30:14 Ok (cases Ok std.prelude.Result.Ok))
     (30:23 v (local v 30:17))
     (30:27 first (local first 28:10))
     (30:35 second (local second 28:17))
     (30:44 absent (local absent 24:9))
-    (31:14 Err (cases Err builtin.Result.Err)))
+    (31:14 Err (cases Err std.prelude.Result.Err)))
   (calls
     (14:28 method)
-    (29:11 case (case builtin Result.Ok)))
+    (29:11 case (case std.prelude Result.Ok)))
   (declarations
     (enum Token 5:6)
     (case Token.Eof 6:10)

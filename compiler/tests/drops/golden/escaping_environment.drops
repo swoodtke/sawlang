@@ -255,5 +255,5 @@ fn escaping_environment.main() -> Void {
     glue (() -> Int)?: structural
     glue () -> Int: closure environment
     glue escaping_environment.Holder: structural
-    glue std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue std.vector.Vector<() -> Int, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
 }

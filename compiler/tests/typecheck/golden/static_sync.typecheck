@@ -62,7 +62,7 @@
     (main 49:6
       (50:5-50:37 Call.paren Void value temp (builtin print))
       (50:11-50:36 Binary Int value borrow (op +))
-      (50:11-50:28 Call.paren Int value temp (call Atomic.fetch_add(v: T) (owner Atomic<Int>)))
+      (50:11-50:28 Call.paren Int value temp (call Atomic.fetch_add(v: Int) (owner Atomic<Int>)))
       (50:11-50:15 Name Atomic<Int> (borrow &Atomic<Int>) place borrow)
       (50:26-50:27 IntLit Int value temp)
       (50:31-50:36 Name Int place copy))))

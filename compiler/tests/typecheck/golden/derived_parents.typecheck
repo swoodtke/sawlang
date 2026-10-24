@@ -130,4 +130,6 @@
       (88:65-88:66 Name derived_parents.Signal place borrow)
       (88:69-88:78 Call.paren Int value borrow (call derived_parents.carry(x: &T) (inst derived_parents.Point)))
       (88:75-88:77 Ref.shared &derived_parents.Point value temp)
-      (88:76-88:77 Name derived_parents.Point place borrow))))
+      (88:76-88:77 Name derived_parents.Point place borrow)))
+  (string-positions
+    (88:11 format std.stringbuilder.StringBuilder)))

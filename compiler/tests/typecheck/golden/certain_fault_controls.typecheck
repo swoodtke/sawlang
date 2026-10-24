@@ -72,4 +72,7 @@
       (26:17-26:32 Call.paren Int value borrow (call certain_fault_controls.scaled(x: Int, k: Int, d: Int)))
       (26:24-26:25 IntLit Int value temp)
       (26:27-26:28 IntLit Int value temp)
-      (26:30-26:31 IntLit Int value temp))))
+      (26:30-26:31 IntLit Int value temp)))
+  (string-positions
+    (25:11 format std.stringbuilder.StringBuilder)
+    (26:11 format std.stringbuilder.StringBuilder)))

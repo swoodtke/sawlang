@@ -48,7 +48,8 @@
       (init init private (extension construction_override)))
     (construction_override.Slot
       (field spare construction_override.Port? private declared)
-      (field at construction_override.Point private declared))
+      (field at construction_override.Point private declared)
+      (method deinit public (synthesized Deinit)))
     (construction_override.Wrap
       (field value T private declared)
       (init init private (extension construction_override))
@@ -59,7 +60,7 @@
   (views
     (construction_override.Port value tag init init renamed origin)
     (construction_override.Point x y init init)
-    (construction_override.Slot spare at)
+    (construction_override.Slot spare at deinit)
     (construction_override.Wrap value init deinit)
     (construction_override.Fake seed))
   (conformances)
@@ -199,4 +200,7 @@
       (118:12-118:13 Name construction_override.Port place project)
       (118:20-118:26 Member Int place copy)
       (118:20-118:21 Name construction_override.Fake place project)
-      (118:30-118:31 IntLit Int value borrow))))
+      (118:30-118:31 IntLit Int value borrow)))
+  (string-positions
+    (98:33 literal std.string.string_literal)
+    (118:5 panic std.panic.panic_sink)))

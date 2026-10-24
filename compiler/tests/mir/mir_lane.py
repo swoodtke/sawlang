@@ -10,7 +10,8 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw`, lowers to exactly the record in
   `golden/NAME.mir`, and each span program, `spans/NAME.saw`, to exactly the
-  `--spans` record in `spans/NAME.mir`;
+  `--spans` record in `spans/NAME.mir`, each record leaving out the `std.`
+  modules' dumps and holding its own module's;
 - each refusal fixture, `refuse/NAME.saw`, is refused first by
   `slice.not-yet` at the position its `// refuses:` header names;
 - no record of a golden program or a fixture carries an `INVARIANT` line;
@@ -49,9 +50,25 @@ def sawc(args):
     return r.returncode, r.stdout
 
 
-# Stage 0's frozen std, which this lane's golden and refusal fixtures are
-# written against. sawc's own default is the new std.
-FROZEN_STD_ROOT = "sawc"
+def without_std_modules(record):
+    """The record with each `std.` module's dump left out: std's functions
+    are lowered and dumped beside the program's, and they are std's lane's
+    to hold, so an edit to std moves no golden of this lane. An `ERROR` or
+    `INVARIANT` line is kept wherever it stands."""
+    out = []
+    keep = True
+    for line in record.split("\n"):
+        if line.startswith("module "):
+            keep = not line[len("module "):].startswith("std.")
+        if keep or line.startswith(("ERROR\t", "INVARIANT\t")):
+            out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def holds_entry_module(record, src):
+    """Whether `record` still holds the dump of `src`'s own module, which the
+    strip must keep: an empty record would match an empty golden."""
+    return ("module " + os.path.splitext(os.path.basename(src))[0]) in record.split("\n")
 
 
 def package_args():
@@ -103,17 +120,20 @@ def check_golden(failures, counts, write, spans=False):
     if spans:
         cases = [(src, os.path.splitext(src)[0] + ".mir")
                  for src in sorted(glob.glob(os.path.join(SPANS, "*.saw")))]
-        code, out = sawc(["--dump", "--spans", "--std-root", FROZEN_STD_ROOT] + [rel(src) for src, _ in cases])
+        code, out = sawc(["--dump", "--spans", "--std-root", "std"] + [rel(src) for src, _ in cases])
         key = "mir span golden cases"
     else:
         cases = golden_cases()
-        code, out = sawc(["--dump", "--std-root", FROZEN_STD_ROOT] + [rel(src) for src, _ in cases])
+        code, out = sawc(["--dump", "--std-root", "std"] + [rel(src) for src, _ in cases])
         key = "mir golden cases"
-    got = records(out)
+    got = {path: without_std_modules(record) for path, record in records(out).items()}
     for src, exp in cases:
         record = got.get(rel(src))
         if record is None:
             failures.append("mir golden %s: no record" % rel(src))
+            continue
+        if not holds_entry_module(record, src):
+            failures.append("mir golden %s: the record holds no dump of its entry module" % rel(src))
             continue
         if write:
             with open(exp, "w") as fh:
@@ -158,8 +178,8 @@ def check_refusals(failures, counts, fill):
     cases = refusal_cases()
     if not cases:
         return
-    code, out = sawc(["--check", "--std-root", FROZEN_STD_ROOT] + [rel(p) for p in cases])
-    got = records(out)
+    code, out = sawc(["--check", "--std-root", "std"] + [rel(p) for p in cases])
+    got = {path: without_std_modules(record) for path, record in records(out).items()}
     for path in cases:
         record = got.get(rel(path), "")
         found = first_error(record)

@@ -65,4 +65,13 @@
       (46:15-46:24 StringLit String value temp))
     (Pair.map 49:10
       (50:9-50:25 Call.paren Never (never generics.Pair<T, B>) value temp (builtin panic))
-      (50:15-50:24 StringLit String value temp))))
+      (50:15-50:24 StringLit String value temp)))
+  (string-positions
+    (29:11 message std.string.string_literal)
+    (29:5 panic std.panic.panic_sink)
+    (41:11 message std.string.string_literal)
+    (41:5 panic std.panic.panic_sink)
+    (46:15 message std.string.string_literal)
+    (46:9 panic std.panic.panic_sink)
+    (50:15 message std.string.string_literal)
+    (50:9 panic std.panic.panic_sink)))

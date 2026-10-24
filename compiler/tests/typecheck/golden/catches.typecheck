@@ -34,12 +34,13 @@
       (field n Int private declared))
     (catches.Top
       (field leaf catches.Leaf? private declared)
-      (field count Int private declared)))
+      (field count Int private declared)
+      (method deinit public (synthesized Deinit))))
   (views
     (catches.Fault code)
     (catches.Other line format to_string)
     (catches.Leaf n)
-    (catches.Top leaf count))
+    (catches.Top leaf count deinit))
   (conformances
     (catches.Other Printable 16:18 (format written) (to_string default))
     (catches.Other Error 22:18 (format written) (to_string default)))

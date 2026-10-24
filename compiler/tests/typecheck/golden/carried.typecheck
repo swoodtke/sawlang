@@ -91,4 +91,6 @@
     (located 51:6
       (52:9-52:13 BindingName Int place temp)
       (52:16-52:21 SourceLoc.line Int value temp)
-      (53:5-53:14 SourceLoc.function String value temp))))
+      (53:5-53:14 SourceLoc.function String value temp)))
+  (string-positions
+    (53:5 source-location std.string.string_literal)))

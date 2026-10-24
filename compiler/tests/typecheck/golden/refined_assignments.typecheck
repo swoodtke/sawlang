@@ -118,4 +118,8 @@
       (81:11-81:26 Coalesce String value temp (op ??))
       (81:11-81:20 Call.paren String? value temp (call refined_assignments.Echo.first() (owner refined_assignments.Echo)))
       (81:11-81:12 Name refined_assignments.Echo (borrow-var &var refined_assignments.Echo) place borrow-var)
-      (81:24-81:26 StringLit String value temp))))
+      (81:24-81:26 StringLit String value temp)))
+  (string-positions
+    (79:24 literal std.string.string_literal)
+    (81:24 literal std.string.string_literal)
+    (81:11 argument std.string.string_bytes std.string.string_length)))

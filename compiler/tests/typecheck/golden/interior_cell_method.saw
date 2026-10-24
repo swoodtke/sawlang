@@ -1,0 +1,8 @@
+// A method of the interior cell, `UnsafeMutableInterior.ptr()`, called in an
+// `unsafe` function: the cell is a std type, so its methods check like any
+// other.
+
+func peek(c: &UnsafeMutableInterior<Int>) unsafe -> Int {
+    let p = c.ptr()
+    0
+}

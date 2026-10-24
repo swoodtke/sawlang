@@ -1,7 +1,7 @@
 // The program compiler/mir/tests/verify_moves.saw lowers, then edits: `name_of`
-// reads an owning value through a reference by copy, `_0 = copy (*_1).name`,
-// which the edit turns into the move out through a reference the MIR verifier
-// must refuse.
+// reads an owning value through a reference, which the program edits into a
+// copy, `_0 = copy (*_1).name`, and then into the move out through a reference
+// the MIR verifier must refuse.
 
 struct Res {
     name: String

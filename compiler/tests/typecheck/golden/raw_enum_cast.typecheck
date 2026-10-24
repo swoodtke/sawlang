@@ -137,4 +137,6 @@
       (74:5-74:6 Name Int place copy)
       (74:9-74:10 Name Int place copy)
       (74:13-74:14 Name Int place copy))
-    (main 77:6)))
+    (main 77:6))
+  (string-positions
+    (15:15 format std.stringbuilder.StringBuilder)))

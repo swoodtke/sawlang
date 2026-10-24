@@ -10,10 +10,12 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
     let _6: &var std.vector.VectorIterator<String, std.alloc.GlobalAllocator>;
     let _7: String;  // s
     let _8: String;  // copied
-    let _9: Int;
-    let _10: &String;
+    let _9: &String;
+    let _10: String;
     let _11: Int;
-    let _12: Int;
+    let _12: &String;
+    let _13: Int;
+    let _14: Int;
     window w0: std.vector.Vector.iter() shared;
 
     bb0: {
@@ -33,7 +35,7 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
 
     bb3: {
         drop(_3);
-        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb8];
+        window_close w0 epilogue std.vector.Vector.iter() (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb9];
     }
 
     bb4: {
@@ -47,28 +49,33 @@ fn windows.iterate(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> I
     }
 
     bb6: {
-        _8 = copy _7;
-        _9 = copy _2;
-        _10 = ref(shared, _8);
-        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb7];
+        _9 = ref(shared, _7);
+        _10 = call std.string.String.copy() (owner String) [move _9] -> [return: bb7];
     }
 
     bb7: {
-        _12 = Add(move _9, move _11);
-        _2 = move _12;
+        _8 = move _10;
+        _11 = copy _2;
+        _12 = ref(shared, _8);
+        _13 = call std.string.String.len() (owner String) [move _12] -> [return: bb8];
+    }
+
+    bb8: {
+        _14 = Add(move _11, move _13);
+        _2 = move _14;
         drop(_8);
         drop(_7);
         goto -> bb2;
     }
 
-    bb8: {
+    bb9: {
         _0 = copy _2;
         drop(_1);
         return;
     }
 
-    glue String: builtin
-    glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
+    glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
     glue std.vector.VectorIterator<String, std.alloc.GlobalAllocator>: structural
 }
 
@@ -81,7 +88,9 @@ fn windows.inside(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> In
     let _5: &String;  // ref first
     let _6: String;  // label
     let _7: &String;
-    let _8: Int;
+    let _8: String;
+    let _9: &String;
+    let _10: Int;
     window w0: std.vector.Vector.[](index: Int) shared;
 
     bb0: {
@@ -92,25 +101,30 @@ fn windows.inside(v: std.vector.Vector<String, std.alloc.GlobalAllocator>) -> In
 
     bb1: {
         _5 = ref(shared, (*_3));
-        _6 = copy (*_5);
-        _7 = ref(shared, _6);
-        _8 = call std.string.String.len() (owner String) [move _7] -> [return: bb2];
+        _7 = ref(shared, (*_5));
+        _8 = call std.string.String.copy() (owner String) [move _7] -> [return: bb2];
     }
 
     bb2: {
-        _2 = move _8;
-        drop(_6);
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb3];
+        _6 = move _8;
+        _9 = ref(shared, _6);
+        _10 = call std.string.String.len() (owner String) [move _9] -> [return: bb3];
     }
 
     bb3: {
+        _2 = move _10;
+        drop(_6);
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
         _0 = copy _2;
         drop(_1);
         return;
     }
 
-    glue String: builtin
-    glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit(), then structural
+    glue String: deinit std.string.String.deinit() in the Copy conformance, then structural
+    glue std.vector.Vector<String, std.alloc.GlobalAllocator>: deinit std.vector.Vector.deinit() in the ExplicitCopy conformance, then structural
 }
 
 fn windows.main() -> Void {

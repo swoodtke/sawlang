@@ -41,4 +41,6 @@
       (20:11-20:21 Interp String value temp)
       (20:23-20:24 Name UInt8 place borrow)
       (20:26-20:27 Name Int32 place borrow)
-      (20:29-20:30 Name UInt16 place borrow))))
+      (20:29-20:30 Name UInt16 place borrow)))
+  (string-positions
+    (20:11 format std.stringbuilder.StringBuilder)))

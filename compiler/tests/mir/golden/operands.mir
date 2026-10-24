@@ -95,21 +95,23 @@ fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operand
     let _17: &operands.Retained;
     let _18: operands.Retained;
     let _19: operands.Tagged;  // built
-    let _20: operands.Tagged;
-    let _21: Bool;  // same
-    let _22: &operands.Label;
-    let _23: &operands.Label;
-    let _24: Bool;
-    let _25: UInt8;  // narrow
-    let _26: UInt8;
-    let _27: Int;  // wide
-    let _28: Int;
-    let _29: Int;  // total
+    let _20: &String;
+    let _21: String;
+    let _22: operands.Tagged;
+    let _23: Bool;  // same
+    let _24: &operands.Label;
+    let _25: &operands.Label;
+    let _26: Bool;
+    let _27: UInt8;  // narrow
+    let _28: UInt8;
+    let _29: Int;  // wide
     let _30: Int;
-    let _31: Int;
+    let _31: Int;  // total
     let _32: Int;
     let _33: Int;
     let _34: Int;
+    let _35: Int;
+    let _36: Int;
 
     bb0: {
         _6 = copy _1.hits;
@@ -136,53 +138,45 @@ fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operand
 
     bb3: {
         _16 = move _18;
-        _20 = operands.Tagged { name: copy _1.name, hits: copy _10.0 };
-        _19 = move _20;
-        _22 = ref(shared, _2);
-        _23 = ref(shared, _3);
-        _24 = call operands.Label.equals(other: &operands.Label) (owner operands.Label) [move _22, move _23] -> [return: bb4];
+        _20 = ref(shared, _1.name);
+        _21 = call std.string.String.copy() (owner String) [move _20] -> [return: bb4];
     }
 
     bb4: {
-        _21 = move _24;
-        _26 = from(truncating:)(copy _6 as UInt8);
-        _25 = move _26;
-        _28 = cast(copy _25 as Int);
-        _27 = move _28;
-        call builtin print [format "count = {}", copy _6] -> [return: bb5];
+        _22 = operands.Tagged { name: move _21, hits: copy _10.0 };
+        _19 = move _22;
+        _24 = ref(shared, _2);
+        _25 = ref(shared, _3);
+        _26 = call operands.Label.equals(other: &operands.Label) (owner operands.Label) [move _24, move _25] -> [return: bb5];
     }
 
     bb5: {
-        _30 = call operands.sink(t: operands.Tagged, n: Int) [copy _19, copy _27] -> [return: bb6];
+        _23 = move _26;
+        _28 = from(truncating:)(copy _6 as UInt8);
+        _27 = move _28;
+        _30 = cast(copy _27 as Int);
+        _29 = move _30;
+        call builtin print [format "count = {}", copy _6] -> [return: bb6];
     }
 
     bb6: {
-        _31 = call operands.Counter.take() (owner operands.Counter) [move _5] -> [return: bb7];
+        _32 = call operands.sink(t: operands.Tagged, n: Int) [copy _19, copy _29] -> [return: bb7];
     }
 
     bb7: {
-        _32 = Add(move _30, move _31);
-        _29 = move _32;
-        switch copy _21 -> [true: bb9, false: bb10];
+        _33 = call operands.Counter.take() (owner operands.Counter) [move _5] -> [return: bb8];
     }
 
     bb8: {
-        _33 = Add(copy _29, copy _12.n);
-        _34 = Add(move _33, copy _16.n);
-        _0 = move _34;
-        drop(_19);
-        drop(_16);
-        drop(_12);
-        drop(_8);
-        drop(_4);
-        drop(_3);
-        drop(_2);
-        drop(_1);
-        return;
+        _34 = Add(move _32, move _33);
+        _31 = move _34;
+        switch copy _23 -> [true: bb10, false: bb11];
     }
 
     bb9: {
-        _0 = copy _29;
+        _35 = Add(copy _31, copy _12.n);
+        _36 = Add(move _35, copy _16.n);
+        _0 = move _36;
         drop(_19);
         drop(_16);
         drop(_12);
@@ -195,6 +189,19 @@ fn operands.operands(tag: operands.Tagged, label: operands.Label, other: operand
     }
 
     bb10: {
-        goto -> bb8;
+        _0 = copy _31;
+        drop(_19);
+        drop(_16);
+        drop(_12);
+        drop(_8);
+        drop(_4);
+        drop(_3);
+        drop(_2);
+        drop(_1);
+        return;
+    }
+
+    bb11: {
+        goto -> bb9;
     }
 }

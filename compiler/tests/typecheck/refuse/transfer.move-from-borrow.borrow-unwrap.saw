@@ -11,7 +11,7 @@ extension Slot: NoCopy {}
 func sink(r: Res) -> Int { r.n }
 
 func take_key(slots: &var Vector<Slot>, i: Int) -> Int {
-    if borrow let lent = slots.get(i) {
+    if borrow let lent = slots.find(i) {
         return match lent {
             case Occupied(k) -> sink(move k),
             case Empty -> 0

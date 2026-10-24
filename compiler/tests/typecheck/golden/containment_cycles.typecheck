@@ -1,7 +1,7 @@
-ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:9:8	recursive type `Grow` has infinite size: its inline storage instantiates it again, as `containment_cycles.Grow<(T,)>`, and so on without end, through Grow.x -> Grow; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
-ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:13:8	recursive type `Fixed` has infinite size: its inline storage instantiates it again, as `containment_cycles.Fixed<Int>`, and so on without end, through Fixed.u -> Fixed; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
-ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:17:8	recursive type `A` has infinite size: its storage contains its own storage inline, through A.b -> B.a -> A; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
-ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:26:8	recursive type `C` has infinite size: its storage contains its own storage inline, through C.b -> B.a -> A.c -> C; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
+ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:9:8	recursive type `Grow` has infinite size: its inline storage instantiates it again, as `containment_cycles.Grow<(T,)>`, and so on without end, through Grow.x -> Optional.Some -> Grow; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
+ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:13:8	recursive type `Fixed` has infinite size: its inline storage instantiates it again, as `containment_cycles.Fixed<Int>`, and so on without end, through Fixed.u -> Optional.Some -> Fixed; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
+ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:17:8	recursive type `A` has infinite size: its storage contains its own storage inline, through A.b -> B.a -> Optional.Some -> A; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
+ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:26:8	recursive type `C` has infinite size: its storage contains its own storage inline, through C.b -> B.a -> Optional.Some -> A.c -> C; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
 ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:34:8	recursive type `Chain` has infinite size: its storage contains its own storage inline, through Chain.next -> Wrap.held -> Chain; hold the recursive member behind a heap indirection, such as `Box` or `Vector`
 (Module containment_cycles
   (declarations
@@ -92,16 +92,21 @@ ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:
     (field Finite.deep 110:5 private containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<Int>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>))
   (members
     (containment_cycles.Grow
-      (field x containment_cycles.Grow<(T,)>? private declared))
+      (field x containment_cycles.Grow<(T,)>? private declared)
+      (method deinit public (synthesized Deinit)))
     (containment_cycles.Fixed
-      (field u containment_cycles.Fixed<Int>? private declared))
+      (field u containment_cycles.Fixed<Int>? private declared)
+      (method deinit public (synthesized Deinit)))
     (containment_cycles.A
       (field b containment_cycles.B private declared)
-      (field c containment_cycles.C private declared))
+      (field c containment_cycles.C private declared)
+      (method deinit public (synthesized Deinit)))
     (containment_cycles.B
-      (field a containment_cycles.A? private declared))
+      (field a containment_cycles.A? private declared)
+      (method deinit public (synthesized Deinit)))
     (containment_cycles.C
-      (field b containment_cycles.B private declared))
+      (field b containment_cycles.B private declared)
+      (method deinit public (synthesized Deinit)))
     (containment_cycles.Wrap
       (field held T private declared)
       (method deinit public (synthesized Deinit)))
@@ -109,19 +114,20 @@ ERROR	type.infinite-size	compiler/tests/typecheck/golden/containment_cycles.saw:
       (field next containment_cycles.Wrap<containment_cycles.Chain> private declared)
       (method deinit public (synthesized Deinit)))
     (containment_cycles.Outer
-      (field g containment_cycles.Grow<Int> private declared))
+      (field g containment_cycles.Grow<Int> private declared)
+      (method deinit public (synthesized Deinit)))
     (containment_cycles.Finite
       (field deep containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<containment_cycles.Wrap<Int>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> private declared)
       (method deinit public (synthesized Deinit))))
   (views
-    (containment_cycles.Grow x)
-    (containment_cycles.Fixed u)
-    (containment_cycles.A b c)
-    (containment_cycles.B a)
-    (containment_cycles.C b)
+    (containment_cycles.Grow x deinit)
+    (containment_cycles.Fixed u deinit)
+    (containment_cycles.A b c deinit)
+    (containment_cycles.B a deinit)
+    (containment_cycles.C b deinit)
     (containment_cycles.Wrap held deinit)
     (containment_cycles.Chain next deinit)
-    (containment_cycles.Outer g)
+    (containment_cycles.Outer g deinit)
     (containment_cycles.Finite deep deinit))
   (conformances)
   (copy-tier

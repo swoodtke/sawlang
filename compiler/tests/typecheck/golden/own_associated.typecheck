@@ -119,4 +119,6 @@
       (65:38-65:40 Ref.shared &own_associated.Maker value temp)
       (65:39-65:40 Name own_associated.Maker place borrow)
       (65:43-65:46 TupleIndex Int place borrow)
-      (65:43-65:44 Name (own_associated.Token, Int) place project))))
+      (65:43-65:44 Name (own_associated.Token, Int) place project)))
+  (string-positions
+    (65:11 format std.stringbuilder.StringBuilder)))

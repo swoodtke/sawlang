@@ -22,7 +22,7 @@ func peek(slots: &var Vector<Slot>, i: Int) -> Int {
 }
 
 func unwrapped(slots: &var Vector<Slot>, i: Int) -> Int {
-    if borrow let lent = slots.get(i) {
+    if borrow let lent = slots.find(i) {
         return match lent {
             case Occupied(k) -> k.n,
             case Count(n) -> n + 1,

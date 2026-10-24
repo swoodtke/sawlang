@@ -73,7 +73,7 @@
       (30:39-30:43 SelfExpr associated_types.IntBox place project)
       (30:52-30:53 Name Int place copy))
     (NameBox.get 39:10
-      (39:33-39:49 Call.paren String value temp (builtin copy (owner String)))
+      (39:33-39:49 Call.paren String value temp (call std.string.String.copy() (owner String)))
       (39:33-39:42 Member String (borrow &String) place borrow)
       (39:33-39:37 SelfExpr associated_types.NameBox place project))
     (NameBox.take 40:10
@@ -174,4 +174,10 @@
       (94:30-94:32 Ref.shared &associated_types.IntBox value temp)
       (94:31-94:32 Name associated_types.IntBox place borrow)
       (94:35-94:38 TupleIndex String place borrow)
-      (94:35-94:36 Name (Int, String) place project))))
+      (94:35-94:36 Name (Int, String) place project)))
+  (string-positions
+    (86:27 literal std.string.string_literal)
+    (93:11 format std.stringbuilder.StringBuilder)
+    (93:32 argument std.string.string_bytes std.string.string_length)
+    (94:11 format std.stringbuilder.StringBuilder)
+    (94:35 argument std.string.string_bytes std.string.string_length)))
