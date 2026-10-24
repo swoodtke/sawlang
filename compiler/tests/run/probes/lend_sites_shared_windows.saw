@@ -1,0 +1,151 @@
+// probe: stated
+// about: a window an accessor opens before choosing among its `lend` sites stays open at each of them and closes once, while a site's own window closes on that site's path only (SL-868)
+// stage 0: cannot parse a `borrow` statement or unwrap
+// speeds: -O0 -O2
+// leaks: none
+// prints: inner pro 100
+// prints: epi 0
+// prints: inner epi 101
+// prints: tail
+// prints: --
+// prints: inner pro 101
+// prints: epi 1
+// prints: inner epi 101
+// prints: tail
+// prints: --
+// prints: inner pro 101
+// prints: epi 0
+// prints: inner epi 102
+// prints: tail
+// prints: --
+// prints: inner pro 102
+// prints: inner pro 200
+// prints: inner epi 201
+// prints: epi 1
+// prints: inner epi 102
+// prints: tail
+// prints: --
+// prints: epi 2
+// prints: tail
+// prints: --
+// prints: inner pro 102
+// prints: epi 0
+// prints: inner epi 103
+// prints: tail
+// prints: --
+// prints: inner pro 103
+// prints: epi 1
+// prints: inner epi 103
+// prints: tail
+// prints: --
+// prints: none
+// prints: --
+// prints: 11 22 103 201
+// `x`'s window over `h0` is open at every site inside its `borrow` block and
+// closes as the block ends, after the taken site's epilogue; `three`'s site 1
+// forwards `h1` inside it, so two inner windows are open there and close in
+// reverse; `maybe`'s absent path opens neither.
+struct Holder {
+    cells: Vector<Int>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self, i: Int) borrows -> &var Int {
+        print("inner pro {}", self.cells[0])
+        lend self.cells[i]
+        print("inner epi {}", self.cells[0])
+    }
+}
+
+struct S {
+    f1: Int
+    v2: Vector<Int>
+    h0: Holder
+    h1: Holder
+}
+
+extension S: NoCopy {}
+
+extension S {
+    func two(&var self, sel: Int, i: Int) borrows -> &var Int {
+        borrow var x = self.h0.at(i) {
+            if sel == 0 {
+                lend x
+                print("epi 0")
+            } else {
+                lend self.f1
+                print("epi 1")
+            }
+        }
+        print("tail")
+    }
+
+    func three(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 2 {
+            lend self.v2[i]
+            print("epi 2")
+        } else {
+            borrow var x = self.h0.at(i) {
+                if sel == 0 {
+                    lend x
+                    print("epi 0")
+                } else {
+                    lend self.h1.at(i)
+                    print("epi 1")
+                }
+            }
+        }
+        print("tail")
+    }
+
+    func maybe(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            return None
+        }
+        borrow var x = self.h0.at(i) {
+            if sel == 0 {
+                lend x
+                print("epi 0")
+            } else {
+                lend self.v2[i]
+                print("epi 1")
+            }
+        }
+        print("tail")
+    }
+}
+
+func main() {
+    var s = S(f1: 10, v2: [20], h0: Holder(cells: [100]), h1: Holder(cells: [200]))
+    borrow var s.two(0, 0) += 1
+    print("--")
+    borrow var s.two(1, 0) += 1
+    print("--")
+    borrow var s.three(0, 0) += 1
+    print("--")
+    borrow var s.three(1, 0) += 1
+    print("--")
+    borrow var s.three(2, 0) += 1
+    print("--")
+    if borrow var x = s.maybe(0, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    print("--")
+    if borrow var x = s.maybe(1, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    print("--")
+    if borrow var x = s.maybe(9, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    print("--")
+    print("{} {} {} {}", s.f1, s.v2[0], s.h0.cells[0], s.h1.cells[0])
+}

@@ -1,0 +1,74 @@
+// probe: stated
+// about: an accessor whose two `lend` sites forward a sync and a suspending inner accessor, with an owning local across the inner `lend` in both inner accessors, writes and reads each inner window's record only on the path of the site that opened it (SL-868)
+// stage 0: cannot parse a `borrow` statement or unwrap
+// speeds: -O0 -O2
+// leaks: none
+// prints: at epi 1
+// prints: drop t1
+// prints: pick epi 0
+// prints: slow_at epi 2
+// prints: drop t2
+// prints: pick epi 1
+// prints: a 11 b 22
+// The suspending site's inner window keeps its record in `pick`'s frame
+// across the suspension; the sync site's path never opens that window,
+// so its `lend` leaves that record's field of `pick`'s record unwritten.
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+struct Cells {
+    v: Vector<Int>
+    name: Int
+}
+
+extension Cells: NoCopy {}
+
+extension Cells {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: self.name)
+        lend self.v[i]
+        print("at epi {}", t.id)
+    }
+
+    func slow_at(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: self.name)
+        yield_now()
+        lend self.v[i]
+        print("slow_at epi {}", t.id)
+    }
+}
+
+struct Two {
+    a: Cells
+    b: Cells
+}
+
+extension Two: NoCopy {}
+
+extension Two {
+    func pick(&var self, first: Bool, i: Int) borrows -> &var Int {
+        if first {
+            lend self.a.at(i)
+            print("pick epi 0")
+        } else {
+            lend self.b.slow_at(i)
+            print("pick epi 1")
+        }
+    }
+}
+
+func main() {
+    var t = Two(a: Cells(v: [1], name: 1), b: Cells(v: [2], name: 2))
+    borrow var t.pick(true, 0) += 10
+    borrow var t.pick(false, 0) += 20
+    print("a {} b {}", t.a.v[0], t.b.v[0])
+}

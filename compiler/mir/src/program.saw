@@ -110,7 +110,8 @@ public struct MirProgram {
     // return only is borrowck's to refuse (`init_consumes_partial`).
     release_fields: Vector<Int>
     release_types: Vector<Int>
-    // Runs a function's record locals and carried windows name.
+    // Runs a function's record locals and carried windows name, and an
+    // accessor's per-site resume blocks and open windows.
     aux: Vector<Int>
     // The accessors lowered as halves, or whole for one that lends a
     // borrowing struct, and by declaration the one each declaration's

@@ -429,6 +429,13 @@ public struct MirAccessor {
     // The record's type, or -1 when nothing lives across the `lend`.
     record: Int
     lend_sites: Int
+    // Two runs of `aux`, per `lend` site in site order: the epilogue block
+    // the site resumes into (or -1), then a row of the epilogue's windows,
+    // 1 where the window is carried open at that site. A carried window is
+    // open in the epilogue only on the paths of the sites that opened it
+    // (`window_open_after`).
+    site_resume_first: Int
+    site_open_first: Int
     // Whether each half holds a call that may suspend.
     prologue_suspends: Bool
     epilogue_suspends: Bool

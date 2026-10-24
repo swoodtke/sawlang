@@ -22,7 +22,7 @@
 //     between. The move-path facts are the initialisation analysis's
 //     (initialisation.saw);
 //   - an accessor's epilogue carries exactly its prologue's carried windows,
-//     in order;
+//     in order, and each `lend` site marks open only carried windows;
 //   - a window's presence local is the Optional its conditional open writes,
 //     an open with no absent edge;
 //   - every cycle the entry reaches passes an op-budget point;
@@ -497,6 +497,7 @@ extension MirProgram {
         if info.kind == MirFuncKind.Epilogue {
             self.verify_epilogue_record(f, acc.record, &var out)
             self.verify_carried(f, acc.prologue, &var out)
+            self.verify_site_windows(f, &acc, &var out)
         } else {
             self.verify_prologue_record(f, acc.record, &var out)
         }
@@ -802,14 +803,52 @@ extension MirProgram {
         }
     }
 
+    // Each `lend` site of epilogue `f`'s accessor resumes into a block of
+    // `f`, and marks open only windows the epilogue carries, so the window
+    // dataflow's narrowing at a resume block never opens one.
+    func verify_site_windows(&self, f: Int, acc: &MirAccessor, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        var k = 0
+        while k < acc.lend_sites {
+            let resume = self.aux[acc.site_resume_first + k]
+            if resume < -1 || resume >= info.block_count {
+                self.problem(f, &var out, "a `lend` site's resume block is out of range of its epilogue")
+            }
+            var w = 0
+            while w < info.window_count {
+                let marked = self.aux[acc.site_open_first + k * info.window_count + w] != 0
+                if marked && not self.epilogue_carries(f, w) {
+                    self.problem(f, &var out, "a `lend` site marks open a window its epilogue does not carry")
+                }
+                w = w + 1
+            }
+            k = k + 1
+        }
+    }
+
+    // Whether epilogue `f` carries window `w`.
+    func epilogue_carries(&self, f: Int, w: Int) -> Bool {
+        let info = self.funcs[f]
+        var k = 0
+        while k < info.carried_count {
+            if self.aux[info.carried_first + k] == w {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
     func verify_prologue_record(&self, f: Int, record: Int, out: &var Vector<String>) {
         if record < 0 {
             return
         }
         let info = self.funcs[f]
         let fields = self.tc.types.ty(record).count
+        let open = self.window_entries(f)
         var b = 0
         while b < info.block_count {
+            let here = b
             let block = self.blocks[info.block_first + b]
             b = b + 1
             if block.term != MirTermKind.Return {
@@ -838,12 +877,26 @@ extension MirProgram {
             }
             // A record local's flag field is drop elaboration's to write.
             k = 0
-            var flagged = 0
+            var unwritten = 0
             while k < info.record_count {
                 let slot = self.aux[info.record_flags_first + k]
                 if slot >= 0 && slot < fields {
                     written[slot] = false
-                    flagged = flagged + 1
+                    unwritten = unwritten + 1
+                }
+                k = k + 1
+            }
+            // A window's record local is written only where its window is
+            // open, so the record of a window another site opened is no field
+            // of this one.
+            k = 0
+            while k < info.record_count && k < fields {
+                let w = self.window_of_record(&info, self.aux[info.record_first + k])
+                if w >= 0 && not open[here * info.window_count + w] {
+                    if written[k] {
+                        self.problem(f, &var out, "a prologue's `lend` writes the record of a window it did not open")
+                    }
+                    unwritten = unwritten + 1
                 }
                 k = k + 1
             }
@@ -855,7 +908,7 @@ extension MirProgram {
                 }
                 k = k + 1
             }
-            if count != 0 && count != fields - flagged {
+            if count != 0 && count != fields - unwritten {
                 self.problem(f, &var out, "a prologue's `lend` writes some of the record's fields and not others")
             }
         }
@@ -1706,99 +1759,6 @@ extension MirProgram {
         }
         try! text.append(self.init_path_text(&facts, q))
         text.build()
-    }
-
-    // Each window's openness at each block's entry, `block * window_count +
-    // window`: a may-dataflow over the edges `window_open_after` describes.
-    // An epilogue resumes with the windows its prologue left open.
-    func window_entries(&self, f: Int) -> Vector<Bool> {
-        let info = self.funcs[f]
-        let width = info.window_count
-        var entry = Vector<Bool>()
-        var reached = Vector<Bool>()
-        var k = 0
-        while k < info.block_count * width {
-            try! entry.push(false)
-            k = k + 1
-        }
-        k = 0
-        while k < info.block_count {
-            try! reached.push(k == 0)
-            k = k + 1
-        }
-        if info.kind == MirFuncKind.Epilogue && width > 0 {
-            k = 0
-            while k < info.carried_count {
-                // An index out of range is verify_carried's report.
-                let w = self.aux[info.carried_first + k]
-                if w >= 0 && w < width {
-                    entry[w] = true
-                }
-                k = k + 1
-            }
-        }
-        // A worklist swept in reverse postorder, to the fixpoint: a block is
-        // walked again only when its entry grew.
-        let order = self.verify_order(f)
-        var pending = Vector<Bool>()
-        k = 0
-        while k < info.block_count {
-            try! pending.push(k == 0)
-            k = k + 1
-        }
-        var left = if info.block_count > 0 { 1 } else { 0 }
-        while left > 0 {
-            var i = 0
-            while i < order.len() {
-                let b = order[i]
-                i = i + 1
-                if not pending[b] {
-                    continue
-                }
-                pending[b] = false
-                left = left - 1
-                var state = Vector<Bool>()
-                k = 0
-                while k < width {
-                    try! state.push(entry[b * width + k])
-                    k = k + 1
-                }
-                let block = self.blocks[info.block_first + b]
-                var succ = Vector<Int>()
-                var opened = -1
-                self.successors(f, &block, &var succ, &var opened)
-                let switched = self.switched_local(f, b)
-                var j = 0
-                while j < succ.len() {
-                    let target = succ[j]
-                    var next = Vector<Bool>()
-                    k = 0
-                    while k < width {
-                        try! next.push(self.window_open_after(f, b, target, k, state[k], switched))
-                        k = k + 1
-                    }
-                    var grew = false
-                    if not reached[target] {
-                        reached[target] = true
-                        grew = true
-                    }
-                    k = 0
-                    while k < width {
-                        if next[k] && not entry[target * width + k] {
-                            entry[target * width + k] = true
-                            grew = true
-                        }
-                        k = k + 1
-                    }
-                    if grew && not pending[target] {
-                        pending[target] = true
-                        left = left + 1
-                    }
-                    j = j + 1
-                }
-            }
-        }
-        move entry
     }
 
     // Function `f`'s blocks in reverse postorder from the entry, then those

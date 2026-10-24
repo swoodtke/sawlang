@@ -1,0 +1,2995 @@
+// probe: stated
+// about: an accessor with two or three `lend` sites chosen by `if`/`else`, each a field, a `Vector.[]` place or a forwarded accessor, plain and conditional, from a synchronous caller, runs only the taken site's epilogue and closes only the windows that site opened (SL-868)
+// stage 0: cannot parse a `borrow` statement or unwrap
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: p_ff 1 11 20 100 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_ff 1 11 20 100 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: p_fv 1 10 20 100 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fv 1 10 20 100 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: p_fh 1 10 20 100 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fh 1 10 20 100 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: p_vf 0 11 20 101 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vf 0 11 20 101 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: p_vv 0 10 20 101 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vv 0 10 20 101 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: p_vh 0 10 20 101 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vh 0 10 20 101 110 120 200 211 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: p_hf 0 11 20 100 110 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hf 0 11 20 100 110 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: p_hv 0 10 20 100 111 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hv 0 10 20 100 111 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: p_hh 0 10 20 100 110 120 201 211 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hh 0 10 20 100 110 120 201 211 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_fff 1 11 21 100 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fff 1 11 21 100 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_ffv 1 11 20 100 110 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_ffv 1 11 20 100 110 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_ffh 1 11 20 100 110 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_ffh 1 11 20 100 110 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_fvf 1 10 21 100 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fvf 1 10 21 100 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_fvv 1 10 20 100 111 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fvv 1 10 20 100 111 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_fvh 1 10 20 100 111 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fvh 1 10 20 100 111 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_fhf 1 10 21 100 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fhf 1 10 21 100 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_fhv 1 10 20 100 110 121 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fhv 1 10 20 100 110 121 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_fhh 1 10 20 100 110 120 200 211 221
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_fhh 1 10 20 100 110 120 200 211 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_vff 0 11 21 101 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vff 0 11 21 101 110 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_vfv 0 11 20 101 110 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vfv 0 11 20 101 110 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_vfh 0 11 20 101 110 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vfh 0 11 20 101 110 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_vvf 0 10 21 101 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vvf 0 10 21 101 111 120 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_vvv 0 10 20 101 111 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vvv 0 10 20 101 111 121 200 210 220
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_vvh 0 10 20 101 111 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vvh 0 10 20 101 111 120 200 210 221
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_vhf 0 10 21 101 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vhf 0 10 21 101 110 120 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_vhv 0 10 20 101 110 121 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vhv 0 10 20 101 110 121 200 211 220
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_vhh 0 10 20 101 110 120 200 211 221
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_vhh 0 10 20 101 110 120 200 211 221
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_hff 0 11 21 100 110 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hff 0 11 21 100 110 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_hfv 0 11 20 100 110 121 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hfv 0 11 20 100 110 121 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_hfh 0 11 20 100 110 120 201 210 221
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hfh 0 11 20 100 110 120 201 210 221
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_hvf 0 10 21 100 111 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hvf 0 10 21 100 111 120 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_hvv 0 10 20 100 111 121 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hvv 0 10 20 100 111 121 201 210 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_hvh 0 10 20 100 111 120 201 210 221
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hvh 0 10 20 100 111 120 201 210 221
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_hhf 0 10 21 100 110 120 201 211 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hhf 0 10 21 100 110 120 201 211 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: p_hhv 0 10 20 100 110 121 201 211 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hhv 0 10 20 100 110 121 201 211 220
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: p_hhh 0 10 20 100 110 120 201 211 221
+// prints: inner epi
+// prints: epi 0
+// prints: tail
+// prints: inner epi
+// prints: epi 1
+// prints: tail
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: absent
+// prints: none
+// prints: c_hhh 0 10 20 100 110 120 201 211 221
+// Each accessor is named for its sites' places in order (`f` a field,
+// `v` a `Vector.[]` place, `h` a forwarded `Holder.at`), `c_` when it is a
+// conditional lend, whose `sel` 9 is the absent path. Each site but a field
+// opens its own inner window, which the epilogue closes on that site's path
+// only; the last line of each accessor's run is its state after every site
+// was written once.
+
+struct Holder {
+    cells: Vector<Int>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+        print("inner epi")
+    }
+}
+
+struct S {
+    f0: Int
+    f1: Int
+    f2: Int
+    v0: Vector<Int>
+    v1: Vector<Int>
+    v2: Vector<Int>
+    h0: Holder
+    h1: Holder
+    h2: Holder
+}
+
+extension S: NoCopy {}
+
+extension S {
+    func p_ff(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else {
+            lend self.f1
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_ff(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else {
+            lend self.f1
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_fv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else {
+            lend self.v1[i]
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_fv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else {
+            lend self.v1[i]
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_fh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else {
+            lend self.h1.at(i)
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_fh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else {
+            lend self.h1.at(i)
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_vf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else {
+            lend self.f1
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_vf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else {
+            lend self.f1
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_vv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else {
+            lend self.v1[i]
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_vv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else {
+            lend self.v1[i]
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_vh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else {
+            lend self.h1.at(i)
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_vh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else {
+            lend self.h1.at(i)
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_hf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else {
+            lend self.f1
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_hf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else {
+            lend self.f1
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_hv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else {
+            lend self.v1[i]
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_hv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else {
+            lend self.v1[i]
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_hh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else {
+            lend self.h1.at(i)
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func c_hh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else {
+            lend self.h1.at(i)
+            print("epi 1")
+        }
+        print("tail")
+    }
+
+    func p_fff(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fff(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_ffv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_ffv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_ffh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_ffh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_fvf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fvf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_fvv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fvv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_fvh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fvh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_fhf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fhf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_fhv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fhv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_fhh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_fhh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.f0
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vff(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vff(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vfv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vfv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vfh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vfh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vvf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vvf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vvv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vvv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vvh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vvh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vhf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vhf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vhv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vhv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_vhh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_vhh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.v0[i]
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hff(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hff(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hfv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hfv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hfh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hfh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.f1
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hvf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hvf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hvv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hvv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hvh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hvh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.v1[i]
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hhf(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hhf(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.f2
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hhv(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hhv(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.v2[i]
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func p_hhh(&var self, sel: Int, i: Int) borrows -> &var Int {
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+
+    func c_hhh(&var self, sel: Int, i: Int) borrows -> &var Int? {
+        if sel == 9 {
+            print("absent")
+            return None
+        }
+        if sel == 0 {
+            lend self.h0.at(i)
+            print("epi 0")
+        } else if sel == 1 {
+            lend self.h1.at(i)
+            print("epi 1")
+        } else {
+            lend self.h2.at(i)
+            print("epi 2")
+        }
+        print("tail")
+    }
+}
+
+func use_p_ff(s: &var S, sel: Int) -> Int {
+    borrow var s.p_ff(sel, 0) += 1
+    0
+}
+
+func use_c_ff(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_ff(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fv(sel, 0) += 1
+    0
+}
+
+func use_c_fv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fh(sel, 0) += 1
+    0
+}
+
+func use_c_fh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vf(sel, 0) += 1
+    0
+}
+
+func use_c_vf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vv(sel, 0) += 1
+    0
+}
+
+func use_c_vv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vh(sel, 0) += 1
+    0
+}
+
+func use_c_vh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hf(sel, 0) += 1
+    0
+}
+
+func use_c_hf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hv(sel, 0) += 1
+    0
+}
+
+func use_c_hv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hh(sel, 0) += 1
+    0
+}
+
+func use_c_hh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fff(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fff(sel, 0) += 1
+    0
+}
+
+func use_c_fff(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fff(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_ffv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_ffv(sel, 0) += 1
+    0
+}
+
+func use_c_ffv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_ffv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_ffh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_ffh(sel, 0) += 1
+    0
+}
+
+func use_c_ffh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_ffh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fvf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fvf(sel, 0) += 1
+    0
+}
+
+func use_c_fvf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fvf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fvv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fvv(sel, 0) += 1
+    0
+}
+
+func use_c_fvv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fvv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fvh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fvh(sel, 0) += 1
+    0
+}
+
+func use_c_fvh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fvh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fhf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fhf(sel, 0) += 1
+    0
+}
+
+func use_c_fhf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fhf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fhv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fhv(sel, 0) += 1
+    0
+}
+
+func use_c_fhv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fhv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_fhh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_fhh(sel, 0) += 1
+    0
+}
+
+func use_c_fhh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_fhh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vff(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vff(sel, 0) += 1
+    0
+}
+
+func use_c_vff(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vff(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vfv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vfv(sel, 0) += 1
+    0
+}
+
+func use_c_vfv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vfv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vfh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vfh(sel, 0) += 1
+    0
+}
+
+func use_c_vfh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vfh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vvf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vvf(sel, 0) += 1
+    0
+}
+
+func use_c_vvf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vvf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vvv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vvv(sel, 0) += 1
+    0
+}
+
+func use_c_vvv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vvv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vvh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vvh(sel, 0) += 1
+    0
+}
+
+func use_c_vvh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vvh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vhf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vhf(sel, 0) += 1
+    0
+}
+
+func use_c_vhf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vhf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vhv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vhv(sel, 0) += 1
+    0
+}
+
+func use_c_vhv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vhv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_vhh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_vhh(sel, 0) += 1
+    0
+}
+
+func use_c_vhh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_vhh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hff(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hff(sel, 0) += 1
+    0
+}
+
+func use_c_hff(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hff(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hfv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hfv(sel, 0) += 1
+    0
+}
+
+func use_c_hfv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hfv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hfh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hfh(sel, 0) += 1
+    0
+}
+
+func use_c_hfh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hfh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hvf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hvf(sel, 0) += 1
+    0
+}
+
+func use_c_hvf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hvf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hvv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hvv(sel, 0) += 1
+    0
+}
+
+func use_c_hvv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hvv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hvh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hvh(sel, 0) += 1
+    0
+}
+
+func use_c_hvh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hvh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hhf(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hhf(sel, 0) += 1
+    0
+}
+
+func use_c_hhf(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hhf(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hhv(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hhv(sel, 0) += 1
+    0
+}
+
+func use_c_hhv(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hhv(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func use_p_hhh(s: &var S, sel: Int) -> Int {
+    borrow var s.p_hhh(sel, 0) += 1
+    0
+}
+
+func use_c_hhh(s: &var S, sel: Int) -> Int {
+    if borrow var x = s.c_hhh(sel, 0) {
+        x += 1
+    } else {
+        print("none")
+    }
+    0
+}
+
+func fresh() -> S {
+    S(f0: 0, f1: 10, f2: 20, v0: [100], v1: [110], v2: [120], h0: Holder(cells: [200]),
+      h1: Holder(cells: [210]), h2: Holder(cells: [220]))
+}
+
+
+func run_p_ff() {
+    var s = fresh()
+    let _ = use_p_ff(&var s, 0)
+    let _ = use_p_ff(&var s, 1)
+    print("p_ff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_ff() {
+    var s = fresh()
+    let _ = use_c_ff(&var s, 0)
+    let _ = use_c_ff(&var s, 1)
+    let _ = use_c_ff(&var s, 9)
+    print("c_ff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fv() {
+    var s = fresh()
+    let _ = use_p_fv(&var s, 0)
+    let _ = use_p_fv(&var s, 1)
+    print("p_fv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fv() {
+    var s = fresh()
+    let _ = use_c_fv(&var s, 0)
+    let _ = use_c_fv(&var s, 1)
+    let _ = use_c_fv(&var s, 9)
+    print("c_fv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fh() {
+    var s = fresh()
+    let _ = use_p_fh(&var s, 0)
+    let _ = use_p_fh(&var s, 1)
+    print("p_fh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fh() {
+    var s = fresh()
+    let _ = use_c_fh(&var s, 0)
+    let _ = use_c_fh(&var s, 1)
+    let _ = use_c_fh(&var s, 9)
+    print("c_fh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vf() {
+    var s = fresh()
+    let _ = use_p_vf(&var s, 0)
+    let _ = use_p_vf(&var s, 1)
+    print("p_vf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vf() {
+    var s = fresh()
+    let _ = use_c_vf(&var s, 0)
+    let _ = use_c_vf(&var s, 1)
+    let _ = use_c_vf(&var s, 9)
+    print("c_vf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vv() {
+    var s = fresh()
+    let _ = use_p_vv(&var s, 0)
+    let _ = use_p_vv(&var s, 1)
+    print("p_vv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vv() {
+    var s = fresh()
+    let _ = use_c_vv(&var s, 0)
+    let _ = use_c_vv(&var s, 1)
+    let _ = use_c_vv(&var s, 9)
+    print("c_vv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vh() {
+    var s = fresh()
+    let _ = use_p_vh(&var s, 0)
+    let _ = use_p_vh(&var s, 1)
+    print("p_vh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vh() {
+    var s = fresh()
+    let _ = use_c_vh(&var s, 0)
+    let _ = use_c_vh(&var s, 1)
+    let _ = use_c_vh(&var s, 9)
+    print("c_vh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hf() {
+    var s = fresh()
+    let _ = use_p_hf(&var s, 0)
+    let _ = use_p_hf(&var s, 1)
+    print("p_hf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hf() {
+    var s = fresh()
+    let _ = use_c_hf(&var s, 0)
+    let _ = use_c_hf(&var s, 1)
+    let _ = use_c_hf(&var s, 9)
+    print("c_hf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hv() {
+    var s = fresh()
+    let _ = use_p_hv(&var s, 0)
+    let _ = use_p_hv(&var s, 1)
+    print("p_hv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hv() {
+    var s = fresh()
+    let _ = use_c_hv(&var s, 0)
+    let _ = use_c_hv(&var s, 1)
+    let _ = use_c_hv(&var s, 9)
+    print("c_hv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hh() {
+    var s = fresh()
+    let _ = use_p_hh(&var s, 0)
+    let _ = use_p_hh(&var s, 1)
+    print("p_hh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hh() {
+    var s = fresh()
+    let _ = use_c_hh(&var s, 0)
+    let _ = use_c_hh(&var s, 1)
+    let _ = use_c_hh(&var s, 9)
+    print("c_hh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fff() {
+    var s = fresh()
+    let _ = use_p_fff(&var s, 0)
+    let _ = use_p_fff(&var s, 1)
+    let _ = use_p_fff(&var s, 2)
+    print("p_fff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fff() {
+    var s = fresh()
+    let _ = use_c_fff(&var s, 0)
+    let _ = use_c_fff(&var s, 1)
+    let _ = use_c_fff(&var s, 2)
+    let _ = use_c_fff(&var s, 9)
+    print("c_fff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_ffv() {
+    var s = fresh()
+    let _ = use_p_ffv(&var s, 0)
+    let _ = use_p_ffv(&var s, 1)
+    let _ = use_p_ffv(&var s, 2)
+    print("p_ffv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_ffv() {
+    var s = fresh()
+    let _ = use_c_ffv(&var s, 0)
+    let _ = use_c_ffv(&var s, 1)
+    let _ = use_c_ffv(&var s, 2)
+    let _ = use_c_ffv(&var s, 9)
+    print("c_ffv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_ffh() {
+    var s = fresh()
+    let _ = use_p_ffh(&var s, 0)
+    let _ = use_p_ffh(&var s, 1)
+    let _ = use_p_ffh(&var s, 2)
+    print("p_ffh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_ffh() {
+    var s = fresh()
+    let _ = use_c_ffh(&var s, 0)
+    let _ = use_c_ffh(&var s, 1)
+    let _ = use_c_ffh(&var s, 2)
+    let _ = use_c_ffh(&var s, 9)
+    print("c_ffh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fvf() {
+    var s = fresh()
+    let _ = use_p_fvf(&var s, 0)
+    let _ = use_p_fvf(&var s, 1)
+    let _ = use_p_fvf(&var s, 2)
+    print("p_fvf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fvf() {
+    var s = fresh()
+    let _ = use_c_fvf(&var s, 0)
+    let _ = use_c_fvf(&var s, 1)
+    let _ = use_c_fvf(&var s, 2)
+    let _ = use_c_fvf(&var s, 9)
+    print("c_fvf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fvv() {
+    var s = fresh()
+    let _ = use_p_fvv(&var s, 0)
+    let _ = use_p_fvv(&var s, 1)
+    let _ = use_p_fvv(&var s, 2)
+    print("p_fvv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fvv() {
+    var s = fresh()
+    let _ = use_c_fvv(&var s, 0)
+    let _ = use_c_fvv(&var s, 1)
+    let _ = use_c_fvv(&var s, 2)
+    let _ = use_c_fvv(&var s, 9)
+    print("c_fvv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fvh() {
+    var s = fresh()
+    let _ = use_p_fvh(&var s, 0)
+    let _ = use_p_fvh(&var s, 1)
+    let _ = use_p_fvh(&var s, 2)
+    print("p_fvh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fvh() {
+    var s = fresh()
+    let _ = use_c_fvh(&var s, 0)
+    let _ = use_c_fvh(&var s, 1)
+    let _ = use_c_fvh(&var s, 2)
+    let _ = use_c_fvh(&var s, 9)
+    print("c_fvh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fhf() {
+    var s = fresh()
+    let _ = use_p_fhf(&var s, 0)
+    let _ = use_p_fhf(&var s, 1)
+    let _ = use_p_fhf(&var s, 2)
+    print("p_fhf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fhf() {
+    var s = fresh()
+    let _ = use_c_fhf(&var s, 0)
+    let _ = use_c_fhf(&var s, 1)
+    let _ = use_c_fhf(&var s, 2)
+    let _ = use_c_fhf(&var s, 9)
+    print("c_fhf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fhv() {
+    var s = fresh()
+    let _ = use_p_fhv(&var s, 0)
+    let _ = use_p_fhv(&var s, 1)
+    let _ = use_p_fhv(&var s, 2)
+    print("p_fhv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fhv() {
+    var s = fresh()
+    let _ = use_c_fhv(&var s, 0)
+    let _ = use_c_fhv(&var s, 1)
+    let _ = use_c_fhv(&var s, 2)
+    let _ = use_c_fhv(&var s, 9)
+    print("c_fhv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_fhh() {
+    var s = fresh()
+    let _ = use_p_fhh(&var s, 0)
+    let _ = use_p_fhh(&var s, 1)
+    let _ = use_p_fhh(&var s, 2)
+    print("p_fhh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_fhh() {
+    var s = fresh()
+    let _ = use_c_fhh(&var s, 0)
+    let _ = use_c_fhh(&var s, 1)
+    let _ = use_c_fhh(&var s, 2)
+    let _ = use_c_fhh(&var s, 9)
+    print("c_fhh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vff() {
+    var s = fresh()
+    let _ = use_p_vff(&var s, 0)
+    let _ = use_p_vff(&var s, 1)
+    let _ = use_p_vff(&var s, 2)
+    print("p_vff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vff() {
+    var s = fresh()
+    let _ = use_c_vff(&var s, 0)
+    let _ = use_c_vff(&var s, 1)
+    let _ = use_c_vff(&var s, 2)
+    let _ = use_c_vff(&var s, 9)
+    print("c_vff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vfv() {
+    var s = fresh()
+    let _ = use_p_vfv(&var s, 0)
+    let _ = use_p_vfv(&var s, 1)
+    let _ = use_p_vfv(&var s, 2)
+    print("p_vfv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vfv() {
+    var s = fresh()
+    let _ = use_c_vfv(&var s, 0)
+    let _ = use_c_vfv(&var s, 1)
+    let _ = use_c_vfv(&var s, 2)
+    let _ = use_c_vfv(&var s, 9)
+    print("c_vfv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vfh() {
+    var s = fresh()
+    let _ = use_p_vfh(&var s, 0)
+    let _ = use_p_vfh(&var s, 1)
+    let _ = use_p_vfh(&var s, 2)
+    print("p_vfh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vfh() {
+    var s = fresh()
+    let _ = use_c_vfh(&var s, 0)
+    let _ = use_c_vfh(&var s, 1)
+    let _ = use_c_vfh(&var s, 2)
+    let _ = use_c_vfh(&var s, 9)
+    print("c_vfh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vvf() {
+    var s = fresh()
+    let _ = use_p_vvf(&var s, 0)
+    let _ = use_p_vvf(&var s, 1)
+    let _ = use_p_vvf(&var s, 2)
+    print("p_vvf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vvf() {
+    var s = fresh()
+    let _ = use_c_vvf(&var s, 0)
+    let _ = use_c_vvf(&var s, 1)
+    let _ = use_c_vvf(&var s, 2)
+    let _ = use_c_vvf(&var s, 9)
+    print("c_vvf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vvv() {
+    var s = fresh()
+    let _ = use_p_vvv(&var s, 0)
+    let _ = use_p_vvv(&var s, 1)
+    let _ = use_p_vvv(&var s, 2)
+    print("p_vvv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vvv() {
+    var s = fresh()
+    let _ = use_c_vvv(&var s, 0)
+    let _ = use_c_vvv(&var s, 1)
+    let _ = use_c_vvv(&var s, 2)
+    let _ = use_c_vvv(&var s, 9)
+    print("c_vvv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vvh() {
+    var s = fresh()
+    let _ = use_p_vvh(&var s, 0)
+    let _ = use_p_vvh(&var s, 1)
+    let _ = use_p_vvh(&var s, 2)
+    print("p_vvh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vvh() {
+    var s = fresh()
+    let _ = use_c_vvh(&var s, 0)
+    let _ = use_c_vvh(&var s, 1)
+    let _ = use_c_vvh(&var s, 2)
+    let _ = use_c_vvh(&var s, 9)
+    print("c_vvh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vhf() {
+    var s = fresh()
+    let _ = use_p_vhf(&var s, 0)
+    let _ = use_p_vhf(&var s, 1)
+    let _ = use_p_vhf(&var s, 2)
+    print("p_vhf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vhf() {
+    var s = fresh()
+    let _ = use_c_vhf(&var s, 0)
+    let _ = use_c_vhf(&var s, 1)
+    let _ = use_c_vhf(&var s, 2)
+    let _ = use_c_vhf(&var s, 9)
+    print("c_vhf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vhv() {
+    var s = fresh()
+    let _ = use_p_vhv(&var s, 0)
+    let _ = use_p_vhv(&var s, 1)
+    let _ = use_p_vhv(&var s, 2)
+    print("p_vhv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vhv() {
+    var s = fresh()
+    let _ = use_c_vhv(&var s, 0)
+    let _ = use_c_vhv(&var s, 1)
+    let _ = use_c_vhv(&var s, 2)
+    let _ = use_c_vhv(&var s, 9)
+    print("c_vhv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_vhh() {
+    var s = fresh()
+    let _ = use_p_vhh(&var s, 0)
+    let _ = use_p_vhh(&var s, 1)
+    let _ = use_p_vhh(&var s, 2)
+    print("p_vhh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_vhh() {
+    var s = fresh()
+    let _ = use_c_vhh(&var s, 0)
+    let _ = use_c_vhh(&var s, 1)
+    let _ = use_c_vhh(&var s, 2)
+    let _ = use_c_vhh(&var s, 9)
+    print("c_vhh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hff() {
+    var s = fresh()
+    let _ = use_p_hff(&var s, 0)
+    let _ = use_p_hff(&var s, 1)
+    let _ = use_p_hff(&var s, 2)
+    print("p_hff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hff() {
+    var s = fresh()
+    let _ = use_c_hff(&var s, 0)
+    let _ = use_c_hff(&var s, 1)
+    let _ = use_c_hff(&var s, 2)
+    let _ = use_c_hff(&var s, 9)
+    print("c_hff {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hfv() {
+    var s = fresh()
+    let _ = use_p_hfv(&var s, 0)
+    let _ = use_p_hfv(&var s, 1)
+    let _ = use_p_hfv(&var s, 2)
+    print("p_hfv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hfv() {
+    var s = fresh()
+    let _ = use_c_hfv(&var s, 0)
+    let _ = use_c_hfv(&var s, 1)
+    let _ = use_c_hfv(&var s, 2)
+    let _ = use_c_hfv(&var s, 9)
+    print("c_hfv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hfh() {
+    var s = fresh()
+    let _ = use_p_hfh(&var s, 0)
+    let _ = use_p_hfh(&var s, 1)
+    let _ = use_p_hfh(&var s, 2)
+    print("p_hfh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hfh() {
+    var s = fresh()
+    let _ = use_c_hfh(&var s, 0)
+    let _ = use_c_hfh(&var s, 1)
+    let _ = use_c_hfh(&var s, 2)
+    let _ = use_c_hfh(&var s, 9)
+    print("c_hfh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hvf() {
+    var s = fresh()
+    let _ = use_p_hvf(&var s, 0)
+    let _ = use_p_hvf(&var s, 1)
+    let _ = use_p_hvf(&var s, 2)
+    print("p_hvf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hvf() {
+    var s = fresh()
+    let _ = use_c_hvf(&var s, 0)
+    let _ = use_c_hvf(&var s, 1)
+    let _ = use_c_hvf(&var s, 2)
+    let _ = use_c_hvf(&var s, 9)
+    print("c_hvf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hvv() {
+    var s = fresh()
+    let _ = use_p_hvv(&var s, 0)
+    let _ = use_p_hvv(&var s, 1)
+    let _ = use_p_hvv(&var s, 2)
+    print("p_hvv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hvv() {
+    var s = fresh()
+    let _ = use_c_hvv(&var s, 0)
+    let _ = use_c_hvv(&var s, 1)
+    let _ = use_c_hvv(&var s, 2)
+    let _ = use_c_hvv(&var s, 9)
+    print("c_hvv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hvh() {
+    var s = fresh()
+    let _ = use_p_hvh(&var s, 0)
+    let _ = use_p_hvh(&var s, 1)
+    let _ = use_p_hvh(&var s, 2)
+    print("p_hvh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hvh() {
+    var s = fresh()
+    let _ = use_c_hvh(&var s, 0)
+    let _ = use_c_hvh(&var s, 1)
+    let _ = use_c_hvh(&var s, 2)
+    let _ = use_c_hvh(&var s, 9)
+    print("c_hvh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hhf() {
+    var s = fresh()
+    let _ = use_p_hhf(&var s, 0)
+    let _ = use_p_hhf(&var s, 1)
+    let _ = use_p_hhf(&var s, 2)
+    print("p_hhf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hhf() {
+    var s = fresh()
+    let _ = use_c_hhf(&var s, 0)
+    let _ = use_c_hhf(&var s, 1)
+    let _ = use_c_hhf(&var s, 2)
+    let _ = use_c_hhf(&var s, 9)
+    print("c_hhf {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hhv() {
+    var s = fresh()
+    let _ = use_p_hhv(&var s, 0)
+    let _ = use_p_hhv(&var s, 1)
+    let _ = use_p_hhv(&var s, 2)
+    print("p_hhv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hhv() {
+    var s = fresh()
+    let _ = use_c_hhv(&var s, 0)
+    let _ = use_c_hhv(&var s, 1)
+    let _ = use_c_hhv(&var s, 2)
+    let _ = use_c_hhv(&var s, 9)
+    print("c_hhv {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_p_hhh() {
+    var s = fresh()
+    let _ = use_p_hhh(&var s, 0)
+    let _ = use_p_hhh(&var s, 1)
+    let _ = use_p_hhh(&var s, 2)
+    print("p_hhh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func run_c_hhh() {
+    var s = fresh()
+    let _ = use_c_hhh(&var s, 0)
+    let _ = use_c_hhh(&var s, 1)
+    let _ = use_c_hhh(&var s, 2)
+    let _ = use_c_hhh(&var s, 9)
+    print("c_hhh {} {} {} {} {} {} {} {} {}", s.f0, s.f1, s.f2, s.v0[0], s.v1[0], s.v2[0],
+          s.h0.cells[0], s.h1.cells[0], s.h2.cells[0])
+}
+
+func main() {
+    run_p_ff()
+    run_c_ff()
+    run_p_fv()
+    run_c_fv()
+    run_p_fh()
+    run_c_fh()
+    run_p_vf()
+    run_c_vf()
+    run_p_vv()
+    run_c_vv()
+    run_p_vh()
+    run_c_vh()
+    run_p_hf()
+    run_c_hf()
+    run_p_hv()
+    run_c_hv()
+    run_p_hh()
+    run_c_hh()
+    run_p_fff()
+    run_c_fff()
+    run_p_ffv()
+    run_c_ffv()
+    run_p_ffh()
+    run_c_ffh()
+    run_p_fvf()
+    run_c_fvf()
+    run_p_fvv()
+    run_c_fvv()
+    run_p_fvh()
+    run_c_fvh()
+    run_p_fhf()
+    run_c_fhf()
+    run_p_fhv()
+    run_c_fhv()
+    run_p_fhh()
+    run_c_fhh()
+    run_p_vff()
+    run_c_vff()
+    run_p_vfv()
+    run_c_vfv()
+    run_p_vfh()
+    run_c_vfh()
+    run_p_vvf()
+    run_c_vvf()
+    run_p_vvv()
+    run_c_vvv()
+    run_p_vvh()
+    run_c_vvh()
+    run_p_vhf()
+    run_c_vhf()
+    run_p_vhv()
+    run_c_vhv()
+    run_p_vhh()
+    run_c_vhh()
+    run_p_hff()
+    run_c_hff()
+    run_p_hfv()
+    run_c_hfv()
+    run_p_hfh()
+    run_c_hfh()
+    run_p_hvf()
+    run_c_hvf()
+    run_p_hvv()
+    run_c_hvv()
+    run_p_hvh()
+    run_c_hvh()
+    run_p_hhf()
+    run_c_hhf()
+    run_p_hhv()
+    run_c_hhv()
+    run_p_hhh()
+    run_c_hhh()
+}

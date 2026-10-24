@@ -456,14 +456,104 @@ extension MirProgram {
         move out
     }
 
+    // Each window's openness at each block's entry, `block * window_count +
+    // window`: a may-dataflow over the edges `window_open_after` describes.
+    // An epilogue resumes with the windows its prologue left open.
+    public func window_entries(&self, f: Int) -> Vector<Bool> {
+        let info = self.funcs[f]
+        let width = info.window_count
+        var entry = Vector<Bool>()
+        var reached = Vector<Bool>()
+        var k = 0
+        while k < info.block_count * width {
+            try! entry.push(false)
+            k = k + 1
+        }
+        k = 0
+        while k < info.block_count {
+            try! reached.push(k == 0)
+            k = k + 1
+        }
+        if info.kind == MirFuncKind.Epilogue && width > 0 {
+            k = 0
+            while k < info.carried_count {
+                // An index out of range is verify_carried's report.
+                let w = self.aux[info.carried_first + k]
+                if w >= 0 && w < width {
+                    entry[w] = true
+                }
+                k = k + 1
+            }
+        }
+        // A worklist swept in reverse postorder, to the fixpoint: a block is
+        // walked again only when its entry grew.
+        let order = self.init_block_order(f)
+        var pending = Vector<Bool>()
+        k = 0
+        while k < info.block_count {
+            try! pending.push(k == 0)
+            k = k + 1
+        }
+        var left = if info.block_count > 0 { 1 } else { 0 }
+        while left > 0 {
+            var i = 0
+            while i < order.len() {
+                let b = order[i]
+                i = i + 1
+                if not pending[b] {
+                    continue
+                }
+                pending[b] = false
+                left = left - 1
+                var state = Vector<Bool>()
+                k = 0
+                while k < width {
+                    try! state.push(entry[b * width + k])
+                    k = k + 1
+                }
+                let succ = self.init_successors(f, b)
+                let switched = self.switched_local(f, b)
+                var j = 0
+                while j < succ.len() {
+                    let target = succ[j]
+                    var next = Vector<Bool>()
+                    k = 0
+                    while k < width {
+                        try! next.push(self.window_open_after(f, b, target, k, state[k], switched))
+                        k = k + 1
+                    }
+                    var grew = false
+                    if not reached[target] {
+                        reached[target] = true
+                        grew = true
+                    }
+                    k = 0
+                    while k < width {
+                        if next[k] && not entry[target * width + k] {
+                            entry[target * width + k] = true
+                            grew = true
+                        }
+                        k = k + 1
+                    }
+                    if grew && not pending[target] {
+                        pending[target] = true
+                        left = left + 1
+                    }
+                    j = j + 1
+                }
+            }
+        }
+        move entry
+    }
+
     // THE WINDOW-EDGE FUNNEL: whether window `w` of function `f` is open on
     // the edge from block `b` to block `target`, given `open`, whether it is
     // open at the end of `b`'s statements, and `switched`, the local `b`'s
     // discriminant switch reads whole or -1. A close shuts the window and an
-    // open opens it on every edge but its absent one. A switch on its
-    // presence local opens it on the `Some` edge and shuts it on the `None`
-    // edge, since a conditional lend's window is open exactly where that
-    // local is `Some` (spec, Conditional lends).
+    // open opens it on every edge but its absent one. A switch on a
+    // conditional lend's presence local opens it on the `Some` edge and shuts
+    // it on the `None` edge (spec, Conditional lends). An epilogue's edge into
+    // a `lend` site's resume block keeps open only what that site carried.
     // ENTRY POINTS (window_open_after):
     //     window_entries
     //     loan_forward
@@ -471,6 +561,9 @@ extension MirProgram {
     //     coro_verify_window_entry
     public func window_open_after(&self, f: Int, b: Int, target: Int, w: Int, open: Bool, switched: Int) -> Bool {
         let info = self.funcs[f]
+        if not self.site_carries(f, target, w) {
+            return false
+        }
         let block = self.blocks[info.block_first + b]
         if block.term == MirTermKind.Call {
             let c = self.calls[block.call]
@@ -526,6 +619,31 @@ extension MirProgram {
             return -1
         }
         p.local
+    }
+
+    // Whether window `w` may be open entering block `target` of function `f`
+    // as far as the `lend` sites go: false only when `f` is an epilogue,
+    // `target` is a site's resume block, and that site's `lend` did not carry
+    // `w`. The dispatch on the resume index is a resume block's only
+    // predecessor, since a `lend` in a loop is refused.
+    func site_carries(&self, f: Int, target: Int, w: Int) -> Bool {
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Epilogue || info.decl < 0 || w < 0 || w >= info.window_count {
+            return true
+        }
+        let a = self.accessor_of[info.decl]
+        if a < 0 {
+            return true
+        }
+        let acc = self.accessors[a]
+        var k = 0
+        while k < acc.lend_sites {
+            if self.aux[acc.site_resume_first + k] == target {
+                return self.aux[acc.site_open_first + k * info.window_count + w] != 0
+            }
+            k = k + 1
+        }
+        true
     }
 
     // Statement `s`'s accesses, in evaluation order: an assignment's

@@ -1,0 +1,88 @@
+// probe: stated
+// about: an accessor whose prologue and epilogues suspend, with three `lend` sites through a `Vector.[]` place, a field and a forwarded suspending accessor, runs only the taken site's epilogue from a task (SL-868)
+// stage 0: cannot parse a `borrow` statement or unwrap
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi 0
+// prints: tail
+// prints: --
+// prints: epi 1
+// prints: tail
+// prints: --
+// prints: inner pro
+// prints: inner epi
+// prints: epi 2
+// prints: tail
+// prints: --
+// prints: 11 101 201
+// Each half suspends, so the windows a site carries are held in the task's
+// frame across each `yield_now()`.
+import std.task.*
+
+struct Holder {
+    cells: Vector<Int>
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        print("inner pro")
+        lend self.cells[i]
+        yield_now()
+        print("inner epi")
+    }
+}
+
+struct S {
+    f1: Int
+    v0: Vector<Int>
+    h2: Holder
+}
+
+extension S: NoCopy {}
+
+extension S {
+    func pick(&var self, sel: Int, i: Int) borrows -> &var Int {
+        yield_now()
+        match sel {
+            case 0 -> {
+                lend self.v0[i]
+                yield_now()
+                print("epi 0")
+            },
+            case 1 -> {
+                lend self.f1
+                yield_now()
+                print("epi 1")
+            },
+            case _ -> {
+                lend self.h2.at(i)
+                yield_now()
+                print("epi 2")
+            },
+        }
+        print("tail")
+    }
+}
+
+func use(s: &var S, sel: Int) -> Int {
+    borrow var x = s.pick(sel, 0) {
+        yield_now()
+        x += 1
+    }
+    0
+}
+
+func main() {
+    var s = S(f1: 10, v0: [100], h2: Holder(cells: [200]))
+    var group = TaskGroup()
+    let _ = group.spawn(use(&var s, 0)).join()
+    print("--")
+    let _ = group.spawn(use(&var s, 1)).join()
+    print("--")
+    let _ = group.spawn(use(&var s, 2)).join()
+    print("--")
+    print("{} {} {}", s.f1, s.v0[0], s.h2.cells[0])
+}

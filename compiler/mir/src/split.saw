@@ -124,14 +124,30 @@ extension MirProgram {
         // Windows the prologue opens and the epilogue closes stay open across
         // the `lend`.
         let carried = self.carried_windows(f, &before, &after)
+        // Which windows are open at each `lend`, read before the split
+        // rewrites `f`.
+        let open = self.window_entries(f)
         let epilogue = self.funcs.len()
-        self.build_prologue(f, &info, &before, &record, &flags, record_t, &carried, conditional)
-        self.build_epilogue(&info, epilogue, &after, &record, &flags, record_t, &carried, &resumes)
+        self.build_prologue(f, &info, &before, &record, &flags, record_t, &carried, conditional, &open)
+        let half = self.build_epilogue(&info, epilogue, &after, &record, &flags, record_t, &carried, &resumes)
+        let site_resume_first = self.aux.len()
+        k = 0
+        while k < resumes.len() {
+            var resume = -1
+            if resumes[k] >= 0 {
+                resume = half.block_map[resumes[k]]
+            }
+            try! self.aux.push(resume)
+            k = k + 1
+        }
+        let site_open_first = self.site_open_rows(&info, epilogue, &half, &sites, &carried, &open)
         let at = self.accessors.len()
         let prologue_suspends = self.half_suspends(f)
         let epilogue_suspends = self.half_suspends(epilogue)
         try! self.accessors.push(MirAccessor(decl: info.decl, prologue: f, epilogue: epilogue, record: record_t,
-                                             lend_sites: sites.len(), prologue_suspends: prologue_suspends,
+                                             lend_sites: sites.len(), site_resume_first: site_resume_first,
+                                             site_open_first: site_open_first,
+                                             prologue_suspends: prologue_suspends,
                                              epilogue_suspends: epilogue_suspends))
         self.accessor_of[info.decl] = at
     }
@@ -148,7 +164,7 @@ extension MirProgram {
         let at = self.accessors.len()
         let suspends = self.half_suspends(f)
         try! self.accessors.push(MirAccessor(decl: info.decl, prologue: f, epilogue: -1, record: -1, lend_sites: 0,
-                                             prologue_suspends: suspends, epilogue_suspends: false))
+                                             site_resume_first: 0, site_open_first: 0, prologue_suspends: suspends, epilogue_suspends: false))
         self.accessor_of[info.decl] = at
     }
 
@@ -613,6 +629,40 @@ extension MirProgram {
         move out
     }
 
+    // Pushes one row of the epilogue's windows per `lend` site onto `aux`, 1
+    // where a carried window is open at that site's `lend` by `open`, the
+    // source body's window entries, and returns the first row's start.
+    func site_open_rows(&var self, source: &MirFunc, epilogue: Int, half: &MirHalf, sites: &Vector<Int>,
+                        carried: &Vector<Int>, open: &Vector<Bool>) -> Int {
+        let first = self.aux.len()
+        let width = self.funcs[epilogue].window_count
+        var k = 0
+        while k < sites.len() {
+            var row = Vector<Int>()
+            var w = 0
+            while w < width {
+                try! row.push(0)
+                w = w + 1
+            }
+            var j = 0
+            while j < carried.len() {
+                let src = carried[j]
+                let mapped = half.window_map[src]
+                if mapped >= 0 && open[sites[k] * source.window_count + src] {
+                    row[mapped] = 1
+                }
+                j = j + 1
+            }
+            w = 0
+            while w < width {
+                try! self.aux.push(row[w])
+                w = w + 1
+            }
+            k = k + 1
+        }
+        first
+    }
+
     // Whether function `f` holds a call that may suspend.
     func half_suspends(&self, f: Int) -> Bool {
         let info = self.funcs[f]
@@ -636,7 +686,8 @@ extension MirProgram {
     // record, `_0` and returns; a return the entry reaches without lending
     // is a conditional lend's absent path, which gives `None`.
     func build_prologue(&var self, f: Int, source: &MirFunc, keep: &Vector<Bool>, record: &Vector<Int>,
-                        flags: &Vector<Int>, record_type: Int, carried: &Vector<Int>, conditional: Bool) {
+                        flags: &Vector<Int>, record_type: Int, carried: &Vector<Int>, conditional: Bool,
+                        open: &Vector<Bool>) {
         let s = self.tc.sigs[source.decl]
         var lent = s.result
         let exclusive = self.tc.is_exclusive_ref(lent)
@@ -679,7 +730,7 @@ extension MirProgram {
                     let vrv = self.rv_use(value)
                     self.assign(ret, vrv)
                     let index_field = mir_resume_field(&record, &flags)
-                    self.write_record(&half, &record, record_type, site, index_field)
+                    self.write_record(&source, &half, &record, record_type, site, b, &open, index_field)
                     self.ret()
                 } else if block.term == MirTermKind.Return && conditional {
                     let none = self.optional_case("None")
@@ -717,10 +768,14 @@ extension MirProgram {
         count
     }
 
-    // The record's writes at `lend` site `site`: each record local moved into
-    // its field, then the resume index in field `index_field`. A local's flag
-    // field is drop elaboration's to write, since the flag is born there.
-    func write_record(&var self, half: &MirHalf, record: &Vector<Int>, record_type: Int, site: Int, index_field: Int) {
+    // The record's writes at `lend` site `site`, in source block `b`: each
+    // record local moved into its field, then the resume index in field
+    // `index_field`. A local's flag field is drop elaboration's to write,
+    // since the flag is born there. A window's record local is written only
+    // where that window is open, by `open`, the source body's window
+    // entries: elsewhere its window never ran, so it holds nothing to read.
+    func write_record(&var self, source: &MirFunc, half: &MirHalf, record: &Vector<Int>, record_type: Int,
+                      site: Int, b: Int, open: &Vector<Bool>, index_field: Int) {
         if record_type < 0 {
             return
         }
@@ -728,6 +783,11 @@ extension MirProgram {
         let whole = self.project(base, MirProjKind.Deref, -1, -1, record_type)
         var k = 0
         while k < record.len() {
+            let w = self.window_of_record(&source, record[k])
+            if w >= 0 && not open[b * source.window_count + w] {
+                k = k + 1
+                continue
+            }
             let l = half.local_map[record[k]]
             let t = self.local_type(l)
             let field = self.project(whole, MirProjKind.Tuple, -1, k, t)
@@ -747,12 +807,26 @@ extension MirProgram {
         }
     }
 
+    // The window of function `source` whose state record local `l` is, or -1.
+    public func window_of_record(&self, source: &MirFunc, l: Int) -> Int {
+        var w = 0
+        while w < source.window_count {
+            if self.windows[source.window_first + w].record == l {
+                return w
+            }
+            w = w + 1
+        }
+        -1
+    }
+
     // The epilogue, a function of its own after the prologue: `_0` of
     // `Void`, `_1` the record, then the locals its blocks use. Its entry
     // reads each record field into its local and continues where the `lend`
-    // resumed, by the resume index when there are several.
+    // resumed, by the resume index when there are several. Returns the
+    // half's maps from the source's numbering.
     func build_epilogue(&var self, source: &MirFunc, epilogue: Int, keep: &Vector<Bool>, record: &Vector<Int>,
-                        flags: &Vector<Int>, record_type: Int, carried: &Vector<Int>, resumes: &Vector<Int>) {
+                        flags: &Vector<Int>, record_type: Int, carried: &Vector<Int>,
+                        resumes: &Vector<Int>) -> MirHalf {
         let v = self.tc.void_type()
         let local_first = self.locals.len()
         let block_first = self.blocks.len()
@@ -798,6 +872,7 @@ extension MirProgram {
         }
         let params = if record_type >= 0 { 1 } else { 0 }
         self.finish_half(epilogue, &half, &record, &flags, &carried, params)
+        move half
     }
 
     // The epilogue's entry continues at the block its `lend` resumes into:
