@@ -1,0 +1,63 @@
+// probe: stated
+// about: a forwarding accessor carrying the inner accessor's owning record beside its own owning locals, one whole and one moved on one path (SL-861)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// The outer's record holds `kept`, `maybe` with its drop flag, and the inner
+// window's record; each local drops once, the moved one only where it stayed.
+// prints: consumed 3
+// prints: drop traced 3
+// prints: leaf epi 1
+// prints: drop traced 1
+// prints: outer epi 2
+// prints: drop traced 2
+// prints: --
+// prints: leaf epi 1
+// prints: drop traced 1
+// prints: outer epi 2
+// prints: drop traced 3
+// prints: drop traced 2
+// prints: 12
+
+struct Traced { id: Int }
+extension Traced: NoCopy {
+    func deinit(&var self) { print("drop traced {}", self.id) }
+}
+
+func consume(t: Traced) {
+    print("consumed {}", t.id)
+}
+
+struct Holder { cells: Vector<Int> }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Traced(id: 1)
+        lend self.cells[i]
+        print("leaf epi {}", note.id)
+    }
+}
+
+struct Outer { inner: Holder }
+extension Outer: NoCopy {}
+
+extension Outer {
+    func fwd(&var self, i: Int, give: Bool) borrows -> &var Int {
+        let kept = Traced(id: 2)
+        let maybe = Traced(id: 3)
+        if give {
+            consume(move maybe)
+        }
+        lend self.inner.at(i)
+        print("outer epi {}", kept.id)
+    }
+}
+
+func main() {
+    var o = Outer(inner: Holder(cells: [10]))
+    borrow var o.fwd(0, true) += 1
+    print("--")
+    borrow var o.fwd(0, false) += 1
+    print("{}", o.inner.cells[0])
+}

@@ -1,0 +1,59 @@
+// probe: stated
+// about: a forwarding accessor whose inner accessor keeps a `String` across a suspending `lend`, its window reopened each iteration of a loop in a task (SL-861)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// leaks: none
+// Every accessor and the consumer suspend inside the window; each iteration
+// carries a fresh inner record across the outer `lend`.
+// prints: leaf epi held
+// prints: outer epi
+// prints: leaf epi held
+// prints: outer epi
+// prints: leaf epi held
+// prints: outer epi
+// prints: 13
+
+import std.task.*
+
+struct Holder { cells: Vector<Int> }
+extension Holder: NoCopy {}
+
+extension Holder {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = "held".to_string()
+        yield_now()
+        lend self.cells[i]
+        yield_now()
+        print("leaf epi {}", note)
+    }
+}
+
+struct Outer { inner: Holder }
+extension Outer: NoCopy {}
+
+extension Outer {
+    func fwd(&var self, i: Int) borrows -> &var Int {
+        borrow var x = self.inner.at(i) {
+            lend x
+            yield_now()
+        }
+        print("outer epi")
+    }
+}
+
+func run(o: &var Outer) -> Int {
+    var k = 0
+    while k < 3 {
+        borrow var c = o.fwd(0) {
+            yield_now()
+            c += 1
+        }
+        k += 1
+    }
+    o.inner.cells[0]
+}
+
+func main() {
+    var o = Outer(inner: Holder(cells: [10]))
+    print("{}", __saw_drive(run(&var o)))
+}

@@ -1,0 +1,414 @@
+// probe: stated
+// about: a forwarding accessor whose inner accessor keeps an owning local across its `lend`, by a direct `lend self.inner.at(i)`, with forwarding accessors that suspend in prologue and epilogue, driven as a task (SL-861)
+// stage 0: cannot parse a `borrow` prefix
+// speeds: -O0 -O2
+// leaks: none
+// Each owning local (String, NoCopy, NoCopy with a deinit) at forwarding depth 1
+// and 2, with no epilogue, the inner's alone, or every accessor's: the inner
+// epilogue runs at the outer window's close and the local drops once a call.
+// prints: string-none 1 = 11
+// prints: string-none 2 = 11
+// prints: string-inner leaf epi held
+// prints: string-inner 1 = 11
+// prints: string-inner leaf epi held
+// prints: string-inner 2 = 11
+// prints: string-both leaf epi held
+// prints: string-both mid epi
+// prints: string-both 1 = 11
+// prints: string-both leaf epi held
+// prints: string-both mid epi
+// prints: string-both top epi
+// prints: string-both 2 = 11
+// prints: plain-none 1 = 11
+// prints: plain-none 2 = 11
+// prints: plain-inner leaf epi 7
+// prints: plain-inner 1 = 11
+// prints: plain-inner leaf epi 7
+// prints: plain-inner 2 = 11
+// prints: plain-both leaf epi 7
+// prints: plain-both mid epi
+// prints: plain-both 1 = 11
+// prints: plain-both leaf epi 7
+// prints: plain-both mid epi
+// prints: plain-both top epi
+// prints: plain-both 2 = 11
+// prints: drop traced 7
+// prints: traced-none 1 = 11
+// prints: drop traced 7
+// prints: traced-none 2 = 11
+// prints: traced-inner leaf epi 7
+// prints: drop traced 7
+// prints: traced-inner 1 = 11
+// prints: traced-inner leaf epi 7
+// prints: drop traced 7
+// prints: traced-inner 2 = 11
+// prints: traced-both leaf epi 7
+// prints: drop traced 7
+// prints: traced-both mid epi
+// prints: traced-both 1 = 11
+// prints: traced-both leaf epi 7
+// prints: drop traced 7
+// prints: traced-both mid epi
+// prints: traced-both top epi
+// prints: traced-both 2 = 11
+// prints: done 0
+
+import std.task.*
+
+struct Traced { id: Int }
+extension Traced: NoCopy {
+    func deinit(&var self) { print("drop traced {}", self.id) }
+}
+
+struct Plain { id: Int }
+extension Plain: NoCopy {}
+
+struct LeafStringNone { cells: Vector<Int> }
+extension LeafStringNone: NoCopy {}
+
+extension LeafStringNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = "held".to_string()
+        lend self.cells[i]
+    }
+}
+
+struct MidStringNone { inner: LeafStringNone }
+extension MidStringNone: NoCopy {}
+
+extension MidStringNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct TopStringNone { inner: MidStringNone }
+extension TopStringNone: NoCopy {}
+
+extension TopStringNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct LeafStringInner { cells: Vector<Int> }
+extension LeafStringInner: NoCopy {}
+
+extension LeafStringInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = "held".to_string()
+        lend self.cells[i]
+        print("string-inner leaf epi {}", note)
+    }
+}
+
+struct MidStringInner { inner: LeafStringInner }
+extension MidStringInner: NoCopy {}
+
+extension MidStringInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct TopStringInner { inner: MidStringInner }
+extension TopStringInner: NoCopy {}
+
+extension TopStringInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct LeafStringBoth { cells: Vector<Int> }
+extension LeafStringBoth: NoCopy {}
+
+extension LeafStringBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = "held".to_string()
+        lend self.cells[i]
+        print("string-both leaf epi {}", note)
+    }
+}
+
+struct MidStringBoth { inner: LeafStringBoth }
+extension MidStringBoth: NoCopy {}
+
+extension MidStringBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+        yield_now()
+        print("string-both mid epi")
+    }
+}
+
+struct TopStringBoth { inner: MidStringBoth }
+extension TopStringBoth: NoCopy {}
+
+extension TopStringBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+        yield_now()
+        print("string-both top epi")
+    }
+}
+
+struct LeafPlainNone { cells: Vector<Int> }
+extension LeafPlainNone: NoCopy {}
+
+extension LeafPlainNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Plain(id: 7)
+        lend self.cells[i]
+    }
+}
+
+struct MidPlainNone { inner: LeafPlainNone }
+extension MidPlainNone: NoCopy {}
+
+extension MidPlainNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct TopPlainNone { inner: MidPlainNone }
+extension TopPlainNone: NoCopy {}
+
+extension TopPlainNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct LeafPlainInner { cells: Vector<Int> }
+extension LeafPlainInner: NoCopy {}
+
+extension LeafPlainInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Plain(id: 7)
+        lend self.cells[i]
+        print("plain-inner leaf epi {}", note.id)
+    }
+}
+
+struct MidPlainInner { inner: LeafPlainInner }
+extension MidPlainInner: NoCopy {}
+
+extension MidPlainInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct TopPlainInner { inner: MidPlainInner }
+extension TopPlainInner: NoCopy {}
+
+extension TopPlainInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct LeafPlainBoth { cells: Vector<Int> }
+extension LeafPlainBoth: NoCopy {}
+
+extension LeafPlainBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Plain(id: 7)
+        lend self.cells[i]
+        print("plain-both leaf epi {}", note.id)
+    }
+}
+
+struct MidPlainBoth { inner: LeafPlainBoth }
+extension MidPlainBoth: NoCopy {}
+
+extension MidPlainBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+        yield_now()
+        print("plain-both mid epi")
+    }
+}
+
+struct TopPlainBoth { inner: MidPlainBoth }
+extension TopPlainBoth: NoCopy {}
+
+extension TopPlainBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+        yield_now()
+        print("plain-both top epi")
+    }
+}
+
+struct LeafTracedNone { cells: Vector<Int> }
+extension LeafTracedNone: NoCopy {}
+
+extension LeafTracedNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Traced(id: 7)
+        lend self.cells[i]
+    }
+}
+
+struct MidTracedNone { inner: LeafTracedNone }
+extension MidTracedNone: NoCopy {}
+
+extension MidTracedNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct TopTracedNone { inner: MidTracedNone }
+extension TopTracedNone: NoCopy {}
+
+extension TopTracedNone {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct LeafTracedInner { cells: Vector<Int> }
+extension LeafTracedInner: NoCopy {}
+
+extension LeafTracedInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Traced(id: 7)
+        lend self.cells[i]
+        print("traced-inner leaf epi {}", note.id)
+    }
+}
+
+struct MidTracedInner { inner: LeafTracedInner }
+extension MidTracedInner: NoCopy {}
+
+extension MidTracedInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct TopTracedInner { inner: MidTracedInner }
+extension TopTracedInner: NoCopy {}
+
+extension TopTracedInner {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+    }
+}
+
+struct LeafTracedBoth { cells: Vector<Int> }
+extension LeafTracedBoth: NoCopy {}
+
+extension LeafTracedBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        let note = Traced(id: 7)
+        lend self.cells[i]
+        print("traced-both leaf epi {}", note.id)
+    }
+}
+
+struct MidTracedBoth { inner: LeafTracedBoth }
+extension MidTracedBoth: NoCopy {}
+
+extension MidTracedBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+        yield_now()
+        print("traced-both mid epi")
+    }
+}
+
+struct TopTracedBoth { inner: MidTracedBoth }
+extension TopTracedBoth: NoCopy {}
+
+extension TopTracedBoth {
+    func at(&var self, i: Int) borrows -> &var Int {
+        yield_now()
+        lend self.inner.at(i)
+        yield_now()
+        print("traced-both top epi")
+    }
+}
+
+func run() -> Int {
+    var string_none1 = MidStringNone(inner: LeafStringNone(cells: [10]))
+    borrow var string_none1.at(0) += 1
+    print("string-none 1 = {}", string_none1.inner.cells[0])
+    var string_none2 = TopStringNone(inner: MidStringNone(inner: LeafStringNone(cells: [10])))
+    borrow var string_none2.at(0) += 1
+    print("string-none 2 = {}", string_none2.inner.inner.cells[0])
+    var string_inner1 = MidStringInner(inner: LeafStringInner(cells: [10]))
+    borrow var string_inner1.at(0) += 1
+    print("string-inner 1 = {}", string_inner1.inner.cells[0])
+    var string_inner2 = TopStringInner(inner: MidStringInner(inner: LeafStringInner(cells: [10])))
+    borrow var string_inner2.at(0) += 1
+    print("string-inner 2 = {}", string_inner2.inner.inner.cells[0])
+    var string_both1 = MidStringBoth(inner: LeafStringBoth(cells: [10]))
+    borrow var string_both1.at(0) += 1
+    print("string-both 1 = {}", string_both1.inner.cells[0])
+    var string_both2 = TopStringBoth(inner: MidStringBoth(inner: LeafStringBoth(cells: [10])))
+    borrow var string_both2.at(0) += 1
+    print("string-both 2 = {}", string_both2.inner.inner.cells[0])
+    var plain_none1 = MidPlainNone(inner: LeafPlainNone(cells: [10]))
+    borrow var plain_none1.at(0) += 1
+    print("plain-none 1 = {}", plain_none1.inner.cells[0])
+    var plain_none2 = TopPlainNone(inner: MidPlainNone(inner: LeafPlainNone(cells: [10])))
+    borrow var plain_none2.at(0) += 1
+    print("plain-none 2 = {}", plain_none2.inner.inner.cells[0])
+    var plain_inner1 = MidPlainInner(inner: LeafPlainInner(cells: [10]))
+    borrow var plain_inner1.at(0) += 1
+    print("plain-inner 1 = {}", plain_inner1.inner.cells[0])
+    var plain_inner2 = TopPlainInner(inner: MidPlainInner(inner: LeafPlainInner(cells: [10])))
+    borrow var plain_inner2.at(0) += 1
+    print("plain-inner 2 = {}", plain_inner2.inner.inner.cells[0])
+    var plain_both1 = MidPlainBoth(inner: LeafPlainBoth(cells: [10]))
+    borrow var plain_both1.at(0) += 1
+    print("plain-both 1 = {}", plain_both1.inner.cells[0])
+    var plain_both2 = TopPlainBoth(inner: MidPlainBoth(inner: LeafPlainBoth(cells: [10])))
+    borrow var plain_both2.at(0) += 1
+    print("plain-both 2 = {}", plain_both2.inner.inner.cells[0])
+    var traced_none1 = MidTracedNone(inner: LeafTracedNone(cells: [10]))
+    borrow var traced_none1.at(0) += 1
+    print("traced-none 1 = {}", traced_none1.inner.cells[0])
+    var traced_none2 = TopTracedNone(inner: MidTracedNone(inner: LeafTracedNone(cells: [10])))
+    borrow var traced_none2.at(0) += 1
+    print("traced-none 2 = {}", traced_none2.inner.inner.cells[0])
+    var traced_inner1 = MidTracedInner(inner: LeafTracedInner(cells: [10]))
+    borrow var traced_inner1.at(0) += 1
+    print("traced-inner 1 = {}", traced_inner1.inner.cells[0])
+    var traced_inner2 = TopTracedInner(inner: MidTracedInner(inner: LeafTracedInner(cells: [10])))
+    borrow var traced_inner2.at(0) += 1
+    print("traced-inner 2 = {}", traced_inner2.inner.inner.cells[0])
+    var traced_both1 = MidTracedBoth(inner: LeafTracedBoth(cells: [10]))
+    borrow var traced_both1.at(0) += 1
+    print("traced-both 1 = {}", traced_both1.inner.cells[0])
+    var traced_both2 = TopTracedBoth(inner: MidTracedBoth(inner: LeafTracedBoth(cells: [10])))
+    borrow var traced_both2.at(0) += 1
+    print("traced-both 2 = {}", traced_both2.inner.inner.cells[0])
+    0
+}
+
+func main() {
+    print("done {}", __saw_drive(run()))
+}

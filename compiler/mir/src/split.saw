@@ -7,8 +7,9 @@
 // a `lend` resumes into: it reads the record into its locals and continues.
 // The record holds exactly the locals live across the `lend`, by liveness
 // over the whole body, a drop flag for each owning one that is not definitely
-// whole at every `lend`, and a resume index when the body lends at more than
-// one place. It is the shape coroutine frames take (§3.9).
+// whole at every `lend` (a carried window's own record takes none), and a
+// resume index when the body lends at more than one place. It is the shape
+// coroutine frames take (§3.9).
 
 import sawmir.build.{mir_func_local}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit}
@@ -477,7 +478,10 @@ extension MirProgram {
     // its initialisation across the split in a `Bool` field after the locals,
     // so the epilogue's drop of it is decided by the flag, not by the load
     // (SL:architecture §3.7). The record write is a transfer the shared
-    // analysis models (initialisation.saw). A local partly moved out at a
+    // analysis models (initialisation.saw). A window's own state record,
+    // carried across a forwarding `lend`, takes none: the window's open fills
+    // it through a reference and its close empties it, so nothing drops it
+    // and the analysis never sees it whole. A local partly moved out at a
     // `lend` has no one flag, and is refused. A temporary is partial there
     // only when it is a `match`, `if let` or `while let` scrutinee whose
     // leftovers the construct holds across a `lend` in its body: the record
@@ -520,6 +524,7 @@ extension MirProgram {
         k = 0
         while k < record.len() {
             let t = mir_func_local(&self, f, record[k]).ty
+            let window_record = mir_func_local(&self, f, record[k]).kind == MirLocalKind.Record
             let own = states[k]
             var slot = -1
             if (own & MIR_INIT_PARTIAL) != 0 && mir_func_local(&self, f, record[k]).kind == MirLocalKind.Temp {
@@ -531,7 +536,7 @@ extension MirProgram {
                 // (transfer.partial-move).
                 let root = self.funcs[f].root
                 self.missing_at(f, root, "an accessor's local is partly moved out at `lend`, which typecheck refuses as transfer.partial-move")
-            } else if own != MIR_INIT_WHOLE && self.owns(t) {
+            } else if own != MIR_INIT_WHOLE && self.owns(t) && not window_record {
                 slot = next
                 next = next + 1
             }
