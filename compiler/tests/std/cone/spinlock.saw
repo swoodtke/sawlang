@@ -23,7 +23,7 @@ func main() -> Int {
     record(true)
     record(false)
     let local = SpinLock<Int>(value: 2)
-    let quick = if borrow var n = local.try_lock() { n } else { 0 }
+    let quick = if var n = local.try_lock() { n } else { 0 }
     let hits = borrow var c = STATS.lock() { c.hits }
     if local.is_locked() {
         return 1

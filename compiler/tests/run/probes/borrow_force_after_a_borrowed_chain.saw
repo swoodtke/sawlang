@@ -11,7 +11,7 @@
 import std.json.{JsonValue}
 
 func first_is(doc: &JsonValue, target: String) -> Bool {
-    let s = borrow doc.as_array()![0].as_text()!
+    let s = doc.as_array()![0].as_text()!
     s == target
 }
 

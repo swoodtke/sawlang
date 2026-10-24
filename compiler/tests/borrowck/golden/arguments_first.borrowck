@@ -1,0 +1,161 @@
+module arguments_first
+
+fn arguments_first.P.bump(by: Int) {
+
+    bb0: {
+        [] _3 = Add(copy (*_1).n, copy _2);
+        [] (*_1).n = move _3;
+        [] return;
+    }
+}
+
+fn prologue arguments_first.Grid.last() {
+    loan L0: shared (*_1).rows;  // argument at 21:27
+    loan L1: exclusive (*_1).rows;  // ref at 21:9
+    loan L2: exclusive (*_1).rows;  // window w0 at 21:9
+    loan L3: exclusive (*_5);  // ref at 21:9
+    loan L4: exclusive (*_5);  // window w1 at 21:9
+    loan L5: exclusive (*_7);  // ref at 21:9
+
+    bb0: {
+        [] {} _2 = ref(shared, (*_1).rows);
+        [] {L0} _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _4 = Sub(move _3, const 1: Int);
+        [] {} _6 = ref(exclusive, (*_1).rows);
+        [] {L1} _5 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _6, const 0: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L1 L2} _8 = ref(exclusive, (*_5));
+        [] {L1 L2 L3} _7 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>) [move _8, move _4] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L1 L2 L3 L4} _9 = ref(exclusive, (*_7));
+        [] {L1 L2 L3 L4 L5} _0 = move _9;
+        [] {L1 L2 L3 L4 L5} return;
+    }
+}
+
+fn epilogue arguments_first.Grid.last() {
+
+    bb0: {
+        [] goto -> bb1;
+    }
+
+    bb1: {
+        [] window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>) -> [return: bb2];
+    }
+
+    bb2: {
+        [] window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb3];
+    }
+
+    bb3: {
+        [] return;
+    }
+}
+
+fn arguments_first.method_argument(g: &var std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
+    loan L0: shared (*_1);  // argument at 26:22
+    loan L1: exclusive (*_1);  // ref at 26:5
+    loan L2: exclusive (*_1);  // window w0 at 26:5
+    loan L3: exclusive (*_4);  // ref at 26:5
+    loan L4: exclusive (*_4);  // window w1 at 26:5
+    loan L5: exclusive (*_6);  // argument at 26:5
+
+    bb0: {
+        [] {} _2 = ref(shared, (*_1));
+        [] {L0} _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [] {} _5 = ref(exclusive, (*_1));
+        [] {L1} _4 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _5, const 0: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [] {L1 L2} _7 = ref(exclusive, (*_4));
+        [] {L1 L2 L3} _6 = window_open w1 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>) [move _7, const 0: Int] -> [present: bb3];
+    }
+
+    bb3: {
+        [] {L1 L2 L3 L4} _8 = ref(exclusive, (*_6));
+        [] {L1 L2 L3 L4 L5} call arguments_first.P.bump(by: Int) (owner arguments_first.P) [move _8, move _3] -> [return: bb4];
+    }
+
+    bb4: {
+        [] {L1 L2 L3 L4} _9 = const (): Void;
+        [] {L1 L2 L3 L4} window_close w1 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>) -> [return: bb5];
+    }
+
+    bb5: {
+        [] {L1 L2} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<arguments_first.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb6];
+    }
+
+    bb6: {
+        [] {} return;
+    }
+}
+
+fn arguments_first.push_length(vv: &var std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
+    place _7: Result<Void, std.alloc.AllocError>;  // _7
+    loan L0: shared (*_1);  // argument at 30:21
+    loan L1: exclusive (*_1);  // ref at 30:10
+    loan L2: exclusive (*_1);  // window w0 at 30:10
+    loan L3: exclusive (*_4);  // argument at 30:10
+
+    bb0: {
+        [U] {} _2 = ref(shared, (*_1));
+        [U] {L0} _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1];
+    }
+
+    bb1: {
+        [U] {} _5 = ref(exclusive, (*_1));
+        [U] {L1} _4 = window_open w0 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) [move _5, const 0: Int] -> [present: bb2];
+    }
+
+    bb2: {
+        [U] {L1 L2} _6 = ref(exclusive, (*_4));
+        [U] {L1 L2 L3} _7 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6, move _3] -> [return: bb3];
+    }
+
+    bb3: {
+        [W] {L1 L2} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<std.vector.Vector<Int, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) -> [return: bb4];
+    }
+
+    bb4: {
+        [W] {} _8 = copy (_7 as Ok!).0;
+        [W] {} drop(_7);  // static
+        [D] {} return;
+    }
+}
+
+fn arguments_first.forwarded(grid: &var arguments_first.Grid) {
+    loan L0: exclusive (*_1);  // ref at 34:5
+    loan L1: exclusive (*_1);  // window w0 at 34:5
+
+    bb0: {
+        [] {} _3 = ref(exclusive, (*_1));
+        [] {L0} _2 = window_open w0 prologue arguments_first.Grid.last() (owner arguments_first.Grid) [move _3] -> [present: bb1];
+    }
+
+    bb1: {
+        [] {L0 L1} (*_2).n = Add(copy (*_2).n, const 1: Int);
+        [] {L0 L1} window_close w0 epilogue arguments_first.Grid.last() (owner arguments_first.Grid) -> [return: bb2];
+    }
+
+    bb2: {
+        [] {} return;
+    }
+}
+
+fn arguments_first.main() {
+
+    bb0: {
+        [] return;
+    }
+}

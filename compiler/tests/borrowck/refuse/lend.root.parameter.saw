@@ -14,5 +14,5 @@ extension Counter {
 
 func main() {
     let c = Counter(n: 1)
-    print(borrow c.pick(9))
+    print(c.pick(9))
 }

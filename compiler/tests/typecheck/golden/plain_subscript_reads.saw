@@ -69,16 +69,16 @@ func tag(v: &Vector<Slot>) -> Int {
 func main() {
     var v: Vector<Res> = Vector<Res>()
     try! v.push(Res(id: 1))
-    print("{borrow v[0]}")
-    print(borrow v[0])
-    print("{}", borrow v[0])
-    assert(borrow v[0] == borrow v[0], "{}", borrow v[0])
-    let a = borrow v[0].id
-    let b = borrow v[0].look()
+    print("{v[0]}")
+    print(v[0])
+    print("{}", v[0])
+    assert(v[0] == v[0], "{}", v[0])
+    let a = v[0].id
+    let b = v[0].look()
     let w: Vector<Vector<Int>> = [[1, 2]]
     let c = w[0].copy()
-    let d = borrow w[0][1]
-    let e = borrow w[0].len()
+    let d = w[0][1]
+    let e = w[0].len()
     let n: Vector<Int> = [1, 2]
     print("{n[0]}")
     print("{}", n[1])

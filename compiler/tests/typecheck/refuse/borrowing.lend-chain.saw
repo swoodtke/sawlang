@@ -1,4 +1,4 @@
-// refuses: borrowing.lend-chain at 28:16
+// refuses: borrowing.lend-chain at 28:5
 // a second `?.` hop past a conditional lend's own in an optional assignment
 // (spec, Optionals: "One fence")
 
@@ -25,5 +25,5 @@ extension Shelf {
 
 func main() {
     var s = Shelf(slot: Slot(leaf: None))
-    borrow var s.find(0)?.leaf?.n = 4
+    s.find(0)?.leaf?.n = 4
 }

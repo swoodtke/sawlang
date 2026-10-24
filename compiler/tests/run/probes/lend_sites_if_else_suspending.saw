@@ -1753,7 +1753,7 @@ func use_p_ff(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_ff(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_ff(sel, 0) {
+    if var x = s.c_ff(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1772,7 +1772,7 @@ func use_p_fv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fv(sel, 0) {
+    if var x = s.c_fv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1791,7 +1791,7 @@ func use_p_fh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fh(sel, 0) {
+    if var x = s.c_fh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1810,7 +1810,7 @@ func use_p_vf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vf(sel, 0) {
+    if var x = s.c_vf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1829,7 +1829,7 @@ func use_p_vv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vv(sel, 0) {
+    if var x = s.c_vv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1848,7 +1848,7 @@ func use_p_vh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vh(sel, 0) {
+    if var x = s.c_vh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1867,7 +1867,7 @@ func use_p_hf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hf(sel, 0) {
+    if var x = s.c_hf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1886,7 +1886,7 @@ func use_p_hv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hv(sel, 0) {
+    if var x = s.c_hv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1905,7 +1905,7 @@ func use_p_hh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hh(sel, 0) {
+    if var x = s.c_hh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1924,7 +1924,7 @@ func use_p_fff(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fff(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fff(sel, 0) {
+    if var x = s.c_fff(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1943,7 +1943,7 @@ func use_p_ffv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_ffv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_ffv(sel, 0) {
+    if var x = s.c_ffv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1962,7 +1962,7 @@ func use_p_ffh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_ffh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_ffh(sel, 0) {
+    if var x = s.c_ffh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -1981,7 +1981,7 @@ func use_p_fvf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fvf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fvf(sel, 0) {
+    if var x = s.c_fvf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2000,7 +2000,7 @@ func use_p_fvv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fvv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fvv(sel, 0) {
+    if var x = s.c_fvv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2019,7 +2019,7 @@ func use_p_fvh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fvh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fvh(sel, 0) {
+    if var x = s.c_fvh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2038,7 +2038,7 @@ func use_p_fhf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fhf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fhf(sel, 0) {
+    if var x = s.c_fhf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2057,7 +2057,7 @@ func use_p_fhv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fhv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fhv(sel, 0) {
+    if var x = s.c_fhv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2076,7 +2076,7 @@ func use_p_fhh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_fhh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_fhh(sel, 0) {
+    if var x = s.c_fhh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2095,7 +2095,7 @@ func use_p_vff(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vff(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vff(sel, 0) {
+    if var x = s.c_vff(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2114,7 +2114,7 @@ func use_p_vfv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vfv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vfv(sel, 0) {
+    if var x = s.c_vfv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2133,7 +2133,7 @@ func use_p_vfh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vfh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vfh(sel, 0) {
+    if var x = s.c_vfh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2152,7 +2152,7 @@ func use_p_vvf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vvf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vvf(sel, 0) {
+    if var x = s.c_vvf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2171,7 +2171,7 @@ func use_p_vvv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vvv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vvv(sel, 0) {
+    if var x = s.c_vvv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2190,7 +2190,7 @@ func use_p_vvh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vvh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vvh(sel, 0) {
+    if var x = s.c_vvh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2209,7 +2209,7 @@ func use_p_vhf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vhf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vhf(sel, 0) {
+    if var x = s.c_vhf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2228,7 +2228,7 @@ func use_p_vhv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vhv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vhv(sel, 0) {
+    if var x = s.c_vhv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2247,7 +2247,7 @@ func use_p_vhh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_vhh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_vhh(sel, 0) {
+    if var x = s.c_vhh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2266,7 +2266,7 @@ func use_p_hff(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hff(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hff(sel, 0) {
+    if var x = s.c_hff(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2285,7 +2285,7 @@ func use_p_hfv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hfv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hfv(sel, 0) {
+    if var x = s.c_hfv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2304,7 +2304,7 @@ func use_p_hfh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hfh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hfh(sel, 0) {
+    if var x = s.c_hfh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2323,7 +2323,7 @@ func use_p_hvf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hvf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hvf(sel, 0) {
+    if var x = s.c_hvf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2342,7 +2342,7 @@ func use_p_hvv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hvv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hvv(sel, 0) {
+    if var x = s.c_hvv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2361,7 +2361,7 @@ func use_p_hvh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hvh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hvh(sel, 0) {
+    if var x = s.c_hvh(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2380,7 +2380,7 @@ func use_p_hhf(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hhf(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hhf(sel, 0) {
+    if var x = s.c_hhf(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2399,7 +2399,7 @@ func use_p_hhv(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hhv(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hhv(sel, 0) {
+    if var x = s.c_hhv(sel, 0) {
         yield_now()
         x += 1
     } else {
@@ -2418,7 +2418,7 @@ func use_p_hhh(s: &var S, sel: Int) -> Int {
 }
 
 func use_c_hhh(s: &var S, sel: Int) -> Int {
-    if borrow var x = s.c_hhh(sel, 0) {
+    if var x = s.c_hhh(sel, 0) {
         yield_now()
         x += 1
     } else {

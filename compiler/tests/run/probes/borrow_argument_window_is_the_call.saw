@@ -250,19 +250,19 @@ func outer(a: Int, b: Int) -> Int {
 }
 
 func r_us(h: &Holder) -> Int {
-    return look(borrow h.get().name) + after()
+    return look(&h.get().name) + after()
 }
 
 func r_cs(h: &Holder) -> Int {
-    return look(borrow h.find()!.name) + after()
+    return look(&h.find()!.name) + after()
 }
 
 func r_ux(h: &var Holder) -> Int {
-    return bump(borrow var h.getv().count) + after()
+    return bump(&var h.getv().count) + after()
 }
 
 func r_cx(h: &var Holder) -> Int {
-    return bump(borrow var h.findv()!.count) + after()
+    return bump(&var h.findv()!.count) + after()
 }
 
 func main() {
@@ -271,43 +271,43 @@ func main() {
     let k = K(k: 0)
     var x = 0
     print("plain")
-    x = look(borrow h.get().name) + after()
-    x = look(borrow h.find()!.name) + after()
-    x = bump(borrow var h.getv().count) + after()
-    x = bump(borrow var h.findv()!.count) + after()
+    x = look(&h.get().name) + after()
+    x = look(&h.find()!.name) + after()
+    x = bump(&var h.getv().count) + after()
+    x = bump(&var h.findv()!.count) + after()
     print("method argument")
-    x = k.look_m(borrow h.get().name) + after()
-    x = k.look_m(borrow h.find()!.name) + after()
-    x = k.bump_m(borrow var h.getv().count) + after()
-    x = k.bump_m(borrow var h.findv()!.count) + after()
+    x = k.look_m(&h.get().name) + after()
+    x = k.look_m(&h.find()!.name) + after()
+    x = k.bump_m(&var h.getv().count) + after()
+    x = k.bump_m(&var h.findv()!.count) + after()
     print("nested call argument")
-    x = outer(look(borrow h.get().name), after())
-    x = outer(look(borrow h.find()!.name), after())
-    x = outer(bump(borrow var h.getv().count), after())
-    x = outer(bump(borrow var h.findv()!.count), after())
+    x = outer(look(&h.get().name), after())
+    x = outer(look(&h.find()!.name), after())
+    x = outer(bump(&var h.getv().count), after())
+    x = outer(bump(&var h.findv()!.count), after())
     print("interpolation segment")
-    x = outer(slen("{borrow h.get().name}"), after())
-    x = outer(slen("{borrow h.find()!.name}"), after())
+    x = outer(slen("{h.get().name}"), after())
+    x = outer(slen("{h.find()!.name}"), after())
     print("call in a segment")
-    let s1 = "{look(borrow h.get().name)}{after()}"
-    let s2 = "{bump(borrow var h.getv().count)}{after()}"
+    let s1 = "{look(&h.get().name)}{after()}"
+    let s2 = "{bump(&var h.getv().count)}{after()}"
     print("comparison operand")
-    x = outer(bint(borrow h.get().name == after_s()), after())
-    x = outer(bint(borrow h.find()!.name == after_s()), after())
+    x = outer(bint(h.get().name == after_s()), after())
+    x = outer(bint(h.find()!.name == after_s()), after())
     print("return operand")
     x = r_us(&h)
     x = r_cs(&h)
     x = r_ux(&var h)
     x = r_cx(&var h)
     print("let initializer")
-    let l1 = look(borrow h.get().name) + after()
-    let l2 = look(borrow h.find()!.name) + after()
-    let l3 = bump(borrow var h.getv().count) + after()
-    let l4 = bump(borrow var h.findv()!.count) + after()
+    let l1 = look(&h.get().name) + after()
+    let l2 = look(&h.find()!.name) + after()
+    let l3 = bump(&var h.getv().count) + after()
+    let l4 = bump(&var h.findv()!.count) + after()
     print("format argument")
-    print("printed {} {}", borrow h.get().name, after())
-    print("printed {} {}", borrow h.find()!.name, after())
+    print("printed {} {}", h.get().name, after())
+    print("printed {} {}", h.find()!.name, after())
     print("accessor argument")
-    x = look(borrow g.at(borrow h.get().name).name) + after()
+    x = look(&g.at(&h.get().name).name) + after()
     print("end {} {} {} {} {} {} {} {}", x, s1, s2, l1, l2, l3, l4, h.item.count)
 }

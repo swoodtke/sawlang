@@ -70,8 +70,14 @@ func a() { match b { case c(d) -> e } }
 // case: syntax.pat.payload.pattern/alt
 func a() { match b { case c(d) -> e } }
 
+// case: syntax.pat.payload.var/alt
+func a() { match b { case c(var d) -> e } }
+
 // case: syntax.pat.payload.borrow/alt
 func a() { match b { case c(borrow let d) -> e } }
+
+// case: syntax.pat.var-binding/alt
+func a() { match b { case c(var d) -> e } }
 
 // case: syntax.pat.name/alt
 func a() { match b { case c -> d } }

@@ -17,6 +17,6 @@ extension Grid {
 func main() {
     var g = Grid(cells: [1, 2])
     var p = Pair(n: 1)
-    borrow var g.relay(&var p) = 9
+    g.relay(&var p) = 9
     print(p.n)
 }

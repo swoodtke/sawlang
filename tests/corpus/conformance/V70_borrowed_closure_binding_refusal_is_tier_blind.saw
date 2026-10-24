@@ -16,7 +16,7 @@ extension Res: NoCopy {
 }
 
 func with_first(v: &var Vector<Arc<Res>>, body: (&var Arc<Res>) sync -> Arc<Res>) -> Arc<Res> {
-    body(borrow var v[0])
+    body(&var v[0])
 }
 
 func copy_tier_face() -> Arc<Res> {

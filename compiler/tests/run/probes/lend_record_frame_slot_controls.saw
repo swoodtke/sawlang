@@ -76,8 +76,8 @@ func run_air1_statement() {
     print("case air1_statement")
     var s = Two0(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -143,8 +143,8 @@ func run_air3_both_top_yield() {
     print("case air3_both_top_yield")
     var s = Two2(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     borrow var p = s.pick(true) {
         yield_now()
         p += 1
@@ -183,8 +183,8 @@ func run_v_both_branch_yields() {
     print("case v_both_branch_yields")
     var s = Two3(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -214,8 +214,8 @@ func run_v_holder0_yield_only() {
     print("case v_holder0_yield_only")
     var s = Two4(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -245,8 +245,8 @@ func run_v_holder1_yield_only() {
     print("case v_holder1_yield_only")
     var s = Two5(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -277,8 +277,8 @@ func run_v_top_and_branch1() {
     print("case v_top_and_branch1")
     var s = Two6(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -307,8 +307,8 @@ func run_v_h0_yield_site0() {
     print("case v_h0_yield_site0")
     var s = Two7(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -337,8 +337,8 @@ func run_v_h0_yield_site1() {
     print("case v_h0_yield_site1")
     var s = Two8(a: [0], b: [0])
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }
 
@@ -369,8 +369,8 @@ func run_f_both_branch_yields() {
     print("case f_both_branch_yields")
     var s = Two9(a: 0, b: 0)
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a, s.b)
 }
 
@@ -400,8 +400,8 @@ func run_f_holder0_yield_only() {
     print("case f_holder0_yield_only")
     var s = Two10(a: 0, b: 0)
     yield_now()
-    borrow var s.pick(true) += 1
-    borrow var s.pick(false) += 2
+    s.pick(true) += 1
+    s.pick(false) += 2
     print("a {} b {}", s.a, s.b)
 }
 

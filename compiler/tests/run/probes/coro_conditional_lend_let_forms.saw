@@ -233,7 +233,7 @@ func guard_let_copy_B(h: &var HolderB, i: Int) -> Int {
 func while_let_copy_P(h: &var HolderP, i: Int) -> Int {
     var k = i
     var sum = 0
-    while let c = borrow h.find(k) {
+    while let c = h.find(k) {
         sum = sum + c
         k = k + 1
     }
@@ -243,7 +243,7 @@ func while_let_copy_P(h: &var HolderP, i: Int) -> Int {
 func while_let_copy_B(h: &var HolderB, i: Int) -> Int {
     var k = i
     var sum = 0
-    while let c = borrow h.find(k) {
+    while let c = h.find(k) {
         sum = sum + c
         k = k + 1
     }

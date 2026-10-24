@@ -22,6 +22,6 @@ func main() {
     var seed = Vector<Cell>()
     try! seed.push(Cell(n: 1))
     let v = move seed
-    borrow var v[0].bump()
+    v[0].bump()
     print(v[0].n)
 }

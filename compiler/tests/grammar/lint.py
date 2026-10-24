@@ -42,6 +42,7 @@ CHECKS = collections.OrderedDict([
     ("spec", "spec= names a heading of LANGUAGE_SPEC.md"),
     ("ref-format", "ref= names a document section, a tracker issue or a design"),
     ("lockdown-ref", "a lockdown production names its source in ref="),
+    ("deprecated-ref", "a deprecated production names the ruling that replaces it in ref="),
     ("node-kind", "node= is an UpperCamelName or -"),
     ("no-self-wrap", "no alternative builds a node around a lone node of its own Kind"),
     ("duplicate-name", "every syntax.* name is defined once"),
@@ -163,6 +164,10 @@ def _check_headers(run):
             run.saw("lockdown-ref")
             if p.ref is None:
                 run.fail(p.line, "lockdown-ref", "%s is lockdown but has no ref=" % p.name)
+        if p.status == "deprecated":
+            run.saw("deprecated-ref")
+            if p.ref is None:
+                run.fail(p.line, "deprecated-ref", "%s is deprecated but has no ref=" % p.name)
         run.saw("node-kind")
         if not NODE_RE.match(p.node):
             run.fail(p.line, "node-kind", "node %r is not an UpperCamelName or -" % p.node)

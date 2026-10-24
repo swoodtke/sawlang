@@ -29,7 +29,7 @@ import std.channel.{Channel}
 func worker(inbox: Channel<Int>, outbox: Channel<String>) {
     let n = try inbox.receive() catch { return }
     var doc = JsonValue.Object(fields: Map<String, JsonValue>())
-    let _ = try! borrow var doc.as_object()!.insert("a", JsonValue.Number(value: n))
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: n))
     let _ = outbox.send(try! doc.to_json_string())
 }
 

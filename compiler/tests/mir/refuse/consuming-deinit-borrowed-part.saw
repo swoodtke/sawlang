@@ -35,5 +35,5 @@ func join(a: String, b: String) -> String {
 }
 
 func read(h: &Holder) -> String {
-    join(borrow h.get().make().tag, "c")
+    join(h.get().make().tag, "c")
 }

@@ -5,8 +5,10 @@
 // side is evaluated first. So the lowering lifts a root-naming right-hand side
 // into a `let` ahead of the write, and the two accesses become two statements —
 // the shape design 188 has always accepted. Nothing is permitted that was not:
-// the overlap is removed rather than allowed, which is why the ARGUMENT and
-// body-read faces of the same expression stay refused
+// the overlap is removed rather than allowed. An ARGUMENT naming the root is
+// legal by the same reasoning, since an argument runs before the window it
+// feeds opens (SL:borrowing §12.1); a read inside a NAMED window's block has
+// no such order and stays refused
 // (`errors/place_window_root_read_teaches_the_asymmetry.saw`).
 //
 // DF-218j lifted a right-hand side that opened its own WINDOW on the root;
@@ -21,6 +23,7 @@
 // field hop 2
 // after pop 3 len 2
 // disjoint roots 5
+// argument 5
 
 struct Cell { n: Int }
 
@@ -29,6 +32,7 @@ extension Cell: ExplicitCopy {}
 
 extension Cell {
     func show(&self) -> Int { self.n }
+    func bump(&var self, by: Int) { self.n = self.n + by }
 }
 
 struct Holder { cell: Cell, tag: Int }
@@ -45,41 +49,45 @@ func main() {
     try! v.push(Cell(n: 3))
 
     // The subscript target, whole-field write.
-    borrow var v[0].n = v.len()
-    print("subscript {borrow v[0].show()}")
+    v[0].n = v.len()
+    print("subscript {v[0].show()}")
 
     // A COMPOUND assignment: the target is read and written, and the
     // right-hand side still runs first.
-    borrow var v[0].n += v.len()
-    print("compound {borrow v[0].show()}")
+    v[0].n += v.len()
+    print("compound {v[0].show()}")
 
     // A NAMED accessor as the target, over a MOVE-ONLY root — the tier that
     // made the old refusal loudest, since nothing here copies a `Holder`.
     var h = Holder(cell: Cell(n: 0), tag: 2)
-    borrow var h.at().n = h.count()
-    print("named accessor {borrow h.at().show()}")
+    h.at().n = h.count()
+    print("named accessor {h.at().show()}")
 
     // The optional-chain spelling, hoisted at the statement.
     var m = Map<String, Cell>()
     let _ = m.insert("a", Cell(n: 0))
-    borrow var m.find(&"a")?.n = m.len()
-    print("chain {borrow m["a"].show()}")
+    m.find(&"a")?.n = m.len()
+    print("chain {m["a"].show()}")
 
     // A field-hop target: the window is on `hs` and the write lands two hops
     // in, which does not change where the right-hand side runs.
     var hs = Vector<Holder>()
     try! hs.push(Holder(cell: Cell(n: 0), tag: 7))
-    borrow var hs[0].cell.n = hs.len() + 1
-    print("field hop {borrow hs[0].cell.n}")
+    hs[0].cell.n = hs.len() + 1
+    print("field hop {hs[0].cell.n}")
 
     // The right-hand side may even INVALIDATE the target's index, because it
     // finishes before the window opens: this pops, then writes.
-    borrow var v[0].n = v.pop()!.n
-    print("after pop {borrow v[0].show()} len {v.len()}")
+    v[0].n = v.pop()!.n
+    print("after pop {v[0].show()} len {v.len()}")
 
     // Control: a right-hand side rooted somewhere else is left where it is.
     var w = Vector<Cell>()
     try! w.push(Cell(n: 5))
-    borrow var v[1].n = borrow w[0].n
-    print("disjoint roots {borrow v[1].show()}")
+    v[1].n = w[0].n
+    print("disjoint roots {v[1].show()}")
+
+    // An ARGUMENT naming the target's root runs before the window opens.
+    v[0].bump(by: v.len())
+    print("argument {v[0].show()}")
 }

@@ -22,6 +22,6 @@ func main() {
     var h = Holder(item: Item(name: "abc", count: 3), n: 5)
     print(h.n)
     print(h.item.count)
-    h.n = bump(borrow var h.getv().count)
+    h.n = bump(&var h.getv().count)
     print(h.n)
 }

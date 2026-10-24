@@ -20,24 +20,24 @@ import std.json.{JsonValue}
 func main() {
     var list = try! JsonValue.parse(text: "[1, 2, 3]")
     var record = try! JsonValue.parse(text: "\{\"a\": 1, \"b\": [true]\}")
-    if borrow let items = list.as_array() { print("array {}", items.len()) } else { print("not an array") }
-    if borrow let fields = list.as_object() { print("object {}", fields.len()) } else { print("not an object") }
-    if borrow let fields = record.as_object() { print("object {}", fields.len()) } else { print("not an object") }
-    if borrow let items = record.as_array() { print("array {}", items.len()) } else { print("not an array") }
-    if borrow var items = list.as_array() {
+    if let items = list.as_array() { print("array {}", items.len()) } else { print("not an array") }
+    if let fields = list.as_object() { print("object {}", fields.len()) } else { print("not an object") }
+    if let fields = record.as_object() { print("object {}", fields.len()) } else { print("not an object") }
+    if let items = record.as_array() { print("array {}", items.len()) } else { print("not an array") }
+    if var items = list.as_array() {
         let _ = items.push(JsonValue.Number(value: 4))
         print("grown {}", items.len())
     }
-    if borrow let fields = record.as_object() {
-        print("field {}", borrow fields["a"].as_int() ?? -1)
+    if let fields = record.as_object() {
+        print("field {}", fields["a"].as_int() ?? -1)
     }
-    let size = borrow let e = list.as_array() { if borrow let items = e { items.len() } else { 0 } }
+    let size = borrow let e = list.as_array() { if let items = e { items.len() } else { 0 } }
     print("block {}", size)
     borrow let e = record.as_array() {
         if let _ = e { print("present block") } else { print("absent block") }
     }
-    let count = match borrow record.as_object() {
-        case Some(borrow let fields) -> fields.len(),
+    let count = match record.as_object() {
+        case Some(fields) -> fields.len(),
         case None -> 0
     }
     print("matched {}", count)

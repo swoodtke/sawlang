@@ -55,7 +55,7 @@ static TRIED: Atomic<Int> = Atomic(0)
 // owner when it is tried.
 func try_held() -> Int {
     while HOLDING.load() == 0 { }
-    if borrow var m = SHARED.try_lock() {
+    if var m = SHARED.try_lock() {
         print("held present {}", m)
     } else {
         print("held absent")
@@ -77,33 +77,33 @@ func held_by_another_thread() {
 
 func main() {
     var b = Bag(a: 5, visits: 0)
-    if borrow var x = b.at(0) { x += 1; print("present {}", x) } else { print("absent") }
-    if borrow let x = b.at(1) { print("present {}", x) } else { print("absent") }
-    if borrow let x = b.at(1) {
+    if var x = b.at(0) { x += 1; print("present {}", x) } else { print("absent") }
+    if let x = b.at(1) { print("present {}", x) } else { print("absent") }
+    if let x = b.at(1) {
         print("present {}", x)
-    } else if borrow var y = b.at(0) {
+    } else if var y = b.at(0) {
         y += 10
         print("else if {}", y)
     }
     print("bag {} visits {}", b.a, b.visits)
 
     var v: Vector<Int> = [1, 2, 3]
-    if borrow var e = v.find(1) { e += 10; print("vector {}", e) } else { print("vector absent") }
-    if borrow let e = v.find(3) { print("vector {}", e) } else { print("vector absent") }
+    if var e = v.find(1) { e += 10; print("vector {}", e) } else { print("vector absent") }
+    if let e = v.find(3) { print("vector {}", e) } else { print("vector absent") }
     print("vector [{}, {}, {}]", v[0], v[1], v[2])
 
     let m: Map<String, Int> = {"a": 1}
-    if borrow let x = m.find(&"a") { print("map {}", x) } else { print("map absent") }
-    if borrow let x = m.find(&"z") { print("map {}", x) } else { print("map absent") }
+    if let x = m.find(&"a") { print("map {}", x) } else { print("map absent") }
+    if let x = m.find(&"z") { print("map {}", x) } else { print("map absent") }
 
     let lock = SpinLock<Int>(value: 5)
-    if borrow var n = lock.try_lock() { n += 1; print("lock {}", n) } else { print("lock absent") }
+    if var n = lock.try_lock() { n += 1; print("lock {}", n) } else { print("lock absent") }
     print("unlocked {}", not lock.is_locked())
     held_by_another_thread()
 
     var arc = try! Arc<Int>(value: 3)
-    if borrow var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }
+    if var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }
     let other = arc
-    if borrow var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }
-    print("arc {}", borrow other.value())
+    if var p = arc.unique() { p += 1; print("unique {}", p) } else { print("shared") }
+    print("arc {}", other.value())
 }

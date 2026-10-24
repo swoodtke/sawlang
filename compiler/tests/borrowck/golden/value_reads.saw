@@ -32,11 +32,11 @@ func touch_with(s: String, r: &var Res) {
 }
 
 func assigned(h: &var Holder) {
-    borrow var h.get_var().n = borrow h.get().label().len()
+    h.get_var().n = h.get().label().len()
 }
 
 func arguments(h: &var Holder) {
-    touch_with(borrow h.get().label(), borrow var h.get_var())
+    touch_with(h.get().label(), &var h.get_var())
 }
 
 func main() {

@@ -1,4 +1,4 @@
-// refuses: loan.sync-suspend at 29:30
+// refuses: loan.sync-suspend at 29:24
 // a `borrows(sync)` window held across a suspension point: the window a
 // `borrow var` argument opens stays open while a later argument suspends
 // (SL:borrowing §2.5); typecheck's `borrows.sync-window` refuses the block
@@ -26,7 +26,7 @@ func add(n: &var Int, k: Int) {
 }
 
 func bump(l: &var Lock) {
-    add(borrow var l.hold(), slow())
+    add(&var l.hold(), slow())
 }
 
 func main() {

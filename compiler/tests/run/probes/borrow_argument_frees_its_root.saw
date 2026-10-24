@@ -103,10 +103,10 @@ func outer(a: Int, b: Int) -> Int {
 
 func main() {
     var h = Holder(item: Item(name: "abc", count: 3), n: 5)
-    print("shared window, exclusive use: {}", look(borrow h.get().name) + h.bumpn())
-    print("exclusive window, shared use: {}", look(borrow h.getx().name) + h.count())
-    print("written window, shared use: {}", bump(borrow var h.getv().count) + h.count())
-    print("conditional written window, exclusive use: {}", bump(borrow var h.findv()!.count) + h.bumpn())
-    print("sibling argument: {}", outer(look(borrow h.getx().name), h.count()))
+    print("shared window, exclusive use: {}", look(&h.get().name) + h.bumpn())
+    print("exclusive window, shared use: {}", look(&h.getx().name) + h.count())
+    print("written window, shared use: {}", bump(&var h.getv().count) + h.count())
+    print("conditional written window, exclusive use: {}", bump(&var h.findv()!.count) + h.bumpn())
+    print("sibling argument: {}", outer(look(&h.getx().name), h.count()))
     print("end {} {}", h.item.count, h.n)
 }

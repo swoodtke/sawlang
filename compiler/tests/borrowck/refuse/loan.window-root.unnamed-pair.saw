@@ -1,0 +1,13 @@
+// refuses: loan.window-root at 12:21
+// two unnamed lends of one root passed by `&var` to one call: each window is
+// the statement's, and they are checked together (SL:borrowing §12.1)
+
+struct Cell { n: Int }
+
+func pair(a: &var Cell, b: &var Cell) { a.n += b.n }
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    pair(&var v[0], &var v[1])
+}

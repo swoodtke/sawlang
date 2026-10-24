@@ -67,8 +67,8 @@ func local() {
 }
 
 func lent(s: &var Shelf) {
-    borrow var s.find(0)?.n = note(7)
-    borrow var s.find(1)?.n += note(8)
+    s.find(0)?.n = note(7)
+    s.find(1)?.n += note(8)
 }
 
 func tested(t: &var Top?) -> Int {

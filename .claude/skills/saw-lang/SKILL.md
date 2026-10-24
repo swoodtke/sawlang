@@ -945,61 +945,67 @@ var u = w.copy()       // explicit duplicate
           self.reads = self.reads + 1     // EPILOGUE — writes `self`, so no
       }                                   // `&self` form of this body exists
   }
-  borrow var g[4].weight += 1             // writes the element in place
+  g[4].weight += 1                        // writes the element in place
   ```
-  **EVERY USE OF A `borrows` METHOD SAYS `borrow`** (SL:borrowing §1-§2;
-  LANGUAGE_SPEC "The `borrow` construct"). A reader tells a borrow from a copy
-  by looking: whatever touches storage in place says `borrow`, whatever looks
-  like a copy IS a copy. sawc ENFORCES it (SL-849): a `borrows` call written
-  bare is `borrows.unmarked-call` at every position (an operand, an argument,
-  a condition, a scrutinee, an `if let` subject, an assignment target, a
-  closure, a call through a bound or `any`), and so is a write through a
-  subscript's place (`v[0].n = 5`, `v[0].bump()`), with a fixit naming
-  `borrow …` or `borrow var …`. The only bare positions are the DIRECT head
-  of a `for` (`for x in v.iter()`) and a `lend` operand. A call INSIDE a `for`
-  head is not the head: write `for i in 0..borrow doc.as_array()!.len()`,
-  which closes at the head (the bare bound held the root for the whole loop).
-  A `borrow` covers its own chain only, so a borrows call in one of its
-  ARGUMENTS takes its own `borrow`. Accessors of the frozen std
-  (`--std-root sawc`) stay exempt until SL-667. Three forms:
-  - **Block**: `borrow var slot = v[i] { slot.count += 1 }`,
-    `borrow let e = doc.section("net") { print(e.name) }`. Always NAMED; only
-    the name reaches the place inside (the head is evaluated once and is
-    unusable in the body). `let` = read-only, `var` = writable (needs a
-    `&var` lend). Closes at `}` and on every `return`/`break`/`continue`/`try`
-    exit. It is an EXPRESSION (value = tail, owned or copied — never the borrow
-    itself). Several bindings: `borrow var row = grid[r], var cell = row[c] { … }`
-    (open left to right, close in reverse). A temporary head is fine
-    (`borrow var x = make_grid()[0] { … }`). No `else`.
-  - **Statement**: `borrow var grid[r][c].weight += bias`,
-    `borrow var queues[k].push(job)`, `print(borrow doc.section("net").name)`.
-    Lasts the statement. Bare `borrow` is SHARED and `borrow var` EXCLUSIVE
-    (like `&`/`&var`); a write through bare `borrow` is refused; `borrow let`
-    with no name is refused. Binds tighter than `as`/binary ops/`=`
-    (`borrow t.get("k") ?? ""` coalesces the borrowed read). The RHS of an
-    assignment runs BEFORE the left borrow opens (`borrow var v[i].x = borrow
-    v[j].x` works for a copyable `x`). A conditional lend reached into needs
-    `!` or `?`; `borrow var v.find(9)?.value = loud(3)` runs `loud(3)` EVEN
-    WHEN ABSENT (only the write is skipped) — use
-    `if borrow var p = v.find(9) { p.value = loud(3) }` to compute it only when
-    present. `let c = borrow b.slot(0)` is an optional COPY (`T?`).
-  - **Argument**: `bump(borrow var g[4])` passes `&var`, `show(borrow g[4])`
-    passes `&` — the prefix REPLACES the sigil. A local or a plain field path
-    is still `&x` / `&var s.field`; `borrow` only where a `borrows` accessor is
-    called. `&` of a temporary is fine for a shared arg (`m.find(&"zz")`).
-  A plain `v[i]` is the GETITEM (a copy), `v[i] = x` the SETITEM; see the `v[i]`
-  gotcha. Any borrow may span a SUSPENSION unless the accessor is declared
+  **A `borrows` CALL IS A LEND, AND ITS WINDOW ENDS WHERE YOU CAN SEE IT**
+  (SL:borrowing §12; LANGUAGE_SPEC "Lends and their windows"). Two rules:
+  an UNNAMED lend lasts for its expression (the enclosing statement, or just
+  the head expression in a `for`/`if`/`while`/`match` head), and a NAMED lend
+  lasts for the block its binding opens. `let`, `var` and `guard let` NEVER
+  hold a lend: they copy the value out, or are refused naming the block forms.
+  - **Unnamed** (no marker): `grid[r][c].weight += bias`, `queues[k].push(job)`,
+    `print(doc.section("net").name)`, `bump(&var g[4])` / `show(&g[4])` (the
+    ordinary sigil passes a lent place for the call), `m.find(&k)?.n = 7`
+    (types `Void?`). The POSITION gives the mode: a write position (assignment
+    target, compound op, `&var` argument, a `&var self` method on the place) is
+    exclusive, everything else shared (through the `&self` accessor when one
+    exists). A head's sub-expression closes before the body:
+    `for i in 0..doc.as_array()!.len() { … }` lets the body write `doc`.
+    **ARGUMENTS FIRST:** every argument a window feeds runs before its
+    prologue, so `v[0].bump(by: v.len())` is legal, and so is an assignment's
+    RHS naming the root (`v[0].n = v.pop()!.n`). An absent `?` write still
+    runs its RHS — `v.find(9)?.value = loud(3)` calls `loud(3)` EVEN WHEN
+    ABSENT; `if var p = v.find(9) { p.value = loud(3) }` computes it only when
+    present. A chain that crosses a value a call returned closes there.
+  - **`let` copies**: `let n = v[0].n`, `let c = b.slot(0)` (an optional COPY,
+    `T?`). A non-Copy element is refused (`borrows.let-lend`), naming
+    `borrow let s = v[0] { … }`, `.copy()` (ExplicitCopy) or
+    `swap_out`/`remove` (NoCopy); `let it = v.iter()` is refused naming
+    `for x in v.iter()` and the block.
+  - **Named** (the block is the window): `borrow var slot = v[i] { … }`
+    (always named; only the name reaches the place; an EXPRESSION whose value is
+    the tail; several bindings `borrow var row = grid[r], var cell = row[c] { … }`
+    close in reverse; a temporary head is fine; no `else`),
+    `if let e = m.find(&k) { … } else { … }` / `if var e = m.find(&k) { e.n += 1 }`
+    (the then-block; a miss opens none), `while var e = it.find(&k) { … }`
+    (each body), `for x in v.iter() { … }`, a `match` arm over a lent place
+    (`case Some(var x)`, `case Occupied(_, var v) -> { lend v }`). `let`
+    reads, `var` writes (needs a `&var` lend).
+  - **Refusals that teach:** `if let x = v[i]` (unconditional:
+    `borrows.unconditional-test`, use `borrow let`), `guard let e = m.find(&k)`
+    (`borrows.guard-lend`, use `if let … else`).
+  A subscript READ AS A VALUE takes its plain role when it has one (a declared
+  getitem, or the derived one for a Copy element) and lends the place
+  otherwise; a subscript head/scrutinee/projection base does the same, while a
+  CALL head (`find`, `as_array`) always lends. `v[i] = x` is the SETITEM. A
+  plain and a `borrows` member of one name split the same way (value read →
+  plain; write or binding head → `borrows`). v0.18.0 spelled each unnamed lend
+  with a `borrow` prefix (`borrow var v[i] += 1`, `bump(borrow var g[4])`,
+  `if borrow let`, `for borrow var`, `case Some(borrow var x)`): still
+  accepted in v0.19.0 with its old meaning (GRAMMAR `deprecated`),
+  `-W borrow-prefix` warns where redundant, and `sawc fix FILE...` drops it
+  (KEEPing the prefixes that still mean a copy). std keeps the old spelling
+  for v0.19.0; never write it in new code. Any lend may span a SUSPENSION unless the accessor is declared
   `borrows(sync)` (locks): then a suspension inside the window is a compile
   error naming the accessor. `borrows(sync)` is NOT the function `sync` effect
   (that one says the accessor's own body doesn't suspend). An accessor that
   `lend`s while a `borrows(sync)` borrow is open (forwarding a lock's place, or
   lending its own buffer while holding a lock) must itself be `borrows(sync)`,
   else that `lend` is refused.
-  The frozen dirs (`blade/`, `libs/`, `examples/`) are v0.18.0's language,
-  which has no `borrow` and writes these places inline; v0.18.0's own skill
-  describes it, and nothing here is written in it. Write `borrow` in docs and
-  spec prose; docverify checks doc examples with sawc, so a block that uses it
-  is a `saw` or `saw-body` block like any other.
+  The frozen dirs (`blade/`, `libs/`, `examples/`) are Stage 0's language,
+  which writes these places inline too; nothing here is written in it.
+  docverify checks doc examples with sawc, so a block that lends is a `saw` or
+  `saw-body` block like any other.
   **THE ARROW NAMES THE LENT REFERENCE AND ITS MODE** (SL-333): four spellings,
   `-> &T` / `-> &var T` / `-> &T?` / `-> &var T?`. A use may read or write
   through `-> &var T`; `-> &T` is the READ-ONLY lend and a write
@@ -1033,24 +1039,20 @@ var u = w.copy()       // explicit duplicate
   (a body that writes `self` is refused there by the ordinary error); a read
   then uses the `&self` accessor (least privilege), a write the `&var self` one.
   std `Vector.[]` is declared this way. When the two bodies DIFFER, write both
-  (`Data.[]`, below). Window extent: a `borrow` block's window is
-  its block, a statement form's its statement (closing early once a copied
+  (`Data.[]`, below). Window extent: a named lend's window is
+  its block, an unnamed one's its statement (closing early once a copied
   result is read), an argument's the call. Windows
-  NEST (`borrow var b[0][1].n += 1` is two, epilogues LIFO) and a nested WRITE makes every
-  containing window exclusive too, so an immutable root is refused by NAME. A place borrow charges its
+  NEST (`b[0][1].n += 1` is two, epilogues LIFO) and a nested WRITE makes every
+  containing window exclusive too, so an immutable root is refused by NAME. A lend charges its
   ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
   by the Law of Exclusivity, not by a closure scope) and so is swapping two
   elements through two windows (`v.swap(i, j)` is the method for that).
-  **THE ONE POSITION THAT MAY NAME THE ROOT IS AN ASSIGNMENT'S RHS** — `v[0].n =
-  v.len()`, `h.at().n = h.count()`, and even `v[0].n = v.pop()!.n`, because a
-  right-hand side is defined to run BEFORE its target, so the compiler lifts it
-  out of the window and the two accesses become two statements (DF-218j, widened
-  to plain reads by DF-248a). Everywhere else the root stays refused —
-  `v[0].bump(by: v.len())`, `print("{v.len()} {v[0]}")`, `v[0] == v[1]` — because
-  an argument and a body read run AFTER the accessor's prologue and lifting one
-  would reorder the program; write the `let` yourself there. The diagnostic
-  (``cannot read `v` from inside a place window opened on it``) spells the
-  asymmetry out, since nothing on the page distinguishes the two.
+  **A ROOT-NAMING READ IS LEGAL ONLY BY ORDER** — an assignment's RHS
+  (`v[0].n = v.len()`, `v[0].n = v.pop()!.n`) runs BEFORE its target, and an
+  argument runs before the window it feeds opens (`v[0].bump(by: v.len())`),
+  so neither lands inside the window. Inside a NAMED window's block there is
+  no order: `borrow var e = v[0] { print(v.len()) }` is `loan.window-root`;
+  read the root above the block.
   **TWO BY-REFERENCE ACCESSES TO ONE ROOT IN ONE CALL, at least one a place,
   are an EXCLUSIVITY ERROR on every copy tier (design 188)** — two windows
   (`setboth(&var p.at(0), &var p.at(1))`) or a window beside a `&var` of its
@@ -1070,10 +1072,10 @@ var u = w.copy()       // explicit duplicate
   payload of a receiver-rooted scrutinee counts, and so does an INDIRECTION out
   of the receiver (`if let buf = self.buffer { lend buf[i] }` — the receiver's
   own heap, which is how std Vector/Data are written); `lend buf` whole does not.
-  **EVERY WRITE THROUGH A PLACE SAYS `borrow var`**, all meaning "replace or
-  mutate the storage the container already holds, where it sits":
-  `borrow var c.slot(i) = fresh`, `borrow var g[4].weight += 1`,
-  `borrow var m.find(&k)?.field = v` (absent: nothing written, but the RHS
+  **EVERY WRITE THROUGH A PLACE** means "replace or mutate the storage the
+  container already holds, where it sits":
+  `c.slot(i) = fresh`, `g[4].weight += 1`,
+  `m.find(&k)?.field = v` (absent: nothing written, but the RHS
   already ran; types `Void?`), `borrow var e = m[k] { e = fresh }` (panics if
   `k` is absent). A plain `v[i] = fresh` / `m[k] = fresh` is the SETITEM (Map:
   inserts). Each holds the root EXCLUSIVELY, so each needs a `var` root
@@ -1083,26 +1085,24 @@ var u = w.copy()       // explicit duplicate
   first.
   **`borrows -> &T?` / `-> &var T?` is the CONDITIONAL lend**: each path either `lend`s or
   plainly `return None`. The absent path opens NO window and runs NO epilogue.
-  UNWRAPPING ONE SAYS `borrow`: `if borrow let c = g.at(i) { … } else { … }`,
-  `if borrow var e = m.find(&k) { e.n += 1 }`, `case Some(borrow var x) ->`,
-  `while borrow var e = it.find(&k) { … }` (re-borrows each iteration). A
-  plain `if let x = e` / `case Some(x)` COPIES the payload (refused for
-  non-copyable, hint `borrow let`); `if var x = e` on a place is refused;
-  `if let _ = e` / `case Some(_)` is a presence test at every tier. `guard`
-  takes NO borrow binding (`guard borrow let …` is refused; use
-  `if borrow let … { } else { }`). On the absent path no borrow is open, so
+  An `if let`/`if var` over one BINDS THE PLACE: `if let c = g.at(i) { … } else { … }`,
+  `if var e = m.find(&k) { e.n += 1 }` (the write lands in the map),
+  `case Some(var x) ->`, `while var e = it.find(&k) { … }` (re-lends each
+  iteration). To COPY instead, read it as a value first: `let c = m.find(&k)`
+  then `if let x = c`. `if let _ = e` / `case Some(_)` is a presence test at
+  every tier. `guard let` takes NO lend (`borrows.guard-lend`; use
+  `if let … { } else { }`). On the absent path no window is open, so
   the root is usable there (insert-on-miss). `Vector.find(i)` is the vector's
   conditional lend; `v.get(i)` / `m.get(k)` return optional COPIES.
   `lend` may not be in a LOOP, so a body that has to
   SEARCH splits in two: a plain function finds the index, the accessor lends it
   (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
   follow design 131's table: retain for Copy, clean error for
-  ExplicitCopy/NoCopy, whose hint names `borrow` / `swap_out`. A plain
-  `print(v[0])`, `"{v[0]}"` or `v[0] == w[0]` is a getitem copy too (D29); for
-  a NoCopy element write `print(borrow v[0])`, `"{borrow v[0]}"`,
-  `borrow v[0] == borrow w[0]`.
+  ExplicitCopy/NoCopy, whose hint names a block / `swap_out`. Rendering and
+  comparing reach the element in place (`format(&self)`, `equals(&Self)`), so
+  `print(v[0])`, `"{v[0]}"` and `v[0] == w[0]` work on a NoCopy element.
   **MOVING A LOCAL INTO A WINDOW WORKS** — ruled:
-  `borrow var slots[0].push(move h)` is an ordinary move inside the window (a
+  `slots[0].push(move h)` is an ordinary move inside the window (a
   window is NOT a closure in the ruled language; it may span suspensions and
   `return`/`break` close it). A `move` capture into a NON-ESCAPING closure
   transfers WHEN THE BODY RUNS: the environment holds a pointer to the local,
@@ -1115,19 +1115,19 @@ var u = w.copy()       // explicit duplicate
   **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
   DF-146d) — how a slot-enum container gets an accessor at all:
   ```saw-fragment
-  borrow var slot = self.slots[i] {         // a plain `self.slots[i]` is a COPY
+  borrow var slot = self.slots[i] {         // names the slot for the block
       match slot {
-          case Filled(_, borrow var r) -> { lend r },  // the payload, where it sits
+          case Filled(_, var r) -> { lend r },  // the payload, where it sits
           case Empty -> { return None }     // the conditional lend's absent path
       }
   }
   ```
-  A `lend` inside a `borrow` block keeps that block's borrow open while the
-  accessor's own lend is open; only the `lend` operand itself needs no
-  `borrow` (`lend self.sections[i]` forwards another accessor's place). The
+  A `lend` inside a `borrow` block keeps that block's window open while the
+  accessor's own lend is open; a `lend` operand is a lend too
+  (`lend self.sections[i]` forwards another accessor's place). The
   outer's LENT TYPE picks the inner accessor, at each hop: `-> &T` reads as
-  `borrow let` (the inner `&self` one when it exists, so a read-only forward
-  through `Data.[]` never separates bytes), `-> &var T` as `borrow var`; and
+  a `let` binding (the inner `&self` one when it exists, so a read-only forward
+  through `Data.[]` never separates bytes), `-> &var T` as a `var`; and
   only accessors the outer's receiver reaches count, so a `&self` outer never
   reaches an inner `&var self` accessor.
   Tag stability is free: the window borrows the scrutinee's ROOT, so the Law of
@@ -1201,12 +1201,11 @@ var u = w.copy()       // explicit duplicate
   **STILL PLANNED:** a `borrow` block head as the second legal position
   (SL-871 unit 2), and LENT items. RULED SHAPE: ONE `LendingIterator`,
   `func next(&var self) borrows -> &Item?`; an impl may lend MORE
-  (`-> &var Item?`), and `for borrow var` needs the concrete `next` to lend
+  (`-> &var Item?`), and `for var` needs the concrete `next` to lend
   `&var` (SL-871 unit 3).
-  `for borrow let s in sessions.iter() { … }` / `for borrow var c in
-  grid.cells() { … }` borrow each element in place (needs a
-  `LendingIterator`); plain `for x in …` over one COPIES each element (needs
-  copyable elements); `for borrow let i in 0..n` is refused.
+  `for s in sessions.iter() { … }` / `for var c in grid.cells() { … }` will
+  lend each element in place over a `LendingIterator`. `for var x in` PARSES
+  today; over an `Iterator` it is a mutable binding of each owned item.
   Fences: any borrow may span a suspend unless the accessor is
   `borrows(sync)`; function types carry `borrows`/`borrows(sync)` (legal to
   spell, but no expression makes such a value: no method references, and a closure
@@ -1377,6 +1376,9 @@ match msg { case Move(x, y) -> ..., case Quit -> ... }  // enums exhaustive
 if let v = maybe { } / guard let v = maybe else { return }
 if let (a, b) = optPair { }          // tuple over Optional tuple
 while let job = queue.pop() { }      // DRAIN: one iteration per Some
+match slot { case Some(var e) -> e.n += 1, case None -> {} }   // `var x` payload:
+                                     // the writable PLACE over a lend, a mutable
+                                     // binding over an owned value
 ```
 - **`while let` IS THE DRAIN LOOP (design 233)** — `while let x = src.next() { … }`
   runs the body once per `Some` and falls out on the first `None`. The scrutinee
@@ -1385,7 +1387,9 @@ while let job = queue.pop() { }      // DRAIN: one iteration per Some
   never changes loops forever, uncaught. Binding rules are `if let`'s, looped:
   the derived-shadow rule (`while let c = c.next()` is legal), the tuple pattern
   (`while let (k, v) = pairs.pop()`), the payload-read tier, and `while var` for
-  a mutable binding. NO `else` clause exists (a parse error names
+  a mutable binding. Over a CONDITIONAL LEND (`while var e = it.find(&k)`) the
+  binding is the lent PLACE for each body, so `e.n += 1` writes the container
+  (see Ownership's PLACES). NO `else` clause exists (a parse error names
   `if let ... else`), and the loop produces NO VALUE — value position is a clean
   error. A `Result` source composes through `try?`
   (`while let m = try? f()`), which absorbs `Err` into termination — reach for it
@@ -1689,7 +1693,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `guard let`/`!`. Chained ASSIGNMENT `x?.y = v` writes the payload field in place
   iff every hop is non-None (RULED, SL:open-questions W3: the RHS is evaluated
   FIRST, on both paths, and a short-circuit skips only the write; a place head
-  is `borrow var m.find(&k)?.n = v`; ordinary transfer rules
+  is `m.find(&k)?.n = v`; ordinary transfer rules
   — `move`/`.copy()` for ExplicitCopy/NoCopy); it types `Void?` (discard in
   statement position; consume "did it write" via `guard let _ = x?.y = v else {}`
   — `_` is blessed as an `if let`/`guard let` pattern that binds nothing + drops
@@ -1697,7 +1701,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   (design 227): the field is read, the operator applied and the result written
   back on the non-None path, and a None head runs neither the write nor the RHS.
   Every compound operator works, a place head does
-  (`borrow var m.find(&k)?.n += 1` writes inside the window), and the
+  (`m.find(&k)?.n += 1` writes inside the window), and the
   operand rules are the compound statement's — both integer
   operands agree, a bare literal adopts the field's width. It was a parse error
   until Aug 15, so treat it as working now and SUSPECT in older builds.
@@ -2205,14 +2209,14 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `to_json_string()`. Its readers answer `None` rather than trapping:
   `is_null()`, `as_bool()`, `as_int()`, `as_float()`, `as_text()`, and the two
   place accessors `as_array()` / `as_object()`, which LEND their container
-  (`borrows -> &var T?`, so `borrow var doc.as_object()!.insert(...)` reaches it
+  (`borrows -> &var T?`, so `doc.as_object()!.insert(...)` reaches it
   in place) rather than copying it:
   ```saw-body
   import std.json.{JsonValue}
 
   let doc = try! JsonValue.parse("\{\"tls\": true, \"ports\": [80, 443]\}")
-  print(borrow doc.as_object()!.len())                                 // prints: 2
-  if let tls = borrow doc.as_object()!["tls"].as_bool() { print(tls) }  // prints: true
+  print(doc.as_object()!.len())                                 // prints: 2
+  if let tls = doc.as_object()!["tls"].as_bool() { print(tls) }  // prints: true
   ```
   GOTCHA in that literal: `{` and `}` open interpolation in a Saw string, so a
   JSON document written inline escapes them as `\{` and `\}`. Reading the text
@@ -4253,8 +4257,8 @@ satisfying a SAFE requirement is the redundant form above.
 `each` is unsafe. A closure whose signature names an unsafe type carries
 `unsafe` in its type and fits the `unsafe` slot that handed it the value — that
 contact stays local. (std's C-string boundary is a lend, not a callback:
-`strlen(borrow s.c_string()!)` passes `String.c_string`'s pointer for the call
-and panics on an interior NUL; `if borrow let p = s.c_string() { … }` takes the
+`strlen(s.c_string()!)` passes `String.c_string`'s pointer for the call
+and panics on an interior NUL; `if let p = s.c_string() { … }` takes the
 absent path.)
 Contact BEYOND the signature (a captured pointer, an unsafe binding written in
 the closure body) belongs to the ENCLOSING function: there is NO closure-level
@@ -4333,7 +4337,7 @@ construct in the owner and lend `&driver` down.
 - **ON A `borrows` ACCESSOR THE RECEIVER SIGIL SETTLES THE ROOT** (SL:borrowing
   §3) — read this before writing an accessor. A `&var self` accessor borrows
   its receiver EXCLUSIVELY at every use, reads included, whatever its body does:
-  `print(borrow g[4].n)` on a `let g` is refused when `Grid.[]` is
+  `print(g[4].n)` on a `let g` is refused when `Grid.[]` is
   `&var self ... -> &var Cell` with no `&self` form. Nothing is inferred from the
   body or from the use. For shared reads, give the type a `&self` accessor of
   the same name: `@synthesize(shared)` derives it when the body never writes
@@ -4358,7 +4362,7 @@ construct in the owner and lend `&driver` down.
   body and the caller's storage — the receiver arrives by pointer, so a write
   the rule failed to catch would LAND rather than vanish.
   **A PLACE WINDOW is the fourth spelling** (DF-176c): where the field's type
-  publishes a `borrows` accessor, `borrow var self.grid[0] += 100` is the same
+  publishes a `borrows` accessor, `self.grid[0] += 100` is the same
   error, and
   where the accessor lends FROM makes no difference — `self.rows[0][0] += 100`
   through `Vector.[]`'s heap buffer is refused too. A READ (`self.grid[0]`) is
@@ -4587,7 +4591,7 @@ construct in the owner and lend `&driver` down.
   (``Undefined enum: Json``, once the demanded copy policy was declared), so
   code that works around one with an index into a side `Vector` predates this.
   A `Box` forwards nothing: reach a payload's method through its accessor,
-  `borrow next.value().walk()`.
+  `next.value().walk()`.
 - An escaping closure (bound/returned/stored/`spawn`) is **Copy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once
@@ -4724,23 +4728,25 @@ construct in the owner and lend `&driver` down.
   inner loop var vs an enclosing loop var).
 - A dependency name mapped via `--module-path` shadowing a local
   module file is an error.
-- **RULED LANGUAGE: a plain `v[i]` is a COPY (the getitem) and `v[i] = x` the
-  SETITEM; `borrow v[i]` is the place** (SL:borrowing §5; LANGUAGE_SPEC
-  "Subscripts: getitem, setitem and the place"). Getitem copies the element out
+- **RULED LANGUAGE: `v[i]` READ AS A VALUE is the getitem when one exists (a
+  COPY), `v[i] = x` the SETITEM, and every write through it or binding head
+  is the place** (SL:borrowing §12.4; LANGUAGE_SPEC "Subscripts: getitem,
+  setitem and the place"). With no getitem (a NoCopy element, an exclusive-only
+  accessor) a read lends the place too. Getitem copies the element out
   (Copy tier only; panics out of range, and on a missing `Map` key), setitem
   replaces (`Map`: inserts or replaces). Derived from the place accessor: getitem
   from a `&self` one (declared or `@synthesize(shared)`), setitem from the
   `&var self` one. `counts[k] += 1` is getitem then setitem (key evaluated
-  once; panics if absent). `v[i].field` copies the whole element, then reads the
-  field. `m.get(k)` / `v.get(i)` are OPTIONAL COPIES; `m.find(&k)` /
+  once; panics if absent). `v[i].field` over a Copy element copies the whole
+  element, then reads the field; over a NoCopy one it reads in place. `m.get(k)` / `v.get(i)` are OPTIONAL COPIES; `m.find(&k)` /
   `v.find(i)` are the conditional lends (`borrows -> &var V?`, with shared
   twins). std `Map` ships the family: a declared inserting `[]=`, a
   `@synthesize(shared)` `[](&var self, key: K) borrows -> &var V` (panics on a
   missing key) and `find(&var self, key: &K) borrows -> &var V?` (no window on
-  a miss, so the else branch may insert): `m[k] = v`, `borrow var m[k] += 1`,
-  `borrow var m[k].push(x)`, `borrow var e = m[k] { … }`,
-  `if borrow var e = m.find(&k) { … } else { try m.insert(k, fresh) }`,
-  `borrow var m.find(&k)?.n += 1`, at any copy tier of `V`. `m[k, default: e]`
+  a miss, so the else branch may insert): `m[k] = v`, `m[k] += 1`,
+  `m[k].push(x)`, `borrow var e = m[k] { … }`,
+  `if var e = m.find(&k) { … } else { try m.insert(k, fresh) }`,
+  `m.find(&k)?.n += 1`, at any copy tier of `V`. `m[k, default: e]`
   (lazy `e`, via the `KeyedPlace` trait): `counts[w, default: 0] += 1`,
   `borrow var s = sessions[id, default: Session()] { … }` — specified, not yet
   shipped (std has no `KeyedPlace`). Multi-arg `m[r, c]` with
@@ -4750,12 +4756,12 @@ construct in the owner and lend `&driver` down.
 - **ITERATION, RANGES AND READS.**
   `iter()`/`enumerated()` carry a `T: Copy` bound (design 122): `next()` yields
   an element the consumer OWNS, so a NoCopy element is reached through a place
-  (`borrow`), never a plain `for` loop. **AND THE ITERATOR
+  (`v[i]`, a `borrow` block), never a plain `for` loop. **AND THE ITERATOR
   BORROWS THE VECTOR FOR THE WHOLE LOOP** (design 275 U3): it is a `borrows
   struct` holding `&Vector<T, A>`, the `for` statement is its window, and the
   body may read the collection but not grow it, replace it, move it or swap its
-  elements — the same exclusivity error `v.push` already gets inside a `borrow`
-  window. It
+  elements — the same exclusivity error `v.push` already gets inside any
+  lend's window. It
   was an owned value carrying a raw buffer pointer and a length snapshot
   before, so a body that pushed until the buffer reallocated read FREED MEMORY
   in safe code at exit 0 (`seen = 1025` for a sum of 10, SL-321) — treat a
@@ -4776,8 +4782,8 @@ construct in the owner and lend `&driver` down.
   build. Nothing changes for an ordinary index — a literal, a name, arithmetic
   over those — which could never tell the two apart.
   **`Box<T, A>.value()` IS A PLACE** (design 218 unit 1.5 stage 3c): it lends the
-  heap payload where it sits, at EVERY payload type. `borrow b.value().method()`
-  borrows it, `borrow var b.value().n += 1` writes it in the box's own
+  heap payload where it sits, at EVERY payload type. `b.value().method()`
+  lends it, `b.value().n += 1` writes it in the box's own
   allocation, and a
   value read follows the copy tier — a `Box<Int>`/`Box<String>` reads out
   exactly as before, a move-only payload gets the place-read refusal naming the
@@ -4785,17 +4791,20 @@ construct in the owner and lend `&driver` down.
   `.copy()`, so a move-only payload had NO `value()` at all and the erased
   `Box<any Error>` asked an existential for a method its trait does not declare
   — so distrust both shapes in an older build.
-- **RENDERING or COMPARING a plain subscript is a getitem: write `borrow` to
-  read in place.** A plain `v[0]` is a value wherever it sits, interpolation,
-  `print`, format arguments and comparison operands included. So a move-only
-  element is refused there, and an ExplicitCopy one wants `.copy()`. The
-  in-place read is spelled at each position:
-  ```saw-fragment
-  print("{borrow v[0]}"); print(borrow v[0]); print("{}", borrow v[0])
-  borrow v[0] == borrow w[0]
-  ```
-  Copy-tier elements are unaffected, and member hops off a plain subscript
-  (`v[0].id`, `v[0].m()`) are getitems too.
+- **RENDERING or COMPARING a subscript reaches the element in place**:
+  `format(&self, into:)` and `equals(&Self)` take references, so
+  `print("{v[0]}")`, `print(v[0])`, `print("{}", v[0])` and `v[0] == w[0]` work
+  on a move-only element. Each is an unnamed lend whose window is the
+  statement.
+- **THE COPY/LEND ASYMMETRY (P1)**: `var x = v[0]; x.n += 1` writes a COPY
+  (the `let`/`var` read the value out), while `if var x = v.find(0) { x.n += 1 }`
+  and `borrow var x = v[0] { x.n += 1 }` write IN PLACE. Writing the first
+  meaning the second is the classic mistake.
+- **THE v0.18.0 `if let` TRAP**: v0.18.0's `if let x = m.find(&k)` copied the
+  payload, so a body touching `m` compiled; now the head holds `m`'s place
+  until the `}` and it is `loan.window-root` ("`x` now holds `m.find(&k)`'s
+  place for this block…"). Copy it out first, `let x = m.find(&k)`, or move
+  the root's use out of the block.
 - **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
   `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
   `case Empty` or `case Occupied(_)` look at the discriminant through the

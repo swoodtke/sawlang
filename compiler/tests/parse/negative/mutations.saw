@@ -4128,6 +4128,18 @@ func a() { for b in in c { } }
 // case: syntax.expr.for.plain/alt/swap:10
 func a() { for b in c  }   {  }
 
+// case: syntax.expr.for.var/alt/drop:3
+func a ) { for var b in c { } }
+
+// case: syntax.expr.for.var/alt/dup:13
+func a() { for var b in c { } } }
+
+// case: syntax.expr.for.var/alt/swap:10
+func a() { for var b in  {   c  } }
+
+// case: syntax.expr.for.var/alt/close:12
+func a() { for var b in c {   }
+
 // case: syntax.expr.for.borrow/alt/drop:12
 func a() { for borrow let b in c   } }
 
@@ -4356,6 +4368,15 @@ func a() {  b   match  { case c(d) -> e } }
 // case: syntax.pat.payload.pattern/alt/close:4
 func a(  { match b { case c(d) -> e } }
 
+// case: syntax.pat.payload.var/alt/dup:18
+func a() { match b { case c(var d) -> e } } }
+
+// case: syntax.pat.payload.var/alt/swap:5
+func a()  match   {  b { case c(var d) -> e } }
+
+// case: syntax.pat.payload.var/alt/close:18
+func a() { match b { case c(var d) -> e }
+
 // case: syntax.pat.payload.borrow/alt/drop:5
 func a()   match b { case c(borrow let d) -> e } }
 
@@ -4367,6 +4388,18 @@ func a() {  b   match  { case c(borrow let d) -> e } }
 
 // case: syntax.pat.payload.borrow/alt/close:19
 func a() { match b { case c(borrow let d) -> e }
+
+// case: syntax.pat.var-binding/alt/drop:15
+func a() { match b { case c(var d)   e } }
+
+// case: syntax.pat.var-binding/alt/dup:9
+func a() { match b { case case c(var d) -> e } }
+
+// case: syntax.pat.var-binding/alt/swap:8
+func a() { match b  case   {  c(var d) -> e } }
+
+// case: syntax.pat.var-binding/alt/close:17
+func a() { match b { case c(var d) -> e   }
 
 // case: syntax.pat.name/alt/dup:9
 func a() { match b { case case c -> d } }
@@ -4496,9 +4529,6 @@ func  (  a ) { match b { case c(borrow let d) -> e } }
 
 // case: syntax.pat.borrow-binding.let/alt/close:4
 func a(  { match b { case c(borrow let d) -> e } }
-
-// case: syntax.pat.borrow-binding.var/alt/drop:12
-func a() { match b { case c(  var d) -> e } }
 
 // case: syntax.pat.borrow-binding.var/alt/dup:11
 func a() { match b { case c( (borrow var d) -> e } }

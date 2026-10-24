@@ -1,0 +1,76 @@
+// probe: stated
+// about: a binding that opens a block names the lend for it: `if var` and `while var` over a conditional lend write the place in place, a miss opens no window so `else` may write the root, a `match` arm's `var v` lends the payload, and a `borrow let` block may bind an optional place, SL:borrowing §12.2 and §12.7's P3 (SL-897)
+// stage 0: cannot parse `var` in a payload, and copies an unmarked `if let` subject
+// speeds: -O0 -O2
+// leaks: none
+// prints: 23
+// prints: 2 9
+// prints: s0
+// prints: 7
+// prints: 4
+// prints: 1
+// prints: 2
+
+struct Cell { n: Int }
+struct Hit { hits: Int }
+struct Session { name: String }
+extension Session: NoCopy {}
+enum Slot { case Full(key: Int, value: Cell), case Empty }
+struct Table { slots: [Slot; 1] }
+
+extension Table {
+    func find(&var self) borrows -> &var Cell? {
+        match self.slots[0] {
+            case Full(_, var v) -> { lend v },
+            case Empty -> { return None }
+        }
+    }
+}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    try! v.push(Cell(n: 2))
+    var i = 0
+    while var e = v.find(i) {
+        e.n += 10
+        i += 1
+    }
+    print(v[0].n + v[1].n)
+
+    var m = Map<String, Hit>()
+    m["a"] = Hit(hits: 1)
+    if var e = m.find(&"a") { e.hits += 1 } else { m["a"] = Hit(hits: 0) }
+    if var e = m.find(&"zz") { e.hits += 1 } else { m["zz"] = Hit(hits: 9) }
+    print("{m["a"].hits} {m["zz"].hits}")
+
+    var sessions = Vector<Session>()
+    try! sessions.push(Session(name: "s0"))
+    if let s = sessions.find(0) { print(s.name) }
+
+    var t = Table(slots: [Slot.Full(key: 1, value: Cell(n: 2))])
+    t.find()?.n += 5
+    print(t.find()!.n)
+    var s = Vector<Slot>()
+    try! s.push(Slot.Full(key: 1, value: Cell(n: 3)))
+    borrow var slot = s[0] {
+        match slot {
+            case Full(_, var c) -> { c.n += 1 },
+            case Empty -> {}
+        }
+    }
+    borrow let slot = s[0] {
+        match slot {
+            case Full(_, c) -> { print(c.n) },
+            case Empty -> {}
+        }
+    }
+
+    borrow let e = m.find(&"a") {
+        print(e!.hits - 1)
+    }
+    borrow var e = m.find(&"a") {
+        e!.hits = 2
+    }
+    print(m["a"].hits)
+}

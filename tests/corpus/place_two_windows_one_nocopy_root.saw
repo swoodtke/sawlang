@@ -54,16 +54,16 @@ func setboth(x: &var Int, y: &var Int) { x = 50; y = 60 }
 
 func main() {
     var h = Holder(c: Cell(n: 1))
-    borrow var h.at().n = borrow h.at().n + 10
-    print("named accessor: {borrow h.at().n}")
+    h.at().n = h.at().n + 10
+    print("named accessor: {h.at().n}")
 
     var g = Holder(c: Cell(n: 1))
-    borrow var g.at().n += 10
-    print("one window: {borrow g.at().n}")
+    g.at().n += 10
+    print("one window: {g.at().n}")
 
     var p = Plain(c: Cell(n: 1))
-    borrow var p.at().n = borrow p.at().n + 10
-    print("copy root: {borrow p.at().n}")
+    p.at().n = p.at().n + 10
+    print("copy root: {p.at().n}")
 
     // The subscript spelling, on an ExplicitCopy root.
     var v: Vector<Int> = [1, 2]
@@ -77,12 +77,12 @@ func main() {
     // A forced conditional lend on both sides, and the optional-chain spelling
     // of the same write.
     var m: Map<String, Int> = {"a": 1, "b": 2}
-    borrow var m["a"] = m.get("b")! + 10
+    m["a"] = m.get("b")! + 10
     let forced = m.get("a")!
     print("forced lend: {forced}")
 
     var cells: Map<String, Cell> = {"a": Cell(n: 1), "b": Cell(n: 2)}
-    borrow var cells.find(&"a")?.n = cells.get("b")!.n + 10
+    cells.find(&"a")?.n = cells.get("b")!.n + 10
     let chained = cells.get("a")!.n
     print("chain assign: {chained}")
 
@@ -97,6 +97,6 @@ func main() {
     // this one nests, which is what makes the rule about aliasing rather than
     // about counting windows.
     var pair = Plain(c: Cell(n: 0))
-    setboth(borrow var pair.at().n, borrow var p.at().n)
-    print("two roots one call: {borrow pair.at().n} {borrow p.at().n}")
+    setboth(&var pair.at().n, &var p.at().n)
+    print("two roots one call: {pair.at().n} {p.at().n}")
 }

@@ -62,7 +62,7 @@ func main() {
 
     let payload: Int? = 5
     var arc = try! Arc<Int?>(value: payload)
-    let r = borrow var p = arc.unique() { if borrow var p = p { p ?? -1 } else { -1 } }
+    let r = borrow var p = arc.unique() { if var p = p { p ?? -1 } else { -1 } }
     print("unique {r}")
 
     var m = Mutex<Int?>(value: payload)

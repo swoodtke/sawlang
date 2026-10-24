@@ -1,0 +1,28 @@
+// probe: stated
+// about: an unnamed lend in a `for` head's sub-expression closes once the bound is read, before the body runs, so the body may borrow the root exclusively, SL:borrowing §12.1's head row (SL-893)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: 2
+// prints: 3
+import std.json.{JsonValue}
+
+struct Store { projects: JsonValue, n: Int }
+extension Store: NoCopy {}
+
+func touch(st: &var Store) { st.n = st.n + 1 }
+
+func main() {
+    var items = Vector<JsonValue>()
+    try! items.push(JsonValue.Number(value: 1))
+    try! items.push(JsonValue.Number(value: 2))
+    var st = Store(projects: JsonValue.Array(items: move items), n: 0)
+    for i in 0..st.projects.as_array()!.len() {
+        touch(&var st)
+    }
+    print("{st.n}")
+    if st.projects.as_array()!.len() > 1 {
+        touch(&var st)
+    }
+    print("{st.n}")
+}

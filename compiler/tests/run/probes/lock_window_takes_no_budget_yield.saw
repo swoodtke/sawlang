@@ -45,7 +45,7 @@ func spinlock_lock() -> Int {
 }
 
 func spinlock_try_lock() -> Int {
-    if borrow var g = S.try_lock() { g = g + 1; g } else { -1 }
+    if var g = S.try_lock() { g = g + 1; g } else { -1 }
 }
 
 func round_mutex_lock() {

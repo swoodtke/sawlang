@@ -17,7 +17,7 @@ func main() {
     let b = a.copy()
     let r = borrow var o = a.value().lock() {
         o = 10
-        reenter(borrow b.value())
+        reenter(&b.value())
     }
     print("reentered {}", r)
 }

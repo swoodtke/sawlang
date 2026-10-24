@@ -33,7 +33,7 @@ func main() {
     for _ in v.iter() {
         print(4)
     }
-    if borrow let _ = v.find(0) {
+    if let _ = v.find(0) {
         print(5)
     }
 }

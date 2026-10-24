@@ -1,0 +1,62 @@
+// probe: stated
+// about: an unnamed lend whose chain crosses a call's result closes there in the positions a construct holds itself: a `&` argument, a `match` scrutinee and a `for` head's receiver, each before the call, arms or body (SL-897)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: reference
+// prints: epi
+// prints: in-look 7
+// prints: match
+// prints: epi
+// prints: arm 5
+// prints: for
+// prints: epi
+// prints: body 1
+// prints: body 2
+// prints: if let
+// prints: epi
+// prints: body 5
+
+struct Maker {
+    name: String
+}
+
+extension Maker {
+    func many(&self) -> Vector<Int> { [1, 2] }
+    func one(&self) -> Int? { 5 }
+    func seven(&self) -> Int { 7 }
+}
+
+struct Holder {
+    m: Maker
+}
+
+extension Holder {
+    func get(&self) borrows -> &Maker {
+        lend self.m
+        print("epi")
+    }
+}
+
+func look(x: &Int) {
+    print("in-look {}", x)
+}
+
+func main() {
+    let h = Holder(m: Maker(name: "p0"))
+    print("reference")
+    look(&h.get().seven())
+    print("match")
+    match h.get().one() {
+        case Some(x) -> print("arm {}", x),
+        case None -> print("none")
+    }
+    print("for")
+    for x in h.get().many().iter() {
+        print("body {}", x)
+    }
+    print("if let")
+    if let x = h.get().one() {
+        print("body {}", x)
+    }
+}

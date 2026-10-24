@@ -8,5 +8,5 @@ struct Tag {
 
 func main() {
     var a = try! Arc<Tag>(value: Tag(id: 0))
-    borrow var a.value().id = 5
+    a.value().id = 5
 }

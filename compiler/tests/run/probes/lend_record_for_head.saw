@@ -51,10 +51,10 @@ extension Two {
 
 func main() {
     var s = Two(a: [2], b: [3])
-    for j in 0..borrow s.pick(true, 0) {
+    for j in 0..s.pick(true, 0) {
         print("j {}", j)
     }
-    for j in 0..borrow s.pick(false, 0) {
+    for j in 0..s.pick(false, 0) {
         yield_now()
         print("k {}", j)
     }

@@ -104,10 +104,11 @@ cannot. `build.py --runtime TRIPLE` configures another target's runtime.
 runs `compiler/tools/build.py --quiet` first, which builds the stages on first
 use and after any change to their sources, then execs `.build/sawc-stage2`.
 ```bash
-bin/sawc build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
-    [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
-    (FILE [-o OUT] | --emit-ll FILE)
+bin/sawc build [-O0|-O1|-O2|-Os|-Oz] [-g|-g0] [--std-root DIR] [--target TRIPLE]
+    [--sanitize address] [--freestanding | --runtime] [-W borrow-prefix]
+    [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
+bin/sawc fix [--check] FILE...  # drops `borrow` prefixes SL:borrowing §12 makes redundant
 bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...
 bin/sawc runtime ...       # `bin/sawc --help` lists every form
 bin/sawc --version         # `sawc 0.18.0`: driver_version, held equal to

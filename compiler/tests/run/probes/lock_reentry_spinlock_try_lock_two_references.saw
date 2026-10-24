@@ -9,7 +9,7 @@ import std.spinlock.{SpinLock}
 
 func held(l: &SpinLock<Int>, same: &SpinLock<Int>) -> Int {
     borrow var n = l.lock() {
-        let got = if borrow var m = same.try_lock() { m } else { 0 }
+        let got = if var m = same.try_lock() { m } else { 0 }
         n += got
         got
     }

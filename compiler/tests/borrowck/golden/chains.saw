@@ -19,7 +19,7 @@ extension Cell {
 }
 
 func right_side_first(g: &var Vector<Vector<P>>) {
-    borrow var g[0][0].n += g.len()
+    g[0][0].n += g.len()
 }
 
 func beside(s: &var Sheet) {
@@ -35,7 +35,7 @@ func shared_read(g: &Vector<Vector<P>>) -> Int {
 }
 
 func after_close(v: &Vector<Cell>) unsafe -> Int {
-    let a = borrow v[0].lock()
+    let a = v[0].lock()
     a + v.len()
 }
 

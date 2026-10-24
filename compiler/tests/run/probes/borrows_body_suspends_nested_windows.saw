@@ -130,7 +130,7 @@ extension Outer {
 }
 
 func n1(o: &var Outer) -> Int {
-    borrow var o.slot().both(0) += 1
+    o.slot().both(0) += 1
     o.inner.cells[0]
 }
 

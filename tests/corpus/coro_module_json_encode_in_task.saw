@@ -24,7 +24,7 @@ import sl306mod.{encode_public, encode_via_private}
 func worker(inbox: Channel<Int>, outbox: Channel<String>) {
     let n = try inbox.receive() catch { return }
     var doc = JsonValue.Object(fields: Map<String, JsonValue>())
-    let _ = try! borrow var doc.as_object()!.insert("a", JsonValue.Number(value: n))
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: n))
     let _ = outbox.send("public {encode_public(&doc)}")
     let _ = outbox.send("private {encode_via_private(&doc)}")
 }

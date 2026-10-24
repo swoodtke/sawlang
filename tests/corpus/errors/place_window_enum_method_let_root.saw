@@ -32,6 +32,6 @@ func build() -> Vector<Light> {
 
 func main() {
     let frozen = build()
-    borrow var frozen[0].flip()
+    frozen[0].flip()
     print("{frozen[0].name()}")
 }

@@ -1,4 +1,4 @@
-// refuses: loan.nested-call at 27:23
+// refuses: loan.nested-call at 27:16
 // an argument writing the receiver of a `borrow`-marked accessor call, a member read off the lent place, `borrow r.at(reset(&var r)).n`: the call is found by the node it lowers, not by its block's source stamp (SL-866)
 
 struct P { n: Int }
@@ -24,7 +24,7 @@ func reset(r: &var Row) -> Int {
 }
 
 func peek(r: &var Row) -> Int {
-    borrow r.at(reset(&var r)).n
+    r.at(reset(&var r)).n
 }
 
 func main() {

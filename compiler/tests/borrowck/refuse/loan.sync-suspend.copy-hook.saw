@@ -18,7 +18,7 @@ extension Heavy: Copy {
 import std.mutex.{Mutex}
 
 func f(m: &Mutex<Heavy>) -> Int {
-    let b = borrow m.lock()
+    let b = m.lock()
     b.n
 }
 

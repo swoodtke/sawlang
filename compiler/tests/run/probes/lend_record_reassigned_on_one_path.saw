@@ -53,7 +53,7 @@ extension Two {
 
 func main() {
     var s = Two(a: [0], b: [0])
-    borrow var s.pick(true, 0) += 1
-    borrow var s.pick(false, 0) += 2
+    s.pick(true, 0) += 1
+    s.pick(false, 0) += 2
     print("a {} b {}", s.a[0], s.b[0])
 }

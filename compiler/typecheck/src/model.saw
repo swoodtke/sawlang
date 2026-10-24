@@ -380,6 +380,10 @@ public struct TcCall {
     // The exclusive twin of a shared accessor the call chose, which a use
     // that writes switches to (design 141); -1 for none.
     twin: Int
+    // The member of the call's name and parameters on the other side of a
+    // plain/`borrows` pair, which the call's position picks between
+    // (SL:borrowing §12.4, SL-684); -1 for none.
+    pair: Int
     // How the written arguments bind the target's parameters (design 66): a
     // run of `binds`, one entry per parameter in order, the index of the
     // written argument that binds it or TC_BIND_DEFAULT when its default
@@ -590,4 +594,20 @@ public struct TcDiag {
     message: String
     // A diagnostic in an interface module, which refuses nothing.
     note: Bool
+}
+
+// A warning, which refuses nothing, and its fix-it: the source bytes
+// `fix_start..<fix_end` of `module` replaced by `fix_text`. A `kept` entry
+// records an old `borrow` prefix whose meaning the unprefixed spelling does
+// not have, so it draws no warning and no fix-it; `message` says why.
+public struct TcWarning {
+    module: Int
+    start: Int
+    id: String
+    message: String
+    form: String
+    fix_start: Int
+    fix_end: Int
+    fix_text: String
+    kept: Bool
 }

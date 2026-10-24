@@ -88,7 +88,7 @@ func moved() {
 
 func payload(o: &Tag?) {
     match o {
-        case Some(borrow let t) -> print("payload {}", t as UInt8),
+        case Some(t) -> print("payload {}", t as UInt8),
         case None -> print("none")
     }
 }

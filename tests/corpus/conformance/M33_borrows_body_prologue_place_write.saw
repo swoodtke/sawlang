@@ -46,7 +46,7 @@ extension Log {
 
 func main() {
     var l = Log(counters: Counters(hits: [0, 0]), slots: [7, 8, 9, 10])
-    print("slot {borrow l.at(1)}")
-    print("slot {borrow l.at(2)}")
+    print("slot {l.at(1)}")
+    print("slot {l.at(2)}")
     print("reads {l.reads()}")
 }

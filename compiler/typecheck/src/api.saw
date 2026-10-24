@@ -49,6 +49,8 @@ public struct TypecheckOptions {
     interfaces: Bool
     // Print a `SUMMARY` line per function of the modules checked in full.
     summaries: Bool
+    // Print the `borrows.redundant-prefix` warnings, `-W borrow-prefix`.
+    warn_borrow_prefix: Bool
 }
 
 // Resolves the program whose entry file is `path`, then builds every
@@ -190,6 +192,9 @@ public func typecheck_record(out: &var StringBuilder, p: &TcProgram, options: &T
         }
         k = k + 1
     }
+    if options.warn_borrow_prefix {
+        append_tc_warnings(out: &var out, p: &p)
+    }
     var m = 0
     while m < p.res.module_count() {
         let found = res_verify_module(&p.res, m)
@@ -240,6 +245,35 @@ func append_invariants(out: &var StringBuilder, p: &TcProgram, m: Int, problems:
         try! out.append("\n")
         j = j + 1
     }
+}
+
+// One `WARNING<TAB>id<TAB>file:line:col<TAB>message` line per warning program
+// `p` made in a module of its own, never std's or the builtin module's,
+// which are not the program's to fix. A kept old prefix is no warning.
+public func append_tc_warnings(out: &var StringBuilder, p: &TcProgram) {
+    var k = 0
+    while k < p.warnings.len() {
+        let w = p.warnings[k]
+        k = k + 1
+        if w.kept || tc_module_is_std(&p, w.module) {
+            continue
+        }
+        try! out.append("WARNING\t")
+        try! out.append(w.id)
+        try! out.append("\t")
+        try! out.append(p.res.module_file(w.module))
+        try! out.append(":")
+        try! out.append(p.res.position_text(w.module, w.start))
+        try! out.append("\t")
+        try! out.append(w.message)
+        try! out.append("\n")
+    }
+}
+
+// Whether module `m` is std's or the builtin module.
+public func tc_module_is_std(p: &TcProgram, m: Int) -> Bool {
+    let name = p.res.module_name(m)
+    name.starts_with("std.") || name.equals("std") || m == p.res.builtin
 }
 
 // `ERROR<TAB>id<TAB>file:line:col<TAB>message`, or `NOTE` for a note.

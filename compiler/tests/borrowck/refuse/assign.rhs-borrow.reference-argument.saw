@@ -22,6 +22,6 @@ func bump(c: &var Cell) -> Int {
 
 func main() {
     var h = Holder(a: Cell(n: 1), k: 3)
-    borrow var h.at().n = bump(borrow var h.at()) + 10
+    h.at().n = bump(&var h.at()) + 10
     print(h.k)
 }

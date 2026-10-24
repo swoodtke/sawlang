@@ -50,26 +50,26 @@ func main() {
     try! slots.push(Cell(value: 1))
     try! slots.push(Cell(value: 2))
     var c = Carrier(slots: move slots)
-    borrow var c.slot(1) = Cell(value: 99)
-    print("named {borrow c.slot(1).value}")
-    borrow var c.slot(0).value = 7
-    print("named field {borrow c.slot(0).value}")
+    c.slot(1) = Cell(value: 99)
+    print("named {c.slot(1).value}")
+    c.slot(0).value = 7
+    print("named field {c.slot(0).value}")
 
     // 3. A conditional write through Map's `find`.
     var cells = Map<String, Cell>()
     let _ = cells.insert("x", Cell(value: 1))
-    borrow var cells.find(&"x")?.value = 42
+    cells.find(&"x")?.value = 42
     print("chain {cells.get("x")!.value}")
 
-    guard let _ = borrow var cells.find(&"nope")?.value = 7 else {
+    guard let _ = cells.find(&"nope")?.value = 7 else {
         print("chain absent skipped")
 
         // 4. The same through Vector's `find`, and an absent write whose RHS runs.
         var v = Vector<Cell>()
         try! v.push(Cell(value: 1))
-        borrow var v.find(0)?.value = 8
+        v.find(0)?.value = 8
         print("named chain {v[0].value}")
-        borrow var v.find(9)?.value = loud(3)
+        v.find(9)?.value = loud(3)
         print("absent write skipped")
         print("-- done")
         return

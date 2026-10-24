@@ -1,4 +1,4 @@
-// refuses: mutability.immutable at 19:20
+// refuses: mutability.immutable at 19:13
 // a read through a named `&var self` accessor lending read-only, with no
 // shared twin, on a `let` root (SL-470)
 
@@ -16,5 +16,5 @@ extension Bag {
 
 func main() {
     let b = Bag(cells: [1, 2, 3, 4], reads: 0)
-    let t = borrow b.tally()
+    let t = b.tally()
 }

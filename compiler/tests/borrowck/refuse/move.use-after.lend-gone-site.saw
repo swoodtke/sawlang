@@ -34,5 +34,5 @@ extension Two {
 
 func main() {
     var t = Two(a: [0], b: [0])
-    borrow var t.pick(true, 0) += 1
+    t.pick(true, 0) += 1
 }

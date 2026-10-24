@@ -892,11 +892,9 @@ fn scrutinees.if_let_borrow_let(opts: &std.vector.Vector<String?, std.alloc.Glob
     let _4: &String?;
     let _5: &std.vector.Vector<String?, std.alloc.GlobalAllocator>;
     let _6: &String?;  // ref lent
-    let _7: String;  // s
+    let _7: &String;  // ref s
     let _8: &String;
-    let _9: String;
-    let _10: &String;
-    let _11: Int;
+    let _9: Int;
     window w0: std.vector.Vector.[](index: Int) shared;
 
     bb0: {
@@ -911,12 +909,13 @@ fn scrutinees.if_let_borrow_let(opts: &std.vector.Vector<String?, std.alloc.Glob
     }
 
     bb2: {
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String?, std.alloc.GlobalAllocator>) -> [return: bb7];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String?, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb3: {
-        _8 = ref(shared, ((*_6) as Some).0);
-        _9 = call std.string.String.copy() (owner String) [move _8] -> [return: bb5];
+        _7 = ref(shared, ((*_6) as Some).0);
+        _8 = ref(shared, (*_7));
+        _9 = call std.string.String.len() (owner String) [move _8] -> [return: bb5];
     }
 
     bb4: {
@@ -925,18 +924,11 @@ fn scrutinees.if_let_borrow_let(opts: &std.vector.Vector<String?, std.alloc.Glob
     }
 
     bb5: {
-        _7 = move _9;
-        _10 = ref(shared, _7);
-        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb6];
-    }
-
-    bb6: {
-        _0 = move _11;
-        drop(_7);
+        _0 = move _9;
         goto -> bb2;
     }
 
-    bb7: {
+    bb6: {
         return;
     }
 }
@@ -1038,11 +1030,9 @@ fn scrutinees.if_let_borrow_var(opts: &var std.vector.Vector<String?, std.alloc.
     let _4: &var String?;
     let _5: &var std.vector.Vector<String?, std.alloc.GlobalAllocator>;
     let _6: &var String?;  // ref lent
-    let _7: String;  // s
+    let _7: &String;  // ref s
     let _8: &String;
-    let _9: String;
-    let _10: &String;
-    let _11: Int;
+    let _9: Int;
     window w0: std.vector.Vector.[](index: Int) exclusive;
 
     bb0: {
@@ -1057,12 +1047,13 @@ fn scrutinees.if_let_borrow_var(opts: &var std.vector.Vector<String?, std.alloc.
     }
 
     bb2: {
-        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String?, std.alloc.GlobalAllocator>) -> [return: bb7];
+        window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<String?, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb3: {
-        _8 = ref(shared, ((*_6) as Some).0);
-        _9 = call std.string.String.copy() (owner String) [move _8] -> [return: bb5];
+        _7 = ref(shared, ((*_6) as Some).0);
+        _8 = ref(shared, (*_7));
+        _9 = call std.string.String.len() (owner String) [move _8] -> [return: bb5];
     }
 
     bb4: {
@@ -1071,18 +1062,11 @@ fn scrutinees.if_let_borrow_var(opts: &var std.vector.Vector<String?, std.alloc.
     }
 
     bb5: {
-        _7 = move _9;
-        _10 = ref(shared, _7);
-        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb6];
-    }
-
-    bb6: {
-        _0 = move _11;
-        drop(_7);
+        _0 = move _9;
         goto -> bb2;
     }
 
-    bb7: {
+    bb6: {
         return;
     }
 }

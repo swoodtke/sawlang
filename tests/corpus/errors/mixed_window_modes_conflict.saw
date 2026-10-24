@@ -59,8 +59,8 @@ func with_root(a: &Int, r: &Bag) -> Int { a + r.visits_seen() }
 func main() {
     var b = Bag(cells: [10, 20, 30, 40], rows: [Cell(n: 1), Cell(n: 2)],
                 visits: 0)
-    print("{pair(borrow b[0], borrow b.tally(1))}")        // the shared twin first
-    print("{pair(borrow b.tally(0), borrow b[1])}")        // the exclusive one first
-    print("{pair_cell(borrow b[0], borrow b.opt(1)!)}")    // through a `!` head
-    print("{with_root(borrow b.tally(0), &b)}")      // beside a plain `&root`
+    print("{pair(&b[0], &b.tally(1))}")        // the shared twin first
+    print("{pair(&b.tally(0), &b[1])}")        // the exclusive one first
+    print("{pair_cell(&b[0], &b.opt(1)!)}")    // through a `!` head
+    print("{with_root(&b.tally(0), &b)}")      // beside a plain `&root`
 }

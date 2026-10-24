@@ -1,0 +1,19 @@
+// warns: 3
+// a prefix in argument position: passed by reference, the fix-it writes the
+// parameter's sigil; passed by value, it drops the prefix (SL:borrowing §12.1)
+// message: write `&var g[0]`
+// message: write `&g[0]`
+
+struct Cell { n: Int }
+
+func bump(c: &var Cell) { c.n += 1 }
+func show(c: &Cell) { print(c.n) }
+func take(n: Int) { print(n) }
+
+func main() {
+    var g = Vector<Cell>()
+    try! g.push(Cell(n: 1))
+    bump(borrow var g[0])
+    show(borrow g[0])
+    take(borrow g[0].n)
+}

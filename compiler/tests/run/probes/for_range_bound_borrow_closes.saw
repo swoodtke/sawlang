@@ -31,17 +31,17 @@ func main() {
     try! items.push(JsonValue.Number(1))
     try! items.push(JsonValue.Number(2))
     var st = Store(projects: JsonValue.Array(move items), count: 0)
-    for i in 0..borrow st.projects.as_array()!.len() {
+    for i in 0..st.projects.as_array()!.len() {
         touch(&var st)
     }
     print(st.count)
     var s = Shelf(items: [Entry(n: 1), Entry(n: 3)], visits: 0)
-    for i in 0..borrow s.slot(1).n {
+    for i in 0..s.slot(1).n {
         visit(&var s)
     }
     print(s.visits)
-    while borrow s.slot(0).n < 3 {
-        borrow var s.slot(0).n += 1
+    while s.slot(0).n < 3 {
+        s.slot(0).n += 1
         visit(&var s)
     }
     print(s.visits)

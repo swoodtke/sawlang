@@ -39,15 +39,15 @@ extension Plain {
 }
 
 func through(b: &var Bag) -> Int {
-    b[0] + borrow b.tally()
+    b[0] + b.tally()
 }
 
 func main() {
     var b = Bag(cells: [1, 2, 3, 4], reads: 0)
     let x = b[0]
-    let t = borrow b.tally()
+    let t = b.tally()
     let p = Plain(cells: [5, 6, 7, 8])
     let y = p[1]
-    let z = borrow p.at(2)
+    let z = p.at(2)
     print("{} {} {} {} {}", x, t, y, z, through(&var b))
 }

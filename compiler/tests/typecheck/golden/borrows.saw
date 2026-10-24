@@ -24,8 +24,8 @@ func forms(r: &var Row, o: Int?) -> Int {
     let before = borrow let cell = r[0] {
         cell + 1
     }
-    borrow var r[1] += before
-    if borrow var found = r.find(2) {
+    r[1] += before
+    if var found = r.find(2) {
         found += 1
     }
     match o {

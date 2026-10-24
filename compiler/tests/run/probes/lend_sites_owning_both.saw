@@ -68,7 +68,7 @@ extension Two {
 
 func main() {
     var t = Two(a: Cells(v: [1], name: 1), b: Cells(v: [2], name: 2))
-    borrow var t.pick(true, 0) += 10
-    borrow var t.pick(false, 0) += 20
+    t.pick(true, 0) += 10
+    t.pick(false, 0) += 20
     print("a {} b {}", t.a.v[0], t.b.v[0])
 }

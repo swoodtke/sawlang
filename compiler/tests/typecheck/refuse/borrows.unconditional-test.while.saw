@@ -1,0 +1,24 @@
+// refuses: borrows.unconditional-test at 17:5
+// `while var` over an accessor that always lends: nothing to test
+// (SL:borrowing §12.5)
+// message: `c.slot()` always lends a place, so there is nothing for `while var` to test. Use `borrow var e = c.slot() { … }`
+
+struct Cell { n: Int }
+struct Holder { cells: [Cell; 1] }
+
+extension Holder {
+    func slot(&var self) borrows -> &var Cell {
+        lend self.cells[0]
+    }
+}
+
+func spin(c: &var Holder) {
+    var k = 0
+    while var e = c.slot() {
+        e.n += 1
+        k += 1
+    }
+}
+
+func main() {
+}

@@ -36,10 +36,10 @@ func inc(n: &var Int) {
 }
 
 func exclusive(g: &var Grid) -> Int {
-    if borrow var r = g.slot() {
+    if var r = g.slot() {
         r += 1
     }
-    inc(borrow var g.slot()!)
+    inc(&var g.slot()!)
     g.reads
 }
 
@@ -51,8 +51,8 @@ func shared(g: &Grid) -> Int {
 }
 
 func element(g: &var Grid) -> Int {
-    borrow var g.counted(0) += 1
-    borrow g.counted(1)
+    g.counted(0) += 1
+    g.counted(1)
 }
 
 func main() {

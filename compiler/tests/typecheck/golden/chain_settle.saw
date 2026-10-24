@@ -31,12 +31,12 @@ extension Table {
 }
 
 func write(t: &var Table) {
-    borrow var t[0][1] += 1
-    borrow var t.row(1)[0] = 2
+    t[0][1] += 1
+    t.row(1)[0] = 2
 }
 
 func read(t: &Table) -> Int {
-    borrow t[0][1] + borrow t.row(1)[0]
+    t[0][1] + t.row(1)[0]
 }
 
 func main() {

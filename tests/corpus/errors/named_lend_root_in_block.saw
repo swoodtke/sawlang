@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: now holds `v.find(i)`'s place for this block, so `v` is borrowed until the `}`
+//
+// Conformance row P27's refusal half (SL:borrowing §12.2): a `while var` over
+// a conditional lend holds the root for each iteration's body, so the body
+// may not grow the vector it walks.
+
+struct Cell { n: Int }
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    var i = 0
+    while var e = v.find(i) {
+        e.n += 1
+        try! v.push(Cell(n: 0))
+        i += 1
+    }
+    print(v.len())
+}

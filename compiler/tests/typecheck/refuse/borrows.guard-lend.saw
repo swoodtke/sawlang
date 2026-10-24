@@ -1,0 +1,14 @@
+// refuses: borrows.guard-lend at 7:5
+// `guard let` over a conditional lend: its binding would hold the place to
+// the end of the enclosing scope, which no window may (SL:borrowing §12.5)
+// message: `m.find(&k)` lends a place, and a `guard` would keep it to the end of the scope. Use `if let e = m.find(&k) { … } else { … }`
+
+func hits(m: &Map<String, Int>, k: String) -> Int {
+    guard let e = m.find(&k) else {
+        return 0
+    }
+    e
+}
+
+func main() {
+}

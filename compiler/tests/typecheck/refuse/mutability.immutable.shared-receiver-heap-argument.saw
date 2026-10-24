@@ -1,4 +1,4 @@
-// refuses: mutability.immutable at 17:25
+// refuses: mutability.immutable at 17:19
 // a `&self` method passing an element of a `Vector` field as `borrow var`
 // to a `&var` parameter (SL:borrowing §9)
 
@@ -14,6 +14,6 @@ func bump(r: &var Int) {
 
 extension Board {
     func stamp(&self) {
-        bump(borrow var self.cells[0])
+        bump(&var self.cells[0])
     }
 }

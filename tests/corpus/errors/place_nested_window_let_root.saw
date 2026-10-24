@@ -33,6 +33,6 @@ extension Bag {
 func main() {
     let frozen = Bag(rows: [Row(cells: [Cell(count: 1), Cell(count: 2)]),
                             Row(cells: [Cell(count: 3), Cell(count: 4)])])
-    borrow var frozen[0][1].count += 10
+    frozen[0][1].count += 10
     print("{frozen[0][1].count}")
 }

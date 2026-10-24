@@ -128,8 +128,8 @@ func with_ref_row() {
 func window_row() {
     var bag = Bag(slot: Bin(held: Vector<Res>()))
     let h = Res(id: 6)
-    borrow var bag.at().take(r: move h)
-    print("window len {borrow bag.at().count()}")
+    bag.at().take(r: move h)
+    print("window len {bag.at().count()}")
 }
 
 // 7. A conditional lend, both paths. The present one makes the call and the
@@ -139,11 +139,11 @@ func window_row() {
 func lend_row() {
     var led = Ledger(c: Counter(n: 0))
     let h = Res(id: 7)
-    borrow var led.at(0)!.absorb(r: move h)
-    print("present {borrow led.at(0)!.read()}")
+    led.at(0)!.absorb(r: move h)
+    print("present {led.at(0)!.read()}")
     let g = Res(id: 8)
-    borrow var led.at(9)?.absorb(r: move g)
-    print("absent {borrow led.at(0)!.read()}")
+    led.at(9)?.absorb(r: move g)
+    print("absent {led.at(0)!.read()}")
     print("lend done")
 }
 
@@ -197,15 +197,15 @@ func explicit_tier_row() {
     var buf = Vector<Int>()
     try! buf.push(7)
     let d = Deep(items: move buf, tag: 9)
-    borrow var bag.at().take(d: move d)
-    print("explicit {borrow bag.at().count()}")
+    bag.at().take(d: move d)
+    print("explicit {bag.at().count()}")
 }
 
 func copy_tier_row() {
     var bag = ShallowBag(slot: ShallowBin(held: Vector<Shallow>()))
     let s = Shallow(tag: 10)
-    borrow var bag.at().take(s: move s)
-    print("copy tier {borrow bag.at().count()}")
+    bag.at().take(s: move s)
+    print("copy tier {bag.at().count()}")
 }
 
 func main() {

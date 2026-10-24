@@ -254,7 +254,7 @@ fn accessors.main() {
     loan L5: exclusive _1;  // window w2 at 69:5
     loan L6: exclusive _1;  // ref at 72:5
     loan L7: exclusive _1;  // window w3 at 72:5
-    loan L8: exclusive (*_10);  // ref at 69:19
+    loan L8: exclusive (*_10);  // ref at 69:12
     loan L9: exclusive _1;  // ref at 73:5
     loan L10: exclusive _1;  // window w4 at 73:5
 

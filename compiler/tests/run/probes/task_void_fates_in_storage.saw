@@ -77,9 +77,9 @@ func in_vector() {
     try! keeper.held.push(move a)
     try! keeper.held.push(move b)
     try! keeper.held.push(move c)
-    borrow keeper.held[0].join()
-    borrow keeper.held[1].detach()
-    borrow keeper.held[2].cancel()
+    keeper.held[0].join()
+    keeper.held[1].detach()
+    keeper.held[2].cancel()
 }
 
 func main() {

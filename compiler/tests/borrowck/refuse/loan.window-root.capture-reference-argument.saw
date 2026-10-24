@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 11:28
+// refuses: loan.window-root at 11:22
 // a window on a reference parameter's element and a closure capturing the
 // parameter `[&var v]`, as two arguments of one call (SL-607)
 
@@ -8,7 +8,7 @@ func apply(a: &var Int, f: () -> Void) {
 }
 
 func beside(v: &var Vector<Int>) {
-    apply(borrow var v[0], { [&var v] in try! v.push(1) })
+    apply(&var v[0], { [&var v] in try! v.push(1) })
 }
 
 func main() {

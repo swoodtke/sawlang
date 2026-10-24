@@ -24,7 +24,7 @@ public enum TcBinder {
 }
 
 public func tc_binder_of(alt: Alt) -> TcBinder {
-    if alt == Alt.Stmt_Let_Mutable || alt == Alt.Stmt_Destructure_Mutable || alt == Alt.Stmt_Guard_Var || alt == Alt.Expr_OptionalBinding_Var || alt == Alt.Expr_WhileLet_Var || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Var || alt == Alt.Pat_BorrowBinding_Var {
+    if alt == Alt.Stmt_Let_Mutable || alt == Alt.Stmt_Destructure_Mutable || alt == Alt.Stmt_Guard_Var || alt == Alt.Expr_OptionalBinding_Var || alt == Alt.Expr_WhileLet_Var || alt == Alt.Borrow_Binding_Var || alt == Alt.Borrow_Unwrap_Var || alt == Alt.Borrow_For_Var || alt == Alt.Pat_BorrowBinding_Var || alt == Alt.Pat_VarBinding || alt == Alt.Expr_For_Var {
         return TcBinder.Mutable
     }
     if alt == Alt.Decl_Param_Plain || alt == Alt.Decl_Param_Default {

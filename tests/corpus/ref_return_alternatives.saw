@@ -40,9 +40,9 @@ func main() {
     var w = Wrap(c: Counter(n: 7))
     print("{w.c.value()}")
 
-    print("{borrow w.slot().n}")
-    borrow var w.slot().n += 1
-    print("{borrow w.slot().n}")
+    print("{w.slot().n}")
+    w.slot().n += 1
+    print("{w.slot().n}")
 
     var n = 12
     print("{forward(&n)}")

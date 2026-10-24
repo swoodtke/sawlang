@@ -24,6 +24,6 @@ func swap2(x: &var Int, y: &var Int) {
 }
 func main() {
     var r = Rec(tag: "t", a: 1, b: 2)
-    swap2(borrow var r.at(0), borrow var r.at(1))
+    swap2(&var r.at(0), &var r.at(1))
     print("a={r.a} b={r.b}")
 }

@@ -53,13 +53,13 @@ func places(pool: &var Pool<Int>, grid: &var Vector<Vector<Int>>) -> Int {
     borrow let a = grid[0], var b = grid[1] {
         b[0] = a[0]
     }
-    if borrow let first = pool.first() {
+    if let first = pool.first() {
         print("{}", first)
     }
-    for borrow let row in grid.iter() {
+    for row in grid.iter() {
         print("{}", row.len())
     }
-    bump(borrow var pool[1])
+    bump(&var pool[1])
     0
 }
 

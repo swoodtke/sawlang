@@ -11,6 +11,7 @@
 //   sawc resolve --check FILE...   each entry file's program resolved, refusals only
 //   sawc typecheck --dump FILE...  each entry file's signatures checked, and its dump
 //   sawc typecheck --check FILE... each entry file's signatures checked, refusals only
+//   sawc fix FILE...               each file's redundant old `borrow` prefixes dropped (SL:borrowing §12)
 //   sawc mir --dump FILE...        each entry file's program lowered to MIR, and its dump
 //   sawc mir --check FILE...       each entry file's program lowered, refusals and invariants only
 //   sawc eval --dump FILE...       each entry file's constants evaluated, and their values
@@ -64,7 +65,7 @@ import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
 import sawtarget.layout.{target_clang_triple, target_known}
-import sawtypecheck.api.{TypecheckOptions, typecheck_record}
+import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
 import std.env.{Env}
@@ -87,8 +88,9 @@ func driver_usage() -> Int {
     print("       sawc resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                    [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
-    print("                      [--freestanding] [--lowerings] [--std-root DIR] [--module-path NAME=DIR]...")
-    print("                      [FILE | @LIST]...")
+    print("                      [--freestanding] [--lowerings] [-W borrow-prefix] [--std-root DIR]")
+    print("                      [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
     print("                [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
@@ -102,8 +104,8 @@ func driver_usage() -> Int {
     print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
     print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [--std-root DIR] [--target TRIPLE]")
-    print("                  [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...")
-    print("                  (FILE [-o OUT] | --emit-ll FILE)")
+    print("                  [--sanitize address] [--freestanding | --runtime] [-W borrow-prefix]")
+    print("                  [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
@@ -146,6 +148,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var freestanding = false
     var runtime = false
     var debug = true
+    var warn = false
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -158,6 +161,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             debug = true
         } else if arg.equals("-g0") {
             debug = false
+        } else if arg.equals("-W") {
+            if not driver_warning_category(args.get(i + 1) ?? "") {
+                return DRIVER_EXIT_USAGE
+            }
+            warn = true
+            i = i + 1
         } else if arg.equals("--emit-ll") {
             emit = true
         } else if arg.equals("--freestanding") {
@@ -202,6 +211,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     std_root = driver_std_root("sawc build", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
+    }
+    if warn {
+        driver_print_warnings(path, std_root, &names, &dirs)
     }
     if freestanding || runtime {
         return driver_check_profile(path, std_root, runtime, freestanding, &names, &dirs)
@@ -292,7 +304,8 @@ func driver_emit(path: String, std_root: String, triple: String, speed: String, 
 func driver_check_profile(path: String, std_root: String, runtime: Bool, freestanding: Bool,
                           names: &Vector<String>, dirs: &Vector<String>) -> Int {
     let p = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding)
-    let options = TypecheckOptions(std_root: std_root, dump: false, notes: false, interfaces: false, summaries: false)
+    let options = TypecheckOptions(std_root: std_root, dump: false, notes: false, interfaces: false, summaries: false,
+                                   warn_borrow_prefix: false)
     var record = StringBuilder()
     try! record.append("FILE\t")
     try! record.append(path)
@@ -310,6 +323,36 @@ func driver_check_profile(path: String, std_root: String, runtime: Bool, freesta
     }
     print(record.build())
     status
+}
+
+// Whether `category`, the operand of `-W`, names a warning category sawc
+// has; one it lacks is a usage error, the usage printed first as for any
+// other. `borrow-prefix` is the one so far (SL-879 adds the rest).
+func driver_warning_category(category: String) -> Bool {
+    if category.equals("borrow-prefix") {
+        return true
+    }
+    let _ = driver_usage()
+    print("sawc: -W takes a warning category, and `borrow-prefix` is the one sawc has, not `{}`", category)
+    false
+}
+
+// The warnings `-W borrow-prefix` asks a build of `path` for, headed by the
+// file, printed when there are any. They never change the exit status.
+func driver_print_warnings(path: String, std_root: String, names: &Vector<String>, dirs: &Vector<String>) {
+    let p = asserts_typecheck_program(path, std_root, &names, &dirs)
+    var found = StringBuilder()
+    append_tc_warnings(out: &var found, p: &p)
+    let text = found.build()
+    if text.len() == 0 {
+        return
+    }
+    var record = StringBuilder()
+    try! record.append("FILE\t")
+    try! record.append(path)
+    try! record.append("\n")
+    try! record.append(text)
+    print(record.build())
 }
 
 // Prints the record `sawc mono --check` would, headed by its file.
@@ -1382,6 +1425,9 @@ func main() -> Int {
     if command.equals("typecheck") {
         return driver_resolve(&args, DRIVER_STAGE_TYPECHECK)
     }
+    if command.equals("fix") {
+        return driver_fix(&args)
+    }
     if command.equals("mir") {
         return driver_resolve(&args, DRIVER_STAGE_MIR)
     }
@@ -1452,6 +1498,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var runtime = false
     var freestanding = false
     var counted = false
+    var warn = false
     var std_root = ""
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -1459,7 +1506,13 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var i = 2
     while i < args.len() {
         let arg = args.get(i) ?? ""
-        if arg.equals("--dump") {
+        if arg.equals("-W") && typecheck {
+            if not driver_warning_category(args.get(i + 1) ?? "") {
+                return DRIVER_EXIT_USAGE
+            }
+            warn = true
+            i = i + 1
+        } else if arg.equals("--dump") {
             dump = true
         } else if arg.equals("--check") {
             check = true
@@ -1514,7 +1567,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     }
     let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
     let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,
-                                    interfaces: interfaces, summaries: summaries)
+                                    interfaces: interfaces, summaries: summaries, warn_borrow_prefix: warn)
     let lowering = MirOptions(std_root: std_root, dump: dump, notes: notes, spans: spans)
     let evaluating = EvalOptions(std_root: std_root, dump: dump, notes: notes)
     let borrowing = BorrowckOptions(std_root: std_root, dump: dump, notes: notes)
@@ -1560,6 +1613,182 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
         k = k + 1
     }
     status
+}
+
+// `sawc fix`: in each FILE, every old `borrow` prefix SL:borrowing §12 makes
+// redundant is dropped where it stands, or replaced with the sigil of the
+// reference argument it passes. Each FILE is typechecked as an entry, and the
+// fix-its are the `borrows.redundant-prefix` warnings' (`-W borrow-prefix`),
+// so the tool needs no warning shown. A record per file lists `FIX` per site
+// rewritten and `KEEP` per prefix left, with why; `--check` rewrites nothing.
+// A file the parser or resolve refuses is listed `SKIP`, since its tree and
+// its names' types are what decide.
+func driver_fix(args: &Vector<String>) -> Int {
+    var check = false
+    var std_root = ""
+    var names = Vector<String>()
+    var dirs = Vector<String>()
+    var inputs = Vector<DriverInput>()
+    var i = 2
+    while i < args.len() {
+        let arg = args.get(i) ?? ""
+        if arg.equals("--check") {
+            check = true
+        } else if arg.equals("--std-root") || arg.equals("--module-path") {
+            let value = args.get(i + 1) ?? ""
+            if value.len() == 0 {
+                return driver_usage()
+            }
+            if arg.equals("--std-root") {
+                std_root = value
+            } else if not driver_add_mapping(&var names, &var dirs, value) {
+                return driver_usage()
+            }
+            i = i + 1
+        } else if arg.starts_with("--") {
+            return driver_usage()
+        } else if arg.len() > 1 && (arg.byte_at(0) as Int) == DRIVER_AT {
+            let size = arg.len()
+            let list = arg.substring(1, size)
+            if not driver_add_list(&var inputs, list) {
+                return DRIVER_EXIT_USAGE
+            }
+        } else {
+            try! inputs.push(DriverInput(path: arg, unit: false))
+        }
+        i = i + 1
+    }
+    if inputs.len() == 0 {
+        return driver_usage()
+    }
+    std_root = driver_std_root("sawc fix", std_root)
+    if std_root.len() == 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    var status = 0
+    var k = 0
+    while k < inputs.len() {
+        if let input = inputs.get(k) {
+            if not driver_fix_file(input.path, std_root, check, &names, &dirs) {
+                status = 1
+            }
+        }
+        k = k + 1
+    }
+    status
+}
+
+// One file of `sawc fix`; false when it could not be written.
+func driver_fix_file(path: String, std_root: String, check: Bool, names: &Vector<String>,
+                     dirs: &Vector<String>) -> Bool {
+    let p = asserts_typecheck_program(path, std_root, &names, &dirs)
+    var record = StringBuilder()
+    try! record.append("FILE\t")
+    try! record.append(path)
+    try! record.append("\n")
+    var m = -1
+    var k = 0
+    while k < p.res.module_count() {
+        if m < 0 && p.res.module_file(k).equals(path) && not tc_module_is_std(&p, k) {
+            m = k
+        }
+        k = k + 1
+    }
+    // A file that does not resolve is left whole: the types its unresolved
+    // names would give decide whether a prefix is redundant.
+    k = 0
+    while k < p.res.diags.len() {
+        let d = p.res.diags[k]
+        k = k + 1
+        if not d.note && (m < 0 || d.module == m) {
+            try! record.append("SKIP\t")
+            try! record.append(path)
+            try! record.append("\tit does not resolve (")
+            try! record.append(d.id)
+            try! record.append("), and the types it would give decide each prefix\n")
+            print(record.build())
+            return true
+        }
+    }
+    if m < 0 {
+        try! record.append("SKIP\t")
+        try! record.append(path)
+        try! record.append("\tno module of the program is this file\n")
+        print(record.build())
+        return true
+    }
+    // The fix-its, latest first, so each edit leaves the offsets of those
+    // before it standing; one that overlaps an edit already taken is left.
+    var order = Vector<Int>()
+    k = 0
+    while k < p.warnings.len() {
+        let w = p.warnings[k]
+        if w.module == m && not w.kept && w.fix_start >= 0 {
+            var at = order.len()
+            try! order.push(k)
+            while at > 0 && p.warnings[order[at - 1]].fix_start < w.fix_start {
+                order[at] = order[at - 1]
+                at = at - 1
+            }
+            order[at] = k
+        }
+        k = k + 1
+    }
+    let text = p.res.module_text(m)
+    var out = text.substring(0, text.len())
+    var limit = text.len() + 1
+    var fixed = 0
+    k = 0
+    while k < order.len() {
+        let w = p.warnings[order[k]]
+        k = k + 1
+        if w.fix_end > limit {
+            continue
+        }
+        var next = StringBuilder()
+        try! next.append(out.substring(0, w.fix_start))
+        try! next.append(w.fix_text)
+        try! next.append(out.substring(w.fix_end, out.len()))
+        out = next.build()
+        limit = w.fix_start
+        fixed = fixed + 1
+        try! record.append("FIX\t")
+        try! record.append(path)
+        try! record.append(":")
+        try! record.append(p.res.position_text(m, w.start))
+        try! record.append("\t")
+        try! record.append(w.form)
+        try! record.append("\n")
+    }
+    var kept = 0
+    k = 0
+    while k < p.warnings.len() {
+        let w = p.warnings[k]
+        k = k + 1
+        if w.module != m || not w.kept {
+            continue
+        }
+        kept = kept + 1
+        try! record.append("KEEP\t")
+        try! record.append(path)
+        try! record.append(":")
+        try! record.append(p.res.position_text(m, w.start))
+        try! record.append("\t")
+        try! record.append(w.form)
+        try! record.append("\t")
+        try! record.append(w.message)
+        try! record.append("\n")
+    }
+    try! record.append("FIXED\t")
+    try! record.append(fixed)
+    try! record.append("\tKEPT\t")
+    try! record.append(kept)
+    try! record.append("\n")
+    print(record.build())
+    if check || fixed == 0 {
+        return true
+    }
+    driver_write_file(path, out)
 }
 
 // The `LOWERINGS<TAB>N` line `--lowerings` ends a record with: how many times

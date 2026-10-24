@@ -30,8 +30,8 @@ extension Row {
 
 func main() {
     var r = Row(cells: [Cell(n: 1)])
-    borrow var r.at(0)!.n += 1
+    r.at(0)!.n += 1
     print("{}", r.cells[0].n)
-    borrow var r.at(4)!.n += 1
+    r.at(4)!.n += 1
     print("unreached")
 }

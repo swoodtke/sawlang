@@ -53,7 +53,7 @@ extension Bag {
 }
 
 func early(b: &var Bag) -> Int {
-    if borrow var x = b.at(0) {
+    if var x = b.at(0) {
         return x
     }
     -1
@@ -61,7 +61,7 @@ func early(b: &var Bag) -> Int {
 
 func early_block(b: &var Bag) -> Int {
     borrow var e = b.at(0) {
-        if borrow var x = e {
+        if var x = e {
             return x
         }
     }
@@ -69,11 +69,11 @@ func early_block(b: &var Bag) -> Int {
 }
 
 func absent(b: &var Bag) -> Int {
-    if borrow var x = b.at(1) {
+    if var x = b.at(1) {
         return x
     }
     borrow var e = b.at(1) {
-        if borrow var x = e {
+        if var x = e {
             return x
         }
     }
@@ -88,7 +88,7 @@ func fails(n: Int) -> Result<Int, Bad> {
 }
 
 func tried(b: &var Bag) -> Result<Int, Bad> {
-    if borrow var x = b.at(0) {
+    if var x = b.at(0) {
         let k = try fails(1)
         x += k
     }
@@ -98,7 +98,7 @@ func tried(b: &var Bag) -> Result<Int, Bad> {
 func tried_block(b: &var Bag) -> Result<Int, Bad> {
     borrow var e = b.at(0) {
         let k = try fails(2)
-        if borrow var x = e {
+        if var x = e {
             x += k
         }
     }
@@ -120,7 +120,7 @@ func main() {
     var k = 0
     while k < 3 {
         k = k + 1
-        if borrow var x = b.at(0) {
+        if var x = b.at(0) {
             if k == 1 {
                 continue
             }
@@ -146,7 +146,7 @@ func main() {
     print("block loop {}", k)
     print("try {}", outcome(tried(&var b)))
     print("try block {}", outcome(tried_block(&var b)))
-    let tail = borrow let e = b.at(0) { if borrow let x = e { x } else { 0 } }
+    let tail = borrow let e = b.at(0) { if let x = e { x } else { 0 } }
     print("tail {}", tail)
     print("closes {}", b.closes)
 }

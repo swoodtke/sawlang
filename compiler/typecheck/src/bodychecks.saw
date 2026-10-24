@@ -975,11 +975,45 @@ extension TcProgram {
                     accessor = self.sync_lender(c)
                 }
             }
+        } else if self.lend_heads[id] || self.has_alt(id, Alt.Expr_While_Borrow) {
+            // A `while let` or `while var` over a lend, or `while borrow`.
+            var head = id
+            if self.has_alt(id, Alt.Expr_While_Borrow) {
+                head = self.res.first_node_child(id)
+            }
+            accessor = self.sync_lender(self.res.last_node_child(head))
+            block = self.res.last_node_child(id)
+        } else if self.has_alt(id, Alt.Expr_If) || self.has_alt(id, Alt.Expr_ElseIf) {
+            self.check_sync_if_arms(id, d)
+            return
         }
         if block < 0 || accessor < 0 {
             return
         }
         self.check_window_calls(block, accessor, d)
+    }
+
+    // Each arm of `if` node `id` whose head binds a `borrows(sync)` lend for
+    // its block: `if let`, `if var` or `if borrow`.
+    func check_sync_if_arms(&var self, id: Int, d: Int) {
+        var accessor = -1
+        let n = self.child_count(id)
+        var k = 0
+        while k < n {
+            let c = self.child(id, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            if self.has_alt(c, Alt.Stmt_Block) {
+                if accessor >= 0 {
+                    self.check_window_calls(c, accessor, d)
+                }
+                accessor = -1
+            } else if self.lend_heads[c] || self.has_alt(c, Alt.Borrow_Unwrap_Let) || self.has_alt(c, Alt.Borrow_Unwrap_Var) {
+                accessor = self.sync_lender(self.res.last_node_child(c))
+            }
+        }
     }
 
     // The `borrows(sync)` accessor the call at `place` names, or -1.

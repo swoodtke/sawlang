@@ -23,15 +23,15 @@ extension Noisy: NoCopy {
 
 func keep(b: Box<Noisy>) {
     var held = move b
-    print("kept {}", borrow held.value().id)
+    print("kept {}", held.value().id)
 }
 
 func main() {
     var a = try! Box<Noisy>.make(Noisy(id: 7))
-    print("made {}", borrow a.value().id)
+    print("made {}", a.value().id)
     let b = try! Box<Noisy>.make(Noisy(id: 8))
     keep(move b)
     var s = try! Box<String>.make("abcdef".substring(1, 4))
-    print("string {}", borrow s.value())
+    print("string {}", s.value())
     print("end")
 }

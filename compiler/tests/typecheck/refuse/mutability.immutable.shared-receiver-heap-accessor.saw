@@ -23,6 +23,6 @@ extension Owner: NoCopy {}
 
 extension Owner {
     func stamp(&self) {
-        borrow var self.s.slot(0) = 100
+        self.s.slot(0) = 100
     }
 }

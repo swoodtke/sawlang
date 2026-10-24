@@ -3684,6 +3684,38 @@
         (ExprStmt
           (For.plain (BindingName b) (Name c) (Block)))))))
 
+// case: syntax.expr.for.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.var (BindingName b) (Name c) (Block)))))))
+
+// case: syntax.expr.for.var/rep:5:NEWLINE*=0
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.var (BindingName b) (Name c) (Block)))))))
+
+// case: syntax.expr.for.var/rep:5:NEWLINE*=1
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.var (BindingName b) (Name c) (Block)))))))
+
+// case: syntax.expr.for.var/rep:5:NEWLINE*=many
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (For.var (BindingName b) (Name c) (Block)))))))
+
 // case: syntax.expr.for.borrow/alt
 (File
   (Declaration.func

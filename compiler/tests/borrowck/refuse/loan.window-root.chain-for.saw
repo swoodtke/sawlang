@@ -8,7 +8,7 @@ func main() {
     var row = Vector<Int>()
     try! row.push(1)
     try! g.push(move row)
-    for borrow var x in g[0].iter() {
+    for var x in g[0].iter() {
         x = g.len()
     }
 }

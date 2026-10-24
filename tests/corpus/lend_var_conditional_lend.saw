@@ -94,8 +94,8 @@ func main() {
     assert(missing, "at_eager(9) on a 3-slot Bag found something")
 
     // present, exclusive: `!` panics if absent (SL:borrowing §2.2)
-    borrow var b.at_eager(1)! += 5
-    print("after write {borrow b.at_late(1)!}, gates {b.gates_seen()}")
+    b.at_eager(1)! += 5
+    print("after write {b.at_late(1)!}, gates {b.gates_seen()}")
 
     // the same three through the late gate
     if let v = borrow b.at_late(1) {
@@ -107,7 +107,7 @@ func main() {
     }
     print("late: absent, gates {b.gates_seen()}")
     assert(late_missing, "at_late(9) on a 3-slot Bag found something")
-    borrow var b.at_late(1)! += 0
-    print("late: after write {borrow b.at_late(1)!}, gates {b.gates_seen()}")
+    b.at_late(1)! += 0
+    print("late: after write {b.at_late(1)!}, gates {b.gates_seen()}")
     print("-- done")
 }

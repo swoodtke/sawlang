@@ -44,7 +44,7 @@ func windowed(s: &var Shelf, n: Int) -> Int {
 }
 
 func lent(s: &var Shelf) {
-    borrow var s.find(0)?.n = s.slot.n + 1
+    s.find(0)?.n = s.slot.n + 1
 }
 
 struct Holder { slot: Slot? }

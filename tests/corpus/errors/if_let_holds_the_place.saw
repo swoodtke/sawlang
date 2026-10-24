@@ -1,0 +1,14 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `x` now holds `m.find(&"a")`'s place for this block, so `m` is borrowed until the `}`. To work on `m` inside it, copy the value out first: `let x = m.find(&"a")` (an optional copy)
+//
+// Conformance row P31 — the v0.18.0 migration trap (SL:borrowing §12.5): on
+// v0.18.0 a plain `if let x = m.find(&k)` copied the payload, so a body that
+// touches `m` compiled; under §12.2 the head holds `m.find(&k)`'s place for
+// the block, and the refusal names the copy that keeps the old meaning.
+
+func main() {
+    var m = Map<String, Int>()
+    m["a"] = 1
+    if let x = m.find(&"a") { m["b"] = x + 1 }
+    print(m.len())
+}

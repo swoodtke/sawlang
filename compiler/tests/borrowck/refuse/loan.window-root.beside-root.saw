@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 20:36
+// refuses: loan.window-root at 20:30
 // a window beside a `&var` of a field of its root: a window charges its whole
 // root, so field disjointness does not apply (conformance X20, X31)
 
@@ -17,6 +17,6 @@ func set_both(x: &var Int, y: &var Int) {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    set_both(borrow var p.first(), &var p.b)
+    set_both(&var p.first(), &var p.b)
     print(p.a)
 }

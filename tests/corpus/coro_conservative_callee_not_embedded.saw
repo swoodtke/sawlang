@@ -43,7 +43,7 @@ func entry_fold(folder: &Folder) -> Int {
 
 func main() {
     var doc = JsonValue.Object(fields: Map<String, JsonValue>())
-    let _ = try! borrow var doc.as_object()!.insert("a", JsonValue.Number(value: 1))
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: 1))
     let folder = Folder(seed: 41)
     let values: Vector<Int> = [1, 2, 3]
 

@@ -6,7 +6,7 @@ GRAMMAR.md has, and it lints clean against mini_spec.md.
 ## 1. Notation
 
 ```ebnf-notation
-status              ::= "current" | "lockdown" | "retired" | "removed" | "pending"
+status              ::= "current" | "lockdown" | "deprecated" | "retired" | "removed" | "pending"
 ```
 
 **Start symbols.** `source-file` is a source file.

@@ -161,17 +161,17 @@ extension HolderB {
 }
 
 func chain_write_P(h: &var HolderP, i: Int) -> Int {
-    borrow var h.pt(i)?.n = 7
+    h.pt(i)?.n = 7
     if i < h.pts.len() { h.pts[i].n } else { -1 }
 }
 
 func chain_write_B(h: &var HolderB, i: Int) -> Int {
-    borrow var h.pt(i)?.n = 7
+    h.pt(i)?.n = 7
     if i < h.pts.len() { h.pts[i].n } else { -1 }
 }
 
 func chain_write_iflet_P(h: &var HolderP, i: Int) -> Int {
-    if let _ = borrow var h.pt(i)?.n = 7 {
+    if let _ = h.pt(i)?.n = 7 {
         print("wrote")
         h.pts[i].n
     } else {
@@ -181,7 +181,7 @@ func chain_write_iflet_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func chain_write_iflet_B(h: &var HolderB, i: Int) -> Int {
-    if let _ = borrow var h.pt(i)?.n = 7 {
+    if let _ = h.pt(i)?.n = 7 {
         print("wrote")
         h.pts[i].n
     } else {

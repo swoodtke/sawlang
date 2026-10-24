@@ -76,43 +76,43 @@ extension Holder: NoCopy {}
 
 extension Holder {
     func total(&self) -> Int {
-        borrow self.a.value().sum()
+        self.a.value().sum()
     }
 }
 
 func by_ref(a: &Arc<Point>) -> Int {
-    borrow a.value().sum()
+    a.value().sum()
 }
 
 func by_value(a: Arc<Point>) -> Int {
-    borrow a.value().scaled(by: 2)
+    a.value().scaled(by: 2)
 }
 
 func main() {
     let a = try! Arc<Point>(value: Point(x: 5, y: 6))
-    print(borrow a.value().sum())
-    print(borrow a.value().scaled(by: 3))
+    print(a.value().sum())
+    print(a.value().scaled(by: 3))
     let a2 = a.copy()
-    print(borrow a.value().sum() + borrow a2.value().sum())
+    print(a.value().sum() + a2.value().sum())
     print(a.strong_count())
     print(by_ref(&a))
     print(by_value(a.copy()))
     print(a.strong_count())
-    print("interpolated {borrow a.value().sum()}")
-    if borrow a2.value().sum() == 11 {
+    print("interpolated {a.value().sum()}")
+    if a2.value().sum() == 11 {
         print("eleven")
     }
     let h = Holder(a: a.copy())
     print(h.total())
-    print(borrow h.a.value().sum())
+    print(h.a.value().sum())
     print(a.strong_count())
     var items = Vector<Int>()
     try! items.push(8)
     let bag = try! Arc<Bag>(value: Bag(items: move items))
-    print(borrow bag.value().first())
+    print(bag.value().first())
     let r = try! Arc<Res>(value: Res(id: 3))
     let r2 = r.copy()
-    print(borrow r.value().id_of() + borrow r2.value().id_of())
+    print(r.value().id_of() + r2.value().id_of())
     print(r.strong_count())
     print("end")
 }

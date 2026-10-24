@@ -12,7 +12,7 @@ extern "C" {
 }
 
 func measured(s: String) unsafe -> Int {
-    if borrow let p = s.c_string() {
+    if let p = s.c_string() {
         return strlen(p) as Int
     } else {
         return -1

@@ -28,12 +28,12 @@ extension Row {
 }
 
 func nested(b: &var Vector<Vector<Cell>>) -> Int {
-    borrow var b[0][1].n += 1
-    borrow b[0][1].n
+    b[0][1].n += 1
+    b[0][1].n
 }
 
 func absent(r: &var Row, i: Int) -> Int {
-    if borrow var found = r.find(i) {
+    if var found = r.find(i) {
         found += 1
     } else {
         r.cells[0] = 9
@@ -66,8 +66,8 @@ func let_root() -> Int {
     borrow let first = v[0] {
         total = total + first
     }
-    print("{borrow v[0]} {borrow v[1]}")
-    if borrow v[0] == borrow v[1] {
+    print("{v[0]} {v[1]}")
+    if v[0] == v[1] {
         total = total + 1
     }
     total

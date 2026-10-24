@@ -119,29 +119,29 @@ extension S {
 
 func main() {
     var s = S(f1: 10, v2: [20], h0: Holder(cells: [100]), h1: Holder(cells: [200]))
-    borrow var s.two(0, 0) += 1
+    s.two(0, 0) += 1
     print("--")
-    borrow var s.two(1, 0) += 1
+    s.two(1, 0) += 1
     print("--")
-    borrow var s.three(0, 0) += 1
+    s.three(0, 0) += 1
     print("--")
-    borrow var s.three(1, 0) += 1
+    s.three(1, 0) += 1
     print("--")
-    borrow var s.three(2, 0) += 1
+    s.three(2, 0) += 1
     print("--")
-    if borrow var x = s.maybe(0, 0) {
+    if var x = s.maybe(0, 0) {
         x += 1
     } else {
         print("none")
     }
     print("--")
-    if borrow var x = s.maybe(1, 0) {
+    if var x = s.maybe(1, 0) {
         x += 1
     } else {
         print("none")
     }
     print("--")
-    if borrow var x = s.maybe(9, 0) {
+    if var x = s.maybe(9, 0) {
         x += 1
     } else {
         print("none")

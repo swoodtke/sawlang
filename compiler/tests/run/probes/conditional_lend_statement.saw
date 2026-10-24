@@ -37,14 +37,14 @@ func loud(x: Int) -> Int {
 
 func main() {
     var r = Row(cells: [Cell(n: 1), Cell(n: 2)], closes: 0)
-    borrow var r.at(0)!.n += 1
-    borrow var r.at(9)?.n = loud(7)
-    borrow var r.at(1)?.n = loud(8)
-    print("forced {}", borrow r.at(0)!.n)
+    r.at(0)!.n += 1
+    r.at(9)?.n = loud(7)
+    r.at(1)?.n = loud(8)
+    print("forced {}", r.at(0)!.n)
     var v: Vector<Int> = [1, 2]
-    let a = borrow v.find(0)
-    let b = borrow v.find(9)
+    let a = v.find(0)
+    let b = v.find(9)
     print("copies {} {}", a ?? -1, b ?? -1)
-    print("coalesced {} {}", borrow v.find(0) ?? 9, borrow v.find(5) ?? 9)
+    print("coalesced {} {}", v.find(0) ?? 9, v.find(5) ?? 9)
     print("after {} {} closes {}", r.cells[0].n, r.cells[1].n, r.closes)
 }

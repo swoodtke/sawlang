@@ -203,7 +203,7 @@ extension HolderB {
 }
 
 func if_borrow_var_P(h: &var HolderP, i: Int) -> Int {
-    if borrow var c = h.find(i) {
+    if var c = h.find(i) {
         print("body {}", c)
         c += 1
         c
@@ -214,7 +214,7 @@ func if_borrow_var_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func if_borrow_var_B(h: &var HolderB, i: Int) -> Int {
-    if borrow var c = h.find(i) {
+    if var c = h.find(i) {
         print("body {}", c)
         c += 1
         c
@@ -225,7 +225,7 @@ func if_borrow_var_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func if_borrow_var_body_yield_P(h: &var HolderP, i: Int) -> Int {
-    if borrow var c = h.find(i) {
+    if var c = h.find(i) {
         print("body {}", c)
         yield_now()
         c += 1
@@ -238,7 +238,7 @@ func if_borrow_var_body_yield_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func if_borrow_var_body_yield_B(h: &var HolderB, i: Int) -> Int {
-    if borrow var c = h.find(i) {
+    if var c = h.find(i) {
         print("body {}", c)
         yield_now()
         c += 1
@@ -251,7 +251,7 @@ func if_borrow_var_body_yield_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func if_borrow_let_P(h: &var HolderP, i: Int) -> Int {
-    if borrow let c = h.look(i) {
+    if let c = h.look(i) {
         print("body {}", c)
         c
     } else {
@@ -261,7 +261,7 @@ func if_borrow_let_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func if_borrow_let_B(h: &var HolderB, i: Int) -> Int {
-    if borrow let c = h.look(i) {
+    if let c = h.look(i) {
         print("body {}", c)
         c
     } else {
@@ -273,7 +273,7 @@ func if_borrow_let_B(h: &var HolderB, i: Int) -> Int {
 func else_if_borrow_P(h: &var HolderP, i: Int) -> Int {
     if i < 0 {
         -2
-    } else if borrow var c = h.find(i) {
+    } else if var c = h.find(i) {
         c += 1
         c
     } else {
@@ -285,7 +285,7 @@ func else_if_borrow_P(h: &var HolderP, i: Int) -> Int {
 func else_if_borrow_B(h: &var HolderB, i: Int) -> Int {
     if i < 0 {
         -2
-    } else if borrow var c = h.find(i) {
+    } else if var c = h.find(i) {
         c += 1
         c
     } else {

@@ -23,7 +23,7 @@ extension Row {
 
 func touch(r: &var Row) {
     borrow var e = r.find(0) {
-        if borrow var x = e {
+        if var x = e {
             x += 1
             r.reset()
         } else {

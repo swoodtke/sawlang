@@ -140,7 +140,7 @@ INDEX.md, or when an owner is not one of the words below.
 | X12 | typecheck | forwarding `&` as `&var`: `type.not-a-place`, `compiler/tests/typecheck/refuse/type.not-a-place.saw` |
 | X13 | U6d2 | `loan.read-while-exclusive`: `compiler/tests/borrowck/refuse/loan.read-while-exclusive.forwarded.saw` |
 | X14 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw` |
-| X15 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw`; an argument reading the root of an accessor receiver, `compiler/tests/borrowck/refuse/loan.window-root.receiver-order.saw` (SL-473) |
+| X15 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.saw`; an argument reading the root of an accessor receiver is legal, since it runs before the window opens, `compiler/tests/borrowck/golden/arguments_first.saw` (SL:borrowing §12.1) |
 | X16 | U6d2 | `loan.window-root`: `compiler/tests/borrowck/refuse/loan.window-root.two-windows.saw` |
 | X17 | U6d2 | accepted: nested windows, `compiler/tests/borrowck/golden/windows.saw`, and the chains `compiler/tests/borrowck/golden/chains.saw` accepts; a written chain charges every hop's root exclusively, so its body reading the root is `loan.window-root`, `compiler/tests/borrowck/refuse/loan.window-root.chain.saw` (SL-490) |
 | X18 | U6d2 | accepted: a `&var` and a window that is not `borrows(sync)` across a suspension, `compiler/tests/borrowck/golden/windows.saw` (then §3.9) |
@@ -351,3 +351,11 @@ INDEX.md, or when an owner is not one of the words below.
 | P23 | §3.9 | run, a task cancelled inside a suspending accessor's window finishes it once (SL-859): `compiler/tests/run/probes/borrows_body_suspends_cancelled_in_window.saw` |
 | P24 | §3.9 | run, nested windows over suspending accessors close in reverse (SL-859): `compiler/tests/run/probes/borrows_body_suspends_nested_windows.saw` |
 | P22 | typecheck | `transfer.implicit-copy` for a move-only `Box.value()` read; tests/corpus file refused by it |
+| P25 | U6d2 | accepted: unnamed lends at each position, `compiler/tests/typecheck/golden/unnamed_lends.saw` and the run probe `compiler/tests/run/probes/lend_window_unnamed_positions.saw`; two exclusive windows in one statement, `compiler/tests/borrowck/refuse/loan.window-root.unnamed-pair.saw` |
+| P26 | mir | a head's unnamed lend closes at its value read: the run probe `compiler/tests/run/probes/lend_window_head_closes_before_body.saw` (SL-893) |
+| P27 | U6d2 | accepted: `compiler/tests/typecheck/golden/named_lends.saw` and the run probe `compiler/tests/run/probes/lend_window_binding_heads.saw`; the root inside the block, `compiler/tests/borrowck/refuse/loan.window-root.if-let-block.saw` |
+| P28 | typecheck | `borrows.let-lend`, `borrows.guard-lend`, `borrows.unconditional-test` and `borrowing.containment`: `compiler/tests/typecheck/refuse/borrows.let-lend.saw` and its siblings; the copies, the run probe `compiler/tests/run/probes/lend_window_let_copies.saw` |
+| P29 | U6d2 | accepted: `compiler/tests/borrowck/golden/arguments_first.saw` and the run probe `compiler/tests/run/probes/lend_window_opens_after_its_arguments.saw`; an argument writing the root, `compiler/tests/borrowck/refuse/loan.nested-call.place-window.saw` |
+| P30 | typecheck | the role and member by position: the run probe `compiler/tests/run/probes/lend_window_roles_by_position.saw` (SL-684) |
+| P31 | U6d2 | `loan.window-root` with the trap's text: `compiler/tests/borrowck/refuse/loan.window-root.if-let-block.saw` |
+| P32 | typecheck | `borrows.redundant-prefix` and the kept prefixes: `compiler/tests/typecheck/warn/kept.saw` |

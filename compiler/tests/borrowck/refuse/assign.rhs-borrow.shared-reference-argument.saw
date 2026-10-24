@@ -20,6 +20,6 @@ func peek(c: &Cell) -> Int {
 
 func main() {
     var h = Holder(a: Cell(n: 1), k: 3)
-    h.k = peek(borrow h.at()) + 10
+    h.k = peek(&h.at()) + 10
     print(h.k)
 }

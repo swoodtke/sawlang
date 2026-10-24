@@ -1086,6 +1086,18 @@ func mir_range_bound(text: &String, low: Bool) -> String {
     text.substring(start, n)
 }
 
+// Whether `xs` holds `x`.
+func mir_holds(xs: &Vector<Int>, x: Int) -> Bool {
+    var k = 0
+    while k < xs.len() {
+        if xs[k] == x {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
 // Whether alternative `alt` builds a control construct.
 func mir_is_control_alt(alt: Alt) -> Bool {
     match alt {
@@ -1095,6 +1107,7 @@ func mir_is_control_alt(alt: Alt) -> Bool {
         case Expr_While_Infinite -> true,
         case Expr_WhileLet_Let -> true,
         case Expr_WhileLet_Var -> true,
+        case Expr_While_Borrow -> true,
         case Expr_For_Plain -> true,
         case Borrow_Block -> true,
         case Expr_Try_Catch -> true,
@@ -1199,10 +1212,7 @@ extension MirProgram {
     // An assignment's target planned: its subexpressions evaluated now, its
     // windows left for `realize`, after the right side (SL:borrowing §2.2).
     func prepare_target(&var self, target: Int, steps: &var Vector<MirStep>) {
-        let deferred = self.defer_windows
-        self.defer_windows = true
         self.prepare_base(target, &var steps)
-        self.defer_windows = deferred
     }
 
     // `place op= value`: read and written in place, the value evaluated
@@ -1960,12 +1970,7 @@ extension MirProgram {
     // Expression `e` lowered, before its adjustments and its transfer.
     public func lower_val(&var self, e: Int) -> MirVal {
         let saved = self.source_at(e)
-        // A value inside an assignment's target, a key, is an expression of
-        // its own, whose windows open in receiver position.
-        let deferred = self.defer_windows
-        self.defer_windows = false
         let v = self.lower_val_at(e)
-        self.defer_windows = deferred
         self.source_restore(saved)
         v
     }
@@ -1976,7 +1981,17 @@ extension MirProgram {
             self.not_yet(e, "this expression")
             return MirVal(operand: self.dead_operand(t))
         }
+        if self.implicit_top(e) {
+            return self.borrow_place_val_of(e, e)
+        }
         self.lower_val_as(e, alt, t)
+    }
+
+    // Whether `e` is an unnamed lend's chain top, lowered as the `borrow`
+    // place form over itself (typecheck's `lend_tops`), and not already the
+    // one being lowered so.
+    func implicit_top(&self, e: Int) -> Bool {
+        e >= 0 && e < self.tc.lend_tops.len() && self.tc.lend_tops[e] != 0 && e != self.lend_top_open
     }
 
     func lower_val_as(&var self, e: Int, alt: Alt, t: Int) -> MirVal {
@@ -2222,6 +2237,13 @@ extension MirProgram {
     // `borrow PLACE` read as a value: the place, its windows closed as soon
     // as the value is copied out (SL:borrowing §2.2).
     func borrow_place_val(&var self, e: Int) -> MirVal {
+        self.borrow_place_val_of(e, self.tc.res.first_node_child(e))
+    }
+
+    // The place form `e` over chain `inner` read as a value: `e` is the
+    // `borrow` prefix's node, or an unnamed lend's chain top, which is its
+    // own `inner` and lowers as the prefix over it would (SL:borrowing §12.1).
+    func borrow_place_val_of(&var self, e: Int, inner: Int) -> MirVal {
         let t = self.tc.expr_types[e]
         if self.tc.referent(t) >= 0 {
             // A borrow handed on as a reference: its windows stay open
@@ -2233,9 +2255,15 @@ extension MirProgram {
             return MirVal(place: self.place_local(l), fresh: true)
         }
         let u = self.tc.expr_use[e]
-        let subject = self.lend_subject(e)
-        if u == TcUse.Copy && subject != e {
-            return self.lent_copy(subject)
+        var copied = -1
+        if e != inner {
+            let subject = self.lend_subject(e)
+            copied = if subject != e { subject } else { -1 }
+        } else if self.lends_place(e) || self.conditional_lend(e) {
+            copied = e
+        }
+        if u == TcUse.Copy && copied >= 0 {
+            return self.lent_copy(copied)
         }
         if u != TcUse.Copy {
             return self.prepared_val(e)
@@ -2284,7 +2312,7 @@ extension MirProgram {
     // since the borrow check holds a reference handed to a callee for the
     // whole call or assignment.
     //
-    // ENTRY POINTS (close_argument_windows):
+    // ENTRY POINTS (close_argument_windows, close_argument_windows_except):
     //     function_call
     //     drive_site
     //     builtin_call
@@ -2297,14 +2325,27 @@ extension MirProgram {
         self.close_windows_from(mark, &var closed)
     }
 
+    // `close_argument_windows` for a call whose receiver's windows, `kept`,
+    // opened after its arguments': those stay open.
+    func close_argument_windows_except(&var self, mark: Int, kept: &Vector<Int>) {
+        var closed = Vector<Int>()
+        self.close_windows_except(mark, &kept, &var closed)
+    }
+
     // Closes the windows registered since scope entry `mark` on the current
     // path, newest first, and forgets them, adding each to `closed`.
     func close_windows_from(&var self, mark: Int, closed: &var Vector<Int>) {
+        let none = Vector<Int>()
+        self.close_windows_except(mark, &none, &var closed)
+    }
+
+    // `close_windows_from`, leaving the windows `kept` names open.
+    func close_windows_except(&var self, mark: Int, kept: &Vector<Int>, closed: &var Vector<Int>) {
         var k = self.scope.len() - 1
         let first = closed.len()
         while k >= mark {
             let entry = self.scope[k]
-            if entry.window {
+            if entry.window && not mir_holds(&kept, entry.index) {
                 self.close_window(entry.index)
                 try! closed.push(entry.index)
             }
@@ -2382,6 +2423,10 @@ extension MirProgram {
     }
 
     func prepare_as(&var self, e: Int, alt: Alt, steps: &var Vector<MirStep>) {
+        if self.implicit_top(e) {
+            self.prepare_borrow_of(e, e, &var steps)
+            return
+        }
         match alt {
             case Expr_Name -> self.prepare_name(e, &var steps),
             case Expr_NameRef -> self.prepare_name(e, &var steps),
@@ -2458,17 +2503,30 @@ extension MirProgram {
     // may return a reference, a slice or a borrowing struct, so any other
     // value holds nothing of the place (SL:borrowing §2.2).
     func prepare_borrow(&var self, e: Int, steps: &var Vector<MirStep>) {
-        let inner = self.tc.res.first_node_child(e)
+        self.prepare_borrow_of(e, self.tc.res.first_node_child(e), &var steps)
+    }
+
+    // `prepare_borrow` for the place form `e` over chain `inner`: an unnamed
+    // lend's chain top is its own `inner`, planned as the prefix over it
+    // would be, its own adjustments left to its caller (SL:borrowing §12.1).
+    func prepare_borrow_of(&var self, e: Int, inner: Int, steps: &var Vector<MirStep>) {
         let mark = self.scope.len()
         let outer_spine = self.borrow_spine
         let outer_mark = self.borrow_mark
+        let outer_top = self.lend_top_open
         self.borrow_spine = inner
         self.borrow_mark = mark
-        self.prepare_base(inner, &var steps)
+        if e == inner {
+            self.lend_top_open = e
+            self.prepare(inner, &var steps)
+        } else {
+            self.prepare_base(inner, &var steps)
+        }
+        self.lend_top_open = outer_top
         self.borrow_spine = outer_spine
         self.borrow_mark = outer_mark
         // A borrow handed on as a reference takes nothing out of the value.
-        if self.tc.referent(self.tc.expr_types[e]) < 0 {
+        if e != inner && self.tc.referent(self.tc.expr_types[e]) < 0 {
             self.take_from_temporary(e, &var steps)
         }
         if self.crosses_fresh_value(&steps) {
@@ -2498,32 +2556,6 @@ extension MirProgram {
         }
         let d = self.tc.nominal_decl(t)
         d < 0 || (self.tc.sigs[d].flags & TC_FLAG_BORROWS_STRUCT) == 0
-    }
-
-    // Opens the windows plan `steps` holds now, leaving one root step naming
-    // the place they lend. Opening a window runs its accessor's prologue, so
-    // a receiver's windows open before the arguments of its call (spec,
-    // Argument Evaluation Order); a plain receiver's borrow, which runs no
-    // code, still waits for the call. An assignment's target defers instead.
-    func open_receiver_windows(&var self, steps: &var Vector<MirStep>) {
-        if self.defer_windows {
-            return
-        }
-        var opens = false
-        var k = 0
-        while k < steps.len() {
-            if steps[k].kind == MIR_STEP_WINDOW {
-                opens = true
-            }
-            k = k + 1
-        }
-        if not opens {
-            return
-        }
-        let node = steps[steps.len() - 1].node
-        let p = self.realize_all(&steps)
-        steps = Vector<MirStep>()
-        self.push_root(&var steps, node, p, false)
     }
 
     // Whether the receiver base `e` is borrowed exclusively, as its
@@ -2731,7 +2763,6 @@ extension MirProgram {
         let base = self.tc.res.first_node_child(e)
         if c.role == TcRole.BuiltinOperator {
             self.prepare_base(base, &var steps)
-            self.open_receiver_windows(&var steps)
             let key = self.subscript_values(e)
             let o = self.operand(key[0])
             let p = self.as_place(MirVal(operand: o), key[0])
@@ -2747,7 +2778,6 @@ extension MirProgram {
             return
         }
         self.prepare_base(base, &var steps)
-        self.open_receiver_windows(&var steps)
         let keys = self.call_arguments(e, &c, true)
         let first = self.push_args(&keys)
         var kind = MIR_STEP_WINDOW
@@ -2811,7 +2841,6 @@ extension MirProgram {
         }
         let base = self.tc.call_receiver(e)
         self.prepare_base(base, &var steps)
-        self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
         let first = self.push_args(&args)
         var exclusive = 0
@@ -3087,7 +3116,6 @@ extension MirProgram {
         let t = self.tc.expr_types[e]
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
-        self.open_receiver_windows(&var steps)
         let keys = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let result = self.new_temp(t)
@@ -3261,7 +3289,6 @@ extension MirProgram {
         let base = self.tc.call_receiver(e)
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
-        self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let first = self.push_args(&args)
@@ -3274,13 +3301,15 @@ extension MirProgram {
     }
 
     // A call of a function, method, requirement or `init`. A receiver taken
-    // by reference has its place resolved and its windows opened first, and
-    // its borrow taken after the arguments, just before the call; one taken
-    // by value is an operand like an argument.
+    // by reference has its place resolved first; its windows open after the
+    // arguments, in chain order, and its borrow is taken just before the call
+    // (SL:borrowing §12.1, "arguments first"). One taken by value is an
+    // operand like an argument.
     func function_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
         var mark = 0
-        let all = self.call_operands(e, &c, &var mark)
+        var kept = Vector<Int>()
+        let all = self.call_operands(e, &c, &var mark, &var kept)
         var call = self.blank_call(MirCallKind.Function, e)
         call.target = c.target
         call.owner = c.owner
@@ -3289,15 +3318,16 @@ extension MirProgram {
         call.arg_count = all.len()
         self.suspension(e, &var call)
         let v = self.finish_call(call, t)
-        self.close_argument_windows(mark)
+        self.close_argument_windows_except(mark, &kept)
         v
     }
 
     // The operands call `e` of a function, method, requirement or `init`
-    // passes, in its target's parameter order, the receiver first. `mark` is
-    // the scope entry its arguments' windows register from, after the
-    // receiver's.
-    func call_operands(&var self, e: Int, c: &TcCall, mark: &var Int) -> Vector<Int> {
+    // passes, in its target's parameter order, the receiver first. The
+    // arguments' windows register from scope entry `mark`; the receiver's,
+    // which open after them, go into `kept`, and stay open to the end of
+    // the chain the receiver is part of, as the place form's do.
+    func call_operands(&var self, e: Int, c: &TcCall, mark: &var Int, kept: &var Vector<Int>) -> Vector<Int> {
         let s = self.tc.sigs[c.target]
         var base = -1
         let rc = self.tc.res_call_at[e]
@@ -3311,16 +3341,23 @@ extension MirProgram {
             if self.borrows_receiver(base) {
                 by_reference = true
                 self.prepare_base(base, &var steps)
-                self.open_receiver_windows(&var steps)
             } else {
                 receiver = self.receiver_operand(base, e, &c)
             }
         }
         mark = self.scope.len()
         let args = self.call_arguments(e, &c, by_reference)
+        let before = self.scope.len()
         var all = Vector<Int>()
         if by_reference {
             let p = self.realize_all(&steps)
+            var k = before
+            while k < self.scope.len() {
+                if self.scope[k].window {
+                    try! kept.push(self.scope[k].index)
+                }
+                k = k + 1
+            }
             let exclusive = self.borrows_exclusively(base)
             let rv = self.rv_ref(exclusive, p)
             let rl = self.temp_of(rv)
@@ -3358,7 +3395,6 @@ extension MirProgram {
         let base = self.tc.res.first_node_child(callee)
         if form == MirSpawnForm.Group {
             self.prepare_base(base, &var steps)
-            self.open_receiver_windows(&var steps)
         }
         let saved = self.source_at(root)
         let root_args = self.call_arguments(root, &rc, false)
@@ -3403,7 +3439,8 @@ extension MirProgram {
         }
         let saved = self.source_at(root)
         var mark = 0
-        let all = self.call_operands(root, &rc, &var mark)
+        var kept = Vector<Int>()
+        let all = self.call_operands(root, &rc, &var mark, &var kept)
         self.source_restore(saved)
         var call = self.blank_call(MirCallKind.Drive, e)
         call.target = rc.target
@@ -3413,7 +3450,7 @@ extension MirProgram {
         call.arg_count = all.len()
         call.drive = form
         let v = self.finish_call(call, t)
-        self.close_argument_windows(mark)
+        self.close_argument_windows_except(mark, &kept)
         v
     }
 
@@ -3648,7 +3685,6 @@ extension MirProgram {
             if self.borrows_receiver(base) {
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
-                self.open_receiver_windows(&var steps)
                 mark = self.scope.len()
                 let args = self.builtin_operands(e)
                 let p = self.realize_all(&steps)
@@ -4210,8 +4246,14 @@ extension MirProgram {
     // the end of its statement; through a reference binding, a reborrow.
     func reference(&var self, e: Int, exclusive: Bool) -> Int {
         let inner = self.tc.res.first_node_child(e)
+        let mark = self.scope.len()
         var steps = Vector<MirStep>()
         self.prepare_base(inner, &var steps)
+        // A reference to a value a call returned holds nothing of the place
+        // the windows below it lend, so they close there (SL:borrowing §2.2).
+        if self.crosses_fresh_value(&steps) {
+            self.close_windows_since(mark)
+        }
         let p = self.realize_all(&steps)
         if steps.len() == 1 && steps[0].fresh {
             self.own_temp(p)
@@ -4708,6 +4750,7 @@ extension MirProgram {
             case Expr_While_Infinite -> self.lower_while(e),
             case Expr_WhileLet_Let -> self.lower_while_let(e),
             case Expr_WhileLet_Var -> self.lower_while_let(e),
+            case Expr_While_Borrow -> self.lower_while_borrow(e),
             case Expr_For_Plain -> self.lower_for(e),
             case Borrow_Block -> self.lower_borrow_block(e, dest),
             case Expr_Try_Catch -> self.lower_try_catch(e, dest),
@@ -4770,7 +4813,7 @@ extension MirProgram {
                 break
             }
             let binding = self.tc.has_alt(head, Alt.Expr_OptionalBinding_Let) || self.tc.has_alt(head, Alt.Expr_OptionalBinding_Var)
-            let unwrap = self.tc.has_alt(head, Alt.Borrow_Unwrap_Let) || self.tc.has_alt(head, Alt.Borrow_Unwrap_Var)
+            let unwrap = self.binds_lend(head)
             if binding || unwrap {
                 let target = self.tc.res.first_node_child(head)
                 let subject = self.tc.res.last_node_child(head)
@@ -4803,6 +4846,17 @@ extension MirProgram {
         }
         self.goto(join)
         self.enter(join)
+    }
+
+    // Whether binding head `head` binds the place its subject lends for its
+    // block, so its window stays open there: `if borrow`, or an `if let`,
+    // `if var`, `while let` or `while var` whose subject is a lend
+    // (typecheck's `lend_heads`).
+    func binds_lend(&self, head: Int) -> Bool {
+        if self.tc.has_alt(head, Alt.Borrow_Unwrap_Let) || self.tc.has_alt(head, Alt.Borrow_Unwrap_Var) {
+            return true
+        }
+        head >= 0 && head < self.tc.lend_heads.len() && self.tc.lend_heads[head]
     }
 
     // The head of `if let`, `guard let` and `while let`: `subject` evaluated
@@ -4948,7 +5002,6 @@ extension MirProgram {
         let base = self.lend_receiver(e)
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
-        self.open_receiver_windows(&var steps)
         let args = self.call_arguments(e, &c, true)
         let p = self.realize_all(&steps)
         let first = self.push_args(&args)
@@ -5008,7 +5061,7 @@ extension MirProgram {
             }
             return
         }
-        if alt == Alt.Stmt_BindingName || alt == Alt.Pat_Name || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var {
+        if alt == Alt.Stmt_BindingName || alt == Alt.Pat_Name || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var || alt == Alt.Pat_VarBinding {
             if alt == Alt.Pat_Name && self.tc.call_at[p] >= 0 {
                 return
             }
@@ -5148,7 +5201,9 @@ extension MirProgram {
     }
 
     // `while let x = e { }`: the subject tested at each iteration's head, its
-    // temporaries dropped on both edges.
+    // temporaries dropped on both edges. Over a lend the binding holds the
+    // lent place for the body, whose end closes the window before the head
+    // runs again (SL:borrowing §12.2).
     func lower_while_let(&var self, e: Int) {
         let target = self.tc.res.first_node_child(e)
         var subject = -1
@@ -5167,17 +5222,33 @@ extension MirProgram {
                 subject = c
             }
         }
+        self.lower_while_binding(e, e, target, subject, block)
+    }
+
+    // `while borrow let x = e { }` and `while borrow var`, the deprecated
+    // spelling of `while let` and `while var` over a lend.
+    func lower_while_borrow(&var self, e: Int) {
+        let arm = self.tc.res.first_node_child(e)
+        let block = self.tc.res.last_node_child(e)
+        let target = self.tc.res.first_node_child(arm)
+        let subject = self.tc.res.last_node_child(arm)
+        self.lower_while_binding(e, arm, target, subject, block)
+    }
+
+    // The loop `e` whose binding head is `head_node`.
+    func lower_while_binding(&var self, e: Int, head_node: Int, target: Int, subject: Int, block: Int) {
+        let unwrap = self.binds_lend(head_node)
         let head = self.new_block()
         let exit = self.new_block()
         self.goto(head)
         self.enter(head)
-        let opened = self.open_head(e, subject, false, target)
+        let opened = self.open_head(head_node, subject, unwrap, target)
         let test = opened.test
         let yields = self.budget_class()
         try! self.loops.push(MirLoop(head: head, exit: exit, depth: opened.depth, yields: yields, node: e))
         let _ = self.open_scope()
         var bound = Vector<Int>()
-        self.bind_test(&test, target, false, opened.depth, &var bound)
+        self.bind_test(&test, target, unwrap, opened.depth, &var bound)
         self.scope_all(&bound)
         self.loop_budget(e, yields)
         self.lower_block(block, -1)
@@ -5293,9 +5364,15 @@ extension MirProgram {
                 }
                 let base = self.tc.call_receiver(seq)
                 let saved = self.source_at(seq)
+                let mark = self.scope.len()
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
-                self.open_receiver_windows(&var steps)
+                // A receiver a call returned holds nothing of the place the
+                // windows below it lend, so they close before the loop
+                // (SL:borrowing §12.1).
+                if self.crosses_fresh_value(&steps) {
+                    self.close_windows_since(mark)
+                }
                 let args = self.call_arguments(seq, &c, true)
                 let p = self.realize_all(&steps)
                 let first = self.push_args(&args)
@@ -5968,8 +6045,15 @@ extension MirProgram {
                 self.own_temp(root)
             }
         } else {
+            let mark = self.scope.len()
             var steps = Vector<MirStep>()
             self.prepare_base(scrutinee, &var steps)
+            // A scrutinee a call returned holds nothing of the place the
+            // windows below it lend, so they close before the arms
+            // (SL:borrowing §12.1).
+            if self.crosses_fresh_value(&steps) {
+                self.close_windows_since(mark)
+            }
             root = self.realize_optional(&steps)
             if steps.len() == 1 && steps[0].fresh {
                 self.own_temp(root)
@@ -6194,7 +6278,7 @@ extension MirProgram {
         if alt == Alt.Pat_Name {
             return self.tc.call_at[p] >= 0
         }
-        let binds = alt == Alt.Stmt_BindingName || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var
+        let binds = alt == Alt.Stmt_BindingName || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var || alt == Alt.Pat_VarBinding
         alt != Alt.Pat_Wildcard && not binds
     }
 
@@ -6623,7 +6707,7 @@ extension MirProgram {
                 }
                 continue
             }
-            let binding = alt == Alt.Stmt_BindingName || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var || (alt == Alt.Pat_Name && self.tc.call_at[p] < 0)
+            let binding = alt == Alt.Stmt_BindingName || alt == Alt.Pat_BorrowBinding_Let || alt == Alt.Pat_BorrowBinding_Var || alt == Alt.Pat_VarBinding || (alt == Alt.Pat_Name && self.tc.call_at[p] < 0)
             if not binding || self.tc.expr_use[p] == TcUse.Test {
                 continue
             }

@@ -33,20 +33,20 @@ func setthree(x: &var Int, y: &var Int, z: &var Int) { x = 1; y = 2; z = 3 }
 func main() {
     var a = Plain(c: Cell(n: 0))
     var b = Plain(c: Cell(n: 0))
-    setboth(borrow var a.at().n, borrow var b.at().n)
+    setboth(&var a.at().n, &var b.at().n)
     print("two roots: a={a.c.n} b={b.c.n}")
 
     // Three deep: every window's parameter is captured by the ones inside it.
     var p = Plain(c: Cell(n: 0))
     var q = Plain(c: Cell(n: 0))
     var r = Plain(c: Cell(n: 0))
-    setthree(borrow var p.at().n, borrow var q.at().n, borrow var r.at().n)
+    setthree(&var p.at().n, &var q.at().n, &var r.at().n)
     print("three roots: {p.c.n} {q.c.n} {r.c.n}")
 
     // The control: the same two writes as separate statements, one window each.
     var c = Plain(c: Cell(n: 0))
     var d = Plain(c: Cell(n: 0))
-    borrow var c.at().n = 50
-    borrow var d.at().n = 60
+    c.at().n = 50
+    d.at().n = 60
     print("separate statements: c={c.c.n} d={d.c.n}")
 }

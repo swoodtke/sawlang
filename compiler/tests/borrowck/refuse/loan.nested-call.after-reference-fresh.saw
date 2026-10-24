@@ -32,5 +32,5 @@ func pair(x: Int, y: Int) -> Int {
 
 func main() {
     var h = Holder(a: Cell(n: 1), k: 3)
-    print(pair(bump(&var h.a), borrow h.at().get()))
+    print(pair(bump(&var h.a), h.at().get()))
 }

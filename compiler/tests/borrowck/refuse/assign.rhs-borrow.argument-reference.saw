@@ -21,6 +21,6 @@ func look(s: &String) -> Int {
 func main() {
     var h = Holder(item: Item(name: "abc", count: 3), n: 5)
     print(h.n)
-    h.n = look(borrow h.getx().name)
+    h.n = look(&h.getx().name)
     print(h.n)
 }

@@ -60,9 +60,9 @@ struct Owner { s: Slotted }
 extension Owner: NoCopy {}
 
 extension Owner {
-    func stamp(&self) { borrow var self.s.slot(0) = 100 }
-    func bump(&self) { borrow var self.s.slot(0) += 1 }
-    func at(&self) -> Int { borrow self.s.slot(0) }
+    func stamp(&self) { self.s.slot(0) = 100 }
+    func bump(&self) { self.s.slot(0) += 1 }
+    func at(&self) -> Int { self.s.slot(0) }
 }
 
 struct Buf { d: Data }
@@ -88,8 +88,8 @@ struct Grid { rows: Vector<Row> }
 extension Grid: ExplicitCopy {}
 
 extension Grid {
-    func bump(&self) { borrow var self.rows[0].cells[0].n += 100 }
-    func at(&self) -> Int { borrow self.rows[0].cells[0].n }
+    func bump(&self) { self.rows[0].cells[0].n += 100 }
+    func at(&self) -> Int { self.rows[0].cells[0].n }
 }
 
 func main() {

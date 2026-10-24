@@ -79,21 +79,21 @@ func main() {
     let h = Holder(r: Res(name: "x"))
 
     print("discarded U")
-    borrow h.get().make()
+    h.get().make()
     print("discarded C")
-    borrow h.find(true)!.make()
+    h.find(true)!.make()
 
     print("let U")
-    let t1 = borrow h.get().make()
+    let t1 = h.get().make()
     print("next statement")
     print("let C")
-    let t2 = borrow h.find(true)!.make()
+    let t2 = h.find(true)!.make()
     print("next statement")
 
     print("arg U")
-    let t3 = pass(borrow h.get().make(), loud("b"))
+    let t3 = pass(h.get().make(), loud("b"))
     print("arg C")
-    let t4 = pass(borrow h.find(true)!.make(), loud("b"))
+    let t4 = pass(h.find(true)!.make(), loud("b"))
 
     print("tags {} {} {} {}", t1.tag, t2.tag, t3.tag, t4.tag)
 }

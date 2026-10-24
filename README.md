@@ -574,8 +574,12 @@ points, and a reference you receive can be passed on to another function.
 
 A method can also hand out storage, not just a value: a `borrows` accessor
 gives the caller direct access to an element or field inside the receiver,
-which is how `v[i] += 1` writes a `Vector` element where it sits. The access
-lasts for one expression; the spec calls these places. The signature says what
+which is how `v[i] += 1` writes a `Vector` element where it sits. The spec
+calls these places, and every call of an accessor is a lend whose window ends
+where the reader can see it: an unnamed lend lasts for its statement, and a
+named one (`if var e = m.find(&k) { e.count += 1 }`,
+`borrow var cell = grid[r][c] { … }`) for the block its binding opens. A `let`
+copies the value out, so it never holds a lend. The signature says what
 a caller may do with one — `borrows -> &var T` lends a place a use site may
 read or write, `borrows -> &T` lends a view — and the use site narrows within
 what the declaration allows:
@@ -593,6 +597,10 @@ extension Document {
     }
 }
 ```
+
+v0.18.0 wrote a `borrow` prefix on every unnamed lend (`borrow var v[i] += 1`).
+v0.19.0 still accepts it, `-W borrow-prefix` warns where it is redundant, and
+`sawc fix FILE...` drops it.
 
 A type can hold a lent place too. `borrows struct` declares one, and its value
 lives for exactly one `for` statement — which is how iteration is safe:
@@ -1012,9 +1020,10 @@ one per compiler stage (`lex`, `parse`, `resolve`, `typecheck`, `mir`, `eval`,
 `borrowck`, `drops`, `mono`, `coro`), each with `--dump` or `--check`.
 
 ```bash
-sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]
-           [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
-           (FILE [-o OUT] | --emit-ll FILE)
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [--std-root DIR] [--target TRIPLE]
+           [--sanitize address] [--freestanding | --runtime] [-W borrow-prefix]
+           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)
 sawc --version
@@ -1030,7 +1039,8 @@ builds the hosted runtime from `runtime/`.
 
 The spec documents some compiler flags that `sawc` does not take yet: object
 output (`-c`), `--no-hidden-alloc` and `--target-features` (SL-865), the `-W`
-warning categories (SL-879), and `--emit-docs` (SL-880).
+warning categories other than `borrow-prefix` (SL-879), and `--emit-docs`
+(SL-880).
 
 ## Running tests
 

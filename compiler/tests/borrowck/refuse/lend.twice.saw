@@ -12,5 +12,5 @@ extension Bag {
 
 func main() {
     let b = Bag(items: [1, 2, 3, 4])
-    print(borrow b.at(0))
+    print(b.at(0))
 }

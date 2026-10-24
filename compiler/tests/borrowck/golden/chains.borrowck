@@ -23,7 +23,7 @@ fn epilogue chains.Cell.lock() {
 }
 
 fn chains.right_side_first(g: &var std.vector.Vector<std.vector.Vector<chains.P, std.alloc.GlobalAllocator>, std.alloc.GlobalAllocator>) {
-    loan L0: shared (*_1);  // argument at 22:29
+    loan L0: shared (*_1);  // argument at 22:18
     loan L1: exclusive (*_1);  // ref at 22:5
     loan L2: exclusive (*_1);  // window w0 at 22:5
     loan L3: exclusive (*_4);  // ref at 22:5
@@ -159,11 +159,11 @@ fn chains.after_close(v: &std.vector.Vector<chains.Cell, std.alloc.GlobalAllocat
     }
 
     bb3: {
+        [] {L0 L1} _2 = move _7;
         [] {L0 L1} window_close w0 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<chains.Cell, std.alloc.GlobalAllocator>) -> [return: bb4];
     }
 
     bb4: {
-        [] {} _2 = move _7;
         [] {} _8 = copy _2;
         [] {} _9 = ref(shared, (*_1));
         [] {L4} _10 = call std.vector.Vector.len() (owner std.vector.Vector<chains.Cell, std.alloc.GlobalAllocator>) [move _9] -> [return: bb5];

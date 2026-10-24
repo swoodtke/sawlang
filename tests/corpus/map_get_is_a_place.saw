@@ -38,8 +38,8 @@ func main() {
     // An exclusive borrow through the conditional lend.
     var c = Map<String, Counted>()
     let _ = c.insert("x", Counted(count: 1, tag: "a"))
-    borrow var c.find(&"x")!.count += 10
-    print("window {borrow c.find(&"x")!.count}")
+    c.find(&"x")!.count += 10
+    print("window {c.find(&"x")!.count}")
 
     // `get` copies the entry, retaining its string: the map keeps its own.
     let tag = c.get("x")!.tag
@@ -48,7 +48,7 @@ func main() {
     // A move-only value is reached THROUGH the borrow and never copied out.
     var r = Map<String, Res>()
     let _ = r.insert("only", Res(n: 5))
-    print("nocopy through the window {borrow r.find(&"only")!.peek()}")
-    print("nocopy still there {borrow r.find(&"only")!.peek()}")
+    print("nocopy through the window {r.find(&"only")!.peek()}")
+    print("nocopy still there {r.find(&"only")!.peek()}")
     print("-- done")
 }

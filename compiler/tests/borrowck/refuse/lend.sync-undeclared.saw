@@ -24,6 +24,6 @@ extension Guarded {
 
 func main() {
     var g = Guarded(lock: Lock(n: 0))
-    borrow var g.value() += 1
+    g.value() += 1
     print(g.lock.n)
 }

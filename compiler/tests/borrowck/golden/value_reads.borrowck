@@ -78,10 +78,10 @@ fn value_reads.touch_with(s: String, r: &var value_reads.Res) {
 
 fn value_reads.assigned(h: &var value_reads.Holder) {
     place _5: String;  // _5
-    loan L0: shared (*_1);  // ref at 35:39
-    loan L1: shared (*_1);  // window w0 at 35:39
-    loan L2: shared (*_2);  // argument at 35:39
-    loan L3: shared _5;  // argument at 35:39
+    loan L0: shared (*_1);  // ref at 35:21
+    loan L1: shared (*_1);  // window w0 at 35:21
+    loan L2: shared (*_2);  // argument at 35:21
+    loan L3: shared _5;  // argument at 35:21
     loan L4: exclusive (*_1);  // ref at 35:5
     loan L5: exclusive (*_1);  // window w1 at 35:5
 
@@ -122,12 +122,12 @@ fn value_reads.assigned(h: &var value_reads.Holder) {
 
 fn value_reads.arguments(h: &var value_reads.Holder) {
     place _5: String;  // _5
-    loan L0: shared (*_1);  // ref at 39:23
-    loan L1: shared (*_1);  // window w0 at 39:23
-    loan L2: shared (*_2);  // argument at 39:23
-    loan L3: exclusive (*_1);  // ref at 39:40
-    loan L4: exclusive (*_1);  // window w1 at 39:40
-    loan L5: exclusive (*_6);  // argument at 39:40
+    loan L0: shared (*_1);  // ref at 39:16
+    loan L1: shared (*_1);  // window w0 at 39:16
+    loan L2: shared (*_2);  // argument at 39:16
+    loan L3: exclusive (*_1);  // ref at 39:33
+    loan L4: exclusive (*_1);  // window w1 at 39:33
+    loan L5: exclusive (*_6);  // argument at 39:33
 
     bb0: {
         [U] {} _3 = ref(shared, (*_1));

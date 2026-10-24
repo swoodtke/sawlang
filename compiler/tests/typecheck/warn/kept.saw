@@ -1,0 +1,31 @@
+// warns: 1
+// prefixes whose meaning the unprefixed spelling lacks draw no warning and
+// are left as written: a copy out of a conditional lend at an `if let` head,
+// an exclusive read through an accessor with a shared form, a read through a
+// `borrows` member beside a plain one of its name, and a read through a
+// declared getitem; the one redundant prefix beside them is fixed
+// (SL:borrowing §12.8)
+// message: write `g.cells[0]`
+
+struct Cell { n: Int }
+struct Grid { cells: [Int; 2], seen: Int }
+
+extension Grid {
+    public func at(&self, i: Int) -> Int { self.cells[0] * 10 }
+    public func at(&self, i: Int) borrows -> &Int { lend self.cells[0] }
+    public func [](&self, i: Int) -> Int { self.cells[0] }
+    public func [](&var self, i: Int) borrows -> &var Int { lend self.cells[0] }
+}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    if let c = borrow v.find(0) {
+        try! v.push(c)
+    }
+    print(borrow var v[0].n)
+    var g = Grid(cells: [1, 2], seen: 0)
+    print(borrow g.at(0))
+    print(borrow g[0])
+    print(borrow g.cells[0])
+}

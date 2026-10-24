@@ -688,6 +688,12 @@ extension BorrowckProgram {
             rule = "loan.drop-while-borrowed"
             tail = "a borrowed value cannot be dropped, by its scope's end or by an assignment, while the borrow is live"
         } else if loan.kind == BorrowckLoanKind.Window {
+            let opener = self.mir.windows[self.mir.funcs[f].window_first + loan.window].node
+            let head = self.lend_head_of(opener)
+            if head >= 0 {
+                self.report_head_window(f, &a, n, head, &var facts, &var reported)
+                return
+            }
             rule = "loan.window-root"
             tail = "a window charges its whole root until it closes, so the root is reached only through the window's binding"
         } else if loan.kind == BorrowckLoanKind.Capture || loan.captured {
@@ -714,6 +720,50 @@ extension BorrowckProgram {
         try! msg.append("; ")
         try! msg.append(tail)
         self.report_loan(f, a.node, rule, msg.build(), &var reported)
+    }
+
+    // The `if let`, `if var`, `while let` or `while var` head whose subject
+    // is the lend window call `node` opens, holding its place for the block,
+    // or -1 (typecheck's `lend_heads`).
+    func lend_head_of(&var self, node: Int) -> Int {
+        if node < 0 {
+            return -1
+        }
+        self.node_parents()
+        let head = self.parents[node]
+        if head < 0 || head >= self.mir.tc.lend_heads.len() || not self.mir.tc.lend_heads[head] || self.mir.tc.res.last_node_child(head) != node {
+            return -1
+        }
+        head
+    }
+
+    // A root reached inside the block of a head that binds a lend's place:
+    // the head holds the place, and the root with it, until the block's `}`,
+    // which code written against v0.18.0's copying `if let` does not expect
+    // (SL:borrowing §12.5).
+    func report_head_window(&var self, f: Int, a: &BorrowckAccess, n: Int, head: Int, facts: &var BorrowckLoans,
+                            reported: &var Vector<Int>) {
+        let loan = facts.loans[n]
+        let root = self.borrowck_trace(f, &loan.path, &var facts)
+        let root_text = self.borrowck_path_text(f, &root, &facts)
+        let m = self.mir.tc.node_module(head)
+        let target = self.mir.tc.res.first_node_child(head)
+        let lent = self.mir.tc.text(m, self.mir.tc.res.last_node_child(head))
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.mir.tc.text(m, target))
+        try! msg.append("` now holds `")
+        try! msg.append(lent)
+        try! msg.append("`'s place for this block, so `")
+        try! msg.append(root_text)
+        try! msg.append("` is borrowed until the `\}`. To work on `")
+        try! msg.append(root_text)
+        try! msg.append("` inside it, copy the value out first: `let ")
+        try! msg.append(self.mir.tc.text(m, target))
+        try! msg.append(" = ")
+        try! msg.append(lent)
+        try! msg.append("` (an optional copy)")
+        self.report_loan(f, a.node, "loan.window-root", msg.build(), &var reported)
     }
 
     // Where loan `n` came from and what it holds, as a diagnostic says it.

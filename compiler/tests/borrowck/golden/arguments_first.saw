@@ -1,0 +1,38 @@
+// A window opens after the arguments it feeds, so an argument may read the
+// root a chain's windows hold: a method's argument, an accessor's argument
+// further along the chain, and a forwarded `lend`'s inner index, each read
+// before any window of the chain opens (SL:borrowing §12.1, "arguments
+// first"). An argument that writes the root stays refused, `loan.nested-call`.
+
+struct P { n: Int }
+
+extension P {
+    func bump(&var self, by: Int) {
+        self.n = self.n + by
+    }
+}
+
+struct Grid { rows: Vector<Vector<P>> }
+
+extension Grid: NoCopy {}
+
+extension Grid {
+    func last(&var self) borrows -> &var P {
+        lend self.rows[0][self.rows.len() - 1]
+    }
+}
+
+func method_argument(g: &var Vector<Vector<P>>) {
+    g[0][0].bump(by: g.len())
+}
+
+func push_length(vv: &var Vector<Vector<Int>>) {
+    try! vv[0].push(vv.len())
+}
+
+func forwarded(grid: &var Grid) {
+    grid.last().n += 1
+}
+
+func main() {
+}

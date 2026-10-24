@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 27:36
+// refuses: loan.window-root at 27:30
 // a place reached through a forced conditional lend charges its root as any
 // window does (conformance X41, the `!` head)
 
@@ -24,6 +24,6 @@ func set_both(x: &var Int, y: &var Int) {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    set_both(borrow var p.opt(0)!, borrow var p.opt(1)!)
+    set_both(&var p.opt(0)!, &var p.opt(1)!)
     print(p.a)
 }

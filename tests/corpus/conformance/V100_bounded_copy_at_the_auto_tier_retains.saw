@@ -70,11 +70,11 @@ func sink(v: Vector<Watched>) -> Int { v.len() }
 
 func main() {
     let structs = copied_structs()
-    print("struct: {borrow structs[0].text} {borrow structs[1].text}")
+    print("struct: {structs[0].text} {structs[1].text}")
 
     let tags = copied_enums()
     borrow let lent = tags[0] { match lent {
-        case Named(borrow let s) -> print("enum: {s}"),
+        case Named(s) -> print("enum: {s}"),
         case Anon -> print("enum: ANON")
     } }
 

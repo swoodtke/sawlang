@@ -1,0 +1,30 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `sessions[0]` is lent, and a `let` would keep the lend past this statement. Name the place for a block, `borrow let s = sessions[0] { … }`, or take the element out (`sessions.swap_out(0, …)`, `sessions.remove(0)`)
+// EXPECT-ERROR-CONTAINS: `rows[0]` is lent, and a `let` would keep the lend past this statement. Copy it out with `rows[0].copy()`, or name the place for a block: `borrow let r = rows[0] { … }`
+// EXPECT-ERROR-CONTAINS: `v.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in v.iter() { … }`, or name it with `borrow let it = v.iter() { … }`
+// EXPECT-ERROR-CONTAINS: `m.find(&"a")` lends a place, and a `guard` would keep it to the end of the scope. Use `if let e = m.find(&"a") { … } else { … }`
+// EXPECT-ERROR-CONTAINS: `v[0]` always lends a place, so there is nothing for `if let` to test. Use `borrow let x = v[0] { … }`
+//
+// Conformance row P28's refusals (SL:borrowing §12.5): a `let` of a NoCopy
+// or ExplicitCopy value out of a lend, and of a borrowing struct, names the
+// forms that work by the value's tier; a `guard let` over a lend is refused
+// for its binding would outlive any block; an `if let` over a lend that is
+// always present has nothing to test.
+
+struct Session { name: String }
+extension Session: NoCopy {}
+
+func main() {
+    var sessions = Vector<Session>()
+    try! sessions.push(Session(name: "s0"))
+    let s = sessions[0]
+    var rows = Vector<Vector<Int>>()
+    try! rows.push(Vector<Int>())
+    let r = rows[0]
+    let v = Vector<Int>()
+    let it = v.iter()
+    var m = Map<String, Int>()
+    m["a"] = 1
+    guard let e = m.find(&"a") else { return }
+    if let x = sessions[0] { print(x.name) }
+}

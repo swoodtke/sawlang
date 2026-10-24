@@ -57,7 +57,7 @@ func main() {
     var s = Two(a: [0], b: [0])
     var k = 0
     while k < 3 {
-        if borrow var x = s.find(k, 0) {
+        if var x = s.find(k, 0) {
             yield_now()
             x += k + 1
         } else {

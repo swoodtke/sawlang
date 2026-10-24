@@ -77,23 +77,23 @@ func main() {
                 hits: 2)
 
     // Shared borrow through the synthesized twins: the place becomes a value at `.count`.
-    print("{borrow b[0][1].count}")
+    print("{b[0][1].count}")
 
     // Exclusive borrow through the declared `&var self` accessors.
-    borrow var b[0][1].count += 10
-    print("{borrow b[0][1].count}")
+    b[0][1].count += 10
+    print("{b[0][1].count}")
 
     // Value read of a Copy field through two chained windows.
-    let tag = borrow b[0][1].tag
+    let tag = b[0][1].tag
     print("{tag}")
 
     // A place handed to a call as a `&var` reference: the window spans the call.
-    bump(borrow var b[0][1])
-    print("{borrow b[0][1].count}")
-    print("{borrow b[0][0].count}")
+    bump(&var b[0][1])
+    print("{b[0][1].count}")
+    print("{b[0][0].count}")
 
     // The epilogue runs when the window closes.
-    let _ = borrow b.peek(1)[0].count
+    let _ = b.peek(1)[0].count
 
     // A `let` root is fine for a SHARED borrow.
     let frozen = Bag(rows: [Row(cells: [Cell(count: 7, tag: "x"),
@@ -101,5 +101,5 @@ func main() {
                             Row(cells: [Cell(count: 9, tag: "z"),
                                         Cell(count: 10, tag: "w")])],
                      hits: 0)
-    print("deep {borrow frozen[0][0].count}")
+    print("deep {frozen[0][0].count}")
 }

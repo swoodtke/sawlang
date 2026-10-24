@@ -483,180 +483,180 @@ extension SingleTracedBoth {
 
 func run() -> Int {
     var string_none1 = SingleStringNone(inner: LeafStringNone(cells: [10]))
-    if borrow var c = string_none1.at(0) {
+    if var c = string_none1.at(0) {
         c += 1
     }
-    if borrow var c = string_none1.at(5) {
+    if var c = string_none1.at(5) {
         c += 1
     } else {
         print("string-none 1 absent")
     }
     print("string-none 1 = {}", string_none1.inner.cells[0])
     var string_none2 = TopStringNone(inner: MidStringNone(inner: LeafStringNone(cells: [10])))
-    if borrow var c = string_none2.at(0) {
+    if var c = string_none2.at(0) {
         c += 1
     }
-    if borrow var c = string_none2.at(5) {
+    if var c = string_none2.at(5) {
         c += 1
     } else {
         print("string-none 2 absent")
     }
     print("string-none 2 = {}", string_none2.inner.inner.cells[0])
     var string_inner1 = SingleStringInner(inner: LeafStringInner(cells: [10]))
-    if borrow var c = string_inner1.at(0) {
+    if var c = string_inner1.at(0) {
         c += 1
     }
-    if borrow var c = string_inner1.at(5) {
+    if var c = string_inner1.at(5) {
         c += 1
     } else {
         print("string-inner 1 absent")
     }
     print("string-inner 1 = {}", string_inner1.inner.cells[0])
     var string_inner2 = TopStringInner(inner: MidStringInner(inner: LeafStringInner(cells: [10])))
-    if borrow var c = string_inner2.at(0) {
+    if var c = string_inner2.at(0) {
         c += 1
     }
-    if borrow var c = string_inner2.at(5) {
+    if var c = string_inner2.at(5) {
         c += 1
     } else {
         print("string-inner 2 absent")
     }
     print("string-inner 2 = {}", string_inner2.inner.inner.cells[0])
     var string_both1 = SingleStringBoth(inner: LeafStringBoth(cells: [10]))
-    if borrow var c = string_both1.at(0) {
+    if var c = string_both1.at(0) {
         c += 1
     }
-    if borrow var c = string_both1.at(5) {
+    if var c = string_both1.at(5) {
         c += 1
     } else {
         print("string-both 1 absent")
     }
     print("string-both 1 = {}", string_both1.inner.cells[0])
     var string_both2 = TopStringBoth(inner: MidStringBoth(inner: LeafStringBoth(cells: [10])))
-    if borrow var c = string_both2.at(0) {
+    if var c = string_both2.at(0) {
         c += 1
     }
-    if borrow var c = string_both2.at(5) {
+    if var c = string_both2.at(5) {
         c += 1
     } else {
         print("string-both 2 absent")
     }
     print("string-both 2 = {}", string_both2.inner.inner.cells[0])
     var plain_none1 = SinglePlainNone(inner: LeafPlainNone(cells: [10]))
-    if borrow var c = plain_none1.at(0) {
+    if var c = plain_none1.at(0) {
         c += 1
     }
-    if borrow var c = plain_none1.at(5) {
+    if var c = plain_none1.at(5) {
         c += 1
     } else {
         print("plain-none 1 absent")
     }
     print("plain-none 1 = {}", plain_none1.inner.cells[0])
     var plain_none2 = TopPlainNone(inner: MidPlainNone(inner: LeafPlainNone(cells: [10])))
-    if borrow var c = plain_none2.at(0) {
+    if var c = plain_none2.at(0) {
         c += 1
     }
-    if borrow var c = plain_none2.at(5) {
+    if var c = plain_none2.at(5) {
         c += 1
     } else {
         print("plain-none 2 absent")
     }
     print("plain-none 2 = {}", plain_none2.inner.inner.cells[0])
     var plain_inner1 = SinglePlainInner(inner: LeafPlainInner(cells: [10]))
-    if borrow var c = plain_inner1.at(0) {
+    if var c = plain_inner1.at(0) {
         c += 1
     }
-    if borrow var c = plain_inner1.at(5) {
+    if var c = plain_inner1.at(5) {
         c += 1
     } else {
         print("plain-inner 1 absent")
     }
     print("plain-inner 1 = {}", plain_inner1.inner.cells[0])
     var plain_inner2 = TopPlainInner(inner: MidPlainInner(inner: LeafPlainInner(cells: [10])))
-    if borrow var c = plain_inner2.at(0) {
+    if var c = plain_inner2.at(0) {
         c += 1
     }
-    if borrow var c = plain_inner2.at(5) {
+    if var c = plain_inner2.at(5) {
         c += 1
     } else {
         print("plain-inner 2 absent")
     }
     print("plain-inner 2 = {}", plain_inner2.inner.inner.cells[0])
     var plain_both1 = SinglePlainBoth(inner: LeafPlainBoth(cells: [10]))
-    if borrow var c = plain_both1.at(0) {
+    if var c = plain_both1.at(0) {
         c += 1
     }
-    if borrow var c = plain_both1.at(5) {
+    if var c = plain_both1.at(5) {
         c += 1
     } else {
         print("plain-both 1 absent")
     }
     print("plain-both 1 = {}", plain_both1.inner.cells[0])
     var plain_both2 = TopPlainBoth(inner: MidPlainBoth(inner: LeafPlainBoth(cells: [10])))
-    if borrow var c = plain_both2.at(0) {
+    if var c = plain_both2.at(0) {
         c += 1
     }
-    if borrow var c = plain_both2.at(5) {
+    if var c = plain_both2.at(5) {
         c += 1
     } else {
         print("plain-both 2 absent")
     }
     print("plain-both 2 = {}", plain_both2.inner.inner.cells[0])
     var traced_none1 = SingleTracedNone(inner: LeafTracedNone(cells: [10]))
-    if borrow var c = traced_none1.at(0) {
+    if var c = traced_none1.at(0) {
         c += 1
     }
-    if borrow var c = traced_none1.at(5) {
+    if var c = traced_none1.at(5) {
         c += 1
     } else {
         print("traced-none 1 absent")
     }
     print("traced-none 1 = {}", traced_none1.inner.cells[0])
     var traced_none2 = TopTracedNone(inner: MidTracedNone(inner: LeafTracedNone(cells: [10])))
-    if borrow var c = traced_none2.at(0) {
+    if var c = traced_none2.at(0) {
         c += 1
     }
-    if borrow var c = traced_none2.at(5) {
+    if var c = traced_none2.at(5) {
         c += 1
     } else {
         print("traced-none 2 absent")
     }
     print("traced-none 2 = {}", traced_none2.inner.inner.cells[0])
     var traced_inner1 = SingleTracedInner(inner: LeafTracedInner(cells: [10]))
-    if borrow var c = traced_inner1.at(0) {
+    if var c = traced_inner1.at(0) {
         c += 1
     }
-    if borrow var c = traced_inner1.at(5) {
+    if var c = traced_inner1.at(5) {
         c += 1
     } else {
         print("traced-inner 1 absent")
     }
     print("traced-inner 1 = {}", traced_inner1.inner.cells[0])
     var traced_inner2 = TopTracedInner(inner: MidTracedInner(inner: LeafTracedInner(cells: [10])))
-    if borrow var c = traced_inner2.at(0) {
+    if var c = traced_inner2.at(0) {
         c += 1
     }
-    if borrow var c = traced_inner2.at(5) {
+    if var c = traced_inner2.at(5) {
         c += 1
     } else {
         print("traced-inner 2 absent")
     }
     print("traced-inner 2 = {}", traced_inner2.inner.inner.cells[0])
     var traced_both1 = SingleTracedBoth(inner: LeafTracedBoth(cells: [10]))
-    if borrow var c = traced_both1.at(0) {
+    if var c = traced_both1.at(0) {
         c += 1
     }
-    if borrow var c = traced_both1.at(5) {
+    if var c = traced_both1.at(5) {
         c += 1
     } else {
         print("traced-both 1 absent")
     }
     print("traced-both 1 = {}", traced_both1.inner.cells[0])
     var traced_both2 = TopTracedBoth(inner: MidTracedBoth(inner: LeafTracedBoth(cells: [10])))
-    if borrow var c = traced_both2.at(0) {
+    if var c = traced_both2.at(0) {
         c += 1
     }
-    if borrow var c = traced_both2.at(5) {
+    if var c = traced_both2.at(5) {
         c += 1
     } else {
         print("traced-both 2 absent")

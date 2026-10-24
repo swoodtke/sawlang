@@ -78,7 +78,7 @@ func in_place(b: &var Bag) -> Int {
             print("present")
         }
         match e {
-            case Some(borrow let r) -> r.n,
+            case Some(r) -> r.n,
             case None -> 0
         }
     }
@@ -86,7 +86,7 @@ func in_place(b: &var Bag) -> Int {
 
 func writes(b: &var Bag) {
     borrow var e = b.find(0) {
-        if borrow var x = e {
+        if var x = e {
             x.n = 9
         }
     }

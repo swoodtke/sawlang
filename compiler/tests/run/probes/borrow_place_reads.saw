@@ -177,41 +177,41 @@ func bag_of(a: Int, b: Int) -> Vector<Bag> {
 
 func format_argument() {
     let v = one(1)
-    print("format {}", borrow v[0])
+    print("format {}", v[0])
 }
 
 func interpolated() {
     let v = one(2)
-    print("interpolated {borrow v[0]}")
+    print("interpolated {v[0]}")
 }
 
 func compared() {
     let v = two(3, 4)
-    let same = borrow v[0] == borrow v[1]
+    let same = v[0] == v[1]
     print("compared {}", same)
 }
 
 func compared_field() {
     let v = one(5)
     let r = Res(n: 50)
-    print("compared field {}", borrow v[0].n * 10 == r.n)
+    print("compared field {}", v[0].n * 10 == r.n)
 }
 
 func field_format() {
     let v = one(6)
-    print("field {}", borrow v[0].n)
+    print("field {}", v[0].n)
 }
 
 func field_copied() {
     let v = one(7)
-    let n = borrow v[0].n + 1
+    let n = v[0].n + 1
     print("field copied {}", n)
 }
 
 func scrutinee() {
     var k = Vector<Kind>()
     try! k.push(Kind.B)
-    match borrow k[0] {
+    match k[0] {
         case A -> print("scrutinee A"),
         case B -> print("scrutinee B")
     }
@@ -220,7 +220,7 @@ func scrutinee() {
 func payload_scrutinee() {
     var v = Vector<Shape>()
     try! v.push(Shape.Dot(r: Res(n: 8)))
-    match borrow v[0] {
+    match v[0] {
         case Dot(r) -> print("payload {}", r.n),
         case Empty -> print("payload empty")
     }
@@ -234,45 +234,45 @@ func exclusive_format() {
 func explicit_copy_format() {
     var v = Vector<Label>()
     try! v.push(Label(text: "label"))
-    print("explicit {}", borrow v[0])
-    print("explicit field {}", borrow v[0].text)
+    print("explicit {}", v[0])
+    print("explicit field {}", v[0].text)
 }
 
 func nested() {
     let bags = bag_of(10, 11)
-    print("nested {}", borrow bags[0].items[1])
+    print("nested {}", bags[0].items[1])
 }
 
 func receiver() {
     let bags = bag_of(12, 13)
-    print("receiver {}", borrow bags[0].items.len())
+    print("receiver {}", bags[0].items.len())
 }
 
 func range_bound() {
     let bags = bag_of(14, 2)
-    for k in 0..borrow bags[0].items[1].n {
+    for k in 0..bags[0].items[1].n {
         print("range {}", k)
     }
 }
 
 func lent_projection() {
     let s = Shelf(bags: bag_of(15, 16))
-    print("lent {}", borrow s.first_count())
+    print("lent {}", s.first_count())
 }
 
 func cast_whole() {
     var v = Vector<Tag>()
     try! v.push(Tag.B)
-    print("cast {}", (borrow v[0]) as UInt8)
+    print("cast {}", (v[0]) as UInt8)
 }
 
 func cast_projected() {
     var hs = Vector<Holder>()
     try! hs.push(Holder(tag: Tag.A))
-    print("cast field {}", (borrow hs[0]).tag as UInt8)
-    print("cast field again {}", borrow hs[0].tag as UInt8)
+    print("cast field {}", (hs[0]).tag as UInt8)
+    print("cast field again {}", hs[0].tag as UInt8)
     let h = Holder(tag: Tag.B)
-    print("cast lent {}", borrow h.at() as UInt8)
+    print("cast lent {}", h.at() as UInt8)
 }
 
 func main() {

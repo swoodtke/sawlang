@@ -223,39 +223,39 @@ extension HolderB {
 }
 
 func copy_read_borrow_P(h: &var HolderP, i: Int) -> Int {
-    let c = borrow h.find(i)
+    let c = h.find(i)
     c ?? -1
 }
 
 func copy_read_borrow_B(h: &var HolderB, i: Int) -> Int {
-    let c = borrow h.find(i)
+    let c = h.find(i)
     c ?? -1
 }
 
 func copy_read_plain_P(h: &var HolderP, i: Int) -> Int {
-    let c = borrow h.look(i)
+    let c = h.look(i)
     c ?? -1
 }
 
 func copy_read_plain_B(h: &var HolderB, i: Int) -> Int {
-    let c = borrow h.look(i)
+    let c = h.look(i)
     c ?? -1
 }
 
 func coalesce_borrow_P(h: &var HolderP, i: Int) -> Int {
-    borrow h.find(i) ?? -1
+    h.find(i) ?? -1
 }
 
 func coalesce_borrow_B(h: &var HolderB, i: Int) -> Int {
-    borrow h.find(i) ?? -1
+    h.find(i) ?? -1
 }
 
 func coalesce_plain_P(h: &var HolderP, i: Int) -> Int {
-    borrow h.look(i) ?? -1
+    h.look(i) ?? -1
 }
 
 func coalesce_plain_B(h: &var HolderB, i: Int) -> Int {
-    borrow h.look(i) ?? -1
+    h.look(i) ?? -1
 }
 
 func subscript_if_borrow_P(h: &var HolderP, i: Int) -> Int {
@@ -279,11 +279,11 @@ func subscript_if_borrow_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func subscript_copy_P(h: &var HolderP, i: Int) -> Int {
-    borrow h[i] ?? -1
+    h[i] ?? -1
 }
 
 func subscript_copy_B(h: &var HolderB, i: Int) -> Int {
-    borrow h[i] ?? -1
+    h[i] ?? -1
 }
 
 func main() {

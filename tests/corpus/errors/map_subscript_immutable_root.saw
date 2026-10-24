@@ -12,6 +12,6 @@ func main() {
     var seed = Map<String, Counter>()
     let _ = seed.insert("a", Counter(n: 1))
     let m = move seed
-    borrow var m["a"].n += 1
+    m["a"].n += 1
     print(m.get("a")!.n)
 }

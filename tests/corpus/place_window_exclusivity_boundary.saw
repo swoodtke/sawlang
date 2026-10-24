@@ -69,15 +69,15 @@ func with_root(x: &var Int, p: &Pair) -> Int {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    bump(borrow var p.at(0))
+    bump(&var p.at(0))
     print("a={p.a}")
 
-    bump(borrow var p.at(0))
-    bump(borrow var p.at(1))
+    bump(&var p.at(0))
+    bump(&var p.at(1))
     print("a={p.a} b={p.b}")
 
     var two = Two(left: Pair(a: 1, b: 2), right: Pair(a: 3, b: 4))
-    print("right b={with_root(borrow var two.left.at(0), &two.right)}")
+    print("right b={with_root(&var two.left.at(0), &two.right)}")
 
     var arr: [Int; 4] = [0; 4]
     take_both(&var arr[0], &var arr[1])
@@ -99,8 +99,8 @@ func main() {
     try! inner.push(Cell(n: 1))
     try! inner.push(Cell(n: 2))
     try! cells.push(move inner)
-    borrow var cells[0][1].n += 1
-    print("nested={borrow cells[0][1].n}")
+    cells[0][1].n += 1
+    print("nested={cells[0][1].n}")
 
     var d = Data()
     try! d.push(1)

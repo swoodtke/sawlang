@@ -1,0 +1,15 @@
+// warns: 2
+// a `for` head's prefix: `for borrow let x` becomes `for x` and
+// `for borrow var x` becomes `for var x`, whose lending walk is planned
+// (SL:borrowing §12.2; SL-871)
+// message: write `for c in v.iter() { print(c.n) }`
+// message: write `for var c in v.iter() { c.n += 1 }`
+
+struct Cell { n: Int }
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    for c in v.iter() { print(c.n) }
+    for var c in v.iter() { c.n += 1 }
+}

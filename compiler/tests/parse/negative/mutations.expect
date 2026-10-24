@@ -4111,6 +4111,18 @@ refuses parse-error at 1:21
 // case: syntax.expr.for.plain/alt/swap:10
 refuses parse-error at 1:24
 
+// case: syntax.expr.for.var/alt/drop:3
+refuses parse-error at 1:8
+
+// case: syntax.expr.for.var/alt/dup:13
+refuses parse-error at 1:33
+
+// case: syntax.expr.for.var/alt/swap:10
+refuses parse-error at 1:35
+
+// case: syntax.expr.for.var/alt/close:12
+refuses syntax.lex.unclosed-bracket at 1:10
+
 // case: syntax.expr.for.borrow/alt/drop:12
 refuses parse-error at 1:36
 
@@ -4339,6 +4351,15 @@ refuses syntax.rule.juxtaposition at 1:17
 // case: syntax.pat.payload.pattern/alt/close:4
 refuses syntax.lex.unclosed-bracket at 1:7
 
+// case: syntax.pat.payload.var/alt/dup:18
+refuses parse-error at 1:45
+
+// case: syntax.pat.payload.var/alt/swap:5
+refuses parse-error at 1:11
+
+// case: syntax.pat.payload.var/alt/close:18
+refuses syntax.lex.unclosed-bracket at 1:10
+
 // case: syntax.pat.payload.borrow/alt/drop:5
 refuses parse-error at 1:12
 
@@ -4349,6 +4370,18 @@ refuses parse-error at 1:46
 refuses syntax.rule.juxtaposition at 1:17
 
 // case: syntax.pat.payload.borrow/alt/close:19
+refuses syntax.lex.unclosed-bracket at 1:10
+
+// case: syntax.pat.var-binding/alt/drop:15
+refuses parse-error at 1:38
+
+// case: syntax.pat.var-binding/alt/dup:9
+refuses parse-error at 1:27
+
+// case: syntax.pat.var-binding/alt/swap:8
+refuses parse-error at 1:21
+
+// case: syntax.pat.var-binding/alt/close:17
 refuses syntax.lex.unclosed-bracket at 1:10
 
 // case: syntax.pat.name/alt/dup:9
@@ -4479,9 +4512,6 @@ refuses parse-error at 1:7
 
 // case: syntax.pat.borrow-binding.let/alt/close:4
 refuses syntax.lex.unclosed-bracket at 1:7
-
-// case: syntax.pat.borrow-binding.var/alt/drop:12
-refuses parse-error at 1:31
 
 // case: syntax.pat.borrow-binding.var/alt/dup:11
 refuses syntax.lex.unclosed-bracket at 1:28

@@ -49,9 +49,9 @@ func bump(n: &var Int) { n = n + 1 }
 func main() {
     var v = View(cells: [1, 2, 3, 4], rows: [Cell(n: 5), Cell(n: 6)])
     v[0] = 9                    // subscript write
-    borrow var v.at(0).n = 9               // named-accessor write, through a field
-    borrow var v.at(1).n += 1              // compound through a chain
-    borrow var v.pair(0)?.n = 9            // `?.` chain assignment
-    borrow var v.pair(1)!.n = 9            // `!` head write
-    bump(borrow var v[1])             // `&var` reference argument
+    v.at(0).n = 9               // named-accessor write, through a field
+    v.at(1).n += 1              // compound through a chain
+    v.pair(0)?.n = 9            // `?.` chain assignment
+    v.pair(1)!.n = 9            // `!` head write
+    bump(&var v[1])             // `&var` reference argument
 }

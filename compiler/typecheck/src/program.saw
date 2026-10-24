@@ -9,7 +9,7 @@ import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig, TcStatus,
-                               TcSummary, TcRelocation, TcTier, TcUnit, TcUse}
+                               TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
 import sawtypecheck.stdsuspension.{TcStdRows}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
@@ -126,6 +126,24 @@ public struct TcProgram {
     // the call, so it is escaping whether or not it says so (D35).
     keep_escaping: Bool
     diags: Vector<TcDiag>
+    // The warnings and the kept old `borrow` prefixes, in the order made;
+    // the driver prints the warnings a `-W` category asks for.
+    warnings: Vector<TcWarning>
+    // Per node: the window an unnamed lend's chain top opens, 0 for none, 1
+    // shared, 2 exclusive, which MIR lowers as the `borrow` place form
+    // (`lend_window`).
+    lend_tops: Vector<Int>
+    // Per node: whether an `if let`, `if var`, `while let` or `while var`
+    // head binds the place its subject lends, for the block (`lend_window`).
+    lend_heads: Vector<Bool>
+    // The other member of a plain/`borrows` pair the overload filter set
+    // aside, which the call's record keeps as its `pair` (SL-684).
+    chosen_pair: Int
+    // The subject of the `if` or `while` binding head being checked, and the
+    // assignment target being checked: positions that take a pair's
+    // `borrows` member (SL:borrowing §12.4); -1 outside them.
+    lend_head: Int
+    place_wanted: Int
     known: TcKnown
     // The module and declaration being built, and what `Self` and the
     // enclosing extension are there.
@@ -428,7 +446,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       members: Vector<TcMember>(), member_first: move firsts,
                       member_count: move counts, tiers: Vector<TcTier>(),
                       obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(), keep_escaping: false,
-                      diags: Vector<TcDiag>(), known: known, current: -1, current_decl: -1,
+                      diags: Vector<TcDiag>(), warnings: Vector<TcWarning>(), lend_tops: Vector<Int>(),
+                      lend_heads: Vector<Bool>(), chosen_pair: -1, lend_head: -1, place_wanted: -1, known: known, current: -1, current_decl: -1,
                       current_trait: -1, current_ext: -1, current_self: -1, current_test: false,
                       error_type: -1,
                       walks: tc_memo(), holds: tc_memo(), skipped: Vector<Int>(), string_positions: Vector<Int>(),
@@ -611,6 +630,27 @@ extension TcProgram {
     public func refuse(&var self, id: Int, rule: String, message: String) {
         let m = self.current
         self.refuse_in(m, id, rule, message)
+    }
+
+    // A warning at node `id` of module `m`, whose fix-it replaces the bytes
+    // `fix_start..<fix_end` with `fix_text`; or, `kept`, the record of a
+    // spelling left as written, which no category prints.
+    public func warn_in(&var self, m: Int, id: Int, rule: String, form: String, message: String,
+                        fix_start: Int, fix_end: Int, fix_text: String, kept: Bool) {
+        let n = self.res.nodes[id]
+        // A body checked twice, as a `@synthesize(shared)` twin's is, judges
+        // each prefix twice.
+        var k = 0
+        while k < self.warnings.len() {
+            let w = self.warnings[k]
+            if w.module == m && w.start == n.start && w.id.equals(rule) {
+                return
+            }
+            k = k + 1
+        }
+        try! self.warnings.push(TcWarning(module: m, start: n.start, id: rule, message: message, form: form,
+                                          fix_start: fix_start, fix_end: fix_end, fix_text: fix_text,
+                                          kept: kept))
     }
 
     // Whether module `m` has a refusal of its own, from resolve or from here.

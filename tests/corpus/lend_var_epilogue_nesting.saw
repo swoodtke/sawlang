@@ -110,14 +110,14 @@ func main() {
 
     // A nested WRITE: both borrows in the chain are exclusive, so both gates
     // run.
-    borrow var g[0][1].n += 1
+    g[0][1].n += 1
     print("nested write: {g[0][1].n}, row gates {g.row_gates(0)}, grid gates {g.gates_seen()}")
     print("epilogues, LIFO: grid closed {g.closes_seen()}, row closed {g.row_closes(0)}")
 
     // And a write through one borrow only, to show the row accessor alone.
     var row = Row(cells: [Cell(n: 8), Cell(n: 9)], gates: 0, closes: 0)
     let read = row[1].n
-    borrow var row[1].n += 0
+    row[1].n += 0
     print("direct row write {read}, row gates {row.gates_seen()}")
     print("-- done")
 }

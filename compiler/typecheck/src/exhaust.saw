@@ -537,6 +537,7 @@ extension TcProgram {
             case Stmt_BindingName -> TC_WILD,
             case Pat_BorrowBinding_Let -> TC_WILD,
             case Pat_BorrowBinding_Var -> TC_WILD,
+            case Pat_VarBinding -> TC_WILD,
             case Pat_Literal_True -> TC_CTOR_TRUE,
             case Pat_Literal_False -> TC_CTOR_FALSE,
             case Pat_Tuple_Positional -> TC_CTOR_TUPLE,

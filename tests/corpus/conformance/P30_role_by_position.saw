@@ -1,0 +1,48 @@
+// Conformance row P30 — the position picks the role and the member
+// (SL:borrowing §12.4; SL-684): a value read takes a declared getitem, a
+// store the setitem, and a compound write, a `&var` argument or a binding
+// head the place accessor; beside a plain member of one name and
+// parameters, a value read takes the plain one and a binding head the
+// `borrows` one.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// get
+// set
+// place
+// place
+// place
+// 1 8
+// 1
+// 10
+// 20
+
+struct Grid { cells: [Int; 2] }
+
+extension Grid {
+    public func [](&self, i: Int) -> Int { print("get"); self.cells[0] }
+    public func []=(&var self, i: Int, value: Int) { print("set"); self.cells[0] = value }
+    public func [](&var self, i: Int) borrows -> &var Int { print("place"); lend self.cells[0] }
+}
+
+struct Pair { a: Int, b: Int }
+
+extension Pair {
+    public func at(&self, i: Int) -> Int { if i == 0 { self.a * 10 } else { self.b * 10 } }
+    public func at(&self, i: Int) borrows -> &Int { if i == 0 { lend self.a } else { lend self.b } }
+}
+
+func bump(n: &var Int) { n += 1 }
+
+func main() {
+    var g = Grid(cells: [1, 2])
+    let r = g[0]
+    g[0] = 5
+    g[0] += 1
+    bump(&var g[0])
+    borrow var x = g[0] { x += 1 }
+    print("{r} {g.cells[0]}")
+    let p = Pair(a: 1, b: 2)
+    borrow let y = p.at(0) { print(y) }
+    print(p.at(0))
+    print(p.at(1))
+}

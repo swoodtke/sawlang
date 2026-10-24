@@ -148,12 +148,12 @@ extension Holder: NoCopy {}
 
 extension Holder {
     func total(&self) -> Int {
-        borrow self.b.value().sum()
+        self.b.value().sum()
     }
 }
 
 func generic_area<T: Area>(b: &Box<Cell<T>>) -> Int {
-    borrow b.value().cell_area()
+    b.value().cell_area()
 }
 
 func make(n: Int) -> Box<Res> {
@@ -161,12 +161,12 @@ func make(n: Int) -> Box<Res> {
 }
 
 func by_ref(b: &Box<Point>) -> Int {
-    borrow b.value().sum()
+    b.value().sum()
 }
 
 func by_var(b: &var Box<Point>) -> Int {
-    borrow var b.value().grow(by: 7)
-    borrow b.value().sum()
+    b.value().grow(by: 7)
+    b.value().sum()
 }
 
 func apply(f: (Int) sync -> Int) -> Int {
@@ -175,31 +175,31 @@ func apply(f: (Int) sync -> Int) -> Int {
 
 func run() {
     let b = try! Box<Point>.make(Point(x: 3, y: 4))
-    print(borrow b.value().sum())
-    print(borrow b.value().scaled(by: 10))
-    print(borrow b.value().pick(first: true))
-    print(borrow b.value().pick(index: 1))
-    print(borrow b.value().scaled())
-    print(borrow b.value().slow())
+    print(b.value().sum())
+    print(b.value().scaled(by: 10))
+    print(b.value().pick(first: true))
+    print(b.value().pick(index: 1))
+    print(b.value().scaled())
+    print(b.value().slow())
     print(by_ref(&b))
     var vb = try! Box<Point>.make(Point(x: 1, y: 1))
-    borrow var vb.value().x += 5
-    print(borrow vb.value().sum())
+    vb.value().x += 5
+    print(vb.value().sum())
     print(by_var(&var vb) - 6)
-    print("interpolated {borrow b.value().sum()} {borrow vb.value().sum() - 6}")
-    if borrow b.value().sum() > 5 {
+    print("interpolated {b.value().sum()} {vb.value().sum() - 6}")
+    if b.value().sum() > 5 {
         print("big")
     }
     let h = Holder(b: try! Box<Point>.make(Point(x: 10, y: 20)))
     print(h.total())
-    print(borrow h.b.value().sum())
+    print(h.b.value().sum())
     var items = Vector<Int>()
     try! items.push(5)
     let bag = try! Box<Bag>.make(Bag(items: move items))
-    print(borrow bag.value().first())
-    print(borrow make(9).value().id_of())
+    print(bag.value().first())
+    print(make(9).value().id_of())
     let r = make(4)
-    print(borrow (move r).value().id_of())
+    print((move r).value().id_of())
     let boxed = try! Box<Mutex<Int>>.make(Mutex<Int>(value: 3))
     borrow let c = boxed.value().lock() {
         print(c)
@@ -213,13 +213,13 @@ func run() {
     let cell = try! Box<Cell<Square>>.make(Cell<Square>(value: Square(side: 3)))
     print(generic_area(&cell))
     let named = try! Box<Named>.make(Named(name: "z"))
-    print(borrow named.value().to_string())
-    print(apply({ [&b] k in borrow b.value().scaled(by: k) - 6 }))
+    print(named.value().to_string())
+    print(apply({ [&b] k in b.value().scaled(by: k) - 6 }))
     var boxes = Vector<Box<Point>>()
     try! boxes.push(try! Box<Point>.make(Point(x: 8, y: 0)))
-    print(borrow boxes[0].value().pick(first: true))
+    print(boxes[0].value().pick(first: true))
     let kept = make(2)
-    let _ = borrow kept.value().id_of()
+    let _ = kept.value().id_of()
     print("end")
 }
 

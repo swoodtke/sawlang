@@ -44,6 +44,6 @@ func order(row: &var Row, v: &var Vector<Int>) -> Int {
     let link = connect(tick(&var n), retries: tick(&var n))
     try! v.push(v.len())
     v[tick(&var n)] = tick(&var n)
-    borrow var row[tick(&var n)] = tick(&var n)
+    row[tick(&var n)] = tick(&var n)
     seen + span.end + link
 }

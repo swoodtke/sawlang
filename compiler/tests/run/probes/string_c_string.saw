@@ -19,15 +19,15 @@ extern "C" {
 }
 
 func measured(s: String) unsafe -> UInt {
-    strlen(borrow s.c_string()!)
+    strlen(s.c_string()!)
 }
 
 // The lent pointer is the string's own block, which a copy of the `String`
 // shares: a C string copied out would sit at another address each time.
 func same_bytes(s: String) unsafe -> Bool {
     let shared = s
-    let first = borrow s.c_string()!
-    let second = borrow shared.c_string()!
+    let first = s.c_string()!
+    let second = shared.c_string()!
     first == second
 }
 

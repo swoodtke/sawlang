@@ -1,0 +1,7 @@
+Why: a deprecated production without the ruling that replaces it
+Expect: 53 deprecated-ref
+--- replace
+status=lockdown  spec="Spelling"  node=-  ref="SL-400 c6"
+--- with
+status=deprecated  spec="Spelling"  node=-
+--- end

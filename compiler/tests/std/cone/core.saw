@@ -7,8 +7,8 @@ struct Reading {
 
 func boxed(level: Int) -> Int {
     var b = try! Box<Reading>.make(Reading(level: level))
-    borrow var b.value().level = borrow b.value().level + 1
-    borrow b.value().level
+    b.value().level = b.value().level + 1
+    b.value().level
 }
 
 func rendered(n: Int) -> String {

@@ -124,11 +124,10 @@ public struct MirProgram {
     // at its end (`source_at` in build.saw).
     at: Int
     at_closing: Bool
-    // Whether the place being prepared is an assignment's target, whose
-    // windows open after its right side; anywhere else a plan opens its
-    // windows in receiver position, before the arguments that follow them
-    // (`open_receiver_windows` in lower.saw).
-    defer_windows: Bool
+    // The unnamed lend's chain top whose `borrow` form lowering is under way,
+    // which its own plan reads as the expression it is (`implicit_top` in
+    // lower.saw); -1 outside one.
+    lend_top_open: Int
     // The expression a statement-form `borrow` reads, whose windows close at
     // the first value a call returns along its chain, and the scope entry
     // they are registered from; -1 outside one, or once they have closed
@@ -183,5 +182,5 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
                leftover_parts: Vector<Int>(), release_fields: Vector<Int>(), release_types: Vector<Int>(),
                aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,
-               order_now: 0, at: -1, at_closing: false, defer_windows: false, borrow_spine: -1, borrow_mark: 0)
+               order_now: 0, at: -1, at_closing: false, lend_top_open: -1, borrow_spine: -1, borrow_mark: 0)
 }

@@ -1,4 +1,4 @@
-// refuses: loan.nested-call at 27:25
+// refuses: loan.nested-call at 27:18
 // an argument writing the receiver of a `borrow`-marked accessor call, a conditional lend's `!` (SL-866)
 
 struct P { n: Int }
@@ -24,7 +24,7 @@ func reset(r: &var Row) -> Int {
 }
 
 func peek(r: &var Row) -> Int {
-    borrow r.find(reset(&var r))!.n
+    r.find(reset(&var r))!.n
 }
 
 func main() {

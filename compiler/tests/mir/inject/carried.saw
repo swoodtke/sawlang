@@ -27,6 +27,6 @@ extension Grid {
 
 func main() {
     var g = Grid(row: Row(cells: [1, 2, 3, 4]))
-    borrow var g.at(1) += 1
+    g.at(1) += 1
     print(g.row.cells[1])
 }

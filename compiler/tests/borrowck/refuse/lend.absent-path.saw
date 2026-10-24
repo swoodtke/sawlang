@@ -15,6 +15,6 @@ extension Gauge {
 
 func main() {
     var g = Gauge(level: 1)
-    if borrow var x = g.at(0) { x += 1 }
+    if var x = g.at(0) { x += 1 }
     print(g.level)
 }

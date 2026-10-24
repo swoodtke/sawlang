@@ -1,6 +1,7 @@
-// refuses: borrowing.containment at 6:9
-// a borrowing struct bound by a `let`, outside the head of a `borrow` or a
-// `for` (spec, Borrowing structs)
+// refuses: borrowing.containment at 7:14
+// a borrowing struct bound by a `let`, which holds no window: the refusal
+// names the two block forms (SL:borrowing §12.5)
+// message: `v.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in v.iter() { … }`, or name it with `borrow let it = v.iter() { … }`
 
 func walk(v: &Vector<Int>) -> Int {
     let it = v.iter()

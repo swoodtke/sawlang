@@ -276,56 +276,56 @@ func sync_calls() {
     var g = G(a: 1, b: 2, quiet: true, inner: Cells(v: [10, 20]), other: Cells(v: [100]))
     g.quiet = true
     print("straight quiet=true i=0")
-    if borrow var x = g.straight(0) {
+    if var x = g.straight(0) {
         x += 5
     }
     g.quiet = false
     print("straight quiet=false i=0")
-    if borrow var x = g.straight(0) {
+    if var x = g.straight(0) {
         x += 5
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("in_if quiet=true i=0")
-    if borrow var x = g.in_if(0) {
+    if var x = g.in_if(0) {
         x += 5
     }
     g.quiet = false
     print("in_if quiet=false i=0")
-    if borrow var x = g.in_if(0) {
+    if var x = g.in_if(0) {
         x += 5
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("in_loop quiet=true i=0")
-    if borrow var x = g.in_loop(0) {
+    if var x = g.in_loop(0) {
         x += 5
     }
     g.quiet = false
     print("in_loop quiet=false i=0")
-    if borrow var x = g.in_loop(0) {
+    if var x = g.in_loop(0) {
         x += 5
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("after_borrow quiet=true i=0")
-    if borrow var x = g.after_borrow(0) {
+    if var x = g.after_borrow(0) {
         x += 5
     }
     g.quiet = false
     print("after_borrow quiet=false i=0")
-    if borrow var x = g.after_borrow(0) {
+    if var x = g.after_borrow(0) {
         x += 5
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("in_borrow quiet=true i=0")
-    if borrow var x = g.in_borrow(0) {
+    if var x = g.in_borrow(0) {
         x += 5
     }
     g.quiet = false
     print("in_borrow quiet=false i=0")
-    if borrow var x = g.in_borrow(0) {
+    if var x = g.in_borrow(0) {
         x += 5
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
@@ -335,65 +335,65 @@ func suspending_calls() -> Int {
     var g = G(a: 1, b: 2, quiet: true, inner: Cells(v: [10, 20]), other: Cells(v: [100]))
     g.quiet = true
     print("straight_suspending quiet=true i=0")
-    if borrow var x = g.straight_suspending(0) {
+    if var x = g.straight_suspending(0) {
         x += 5
         yield_now()
     }
     g.quiet = false
     print("straight_suspending quiet=false i=0")
-    if borrow var x = g.straight_suspending(0) {
+    if var x = g.straight_suspending(0) {
         x += 5
         yield_now()
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("in_if_suspending quiet=true i=0")
-    if borrow var x = g.in_if_suspending(0) {
+    if var x = g.in_if_suspending(0) {
         x += 5
         yield_now()
     }
     g.quiet = false
     print("in_if_suspending quiet=false i=0")
-    if borrow var x = g.in_if_suspending(0) {
+    if var x = g.in_if_suspending(0) {
         x += 5
         yield_now()
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("in_loop_suspending quiet=true i=0")
-    if borrow var x = g.in_loop_suspending(0) {
+    if var x = g.in_loop_suspending(0) {
         x += 5
         yield_now()
     }
     g.quiet = false
     print("in_loop_suspending quiet=false i=0")
-    if borrow var x = g.in_loop_suspending(0) {
+    if var x = g.in_loop_suspending(0) {
         x += 5
         yield_now()
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("after_borrow_suspending quiet=true i=0")
-    if borrow var x = g.after_borrow_suspending(0) {
+    if var x = g.after_borrow_suspending(0) {
         x += 5
         yield_now()
     }
     g.quiet = false
     print("after_borrow_suspending quiet=false i=0")
-    if borrow var x = g.after_borrow_suspending(0) {
+    if var x = g.after_borrow_suspending(0) {
         x += 5
         yield_now()
     }
     print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
     g.quiet = true
     print("in_borrow_suspending quiet=true i=0")
-    if borrow var x = g.in_borrow_suspending(0) {
+    if var x = g.in_borrow_suspending(0) {
         x += 5
         yield_now()
     }
     g.quiet = false
     print("in_borrow_suspending quiet=false i=0")
-    if borrow var x = g.in_borrow_suspending(0) {
+    if var x = g.in_borrow_suspending(0) {
         x += 5
         yield_now()
     }

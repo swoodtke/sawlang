@@ -9,6 +9,6 @@ func main() {
     var counts = Map<String, Int>()
     counts["a"] = 1
     print("before {}", counts["a"])
-    borrow var counts["missing"] += 1
+    counts["missing"] += 1
     print("after {}", counts.len())
 }

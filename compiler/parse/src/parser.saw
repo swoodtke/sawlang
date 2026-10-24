@@ -771,6 +771,7 @@ func is_loop_alt(alt: Alt) -> Bool {
         case Expr_WhileLet_Let -> true,
         case Expr_WhileLet_Var -> true,
         case Expr_For_Plain -> true,
+        case Expr_For_Var -> true,
         case Borrow_For_Let -> true,
         case Borrow_For_Var -> true,
         case _ -> false
@@ -5231,8 +5232,8 @@ extension Parser {
         goes
     }
 
-    // `for-expr ::= "for" binding-name "in" head-expr NEWLINE* block`, one
-    // level held to the end of the body. A `for` head binds one name, so a
+    // `for-expr ::= "for" "var"? binding-name "in" head-expr NEWLINE* block`,
+    // one level held to the end of the body. A `for` head binds one name, so a
     // tuple pattern there is refused once it has parsed
     // (syntax.expr.refused-for-tuple).
     func parse_for(&var self) -> Bool {
@@ -5255,7 +5256,12 @@ extension Parser {
         if self.kind() == TokenKind.Borrow {
             return self.parse_for_borrow(mark, start)
         }
-        self.see(Alt.Expr_For_Plain)
+        var alt = Alt.Expr_For_Plain
+        if self.kind() == TokenKind.Var {
+            alt = Alt.Expr_For_Var
+            self.advance()
+        }
+        self.see(alt)
         if not self.binding_name() {
             return false
         }
@@ -5269,7 +5275,7 @@ extension Parser {
         if not self.parse_body() {
             return false
         }
-        self.close(mark, Alt.Expr_For_Plain, start)
+        self.close(mark, alt, start)
         self.leave_level()
         true
     }
@@ -5657,10 +5663,24 @@ extension Parser {
         true
     }
 
-    // `payload-pattern ::= pattern | borrow-binding-pattern`, with
+    // `payload-pattern ::= pattern | var-binding-pattern | borrow-binding-pattern`,
+    // with `var-binding-pattern ::= "var" IDENT` and
     // `borrow-binding-pattern ::= "borrow" ("let" | "var") IDENT`, which only a
-    // payload takes (GRAMMAR.md section 9).
+    // payload takes (GRAMMAR.md sections 8 and 9).
     func payload_pattern(&var self) -> Bool {
+        if self.kind() == TokenKind.Var {
+            if self.kind_at(1) != TokenKind.Ident {
+                return self.error("a `var` binding in a payload is `var` and a name")
+            }
+            self.see(Alt.Pat_Payload_Var)
+            self.see(Alt.Pat_VarBinding)
+            let start = self.here()
+            let mark = self.builder.mark()
+            self.advance()
+            self.take_leaf()
+            self.close(mark, Alt.Pat_VarBinding, start)
+            return true
+        }
         if self.kind() != TokenKind.Borrow {
             self.see(Alt.Pat_Payload_Pattern)
             return self.parse_pattern()

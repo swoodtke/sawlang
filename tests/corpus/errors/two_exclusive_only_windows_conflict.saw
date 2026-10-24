@@ -39,5 +39,5 @@ func pair(a: &Int, b: &Int) -> Int { a + b }
 
 func main() {
     var b = Bag(cells: [10, 20, 30, 40], visits: 0)
-    print("{pair(borrow b.tally(0), borrow b.tally(1))}")
+    print("{pair(&b.tally(0), &b.tally(1))}")
 }

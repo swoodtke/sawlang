@@ -57,7 +57,7 @@ func replace_it(a: &var Anchor) {
 }
 
 func consume(c: Crate) -> Int {
-    borrow c.pinned.value().get()
+    c.pinned.value().get()
 }
 
 func main() {

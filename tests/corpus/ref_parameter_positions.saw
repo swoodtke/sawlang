@@ -61,6 +61,6 @@ func main() {
     print("{borrow let e = v[0] { e }}")
 
     var b = Bin(c: Cell(n: 20), v: move v)
-    borrow var b.slot().n += 1
-    print("{borrow b.slot().n}")
+    b.slot().n += 1
+    print("{b.slot().n}")
 }

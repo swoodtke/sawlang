@@ -1,0 +1,12 @@
+// refuses: borrows.let-lend at 7:13
+// `var` of an ExplicitCopy element read out of an unnamed lend: refused,
+// naming `.copy()` and the block form (SL:borrowing §12.5)
+// message: `rows[0]` is lent, and a `var` would keep the lend past this statement. Copy it out with `rows[0].copy()`, or name the place for a block: `borrow let r = rows[0] { … }`
+
+func first(rows: &Vector<Vector<Int>>) -> Int {
+    var r = rows[0]
+    0
+}
+
+func main() {
+}

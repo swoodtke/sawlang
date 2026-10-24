@@ -20,7 +20,7 @@ static TRIED: Atomic<Int> = Atomic(0)
 
 func try_held() -> Int {
     while HOLDING.load() == 0 { }
-    let got = if borrow var m = SHARED.try_lock() { m + 100 } else { 0 }
+    let got = if var m = SHARED.try_lock() { m + 100 } else { 0 }
     TRIED.store(1)
     got
 }
@@ -38,7 +38,7 @@ func held() -> Int {
 
 func main() {
     let local = SpinLock<Int>(value: 5)
-    let got = if borrow var n = local.try_lock() { n } else { 0 }
+    let got = if var n = local.try_lock() { n } else { 0 }
     print("try got {}", got)
     print("unlocked {}", not local.is_locked())
     print("held got {}", held())

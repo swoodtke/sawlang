@@ -413,7 +413,7 @@ extension TcProgram {
             self.walk_match(&var w, id, &var st)
         } else if self.has_alt(id, Alt.Expr_And) || self.has_alt(id, Alt.Expr_Or) || self.has_alt(id, Alt.Expr_Coalesce) {
             self.walk_chain(&var w, id, &var st)
-        } else if self.has_alt(id, Alt.Expr_While_Conditional) || self.has_alt(id, Alt.Expr_While_Infinite) || self.has_alt(id, Alt.Expr_WhileLet_Let) || self.has_alt(id, Alt.Expr_WhileLet_Var) {
+        } else if self.has_alt(id, Alt.Expr_While_Conditional) || self.has_alt(id, Alt.Expr_While_Infinite) || self.has_alt(id, Alt.Expr_WhileLet_Let) || self.has_alt(id, Alt.Expr_WhileLet_Var) || self.has_alt(id, Alt.Expr_While_Borrow) {
             self.walk_repeated(&var w, id, -1, TC_FRAME_LOOP, &var st)
         } else if self.has_alt(id, Alt.Expr_For_Plain) {
             let seq = self.for_sequence(id)

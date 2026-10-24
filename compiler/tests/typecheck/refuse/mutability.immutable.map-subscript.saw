@@ -3,5 +3,5 @@
 
 func main() {
     let m: Map<String, Int> = {"a": 1}
-    borrow var m["a"] = 5
+    m["a"] = 5
 }

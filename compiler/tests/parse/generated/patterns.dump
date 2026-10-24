@@ -239,6 +239,18 @@
               (VariantPat c (NamePat d))
               (Name e))))))))
 
+// case: syntax.pat.payload.var/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (VarBindPat d))
+              (Name e))))))))
+
 // case: syntax.pat.payload.borrow/alt
 (File
   (Declaration.func
@@ -249,6 +261,18 @@
             (Name b)
             (MatchArm
               (VariantPat c (BorrowBindPat.let d))
+              (Name e))))))))
+
+// case: syntax.pat.var-binding/alt
+(File
+  (Declaration.func
+    (Func a
+      (Block
+        (ExprStmt
+          (Match
+            (Name b)
+            (MatchArm
+              (VariantPat c (VarBindPat d))
               (Name e))))))))
 
 // case: syntax.pat.name/alt

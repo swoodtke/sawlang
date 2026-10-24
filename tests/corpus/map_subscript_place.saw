@@ -50,10 +50,10 @@ func main() {
     print("-- a move-only value, borrowed")
     var m = Map<String, Res>()
     let _ = try! m.insert("a", Res(id: 1))
-    print(borrow m["a"].id_of())
-    print(borrow m["a"].id_of())
-    borrow var m["a"].bump()
-    print(borrow m["a"].id_of())
+    print(m["a"].id_of())
+    print(m["a"].id_of())
+    m["a"].bump()
+    print(m["a"].id_of())
     if m.contains_key("zz") {
         print("unreachable")
     } else {
@@ -65,7 +65,7 @@ func main() {
     print("-- a struct value, written in place")
     var c = Map<String, Counter>()
     let _ = try! c.insert("k", Counter(n: 10))
-    borrow var c["k"].n += 5
+    c["k"].n += 5
     print(c.get("k")!.n)
     print((c.get("nope") ?? Counter(n: -1)).n)
 
@@ -85,10 +85,10 @@ func main() {
     var v = Vector<Int>()
     try! v.push(1)
     let _ = try! g.insert("v", move v)
-    try! borrow var g["v"].push(2)
-    try! borrow var g["v"].push(3)
-    print(borrow g["v"].len())
-    print(borrow g["v"].fold(0, { acc, n in acc + n }))
+    try! g["v"].push(2)
+    try! g["v"].push(3)
+    print(g["v"].len())
+    print(g["v"].fold(0, { acc, n in acc + n }))
 
     print("-- teardown")
     let _ = move g

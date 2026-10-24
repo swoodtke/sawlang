@@ -56,8 +56,8 @@ extension Outer {
 
 func main() {
     var o = Outer(inner: Holder(cells: [10]))
-    borrow var o.fwd(0, true) += 1
+    o.fwd(0, true) += 1
     print("--")
-    borrow var o.fwd(0, false) += 1
+    o.fwd(0, false) += 1
     print("{}", o.inner.cells[0])
 }

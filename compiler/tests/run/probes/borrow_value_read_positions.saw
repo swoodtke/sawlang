@@ -202,50 +202,50 @@ func touch_with(s: String, r: &var Res) {
 }
 
 func returned_u(h: &Holder) -> String {
-    return borrow h.get().label()
+    return h.get().label()
 }
 
 func returned_c(h: &Holder) -> String {
-    return borrow h.find(true)!.label()
+    return h.find(true)!.label()
 }
 
 func main() {
     var h = Holder(r: Res(name: "x", n: 0))
 
     print("arg U")
-    show(borrow h.get().label(), loud("b"))
+    show(h.get().label(), loud("b"))
     print("arg C")
-    show(borrow h.find(true)!.label(), loud("b"))
+    show(h.find(true)!.label(), loud("b"))
 
     print("operand U")
-    let o1 = borrow h.get().n + loud_int(10)
+    let o1 = h.get().n + loud_int(10)
     print("operand C")
-    let o2 = borrow h.find(true)!.n + loud_int(10)
+    let o2 = h.find(true)!.n + loud_int(10)
     print("operand-method U")
-    let o3 = borrow h.get().label().len() + loud_int(20)
+    let o3 = h.get().label().len() + loud_int(20)
     print("operand-method C")
-    let o4 = borrow h.find(true)!.label().len() + loud_int(20)
+    let o4 = h.find(true)!.label().len() + loud_int(20)
 
     print("interpolation U")
-    print("i {borrow h.get().label()} {loud("b")}")
+    print("i {h.get().label()} {loud("b")}")
     print("interpolation C")
-    print("i {borrow h.find(true)!.label()} {loud("b")}")
+    print("i {h.find(true)!.label()} {loud("b")}")
 
     print("format U")
-    print("f {} {}", borrow h.get().label(), loud("b"))
+    print("f {} {}", h.get().label(), loud("b"))
     print("format C")
-    print("f {} {}", borrow h.find(true)!.label(), loud("b"))
+    print("f {} {}", h.find(true)!.label(), loud("b"))
 
     print("single print U")
-    print(borrow h.get().label())
+    print(h.get().label())
     print("single print C")
-    print(borrow h.find(true)!.label())
+    print(h.find(true)!.label())
 
     print("let U")
-    let l1 = borrow h.get().label()
+    let l1 = h.get().label()
     print("next statement")
     print("let C")
-    let l2 = borrow h.find(true)!.label()
+    let l2 = h.find(true)!.label()
     print("next statement")
 
     print("return U")
@@ -256,80 +256,80 @@ func main() {
     print("returned")
 
     print("if U")
-    if borrow h.get().label().len() > 0 {
+    if h.get().label().len() > 0 {
         print("then")
     }
     print("if C")
-    if borrow h.find(true)!.label().len() > 0 {
+    if h.find(true)!.label().len() > 0 {
         print("then")
     }
 
     print("while U")
     var i = 0
-    while borrow h.get().label().len() > i {
+    while h.get().label().len() > i {
         print("body")
         i = i + 1
     }
     print("while C")
     i = 0
-    while borrow h.find(true)!.label().len() > i {
+    while h.find(true)!.label().len() > i {
         print("body")
         i = i + 1
     }
 
     print("coalesce U")
-    let c1 = borrow h.get().maybe() ?? loud("d")
+    let c1 = h.get().maybe() ?? loud("d")
     print("coalesce C")
-    let c2 = borrow h.find(true)!.maybe() ?? loud("d")
+    let c2 = h.find(true)!.maybe() ?? loud("d")
 
     print("compare U")
-    let e1 = borrow h.get().label() == loud("x")
+    let e1 = h.get().label() == loud("x")
     print("compare C")
-    let e2 = borrow h.find(true)!.label() == loud("x")
+    let e2 = h.find(true)!.label() == loud("x")
 
     print("assign U")
     var s = "start"
-    s = pair(borrow h.get().label(), loud("y"))
+    s = pair(h.get().label(), loud("y"))
     print("assign C")
     var t = "start"
-    t = pair(borrow h.find(true)!.label(), loud("y"))
+    t = pair(h.find(true)!.label(), loud("y"))
 
     print("match value U")
-    match borrow h.get().label().len() {
+    match h.get().label().len() {
         case 1 -> print("arm one"),
         case _ -> print("arm other")
     }
     print("match value C")
-    match borrow h.find(true)!.label().len() {
+    match h.find(true)!.label().len() {
         case 1 -> print("arm one"),
         case _ -> print("arm other")
     }
     print("match place U")
-    match borrow h.get().n {
+    match h.get().n {
         case 0 -> print("arm zero"),
         case _ -> print("arm other")
     }
     print("match place C")
-    match borrow h.find(true)!.n {
+    match h.find(true)!.n {
         case 0 -> print("arm zero"),
         case _ -> print("arm other")
     }
 
     print("by reference U")
-    show_ref(borrow h.get())
+    show_ref(&h.get())
     print("by reference C")
-    show_ref(borrow h.find(true)!)
+    show_ref(&h.find(true)!)
     print("by reference var")
-    touch(borrow var h.get_var())
+    touch(&var h.get_var())
     print("compare place")
-    let e3 = borrow h.get().n == loud_int(1)
+    let e3 = h.get().n == loud_int(1)
     print("interpolation place")
-    print("p {borrow h.get().n} {loud("b")}")
+    print("p {h.get().n} {loud("b")}")
 
     print("overlap assign")
-    borrow var h.get_var().n = borrow h.get().label().len()
+    h.get_var().n = h.get().label().len()
     print("overlap arguments")
-    touch_with(borrow h.get().label(), borrow var h.get_var())
+    touch_with(h.get().label(), &var h.get_var())
 
     print("end {} {} {} {} {} {} {} {} {} {} {} {} {} {} {}", o1, o2, o3, o4, l1, l2, r1, r2, c1, c2, e1, e2, s, t,
           h.r.n)

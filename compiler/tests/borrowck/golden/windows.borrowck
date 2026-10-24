@@ -109,12 +109,12 @@ fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.
     }
 
     bb5: {
-        [] {L4 L5} _9 = ref(shared, (*_6));
-        [] {L4 L5 L6} _8 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) [move _9, const 1: Int] -> [present: bb6];
+        [] {L4 L5} _10 = ref(shared, (*_6));
+        [] {L4 L5 L6} _9 = window_open w3 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) [move _10, const 1: Int] -> [present: bb6];
     }
 
     bb6: {
-        [] {L4 L5 L6 L7} _10 = copy (*_8).n;
+        [] {L4 L5 L6 L7} _8 = copy (*_9);
         [] {L4 L5 L6 L7} window_close w3 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<windows.Cell, std.alloc.GlobalAllocator>) -> [return: bb7];
     }
 
@@ -123,7 +123,8 @@ fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.
     }
 
     bb8: {
-        [] {} _0 = move _10;
+        [] {} _11 = copy _8.n;
+        [] {} _0 = move _11;
         [] {} return;
     }
 }
@@ -131,7 +132,7 @@ fn windows.nested(b: &var std.vector.Vector<std.vector.Vector<windows.Cell, std.
 fn windows.absent(r: &var windows.Row, i: Int) {
     loan L0: exclusive (*_1);  // ref at 36:5
     loan L1: exclusive (*_1);  // window w0 at 36:5
-    loan L2: exclusive (*_4);  // ref at 36:19
+    loan L2: exclusive (*_4);  // ref at 36:12
 
     bb0: {
         [] {} _3 = copy _2;
@@ -240,12 +241,12 @@ fn windows.let_root() {
     loan L2: shared (*_4);  // ref at 66:16
     loan L3: shared _1;  // ref at 69:13
     loan L4: shared _1;  // window w1 at 69:13
-    loan L5: shared _1;  // ref at 69:27
-    loan L6: shared _1;  // window w2 at 69:27
+    loan L5: shared _1;  // ref at 69:20
+    loan L6: shared _1;  // window w2 at 69:20
     loan L7: shared _1;  // ref at 70:8
     loan L8: shared _1;  // window w3 at 70:8
-    loan L9: shared _1;  // ref at 70:23
-    loan L10: shared _1;  // window w4 at 70:23
+    loan L9: shared _1;  // ref at 70:16
+    loan L10: shared _1;  // window w4 at 70:16
 
     bb0: {
         [U U U] {} _2 = vector [const 4: Int, const 4: Int]: std.vector.Vector<Int, std.alloc.GlobalAllocator>;

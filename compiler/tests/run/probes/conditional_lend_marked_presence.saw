@@ -49,8 +49,8 @@ func fresh() -> Row {
 }
 
 func matched(r: &var Row, i: Int) -> Int {
-    match borrow r.find(i) {
-        case Some(borrow var c) -> {
+    match r.find(i) {
+        case Some(var c) -> {
             c.n += 1
             c.n
         },
@@ -59,8 +59,8 @@ func matched(r: &var Row, i: Int) -> Int {
 }
 
 func matched_var(r: &var Row, i: Int) -> Int {
-    match borrow var r.find(i) {
-        case Some(borrow var c) -> {
+    match r.find(i) {
+        case Some(var c) -> {
             c.n += 2
             c.n
         },
@@ -69,14 +69,14 @@ func matched_var(r: &var Row, i: Int) -> Int {
 }
 
 func present(r: &var Row, i: Int) -> Int {
-    match borrow r.find(i) {
+    match r.find(i) {
         case Some(_) -> 1,
         case None -> 0
     }
 }
 
 func unwrapped(r: &var Row, i: Int) -> Int {
-    if borrow var c = r.find(i) {
+    if var c = r.find(i) {
         c.n += 3
         c.n
     } else {
@@ -85,10 +85,10 @@ func unwrapped(r: &var Row, i: Int) -> Int {
 }
 
 func nested(r: &var Row, other: &var Row, i: Int) -> Int {
-    match borrow r.find(i) {
-        case Some(borrow var c) -> {
-            match borrow other.find(i + 1) {
-                case Some(borrow let d) -> c.n * 10 + d.n * 5 + 5,
+    match r.find(i) {
+        case Some(var c) -> {
+            match other.find(i + 1) {
+                case Some(d) -> c.n * 10 + d.n * 5 + 5,
                 case None -> -1
             }
         },
@@ -97,11 +97,11 @@ func nested(r: &var Row, other: &var Row, i: Int) -> Int {
 }
 
 func forced(r: &var Row, i: Int) -> Int {
-    borrow r.find(i)!.n
+    r.find(i)!.n
 }
 
 func coalesced(r: &var Row, i: Int) -> Int {
-    let c = borrow r.find(i) ?? Cell(n: 7)
+    let c = r.find(i) ?? Cell(n: 7)
     c.n
 }
 
@@ -114,7 +114,7 @@ func let_bound(r: &var Row, i: Int) -> Int {
 }
 
 func copied(r: &var Row, i: Int) -> Int {
-    let c = borrow r.find(i)
+    let c = r.find(i)
     if let x = c {
         x.n
     } else {
@@ -123,13 +123,13 @@ func copied(r: &var Row, i: Int) -> Int {
 }
 
 func assigned(r: &var Row, i: Int) -> Int {
-    borrow var r.find(i)?.n = 8
+    r.find(i)?.n = 8
     r.cells[1].n
 }
 
 func blocked(r: &var Row, i: Int) -> Int {
     borrow var e = r.find(i) {
-        if borrow var c = e {
+        if var c = e {
             c.n += 1
             c.n
         } else {
@@ -146,8 +146,8 @@ func guarded(r: &var Row, i: Int) -> Int {
 }
 
 func driven_matched(r: &var Row, i: Int) -> Int {
-    match borrow r.find(i) {
-        case Some(borrow var c) -> {
+    match r.find(i) {
+        case Some(var c) -> {
             yield_now()
             c.n += 1
             c.n
@@ -160,8 +160,8 @@ func driven_matched(r: &var Row, i: Int) -> Int {
 }
 
 func driven_matched_var(r: &var Row, i: Int) -> Int {
-    match borrow var r.find(i) {
-        case Some(borrow var c) -> {
+    match r.find(i) {
+        case Some(var c) -> {
             yield_now()
             c.n += 2
             c.n
@@ -174,7 +174,7 @@ func driven_matched_var(r: &var Row, i: Int) -> Int {
 }
 
 func driven_present(r: &var Row, i: Int) -> Int {
-    match borrow r.find(i) {
+    match r.find(i) {
         case Some(_) -> {
             yield_now()
             1
@@ -187,7 +187,7 @@ func driven_present(r: &var Row, i: Int) -> Int {
 }
 
 func driven_unwrapped(r: &var Row, i: Int) -> Int {
-    if borrow var c = r.find(i) {
+    if var c = r.find(i) {
         yield_now()
         c.n += 3
         c.n
@@ -198,11 +198,11 @@ func driven_unwrapped(r: &var Row, i: Int) -> Int {
 }
 
 func driven_nested(r: &var Row, other: &var Row, i: Int) -> Int {
-    match borrow r.find(i) {
-        case Some(borrow var c) -> {
+    match r.find(i) {
+        case Some(var c) -> {
             yield_now()
-            match borrow other.find(i + 1) {
-                case Some(borrow let d) -> {
+            match other.find(i + 1) {
+                case Some(d) -> {
                     yield_now()
                     c.n * 10 + d.n * 5 + 5
                 },
@@ -218,7 +218,7 @@ func driven_nested(r: &var Row, other: &var Row, i: Int) -> Int {
 
 func driven_coalesced(r: &var Row, i: Int) -> Int {
     yield_now()
-    let c = borrow r.find(i) ?? Cell(n: 7)
+    let c = r.find(i) ?? Cell(n: 7)
     yield_now()
     c.n
 }
@@ -236,7 +236,7 @@ func driven_let_bound(r: &var Row, i: Int) -> Int {
 func driven_blocked(r: &var Row, i: Int) -> Int {
     borrow var e = r.find(i) {
         yield_now()
-        if borrow var c = e {
+        if var c = e {
             yield_now()
             c.n += 1
             c.n

@@ -1,0 +1,80 @@
+// probe: stated
+// about: an unnamed lend at each SL:borrowing §12.1 position, written with no `borrow` prefix, lends the place for its expression: assignment and compound targets, a method on the place, a field read, a reference argument, a conditional write, interpolation and a format argument (SL-897)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: 30
+// prints: 2 6 4
+// prints: 1
+// prints: net net s0
+// prints: 2
+// prints: loud 3
+// prints: 8
+// prints: net 3 s0
+
+struct Cell { n: Int }
+struct Hit { hits: Int }
+struct Section { name: String, n: Int }
+struct Doc { sections: [Section; 1] }
+
+extension Section {
+    func title(&self) -> String { self.name }
+}
+
+extension Doc {
+    func section(&self, i: Int) borrows -> &Section {
+        if i != 0 { panic("Doc.section: out of range") }
+        lend self.sections[0]
+    }
+}
+
+struct Session { name: String }
+extension Session: NoCopy {}
+
+func bump(c: &var Cell) { c.n += 1 }
+func show(c: &Cell) { print(c.n) }
+func loud(n: Int) -> Int { print("loud {n}"); n }
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    try! v.push(Cell(n: 2))
+    v[0].n = 10
+    v[1] = Cell(n: 20)
+    print(v[0].n + v[1].n)
+
+    var c = Vector<Cell>()
+    try! c.push(Cell(n: 1))
+    c[0].n += 1
+    var m = Map<String, Hit>()
+    m["a"] = Hit(hits: 5)
+    m["a"].hits += 1
+    var w = Vector<Int>()
+    try! w.push(3)
+    w[0] += 1
+    print("{c[0].n} {m["a"].hits} {w[0]}")
+
+    var queues = Vector<Vector<Int>>()
+    try! queues.push(Vector<Int>())
+    try! queues[0].push(5)
+    print(queues[0].len())
+
+    let doc = Doc(sections: [Section(name: "net", n: 3)])
+    var sessions = Vector<Session>()
+    try! sessions.push(Session(name: "s0"))
+    print("{doc.section(0).name} {doc.section(0).title()} {sessions[0].name}")
+
+    var g = Vector<Cell>()
+    try! g.push(Cell(n: 1))
+    bump(&var g[0])
+    show(&g[0])
+
+    m.find(&"a")?.hits = 7
+    m.find(&"zz")?.hits = loud(3)
+    guard let _ = m.find(&"a")?.hits = 8 else {
+        print("absent")
+        return
+    }
+    print(m["a"].hits)
+    print("{} {} {}", doc.section(0).name, doc.section(0).n, sessions[0].name)
+}

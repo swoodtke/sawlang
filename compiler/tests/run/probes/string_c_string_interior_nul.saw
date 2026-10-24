@@ -10,7 +10,7 @@ extern "C" {
 }
 
 func measured(s: String) unsafe -> UInt {
-    strlen(borrow s.c_string()!)
+    strlen(s.c_string()!)
 }
 
 func main() {

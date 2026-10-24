@@ -1,0 +1,17 @@
+// refuses: borrows.unconditional-test at 10:8
+// `if let` over a subscript's place, which is always present: nothing to
+// test (SL:borrowing §12.5)
+// message: `v[0]` always lends a place, so there is nothing for `if let` to test. Use `borrow let x = v[0] { … }`
+
+struct Session { name: String }
+extension Session: NoCopy {}
+
+func first(v: &Vector<Session>) -> Int {
+    if let x = v[0] {
+        return 1
+    }
+    0
+}
+
+func main() {
+}

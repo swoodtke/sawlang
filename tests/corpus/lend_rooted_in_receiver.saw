@@ -55,7 +55,7 @@ extension Board {
         if i < 0 || i >= self.slots.len() { return None }
         borrow var entry = self.slots[i] {
             match entry {
-                case Filled(borrow var c) -> { lend c },
+                case Filled(var c) -> { lend c },
                 case Empty -> { return None }
             }
         }
@@ -69,14 +69,14 @@ func main() {
     try! slots.push(Slot.Filled(c: Cell(n: 30)))
     var b = Board(a: Cell(n: 1), cells: move cells, slots: move slots)
 
-    borrow var b.head().n += 7
-    print("field={borrow b.head().n}")
+    b.head().n += 7
+    print("field={b.head().n}")
 
-    borrow var b.cell(0).n += 10
-    print("element={borrow b.cell(0).n}")
+    b.cell(0).n += 10
+    print("element={b.cell(0).n}")
 
-    borrow var b.slot(0)!.n += 3
-    print("payload={borrow b.slot(0)!.n}")
+    b.slot(0)!.n += 3
+    print("payload={b.slot(0)!.n}")
 
     var v: Vector<Int> = [1, 2]
     v[0] += 6

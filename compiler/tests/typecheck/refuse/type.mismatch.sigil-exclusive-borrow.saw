@@ -30,5 +30,5 @@ func pair(a: Int, r: &Int) -> Int {
 func main() {
     var n = 1
     var v: Vector<Int> = [1]
-    let _ = look(borrow var v[0])
+    let _ = look(&var v[0])
 }

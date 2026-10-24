@@ -18,12 +18,12 @@ func main() {
     var m = Map<String, Cell>()
     let _ = m.insert("x", Cell(value: 1))
 
-    borrow var m.find(&"x")?.value = 42
+    m.find(&"x")?.value = 42
     let present = m.get("x")!.value
     print("present {present}")
 
     // The absent path writes nothing.
-    guard let _ = borrow var m.find(&"nope")?.value = 7 else {
+    guard let _ = m.find(&"nope")?.value = 7 else {
         print("absent skipped")
         print("-- done")
         return

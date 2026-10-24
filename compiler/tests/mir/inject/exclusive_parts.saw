@@ -25,10 +25,10 @@ extension Slot {
 
 func main() {
     var s = Slot(held: 1)
-    if borrow var n = s.writable() {
+    if var n = s.writable() {
         n += 1
     }
-    if borrow let n = s.readable() {
+    if let n = s.readable() {
         print(n)
     }
 }

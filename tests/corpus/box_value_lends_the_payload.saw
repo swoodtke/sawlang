@@ -40,19 +40,19 @@ extension Res {
 func main() {
     // The Copy tier: a value read out of the place retains, exactly as before.
     let n = try! Box<Int>.make(42)
-    let read: Int = borrow n.value()
+    let read: Int = n.value()
     print(read)
 
     let s = try! Box<String>.make("hello")
-    let text: String = borrow s.value()
+    let text: String = s.value()
     print(text)
 
     // Move-only: reached THROUGH the window, never taken out.
     var b = try! Box<Res>.make(Res(name: "r", hits: 0))
-    print(borrow b.value().label())      // a `&self` method through a shared window
-    borrow var b.value().bump()              // a `&var self` method: exclusive window
-    print("{borrow b.value().hits}")     // 1 — a field read through the window
-    borrow var b.value().hits += 5           // a compound write, in the box's own heap
-    print("{borrow b.value().hits}")     // 6
+    print(b.value().label())      // a `&self` method through a shared window
+    b.value().bump()              // a `&var self` method: exclusive window
+    print("{b.value().hits}")     // 1 — a field read through the window
+    b.value().hits += 5           // a compound write, in the box's own heap
+    print("{b.value().hits}")     // 6
     // b dies here: the payload's own deinit runs once, then the chunk is freed.
 }

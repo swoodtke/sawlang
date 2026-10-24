@@ -727,6 +727,7 @@ extension ResProgram {
             case Pat_Tuple_Positional -> self.bind_pattern_children(p, shadow, before),
             case Pat_BorrowBinding_Let -> self.bind_borrow_pattern(p, shadow, before),
             case Pat_BorrowBinding_Var -> self.bind_borrow_pattern(p, shadow, before),
+            case Pat_VarBinding -> self.bind_borrow_pattern(p, shadow, before),
             case Stmt_BindingName -> self.bind_binding_name(p, shadow, before),
             case _ -> {}
         }
@@ -879,6 +880,10 @@ extension ResProgram {
                 self.unbound()
             },
             case Expr_For_Plain -> {
+                self.walk_for(e)
+                self.unbound()
+            },
+            case Expr_For_Var -> {
                 self.walk_for(e)
                 self.unbound()
             },

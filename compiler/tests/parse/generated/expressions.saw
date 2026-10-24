@@ -1559,6 +1559,22 @@ func a() { for b in c
 
     { } }
 
+// case: syntax.expr.for.var/alt
+func a() { for var b in c { } }
+
+// case: syntax.expr.for.var/rep:5:NEWLINE*=0
+func a() { for var b in c { } }
+
+// case: syntax.expr.for.var/rep:5:NEWLINE*=1
+func a() { for var b in c
+    { } }
+
+// case: syntax.expr.for.var/rep:5:NEWLINE*=many
+func a() { for var b in c
+
+
+    { } }
+
 // case: syntax.expr.for.borrow/alt
 func a() { for borrow let b in c { } }
 

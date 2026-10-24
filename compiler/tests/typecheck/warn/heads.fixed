@@ -1,0 +1,40 @@
+// warns: 5
+// the binding heads' prefixes: `if borrow let|var` becomes `if let|var`,
+// `while borrow var` becomes `while var`, and a payload's `borrow let x` and
+// `borrow var x` become `x` and `var x` over a lent scrutinee
+// (SL:borrowing §12.2)
+// message: write `var e = m.find(&"a")`
+// message: write `let e = m.find(&"a")`
+// message: write `var x`
+
+struct Cell { n: Int }
+struct Hit { hits: Int }
+enum Slot { case Full(key: Int, value: Cell), case Empty }
+
+func main() {
+    var m = Map<String, Hit>()
+    m["a"] = Hit(hits: 1)
+    if var e = m.find(&"a") { e.hits += 1 }
+    if let e = m.find(&"a") { print(e.hits) }
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    var i = 0
+    while var e = v.find(i) {
+        e.n += 1
+        i += 1
+    }
+    var s = Vector<Slot>()
+    try! s.push(Slot.Full(key: 1, value: Cell(n: 2)))
+    borrow var slot = s[0] {
+        match slot {
+            case Full(_, var x) -> { x.n += 1 },
+            case Empty -> {}
+        }
+    }
+    borrow let slot = s[0] {
+        match slot {
+            case Full(_, x) -> { print(x.n) },
+            case Empty -> {}
+        }
+    }
+}

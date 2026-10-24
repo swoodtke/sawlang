@@ -20,7 +20,7 @@ func work(n: Int) -> Int {
 
 func main() {
     var r = Row(cells: [1, 2, 3, 4])
-    borrow var r[1] += 10
+    r[1] += 10
     let x = __saw_drive(work(3))
     print("{} {}", x, r.cells[1])
 }

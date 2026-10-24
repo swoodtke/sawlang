@@ -24,7 +24,7 @@ func main() {
     let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     let other = shared.copy()
     print(add(other.copy(), 3))
-    borrow var shared.value().lock() += 7
+    shared.value().lock() += 7
     borrow let c = other.value().lock() {
         print(c)
     }

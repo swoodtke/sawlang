@@ -43,7 +43,7 @@ func run(body: () -> Int) -> Int {
 func match_borrow_let(slots: &Vector<Slot>, i: Int) -> Int {
     borrow let lent = slots[i] { match lent {
         case Empty -> 0,
-        case Occupied(borrow let k) -> k.name.len()
+        case Occupied(k) -> k.name.len()
     } }
 }
 
@@ -71,14 +71,14 @@ func match_borrow_let_copy(tags: &Vector<Tag>, i: Int) -> Int {
 func match_borrow_var(slots: &var Vector<Slot>, i: Int) -> Int {
     borrow var lent = slots[i] { match lent {
         case Empty -> 0,
-        case Occupied(borrow var k) -> k.name.len()
+        case Occupied(var k) -> k.name.len()
     } }
 }
 
 func match_nested(slots: &Vector<Slot>, i: Int) -> Int {
     borrow let lent = slots[i] { match lent {
         case Empty -> 0,
-        case Occupied(borrow let k) -> match k.name.len() {
+        case Occupied(k) -> match k.name.len() {
             case 0 -> 0,
             case _ -> 2
         }
@@ -88,14 +88,14 @@ func match_nested(slots: &Vector<Slot>, i: Int) -> Int {
 func match_parameter(s: &Slot) -> Int {
     match s {
         case Empty -> 0,
-        case Occupied(borrow let k) -> k.name.len()
+        case Occupied(k) -> k.name.len()
     }
 }
 
 func match_parameter_var(s: &var Slot) -> Int {
     match s {
         case Empty -> 0,
-        case Occupied(borrow var k) -> k.name.len()
+        case Occupied(var k) -> k.name.len()
     }
 }
 
@@ -103,7 +103,7 @@ func match_capture() -> Int {
     let s = Slot.Occupied(key: Res(name: "a"))
     run({ [&s] in match s {
         case Empty -> 0,
-        case Occupied(borrow let k) -> k.name.len()
+        case Occupied(k) -> k.name.len()
     } })
 }
 
@@ -116,10 +116,10 @@ func match_capture_copy() -> Int {
 }
 
 func match_lend_payload(slots: &var Vector<Slot>, i: Int) -> Int {
-    if borrow let e = slots.find(i) {
+    if let e = slots.find(i) {
         match e {
             case Empty -> 0,
-            case Occupied(borrow let k) -> k.name.len()
+            case Occupied(k) -> k.name.len()
         }
     } else {
         0
@@ -130,14 +130,14 @@ extension Holder {
     func match_field(&self) -> Int {
         match self.slot {
             case Empty -> 0,
-            case Occupied(borrow let k) -> k.name.len()
+            case Occupied(k) -> k.name.len()
         }
     }
 
     func match_field_var(&var self) -> Int {
         match self.slot {
             case Empty -> 0,
-            case Occupied(borrow var k) -> k.name.len()
+            case Occupied(var k) -> k.name.len()
         }
     }
 
@@ -178,7 +178,7 @@ func if_let_borrow_let_none(opts: &Vector<Res?>, i: Int) -> Int {
 
 func if_borrow_unwrap(opts: &Vector<Res?>, i: Int) -> Int {
     borrow let lent = opts[i] {
-        if borrow let r = lent { r.name.len() } else { 0 }
+        if let r = lent { r.name.len() } else { 0 }
     }
 }
 

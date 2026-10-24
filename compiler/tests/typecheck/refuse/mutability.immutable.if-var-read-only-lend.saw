@@ -1,0 +1,31 @@
+// refuses: mutability.immutable at 21:20
+// `if var` over the optional place a `&self` conditional lend hands a
+// `borrow let` binding binds the place writable, which a read-only lend
+// cannot give (SL:borrowing §12.2)
+
+struct P { n: Int }
+
+struct Bag { items: [P; 2] }
+
+extension Bag {
+    func peek(&self, i: Int) borrows -> &P? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+}
+
+func look(b: &Bag) -> Int {
+    borrow let e = b.peek(0) {
+        if var x = e {
+            x.n = 9
+            x.n
+        } else {
+            0
+        }
+    }
+}
+
+func main() {
+}

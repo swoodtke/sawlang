@@ -61,24 +61,24 @@ extension Tags {
 }
 
 func format_argument(s: &Shelf) {
-    print("element {}", borrow s[0])
+    print("element {}", s[0])
 }
 
 func interpolated(s: &Shelf) {
-    print("element {borrow s[1]}")
+    print("element {s[1]}")
 }
 
 func compared(s: &Shelf) -> Bool {
-    borrow s[0] == borrow s[1]
+    s[0] == s[1]
 }
 
 func field_read(s: &Shelf) -> Int {
-    let n = borrow s[0].n
+    let n = s[0].n
     n + 1
 }
 
 func scrutinee(t: &Tags) -> Int {
-    match borrow t[0] {
+    match t[0] {
         case A -> 1,
         case B -> 2
     }

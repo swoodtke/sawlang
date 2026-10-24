@@ -36,18 +36,18 @@ func main() {
     var solo = try! Arc<Counter>(value: Counter(n: 0))
 
     // Unique: the place is present, and the arm's value comes back.
-    let first = borrow var c = solo.unique() { if borrow var c = c { c.bump(); c.n } else { -1 } }
+    let first = borrow var c = solo.unique() { if var c = c { c.bump(); c.n } else { -1 } }
     print("unique -> {first}")
 
     // A statement block: the present arm writes and yields nothing.
-    borrow var c = solo.unique() { if borrow var c = c {
+    borrow var c = solo.unique() { if var c = c {
         c.bump()
         print("void arm ran, n = {c.n}")
     } }
 
     // Shared: the place is absent, so the write arm does NOT run (n stays 2).
     let theirs = solo.copy()
-    borrow var c = solo.unique() { if borrow var c = c {
+    borrow var c = solo.unique() { if var c = c {
         c.bump()
         print("BAD: a shared payload was written, n = {c.n}")
     } else {
@@ -56,17 +56,17 @@ func main() {
 
     // The absent arm is the caller's cue: clone, then write to the clone. This
     // is exactly what `Data`'s mutations do.
-    var mine = try! Arc<Counter>(value: Counter(n: borrow theirs.value().value()))
-    borrow var c = mine.unique() { if borrow var c = c { c.bump() } }
-    print("clone-and-write: mine {borrow mine.value().value()}, theirs {borrow theirs.value().value()}")
+    var mine = try! Arc<Counter>(value: Counter(n: theirs.value().value()))
+    borrow var c = mine.unique() { if var c = c { c.bump() } }
+    print("clone-and-write: mine {mine.value().value()}, theirs {theirs.value().value()}")
 
     // The gate borrows rather than retains, so asking does not itself share.
     var lone = try! Arc<Counter>(value: Counter(n: 0))
-    borrow var c = lone.unique() { if borrow var c = c { c.bump() } }
-    borrow var c = lone.unique() { if borrow var c = c { c.bump() } }
+    borrow var c = lone.unique() { if var c = c { c.bump() } }
+    borrow var c = lone.unique() { if var c = c { c.bump() } }
     print("no double count: strong {lone.strong_count()}")
 
     // A NoCopy payload releases once, through Arc's ordinary two-phase drop.
     var res = try! Arc<Res>(value: Res(tag: 7))
-    let _tag = borrow var r = res.unique() { if borrow var r = r { r.tag } else { -1 } }
+    let _tag = borrow var r = res.unique() { if var r = r { r.tag } else { -1 } }
 }

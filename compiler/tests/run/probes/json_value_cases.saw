@@ -74,7 +74,7 @@ func describe(v: &JsonValue) -> String {
 }
 
 func array_len(v: &JsonValue) -> Int {
-    borrow v.as_array()!.len()
+    v.as_array()!.len()
 }
 
 func main() {
@@ -99,22 +99,22 @@ func main() {
     let doc = try! JsonValue.parse(text: "[null, false, 7, 7.0, \"seven\", [1, 2], \{\"n\": 1\}]")
     var i = 0
     while i < array_len(&doc) {
-        print(describe(borrow doc.as_array()![i]))
+        print(describe(&doc.as_array()![i]))
         i = i + 1
     }
     print("int as float: {}", if let _ = (try! JsonValue.parse(text: "7")).as_float() { "some" } else { "none" })
     print("float as int: {}", if let _ = (try! JsonValue.parse(text: "7.0")).as_int() { "some" } else { "none" })
-    print("members of the object element: {}",borrow doc.as_array()![6].as_object()!.len())
-    print("member: {}", borrow doc.as_array()![6].as_object()!["n"].as_int() ?? -1)
+    print("members of the object element: {}",doc.as_array()![6].as_object()!.len())
+    print("member: {}", doc.as_array()![6].as_object()!["n"].as_int() ?? -1)
 
     // Exclusive lends write in place, and `copy()` is deep.
     var tree = try! JsonValue.parse(text: "\{\"list\": [1]\}")
     let before = tree.copy()
-    try! borrow var tree.as_object()!.insert("more", JsonValue.Bool(value: true))
+    try! tree.as_object()!.insert("more", JsonValue.Bool(value: true))
     var list = JsonValue.Array(items: Vector<JsonValue>())
-    try! borrow var list.as_array()!.push(JsonValue.Number(value: 2))
-    try! borrow var list.as_array()!.push(move tree)
+    try! list.as_array()!.push(JsonValue.Number(value: 2))
+    try! list.as_array()!.push(move tree)
     print("copy kept: {}", try! before.to_json_string())
     print("built len: {}", array_len(&list))
-    print("inner len: {}", borrow list.as_array()![1].as_object()!.len())
+    print("inner len: {}", list.as_array()![1].as_object()!.len())
 }

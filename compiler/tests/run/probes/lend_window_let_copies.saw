@@ -1,0 +1,35 @@
+// probe: stated
+// about: a `let` holds no window: it copies a Copy value out of an unnamed lend, and a conditional lend read whole is an optional copy, so the root is free after the statement; this is the v0.18.0 `if let` trap's fix, SL:borrowing §12.1 and §12.5 (SL-897)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: 4 3 4 true
+// prints: 2
+
+struct Cell { n: Int }
+struct Section { name: String, n: Int }
+struct Doc { sections: [Section; 1] }
+
+extension Doc {
+    func section(&self, i: Int) borrows -> &Section {
+        lend self.sections[0]
+    }
+}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 4))
+    let x = v[0]
+    let doc = Doc(sections: [Section(name: "net", n: 3)])
+    let n = doc.section(0).n
+    let c = v.find(0)
+    let d = v.find(9)
+    try! v.push(Cell(n: 5))
+    print("{x.n} {n} {c!.n} {d == None}")
+
+    var m = Map<String, Int>()
+    m["a"] = 1
+    let copied = m.find(&"a")
+    if let y = copied { m["b"] = y + 1 }
+    print(m.len())
+}

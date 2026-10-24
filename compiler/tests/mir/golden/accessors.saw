@@ -86,7 +86,7 @@ func use_all(g: &var Grid, l: &var Lock) -> Int {
     borrow var e = l.hold() {
         e += 1
     }
-    if borrow var found = g.find(0) {
+    if var found = g.find(0) {
         found += 1
     }
     g[0]

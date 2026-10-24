@@ -57,7 +57,7 @@ func checked(flag: Bool) -> Result<Int, Box<any Error>> {
 func main() {
     // The place use that turns the re-entry on.
     var cells: Vector<Cell> = [Cell(n: 1), Cell(n: 2)]
-    borrow var cells[0].n += 9
+    cells[0].n += 9
     print(cells[0].n)
 
     // A distinct alias initialized from a bare literal, and one to an optional.

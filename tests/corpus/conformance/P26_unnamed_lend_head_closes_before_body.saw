@@ -1,0 +1,35 @@
+// Conformance row P26 — an unnamed lend in a head's sub-expression closes
+// before the body runs (SL:borrowing §12.1; SL-893): the `for` range bound
+// and the `if` and `while` conditions read through `as_array()` and close its
+// window once the value is read, so each body may borrow the root
+// exclusively.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2
+// 3
+// 5
+import std.json.{JsonValue}
+
+struct Store { projects: JsonValue, n: Int }
+extension Store: NoCopy {}
+
+func touch(st: &var Store) { st.n = st.n + 1 }
+
+func main() {
+    var items = Vector<JsonValue>()
+    try! items.push(JsonValue.Number(value: 1))
+    try! items.push(JsonValue.Number(value: 2))
+    var st = Store(projects: JsonValue.Array(items: move items), n: 0)
+    for i in 0..st.projects.as_array()!.len() {
+        touch(&var st)
+    }
+    print("{st.n}")
+    if st.projects.as_array()!.len() == 2 {
+        touch(&var st)
+    }
+    print("{st.n}")
+    while st.n < st.projects.as_array()!.len() + 3 {
+        touch(&var st)
+    }
+    print("{st.n}")
+}

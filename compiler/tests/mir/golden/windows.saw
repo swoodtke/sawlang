@@ -40,16 +40,16 @@ func block_form(r: &var Row, limit: Int) -> Int {
 }
 
 func statement_form(r: &var Row) -> Int {
-    borrow var r[1] += 2
-    let copied = borrow r[2]
+    r[1] += 2
+    let copied = r[2]
     copied
 }
 
 func conditional(r: &var Row) -> Int {
-    if borrow var found = r.find(2) {
+    if var found = r.find(2) {
         found += 1
     }
-    let first = borrow r.find(0) ?? 0
+    let first = r.find(0) ?? 0
     if let second = borrow r.find(1) {
         return second
     }
@@ -61,11 +61,11 @@ func bump(n: &var Int) {
 }
 
 func spelled(r: &var Row) -> Int {
-    bump(borrow var r[3])
-    if borrow let first = r.find(0) {
+    bump(&var r[3])
+    if let first = r.find(0) {
         return first
     }
-    borrow r.find(1) ?? 0
+    r.find(1) ?? 0
 }
 
 func derived(v: &var Vector<Int>) -> Int {

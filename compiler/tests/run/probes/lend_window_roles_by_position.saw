@@ -1,0 +1,72 @@
+// probe: stated
+// about: the position picks the role and the member: a value read takes a declared getitem or a plain member, a store the setitem, and a compound write, a `&var` argument or a binding head the place accessor or the `borrows` member; a subscript scrutinee or `if let` subject with a plain role copies, SL:borrowing §12.4 (SL-684)
+// stage 0: refuses a plain/`borrows` pair at every call
+// speeds: -O0 -O2
+// leaks: none
+// prints: read
+// prints: get
+// prints: store
+// prints: set
+// prints: compound
+// prints: place
+// prints: argument
+// prints: place
+// prints: block
+// prints: place
+// prints: 1 8
+// prints: 1
+// prints: 10
+// prints: 20
+// prints: 2
+// prints: 2
+
+struct Grid { cells: [Int; 2] }
+
+extension Grid {
+    public func [](&self, i: Int) -> Int { print("get"); self.cells[0] }
+    public func []=(&var self, i: Int, value: Int) { print("set"); self.cells[0] = value }
+    public func [](&var self, i: Int) borrows -> &var Int { print("place"); lend self.cells[0] }
+}
+
+struct Pair { a: Int, b: Int }
+
+extension Pair {
+    public func at(&self, i: Int) -> Int { if i == 0 { self.a * 10 } else { self.b * 10 } }
+    public func at(&self, i: Int) borrows -> &Int { if i == 0 { lend self.a } else { lend self.b } }
+}
+
+enum Slot { case Full(value: Int), case Empty }
+
+func bump(n: &var Int) { n += 1 }
+
+func main() {
+    var g = Grid(cells: [1, 2])
+    print("read")
+    let r = g[0]
+    print("store")
+    g[0] = 5
+    print("compound")
+    g[0] += 1
+    print("argument")
+    bump(&var g[0])
+    print("block")
+    borrow var x = g[0] { x += 1 }
+    print("{r} {g.cells[0]}")
+
+    let p = Pair(a: 1, b: 2)
+    borrow let x = p.at(0) { print(x) }
+    print(p.at(0))
+    print(p.at(1))
+
+    var v = Vector<Slot>()
+    try! v.push(Slot.Full(value: 3))
+    match v[0] {
+        case Full(x) -> { try! v.push(Slot.Full(value: x + 1)) },
+        case Empty -> {}
+    }
+    print(v.len())
+    var o = Map<String, Int?>()
+    o["a"] = 4
+    if let x = o["a"] { o["b"] = x + 1 }
+    print(o.len())
+}

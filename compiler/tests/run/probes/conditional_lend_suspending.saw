@@ -32,7 +32,7 @@ extension Gate {
 }
 
 func bump(v: &var Vector<Int>) -> Int {
-    if borrow var e = v.find(1) {
+    if var e = v.find(1) {
         yield_now()
         e += 100
         e
@@ -44,7 +44,7 @@ func bump(v: &var Vector<Int>) -> Int {
 func bump_block(v: &var Vector<Int>) -> Int {
     borrow var e = v.find(2) {
         yield_now()
-        if borrow var x = e {
+        if var x = e {
             yield_now()
             x += 200
             x
@@ -55,8 +55,8 @@ func bump_block(v: &var Vector<Int>) -> Int {
 }
 
 func matched(v: &var Vector<Int>) -> Int {
-    match borrow v.find(1) {
-        case Some(borrow let x) -> {
+    match v.find(1) {
+        case Some(x) -> {
             yield_now()
             x - 100
         },
@@ -65,7 +65,7 @@ func matched(v: &var Vector<Int>) -> Int {
 }
 
 func looked(m: &Map<String, Int>) -> Int {
-    if borrow let x = m.find(&"k") {
+    if let x = m.find(&"k") {
         yield_now()
         x
     } else {
@@ -74,7 +74,7 @@ func looked(m: &Map<String, Int>) -> Int {
 }
 
 func uniquely(a: &var Arc<Int>) -> Int {
-    if borrow var p = a.unique() {
+    if var p = a.unique() {
         yield_now()
         p += 1
         p
@@ -85,7 +85,7 @@ func uniquely(a: &var Arc<Int>) -> Int {
 
 func locked(l: &SpinLock<Int>) -> Int {
     yield_now()
-    if borrow var n = l.try_lock() {
+    if var n = l.try_lock() {
         n
     } else {
         0
@@ -93,7 +93,7 @@ func locked(l: &SpinLock<Int>) -> Int {
 }
 
 func shut(g: &var Gate, open: Bool) -> Int {
-    if borrow var x = g.through(open) {
+    if var x = g.through(open) {
         x
     } else {
         yield_now()
@@ -116,5 +116,5 @@ func main() {
     print("lock {}", group.spawn(locked(&lock)).join())
     print("gate shut {}", group.spawn(shut(&var g, false)).join())
     print("gate open {}", group.spawn(shut(&var g, true)).join())
-    print("after {} {} {}", v[1], v[2], borrow a.value())
+    print("after {} {} {}", v[1], v[2], a.value())
 }

@@ -64,7 +64,7 @@ func tag_at(slots: &Vector<Slot>, i: Int) -> Int {
 func name_at(slots: &Vector<Slot>, i: Int) -> String {
     borrow let lent = slots[i] { match lent {
         case Empty -> "",
-        case Occupied(borrow let k) -> k.name
+        case Occupied(k) -> k.name
     } }
 }
 

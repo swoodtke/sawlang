@@ -29,6 +29,6 @@ func setboth(x: &var Int, y: &var Int) {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    setboth(borrow var p.at(0), borrow var p.at(1))
+    setboth(&var p.at(0), &var p.at(1))
     print("a={p.a} b={p.b}")
 }

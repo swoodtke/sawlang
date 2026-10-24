@@ -32,7 +32,7 @@ import sl306mod.{Folder, encode_public, encode_via_private, fold_public,
 
 func worker(out: Channel<String>) {
     var doc = JsonValue.Object(fields: Map<String, JsonValue>())
-    let _ = try! borrow var doc.as_object()!.insert("a", JsonValue.Number(value: 1))
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: 1))
     let folder = Folder(seed: 41)
     let _ = out.send("json {encode_public(&doc)} {encode_via_private(&doc)}")
     let _ = out.send("fold {fold_public(&folder)} {fold_via_private(&folder)}")

@@ -1,4 +1,4 @@
-// refuses: mutability.immutable at 27:16
+// refuses: mutability.immutable at 27:9
 // a `&self` method reading through a `&var self` accessor with no shared
 // twin, which lends out of a `Vector` field's buffer: every use borrows the
 // receiver exclusively, and storage `&self` reaches is never written
@@ -24,6 +24,6 @@ extension Owner: NoCopy {}
 
 extension Owner {
     func at(&self) -> Int {
-        borrow self.s.slot(0)
+        self.s.slot(0)
     }
 }

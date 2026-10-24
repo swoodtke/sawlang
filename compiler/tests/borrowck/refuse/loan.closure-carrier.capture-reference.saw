@@ -9,7 +9,7 @@ func later(f: () -> Void, a: &var Int) {
 }
 
 func closure_first(v: &var Vector<Int>) {
-    later({ [&var v] in try! v.push(1) }, borrow var v[0])
+    later({ [&var v] in try! v.push(1) }, &var v[0])
 }
 
 func main() {

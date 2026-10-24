@@ -1,0 +1,20 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is borrowed exclusively here while
+//
+// Conformance row P25's refusal half (SL:borrowing §12.1): two unnamed lends
+// in one statement are checked together, so two exclusive windows on one
+// root, each passed by `&var` for the same call, conflict.
+
+struct Cell { n: Int }
+
+func pair(a: &var Cell, b: &var Cell) {
+    a.n += b.n
+}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    try! v.push(Cell(n: 2))
+    pair(&var v[0], &var v[1])
+    print(v[0].n)
+}

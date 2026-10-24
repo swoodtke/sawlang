@@ -44,12 +44,12 @@ func die(r: Int) -> Never {
 
 func by_box(b: &Box<Killer>, x: Int) -> Reply {
     if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
-    borrow b.value().die()
+    b.value().die()
 }
 
 func by_arc(a: &Arc<Killer>, x: Int) -> Reply {
     if x > 0 { return Reply(status: 7, value: 0, blocked: false) }
-    borrow a.value().die()
+    a.value().die()
 }
 
 func by_field(h: &Holder, x: Int) -> Reply {

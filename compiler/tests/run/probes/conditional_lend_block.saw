@@ -32,14 +32,14 @@ extension Grid {
 
 func main() {
     var g = Grid(cells: [Cell(n: 1), Cell(n: 2), Cell(n: 3)], closes: 0)
-    let a = borrow var e = g.at(0) { if borrow var c = e { c.n += 10; c.n } else { -1 } }
-    let b = borrow let e = g.at(7) { if borrow let c = e { c.n } else { -1 } }
+    let a = borrow var e = g.at(0) { if var c = e { c.n += 10; c.n } else { -1 } }
+    let b = borrow let e = g.at(7) { if let c = e { c.n } else { -1 } }
     print("unwrap {} {} closes {}", a, b, g.closes)
     var h = Grid(cells: [Cell(n: 4), Cell(n: 5), Cell(n: 6)], closes: 0)
     let c = borrow let e = g.at(1), let f = h.at(8) {
-        if borrow let x = f {
+        if let x = f {
             x.n
-        } else if borrow let y = e {
+        } else if let y = e {
             y.n
         } else {
             0
@@ -48,7 +48,7 @@ func main() {
     print("else if {} closes {}", c, g.closes)
     let d = borrow let e = g.at(2) {
         match e {
-            case Some(borrow let x) -> x.n,
+            case Some(x) -> x.n,
             case None -> -1
         }
     }
@@ -62,7 +62,7 @@ func main() {
     print("forced {} copied {} written {} closes {}", forced, copied, g.cells[2].n, g.closes)
     var v: Vector<Int> = [1]
     borrow var e = v.find(4) {
-        if borrow var x = e { x += 1 } else { try! v.push(2) }
+        if var x = e { x += 1 } else { try! v.push(2) }
     }
     print("free root {}", v.len())
 }

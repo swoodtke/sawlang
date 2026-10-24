@@ -46,7 +46,7 @@ func regular_file() {
 
 // Writes `text` into the descriptor whole.
 func put(fd: Int32, text: String) unsafe {
-    if borrow let bytes = text.c_string() {
+    if let bytes = text.c_string() {
         let n = write(fd, bytes, text.len())
         assert(n == text.len(), "wrote {} of {}", n, text.len())
     }

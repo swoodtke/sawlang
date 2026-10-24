@@ -72,7 +72,7 @@ func j_ref_index() -> Result<Int, Bad> {
     print(note(&r))
     let values: Vector<Int> = [9]
     yield_now()
-    let n = sink_ref(borrow values[try fail_index()], move r)
+    let n = sink_ref(&values[try fail_index()], move r)
     n
 }
 
@@ -82,7 +82,7 @@ func k_var_index() -> Result<Int, Bad> {
     print(note(&r))
     var values: Vector<Int> = [9]
     yield_now()
-    let n = sink_var(borrow var values[try fail_index()], move r)
+    let n = sink_var(&var values[try fail_index()], move r)
     n
 }
 
@@ -92,7 +92,7 @@ func j2_ok() -> Result<Int, Bad> {
     print(note(&r))
     let values: Vector<Int> = [9]
     yield_now()
-    let n = sink_ref(borrow values[try ok_index()], move r)
+    let n = sink_ref(&values[try ok_index()], move r)
     n
 }
 
@@ -112,7 +112,7 @@ func j4_rev() -> Result<Int, Bad> {
     print(note(&r))
     var values: Vector<Int> = [9]
     yield_now()
-    let n = sink_var_rev(move r, borrow var values[try fail_index()])
+    let n = sink_var_rev(move r, &var values[try fail_index()])
     n
 }
 

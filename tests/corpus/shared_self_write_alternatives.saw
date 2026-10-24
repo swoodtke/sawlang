@@ -47,8 +47,8 @@ func main() {
     g.put(0, v: 40)
     print("through the buffer {g.cells[0]}")
 
-    print("counted {borrow g[1]}")
-    let _ = borrow g[0]
+    print("counted {g[1]}")
+    let _ = g[0]
     print("reads {g.reads}")
     print("-- done")
 }

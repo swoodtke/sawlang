@@ -27,5 +27,5 @@ extension Grid {
 
 func main() {
     let g = Grid(cells: [Cell(n: 1), Cell(n: 2)])
-    borrow var g.rw(0).n = 3
+    g.rw(0).n = 3
 }

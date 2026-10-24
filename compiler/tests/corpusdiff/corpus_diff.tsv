@@ -34,9 +34,9 @@ any_var_self.saw	pass	-	-
 any_vector_deinit.saw	pass	-	-
 any_vector_shapes.saw	pass	-	-
 arc_basic.saw	pass	-	-
-arc_forward.saw	pass	-	member.through-pointer: `peek` is a method of the payload, `arc_forward.Counter`, not of the `Arc`; reach it with `borrow ac.value().peek(…)`
-arc_forward_generic_method.saw	pass	-	member.through-pointer: `apply` is a method of the payload, `arc_forward_generic_method.Cell<Int>`, not of the `Arc`; reach it with `borrow cell.value().apply(…)`
-arc_with_unique.saw	pass	-	-
+arc_forward.saw	pass	-	member.through-pointer: `peek` is a method of the payload, `arc_forward.Counter`, not of the `Arc`; reach it with `ac.value().peek(…)`
+arc_forward_generic_method.saw	pass	-	member.through-pointer: `apply` is a method of the payload, `arc_forward_generic_method.Cell<Int>`, not of the `Arc`; reach it with `cell.value().apply(…)`
+arc_with_unique.saw	pass	judged by its own directives (edited since its oracle)	-
 arithmetic_no_false_overflow.saw	pass	-	-
 array_const_index_out_of_bounds.saw	wrong	accepts a refusal test	array index 5 out of range for array with 3 elements
 array_dynamic_compound_oob_panic.saw	pass	-	-
@@ -118,18 +118,18 @@ borrowing_iterator_crosses_into_a_threaded_group.saw	stage0-wrong	annotated SL-7
 borrowing_producer_every_path.saw	pass	-	-
 borrowing_rules_resolve_aliases.saw	refused	typecheck call.arity	missing an argument for `done` of It(source: &borrowing_rules_resolve_aliases.Owner, done: Bool) [borrowing_rules_resolve_aliases]
 borrows_declaration_lowers.saw	pass	-	-
-box_basic.saw	pass	-	-
-box_deinit_once.saw	pass	-	-
-box_forward.saw	pass	-	member.through-pointer: `sum` is a method of the payload, `box_forward.Point`, not of the `Box`; reach it with `borrow b.value().sum(…)`
-box_make_reports_oom.saw	pass	-	-
-box_string.saw	pass	-	-
-box_value_lends_the_payload.saw	pass	-	-
+box_basic.saw	pass	judged by its own directives (edited since its oracle)	-
+box_deinit_once.saw	pass	judged by its own directives (edited since its oracle)	-
+box_forward.saw	pass	-	member.through-pointer: `sum` is a method of the payload, `box_forward.Point`, not of the `Box`; reach it with `b.value().sum(…)`
+box_make_reports_oom.saw	pass	judged by its own directives (edited since its oracle)	-
+box_string.saw	pass	judged by its own directives (edited since its oracle)	-
+box_value_lends_the_payload.saw	pass	judged by its own directives (edited since its oracle)	-
 box_wrapper_tier_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>`, which is NoCopy, by value: only a Copy type copies silently; write `move
 byte_append_discrimination.saw	crash	INVARIANT	66:32 an expression has no type
 byte_data_reads.saw	crash	INVARIANT	77:24 an expression has no type
 byte_type_flow.saw	pass	-	-
 capture_exclusivity_disjoint.saw	pass	-	-
-capture_write_allowed_forms.saw	pass	-	-
+capture_write_allowed_forms.saw	pass	judged by its own directives (edited since its oracle)	-
 cast170_checked_as.saw	refused	resolve name.reserved	`Byte` is a prelude name, so it is reserved and cannot be declared again
 cast170_from_family.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
 cast170_narrowing_panics.saw	pass	-	-
@@ -261,7 +261,7 @@ conformance/B13_import_is_not_reexport.saw	refused	resolve name.undefined	cannot
 conformance/B14_public_import_reexports.saw	pass	-	import.unknown-symbol: `wire229` is not defined in `facade229`
 conformance/B20_private_type_in_public_signature_error.saw	wrong	accepts a refusal test	function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
 conformance/B21_private_declaration_names_anything.saw	pass	-	-
-conformance/B22_private_type_escapes_module_error.saw	wrong	accepts a refusal test	method `Carrier.get` is public, but the return type names `Hidden`, which is private — a public API needs public types
+conformance/B22_private_type_escapes_module_error.saw	wrong	accepts a refusal test	its directives expect a refusal
 conformance/C01_order_operator_nocopy_handwritten_compare.saw	pass	-	-
 conformance/C02_equality_operator_nocopy_handwritten_equals.saw	pass	-	-
 conformance/C03_match_guard_equality_nocopy.saw	pass	-	-
@@ -289,7 +289,7 @@ conformance/D10_spawn_never_body_refused.saw	pass	-	spawn.never-body: a task bod
 conformance/D11_spawn_closure_never_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: this closure's body never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a l
 conformance/D12_drive_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever. Write a forever-task as `-> Void` with a loop, `func serve() { while { ... } }`, and e
 conformance/D13_no_fallthrough_past_diverging_call.saw	pass	-	-
-conformance/D14_diverging_forwarded_and_later_args.saw	pass	-	-
+conformance/D14_diverging_forwarded_and_later_args.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/E12_autowrap_at_the_argument_position.saw	pass	-	-
 conformance/G01_sync_main_int_exit_status.saw	pass	-	-
 conformance/G02_suspending_main_int_exit_status.saw	pass	-	-
@@ -318,8 +318,8 @@ conformance/K114_thread_body_refuses_every_cause_but_blocking.saw	pass	-	effect.
 conformance/K116_one_frame_ledger_answers_every_discovery_question.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 conformance/K118_every_shape_splits_hoists_or_refuses.saw	pass	-	-
 conformance/K11_spinlock_captured.saw	pass	-	transfer.implicit-copy: the closure captures `lock` by value, and `std.spinlock.SpinLock<Int>` is NoCopy, which does not copy silently: capture it with `[move lock]`, or copy it into a local the closu
-conformance/K123_every_window_opener_reads_the_declared_mode.saw	pass	-	-
-conformance/K127_conditional_lend_modes.saw	pass	-	-
+conformance/K123_every_window_opener_reads_the_declared_mode.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K127_conditional_lend_modes.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K128_cow_gate_survives_the_var_self_spelling.saw	pass	-	-
 conformance/K129_forwarded_lend_carries_the_window_mode.saw	pass	-	-
 conformance/K133_window_spans_a_suspension.saw	pass	-	-
@@ -349,7 +349,7 @@ conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.u
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K29_copy_policy_hook_must_be_sync.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 conformance/K30_generic_container_of_pinned_is_pinned.saw	pass	judged by its own directives (edited since its oracle)	transfer.no-move: cannot `move` `w`: `K30_generic_container_of_pinned_is_pinned.Wrap<std.taskgroup.TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&
-conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	-	coro.spawn-not-send: cannot spawn `bump_many`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Sha
+conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	judged by its own directives (edited since its oracle)	coro.spawn-not-send: cannot spawn `bump_many`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Sha
 conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc meets its directives
 conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
 conformance/K34_suspending_generic_struct_method_embedded.saw	pass	-	-
@@ -421,17 +421,17 @@ conformance/M21_write_field_of_capture.saw	pass	-	mutability.immutable: this ass
 conformance/M22_place_write_let_root.saw	pass	-	mutability.immutable: this assignment writes `g[1]`, and `g` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M23_write_through_shared_borrow.saw	pass	-	mutability.immutable: this assignment writes `e`, and `e` is a `borrow let` binding, which lends its place shared, which is never written: every binding is initialized where it is declared, so only a
 conformance/M26_varself_on_let_implicitcopy.saw	pass	-	mutability.immutable: this exclusive borrow of `t` would let it be written, and `t` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes
-conformance/M31_shared_self_place_window_write.saw	pass	-	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`M31_shared_self_place_window_write.CellGrid` declares or derives no such role)
-conformance/M32_shared_self_place_window_heap_field.saw	pass	-	mutability.immutable: this exclusive borrow of `self.rows[0]` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage rea
-conformance/M33_borrows_body_prologue_place_write.saw	pass	-	mutability.immutable: this compound assignment writes `self.counters[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through
-conformance/M34_lend_var_gated_place_write.saw	pass	-	-
+conformance/M31_shared_self_place_window_write.saw	pass	judged by its own directives (edited since its oracle)	subscript.role: this subscript is used as a writable place: its `[]` lends read-only (`M31_shared_self_place_window_write.CellGrid` declares or derives no such role)
+conformance/M32_shared_self_place_window_heap_field.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this exclusive borrow of `self.rows[0]` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage rea
+conformance/M33_borrows_body_prologue_place_write.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this compound assignment writes `self.counters[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through
+conformance/M34_lend_var_gated_place_write.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/M35_var_self_place_window_write.saw	pass	-	-
 conformance/M36_shared_self_capture_refuses_write.saw	pass	-	mutability.immutable: this assignment writes `self.n`, and the closure captured `self` by shared borrow, which never writes: capture it with `[&var self]` in a `&var self` method
 conformance/M37_inline_array_immutability_every_shape.saw	pass	-	mutability.immutable: this assignment writes `bare_p[0]`, and `bare_p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M38_compound_assign_rhs_exclusivity.saw	pass	-	assign.rhs-borrow: `bp.n` is written by this assignment while its right-hand side borrows `bp` exclusively at 29:20; the right-hand side runs first, so what it writes through that borrow is overwritte
 conformance/M39_chain_assign_through_shared_self.saw	pass	-	mutability.immutable: this assignment writes `self.c?.n`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the
 conformance/M40_compound_chain_assign.saw	wrong	stdout differs	line 2: sawc "empty calls 2", Stage 0 "empty calls 1"
-conformance/M41_shared_self_indirection_carveout_spellings.saw	pass	-	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
+conformance/M41_shared_self_indirection_carveout_spellings.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
 conformance/M42_shared_self_inline_array_element.saw	pass	-	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
 conformance/M43_write_optional_payload_of_let.saw	pass	-	mutability.immutable: this assignment writes `o!.n`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M44_var_self_call_through_inline_array_element.saw	pass	-	mutability.immutable: this exclusive borrow of `h.cells[0]` would let it be written, and `h` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `v
@@ -444,6 +444,13 @@ conformance/O12_iflet_move_binding_released_in_coroutine.saw	pass	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	pass	-	-
 conformance/O14_presence_test_is_tier_independent.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/P08_borrows_body_suspends.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
+conformance/P25_unnamed_lend_statement_window.saw	pass	judged by its own directives (no oracle)	-
+conformance/P26_unnamed_lend_head_closes_before_body.saw	pass	judged by its own directives (no oracle)	-
+conformance/P27_named_lend_block_window.saw	pass	judged by its own directives (no oracle)	-
+conformance/P28_let_copies_a_lend.saw	pass	judged by its own directives (no oracle)	-
+conformance/P29_window_opens_after_its_arguments.saw	pass	judged by its own directives (no oracle)	-
+conformance/P30_role_by_position.saw	pass	judged by its own directives (no oracle)	-
+conformance/P32_old_prefix_transition.saw	pass	judged by its own directives (no oracle)	-
 conformance/R07_return_optional_ref.saw	pass	-	type.mismatch: expected `&Int?`, the type of the function's result, which the body's last expression is, and found `&Int`
 conformance/R08_return_vector_of_ref.saw	pass	-	type.reference-position: a return type may not name a reference: `std.vector.Vector<&Int, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and references are parameters only: a reference b
 conformance/R16_array_literal_of_refs.saw	pass	-	type.reference-position: `&` here is not a call argument, and references are parameters only: a reference borrows storage for the duration of one call and may not be stored, returned or bound; pass it
@@ -480,15 +487,15 @@ conformance/U32_funcpointer_capture_local_error.saw	refused	resolve name.undefin
 conformance/U33_funcpointer_capture_list_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/U34_funcpointer_capture_self_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot move out of `x`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
-conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	pass	-	-
-conformance/V101_copy_family_carries_the_tier.saw	pass	-	-
+conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/V101_copy_family_carries_the_tier.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V102_derived_copy_duplicates_every_field.saw	pass	-	-
-conformance/V103_copy_funnel_duplicates_exactly_once.saw	pass	-	-
+conformance/V103_copy_funnel_duplicates_exactly_once.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V104_unbound_value_is_released.saw	wrong	stdout differs	line 9: sawc "if 5", Stage 0 "drop 4"
 conformance/V105_copy_capture_releases_its_duplicate.saw	pass	-	-
 conformance/V106_driven_copy_capture_duplicates_once.saw	stage0-wrong	annotated SL-525	sawc meets its directives
 conformance/V107_capture_survives_repeated_invocation.saw	stage0-wrong	annotated SL-525	sawc meets its directives
-conformance/V108_each_copy_capture_owns_one_duplicate.saw	stage0-wrong	annotated SL-525	sawc meets its directives
+conformance/V108_each_copy_capture_owns_one_duplicate.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V109_move_in_a_while_condition.saw	pass	-	move.use-after: `r` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 conformance/V110_loop_head_moves_that_stay_legal.saw	pass	-	-
 conformance/V111_discard_let_retains_a_projection.saw	pass	-	-
@@ -537,13 +544,13 @@ conformance/V64_forwarding_cast_takes_the_move_checkpoint.saw	pass	-	transfer.im
 conformance/V65_forwarding_cast_is_tier_blind.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
 conformance/V66_alias_projection_cast_forwards.saw	pass	-	type.mismatch: expected `Int`, the type of the field, and found `V66_alias_projection_cast_forwards.Res`
 conformance/V67_building_casts_are_untouched.saw	pass	-	-
-conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
+conformance/V68_closure_reference_parameter_is_a_borrow.saw	pass	judged by its own directives (edited since its oracle)	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V69_borrow_capture_is_a_borrow.saw	pass	-	transfer.move-from-borrow: cannot move out of `o`: the closure captured it by borrow, so its owner outside the closure still ends it; read or borrow it instead, or give the owner a move-out (`take()`
-conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	pass	-	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
+conformance/V70_borrowed_closure_binding_refusal_is_tier_blind.saw	pass	judged by its own directives (edited since its oracle)	transfer.move-from-borrow: cannot move out of `e`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V71_borrowed_closure_binding_fence_is_narrow.saw	pass	-	-
 conformance/V72_std_visitors_lend.saw	pass	-	-
 conformance/V73_closure_by_value_parameter_is_owned.saw	pass	-	-
-conformance/V74_closure_parameter_moved_into_a_new_owner.saw	pass	-	-
+conformance/V74_closure_parameter_moved_into_a_new_owner.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V75_escaping_and_non_escaping_release_identically.saw	pass	-	-
 conformance/V76_fold_threads_its_accumulator.saw	pass	-	-
 conformance/V77_value_branch_arm_takes_the_move_checkpoint.saw	pass	-	transfer.implicit-copy: this reads a place of type `V77_value_branch_arm_takes_the_move_checkpoint.Res`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borr
@@ -594,14 +601,14 @@ conformance/W24_fixed_width_transfer_never_converts_error.saw	pass	-	type.mismat
 conformance/X02_varref_aliased_by_shared.saw	pass	-	loan.read-while-exclusive: `x` is borrowed here while the argument at 11:9 holds `x` exclusively for its call; an exclusive borrow admits no other access while it is live
 conformance/X09_disjoint_tuple_elements.saw	pass	-	-
 conformance/X14_push_inside_with_ref.saw	pass	-	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 10:13 holds `v` shared until the window closes; a window charges its whole root until it closes, so the root is re
-conformance/X17_nested_windows.saw	pass	-	-
-conformance/X33_two_windows_implicitcopy_struct.saw	pass	-	loan.window-root: `r` is borrowed exclusively here while the window of `at` opened at 27:11 holds `r` exclusively until the window closes; a window charges its whole root until it closes, so the root
+conformance/X17_nested_windows.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/X33_two_windows_implicitcopy_struct.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `r` is borrowed exclusively here while the window of `at` opened at 27:11 holds `r` exclusively until the window closes; a window charges its whole root until it closes, so the root
 conformance/X42_nested_call_ref_disjoint_roots.saw	pass	-	-
 conformance/X43_nested_ref_disjoint_from_every_sibling.saw	pass	-	-
 conformance/X44_nested_call_ref_overlaps_receiver.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also the receiver of the call at 31:11, which borrows it for the whole call; bind the nested call's result in a st
 conformance/X45_two_nested_calls_one_root.saw	pass	-	loan.nested-call: `n` is borrowed by a nested call in this argument list while `n` is also accessed by reference in the same call, at 28:24; a call's references are checked together over the whole cal
 conformance/X54_nested_call_ref_overlaps_sibling.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p.a` is also accessed by reference in the same call, at 31:10; a call's references are checked together over the whole c
-conformance/Z03_replace_container_during_window.saw	pass	-	loan.nested-call: `v` is borrowed by a nested call in this argument list while `v` is also accessed by reference in the same call, at 17:10; a call's references are checked together over the whole cal
+conformance/Z03_replace_container_during_window.saw	pass	judged by its own directives (edited since its oracle)	loan.nested-call: `v` is borrowed by a nested call in this argument list while `v` is also accessed by reference in the same call, at 17:10; a call's references are checked together over the whole cal
 conformance/Z05_escaping_closure_env_deinit_once.saw	pass	-	-
 conformance/k74_refused_at_the_call.saw	pass	-	type.bound: `k74_refused_at_the_call.Cell` does not satisfy `Sync`, the bound on `T` of `fan_arc`
 conformance/k74_refused_unbounded.saw	pass	-	spawn.send: cannot `Thread.spawn`: captured `v` of type `T` is not `Send`. Only Send values may cross to another thread; share through `Arc` (and `Mutex` for mutation)
@@ -665,8 +672,8 @@ coro_closure_deinit_once.saw	pass	-	-
 coro_closure_local_call.saw	pass	-	-
 coro_closure_taskgroup.saw	pass	-	-
 coro_conditional_move_across_suspend.saw	pass	-	-
-coro_conservative_callee_in_spawned_task.saw	pass	-	-
-coro_conservative_callee_not_embedded.saw	pass	-	-
+coro_conservative_callee_in_spawned_task.saw	pass	judged by its own directives (edited since its oracle)	-
+coro_conservative_callee_not_embedded.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_conservative_free_callee_not_framed.saw	pass	-	-
 coro_conservative_generic_instance_in_spawned_task.saw	pass	-	-
 coro_conservative_generic_instance_not_promoted.saw	pass	-	-
@@ -712,7 +719,7 @@ coro_hoist_evaluation_order.saw	pass	-	-
 coro_hoist_move_diagnostic.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move taken` to take it
 coro_hoisted_call_arg_consumed_once.saw	pass	-	-
 coro_hoisted_coalesce_rhs_consumed_once.saw	pass	-	-
-coro_hoisted_push_arg_consumed_once.saw	pass	-	-
+coro_hoisted_push_arg_consumed_once.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_hoisted_receiver_temp_released_once.saw	pass	-	-
 coro_hoisted_scrutinee_released_once.saw	pass	-	-
 coro_hoisted_struct_init_arg_consumed_once.saw	pass	-	-
@@ -725,7 +732,7 @@ coro_imported_callee_discovery_matrix.saw	pass	-	-
 coro_imported_private_helper_parks_on_io.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 coro_imported_private_helper_suspends.saw	pass	-	-
 coro_inline_catch_loop_exit_in_child_positions.saw	pass	-	-
-coro_json_encode_in_task.saw	pass	-	-
+coro_json_encode_in_task.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_labeled_call_positions.saw	pass	-	-
 coro_locals_across_suspend.saw	pass	-	-
 coro_match_arm_binding_early_exit.saw	pass	-	-
@@ -738,7 +745,7 @@ coro_match_move_out_releases_once_in_loop_try_and_task.saw	pass	-	-
 coro_match_moved_payload_survives_return.saw	pass	-	-
 coro_method_root_and_embedded.saw	pass	-	-
 coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc meets its directives
-coro_module_json_encode_in_task.saw	pass	-	-
+coro_module_json_encode_in_task.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_module_tagged_free_callee_discovery.saw	pass	-	-
 coro_move_in_a_while_condition_driven.saw	pass	-	-
 coro_move_in_split_if_head.saw	pass	-	-
@@ -805,7 +812,7 @@ coro_try_block_suspending.saw	pass	-	-
 coro_try_block_two_error_types.saw	refused	typecheck slice.not-yet	a `try` block whose `try`s propagate more than one error type (`coro_try_block_two_error_types.Flaky`, `coro_try_block_two_error_types.Other`), which its `error` holds as their union, is not in the bo
 coro_try_catch_early_exit.saw	pass	-	-
 coro_try_catch_suspending.saw	pass	-	-
-coro_try_in_borrowed_place_index.saw	pass	-	-
+coro_try_in_borrowed_place_index.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_try_landing_relinquishes_by_position.saw	stage0-wrong	annotated SL-731	sawc meets its directives
 coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 coro_try_propagate_suspending.saw	pass	-	-
@@ -878,14 +885,14 @@ df140d_result_optional_autowrap.saw	pass	-	-
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
 df140h_std_private_static_two_files.saw	stage0-wrong	annotated SL-768	sawc meets its directives
-df151b_implicit_tier_transfers.saw	pass	-	-
+df151b_implicit_tier_transfers.saw	pass	judged by its own directives (edited since its oracle)	-
 df151c_optional_dest_copy.saw	pass	-	-
 df151d_match_temporary_scrutinee.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 df151e_optional_element_array.saw	pass	-	-
 df151e_optional_element_repeat_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `df151e_optional_element_repeat_error.Handle?` is NoCopy: write the elements out, or build the array from a Copy value
 df151f_tuple_drop_glue.saw	pass	-	-
 df151h_assign_rhs_retain.saw	pass	-	-
-df151i_tuple_copy.saw	pass	-	-
+df151i_tuple_copy.saw	pass	judged by its own directives (edited since its oracle)	-
 df151i_tuple_copy_nocopy_error.saw	refused	typecheck member.unknown	`(df151i_tuple_copy_nocopy_error.Res, Int)` is NoCopy, so it has no `copy()`; move it instead
 df151i_tuple_transfer_hint_agrees.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 df151j_tuple_element_mutate.saw	pass	-	-
@@ -1028,13 +1035,13 @@ errors/borrowing_field_alias_exclusive.saw	pass	-	mutability.immutable: this ass
 errors/borrowing_field_is_read_only.saw	pass	-	mutability.immutable: this assignment writes `self.source.n`, and `self.source` is a shared reference, through which nothing is written: take it as `&var`
 errors/borrowing_producer_alias_return.saw	wrong	refused by another rule	call.arity, where the plan names lends.path
 errors/borrowing_producer_composite_return.saw	pass	-	borrows.result: `Owner.opt_sugar` is declared `borrows`, and lends `borrowing_producer_composite_return.It?`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a
-errors/borrowing_producer_stores_no_borrow.saw	pass	-	type.mismatch: expected `&borrowing_producer_stores_no_borrow.Owner`, the type of the parameter, and found `borrowing_producer_stores_no_borrow.It`
+errors/borrowing_producer_stores_no_borrow.saw	pass	-	borrowing.containment: `other.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in other.iter() { … }`, or name it with `borrow let held = other.iter() {
 errors/borrowing_struct_alias_compositions.saw	pass	-	borrowing.containment: the borrowing struct `borrowing_struct_alias_compositions.It` is stored in a field: it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow`
 errors/borrowing_struct_exclusive_field.saw	pass	judged by its own directives (edited since its oracle)	type.reference-position: a borrowing struct's field holds `&T` or `&var T`, which `lends self` fills, and `&[Int]` is a slice, which no `lends self` makes: hold a reference to the collection and read
 errors/borrowing_struct_origin.saw	pass	-	lends.origin: `lends self.items` lends a projection of the receiver, and `lends self` is the only spelling: the window a `borrows` call opens charges its receiver's root, and a projection (`lends self
 errors/borrowing_struct_type_positions.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/borrowing_struct_value_positions.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `borrowing_struct_value_positions.BagIterator`
-errors/borrows_bare_return_type.saw	pass	-	borrows.result: `Grid.at` is declared `borrows`, and lends `borrows_bare_return_type.Cell`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct
+errors/borrowing_struct_value_positions.saw	pass	-	borrowing.containment: `b.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in b.iter() { … }`, or name it with `borrow let it = b.iter() { … }`
+errors/borrows_bare_return_type.saw	pass	judged by its own directives (edited since its oracle)	borrows.result: `Grid.at` is declared `borrows`, and lends `borrows_bare_return_type.Cell`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct
 errors/borrows_body_never_lends.saw	pass	-	lend.missing: this path through the `borrows` body of `at` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value
 errors/borrows_effect_slot_order.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/borrows_effect_slot_order.saw` (syntax.rule.effect-slot), so its declarations are not available
 errors/borrows_function_type_rejected.saw	wrong	accepts a refusal test	Parse error at 10:21: a function TYPE may not be `borrows` (design 141 v1): a borrows call yields a place for a window, and a place is never a value, so there is nothing to bind, store or erase. Call
@@ -1045,9 +1052,9 @@ errors/borrows_lends_twice.saw	pass	-	lend.twice: this path lends twice: a `borr
 errors/borrows_return_none_needs_optional.saw	pass	-	type.mismatch: expected `Int`, the type of the function's result, and found `Int?`
 errors/borrows_returns_value.saw	pass	-	lend.missing: this path through the `borrows` body of `at` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value
 errors/borrows_trait_requirement_rejected.saw	wrong	accepts a refusal test	Parse error at 10:40: `borrows` may not appear on a trait requirement (design 141 v1): a place is not a value, so it cannot be yielded through an erased `any Trait` receiver. Declare the borrows metho
-errors/borrows_var_lend_needs_var_self.saw	pass	-	mutability.immutable: this exclusive borrow of `self.cells[i]` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage re
-errors/box_forward_var_rejected.saw	pass	-	member.through-pointer: `bump` is a method of the payload, `box_forward_var_rejected.Counter`, not of the `Box`; reach it with `borrow var b.value().bump(…)` on a `var` box
-errors/box_value_move_only_read.saw	pass	-	transfer.implicit-copy: this reads a place of type `box_value_move_only_read.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to move, so borr
+errors/borrows_var_lend_needs_var_self.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this exclusive borrow of `self.cells[i]` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage re
+errors/box_forward_var_rejected.saw	pass	-	member.through-pointer: `bump` is a method of the payload, `box_forward_var_rejected.Counter`, not of the `Box`; reach it with `b.value().bump(…)` on a `var` box
+errors/box_value_move_only_read.saw	pass	-	borrows.let-lend: `b.value()` is lent, and a `let` would keep the lend past this statement. Name the place for a block, `borrow let taken = b.value() { … }`
 errors/builtin_redefinition_rejected.saw	pass	-	name.reserved: `assert` is a prelude name, so it is reserved and cannot be declared again
 errors/byte_digits_spelling_is_as_int.saw	wrong	accepts a refusal test	ambiguous call to `StringBuilder.append`: multiple overloads match the argument types (UInt8)
 errors/byte_never_adopts_a_literal.saw	wrong	accepts a refusal test	argument `b` expects `Byte` but got `UInt8`
@@ -1114,8 +1121,8 @@ errors/enum_ordering.saw	pass	-	operator.undefined: `<` compares two `enum_order
 errors/enum_wrong_args.saw	pass	-	call.arity: missing an argument for `value` of OperationResult.Success(value: Int) [enum_wrong_args]
 errors/escaping_marker_redundant.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/escaping_variance_error.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-errors/exclusive_only_accessor_on_let_root.saw	pass	-	mutability.immutable: `Bag.tally` takes `&var self` and declares no shared twin, so every use borrows its receiver exclusively, a read included; this use of `frozen.tally(0)` would let its receiver be
-errors/exclusive_window_in_a_shared_lend_accessor.saw	pass	-	mutability.immutable: this exclusive borrow of `self.inner.plain()` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor stora
+errors/exclusive_only_accessor_on_let_root.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: `Bag.tally` takes `&var self` and declares no shared twin, so every use borrows its receiver exclusively, a read included; this use of `frozen.tally(0)` would let its receiver be
+errors/exclusive_window_in_a_shared_lend_accessor.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this exclusive borrow of `self.inner.plain()` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor stora
 errors/existential_arg_wrong_trait.saw	pass	-	type.mismatch: expected `&var any existential_arg_wrong_trait.Logger`, the type of the parameter, and found `&var any existential_arg_wrong_trait.Counter`
 errors/explicit_copy_containment.saw	pass	-	copy.undeclared-policy: `Container` holds `Container.data` of type `explicit_copy_containment.Buf`, which is ExplicitCopy, so it declares its own policy: `extension Container: NoCopy {}`, or `@synthes
 errors/extern_c_compiler_symbol_mismatch_error.saw	wrong	accepts a refusal test	`printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
@@ -1147,6 +1154,7 @@ errors/generic_primitive_bound_inferred.saw	pass	-	type.bound: `Int` does not sa
 errors/generic_tuple_bound_violation.saw	pass	-	type.bound: `(Int, Int)` does not satisfy `Fooable`, the bound on `T` of `run`
 errors/global_renamed_unknown.saw	refused	resolve name.undefined	cannot find `Global` in scope
 errors/guard_let_immutable.saw	pass	-	mutability.immutable: this assignment writes `value`, and `value` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
+errors/if_let_holds_the_place.saw	pass	judged by its own directives (no oracle)	loan.window-root: `x` now holds `m.find(&"a")`'s place for this block, so `m` is borrowed until the `}`. To work on `m` inside it, copy the value out first: `let x = m.find(&"a")` (an optional copy)
 errors/if_let_immutable.saw	pass	-	mutability.immutable: this assignment writes `value`, and `value` is a pattern's binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/immutable.saw	pass	-	mutability.immutable: this assignment writes `x`, and `x` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 errors/implicit_copy_containment.saw	pass	-	copy.undeclared-policy: `Container` holds `Container.data` of type `implicit_copy_containment.RefCounted`, which declares Copy, so it declares its own policy: `extension Container: NoCopy {}`, or `@sy
@@ -1173,31 +1181,33 @@ errors/labeled_arg_unknown.saw	pass	-	call.label: no parameter is labeled `z` in
 errors/labeled_overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend
 errors/labeled_overload_positional_ambiguous.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: f(a: Int, b: Int) [labeled_overload_positional_ambiguous]; f(kind: In
 errors/labeled_overload_same_name_decl_error.saw	pass	-	overload.indistinguishable: `f(a: Int, b: Int)` is already declared at 6:6 as `f(a: Int, b: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how
-errors/lend_accessor_param.saw	pass	-	type.mismatch: `lend` hands out a place of type `&var Int`, and this accessor lends `Int`
+errors/lend_accessor_param.saw	pass	judged by its own directives (edited since its oracle)	type.mismatch: `lend` hands out a place of type `&var Int`, and this accessor lends `Int`
 errors/lend_outside_borrows_body.saw	pass	-	type.mismatch: this body produces no value, and its function returns `Int`: end it with an expression of that type, or return one
 errors/lend_payload_not_receiver_storage.saw	pass	-	lend.root: `lend` hands out `n`, which is not rooted in the receiver: it is the accessor's own local or parameter, storage a parameter refers to, or a static. An accessor lends storage its receiver al
 errors/lend_var_write_needs_var_root.saw	pass	-	mutability.immutable: this assignment writes `frozen[0]`, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
+errors/let_cannot_hold_a_lend.saw	pass	judged by its own directives (no oracle)	borrows.let-lend: `sessions[0]` is lent, and a `let` would keep the lend past this statement. Name the place for a block, `borrow let s = sessions[0] { … }`, or take the element out (`sessions.swap_ou
 errors/let_void_expression_rejected.saw	pass	-	type.void-binding: cannot bind `n` to an expression of type `Void` — it produces no value: write `_` in its place to evaluate it and bind nothing (`let _ = ...`, `if let _ = ...`, `case Ok(_)`), or ca
 errors/manual_deinit.saw	pass	-	deinit.manual-call: cannot call `deinit` manually: it runs once, where the value's scope ends; let the value go out of scope, or `move` it into a call that takes it
 errors/map_get_nocopy_value_read.saw	pass	-	type.bound: `std.map.Map<String, map_get_nocopy_value_read.Res, std.alloc.GlobalAllocator>` has no member `get`: it is declared where `V: Copy`, and `map_get_nocopy_value_read.Res` does not satisfy `C
-errors/map_subscript_immutable_root.saw	pass	-	mutability.immutable: this compound assignment writes `borrow var m["a"].n`, and `m` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` take
+errors/map_subscript_immutable_root.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this compound assignment writes `m["a"].n`, and `m` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new val
 errors/map_subscript_nocopy_value_read.saw	pass	-	operator.undefined: `!` unwraps an Optional, and this is `map_subscript_nocopy_value_read.Res`
 errors/match_non_exhaustive.saw	pass	-	match.non-exhaustive: this `match` on `match_non_exhaustive.Status` does not cover every value: `Status.Pending` is not matched; add an arm for each, or a `case _ ->` arm (a guarded arm covers nothing
 errors/match_on_suspending_call_in_a_loop.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 errors/method_overload_identical_signature.saw	pass	-	overload.indistinguishable: `Bag.at(index: Int)` is already declared at 14:17 as `Bag.at(index: Int)`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in
-errors/mixed_window_modes_conflict.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `[]` opened at 62:18 holds `b` shared until the window closes; a window charges its whole root until it closes, so the root is re
+errors/mixed_window_modes_conflict.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `b` is borrowed exclusively here while the window of `[]` opened at 62:18 holds `b` shared until the window closes; a window charges its whole root until it closes, so the root is re
 errors/move_in_a_while_condition_nested_loop_header.saw	pass	-	move.use-after: `resource` is used after it may have been moved (moved at 40:11); a moved value is gone until it is assigned again
 errors/move_in_a_while_condition_positions.saw	pass	-	move.use-after: `whole` is used after it may have been moved (moved at 38:11); a moved value is gone until it is assigned again
 errors/multiple.saw	refused	resolve name.undefined	cannot find `y` in scope
 errors/mutex_closure_stored.saw	wrong	accepts a refusal test	a closure with reference (`&`/`&var`) parameters may only be passed directly as a call argument; it cannot be bound, returned, or captured
 errors/mutex_guarded_for_suspends.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/mutex_lock_suspend.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
+errors/named_lend_root_in_block.saw	pass	judged by its own directives (no oracle)	loan.window-root: `v` is borrowed exclusively here while the window of `find` opened at 14:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root
 errors/never_emitted_instance_reports.saw	wrong	accepts a refusal test	cannot `move` `old`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated.
 errors/no_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f1` to take it, or borrow it
 errors/no_copy_containment.saw	pass	-	copy.undeclared-policy: `Connection` holds `Connection.handle` of type `no_copy_containment.FileHandle`, which is NoCopy, so it declares its own policy: `extension Connection: NoCopy {}`, or `@synthes
 errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
 errors/nocopy_override_implicit_tier_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_override_implicit_tier_copy.Ticket`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
-errors/nomove_bound_value_into_argument.saw	pass	-	transfer.no-move: cannot `move` `a`: `nomove_bound_value_into_argument.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the va
+errors/nomove_bound_value_into_argument.saw	pass	judged by its own directives (edited since its oracle)	transfer.no-move: cannot `move` `a`: `nomove_bound_value_into_argument.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the va
 errors/nomove_containment_cascade.saw	pass	-	nomove.undeclared: `Server` contains NoMove member `group` of type `std.taskgroup.TaskGroup` but does not declare `NoMove`: declare `extension Server: NoMove {}` beside its `NoCopy`, or hold the membe
 errors/nomove_not_a_bound.saw	pass	-	nomove.bound: `NoMove` is not a bound: `NoMove` licenses a generic body nothing, and a type states it in its own conformance, `extension T: NoMove {}`
 errors/nomove_placement_after_borrow.saw	pass	-	transfer.no-move: cannot `move` `value`: `nomove_placement_after_borrow.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the v
@@ -1226,15 +1236,15 @@ errors/partial_move_index.saw	pass	-	transfer.partial-move: cannot move out of a
 errors/partial_move_nested_field.saw	pass	-	transfer.partial-move: cannot move out of field `v` of `o.inner`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; move the whole value, or keep the part in a bindin
 errors/place_abstract_value_read_unbounded.saw	wrong	accepts a refusal test	`self.slots[…]` lends a place of type `Slot<K>`, whose copy policy depends on the type parameter `K` — reading it out as a value would be a copy for some instantiations and an alias for others
 errors/place_assign_wrong_element_type.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-errors/place_exclusive_window_immutable_root.saw	pass	-	mutability.immutable: this exclusive borrow of `v[0]` would let it be written, and `v` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` ta
+errors/place_exclusive_window_immutable_root.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this exclusive borrow of `v[0]` would let it be written, and `v` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` ta
 errors/place_force_target_not_a_place.saw	wrong	accepts a refusal test	`!` is an assignment target only on a place — a `borrows` accessor's conditional lend, such as `m[k]! = v`
-errors/place_nested_window_let_root.saw	pass	-	mutability.immutable: this compound assignment writes `borrow var frozen[0][1].count`, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so on
+errors/place_nested_window_let_root.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this compound assignment writes `frozen[0][1].count`, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var`
 errors/place_target_not_a_place.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-errors/place_window_beside_var_root.saw	pass	-	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also accessed by reference in the same call, at 45:10; a call's references are checked together over the whole cal
-errors/place_window_data_corruption.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
-errors/place_window_enum_method_let_root.saw	pass	-	mutability.immutable: this exclusive borrow of `frozen[0]` would let it be written, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so only
-errors/place_window_root_read_teaches_the_asymmetry.saw	pass	-	loan.window-root: `v` is borrowed here while the window of `[]` opened at 41:16 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root is reached o
-errors/place_window_through_a_forced_lend_charges_its_root.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `opt` opened at 35:13 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the root
+errors/place_window_beside_var_root.saw	pass	judged by its own directives (edited since its oracle)	loan.nested-call: `p` is borrowed by a nested call in this argument list while `p` is also accessed by reference in the same call, at 45:10; a call's references are checked together over the whole cal
+errors/place_window_data_corruption.saw	pass	judged by its own directives (edited since its oracle)	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
+errors/place_window_enum_method_let_root.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this exclusive borrow of `frozen[0]` would let it be written, and `frozen` is a `let` binding, which is never written: every binding is initialized where it is declared, so only
+errors/place_window_root_read_teaches_the_asymmetry.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `v` is borrowed here while the window of `[]` opened at 32:5 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root is reached on
+errors/place_window_through_a_forced_lend_charges_its_root.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `b` is borrowed exclusively here while the window of `opt` opened at 35:13 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the root
 errors/place_write_immutable_root.saw	pass	-	mutability.immutable: this exclusive borrow of `m["k"]` would let it be written, and `m` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var`
 errors/prelude_tcp_needs_import.saw	pass	-	name.not-in-prelude: `TcpStream` is not in the prelude and must be imported: `import std.net.{TcpStream}` selects it
 errors/primitive_box_erasure_refused.saw	pass	-	erasure.primitive: `String` is a primitive and cannot be erased to `any primitive_box_erasure_refused.Tagged`: an existential carries a vtable beside the value, and a primitive has no boxed form to ca
@@ -1289,7 +1299,7 @@ errors/shadow_inner_let.saw	pass	-	name.shadowing: `x` shadows an enclosing bind
 errors/shadow_match_pattern.saw	pass	-	name.shadowing: `x` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_param.saw	pass	-	name.shadowing: `count` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_redef_nonderived.saw	pass	-	name.shadowing: `data` is already defined in this scope; a redefinition must derive from it, as `let data = f(data)` does
-errors/shared_lend_write_refused_at_every_opener.saw	pass	-	subscript.role: this subscript is used as a setitem: it declares no `[]=`, and its `[]` lends no writable place (`shared_lend_write_refused_at_every_opener.View` declares or derives no such role)
+errors/shared_lend_write_refused_at_every_opener.saw	pass	judged by its own directives (edited since its oracle)	subscript.role: this subscript is used as a setitem: it declares no `[]=`, and its `[]` lends no writable place (`shared_lend_write_refused_at_every_opener.View` declares or derives no such role)
 errors/shared_self_borrows_epilogue_write.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/shared_self_borrows_field_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self.gate` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reache
 errors/shared_self_field_var_method_call.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
@@ -1360,7 +1370,7 @@ errors/taskgroup_threads_nonsend_reject.saw	pass	-	coro.spawn-not-send: cannot s
 errors/thread_body_reports_both_violations.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `boundary` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a s
 errors/trailing_dot_float.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/trailing_dot_float.saw` (syntax.lex.float-point), so its declarations are not available
 errors/trait_inheritance_missing_method.saw	pass	-	conformance.incomplete: `Number` conforms to `Child`, but nothing meets its requirement `Base.getValue`: no member of that name is written, and the trait gives no default
-errors/two_exclusive_only_windows_conflict.saw	pass	-	loan.window-root: `b` is borrowed exclusively here while the window of `tally` opened at 42:18 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the ro
+errors/two_exclusive_only_windows_conflict.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `b` is borrowed exclusively here while the window of `tally` opened at 42:18 holds `b` exclusively until the window closes; a window charges its whole root until it closes, so the ro
 errors/type_mismatch.saw	pass	-	type.mismatch: expected `Int`, the type of the parameter, and found `String`
 errors/typealias_ref_construction.saw	pass	-	type.reference-position: a binding may not name a reference: `&Int` is one, and references are parameters only: a reference borrows storage for the duration of one call and may not escape it; use the
 errors/typealias_ref_generic_argument.saw	pass	-	type.reference-position: a binding's annotation may not name a reference: `std.vector.Vector<&Int, std.alloc.GlobalAllocator>` holds `&Int` as a type argument, and references are parameters only: a re
@@ -1371,6 +1381,7 @@ errors/undefined_var.saw	refused	resolve name.undefined	cannot find `x` in scope
 errors/undefined_variant.saw	refused	typecheck member.unknown	`undefined_variant.Status` has no member `Unknown` this module can see
 errors/unknown_directive.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unknown_directive.saw` (syntax.lex.directive), so its declarations are not available
 errors/unknown_generic_type_name.saw	refused	resolve name.undefined	cannot find `Frobnicate` in scope
+errors/unnamed_lend_conflict_in_statement.saw	pass	judged by its own directives (no oracle)	loan.window-root: `v` is borrowed exclusively here while the window of `[]` opened at 18:10 holds `v` exclusively until the window closes; a window charges its whole root until it closes, so the root
 errors/unsafe_closure_in_safe_function.saw	pass	-	unsafe.undeclared: `read_byte` is not declared `unsafe`, but its body names a value of unsafe type (`UnsafePointer<Int8>`) at 16:16: write `unsafe` after its parameter list, where every caller can see
 errors/unsafe_contact_intake.saw	pass	-	unsafe.undeclared: `peek` is not declared `unsafe`, but its body names a value of unsafe type (`unsafe_contact_intake.UnsafeTag`) at 36:21: write `unsafe` after its parameter list, where every caller
 errors/unsafe_effect_slot_order.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_effect_slot_order.saw` (syntax.rule.effect-slot), so its declarations are not available
@@ -1682,7 +1693,7 @@ import150_qualifier_collision_error.saw	pass	-	import.duplicate-qualifier: two i
 import150_shadowed_qualifier_error.saw	refused	typecheck member.unknown	`Int` has no method `Data` this module can see
 import150_std_forms.saw	pass	-	-
 import150_std_qualified_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-import150_warn_shadowed_qualifier.saw	refused	driver driver.usage	sawc build takes no -W
+import150_warn_shadowed_qualifier.saw	refused	driver driver.usage	sawc build takes no such arguments
 import150_weak_qualifier.saw	pass	-	-
 import225e_bare_std_leaf_not_found.saw	refused	resolve import.unknown-module	no module `data` (looked for `tests/corpus/data.saw`)
 import247b_glob_pair_one_identity.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
@@ -1737,16 +1748,16 @@ json_map_keys.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not def
 json_number_edges.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
 json_roundtrip_struct.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
 json_structural_reject.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
-json_value_accessors.saw	pass	-	-
-json_value_deinit.saw	pass	-	-
+json_value_accessors.saw	pass	judged by its own directives (edited since its oracle)	-
+json_value_deinit.saw	pass	judged by its own directives (edited since its oracle)	-
 json_value_escape_grid.saw	pass	-	-
 json_value_number_edges.saw	pass	-	-
-json_value_object_deinit_no_copy.saw	pass	-	-
-json_value_object_serialize.saw	pass	-	-
-json_value_roundtrip.saw	pass	-	-
-json_value_structural_reject.saw	pass	-	-
-json_value_synthesized_deep_copy.saw	pass	-	-
-kernel_slab_idiom.saw	pass	-	-
+json_value_object_deinit_no_copy.saw	pass	judged by its own directives (edited since its oracle)	-
+json_value_object_serialize.saw	pass	judged by its own directives (edited since its oracle)	-
+json_value_roundtrip.saw	pass	judged by its own directives (edited since its oracle)	-
+json_value_structural_reject.saw	pass	judged by its own directives (edited since its oracle)	-
+json_value_synthesized_deep_copy.saw	pass	judged by its own directives (edited since its oracle)	-
+kernel_slab_idiom.saw	pass	judged by its own directives (edited since its oracle)	-
 l18_module_qualified_annotation.saw	pass	-	-
 l3_private_struct_bare.saw	refused	resolve name.undefined	cannot find `Secret` in scope
 l3_qualified_still_works.saw	pass	-	-
@@ -1767,13 +1778,13 @@ labeled_overload_generic.saw	pass	-	-
 labeled_overload_label_then_type.saw	pass	-	-
 labeled_overload_method_static.saw	pass	-	-
 labeled_overload_same_type_diff_label.saw	pass	-	-
-lend_accessor_local.saw	pass	-	mutability.immutable: this assignment writes `borrow var c.slot()`, and `c.slot()` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
-lend_rooted_in_receiver.saw	pass	-	-
+lend_accessor_local.saw	pass	judged by its own directives (edited since its oracle)	mutability.immutable: this assignment writes `c.slot()`, and `c.slot()` lends a read-only place (`-> &T`): declare the accessor `-> &var T` to lend a writable one
+lend_rooted_in_receiver.saw	pass	judged by its own directives (edited since its oracle)	-
 lend_var_both_branches.saw	pass	-	-
-lend_var_conditional_lend.saw	pass	-	-
+lend_var_conditional_lend.saw	pass	judged by its own directives (edited since its oracle)	-
 lend_var_coro_and_forwarding.saw	pass	-	-
-lend_var_epilogue_nesting.saw	pass	-	-
-lend_var_generic_and_match.saw	pass	-	-
+lend_var_epilogue_nesting.saw	pass	judged by its own directives (edited since its oracle)	-
+lend_var_generic_and_match.saw	pass	judged by its own directives (edited since its oracle)	-
 lend_var_two_specializations.saw	pass	-	-
 lends_is_contextual.saw	refused	typecheck call.not-callable	this is called, and it is a `Int`, not a function
 let_refutable_pattern_error.saw	wrong	accepts a refusal test	refutable pattern in `let`/`var`: only bindings, `_`, and nested tuples are allowed (literals/ranges/variants require `match`/`if let`)
@@ -1794,12 +1805,12 @@ logical_ops.saw	pass	-	-
 loop_exit_releases_body_local.saw	pass	-	-
 map_basic.saw	pass	-	-
 map_copy.saw	pass	-	-
-map_copy_nested_explicitcopy.saw	pass	-	-
+map_copy_nested_explicitcopy.saw	pass	judged by its own directives (edited since its oracle)	-
 map_custom_alloc_deinit_pairs.saw	pass	-	-
 map_each.saw	pass	-	-
 map_each_mutate_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 map_each_string_enum.saw	pass	-	-
-map_get_is_a_place.saw	pass	-	-
+map_get_is_a_place.saw	pass	judged by its own directives (edited since its oracle)	-
 map_grow_collision.saw	pass	-	-
 map_hashmap_name_gone_error.saw	refused	resolve name.undefined	cannot find `HashMap` in scope
 map_key_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
@@ -1811,8 +1822,8 @@ map_literal_key_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the typ
 map_literal_key_out_of_range_error.saw	pass	-	type.mismatch: integer literal 300 does not fit in `Int8` (range -128..=127)
 map_literal_owning_values.saw	pass	-	-
 map_literal_value_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
-map_nocopy_key_error.saw	stage0-wrong	annotated SL-598	sawc meets its directives
-map_nocopy_key_literal_error.saw	stage0-wrong	annotated SL-598	sawc meets its directives
+map_nocopy_key_error.saw	pass	judged by its own directives (edited since its oracle)	-
+map_nocopy_key_literal_error.saw	pass	judged by its own directives (edited since its oracle)	-
 map_nocopy_value_construct.saw	pass	-	-
 map_nocopy_value_copy_bound_error.saw	pass	-	type.bound: `std.map.Map<String, std.file.File, std.alloc.GlobalAllocator>` has no member `copy`: it is declared where `V: ExplicitCopy`, and `std.file.File` does not satisfy `ExplicitCopy`
 map_owning_remove_overwrite.saw	pass	-	-
@@ -1820,7 +1831,7 @@ map_owning_value_deinit.saw	pass	-	-
 map_simple.saw	pass	-	-
 map_string_keys.saw	pass	-	-
 map_string_owning_value_balance.saw	pass	-	-
-map_subscript_place.saw	pass	-	-
+map_subscript_place.saw	pass	judged by its own directives (edited since its oracle)	-
 map_subscript_retain_oracle.saw	wrong	stdout differs	line 1: sawc "-- ready", Stage 0 "copy 1"
 map_try_copy.saw	pass	-	-
 map_values_nocopy_error.saw	pass	-	result.discarded: the result of `insert` is `Result<map_values_nocopy_error.Handle?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or writ
@@ -1916,7 +1927,7 @@ move_out_then_reassign.saw	pass	-	-
 move_whole_binding.saw	pass	-	-
 moved_variables_per_function_reset.saw	pass	-	-
 mutex_basic.saw	pass	-	-
-mutex_counter.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow shared.value().lock(…)`
+mutex_counter.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `shared.value().lock(…)`
 mutex_lock_result.saw	pass	-	-
 mutex_static_contention_mt.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 mutex_static_inline.saw	pass	-	-
@@ -2004,7 +2015,7 @@ nocopy_override_implicit_tier.saw	pass	-	-
 nocopy_struct_field_init.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_struct_field_init.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f` to take it, or borrow it
 nocopy_struct_field_init_with_move.saw	pass	-	-
 nomove_placement_into_its_home.saw	refused	resolve slice.not-yet	the compiler intrinsic `__saw_deinit_in_place` is not in the bootstrap slice yet
-nomove_tier.saw	pass	-	-
+nomove_tier.saw	pass	judged by its own directives (edited since its oracle)	-
 none_return_test.saw	pass	-	-
 number_literal_member_access.saw	pass	-	-
 offload_cancel_multi_arg.saw	pass	-	-
@@ -2027,7 +2038,7 @@ optional_chain_assign.saw	wrong	stdout differs	line 3: sawc "1", Stage 0 "0"
 optional_chain_assign_deinit.saw	wrong	stdout differs	line 3: sawc "2", Stage 0 "1"
 optional_chain_assign_move.saw	pass	-	-
 optional_chain_compose.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optional_chain_compound_assign.saw	stage0-wrong	annotated SL-438	sawc meets its directives
+optional_chain_compound_assign.saw	pass	judged by its own directives (edited since its oracle)	-
 optional_chain_deinit_once.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 optional_chain_methods.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 optional_chain_multihop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
@@ -2039,8 +2050,8 @@ optional_explicit_copy_deep.saw	pass	-	-
 optional_explicit_read_hints_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.vector.Vector<Int, std.alloc.GlobalAllocator>?`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move o` to take it, `
 optional_field_store_retain.saw	pass	-	-
 optional_force_unwrap_field_store.saw	pass	-	-
-optional_generic_chain_assign_place_head.saw	pass	-	-
-optional_generic_concurrency.saw	stage0-wrong	annotated SL-686	sawc meets its directives
+optional_generic_chain_assign_place_head.saw	pass	judged by its own directives (edited since its oracle)	-
+optional_generic_concurrency.saw	pass	judged by its own directives (edited since its oracle)	-
 optional_generic_hashable_keys.saw	pass	-	-
 optional_generic_infer_later_arg.saw	pass	-	-
 optional_generic_insert_autowrap.saw	pass	-	-
@@ -2119,30 +2130,30 @@ parse_recovery_two_errors.saw	pass	-	resolve.parse-refused: the parser refuses `
 path_simple.saw	refused	typecheck member.unknown	`std.path.Path` has no method `as_str` this module can see
 payload_derived_binding_fills_default_type_args.saw	refused	mir slice.not-yet	a `for` over an iterator place is not lowered to MIR in the bootstrap slice yet
 place_abstract_value_read.saw	pass	-	-
-place_assignment_targets.saw	stage0-wrong	annotated SL-438	sawc meets its directives
-place_comparison_operand_is_a_borrow.saw	pass	-	-
-place_conditional_lend_uses.saw	pass	-	-
-place_cross_module_same_name_type.saw	pass	-	-
-place_enum_payload_lend.saw	pass	-	-
+place_assignment_targets.saw	pass	judged by its own directives (edited since its oracle)	-
+place_comparison_operand_is_a_borrow.saw	pass	judged by its own directives (edited since its oracle)	-
+place_conditional_lend_uses.saw	pass	judged by its own directives (edited since its oracle)	-
+place_cross_module_same_name_type.saw	pass	judged by its own directives (edited since its oracle)	-
+place_enum_payload_lend.saw	pass	judged by its own directives (edited since its oracle)	-
 place_match_arm_move_in_literal.saw	pass	-	transfer.move-from-borrow: cannot move out of `r`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
-place_nocopy_arg_in_window.saw	pass	-	-
+place_nocopy_arg_in_window.saw	pass	judged by its own directives (edited since its oracle)	-
 place_paired_literal_fields.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-place_presence_test_borrows.saw	pass	-	-
-place_read_retains_owning.saw	pass	-	-
-place_reentry_idempotent.saw	pass	-	-
+place_presence_test_borrows.saw	pass	judged by its own directives (edited since its oracle)	-
+place_read_retains_owning.saw	pass	judged by its own directives (edited since its oracle)	-
+place_reentry_idempotent.saw	pass	judged by its own directives (edited since its oracle)	-
 place_rendered_frame_local_migrates.saw	pass	-	-
-place_rendering_operand_is_a_borrow.saw	pass	-	-
-place_shared_accessor_flavors.saw	pass	-	-
-place_shared_window_readonly.saw	pass	-	-
-place_two_windows_one_nocopy_root.saw	pass	-	-
-place_use_sites.saw	pass	-	-
+place_rendering_operand_is_a_borrow.saw	pass	judged by its own directives (edited since its oracle)	-
+place_shared_accessor_flavors.saw	pass	judged by its own directives (edited since its oracle)	-
+place_shared_window_readonly.saw	pass	judged by its own directives (edited since its oracle)	-
+place_two_windows_one_nocopy_root.saw	pass	judged by its own directives (edited since its oracle)	-
+place_use_sites.saw	pass	judged by its own directives (edited since its oracle)	-
 place_value_read_retain_oracle.saw	pass	-	-
-place_window_borrows_enclosing_locals.saw	pass	-	-
-place_window_exclusivity.saw	pass	-	loan.window-root: `p` is borrowed exclusively here while the window of `at` opened at 32:13 holds `p` exclusively until the window closes; a window charges its whole root until it closes, so the root
-place_window_exclusivity_boundary.saw	pass	-	-
+place_window_borrows_enclosing_locals.saw	pass	judged by its own directives (edited since its oracle)	-
+place_window_exclusivity.saw	pass	judged by its own directives (edited since its oracle)	loan.window-root: `p` is borrowed exclusively here while the window of `at` opened at 32:13 holds `p` exclusively until the window closes; a window charges its whole root until it closes, so the root
+place_window_exclusivity_boundary.saw	pass	judged by its own directives (edited since its oracle)	-
 place_window_move_arg_consumes_local.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-place_window_nested_writes_land.saw	pass	-	-
-place_window_root_read_in_assignment_rhs.saw	pass	-	-
+place_window_nested_writes_land.saw	pass	judged by its own directives (edited since its oracle)	-
+place_window_root_read_in_assignment_rhs.saw	pass	judged by its own directives (edited since its oracle)	-
 place_write_self_rhs.saw	pass	-	-
 plain_type_generic_method.saw	pass	-	-
 pointer_prefix_deref.saw	refused	typecheck slice.not-yet	`syntax.expr.move-deref.name` is not in the bootstrap slice yet
@@ -2173,7 +2184,7 @@ qualified_type_declaration_slots.saw	refused	typecheck slice.not-yet	`syntax.exp
 qualified_type_in_declaration_slot.saw	pass	-	-
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
-reactor_cross_thread_wake.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow entered.value().lock(…)`
+reactor_cross_thread_wake.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `entered.value().lock(…)`
 receiver_temporary_evaluated_once.saw	pass	-	-
 recursive_enum_built_in_a_task.saw	pass	-	-
 recursive_enum_inline_payload_refused.saw	pass	-	type.infinite-size: recursive type `Tree` has infinite size: its storage contains its own storage inline, through Tree.Node -> Tree; hold the recursive member behind a heap indirection, such as `Box`
@@ -2197,7 +2208,7 @@ ref_forwarding_suspend.saw	pass	-	-
 ref_forwarding_suspend_nested.saw	pass	-	-
 ref_into_array_element_addresses_real_storage.saw	pass	-	-
 ref_no_escape_alias_boundary.saw	pass	-	-
-ref_parameter_positions.saw	pass	-	-
+ref_parameter_positions.saw	pass	judged by its own directives (edited since its oracle)	-
 ref_pointer_cast_blessed.saw	pass	-	-
 ref_replace_across_suspend.saw	pass	-	-
 ref_replace_bare_trait_error.saw	pass	-	type.not-a-type: `Shape` is a trait; a type position names it as `any Shape`
@@ -2212,7 +2223,7 @@ ref_replace_generic_wrong_type_error.saw	pass	-	type.mismatch: expected `T`, the
 ref_replace_self.saw	pass	-	-
 ref_replace_self_immutable_error.saw	pass	-	mutability.immutable: this assignment writes `self`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the recei
 ref_replace_through_param.saw	pass	-	-
-ref_return_alternatives.saw	pass	-	-
+ref_return_alternatives.saw	pass	judged by its own directives (edited since its oracle)	-
 ref_sigil_both_correct.saw	pass	-	-
 ref_sigil_capture_and_arg.saw	pass	-	-
 reference_assign_error.saw	pass	-	mutability.immutable: this assignment writes `y`, and `y` is a shared reference, through which nothing is written: take it as `&var`
@@ -2263,7 +2274,7 @@ self_type_generic_extension_positions.saw	refused	typecheck slice.not-yet	`synta
 self_type_in_extension_parameter.saw	pass	-	-
 self_type_in_generic_extension.saw	pass	-	-
 self_type_signature_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-semicolon_joins_statements_on_one_line.saw	pass	-	-
+semicolon_joins_statements_on_one_line.saw	pass	judged by its own directives (edited since its oracle)	-
 send_sync_bounds.saw	pass	-	-
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
 serde169_hand_written.saw	refused	resolve name.undefined	cannot find `Serialize` in scope
@@ -2296,13 +2307,13 @@ shadow_for_derived.saw	pass	-	-
 shadow_owning_lifetime.saw	pass	-	-
 shadow_redef_nested_owning.saw	pass	-	-
 shadow_redef_same_scope.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-shared_self_field_call_exemption.saw	pass	-	-
-shared_self_write_alternatives.saw	pass	-	-
+shared_self_field_call_exemption.saw	pass	judged by its own directives (edited since its oracle)	-
+shared_self_write_alternatives.saw	pass	judged by its own directives (edited since its oracle)	-
 shift_negative_panic.saw	pass	-	-
 shift_out_of_range_panic.saw	pass	-	-
 shift_signed_unsigned.saw	pass	-	-
 short_circuit_skipped_operand_temp_cleanup.saw	pass	-	-
-short_circuit_token_field_no_crash.saw	pass	-	-
+short_circuit_token_field_no_crash.saw	pass	judged by its own directives (edited since its oracle)	-
 signal_concurrency_pins.saw	pass	judged by its own directives (edited since its oracle)	-
 sizeof_missing_type_arg_error.saw	pass	-	type.arity: `sizeof` and `alignof` take one type argument, as `sizeof<T>()`
 slab_basic.saw	pass	-	-
@@ -2312,7 +2323,7 @@ slot_optional_payload.saw	refused	resolve import.unknown-module	no module `std.c
 source_location_literals.saw	refused	llvm backend.not-yet	a memory constant is not in the backend slice yet
 source_location_suspending.saw	refused	llvm backend.not-yet	the constant `#line` is not in the backend slice yet
 spawn_body_destructuring_let.saw	pass	-	-
-spawn_body_same_scope_redefinition.saw	pass	-	-
+spawn_body_same_scope_redefinition.saw	pass	judged by its own directives (edited since its oracle)	-
 spawn_capture_after_group.saw	pass	-	loan.drop-while-borrowed: cannot capture `&var n` into a task: `n` is declared AFTER the group `group` it is spawned into (at 23:9 against 22:9), and destruction is LIFO — `n` is torn down BEFORE `gro
 spawn_capture_alias.saw	pass	-	loan.exclusive-twice: exclusive access violation: `n` cannot be captured into another task here — the task spawned at 22:29 holds `&var n` until `a.join()` releases it; join the task first — `a.join()
 spawn_capture_caller_alias.saw	pass	-	loan.exclusive-twice: exclusive access violation: `n` cannot be written here — the task spawned at 26:29 holds `&var n` until `h.join()` releases it; join the task first — `h.join()` ends the borrow,
@@ -2323,7 +2334,7 @@ spawn_join.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 spawn_multi.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 spawn_optional_result.saw	pass	-	-
 spawn_ref_param_dual_role_and_cancel.saw	pass	-	-
-spawn_ref_param_referent_deinit_once.saw	pass	-	-
+spawn_ref_param_referent_deinit_once.saw	pass	judged by its own directives (edited since its oracle)	-
 spawn_void_body.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 spawned_task_runs_before_reactor_park.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
@@ -2438,7 +2449,7 @@ taskgroup_nested_groups.saw	pass	-	-
 taskgroup_producer_consumer.saw	pass	-	-
 taskgroup_result_joined_once.saw	pass	-	-
 taskgroup_result_unjoined_once.saw	pass	-	-
-taskgroup_send_containers.saw	pass	-	-
+taskgroup_send_containers.saw	pass	judged by its own directives (edited since its oracle)	-
 taskgroup_sleep_ordering.saw	pass	-	-
 taskgroup_slot_reuse_mt.saw	stage0-wrong	annotated SL-769	sawc meets its directives
 taskgroup_slot_reuse_o_live.saw	pass	-	-
@@ -2462,7 +2473,7 @@ taskgroup_threads_sleep.saw	pass	-	-
 taskgroup_two_task_yield.saw	pass	-	-
 taskgroup_unjoined_drop.saw	pass	-	-
 thread_assertion_survives_a_glob_import.saw	pass	-	-
-thread_fate_is_written_not_dropped.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow shared.value().lock(…)`
+thread_fate_is_written_not_dropped.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `shared.value().lock(…)`
 thread_name_belongs_to_the_user.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 thread_spawn_blocking_beside_a_driven_root.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 trailing_closure_inside_a_try_operand.saw	stage0-wrong	XFAIL DF-259c	sawc: output line 4 is '1', expected '<end>'
@@ -2507,7 +2518,7 @@ tuple_element_literal_out_of_range_error.saw	pass	-	type.mismatch: integer liter
 tuple_index_member_access.saw	pass	-	-
 tuples.saw	pass	-	-
 tuples_advanced.saw	pass	-	-
-two_copy_arc.saw	pass	-	-
+two_copy_arc.saw	pass	judged by its own directives (edited since its oracle)	-
 two_copy_captures.saw	stage0-wrong	annotated SL-525	sawc meets its directives
 two_escaping_copies.saw	pass	-	-
 two_modules_export_distinct_c_symbols.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -2583,11 +2594,11 @@ vector_elem_deinit.saw	pass	-	-
 vector_elem_deinit_pop.saw	pass	-	-
 vector_enum_payload_deinit.saw	pass	-	-
 vector_enumerated.saw	pass	-	-
-vector_field_drop_glue.saw	pass	-	-
+vector_field_drop_glue.saw	pass	judged by its own directives (edited since its oracle)	-
 vector_file_copy_bound_error.saw	pass	-	name.not-in-prelude: `File` is not in the prelude and must be imported: `import std.file.{File}` selects it
 vector_in_erased_result.saw	pass	-	-
 vector_literal.saw	pass	-	-
-vector_literal_nocopy_move.saw	pass	-	-
+vector_literal_nocopy_move.saw	pass	judged by its own directives (edited since its oracle)	-
 vector_literal_non_collection_error.saw	pass	-	type.mismatch: expected `Int`, the type of the annotated binding, and found `[Int; 3]`
 vector_literal_owning_deinit.saw	pass	-	-
 vector_literal_owning_use_after_move_error.saw	pass	-	move.use-after: `a.id` is used after it may have been moved (moved at 16:27); a moved value is gone until it is assigned again

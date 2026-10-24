@@ -48,6 +48,6 @@ extension One {
 
 func main() {
     var s = One(a: [0])
-    borrow var s.pick(true, 0) += 1
+    s.pick(true, 0) += 1
     print("a {}", s.a[0])
 }

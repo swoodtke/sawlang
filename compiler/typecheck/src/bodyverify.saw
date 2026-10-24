@@ -769,6 +769,7 @@ public func tc_is_expression_alt(alt: Alt) -> Bool {
         case Expr_While_Infinite -> true,
         case Expr_WhileLet_Let -> true,
         case Expr_WhileLet_Var -> true,
+        case Expr_While_Borrow -> true,
         case Expr_For_Plain -> true,
         case Borrow_Block -> true,
         case Borrow_Place_Shared -> true,
@@ -794,6 +795,7 @@ public func tc_is_pattern_alt(alt: Alt) -> Bool {
         case Pat_None -> true,
         case Pat_BorrowBinding_Let -> true,
         case Pat_BorrowBinding_Var -> true,
+        case Pat_VarBinding -> true,
         case Stmt_BindingName -> true,
         case _ -> false
     }

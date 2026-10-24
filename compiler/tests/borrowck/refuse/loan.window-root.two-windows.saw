@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 23:34
+// refuses: loan.window-root at 23:28
 // two exclusive windows on one root in one call (conformance X16, X20, X30)
 
 struct Pair { a: Int, b: Int }
@@ -20,6 +20,6 @@ func set_both(x: &var Int, y: &var Int) {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    set_both(borrow var p.at(0), borrow var p.at(1))
+    set_both(&var p.at(0), &var p.at(1))
     print(p.a)
 }

@@ -1,0 +1,46 @@
+// Conformance row P27 — a named lend's window is the block its binding opens
+// (SL:borrowing §12.2): `if var` over a conditional lend writes the lent
+// place, a miss opens no window so the `else` block may write the root,
+// `while var` borrows afresh at each iteration after the last body's window
+// closed, and a `match` arm's `var` payload lends the payload it names. The
+// refusal half, the root used inside the block, is
+// `errors/named_lend_root_in_block.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 2 9
+// 23
+// 7
+
+struct Cell { n: Int }
+struct Hit { hits: Int }
+enum Slot { case Full(key: Int, value: Cell), case Empty }
+struct Table { slots: [Slot; 1] }
+
+extension Table {
+    func find(&var self) borrows -> &var Cell? {
+        match self.slots[0] {
+            case Full(_, var v) -> { lend v },
+            case Empty -> { return None }
+        }
+    }
+}
+
+func main() {
+    var m = Map<String, Hit>()
+    m["a"] = Hit(hits: 1)
+    if var e = m.find(&"a") { e.hits += 1 } else { m["a"] = Hit(hits: 0) }
+    if var e = m.find(&"zz") { e.hits += 1 } else { m["zz"] = Hit(hits: 9) }
+    print("{m["a"].hits} {m["zz"].hits}")
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 1))
+    try! v.push(Cell(n: 2))
+    var i = 0
+    while var e = v.find(i) {
+        e.n += 10
+        i += 1
+    }
+    print(v[0].n + v[1].n)
+    var t = Table(slots: [Slot.Full(key: 1, value: Cell(n: 2))])
+    t.find()?.n += 5
+    print(t.find()!.n)
+}

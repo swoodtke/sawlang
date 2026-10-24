@@ -59,7 +59,7 @@ func lights() -> Vector<Light> {
 
 func main() {
     var v = lights()
-    borrow var v[0].flip()
+    v[0].flip()
     print("flipped {v[0].name()}")
 
     // A shared read over the same vector, on an immutable root.
@@ -69,7 +69,7 @@ func main() {
     var b = Bag(rows: [Row(cells: [Cell(count: 1), Cell(count: 2)]),
                        Row(cells: [Cell(count: 3), Cell(count: 4)])])
     print("nested read {b[0][1].count}")
-    borrow var b[0][1].count += 10
+    b[0][1].count += 10
     print("nested write {b[0][1].count}")
     print("-- done")
 }

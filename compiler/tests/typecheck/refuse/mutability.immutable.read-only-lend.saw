@@ -14,5 +14,5 @@ extension Cell {
 
 func main() {
     var c = Cell(n: 0)
-    borrow var c.slot() = 5
+    c.slot() = 5
 }

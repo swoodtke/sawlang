@@ -108,8 +108,8 @@ extension Sites_n2_h0 {
 func cell_n2_h0() {
     print("cell n2_h0")
     var s = Sites_n2_h0(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -137,8 +137,8 @@ extension Sites_n2_h1 {
 func cell_n2_h1() {
     print("cell n2_h1")
     var s = Sites_n2_h1(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -167,8 +167,8 @@ extension Sites_n2_h01 {
 func cell_n2_h01() {
     print("cell n2_h01")
     var s = Sites_n2_h01(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -199,9 +199,9 @@ extension Sites_n3_h0 {
 func cell_n3_h0() {
     print("cell n3_h0")
     var s = Sites_n3_h0(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -232,9 +232,9 @@ extension Sites_n3_h1 {
 func cell_n3_h1() {
     print("cell n3_h1")
     var s = Sites_n3_h1(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -265,9 +265,9 @@ extension Sites_n3_h2 {
 func cell_n3_h2() {
     print("cell n3_h2")
     var s = Sites_n3_h2(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -299,9 +299,9 @@ extension Sites_n3_h01 {
 func cell_n3_h01() {
     print("cell n3_h01")
     var s = Sites_n3_h01(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -333,9 +333,9 @@ extension Sites_n3_h02 {
 func cell_n3_h02() {
     print("cell n3_h02")
     var s = Sites_n3_h02(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -367,9 +367,9 @@ extension Sites_n3_h12 {
 func cell_n3_h12() {
     print("cell n3_h12")
     var s = Sites_n3_h12(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 
@@ -402,9 +402,9 @@ extension Sites_n3_h012 {
 func cell_n3_h012() {
     print("cell n3_h012")
     var s = Sites_n3_h012(a: [0], b: [0], c: [0])
-    borrow var s.pick(0, 0) += 1
-    borrow var s.pick(1, 0) += 2
-    borrow var s.pick(2, 0) += 3
+    s.pick(0, 0) += 1
+    s.pick(1, 0) += 2
+    s.pick(2, 0) += 3
     print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
 }
 

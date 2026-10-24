@@ -29,11 +29,11 @@ extension Owned: NoCopy {
 }
 
 func with_first(v: &var Vector<Owned>, body: (&var Owned) sync -> Owned) -> Owned {
-    body(borrow var v[0])
+    body(&var v[0])
 }
 
 func with_first_shared(v: &Vector<Owned>, body: (&Owned) sync -> Owned) -> Owned {
-    body(borrow v[0])
+    body(&v[0])
 }
 
 func exclusive_face() -> Owned {

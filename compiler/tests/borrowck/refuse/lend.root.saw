@@ -15,5 +15,5 @@ extension Counter {
 
 func main() {
     let c = Counter(n: 1)
-    print(borrow c.slot())
+    print(c.slot())
 }

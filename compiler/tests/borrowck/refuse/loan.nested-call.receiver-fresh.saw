@@ -1,4 +1,4 @@
-// refuses: loan.nested-call at 33:29
+// refuses: loan.nested-call at 33:22
 // an exclusive value read of the receiver's root, nested in the receiver's
 // call: the receiver is borrowed for the whole call, so the window overlaps
 // it whether its value is copied out or returned by a call (conformance X57)
@@ -30,5 +30,5 @@ func id(x: Int) -> Int {
 
 func main() {
     var h = Holder(a: Cell(n: 1), k: 3)
-    print(h.total(id(borrow h.at().get())))
+    print(h.total(id(h.at().get())))
 }

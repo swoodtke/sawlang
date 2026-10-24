@@ -187,68 +187,68 @@ func shared() -> Shared {
 func main() {
     print("same N")
     var h1 = holder()
-    borrow var h1.at(0).n = borrow h1.at(0).n + 10
+    h1.at(0).n = h1.at(0).n + 10
     h1.show()
     print("same C")
     var p1 = plain()
-    borrow var p1.at(0).n = borrow p1.at(0).n + 10
+    p1.at(0).n = p1.at(0).n + 10
     p1.show()
 
     print("sibling N")
     var h2 = holder()
-    h2.k = borrow h2.at(0).n + 10
+    h2.k = h2.at(0).n + 10
     h2.show()
     print("sibling C")
     var p2 = plain()
-    p2.k = borrow p2.at(0).n + 10
+    p2.k = p2.at(0).n + 10
     p2.show()
 
     print("other N")
     var h3 = holder()
-    borrow var h3.at(1).n = borrow h3.at(0).n + 10
+    h3.at(1).n = h3.at(0).n + 10
     h3.show()
     print("other C")
     var p3 = plain()
-    borrow var p3.at(1).n = borrow p3.at(0).n + 10
+    p3.at(1).n = p3.at(0).n + 10
     p3.show()
 
     print("compound same N")
     var h4 = holder()
-    borrow var h4.at(0).n += borrow h4.at(0).n
+    h4.at(0).n += h4.at(0).n
     h4.show()
     print("compound other N")
     var h5 = holder()
-    borrow var h5.at(1).n += borrow h5.at(0).n
+    h5.at(1).n += h5.at(0).n
     h5.show()
     print("compound sibling N")
     var h6 = holder()
-    h6.k += borrow h6.at(0).n
+    h6.k += h6.at(0).n
     h6.show()
     print("compound same C")
     var p4 = plain()
-    borrow var p4.at(0).n += borrow p4.at(0).n
+    p4.at(0).n += p4.at(0).n
     p4.show()
     print("compound sibling C")
     var p5 = plain()
-    p5.k += borrow p5.at(0).n
+    p5.k += p5.at(0).n
     p5.show()
 
     print("then a reference N")
     var h7 = holder()
-    let r1 = pair(borrow h7.at(0).n, bump(&var h7.a))
+    let r1 = pair(h7.at(0).n, bump(&var h7.a))
     h7.show()
     print("then a reference S")
     var s1 = shared()
-    let r2 = pair(borrow s1.at(0).n, bump(&var s1.a))
+    let r2 = pair(s1.at(0).n, bump(&var s1.a))
     s1.show()
 
     print("then a lend N")
     var h8 = holder()
-    let r3 = pair(borrow h8.at(0).n, bump(borrow var h8.at(1)))
+    let r3 = pair(h8.at(0).n, bump(&var h8.at(1)))
     h8.show()
     print("then a lend S")
     var s2 = shared()
-    let r4 = pair(borrow s2.at(0).n, bump(borrow var s2.at(1)))
+    let r4 = pair(s2.at(0).n, bump(&var s2.at(1)))
     s2.show()
     let _ = r1 + r2 + r3 + r4
 }

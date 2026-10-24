@@ -1,0 +1,28 @@
+// Conformance row P25 — an unnamed lend's window is its statement
+// (SL:borrowing §12.1): a `borrows` call or a subscript's place that no
+// binding names opens its window for the statement it stands in and closes
+// there, so the next statement may use the root freely; the refusal half,
+// two exclusive windows on one root in one statement, is
+// `errors/unnamed_lend_conflict_in_statement.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11 3
+// 12 4
+
+struct Cell { n: Int }
+
+extension Cell {
+    func bump(&var self) { self.n += 1 }
+}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 10))
+    v[0].n += 1
+    try! v.push(Cell(n: 2))
+    v[1].bump()
+    print("{v[0].n} {v[1].n}")
+    v[0].bump()
+    v[1].n = v.len() + 2
+    print("{v[0].n} {v[1].n}")
+}

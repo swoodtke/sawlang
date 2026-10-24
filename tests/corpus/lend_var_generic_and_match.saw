@@ -79,7 +79,7 @@ extension Table {
             return None
         }
         match self.slots[i] {
-            case Filled(borrow let v) -> { lend v },
+            case Filled(v) -> { lend v },
             case Empty -> { return None }
         }
     }
@@ -90,7 +90,7 @@ extension Table {
         }
         self.run_gate()
         match self.slots[i] {
-            case Filled(borrow var v) -> { lend v },
+            case Filled(var v) -> { lend v },
             case Empty -> { return None }
         }
     }
@@ -112,9 +112,9 @@ func main() {
     print("String write {names[0]}, gates {names.gates_seen()}")
 
     var t = Table(slots: [Slot.Filled(v: 5), Slot.Empty, Slot.Empty], gates: 0)
-    print("slot read {borrow t.at(0)!}, gates {t.gates_seen()}")
-    borrow var t.at(0)! += 1
-    print("slot write {borrow t.at(0)!}, gates {t.gates_seen()}")
+    print("slot read {t.at(0)!}, gates {t.gates_seen()}")
+    t.at(0)! += 1
+    print("slot write {t.at(0)!}, gates {t.gates_seen()}")
 
     var absent = true
     if (borrow let e = t.at(1) { if let _ = e { true } else { false } }) {

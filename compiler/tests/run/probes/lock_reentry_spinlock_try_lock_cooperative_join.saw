@@ -10,7 +10,7 @@ import std.spinlock.{SpinLock}
 static G: SpinLock<Int>
 
 func take() -> Int {
-    if borrow var g = G.try_lock() { g = g + 1; g } else { -1 }
+    if var g = G.try_lock() { g = g + 1; g } else { -1 }
 }
 
 func main() {

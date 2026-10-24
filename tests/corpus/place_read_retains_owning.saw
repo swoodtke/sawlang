@@ -60,7 +60,7 @@ func main() {
     print("-- vector dropped")
     var j = 0
     while j < reg.entries.len() {
-        borrow reg.entries[j].farewell()
+        reg.entries[j].farewell()
         j = j + 1
     }
     print("-- done")

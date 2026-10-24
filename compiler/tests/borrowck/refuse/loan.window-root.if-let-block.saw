@@ -1,0 +1,12 @@
+// refuses: loan.window-root at 10:31
+// an `if let` over a conditional lend binds its place for the block, so a
+// write of the root inside it is refused, with the text that names the
+// copy v0.18.0's `if let` made (SL:borrowing §12.5)
+// message: `x` now holds `m.find(&"a")`'s place for this block, so `m` is borrowed until the `}`. To work on `m` inside it, copy the value out first: `let x = m.find(&"a")` (an optional copy)
+
+func main() {
+    var m = Map<String, Int>()
+    m["a"] = 1
+    if let x = m.find(&"a") { m["b"] = x + 1 }
+    print(m.len())
+}

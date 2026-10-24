@@ -42,7 +42,7 @@ func sink2(x: &var Int, p: &var Pair) {
 
 func main() {
     var p = Pair(a: 1, b: 2)
-    sink(borrow var p.at(0), reset(&var p))
-    sink2(borrow var p.at(0), &var p)
+    sink(&var p.at(0), reset(&var p))
+    sink2(&var p.at(0), &var p)
     print("a={p.a} b={p.b}")
 }

@@ -1,0 +1,15 @@
+// refuses: borrows.let-lend at 10:13
+// `let` of a NoCopy element read out of an unnamed lend: a `let` holds no
+// window, and the element has no `copy()` (SL:borrowing §12.5)
+// message: `sessions[0]` is lent, and a `let` would keep the lend past this statement. Name the place for a block, `borrow let s = sessions[0] { … }`, or take the element out (`sessions.swap_out(0, …)`, `sessions.remove(0)`)
+
+struct Session { name: String }
+extension Session: NoCopy {}
+
+func first(sessions: &Vector<Session>) -> Int {
+    let s = sessions[0]
+    0
+}
+
+func main() {
+}

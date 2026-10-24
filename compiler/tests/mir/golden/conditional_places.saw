@@ -18,7 +18,7 @@ extension Row {
 
 func unwrapped(r: &var Row) {
     borrow var e = r.find(1) {
-        if borrow var cell = e {
+        if var cell = e {
             cell += 1
         }
     }
@@ -31,7 +31,7 @@ func tested(r: &var Row) -> Bool {
 func matched(r: &var Row) -> Int {
     borrow let e = r.find(2) {
         match e {
-            case Some(borrow let n) -> n,
+            case Some(n) -> n,
             case None -> -1
         }
     }
@@ -42,8 +42,8 @@ func forced(r: &var Row) -> Int {
 }
 
 func direct(r: &var Row) -> Int {
-    match borrow r.find(1) {
-        case Some(borrow var n) -> {
+    match r.find(1) {
+        case Some(var n) -> {
             n += 1
             n
         },
@@ -53,7 +53,7 @@ func direct(r: &var Row) -> Int {
 
 func left(r: &var Row) -> Int {
     borrow var e = r.find(1) {
-        if borrow var cell = e {
+        if var cell = e {
             return cell
         }
     }

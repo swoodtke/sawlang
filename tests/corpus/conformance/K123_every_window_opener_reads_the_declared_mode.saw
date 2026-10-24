@@ -110,25 +110,25 @@ func main() {
                 slots: [Slot.Filled(n: 1), Slot.Empty],
                 pairs: [Cell(n: 5), Cell(n: 6)])
 
-    print("1 subscript read {borrow b[0]}")
-    print("2 named read {borrow b.at(1)}")
+    print("1 subscript read {b[0]}")
+    print("2 named read {b.at(1)}")
 
-    borrow var b[0] += 1
-    print("3 write {borrow b[0]}")
+    b[0] += 1
+    print("3 write {b[0]}")
 
-    borrow var b.pair(1)?.n = 21
-    print("4 chain write {borrow b.pair(1)!.n}")
+    b.pair(1)?.n = 21
+    print("4 chain write {b.pair(1)!.n}")
 
-    print("5 forced read {borrow b.get(0)!}")
+    print("5 forced read {b.get(0)!}")
 
     borrow let s = b.slot(0) { match s {
         case Filled(_) -> { print("6 match sees Filled") },
         case Empty -> { print("6 match sees Empty") }
     } }
 
-    bump(borrow var b[0])
-    print("7 ref arg {borrow b.forwarded(0)}")
-    print("8 forwarded {borrow b.forwarded(0)}")
+    bump(&var b[0])
+    print("7 ref arg {b.forwarded(0)}")
+    print("8 forwarded {b.forwarded(0)}")
 
     // A `let` root READS through the read-only declaration: its `&self`
     // accessors charge the root shared (§3).
@@ -139,6 +139,6 @@ func main() {
         case Filled(_) -> "Filled",
         case Empty -> "Empty"
     } }
-    print("read-only: subscript {v[0]}, named {borrow v.at(0)}, forced {borrow v.get(0)!}, match {matched}")
+    print("read-only: subscript {v[0]}, named {v.at(0)}, forced {v.get(0)!}, match {matched}")
     print("-- done")
 }

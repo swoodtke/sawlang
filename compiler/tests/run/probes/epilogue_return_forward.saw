@@ -248,7 +248,7 @@ extension G: NoCopy {}
 extension G {
     func straight(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 1)
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         return
         print("unreached")
@@ -256,7 +256,7 @@ extension G {
     func straight_suspending(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 2)
         yield_now()
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         yield_now()
         return
@@ -264,7 +264,7 @@ extension G {
     }
     func in_if(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 3)
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         if self.quiet {
             return
@@ -274,7 +274,7 @@ extension G {
     func in_if_suspending(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 4)
         yield_now()
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         yield_now()
         if self.quiet {
@@ -284,7 +284,7 @@ extension G {
     }
     func in_loop(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 5)
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         var k = 0
         while k < 3 {
@@ -299,7 +299,7 @@ extension G {
     func in_loop_suspending(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 6)
         yield_now()
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         yield_now()
         var k = 0
@@ -314,7 +314,7 @@ extension G {
     }
     func after_borrow(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 7)
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         borrow var y = self.other.at(0) {
             y += 1
@@ -327,7 +327,7 @@ extension G {
     func after_borrow_suspending(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 8)
         yield_now()
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         yield_now()
         borrow var y = self.other.at(0) {
@@ -340,7 +340,7 @@ extension G {
     }
     func in_borrow(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 9)
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         borrow var y = self.other.at(0) {
             y += 1
@@ -353,7 +353,7 @@ extension G {
     func in_borrow_suspending(&var self, i: Int) borrows -> &var Int {
         let t = Tag(id: 10)
         yield_now()
-        lend borrow var self.inner.at(i)
+        lend self.inner.at(i)
         print("epilogue t{}", t.id)
         yield_now()
         borrow var y = self.other.at(0) {

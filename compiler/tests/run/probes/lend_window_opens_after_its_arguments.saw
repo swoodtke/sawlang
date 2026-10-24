@@ -1,0 +1,53 @@
+// probe: stated
+// about: a window opens after every argument it feeds, in both chain shapes, a plain method on a lent place and an accessor on a lent place, with printing prologues; so an argument may read the root, SL:borrowing §12.1's "arguments first" (SL-897)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: side b
+// prints: pro get 0
+// prints: epi get
+// prints: 1
+// prints: side a
+// prints: pro get 0
+// prints: pro at 1
+// prints: epi at
+// prints: epi get
+// prints: 100
+// prints: 2
+
+struct Ctr { n: Int, cells: [Int; 2] }
+
+extension Ctr {
+    func bump(&var self, by: Int) { self.n += by }
+    func set(&var self, n: Int) { self.n = n }
+    func at(&var self, i: Int) borrows -> &var Int {
+        print("pro at {i}")
+        lend self.cells[0]
+        print("epi at")
+    }
+}
+
+struct Bank { items: [Ctr; 1] }
+
+extension Bank {
+    func get(&var self, i: Int) borrows -> &var Ctr {
+        print("pro get {i}")
+        lend self.items[0]
+        print("epi get")
+    }
+}
+
+func side(s: String) -> Int { print("side {s}"); 1 }
+
+func main() {
+    var b = Bank(items: [Ctr(n: 0, cells: [0, 0])])
+    b.get(0).bump(by: side("b"))
+    print(b.items[0].n)
+    b.get(0).at(side("a")) += 100
+    print(b.items[0].cells[0])
+    var v = Vector<Ctr>()
+    try! v.push(Ctr(n: 0, cells: [0, 0]))
+    try! v.push(Ctr(n: 0, cells: [0, 0]))
+    v[0].set(n: v.len())
+    print(v[0].n)
+}

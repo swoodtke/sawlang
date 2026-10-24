@@ -27,5 +27,5 @@ extension One {
 
 func main() {
     var t = One(a: [0])
-    borrow var t.pick(0) += 1
+    t.pick(0) += 1
 }

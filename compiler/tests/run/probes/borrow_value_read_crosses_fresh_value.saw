@@ -99,21 +99,21 @@ extension String {
 func main() {
     let h = Holder(m: Maker(name: "p0"))
     print("arg trivial")
-    print("got {}", take_int(borrow h.get().make(7).n))
+    print("got {}", take_int(h.get().make(7).n))
     print("arg owning")
-    print("got {}", take_string(borrow h.get().make(7).s))
+    print("got {}", take_string(h.get().make(7).s))
     print("let owning")
-    let s = borrow h.get().make(7).s
+    let s = h.get().make(7).s
     print("got {}", s)
     print("reference trivial")
-    print("got {}", look_int(borrow h.get().make(7).n))
+    print("got {}", look_int(&h.get().make(7).n))
     print("reference owning")
-    print("got {}", look_string(borrow h.get().make(7).s))
+    print("got {}", look_string(&h.get().make(7).s))
     print("receiver owning")
-    print("got {}", borrow h.get().make(7).s.describe())
+    print("got {}", h.get().make(7).s.describe())
     print("rendered owning")
-    let line = "got {borrow h.get().make(7).s}"
+    let line = "got {h.get().make(7).s}"
     print(line)
     print("argument of the call")
-    print("got {}", take_int(borrow h.get().make(loud(7)).n))
+    print("got {}", take_int(h.get().make(loud(7)).n))
 }

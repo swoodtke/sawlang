@@ -48,8 +48,8 @@ struct Rows { rows: Vector<Vector<Int>> }
 extension Rows: NoCopy {}
 
 extension Rows {
-    func widen(&var self) { try! borrow var self.rows[0].push(9) }
-    func width(&self) -> Int { borrow self.rows[0].len() }
+    func widen(&var self) { try! self.rows[0].push(9) }
+    func width(&self) -> Int { self.rows[0].len() }
 }
 
 // 4. The fix the diagnostic names: declare the method `&var self`.

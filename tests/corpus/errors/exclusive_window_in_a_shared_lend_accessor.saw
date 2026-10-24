@@ -46,30 +46,30 @@ struct Outer { inner: Inner, n: Int }
 
 extension Outer {
     func arg(&self) borrows -> &Int {
-        bump(borrow var self.inner.plain())
+        bump(&var self.inner.plain())
         lend self.n
     }
 
     func forced(&self) borrows -> &Int {
-        bump(borrow var self.inner.opt()!)
+        bump(&var self.inner.opt()!)
         lend self.n
     }
 
     func written(&self) borrows -> &Int {
-        borrow var self.inner.plain() = 5
+        self.inner.plain() = 5
         lend self.n
     }
 
     func bumped(&self) borrows -> &Int {
-        borrow var self.inner.plain() += 1
+        self.inner.plain() += 1
         lend self.n
     }
 }
 
 func main() {
     let o = Outer(inner: Inner(n: 1), n: 2)
-    print("{borrow o.arg()}")
-    print("{borrow o.forced()}")
-    print("{borrow o.written()}")
-    print("{borrow o.bumped()}")
+    print("{o.arg()}")
+    print("{o.forced()}")
+    print("{o.written()}")
+    print("{o.bumped()}")
 }

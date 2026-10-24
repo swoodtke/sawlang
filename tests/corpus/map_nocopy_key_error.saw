@@ -36,7 +36,7 @@ func main() {
     let old = try! m.insert(Counted(id: 1), 101)
     print("replaced {}", old!)
     let probe = Counted(id: 2)
-    print("found {}", borrow m.find(&probe)!)
+    print("found {}", m.find(&probe)!)
     print("probe kept {}", probe.id)
     let gone = m.remove(Counted(id: 2))
     print("removed {}", gone!)

@@ -12,6 +12,6 @@ func peek(n: &Int) -> Int {
 
 func main() {
     var v: Vector<Int> = [1, 2]
-    bump(borrow var v[0])
-    print(peek(borrow v[1]))
+    bump(&var v[0])
+    print(peek(&v[1]))
 }

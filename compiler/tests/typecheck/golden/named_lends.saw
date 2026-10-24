@@ -1,0 +1,61 @@
+// A named lend at each 12.2 binding form: `if let`/`if var` and `while
+// var` over a conditional lend bind the place for the block, a `match` arm's
+// `var x` binds a lent payload writable, and the `borrow` block stays
+// (SL:borrowing §12.2).
+
+struct Entry { n: Int }
+
+extension Entry {
+    func bump(&var self) { self.n += 1 }
+}
+
+struct Store { items: [Entry; 2] }
+
+extension Store {
+    @synthesize(shared)
+    func find(&var self, i: Int) borrows -> &var Entry? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+}
+
+enum Slot { case Full(key: Int, value: Entry), case Empty }
+
+struct Table { slots: [Slot; 1] }
+
+extension Table {
+    func value(&var self) borrows -> &var Entry? {
+        match self.slots[0] {
+            case Full(_, var v) -> { lend v },
+            case Empty -> { return None }
+        }
+    }
+}
+
+func forms(st: &var Store, t: &var Table) -> Int {
+    if var e = st.find(0) {
+        e.n += 1
+    } else {
+        st.items[0] = Entry(n: 0)
+    }
+    if let e = st.find(1) {
+        print(e.n)
+    }
+    var i = 0
+    while var e = st.find(i) {
+        e.bump()
+        i += 1
+    }
+    borrow var e = st.find(0) {
+        if var x = e {
+            x.n += 2
+        }
+    }
+    t.value()?.n += 1
+    i
+}
+
+func main() {
+}

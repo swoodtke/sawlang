@@ -40,17 +40,17 @@ func main() {
     var v = Vector<Res>()
     try! v.push(Res(id: 1))
     try! v.push(Res(id: 2))
-    if borrow var r = v.find(0) { r.id = 10 } else { print("absent") }
-    if borrow let r = v.find(5) { print("present {}", r.id) } else { print("absent") }
+    if var r = v.find(0) { r.id = 10 } else { print("absent") }
+    if let r = v.find(5) { print("present {}", r.id) } else { print("absent") }
     borrow var e = v.find(0) {
-        if borrow var r = e {
+        if var r = e {
             r.id = 20
             print("block {}", r.id)
         }
     }
     let m = borrow var e = v.find(0) {
         match e {
-            case Some(borrow var r) -> {
+            case Some(var r) -> {
                 r.id = 30
                 r.id
             },
@@ -58,36 +58,36 @@ func main() {
         }
     }
     print("match {}", m)
-    let d = match borrow v.find(0) {
-        case Some(borrow var r) -> {
+    let d = match v.find(0) {
+        case Some(var r) -> {
             r.id = 40
             r.id
         },
         case None -> -1
     }
     print("direct {}", d)
-    print("forced {}", borrow v.find(0)!.id)
+    print("forced {}", v.find(0)!.id)
     var slots = Vector<Slot>()
     try! slots.push(Slot(res: Res(id: 3)))
-    borrow var slots.find(7)?.res = Res(id: 99)
+    slots.find(7)?.res = Res(id: 99)
     borrow var w = slots.find(7) {
-        if borrow var s = w { s.res = Res(id: 98) } else { print("absent write") }
+        if var s = w { s.res = Res(id: 98) } else { print("absent write") }
     }
-    borrow var slots.find(0)?.res = Res(id: 4)
+    slots.find(0)?.res = Res(id: 4)
 
     var s: Vector<String> = ["a", "b"]
-    if borrow var t = s.find(1) { t = "bb" }
-    if borrow var t = s.find(9) { t = "z" } else { try! s.push("c") }
-    print("strings {} {}", borrow s.find(1)!, borrow s.find(2)!)
-    let first = borrow s.find(0)
-    let missing = borrow s.find(9)
+    if var t = s.find(1) { t = "bb" }
+    if var t = s.find(9) { t = "z" } else { try! s.push("c") }
+    print("strings {} {}", s.find(1)!, s.find(2)!)
+    let first = s.find(0)
+    let missing = s.find(9)
     print("lengths {} {}", (first ?? "xyz").len(), (missing ?? "q").len())
 
     var lists = Vector<Vector<Int>>()
     try! lists.push([1, 2])
     let sizes = borrow let e = lists.find(0) {
         match e {
-            case Some(borrow let l) -> l.len(),
+            case Some(l) -> l.len(),
             case None -> 0
         }
     }

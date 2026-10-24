@@ -66,7 +66,7 @@ extension Table {
             return None
         }
         borrow var lent = self.slots[i] { match lent {
-            case Filled(_, borrow var r) -> { lend r },
+            case Filled(_, var r) -> { lend r },
             case Empty -> { return None }
         } }
     }
@@ -84,7 +84,7 @@ extension Dense {
             panic("Dense.at: index out of range")
         }
         borrow let lent = self.slots[i] { match lent {
-            case Filled(_, borrow let r) -> { lend r },
+            case Filled(_, r) -> { lend r },
             case Empty -> { panic("Dense.at: empty slot") }
         } }
     }
@@ -102,7 +102,7 @@ extension Counted {
             return None
         }
         borrow let lent = self.slots[i] { match lent {
-            case Filled(_, borrow let r) -> {
+            case Filled(_, r) -> {
                 lend r
                 print("epilogue ran")
             },
@@ -123,7 +123,7 @@ extension Log {
             return None
         }
         borrow let lent = self.notes[i] { match lent {
-            case Text(borrow let b) -> { lend b },
+            case Text(b) -> { lend b },
             case Blank -> { return None }
         } }
     }
@@ -137,14 +137,14 @@ func main() {
     // A move-only payload, borrowed twice: neither read copies it, so neither
     // drops it.
     print("-- borrow through the payload place")
-    print(borrow t.at(0)!.label())
-    print(borrow t.at(0)!.label())
+    print(t.at(0)!.label())
+    print(t.at(0)!.label())
 
     // A `&var self` method on the payload needs `borrow var` through the
     // exclusive accessor, and the write lands in the slot.
     print("-- write through the payload place")
-    borrow var t.at(0)!.rename(to: "b")
-    print(borrow t.at(0)!.label())
+    t.at(0)!.rename(to: "b")
+    print(t.at(0)!.label())
 
     print("-- the absent path")
     if (borrow let e = t.at(1) { if let _ = e { true } else { false } }) {
@@ -161,21 +161,21 @@ func main() {
     print("-- a Copy payload reads out as a value")
     var l = Log(notes: Vector<Note>())
     try! l.notes.push(Note.Text(body: "hello"))
-    let held = borrow l.at(0)!
+    let held = l.at(0)!
     print(held)
-    print(borrow l.at(0)!)
-    print(borrow l.at(0) ?? "none")
-    print(borrow l.at(5) ?? "none")
+    print(l.at(0)!)
+    print(l.at(0) ?? "none")
+    print(l.at(5) ?? "none")
 
     print("-- a diverging arm beside a lending one")
     var d = Dense(slots: Vector<Slot>())
     try! d.slots.push(Slot.Filled(key: 2, res: Res(name: "7")))
-    print(borrow d.at(0).label())
+    print(d.at(0).label())
 
     print("-- an epilogue inside the lending arm")
     var counted = Counted(slots: Vector<Slot>(), reads: 0)
     try! counted.slots.push(Slot.Filled(key: 3, res: Res(name: "8")))
-    print(borrow counted.at(0)!.label())
+    print(counted.at(0)!.label())
 
     print("-- teardown")
     let _ = move counted

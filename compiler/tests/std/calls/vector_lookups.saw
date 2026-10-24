@@ -11,12 +11,12 @@ extension Token: NoCopy {}
 
 func read_shared(v: &Vector<Entry>) -> Int {
     let copied = v.get(0) ?? Entry(n: -1)
-    let lent = borrow v.find(0)!.n
+    let lent = v.find(0)!.n
     copied.n + lent
 }
 
 func token_id(toks: &Vector<Token>) -> Int {
-    if borrow let t = toks.find(0) { t.id } else { -1 }
+    if let t = toks.find(0) { t.id } else { -1 }
 }
 
 func main() -> Int {
@@ -24,13 +24,13 @@ func main() -> Int {
     try! v.push(Entry(n: 1))
     let got = v.get(0) ?? Entry(n: 0)
     let missing = v.get(5)
-    borrow var v.find(0)!.n += 10
-    if borrow var e = v.find(0) {
+    v.find(0)!.n += 10
+    if var e = v.find(0) {
         e.n += 1
     }
     var toks = Vector<Token>()
     try! toks.push(Token(id: 4))
-    let present = if borrow let t = toks.find(0) { t.id > 0 } else { false }
+    let present = if let t = toks.find(0) { t.id > 0 } else { false }
     if missing.is_none() && present {
         return got.n + token_id(&toks) + read_shared(&v)
     }

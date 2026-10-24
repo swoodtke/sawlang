@@ -17,7 +17,11 @@ directory specifies:
   position its `// refuses:` header names, checked with the flags a second
   line `// flags: ...` passes (`--runtime`, for a runtime's seams), and that
   refusal's message holds each `// message:` line of its leading comment;
-- every rule typecheck refuses by has a fixture;
+- each warning fixture, `warn/NAME.saw`, draws the `-W borrow-prefix`
+  warnings its `// warns: N` header counts, holding each `// message:`
+  line, and `sawc fix` rewrites it to `warn/NAME.fixed`, which warns no
+  more (`--write` records the `.fixed` files);
+- every rule typecheck refuses or warns by has a fixture;
 - the compiler's own source, the sawc build and each unit program, checks
   with no refusal;
 - no record anywhere carries an `INVARIANT` line from either verifier.
@@ -27,6 +31,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TESTS = os.path.dirname(HERE)
@@ -39,12 +44,14 @@ import build  # noqa: E402
 GOLDEN = os.path.join(HERE, "golden")
 MULTI = os.path.join(HERE, "multi")
 REFUSE = os.path.join(HERE, "refuse")
+WARN = os.path.join(HERE, "warn")
 TYPECHECK_SOURCE = os.path.join(COMPILER, "typecheck", "src")
 TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
 _FLAGS = re.compile(r"^// flags: (.*)$")
 _MESSAGE = re.compile(r"^// message: (.+)$")
+_WARNS = re.compile(r"^// warns: (\d+)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
@@ -367,11 +374,74 @@ def check_invariants(failures, output_records):
                 failures.append("typecheck %s: %s" % (path, line))
 
 
+def warning_cases():
+    return sorted(glob.glob(os.path.join(WARN, "*.saw")))
+
+
+def warning_lines(path):
+    """The WARNING lines `sawc typecheck -W borrow-prefix` prints for `path`."""
+    code, out = sawc(["--check", "-W", "borrow-prefix", path])
+    return [l for l in out.split("\n") if l.startswith("WARNING\t")]
+
+
+def check_warnings(failures, counts, write):
+    """Each `warn/NAME.saw` draws the warnings its `// warns: N` header
+    counts, each `// message:` text among them, and `sawc fix` rewrites it
+    to `warn/NAME.fixed` exactly, which draws none (the fix is idempotent).
+    `--write` records the `.fixed` files."""
+    named = set()
+    for path in warning_cases():
+        with open(path) as fh:
+            text = fh.read()
+        m = _WARNS.match(text.split("\n", 1)[0])
+        if m is None:
+            failures.append("typecheck warning %s: no `// warns: N` header" % rel(path))
+            continue
+        lines = warning_lines(rel(path))
+        for line in lines:
+            named.add(line.split("\t")[1])
+        if len(lines) != int(m.group(1)):
+            failures.append("typecheck warning %s: %d warnings, expected %s: %s"
+                            % (rel(path), len(lines), m.group(1), lines[:3]))
+        for want in fixture_messages(path):
+            if not any(want in line for line in lines):
+                failures.append("typecheck warning %s: no warning holds %r" % (rel(path), want))
+        with tempfile.TemporaryDirectory() as scratch:
+            copy = os.path.join(scratch, os.path.basename(path))
+            with open(copy, "w") as fh:
+                fh.write(text)
+            r = subprocess.run([build.SAWC, "fix"] + with_std_root([copy]), cwd=REPO, capture_output=True,
+                               text=True, timeout=TIMEOUT)
+            with open(copy) as fh:
+                fixed = fh.read()
+            if r.returncode != 0:
+                failures.append("typecheck warning %s: `sawc fix` exited %d: %s"
+                                % (rel(path), r.returncode, r.stdout[-300:]))
+            again = warning_lines(copy)
+            if again:
+                failures.append("typecheck warning %s: the fixed file still warns: %s" % (rel(path), again[:2]))
+        expected = os.path.splitext(path)[0] + ".fixed"
+        if write:
+            with open(expected, "w") as fh:
+                fh.write(fixed)
+        elif not os.path.exists(expected):
+            failures.append("typecheck warning %s: no %s" % (rel(path), rel(expected)))
+        else:
+            with open(expected) as fh:
+                want = fh.read()
+            if want != fixed:
+                failures.append("typecheck warning %s: `sawc fix` gives otherwise than %s: %s"
+                                % (rel(path), rel(expected), first_difference(want, fixed)))
+        counts["typecheck warning fixtures"] = counts.get("typecheck warning fixtures", 0) + 1
+    return named
+
+
 def run(write=False, fill=False, nonsync=None):
     failures = []
     counts = {}
     check_golden(failures, counts, write)
     named = check_refusals(failures, counts, fill)
+    named |= check_warnings(failures, counts, write)
     code, out = sawc(["--check"] + [rel(p) for p in refusal_cases()]
                       + [rel(src) for src, _ in golden_cases()])
     check_invariants(failures, records(out))

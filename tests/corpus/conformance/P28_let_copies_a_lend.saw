@@ -1,0 +1,35 @@
+// Conformance row P28 — `let` and `var` never hold a window
+// (SL:borrowing §12.1): over an unnamed lend they copy a Copy value out,
+// and a conditional lend read whole is an optional copy, each lend closed at
+// the read, so the root is free in the next statement. The refusals, a value
+// that cannot be copied out and a `guard let` over a lend, are
+// `errors/let_cannot_hold_a_lend.saw`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4 3 4 true
+// 3
+
+struct Cell { n: Int }
+struct Section { name: String, n: Int }
+struct Doc { sections: [Section; 1] }
+
+extension Doc {
+    func section(&self, i: Int) borrows -> &Section {
+        lend self.sections[0]
+    }
+}
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 4))
+    let x = v[0]
+    let doc = Doc(sections: [Section(name: "net", n: 3)])
+    let n = doc.section(0).n
+    let c = v.find(0)
+    let d = v.find(9)
+    try! v.push(Cell(n: 5))
+    print("{x.n} {n} {c!.n} {d == None}")
+    var y = v[1]
+    y.n -= 2
+    print(y.n)
+}

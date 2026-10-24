@@ -61,11 +61,11 @@ func main() {
                 closings: 0)
 
     // Present path, a shared borrow through the `!` (the synthesized `&self` twin).
-    print("{borrow b.get(1)!.count}")
+    print("{b.get(1)!.count}")
 
     // Present path, EXCLUSIVE borrow: `borrow var` uses the declared `&var self` accessor.
-    borrow var b.get(1)!.count += 10
-    print("{borrow b.get(1)!.count}")
+    b.get(1)!.count += 10
+    print("{b.get(1)!.count}")
 
     // Value read of the optional place: design 131's table, so a Copy
     // payload retains and the binding is the caller's own.
@@ -74,8 +74,8 @@ func main() {
     }
 
     // A place handed over as a `&var` argument: the window spans the call.
-    bump(borrow var b.get(1)!)
-    print("{borrow b.get(1)!.count}")
+    bump(&var b.get(1)!)
+    print("{b.get(1)!.count}")
 
     // Absent path: no window opens.
     if let c = borrow b.get(9) {
@@ -85,8 +85,8 @@ func main() {
     }
 
     // The epilogue runs on the lending path, once per closed window.
-    let _ = borrow b.tracked(0)!.count
-    let _ = borrow b.tracked(2)!.count
+    let _ = b.tracked(0)!.count
+    let _ = b.tracked(2)!.count
 
     // ...and not at all on the absent one.
     if let c = borrow b.tracked(9) {

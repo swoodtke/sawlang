@@ -36,7 +36,7 @@ func main() -> Int {
     record(true)
     record(false)
     let hits = borrow var c = STATS.lock() { c.hits }
-    let quick = if borrow var n = COUNT.try_lock() { n + 1 } else { 0 }
+    let quick = if var n = COUNT.try_lock() { n + 1 } else { 0 }
     let held = COUNT.is_locked()
     let local = SpinLock<Int>(value: 5)
     let doubled = borrow var n = local.lock() { n * 2 }

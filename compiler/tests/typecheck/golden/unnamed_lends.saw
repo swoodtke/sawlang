@@ -1,0 +1,69 @@
+// An unnamed lend at each 12.1 position, written with no prefix: each call
+// of a `borrows` method, and each subscript in its place role, checks, and
+// records the role and receiver borrow its position decides
+// (SL:borrowing §12.1, §12.3, §12.4).
+
+struct Entry { n: Int }
+
+extension Entry {
+    func twice(&self) -> Int { self.n * 2 }
+    func bump(&var self) { self.n += 1 }
+}
+
+struct Store { items: [Entry; 2] }
+
+extension Store {
+    func slot(&var self, i: Int) borrows -> &var Entry {
+        lend self.items[i]
+    }
+    @synthesize(shared)
+    func find(&var self, i: Int) borrows -> &var Entry? {
+        if i < 0 || i > 1 {
+            return None
+        }
+        lend self.items[i]
+    }
+}
+
+struct Session { name: String }
+extension Session: NoCopy {}
+
+func take(n: Int) -> Int { n }
+func bump(e: &var Entry) { e.n += 1 }
+func show(e: &Entry) -> Int { e.n }
+
+func positions(st: &var Store, v: &var Vector<Entry>, sessions: &Vector<Session>) -> Int {
+    st.slot(0).n = 3                            // assignment target
+    st.slot(0) = Entry(n: 4)                    // whole-place target
+    st.slot(1).n += 1                           // compound target
+    st.slot(1).bump()                           // a `&var self` method on the place
+    v[0].n = 7                                  // subscript, field target
+    v[0].n += 1                                 // subscript, compound target
+    v[0].bump()                                 // subscript, method on the place
+    bump(&var st.slot(0))                       // argument by reference, exclusive
+    let shown = show(&v[0])                     // argument by reference, shared
+    let n = st.slot(1).n                        // a `let` copies the value out
+    let found = st.find(1)                      // a conditional lend read whole: `Entry?`
+    let read = take(n: st.slot(0).twice())      // a method read through the place
+    st.find(0)?.n = 9                           // a conditional write, `Void?`
+    print("{st.slot(0).n} {sessions[0].name}")  // interpolation
+    print("{}", st.slot(1).n)                   // a format argument
+    if st.slot(0).n > 1 {                       // a condition
+        v[0].n = 1
+    }
+    for i in 0..st.slot(1).n {                  // a head's sub-expression
+        v[0].n += i
+    }
+    match st.slot(0).n {                        // a scrutinee's value
+        case 0 -> {},
+        case _ -> {}
+    }
+    var extra = 0
+    if let f = found {
+        extra = f.n
+    }
+    shown + n + read + extra
+}
+
+func main() {
+}

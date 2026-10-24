@@ -1,4 +1,4 @@
-// refuses: loan.nested-call at 33:50
+// refuses: loan.nested-call at 33:44
 // a borrowed argument's window closes when its own call returns, but its
 // borrow joins the enclosing call's access set, so a sibling argument's
 // `&var` of the same root still meets it (spec, Nested calls; conformance X58)
@@ -30,5 +30,5 @@ func main() {
     var h = Holder(item: Item(name: "abc", count: 3), n: 5)
     print(h.n)
     print(h.item.count)
-    print(outer(look(borrow h.getx().name), bump(&var h.n)))
+    print(outer(look(&h.getx().name), bump(&var h.n)))
 }

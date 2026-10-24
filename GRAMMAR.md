@@ -27,7 +27,7 @@ production. The notation is:
 ```ebnf-notation
 production          ::= header-line rule-line continuation-line*
 header-line         ::= "#" production-name "status=" status "spec=" quoted-heading "node=" node-kind ( "ref=" quoted-source )?
-status              ::= "current" | "lockdown" | "retired" | "removed" | "pending"
+status              ::= "current" | "lockdown" | "deprecated" | "retired" | "removed" | "pending"
 node-kind           ::= UpperCamelName | "-"
 rule-line           ::= nonterminal "::=" alternative
 continuation-line   ::= "|" alternative
@@ -88,6 +88,10 @@ alternative-name    ::= production-name
   this grammar recorded on SL-400; its `ref=` names the document section or
   the ruling. `retired` still
   parses, and a later stage refuses it with a hint naming the new spelling.
+  `deprecated` still parses and keeps its meaning for one transition
+  release. Where the new spelling means the same, a later stage warns, behind
+  `-W`, with a fix-it naming it, and a later release refuses the spelling;
+  its `ref=` names the ruling.
   `removed` is a spelling the parser recognizes only to refuse it with a
   dedicated diagnostic, whether it was valid once or never; §10 says why each
   is refused. `pending` awaits a ruling, and the production shows the proposed
@@ -1010,7 +1014,7 @@ place-hop ::= member-hop  @syntax.stmt.place-hop.member
     | subscript-hop  @syntax.stmt.place-hop.subscript
     | force-hop  @syntax.stmt.place-hop.force
 
-# syntax.stmt.call-target  status=retired  spec="Writing through a place"  node=-  ref="SL:borrowing §9"
+# syntax.stmt.call-target  status=lockdown  spec="Writing through a place"  node=-  ref="SL:borrowing §12.1"
 call-target ::= primary-expr postfix-hop* call-hop
 ```
 
@@ -1059,12 +1063,13 @@ lend-stmt ::= "lend" expr
 ### 6.4 Guard
 
 A `guard` takes an optional binding or a boolean condition. Its `else` block
-must leave the enclosing scope, which a later stage checks. A `guard` takes no
-borrow binding: its braces run on the absent path, so no window could hold the
-binding on the present one. `guard borrow let e = … else { … }` is refused
-(syntax.stmt.refused-guard-borrow), and so is a bare `borrow` block there,
-which reads as that binding (§13, syntax.rule.borrow-form); a parenthesized
-`borrow` block is a boolean condition.
+must leave the enclosing scope, which a later stage checks. A `guard` names no
+lend: its braces run on the absent path, so no window could hold the binding on
+the present one. A later stage refuses `guard let e = m.find(&k) else { … }`
+over a lend; the parser refuses v0.18.0's `guard borrow let e = … else { … }`
+(syntax.stmt.refused-guard-borrow), and so a bare `borrow` block there, which
+reads as that binding (§13, syntax.rule.borrow-form); a parenthesized `borrow`
+block is a boolean condition.
 
 ```ebnf
 # syntax.stmt.guard  status=current  spec="Control Flow"  node=Guard
@@ -1512,8 +1517,10 @@ closure-param ::= IDENT type-annotation?  @syntax.expr.closure-param.value
 ### 7.6 Conditionals and loops
 
 An `if` is one node with an ordered list of arms, so an `else if` chain is flat
-(§13, syntax.rule.flat-else-if). Each arm's head is a condition, an optional
-binding, or a borrow of an optional place.
+(§13, syntax.rule.flat-else-if). Each arm's head is a condition or an optional
+binding; an optional binding over a conditional lend binds the lent place, a
+meaning later stages give it (SL:borrowing §12.2). v0.18.0's `if borrow let`
+head (syntax.borrow.unwrap) is deprecated.
 
 ```ebnf
 # syntax.expr.if  status=current  spec="Control Flow"  node=If
@@ -1566,10 +1573,10 @@ arm-body ::= block  @syntax.expr.arm-body.block
 `while` with no condition loops until a `break`; there is no `loop` keyword.
 A `{` right after `while` begins that loop's body, so a condition never starts
 with a brace (§13, syntax.rule.infinite-loop). `while let` repeats while its
-subject is present and has no `else`. A `while` head, like an `if` head, may
-unwrap an optional place: `while borrow var e = it.find(&k) { … }` loops while
-the place is present, borrowing it afresh for each iteration (SL:borrowing
-§2.4). `for` binds one name per element.
+subject is present and has no `else`. Over a conditional lend,
+`while var e = it.find(&k) { … }` loops while the place is present, lending it
+afresh for each iteration (SL:borrowing §12.2). `for` binds one name per
+element, and `for var` binds it writable.
 
 ```ebnf
 # syntax.expr.while  status=current  spec="Control Flow"  node=While
@@ -1585,6 +1592,7 @@ while-let-expr ::= "while" "let" binding-target "=" head-expr NEWLINE* block  @s
 
 # syntax.expr.for  status=current  spec="Control Flow"  node=For
 for-expr ::= "for" binding-name "in" head-expr NEWLINE* block  @syntax.expr.for.plain
+    | "for" "var" binding-name "in" head-expr NEWLINE* block  @syntax.expr.for.var
     | for-borrow  @syntax.expr.for.borrow
     | refused-for-tuple  @syntax.expr.for.refused-tuple
 ```
@@ -1644,7 +1652,11 @@ variant-pattern ::= IDENT "(" ( payload-pattern ( "," payload-pattern )* ","? )?
 
 # syntax.pat.payload  status=current  spec="Enums (Algebraic Data Types)"  node=-
 payload-pattern ::= pattern  @syntax.pat.payload.pattern
+    | var-binding-pattern  @syntax.pat.payload.var
     | borrow-binding-pattern  @syntax.pat.payload.borrow
+
+# syntax.pat.var-binding  status=lockdown  spec="Lending an enum payload"  node=VarBindPat  ref="SL:borrowing §12.2"
+var-binding-pattern ::= "var" IDENT
 
 # syntax.pat.name  status=current  spec="Enums (Algebraic Data Types)"  node=NamePat
 name-pattern ::= IDENT
@@ -1655,16 +1667,24 @@ none-pattern ::= "None"
 
 ## 9. The borrow construct
 
-`borrow` marks every use of storage in place. The block form names the place
-and scopes it to a block; the place form borrows for one statement, or for a
-call when written as an argument. Where a name is bound, `let` or `var` follows
-`borrow` and gives the binding's mode. The place form binds no name: bare
-`borrow` is shared and `borrow var` is exclusive, as `&` and `&var` are. The
-forms are told apart by the tokens after `borrow` (§13, syntax.rule.borrow-form).
-The place form's operand is a postfix expression, so it binds tighter than every
+A `borrows` call needs no marker: an unnamed lend is an ordinary expression,
+and a binding that opens a block (`if let`, `while var`, `for`, a `match` arm)
+names one with its ordinary spelling (SL:borrowing §12). `borrow` survives as
+the unconditional named block: it names the place and scopes it to a block,
+and `let` or `var` after `borrow` gives the binding's mode.
+
+The other `borrow` forms are v0.18.0's, deprecated for one transition release
+(§1): the place form, which borrows for one statement or, as an argument, for
+a call (bare `borrow` shared and `borrow var` exclusive, as `&` and `&var`
+are); the optional-chain write `borrow var a?.b = v`; the `if borrow`/`while
+borrow` unwrap; `for borrow`; and the `borrow let`/`borrow var` payload
+pattern. Each still parses with its v0.18.0 meaning, and a later stage warns,
+behind `-W borrow-prefix`, where the plain spelling means the same. The forms
+are told apart by the tokens after `borrow` (§13, syntax.rule.borrow-form). The
+place form's operand is a postfix expression, so it binds tighter than every
 binary operator, `as` and `=` (§13, syntax.rule.borrow-extent).
 
-A borrow binding stands in four places: a `borrow` block, an `if`, `else if` or
+A deprecated borrow binding stands in four places: an `if`, `else if` or
 `while` head, a `for` head, and a variant's payload pattern. A `guard`, the top
 level of a `case` pattern and a tuple pattern take none; at a `guard` head one
 is refused by name (syntax.stmt.refused-guard-borrow).
@@ -1677,23 +1697,23 @@ borrow-block ::= "borrow" borrow-binding ( "," borrow-binding )* NEWLINE* block
 borrow-binding ::= "let" binding-target "=" head-expr  @syntax.borrow.binding.let
     | "var" binding-target "=" head-expr  @syntax.borrow.binding.var
 
-# syntax.borrow.place  status=lockdown  spec="Places (`borrows` and `lend`)"  node=BorrowPlace  ref="SL:borrowing §2.2"
+# syntax.borrow.place  status=deprecated  spec="Places (`borrows` and `lend`)"  node=BorrowPlace  ref="SL:borrowing §12"
 borrow-place ::= "borrow" postfix-expr  @syntax.borrow.place.shared
     | "borrow" "var" postfix-expr  @syntax.borrow.place.var
     | refused-borrow-let-unbound  @syntax.borrow.place.refused-let
 
-# syntax.borrow.optional-target  status=lockdown  spec="Optionals"  node=BorrowPlace  ref="SL:borrowing §9.1"
+# syntax.borrow.optional-target  status=deprecated  spec="Optionals"  node=BorrowPlace  ref="SL:borrowing §12"
 borrow-optional-target ::= "borrow" "var" optional-chain-target
 
-# syntax.borrow.unwrap  status=lockdown  spec="Conditional lends (`borrows -> &T?`)"  node=BorrowArm  ref="SL:borrowing §2.4"
+# syntax.borrow.unwrap  status=deprecated  spec="Conditional lends (`borrows -> &T?`)"  node=BorrowArm  ref="SL:borrowing §12"
 borrow-unwrap ::= "borrow" "let" binding-name "=" head-expr  @syntax.borrow.unwrap.let
     | "borrow" "var" binding-name "=" head-expr  @syntax.borrow.unwrap.var
 
-# syntax.borrow.for  status=lockdown  spec="Borrowing structs"  node=ForBorrow  ref="SL:borrowing §2.6"
+# syntax.borrow.for  status=deprecated  spec="Borrowing structs"  node=ForBorrow  ref="SL:borrowing §12"
 for-borrow ::= "for" "borrow" "let" binding-name "in" head-expr NEWLINE* block  @syntax.borrow.for.let
     | "for" "borrow" "var" binding-name "in" head-expr NEWLINE* block  @syntax.borrow.for.var
 
-# syntax.pat.borrow-binding  status=lockdown  spec="Lending an enum payload"  node=BorrowBindPat  ref="SL:borrowing §2.4"
+# syntax.pat.borrow-binding  status=deprecated  spec="Lending an enum payload"  node=BorrowBindPat  ref="SL:borrowing §12"
 borrow-binding-pattern ::= "borrow" "let" IDENT  @syntax.pat.borrow-binding.let
     | "borrow" "var" IDENT  @syntax.pat.borrow-binding.var
 ```
@@ -1902,21 +1922,22 @@ Each refused form, why it is refused, and what its diagnostic suggests:
 
 ### 10.1 Retired shapes
 
-These spellings still parse, as the production shown. A later stage refuses
-each with a hint naming the replacement, because SL:borrowing requires every use
-of storage through a `borrows` accessor to say `borrow`. The parser cannot tell
-them apart from valid code, since whether a subscript or call is an accessor is
-a type fact.
+These v0.18.0 spellings still parse, as the production shown, with their
+v0.18.0 meaning (§9, `deprecated`). Under `-W borrow-prefix` a later stage
+warns at each one SL:borrowing §12 makes redundant, with a fix-it naming the
+replacement, and `sawc fix` applies it; a later release refuses them. The
+parser cannot tell a redundant prefix from one that still means a copy, since
+that turns on type facts.
 
 | shape | parses as | replacement |
 |---|---|---|
-| `g[4].weight += 1`, a write through a `borrows` subscript or accessor | syntax.stmt.compound-assign | `borrow var g[4].weight += 1` |
-| `c.slot(i) = v`, an assignment to an accessor call | syntax.stmt.call-target | `borrow var c.slot(i) = v` |
-| `bump(&var g[4])`, a reference argument through an accessor | syntax.expr.ref | `bump(borrow var g[4])` |
-| `&buf[4..]`, a reference to a slice | syntax.expr.ref | `borrow buf[4..]` |
-| `m[k]?.field = v`, a chain write through a conditional accessor | syntax.stmt.optional-assign | `borrow var m.find(&k)?.field = v` |
-| `m[k]! = v`, a forced write through a map subscript | syntax.stmt.assign | `m[k] = v` to insert, or `borrow var e = m[k] { e = v }` to require the key |
-| `if var x = e` over an optional place | syntax.expr.optional-binding | `if borrow var x = e` |
+| `borrow var g[4].weight += 1`, a prefixed write through an accessor | syntax.borrow.place | `g[4].weight += 1` |
+| `print(borrow doc.section("net").name)`, a prefixed read | syntax.borrow.place | `print(doc.section("net").name)` |
+| `bump(borrow var g[4])`, a prefixed reference argument | syntax.borrow.place | `bump(&var g[4])` |
+| `borrow var m.find(&k)?.field = v`, a prefixed chain write | syntax.borrow.optional-target | `m.find(&k)?.field = v` |
+| `if borrow var x = m.find(&k) { … }`, a prefixed unwrap | syntax.borrow.unwrap | `if var x = m.find(&k) { … }` |
+| `for borrow var c in grid.cells() { … }` | syntax.borrow.for | `for var c in grid.cells() { … }` |
+| `case Some(borrow var x)`, a prefixed payload binding | syntax.pat.borrow-binding | `case Some(var x)` |
 
 ## 11. Nesting depth
 
@@ -2291,6 +2312,8 @@ refuse the same form, no row is needed. The kinds are:
 | construct | this grammar | today's parser | kind | source |
 |---|---|---|---|---|
 | syntax.borrow.block, syntax.borrow.place, syntax.borrow.unwrap, syntax.borrow.for, syntax.pat.borrow-binding | parses every `borrow` form | refuses them | ruled | SL:borrowing §2 |
+| syntax.expr.for, syntax.pat.var-binding | parses `for var x in` and a `var x` payload pattern | refuses both | ruled | SL:borrowing §12.2 |
+| syntax.stmt.call-target | parses an assignment to an accessor call, `c.slot(i) = v`, as a lend | parses it, and refuses it as a write to a call result | ruled | SL:borrowing §12.1 |
 | syntax.borrow.place, syntax.rule.borrow-form | takes `borrow` as a keyword, so it names nothing, and `borrow(x)` and `borrow.f()` are shared borrows of `(x)` and `.f()` | `sawc/lexer.py` lexes `borrow` as an identifier and the parser reads it as a name, so `let borrow = 1` declares a local and `borrow(x)` calls a function | ruled | SL:borrowing §2.2; SL-423 |
 | syntax.type.slice, syntax.expr.range-from, syntax.rule.prefix-type-suffix | parses `&[T]`, `&var [T]`, the optional slice `&[T]?`, and `buf[4..]` | refuses them | ruled | SL:borrowing §6 |
 | syntax.expr.multi-subscript, syntax.rule.subscript-arguments | parses `m[r, c]` and `m[k, default: 0]` | refuses a second subscript argument | ruled | SL:borrowing §5.3 |

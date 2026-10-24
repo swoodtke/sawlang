@@ -30,5 +30,5 @@ func main() {
     var h = Holder(item: Item(name: "abc", count: 3), n: 5)
     print(h.n)
     print(h.item.count)
-    print(outer(bump(&var h.n), look(borrow h.getx().name)))
+    print(outer(bump(&var h.n), look(&h.getx().name)))
 }

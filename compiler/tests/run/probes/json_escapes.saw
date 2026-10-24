@@ -50,6 +50,6 @@ func main() {
 
     // A key takes the same escapes, and an escaped key reads back unescaped.
     let doc = try! JsonValue.parse(text: "[\{\"k\\u00e9y\": \"v\"\}]")
-    print("key: {}", borrow doc.as_array()![0].as_object()!["kéy"].as_text() ?? "absent")
+    print("key: {}", doc.as_array()![0].as_object()!["kéy"].as_text() ?? "absent")
     print("built: {}", try! JsonValue.Text(value: "tab\tquote\"").to_json_string())
 }

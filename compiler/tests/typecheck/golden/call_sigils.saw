@@ -63,8 +63,8 @@ func main() {
     bump(&var n)
     let c = run({ r in r + 1 }, n) + relay(&var n) + pick(&n)
     var v: Vector<Int> = [1]
-    let d = look(borrow v[0])
-    bump(borrow var v[0])
+    let d = look(&v[0])
+    bump(&var v[0])
     let s = "abc"
     let t = "abd"
     let o = s.compare(&t)

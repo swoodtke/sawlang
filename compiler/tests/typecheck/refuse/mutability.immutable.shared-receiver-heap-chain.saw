@@ -10,6 +10,6 @@ extension Rows: NoCopy {}
 
 extension Rows {
     func bump_head(&self) {
-        borrow var self.rows[0][0] += 100
+        self.rows[0][0] += 100
     }
 }

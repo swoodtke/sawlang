@@ -87,41 +87,41 @@ func take(n: Int) -> Int { n }
 func run(f: () -> Int) -> Int { f() }
 
 func first(st: &var Store) -> Int {
-    return borrow st.slot(0).n
+    return st.slot(0).n
 }
 
 func via<T: Lens>(t: &var T) -> Int {
-    borrow t.get().n
+    t.get().n
 }
 
 func main() {
     var st = Store(items: [Entry(n: 1), Entry(n: 2)])
-    let a = borrow st.find(0)!.n
-    print(take(borrow st.slot(0).n) + a)
-    print(borrow st.slot(0).n == borrow st.slot(1).n)
-    for i in 0..borrow st.slot(1).n {
+    let a = st.find(0)!.n
+    print(take(st.slot(0).n) + a)
+    print(st.slot(0).n == st.slot(1).n)
+    for i in 0..st.slot(1).n {
         print(i)
     }
-    while borrow st.slot(0).n < 3 {
-        borrow var st.slot(0).bump()
+    while st.slot(0).n < 3 {
+        st.slot(0).bump()
     }
     if let e = borrow st.find(0) {
-        print("{e.n} {borrow st.slot(1).n}")
+        print("{e.n} {st.slot(1).n}")
     }
-    match borrow st.slot(0).n {
+    match st.slot(0).n {
         case 1 -> print(1),
         case _ -> print(0)
     }
-    borrow var st.slot(0).n = 5
-    borrow var st.find(0)?.n = 8
+    st.slot(0).n = 5
+    st.find(0)?.n = 8
     var x = 0
-    x = borrow st.slot(0).n
-    print(x + run({ borrow st.slot(0).n }) + first(&var st) + via(&var st))
+    x = st.slot(0).n
+    print(x + run({ st.slot(0).n }) + first(&var st) + via(&var st))
     for n in st.walk() {
         print(n)
     }
     var o = Outer(st: move st)
-    print(borrow o.first().n)
+    print(o.first().n)
     var g = Grid(cells: [1, 2])
     g[0] = 5
     g[1] += 1

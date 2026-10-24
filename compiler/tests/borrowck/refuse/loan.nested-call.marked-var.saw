@@ -1,4 +1,4 @@
-// refuses: loan.nested-call at 27:27
+// refuses: loan.nested-call at 27:16
 // an argument writing the receiver of a `borrow`-marked accessor call, an assignment through `borrow var` (SL-866)
 
 struct P { n: Int }
@@ -24,7 +24,7 @@ func reset(r: &var Row) -> Int {
 }
 
 func peek(r: &var Row) -> Int {
-    borrow var r.at(reset(&var r)).n = 5
+    r.at(reset(&var r)).n = 5
     0
 }
 

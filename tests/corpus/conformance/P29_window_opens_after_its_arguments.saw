@@ -1,0 +1,56 @@
+// Conformance row P29 — a window opens after the arguments it feeds
+// (SL:borrowing §12.1, "arguments first"): in a plain method on a lent place
+// and in an accessor on a lent place, every argument runs before the first
+// accessor's prologue, so an argument may read the root the chain holds. An
+// argument that writes the root stays refused, `loan.nested-call` (X44,
+// `errors/window_acquire_mutating_argument.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// side b
+// pro get 0
+// epi get
+// 1
+// side a
+// pro get 0
+// pro at 1
+// epi at
+// epi get
+// 100
+// 2
+
+struct Ctr { n: Int, cells: [Int; 2] }
+
+extension Ctr {
+    func bump(&var self, by: Int) { self.n += by }
+    func set(&var self, n: Int) { self.n = n }
+    func at(&var self, i: Int) borrows -> &var Int {
+        print("pro at {i}")
+        lend self.cells[0]
+        print("epi at")
+    }
+}
+
+struct Bank { items: [Ctr; 1] }
+
+extension Bank {
+    func get(&var self, i: Int) borrows -> &var Ctr {
+        print("pro get {i}")
+        lend self.items[0]
+        print("epi get")
+    }
+}
+
+func side(s: String) -> Int { print("side {s}"); 1 }
+
+func main() {
+    var b = Bank(items: [Ctr(n: 0, cells: [0, 0])])
+    b.get(0).bump(by: side("b"))
+    print(b.items[0].n)
+    b.get(0).at(side("a")) += 100
+    print(b.items[0].cells[0])
+    var v = Vector<Ctr>()
+    try! v.push(Ctr(n: 0, cells: [0, 0]))
+    try! v.push(Ctr(n: 0, cells: [0, 0]))
+    v[0].set(n: v.len())
+    print(v[0].n)
+}

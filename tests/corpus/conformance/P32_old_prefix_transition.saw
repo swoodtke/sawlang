@@ -1,0 +1,23 @@
+// Conformance row P32 — the old `borrow` prefix keeps its meaning for the
+// v0.19.0 transition (SL:borrowing §12.8): a redundant prefix compiles as the
+// unprefixed spelling does, and one whose meaning §12 does not give unmarked,
+// a copy out of a conditional lend at an `if let` head, still copies, so the
+// body may write the root. `-W borrow-prefix` warns on the first kind with a
+// fix-it and never on the second (`compiler/tests/typecheck/warn/kept.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 11
+// 2
+
+struct Cell { n: Int }
+
+func main() {
+    var v = Vector<Cell>()
+    try! v.push(Cell(n: 10))
+    borrow var v[0].n += 1
+    print(borrow v[0].n)
+    if let c = borrow v.find(0) {
+        try! v.push(c)
+    }
+    print(v.len())
+}
