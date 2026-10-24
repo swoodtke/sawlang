@@ -834,11 +834,13 @@ The standard library lives in `std/` and includes:
 - **std.process** — run child processes cooperatively.
 - **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` needs no
   import because `sleep` takes one.
-- **std.cbor** — CBOR (RFC 8949) in its deterministic encoding profile.
-- **std.json** — JSON (RFC 8259) over the same seam, plus `JsonValue`, a
-  parsed tree.
-- **Serialize / Deserialize** — over an `Encoder` / `Decoder` seam, with
-  `@synthesize` derivation.
+- **std.cbor** — pending SL-596, not implemented yet. The target is CBOR
+  (RFC 8949) in its deterministic encoding profile.
+- **std.json** — `JsonValue`, a parsed tree with `parse` and `to_json_string`
+  (RFC 8259). The `JsonEncoder`/`JsonDecoder` half over the serialization seam
+  is pending SL-596.
+- **Serialize / Deserialize** — pending SL-596, not implemented yet. The
+  target is an `Encoder` / `Decoder` seam with `@synthesize` derivation.
 
 See [Standard Library Overview](LANGUAGE_SPEC.md#9-standard-library-overview)
 in the spec for the full surface.

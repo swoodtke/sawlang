@@ -512,8 +512,8 @@ elaboration and the copy hook each find one body.
 The declaration-site rule is **per module**. A free function is identified by
 (defining module, name), the way a type is, so two modules may hold same-named
 functions of the same shape; neither module knows the other exists.
-`std.json.encode` and `std.cbor.encode` are the pair in the standard library.
-Which one a call means is decided where the call is written:
+`std.json.encode` and `std.cbor.encode` are the pair planned for the standard
+library (both pending SL-596; neither is declared yet). Which one a call means is decided where the call is written:
 
 - A **qualified** call takes exactly the named module's declarations —
   `json.encode(&value)` is json's, whatever `std.cbor` declares.
@@ -5711,7 +5711,7 @@ local it names is *borrowed*, never copied — which is what lets a move-only
 value be handed to something reached through a place:
 
 ```saw-fragment
-var enc = CborEncoder()             // NoCopy, built right here
+var enc = CborEncoder()             // NoCopy, built right here (std.cbor, pending SL-596)
 var i = 0
 while i < entries.len() {
     try entries[i].serialize(to: &var enc)     // lent, not copied
@@ -8258,11 +8258,16 @@ trait Hashable {            // requires Equatable
 
 ### Serialization (`Serialize`, `Deserialize`, `Encoder`, `Decoder`)
 
-**Status: implemented** (`designs/169-serialize-cbor.md`). A value writes itself
-into an `any Encoder` and reads itself back out of an `any Decoder`. The traits
-name a data model; the concrete format decides the bytes (`std.cbor` is the
-format in the tree). All four names are prelude-visible and present in the
-freestanding profile.
+**Status: pending SL-596, not implemented.** `std/serde.saw` does not exist, so
+`Serialize`, `Deserialize`, `Encoder` and `Decoder` have no declaration in the
+tree; the resolver reserves the four names (and the error types) as prelude
+names of `std.serde`, which is the intended home. Only `EncodeError`,
+`EncodeFault`, `DecodeError` and `DecodeFault` exist today, declared in
+`std/json.saw`. The rest of this section is the target design
+(`designs/169-serialize-cbor.md`). A value writes itself into an `any Encoder`
+and reads itself back out of an `any Decoder`. The traits name a data model;
+the concrete format decides the bytes. All four names are to be
+prelude-visible and present in the freestanding profile.
 
 ```saw-fragment
 trait Serialize {
@@ -8333,12 +8338,14 @@ trait Deserialize {
 
 ### `std.cbor` — the concrete format
 
-**Status: implemented** (`designs/169-serialize-cbor.md`, `std/cbor.saw`).
+**Status: pending SL-596, not implemented.** There is no `std/cbor.saw`, so
+`CborEncoder`, `CborDecoder` and `encode` do not exist; what follows is the
+target API (`designs/169-serialize-cbor.md`).
 CBOR (RFC 8949) restricted to its **deterministic encoding** profile. The wire
 contract is frozen in `std/CBOR.md`, and `tools/sawcbor.py` is a second
 implementation of that same document over the `cbor2` library; the blobs under
-`tests/cbor_vectors/` are what the two are held to. Import-required, and present
-in both profiles.
+`tests/cbor_vectors/` are what the two are held to. The module will be
+import-required and present in both profiles.
 
 ```saw-fragment
 import std.cbor.{CborEncoder, CborDecoder}
@@ -8390,6 +8397,33 @@ names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
   `decode<T>` twin: a static trait requirement is not callable on a type
   parameter yet (DF-169e), so a value is read back through its own type,
   `LockEntry.deserialize(from: &var dec)`.
+
+### `std.json` — the tree, and the format to come
+
+**Status: partly implemented** (`std/json.saw`, `std/JSON.md`). The tree half
+exists; the `Encoder`/`Decoder` half is pending SL-596, with `std.serde`.
+
+`JsonValue` is a recursive enum, `ExplicitCopy` (`copy()` is deep):
+`Null`, `Bool(value:)`, `Number(value: Int)`, `Float(value:)`, `Text(value:)`,
+`Array(items: Vector<JsonValue>)` and `Object(fields: Map<String, JsonValue>)`.
+A number token that is integral and fits `Int` is a `Number`; any other is a
+`Float`. Object key order is not kept. Its members:
+
+- `JsonValue.parse(text:max_depth:max_size:)` returns
+  `Result<JsonValue, DecodeError>`, strict RFC 8259 (defaults: 64 levels,
+  16 MiB). A malformed input is an `Err` naming the byte offset, never a panic.
+- `to_json_string()` returns `Result<String, EncodeError>`, compact. A
+  non-finite `Float` is `Unsupported`, since JSON has no spelling for it.
+- `is_null()`, `as_bool()`, `as_int()`, `as_float()` and `as_text()` answer
+  `None` for any other case.
+- `as_array()` and `as_object()` lend their container in place
+  (`borrows -> &var T?`).
+- `EncodeError`, `EncodeFault`, `DecodeError` and `DecodeFault`, each with
+  `describe()` (the fault enums) or `format(into:)` (the errors), which move to
+  `std.serde` with it.
+
+Pending, and not in the tree: `JsonEncoder`, `JsonDecoder` and the one-call
+`encode`, which sit on the `Serialize` seam above.
 
 ### `Vector.each` / `map` / `fold` / `each_indexed`
 
@@ -13613,7 +13647,7 @@ Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `SpinLock`, `Once`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
 design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf),
-`CborEncoder`/`CborDecoder` (std.cbor), `SlabHead` and the slab free
+`CborEncoder`/`CborDecoder` (std.cbor, pending SL-596), `SlabHead` and the slab free
 functions (std.slab), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without an import of its module. A bare reference to one is a
@@ -14239,6 +14273,12 @@ need one of the three [import forms](#imports).
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
 | `std.json` | `JsonEncoder`, `JsonDecoder`, `JsonValue`, `encode` | no |
 | `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
+
+The `std.serde`, `std.cbor` and `std.json` rows describe the target surface.
+`std/serde.saw` and `std/cbor.saw` do not exist (SL-596). Of the `std.json`
+row only `JsonValue` is declared today, and `std/json.saw` also declares
+`EncodeError`, `DecodeError` and their fault enums until `std.serde` holds
+them. `JsonEncoder`, `JsonDecoder` and `encode` are pending SL-596.
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 `async`/`await`. The NAMESPACE is the engine.

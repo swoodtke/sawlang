@@ -2095,7 +2095,10 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   on ExplicitCopy/NoCopy operands (transitively, through fields, payloads and
   tuple elements) and did not catch at all on the Copy tier.
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
-  `Decoder`.** Prelude-visible, both profiles. A value writes itself into a
+  `Decoder`.** **Status: pending SL-596, NOT implemented** — there is no
+  `std/serde.saw`; the resolver reserves the names, nothing declares the traits
+  (`EncodeError`/`DecodeError` and their fault enums live in `std/json.saw` for
+  now). What follows is the target design. Prelude-visible, both profiles. A value writes itself into a
   format-agnostic sink and reads itself back out of one. `@synthesize` DERIVES
   both directions — every stored field, declaration order, as one array:
   ```saw-fragment
@@ -2129,7 +2132,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `begin_array(count:)` is followed by exactly that many items, else
   `CountMismatch`. Narrow ints read back through `read_int_range`/`read_uint_max`
   (a narrowing cast would panic; the range is checked first).
-- **THE FORMAT IS `std.cbor` (design 169 units 3+4)** — CBOR RFC 8949 in its
+- **THE FORMAT IS `std.cbor` (design 169 units 3+4)** — **Status: pending
+  SL-596, NOT implemented** (no `std/cbor.saw`; target API below). CBOR RFC 8949 in its
   DETERMINISTIC profile, import-required (`import std.cbor.{CborEncoder,
   CborDecoder}`), both profiles. Frozen contract: `std/CBOR.md`; golden
   blobs: `tests/cbor_vectors/` (32 accept + 20 reject, gating the Saw codec AND
@@ -2159,7 +2163,11 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   VALUE, so a NoCopy encoder was ``cannot copy value of type `CborEncoder` ``
   anchored at the subscript), with "read the element out first" as the
   workaround, so distrust the shape in an older build.
-- **THE OTHER FORMAT IS `std.json`** — RFC 8259 over the same `Encoder`/
+- **THE OTHER FORMAT IS `std.json`** — **Status: partly implemented.**
+  `JsonValue` (parse, `to_json_string`, the readers below) and the error types
+  `EncodeError`/`DecodeError` with their `describe`/`format` exist in
+  `std/json.saw`; `JsonEncoder`, `JsonDecoder` and `encode` are pending SL-596
+  with `std.serde`. RFC 8259 over the same `Encoder`/
   `Decoder` seam, import-required (`import std.json.{JsonEncoder, JsonDecoder,
   JsonValue}`). The seam half reads exactly like CBOR's, and `encode<T:
   Serialize>(value:)` is the one-call write:
@@ -3682,7 +3690,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `Allocator`/`GlobalAllocator`, the Copy family + `Deinit`/`Iterator`/
   `Equatable`/`Comparable`/`Hashable`/`Printable`/`Error`/`Send`/`Sync`,
   `Serialize`/`Deserialize` + `Encoder`/`Decoder`/`EncodeError`/`DecodeError`
-  (std.serde — design 169),
+  (std.serde — design 169; reserved by the resolver, module pending SL-596),
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
   `Task<T>`/`sleep`/`cancelled` (`Thread.spawn`/`Task.spawn` are
   FORMS, not importable names), `StringBuilder`, `Duration` (std.duration —
@@ -3707,8 +3715,9 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
   `Command` (std.process), `Env` (std.env),
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
-  `CborEncoder`/`CborDecoder` (std.cbor — design 169) and
-  `JsonEncoder`/`JsonDecoder`/`JsonValue`/`encode` (std.json) — `std.serde`'s
+  `CborEncoder`/`CborDecoder` (std.cbor — design 169, pending SL-596) and
+  `JsonEncoder`/`JsonDecoder`/`JsonValue`/`encode` (std.json; only `JsonValue`
+  exists today) — `std.serde`'s
   `Serialize`/`Deserialize`/`Encoder`/`Decoder` stay PRELUDE, only the FORMATS
   are gated — and — since design 188 closed the two the gate list had missed —
   `SpinLock` (std.spinlock) and `SlabHead`/`slab_alloc`/`slab_dealloc`

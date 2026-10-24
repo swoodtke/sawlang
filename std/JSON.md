@@ -1,5 +1,16 @@
 # `std.json` — JSON over the `Encoder`/`Decoder` seam
 
+**Status: partly implemented.** `std/json.saw` declares `JsonValue` with
+`parse(text:max_depth:max_size:)`, `to_json_string`, `is_null`, `as_bool`,
+`as_int`, `as_float`, `as_text`, `as_array` and `as_object`, plus the error
+types `EncodeError`, `EncodeFault`, `DecodeError` and `DecodeFault` (each with
+`describe` or `format`). Everything else below is the target API, pending
+SL-596: `JsonEncoder`, `JsonDecoder`, `encode`, the `Serialize`, `Deserialize`,
+`Encoder` and `Decoder` traits (`std/serde.saw` does not exist), and the
+`std.cbor` comparisons. The body also names `JsonValue._write`, which is
+internal, and `as_number`, `member` and `element`, which `std.json` does not
+declare and this document says it will not.
+
 This document is the contract for `std/json.saw`, on the same terms
 `std/CBOR.md` is the contract for v0.18.0's `sawc/std/cbor.saw`.
 
