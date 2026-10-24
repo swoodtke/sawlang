@@ -55,13 +55,15 @@ PROBE_KINDS = ("stated", "panics")
 # the `borrows` bodies and `consumes` methods that suspend, whose frames hold
 # the accessor's locals and the unmoved fields across the suspension, and the
 # dumps of running tasks, whose walk must read no drive's released slot, the
-# forwarding accessors, whose record carries the inner window's record, and
-# the accessors with several `lend` sites, each closing only the windows its
-# taken site opened.
+# forwarding accessors, whose record carries the inner window's record, the
+# accessors with several `lend` sites, each closing only the windows its
+# taken site opened, and the epilogues a bare `return` ends early, which
+# leave the record's locals and an inner window's record from wherever the
+# `return` stands.
 PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw", "conditional_lend_*.saw",
                   "borrow_value_read_*.saw", "temporary_part_*.saw", "match_whole_binding_*.saw",
                   "borrows_body_suspends_*.saw", "consumes_suspending_*.saw", "running_task_dump_*.saw",
-                  "forward_lend_*.saw", "lend_sites_*.saw")
+                  "forward_lend_*.saw", "lend_sites_*.saw", "epilogue_return_*.saw")
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60

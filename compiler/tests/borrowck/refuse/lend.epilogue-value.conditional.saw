@@ -1,0 +1,22 @@
+// refuses: lend.epilogue-value at 13:25
+// a conditional accessor's `return None` after its `lend`: `None` is the
+// absent path, which the present path has left behind
+
+struct Gauge { level: Int, quiet: Bool }
+
+extension Gauge {
+    func at(&var self, i: Int) borrows -> &var Int? {
+        if i != 0 {
+            return None
+        }
+        lend self.level
+        if self.quiet { return None }
+        print("epilogue")
+    }
+}
+
+func main() {
+    var g = Gauge(level: 1, quiet: true)
+    if borrow var x = g.at(0) { x += 1 }
+    print(g.level)
+}

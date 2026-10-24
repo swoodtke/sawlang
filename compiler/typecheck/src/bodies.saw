@@ -230,6 +230,7 @@ extension TcProgram {
         self.catch_errors = Vector<Int>()
         self.referenced_params = Vector<Int>()
         self.current_root = root
+        self.body_lends = false
     }
 
     // Marks the body being checked poisoned when `t`, a type a signature
@@ -333,11 +334,14 @@ extension TcProgram {
         self.body_result = s.result
         // A `borrows` body lends rather than returns: its value is the place
         // a `lend` names, a conditional lend's absent path returns `None`,
-        // and its coverage is the effect checks' question.
+        // and its coverage is the effect checks' question. A bare `return`
+        // ends its epilogue, so the side of the `lend` a `return` stands on
+        // decides what it may carry, which borrowck reads off the split.
         let lending = (s.effects & TC_EFFECT_BORROWS) != 0
         let lent = self.referent(s.result)
         if lending && lent >= 0 {
             self.body_result = lent
+            self.body_lends = true
         }
         if self.is_void(s.result) || lending {
             let _ = self.check_block(block, TC_WANT_STMT, TcTail.Body)
@@ -1271,6 +1275,9 @@ extension TcProgram {
             return
         }
         if e < 0 {
+            if self.body_lends {
+                return
+            }
             if result >= 0 && not self.is_void(result) && not self.has_error(result) && not self.returns_void_ok(result) {
                 var msg = StringBuilder()
                 try! msg.append("`return` with no value, where `")
@@ -5580,6 +5587,7 @@ extension TcProgram {
         }
         let saved_result = self.body_result
         let saved_open = self.result_open
+        let saved_lends = self.body_lends
         let saved_loops = tc_copy_ints(&self.loop_breaks)
         // A `try` in the closure's body propagates out of the closure, never
         // into a `try` block around it.
@@ -5592,6 +5600,7 @@ extension TcProgram {
         self.catch_errors = Vector<Int>()
         self.body_result = result
         self.result_open = result < 0
+        self.body_lends = false
         var body = self.error_type
         var never = false
         if result >= 0 && self.is_void(result) {
@@ -5609,6 +5618,7 @@ extension TcProgram {
         }
         self.body_result = saved_result
         self.result_open = saved_open
+        self.body_lends = saved_lends
         self.loop_breaks = move saved_loops
         self.catch_frames = move saved_frames
         self.catch_errors = move saved_errors

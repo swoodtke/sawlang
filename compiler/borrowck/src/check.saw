@@ -25,6 +25,8 @@ public func borrowck_rules() -> Vector<String> {
     try! out.push("assign.rhs-borrow")
     try! out.push("consumes.replace-partial")
     try! out.push("consumes.some-paths")
+    try! out.push("lend.absent-path")
+    try! out.push("lend.epilogue-value")
     try! out.push("lend.missing")
     try! out.push("lend.root")
     try! out.push("lend.sync-undeclared")

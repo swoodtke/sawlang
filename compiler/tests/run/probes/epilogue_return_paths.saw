@@ -1,0 +1,170 @@
+// probe: stated
+// about: a bare `return` ends an epilogue under a `guard`, in a `for`, a `catch` and the branch that lent, past diverging paths (SL-870)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// leaks: none
+// prints: round quiet=true
+// prints: drop t1
+// prints: drop t2
+// prints: x 1
+// prints: drop t3
+// prints: drop t4
+// prints: drop t5
+// prints: tail
+// prints: drop t5
+// prints: drop t6
+// prints: caught
+// prints: drop t7
+// prints: r 30
+// prints: drop t8
+// prints: a=8 b=4
+// prints: round quiet=false
+// prints: tail
+// prints: drop t1
+// prints: tail
+// prints: drop t2
+// prints: x 1
+// prints: x 2
+// prints: x 3
+// prints: tail
+// prints: drop t3
+// prints: tail
+// prints: drop t4
+// prints: branch tail
+// prints: tail
+// prints: drop t5
+// prints: tail
+// prints: drop t5
+// prints: tail
+// prints: drop t6
+// prints: k 0
+// prints: tail
+// prints: drop t7
+// prints: r 30
+// prints: tail
+// prints: drop t8
+// prints: a=15 b=6
+// Epilogue `return`s whose every path passed a `lend` because the other
+// paths diverge (a `panic` arm, a `match` arm), and bare `return`s under a
+// `guard`, in a `for`, inside the branch that lent, in a `catch`, and beside
+// a closure whose own `return` gives its value. With `quiet` each accessor's
+// epilogue ends at its `return` and its local drops once.
+struct Tag { id: Int }
+extension Tag: NoCopy { func deinit(&var self) { print("drop t{}", self.id) } }
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+extension Bad: Error {}
+
+func fails(n: Int) -> Result<Int, Bad> {
+    if n > 0 {
+        return Bad(code: n)
+    }
+    return 0
+}
+
+func apply(n: Int, f: (Int) -> Int) -> Int { f(n) }
+
+struct G { a: Int, b: Int, quiet: Bool, n: Int }
+extension G: NoCopy {}
+
+enum Pick { case First, case Second, case Neither }
+
+extension G {
+    func panics_else(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 1)
+        if i == 0 { lend self.a } else { panic("no place") }
+        if self.quiet { return }
+        print("tail")
+    }
+    func guarded(&var self) borrows -> &var Int {
+        let t = Tag(id: 2)
+        lend self.a
+        guard not self.quiet else { return }
+        print("tail")
+    }
+    func in_for(&var self) borrows -> &var Int {
+        let t = Tag(id: 3)
+        lend self.a
+        for x in 1..4 {
+            if x == 2 && self.quiet { return }
+            print("x {}", x)
+        }
+        print("tail")
+    }
+    func matched(&var self, p: Pick) borrows -> &var Int {
+        let t = Tag(id: 4)
+        match p {
+            case First -> { lend self.a },
+            case Second -> { lend self.b },
+            case Neither -> { panic("neither") }
+        }
+        if self.quiet { return }
+        print("tail")
+    }
+    func in_branch(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 5)
+        if i == 0 {
+            lend self.a
+            if self.quiet { return }
+            print("branch tail")
+        } else {
+            lend self.b
+        }
+        print("tail")
+    }
+    func guarded_absent(&var self, i: Int) borrows -> &var Int? {
+        guard i == 0 else { return None }
+        let t = Tag(id: 6)
+        lend self.a
+        if self.quiet { return }
+        print("tail")
+    }
+    func caught(&var self) borrows -> &var Int {
+        let t = Tag(id: 7)
+        lend self.a
+        try {
+            let k = try fails(self.n)
+            print("k {}", k)
+        } catch {
+            print("caught")
+            return
+        }
+        print("tail")
+    }
+    func beside_closure(&var self) borrows -> &var Int {
+        let t = Tag(id: 8)
+        lend self.a
+        let r = apply(3, { k in
+            if k > 2 { return k * 10 }
+            k
+        })
+        print("r {}", r)
+        if self.quiet { return }
+        print("tail")
+    }
+}
+
+func main() {
+    var g = G(a: 1, b: 2, quiet: true, n: 1)
+    var round = 0
+    while round < 2 {
+        print("round quiet={}", g.quiet)
+        borrow var x = g.panics_else(0) { x += 1 }
+        borrow var x = g.guarded() { x += 1 }
+        borrow var x = g.in_for() { x += 1 }
+        borrow var x = g.matched(Pick.Second) { x += 1 }
+        borrow var x = g.in_branch(0) { x += 1 }
+        borrow var x = g.in_branch(1) { x += 1 }
+        if borrow var x = g.guarded_absent(0) { x += 1 }
+        if borrow var x = g.guarded_absent(1) { x += 1 }
+        borrow var x = g.caught() { x += 1 }
+        borrow var x = g.beside_closure() { x += 1 }
+        print("a={} b={}", g.a, g.b)
+        g.quiet = false
+        g.n = 0
+        round = round + 1
+    }
+}

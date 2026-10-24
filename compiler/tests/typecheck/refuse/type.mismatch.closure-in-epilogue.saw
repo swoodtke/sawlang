@@ -1,0 +1,24 @@
+// refuses: type.mismatch at 13:24
+// a closure written in an accessor's epilogue keeps its own result: a bare
+// `return` ends the epilogue, never a closure that returns `Int`
+
+struct Gauge { level: Int }
+
+func apply(n: Int, f: (Int) -> Int) -> Int { f(n) }
+
+extension Gauge {
+    func at(&var self) borrows -> &var Int {
+        lend self.level
+        let r = apply(3, { k in
+            if k > 2 { return }
+            k
+        })
+        print("r {}", r)
+    }
+}
+
+func main() {
+    var g = Gauge(level: 1)
+    borrow var x = g.at() { x += 1 }
+    print(g.level)
+}

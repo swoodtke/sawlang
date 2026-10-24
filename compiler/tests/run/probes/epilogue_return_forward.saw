@@ -1,0 +1,611 @@
+// probe: stated
+// about: a bare `return` ends a forwarding accessor's epilogue early, in each position, sync and suspending (SL-870)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// leaks: none
+// prints: straight quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t1
+// prints: drop t1
+// prints: straight quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t1
+// prints: drop t1
+// prints: straight quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t1
+// prints: drop t1
+// prints: straight quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t1
+// prints: drop t1
+// prints: a=1 b=2 inner=20 other=100
+// prints: in_if quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t3
+// prints: drop t3
+// prints: in_if quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t3
+// prints: drop t3
+// prints: in_if quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t3
+// prints: tail
+// prints: drop t3
+// prints: in_if quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t3
+// prints: tail
+// prints: drop t3
+// prints: a=1 b=2 inner=30 other=100
+// prints: in_loop quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t5
+// prints: k 0
+// prints: drop t5
+// prints: in_loop quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t5
+// prints: k 0
+// prints: drop t5
+// prints: in_loop quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t5
+// prints: k 0
+// prints: k 1
+// prints: k 2
+// prints: tail
+// prints: drop t5
+// prints: in_loop quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t5
+// prints: k 0
+// prints: k 1
+// prints: k 2
+// prints: tail
+// prints: drop t5
+// prints: a=1 b=2 inner=40 other=100
+// prints: after_borrow quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t7
+// prints: inner epilogue
+// prints: drop t7
+// prints: after_borrow quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t7
+// prints: inner epilogue
+// prints: drop t7
+// prints: after_borrow quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t7
+// prints: inner epilogue
+// prints: tail
+// prints: drop t7
+// prints: after_borrow quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t7
+// prints: inner epilogue
+// prints: tail
+// prints: drop t7
+// prints: a=1 b=2 inner=50 other=104
+// prints: in_borrow quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t9
+// prints: inner epilogue
+// prints: drop t9
+// prints: in_borrow quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t9
+// prints: inner epilogue
+// prints: drop t9
+// prints: in_borrow quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t9
+// prints: inner epilogue
+// prints: tail
+// prints: drop t9
+// prints: in_borrow quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t9
+// prints: inner epilogue
+// prints: tail
+// prints: drop t9
+// prints: a=1 b=2 inner=60 other=108
+// prints: straight_suspending quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t2
+// prints: drop t2
+// prints: straight_suspending quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t2
+// prints: drop t2
+// prints: straight_suspending quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t2
+// prints: drop t2
+// prints: straight_suspending quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t2
+// prints: drop t2
+// prints: a=1 b=2 inner=20 other=100
+// prints: in_if_suspending quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t4
+// prints: drop t4
+// prints: in_if_suspending quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t4
+// prints: drop t4
+// prints: in_if_suspending quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t4
+// prints: tail
+// prints: drop t4
+// prints: in_if_suspending quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t4
+// prints: tail
+// prints: drop t4
+// prints: a=1 b=2 inner=30 other=100
+// prints: in_loop_suspending quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t6
+// prints: k 0
+// prints: drop t6
+// prints: in_loop_suspending quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t6
+// prints: k 0
+// prints: drop t6
+// prints: in_loop_suspending quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t6
+// prints: k 0
+// prints: k 1
+// prints: k 2
+// prints: tail
+// prints: drop t6
+// prints: in_loop_suspending quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t6
+// prints: k 0
+// prints: k 1
+// prints: k 2
+// prints: tail
+// prints: drop t6
+// prints: a=1 b=2 inner=40 other=100
+// prints: after_borrow_suspending quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t8
+// prints: inner epilogue
+// prints: drop t8
+// prints: after_borrow_suspending quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t8
+// prints: inner epilogue
+// prints: drop t8
+// prints: after_borrow_suspending quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t8
+// prints: inner epilogue
+// prints: tail
+// prints: drop t8
+// prints: after_borrow_suspending quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t8
+// prints: inner epilogue
+// prints: tail
+// prints: drop t8
+// prints: a=1 b=2 inner=50 other=104
+// prints: in_borrow_suspending quiet=true i=0
+// prints: inner epilogue
+// prints: epilogue t10
+// prints: inner epilogue
+// prints: drop t10
+// prints: in_borrow_suspending quiet=true i=1
+// prints: inner epilogue
+// prints: epilogue t10
+// prints: inner epilogue
+// prints: drop t10
+// prints: in_borrow_suspending quiet=false i=0
+// prints: inner epilogue
+// prints: epilogue t10
+// prints: inner epilogue
+// prints: tail
+// prints: drop t10
+// prints: in_borrow_suspending quiet=false i=1
+// prints: inner epilogue
+// prints: epilogue t10
+// prints: inner epilogue
+// prints: tail
+// prints: drop t10
+// prints: a=1 b=2 inner=60 other=108
+// prints: suspending 1
+// Each accessor holds an owning local across its `lend` and returns early
+// from its epilogue: straight after the `lend`, in an `if`, in a loop, after
+// a nested `borrow` block and inside one. With `quiet` the code after the
+// `return` never runs, an inner window closes once, and the local drops
+// once; without it the epilogue runs to its end. The suspending accessors
+// yield in both halves, and their callers inside the window.
+import std.task.*
+
+struct Tag { id: Int }
+extension Tag: NoCopy { func deinit(&var self) { print("drop t{}", self.id) } }
+
+struct Cells { v: Vector<Int> }
+extension Cells: NoCopy {}
+extension Cells {
+    func at(&var self, i: Int) borrows -> &var Int {
+        lend self.v[i]
+        print("inner epilogue")
+    }
+}
+
+struct G { a: Int, b: Int, quiet: Bool, inner: Cells, other: Cells }
+extension G: NoCopy {}
+
+extension G {
+    func straight(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 1)
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        return
+        print("unreached")
+    }
+    func straight_suspending(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 2)
+        yield_now()
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        yield_now()
+        return
+        print("unreached")
+    }
+    func in_if(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 3)
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        if self.quiet {
+            return
+        }
+        print("tail")
+    }
+    func in_if_suspending(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 4)
+        yield_now()
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        yield_now()
+        if self.quiet {
+            return
+        }
+        print("tail")
+    }
+    func in_loop(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 5)
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        var k = 0
+        while k < 3 {
+            if k == 1 && self.quiet {
+                return
+            }
+            print("k {}", k)
+            k = k + 1
+        }
+        print("tail")
+    }
+    func in_loop_suspending(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 6)
+        yield_now()
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        yield_now()
+        var k = 0
+        while k < 3 {
+            if k == 1 && self.quiet {
+                return
+            }
+            print("k {}", k)
+            k = k + 1
+        }
+        print("tail")
+    }
+    func after_borrow(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 7)
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        borrow var y = self.other.at(0) {
+            y += 1
+        }
+        if self.quiet {
+            return
+        }
+        print("tail")
+    }
+    func after_borrow_suspending(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 8)
+        yield_now()
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        yield_now()
+        borrow var y = self.other.at(0) {
+            y += 1
+        }
+        if self.quiet {
+            return
+        }
+        print("tail")
+    }
+    func in_borrow(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 9)
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        borrow var y = self.other.at(0) {
+            y += 1
+            if self.quiet {
+                return
+            }
+        }
+        print("tail")
+    }
+    func in_borrow_suspending(&var self, i: Int) borrows -> &var Int {
+        let t = Tag(id: 10)
+        yield_now()
+        lend borrow var self.inner.at(i)
+        print("epilogue t{}", t.id)
+        yield_now()
+        borrow var y = self.other.at(0) {
+            y += 1
+            if self.quiet {
+                return
+            }
+        }
+        print("tail")
+    }
+}
+
+func sync_calls() {
+    var g = G(a: 1, b: 2, quiet: true, inner: Cells(v: [10, 20]), other: Cells(v: [100]))
+    g.quiet = true
+    print("straight quiet=true i=0")
+    borrow var x = g.straight(0) {
+        x += 5
+    }
+    g.quiet = true
+    print("straight quiet=true i=1")
+    borrow var x = g.straight(1) {
+        x += 5
+    }
+    g.quiet = false
+    print("straight quiet=false i=0")
+    borrow var x = g.straight(0) {
+        x += 5
+    }
+    g.quiet = false
+    print("straight quiet=false i=1")
+    borrow var x = g.straight(1) {
+        x += 5
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("in_if quiet=true i=0")
+    borrow var x = g.in_if(0) {
+        x += 5
+    }
+    g.quiet = true
+    print("in_if quiet=true i=1")
+    borrow var x = g.in_if(1) {
+        x += 5
+    }
+    g.quiet = false
+    print("in_if quiet=false i=0")
+    borrow var x = g.in_if(0) {
+        x += 5
+    }
+    g.quiet = false
+    print("in_if quiet=false i=1")
+    borrow var x = g.in_if(1) {
+        x += 5
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("in_loop quiet=true i=0")
+    borrow var x = g.in_loop(0) {
+        x += 5
+    }
+    g.quiet = true
+    print("in_loop quiet=true i=1")
+    borrow var x = g.in_loop(1) {
+        x += 5
+    }
+    g.quiet = false
+    print("in_loop quiet=false i=0")
+    borrow var x = g.in_loop(0) {
+        x += 5
+    }
+    g.quiet = false
+    print("in_loop quiet=false i=1")
+    borrow var x = g.in_loop(1) {
+        x += 5
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("after_borrow quiet=true i=0")
+    borrow var x = g.after_borrow(0) {
+        x += 5
+    }
+    g.quiet = true
+    print("after_borrow quiet=true i=1")
+    borrow var x = g.after_borrow(1) {
+        x += 5
+    }
+    g.quiet = false
+    print("after_borrow quiet=false i=0")
+    borrow var x = g.after_borrow(0) {
+        x += 5
+    }
+    g.quiet = false
+    print("after_borrow quiet=false i=1")
+    borrow var x = g.after_borrow(1) {
+        x += 5
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("in_borrow quiet=true i=0")
+    borrow var x = g.in_borrow(0) {
+        x += 5
+    }
+    g.quiet = true
+    print("in_borrow quiet=true i=1")
+    borrow var x = g.in_borrow(1) {
+        x += 5
+    }
+    g.quiet = false
+    print("in_borrow quiet=false i=0")
+    borrow var x = g.in_borrow(0) {
+        x += 5
+    }
+    g.quiet = false
+    print("in_borrow quiet=false i=1")
+    borrow var x = g.in_borrow(1) {
+        x += 5
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+}
+
+func suspending_calls() -> Int {
+    var g = G(a: 1, b: 2, quiet: true, inner: Cells(v: [10, 20]), other: Cells(v: [100]))
+    g.quiet = true
+    print("straight_suspending quiet=true i=0")
+    borrow var x = g.straight_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = true
+    print("straight_suspending quiet=true i=1")
+    borrow var x = g.straight_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("straight_suspending quiet=false i=0")
+    borrow var x = g.straight_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("straight_suspending quiet=false i=1")
+    borrow var x = g.straight_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("in_if_suspending quiet=true i=0")
+    borrow var x = g.in_if_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = true
+    print("in_if_suspending quiet=true i=1")
+    borrow var x = g.in_if_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("in_if_suspending quiet=false i=0")
+    borrow var x = g.in_if_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("in_if_suspending quiet=false i=1")
+    borrow var x = g.in_if_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("in_loop_suspending quiet=true i=0")
+    borrow var x = g.in_loop_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = true
+    print("in_loop_suspending quiet=true i=1")
+    borrow var x = g.in_loop_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("in_loop_suspending quiet=false i=0")
+    borrow var x = g.in_loop_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("in_loop_suspending quiet=false i=1")
+    borrow var x = g.in_loop_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("after_borrow_suspending quiet=true i=0")
+    borrow var x = g.after_borrow_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = true
+    print("after_borrow_suspending quiet=true i=1")
+    borrow var x = g.after_borrow_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("after_borrow_suspending quiet=false i=0")
+    borrow var x = g.after_borrow_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("after_borrow_suspending quiet=false i=1")
+    borrow var x = g.after_borrow_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.quiet = true
+    print("in_borrow_suspending quiet=true i=0")
+    borrow var x = g.in_borrow_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = true
+    print("in_borrow_suspending quiet=true i=1")
+    borrow var x = g.in_borrow_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("in_borrow_suspending quiet=false i=0")
+    borrow var x = g.in_borrow_suspending(0) {
+        x += 5
+        yield_now()
+    }
+    g.quiet = false
+    print("in_borrow_suspending quiet=false i=1")
+    borrow var x = g.in_borrow_suspending(1) {
+        x += 5
+        yield_now()
+    }
+    print("a={} b={} inner={} other={}", g.a, g.b, g.inner.v[0], g.other.v[0])
+    g.a
+}
+
+func main() {
+    sync_calls()
+    print("suspending {}", __saw_drive(suspending_calls()))
+}

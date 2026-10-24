@@ -4712,7 +4712,7 @@ code — whatever the use site does with the place — runs *inside* that pause.
 the window closes the accessor **resumes** and runs whatever follows the `lend`,
 then finishes.
 
-So a `borrows` body has three parts and no `return` of a value anywhere:
+So a `borrows` body has three parts, a prologue, the window and an epilogue:
 
 ```saw-fragment
 extension Ledger {
@@ -4726,9 +4726,35 @@ extension Ledger {
 }
 ```
 
-`-> &var T` names the **place** the method lends, never a returned value.
-Writing `return <value>` in a `borrows` body is a compile error
-saying so. Every path must `lend` exactly once, or diverge (a `panic` before the
+`-> &var T` names the **place** the method lends, never a returned value, so
+a `return` in a `borrows` body carries no value. The one exception comes
+before the `lend`:
+
+- **After the `lend`**, the rest of the body is the epilogue, and it returns
+  nothing. A bare `return` ends the epilogue early: the code after it does not
+  run, and the accessor's locals are dropped as at the end of the body. A
+  `return` with a value there is a compile error, since the place was already
+  lent.
+- **Before the `lend`**, a path that returns has lent nothing. In a plain
+  accessor that is the coverage error below. A conditional accessor's absent
+  path is the one valued `return` a `borrows` body has, and it is spelled
+  `return None` (see [Conditional lends](#conditional-lends-borrows--t)). A bare
+  `return` there, or one that returns any other value, is a compile error
+  naming `return None`.
+
+```saw-fragment
+extension Ledger {
+    public func entry(&var self, i: Int) borrows -> &var Entry {
+        lend self.entries[i]
+        if self.frozen {
+            return                                // ends the epilogue here
+        }
+        self.touched = self.touched + 1           // runs only when not frozen
+    }
+}
+```
+
+Every path must `lend` exactly once, or diverge (a `panic` before the
 `lend` is the bounds-check shape) — the coverage rule, checked the way return
 coverage is. A `lend` inside a loop is rejected: two windows would need their
 prologues and epilogues interleaved. Lend once, after the loop has chosen the

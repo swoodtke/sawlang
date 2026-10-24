@@ -1,0 +1,19 @@
+// refuses: lend.epilogue-value at 10:25
+// a valued `return` after the `lend`: the place was already lent, and only a
+// bare `return` ends the epilogue
+
+struct Gauge { level: Int, quiet: Bool }
+
+extension Gauge {
+    func at(&var self) borrows -> &var Int {
+        lend self.level
+        if self.quiet { return 7 }
+        print("epilogue")
+    }
+}
+
+func main() {
+    var g = Gauge(level: 1, quiet: true)
+    borrow var x = g.at() { x += 1 }
+    print(g.level)
+}

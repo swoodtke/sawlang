@@ -270,6 +270,8 @@ dump are its clients.
 | `lend.sync-undeclared` | a `lend` while a `borrows(sync)` window is open, in an accessor not declared `borrows(sync)` | `lend.sync-undeclared` |
 | `lend.missing` | a path through a `borrows` body whose lend is not conditional that returns without lending | `lend.missing` |
 | `lend.twice` | a `lend` in the code after a `lend`, an epilogue | `lend.twice` |
+| `lend.epilogue-value` | a `return` with a value in an epilogue, whose place was already lent: a bare `return` ends it. Every Return of the two halves is checked, reached or not, since MIR lowers such a value for its effects alone | `lend.epilogue-value`, a conditional accessor's `return None` `.conditional` |
+| `lend.absent-path` | a conditional accessor's `return` before its `lend` that is not `return None`: a bare one, or one with a value, present or not, which no caller would see | `lend.absent-path` (bare), `.value`, `.some` |
 | `assign.rhs-borrow` | an assignment, plain or compound, whose right side writes `&var` of a place overlapping what it assigns: the right side runs first, so the write through the borrow is overwritten. A `borrow` whose result is only a value (`held_reference`: MIR closed its window at the read) closes before the target's borrow opens, whatever the accessor charges | `assign.rhs-borrow`, `.plain`; an accessor's lend handed to a callee, writable or read-only: `.reference-argument`, `.shared-reference-argument`; a field of the lend passed on, read-only or `borrow var`, whose window closes when the call returns: `.argument-reference`, `.exclusive-argument-reference` |
 
 A borrowing struct carries its window's loan by staying inside the window.

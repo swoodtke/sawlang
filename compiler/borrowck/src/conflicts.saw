@@ -1250,16 +1250,23 @@ extension BorrowckProgram {
     }
 
     // An accessor's prologue (SL:borrowing §2.7): each return of a lend that
-    // is not conditional lends; the place each `lend` hands out is rooted in
-    // `self`, a reference parameter, a static, or a window opened on one,
-    // since the prologue's frame ends at the `lend`; and a `borrows(sync)`
-    // window still open there makes the accessor `borrows(sync)` itself.
+    // is not conditional lends; a conditional one's `return` is `return
+    // None` (check_half_return, over every Return of the half); the place
+    // each `lend` hands out is rooted in `self`, a reference parameter, a
+    // static, or a window opened on one, since the prologue's frame ends at
+    // the `lend`; and a `borrows(sync)` window still open there makes the
+    // accessor `borrows(sync)` itself.
     func check_prologue(&var self, f: Int, inits: &MirInit, facts: &var BorrowckLoans, reported: &var Vector<Int>) {
         let info = self.mir.funcs[f]
         let s = self.mir.tc.sigs[info.decl]
         let conditional = s.lending == TcLend.ConditionalPlace || s.lending == TcLend.ConditionalSlice
         let declared_sync = (s.effects & TC_EFFECT_BORROWS_SYNC) != 0
         var b = 0
+        while b < info.block_count {
+            self.check_half_return(f, b, false, conditional, &var reported)
+            b = b + 1
+        }
+        b = 0
         while b < info.block_count {
             let block = self.mir.blocks[info.block_first + b]
             if not facts.reached[b] || block.term != MirTermKind.Return {
@@ -1420,7 +1427,9 @@ extension BorrowckProgram {
         false
     }
 
-    // An accessor's epilogue: a `lend` in it is a second `lend` on one path.
+    // An accessor's epilogue: a `lend` in it is a second `lend` on one path,
+    // and a `return` in it carries no value (check_half_return, over every
+    // Return of the half).
     func check_epilogue(&var self, f: Int, reported: &var Vector<Int>) {
         let info = self.mir.funcs[f]
         var b = 0
@@ -1431,7 +1440,52 @@ extension BorrowckProgram {
                 try! msg.append("this path lends twice: a `borrows` body pauses at its first `lend` and resumes after it, so the code after a `lend` must not reach another")
                 self.report_loan(f, block.term_node, "lend.twice", msg.build(), &var reported)
             }
+            self.check_half_return(f, b, true, false, &var reported)
             b = b + 1
+        }
+    }
+
+    // The value the `return` ending block `b` of accessor half `f` carries.
+    // MIR lowers a `borrows` body's `return` value for its effects alone, so
+    // this is what keeps a value from being dropped unseen: both halves pass
+    // every block, reached or not, and each Return keeps its `return` as its
+    // node. After the `lend` a bare `return` ends the epilogue and a valued
+    // one is refused; before it, a conditional accessor's one valued
+    // `return` is `return None`, and a plain accessor's `return` is
+    // `lend.missing`'s. Pinned by refuse/lend.epilogue-value and
+    // refuse/lend.absent-path, each with its variants.
+    func check_half_return(&var self, f: Int, b: Int, epilogue: Bool, conditional: Bool, reported: &var Vector<Int>) {
+        let info = self.mir.funcs[f]
+        let block = self.mir.blocks[info.block_first + b]
+        let node = block.term_node
+        if block.term != MirTermKind.Return || node < 0 || not self.mir.tc.has_alt(node, Alt.Stmt_Return) {
+            return
+        }
+        let value = self.mir.tc.res.first_node_child(node)
+        let name = self.mir.decl_name(info.decl)
+        var msg = StringBuilder()
+        if epilogue {
+            if value >= 0 {
+                try! msg.append("this `return` gives a value after `")
+                try! msg.append(name)
+                try! msg.append("` has lent its place: the value was already lent, and the code after a `lend` is the accessor's epilogue, which returns nothing; a bare `return` ends the epilogue")
+                self.report_loan(f, node, "lend.epilogue-value", msg.build(), &var reported)
+            }
+            return
+        }
+        if not conditional {
+            return
+        }
+        if value < 0 {
+            try! msg.append("a bare `return` before the `lend` of `")
+            try! msg.append(name)
+            try! msg.append("`, whose lend is conditional: its absent path returns `None`; write `return None`")
+            self.report_loan(f, node, "lend.absent-path", msg.build(), &var reported)
+        } else if not self.mir.tc.has_alt(self.mir.tc.unparen(value), Alt.Expr_None) {
+            try! msg.append("a `borrows` accessor gives its place with `lend`, and `return None` is the absent path: this `return` before the `lend` of `")
+            try! msg.append(name)
+            try! msg.append("` returns another value, which no caller would see; lend the place, or write `return None`")
+            self.report_loan(f, node, "lend.absent-path", msg.build(), &var reported)
         }
     }
 

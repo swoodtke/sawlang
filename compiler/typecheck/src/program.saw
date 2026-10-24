@@ -210,6 +210,10 @@ public struct TcProgram {
     // Whether the closure being checked has no expected result, so its first
     // `return` gives `body_result` and the later ones are checked against it.
     result_open: Bool
+    // Whether the body being checked is a `borrows` accessor's own block,
+    // not a closure in it: its `return`s carry no place, and which side of
+    // the `lend` each stands on is borrowck's question (check_half_return).
+    body_lends: Bool
     // What the funnel position a value branch stands in allows, which its
     // arms inherit.
     branch_allow: TcAllowance
@@ -434,7 +438,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
                       ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),
-                      catch_frames: Vector<Int>(), catch_errors: Vector<Int>(), result_open: false,
+                      catch_frames: Vector<Int>(), catch_errors: Vector<Int>(), result_open: false, body_lends: false,
                       branch_allow: TcAllowance(optionals: 1, results: 1, erases: false, widens: true),
                       chosen_twin: -1, unmet_member: -1, unmet_owner: -1,
                       placement_value: -1, borrow_captures: Vector<Int>(), param_leaves: Vector<Int>(), referenced_params: Vector<Int>(), fresh_placements: Vector<Int>(), relocations: Vector<Int>(), relocation_places: Vector<Int>(), relocation_types: Vector<Int>(), relocation_decls: Vector<Int>(), relocation_hows: Vector<TcRelocation>(), current_root: -1, poisoned: Vector<Int>(), borrow_head: -1,

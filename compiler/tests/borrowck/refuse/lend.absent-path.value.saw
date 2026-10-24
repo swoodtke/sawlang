@@ -1,0 +1,20 @@
+// refuses: lend.absent-path at 10:13
+// a conditional accessor's `return 5` before its `lend`: a value is no
+// place, so no caller would see it; only `return None` is the absent path
+
+struct Gauge { level: Int }
+
+extension Gauge {
+    func at(&var self, i: Int) borrows -> &var Int? {
+        if i != 0 {
+            return 5
+        }
+        lend self.level
+    }
+}
+
+func main() {
+    var g = Gauge(level: 1)
+    if borrow var x = g.at(1) { print("present {}", x) } else { print("absent") }
+    print(g.level)
+}
