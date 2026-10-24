@@ -56,8 +56,11 @@ static MAX_DEPTH: Int = 16
 // directory is what makes this work whether the suite runs the binary from the
 // repo root, from `.build`, or from anywhere else.
 func find_root() -> Path? {
-    guard let start = env.Env.cwd() else {
-        return None
+    let start = match env.Env.cwd() {
+        case Ok(p) -> p,
+        case Err(_) -> {
+            return None
+        }
     }
     var here = start
     var depth = 0
@@ -85,16 +88,12 @@ func run_capturing(program: String, args: Vector<String>, label: String) -> Int3
         try! c.arg(args.get(i)!)
         i = i + 1
     }
-    let result = match c.output() {
+    let done = match c.output() {
         case Ok(o) -> move o,
         case Err(e) -> {
             print("{} FAILED TO LAUNCH: {}", label, e)
             return -1
         }
-    }
-    guard let done = move result else {
-        print("{} PRODUCED NO OUTPUT", label)
-        return -1
     }
     if done.exit_code != (0 as Int32) {
         print("{} FAILED (exit {}):", label, done.exit_code)
@@ -108,7 +107,7 @@ func main() {
         print("COULD NOT LOCATE THE REPO ROOT from the working directory")
         return
     }
-    let root = root_path.as_str()
+    let root = root_path.as_string()
     let shim = "{root}/runtime/shim.c"
     // A FRESH checkout (the server's per-patch worktree) has no `.build/` at
     // all, and the linker does not create parent directories — the r2 gate

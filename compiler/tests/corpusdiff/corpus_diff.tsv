@@ -11,7 +11,7 @@ alloc_data_push_forced_panics_named.saw	wrong	stderr differs	line 1: sawc "panic
 alloc_data_reports_oom.saw	stage0-wrong	annotated SL-735	sawc meets its directives
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
-alloc_hosted_no_degradation.saw	refused	typecheck member.unknown	`std.directory.Directory` has no method `current` this module can see
+alloc_hosted_no_degradation.saw	pass	judged by its own directives (edited since its oracle)	-
 alloc_map_copy_panics.saw	pass	-	-
 alloc_map_insert_forced_panics_named.saw	wrong	stderr differs	line 1: sawc "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
 alloc_map_set_reports_oom.saw	pass	-	-
@@ -348,7 +348,7 @@ conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	pass	-	-
 conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K29_copy_policy_hook_must_be_sync.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
-conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
+conformance/K30_generic_container_of_pinned_is_pinned.saw	pass	judged by its own directives (edited since its oracle)	transfer.no-move: cannot `move` `w`: `K30_generic_container_of_pinned_is_pinned.Wrap<std.taskgroup.TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&
 conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	-	coro.spawn-not-send: cannot spawn `bump_many`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Sha
 conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc meets its directives
 conformance/K33_suspending_enum_method_embedded.saw	pass	-	-
@@ -560,7 +560,7 @@ conformance/V87_try_subject_read_is_a_transfer.saw	pass	-	transfer.implicit-copy
 conformance/V88_auto_wrapped_return_is_a_transfer.saw	pass	-	transfer.implicit-copy: this reads a place of type `V88_auto_wrapped_return_is_a_transfer.Res`, which is NoCopy, by value: only a Copy type copies silently; a field is not moved out on its own, so bor
 conformance/V89_forwarding_copy_tier_duplicates_exactly_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V89_forwarding_copy_tier_duplicates_exactly_once.Counted, V89_forwarding_copy_tier_duplicates_exactly_once.Bad>`, which is NoCopy, by value: only a Copy type copies
 conformance/V90_forwarding_fence_is_narrow.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
-conformance/V91_try_catch_copies_per_path.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V91_try_catch_copies_per_path.Counted, V91_try_catch_copies_per_path.Bad>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, o
+conformance/V91_try_catch_copies_per_path.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V92_merged_results_copy_once.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<V92_merged_results_copy_once.Counted, V92_merged_results_copy_once.Bad>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or
 conformance/V93_specialization_judges_the_instance.saw	pass	-	-
 conformance/V94_driven_body_keeps_the_sync_decision.saw	pass	-	-
@@ -657,7 +657,7 @@ coro_bind_id_scopes_stress.saw	pass	-	-
 coro_bind_id_shadow_regressions.saw	pass	-	-
 coro_bind_id_sibling_scopes.saw	pass	-	-
 coro_break_reentered_in_loop.saw	pass	-	-
-coro_channel_receive_moves_element.saw	refused	typecheck member.through-pointer	`ident` is a method of the payload, `coro_channel_receive_moves_element.Held`, not of the `Arc`; reach it with `borrow a.value().ident(…)`
+coro_channel_receive_moves_element.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_closure_capture_positions.saw	pass	-	-
 coro_closure_capture_reads_by_policy.saw	pass	-	-
 coro_closure_captures_self_nested.saw	pass	-	-
@@ -1495,14 +1495,14 @@ expr_suspend_match_scrutinee.saw	pass	-	-
 expr_suspend_move_error.saw	pass	-	move.use-after: `data` is used after it may have been moved (moved at 19:5); a moved value is gone until it is assigned again
 expr_suspend_nested_blocking.saw	pass	-	-
 expr_suspend_nested_shortcircuit.saw	pass	-	-
-expr_suspend_optchain_assign.saw	wrong	stdout differs	line 4: sawc "2", Stage 0 "1"
-expr_suspend_optchain_compound_assign.saw	wrong	stdout differs	line 4: sawc "2", Stage 0 "1"
+expr_suspend_optchain_assign.saw	stage0-wrong	annotated SL-438	sawc meets its directives
+expr_suspend_optchain_compound_assign.saw	stage0-wrong	annotated SL-438	sawc meets its directives
 expr_suspend_optchain_hop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 expr_suspend_optchain_multihop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
 expr_suspend_return.saw	pass	-	-
 expr_suspend_struct_field.saw	pass	-	-
 expr_suspend_sync_reject.saw	pass	-	effect.sync: `pure` is declared `sync`, and it calls `s`, which may suspend
-expr_suspend_try.saw	refused	typecheck transfer.implicit-copy	this reads a place of type `Result<Int, std.box.Box<any Error, std.alloc.GlobalAllocator>>`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow it
+expr_suspend_try.saw	pass	judged by its own directives (edited since its oracle)	-
 expr_suspend_tuple.saw	pass	-	-
 expr_suspend_value_if.saw	pass	-	-
 expr_suspend_value_match.saw	pass	-	-
@@ -1622,7 +1622,7 @@ generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-
 generic_for_loop_owning_balance.saw	pass	-	-
 generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc meets its directives
-generic_instance_associated_type_binding.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
+generic_instance_associated_type_binding.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
 generic_instance_const_parameter_value.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 generic_instance_constructs_type_param.saw	pass	-	-
@@ -1934,7 +1934,7 @@ net_accept_loop_concurrent.saw	stage0-wrong	annotated SL-768	sawc meets its dire
 net_accept_loop_eager_fd_close.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_accept_roundtrip.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_accumulate_across_reads.saw	stage0-wrong	annotated SL-768	sawc meets its directives
-net_budget_fairness.saw	refused	typecheck member.through-pointer	`lock` is a method of the payload, `std.mutex.Mutex<Int>`, not of the `Arc`; reach it with `borrow stop.value().lock(…)`
+net_budget_fairness.saw	pass	judged by its own directives (edited since its oracle)	-
 net_cancel_parked_mt.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_cancel_parked_read.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_cancel_precise.saw	stage0-wrong	annotated SL-768	sawc meets its directives
@@ -1949,7 +1949,7 @@ net_fd_reuse_across_connections.saw	stage0-wrong	annotated SL-768	sawc meets its
 net_http_roundtrip.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_iflet_guardlet_bodies.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_io_cancel.saw	stage0-wrong	annotated SL-768	sawc meets its directives
-net_io_main_entry.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
+net_io_main_entry.saw	pass	judged by its own directives (edited since its oracle)	-
 net_io_sleep_interleave.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_ipv4_literal_parse.saw	refused	resolve visibility.private	`parse_ipv4_literal` is private in `std.net`
 net_listen_bind_address.saw	stage0-wrong	annotated SL-768	sawc meets its directives
@@ -1960,15 +1960,15 @@ net_nested_method_two_deep.saw	stage0-wrong	annotated SL-768	sawc meets its dire
 net_nested_parks_roundtrip.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_nested_shape_matrix.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_owning_echo.saw	stage0-wrong	annotated SL-768	sawc meets its directives
-net_precise_n_readers.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
-net_precise_wakeup.saw	refused	resolve import.unknown-symbol	`net_buffer` is not defined in `std.net`
+net_precise_n_readers.saw	pass	judged by its own directives (edited since its oracle)	-
+net_precise_wakeup.saw	pass	judged by its own directives (edited since its oracle)	-
 net_read_into.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_serve_three_connections.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_serve_two_connections.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_sibling_eof_no_deadlock.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_socket_options.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_socketpair_echo.saw	stage0-wrong	annotated SL-768	sawc meets its directives
-net_threads_io.saw	refused	resolve import.unknown-symbol	`tcp_close` is not defined in `std.net`
+net_threads_io.saw	pass	judged by its own directives (edited since its oracle)	-
 net_three_park_sequence.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_two_concurrent_parked_reads.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_unroutable_connect_names_the_cause.saw	pass	-	-
@@ -2157,15 +2157,15 @@ printable_nested.saw	pass	-	-
 printable_struct.saw	pass	-	-
 private_in_public_extension_surface_error.saw	wrong	accepts a refusal test	extension `Wrap`'s surface is public, but the bound on type parameter `T` names `HiddenTrait`, which is private — a public API needs public types
 private_in_public_positions_error.saw	wrong	accepts a refusal test	function `take` is public, but parameter `h` names `Hidden`, which is private — a public API needs public types
-process_argv_no_shell.saw	refused	typecheck member.unknown	`std.process.Command` has no method `arg_count` this module can see
-process_cancel_during_child.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
-process_env.saw	refused	typecheck operator.undefined	an optional binding unwraps an Optional, and this is `std.process.CommandOutput`
-process_error_surfaced.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
+process_argv_no_shell.saw	pass	judged by its own directives (edited since its oracle)	-
+process_cancel_during_child.saw	wrong	fails its own directives (edited since its oracle)	output line 1 is 'child exited 0 — the wait was never cancelled', expected 'cancelled: true'
+process_env.saw	pass	judged by its own directives (edited since its oracle)	-
+process_error_surfaced.saw	pass	judged by its own directives (edited since its oracle)	-
 process_merge_stderr.saw	stage0-wrong	annotated SL-596	sawc meets its directives
 process_output_concurrent.saw	stage0-wrong	annotated SL-596	sawc meets its directives
 process_output_multithreaded.saw	stage0-wrong	annotated SL-596	sawc meets its directives
-process_run_concurrent.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
-process_signal_death.saw	refused	typecheck member.unknown	`std.process.Command` has no method `run` this module can see
+process_run_concurrent.saw	pass	judged by its own directives (edited since its oracle)	-
+process_signal_death.saw	pass	judged by its own directives (edited since its oracle)	-
 process_simple.saw	stage0-wrong	annotated SL-596	sawc meets its directives
 qualified_call_literal_adopts_parameter_width.saw	pass	-	type.mismatch: integer literal 300 does not fit in `UInt8` (range 0..=255)
 qualified_call_threads_the_callee_signature.saw	pass	-	-
@@ -2303,7 +2303,7 @@ shift_out_of_range_panic.saw	pass	-	-
 shift_signed_unsigned.saw	pass	-	-
 short_circuit_skipped_operand_temp_cleanup.saw	pass	-	-
 short_circuit_token_field_no_crash.saw	pass	-	-
-signal_concurrency_pins.saw	refused	typecheck operator.undefined	an optional binding unwraps an Optional, and this is `Result<std.path.Path, std.systemerror.SystemError>`
+signal_concurrency_pins.saw	pass	judged by its own directives (edited since its oracle)	-
 sizeof_missing_type_arg_error.saw	pass	-	type.arity: `sizeof` and `alignof` take one type argument, as `sizeof<T>()`
 slab_basic.saw	pass	-	-
 sleep_seam_multi_chunk.saw	pass	-	-

@@ -1,15 +1,17 @@
 // Design 182 + the design-102 discipline: cancelling a task parked on a child
 // wakes it, and does NOT kill the child.
 //
-// The waiter parks inside `Command.run()` on the child's exit descriptor. A
-// sibling sets the cancel word, the scheduler finds the parked frame cancelled
-// and wakes it, and `run()` re-checks `cancelled()` at its loop top and returns
-// Err — well before the child's own second is up. `ProcessError.cancelled()`
-// tells that apart from a launch failure, which is a different story entirely.
+// The waiter parks inside `Command.output()` on the child. A sibling sets the
+// cancel word, the scheduler finds the parked frame cancelled and wakes it, and
+// `output()` re-checks `cancelled()` and returns Err — well before the child's
+// own second is up. The kind, `Interrupted`, tells that apart from a launch
+// failure, which is a different story entirely. That is the intended behaviour:
+// std drops a cancel that lands while `output()` drains the child's stdout,
+// and returns Ok once the child exits (SL-896).
 //
 // The child keeps running: cancelling the WAIT cancels the wait. Killing it is
-// the caller's business, deliberately (a `run()` whose caller lost interest is
-// not evidence that the work should stop).
+// the caller's business, deliberately (an `output()` whose caller lost interest
+// is not evidence that the work should stop).
 //
 // Deinit oracle: the waiter's held sentinel drops exactly once — a clean
 // cooperative exit out of the park, no double-drop and no leak.
@@ -21,6 +23,7 @@
 // deinits=1
 
 import std.process.*
+import std.systemerror.{SystemErrorKind}
 import std.time.*
 
 static DEINITS: Atomic<Int> = Atomic(0)
@@ -36,10 +39,14 @@ func child_waiter(start: Instant) {
     let _held = Res(id: 1)
     var c = Command(program: "/bin/sleep")
     try! c.arg("1")
-    match c.run() {
-        case Ok(code) -> print("child exited {code} — the wait was never cancelled"),
+    match c.output() {
+        case Ok(done) -> print("child exited {done.exit_code} — the wait was never cancelled"),
         case Err(e) -> {
-            print("cancelled: {e.cancelled()}")
+            let interrupted = match e.kind() {
+                case Interrupted -> true,
+                case _ -> false
+            }
+            print("cancelled: {interrupted}")
             print("woke early: {start.elapsed().as_millis() < EARLY_MS}")
         }
     }

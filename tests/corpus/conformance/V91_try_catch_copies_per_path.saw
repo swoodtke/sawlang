@@ -71,8 +71,10 @@ extension Counted: Copy {
     func copy(&self) -> Counted { print("copy {}", self.n); Counted(n: self.n) }
 }
 
+// Copy-tier, so `Result<Counted, Bad>` is too and an aliasing subject is a
+// place `try` may read: over a NoCopy `Result` the read must be `try move r`,
+// which leaves nothing aliased to test.
 enum Bad { case Nope }
-extension Bad: NoCopy {}
 
 func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }
 func fails() -> Result<Counted, Bad> { Bad.Nope }
@@ -139,10 +141,7 @@ func err_fresh_fresh(n: Int) -> Int {
 // ---- the DRIVEN twins ---------------------------------------------------
 //
 // `Soft` carries no `NoCopy` declaration, so `Result<Counted, Soft>` is
-// Copy-tier and can live in a coroutine frame across the suspension. (With
-// `Bad` the whole Result is move-only and design 146's place rule refuses the
-// frame read first — a different rule, working correctly, and not this row's
-// subject.)
+// Copy-tier and can live in a coroutine frame across the suspension.
 enum Soft { case Nope }
 
 func softly(n: Int) -> Result<Counted, Soft> { Counted(n: n) }

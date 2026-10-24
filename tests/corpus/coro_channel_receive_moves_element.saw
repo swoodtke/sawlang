@@ -69,7 +69,7 @@ func vector_worker(ch: Channel<Vector<Int>>) -> Int {
 func arc_worker(ch: Channel<Arc<Held>>) -> Int {
     let a = try! ch.receive()
     print("arc in worker {a.strong_count()}")
-    a.ident()
+    borrow a.value().ident()
 }
 
 func nocopy_row() {

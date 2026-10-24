@@ -11,7 +11,7 @@
 // [; echo INJECTED]
 // [*]
 // [$HOME]
-// [one]
+// [2]
 
 import std.process.{Command}
 
@@ -31,11 +31,14 @@ func main() {
     print(echoed("*"))                 // no glob expansion
     print(echoed("$HOME"))             // no variable expansion
 
-    // And an argument count sanity check: one `arg` call is one argv element.
-    var c = Command(program: "/bin/echo")
-    try! c.arg("-n")
+    // And an argument count check, made by the child: one `arg` call is one
+    // argv element, however many words it holds.
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg("printf %s \"$#\"")
+    try! c.arg("sh")
     try! c.arg("one")
-    assert(c.arg_count() == 2, "arg_count counts argv elements")
+    try! c.arg("two words")
     let r = try! c.output()
     print("[{r.stdout}]")
 }

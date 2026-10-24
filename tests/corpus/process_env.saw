@@ -35,10 +35,9 @@ func child_prints(read_name: String, set_name: String, set_value: String) -> Str
     try! c.arg(script.build())
     try! c.env(set_name, set_value)
 
-    if let r = try! c.output() {
-        "[{r.stdout}]"
-    } else {
-        "<spawn failed>"
+    match c.output() {
+        case Ok(r) -> "[{r.stdout}]",
+        case Err(_) -> "<spawn failed>"
     }
 }
 
@@ -47,18 +46,16 @@ func main() {
     print(child_prints("SAW_ENV_A", "SAW_ENV_A", "first"))
 
     // Two calls for one name REPLACE, so the last one wins and the child never
-    // sees the variable twice.
+    // sees the variable twice: it counts the entries its environment holds.
     var twice = Command(program: "/bin/sh")
     try! twice.arg("-c")
-    try! twice.arg("printf %s \"$SAW_ENV_B\"")
+    try! twice.arg("printf '[%s]\\ncount %s' \"$SAW_ENV_B\" \"$(env | grep -c '^SAW_ENV_B=')\"")
     try! twice.env("SAW_ENV_B", "first")
     try! twice.env("SAW_ENV_B", "last")
-    if let r = try! twice.output() {
-        print("[{r.stdout}]")
-    } else {
-        print("<spawn failed>")
+    match twice.output() {
+        case Ok(r) -> print(r.stdout),
+        case Err(_) -> print("<spawn failed>")
     }
-    print("count {twice.env_count()}")
 
     // INHERITANCE: the child gets this process's environment plus the
     // overrides, so a variable the Command never names still arrives.

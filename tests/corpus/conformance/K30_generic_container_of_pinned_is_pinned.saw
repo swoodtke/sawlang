@@ -14,7 +14,7 @@
 // makes this a per-instance derivation rather than a blanket ban on generic
 // containers.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `Wrap<TaskGroup>` is `NoMove`
+// EXPECT-ERROR-CONTAINS: Wrap<std.taskgroup.TaskGroup>` is `NoMove`
 
 import std.task.*
 
@@ -29,5 +29,5 @@ func main() {
 
     var w = Wrap<TaskGroup>(v: TaskGroup())
     var w2 = move w
-    print("unreached {w2.v.is_empty()}")
+    print("unreached {w2.v.count()}")
 }

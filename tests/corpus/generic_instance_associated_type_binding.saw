@@ -1,6 +1,6 @@
 // A DRIVEN generic's instance clone binds its bounds' ASSOCIATED TYPES.
 //
-// `pull<T: Source>` names `Item`, which is not a type PARAMETER: the abstract
+// `relay<T: Source>` names `T.Item`, which is not a type PARAMETER: the abstract
 // check resolves it through the bound, and the clone the effect pass builds has
 // no bounds left (`clone.type_params = []`). Substituting the parameters alone
 // therefore leaves `-> Item` standing in the instance's signature while its
@@ -37,7 +37,7 @@ extension Words: Source {
     func pull(&self) -> String { self.w }
 }
 
-func relay<T: Source>(s: T) -> Item {
+func relay<T: Source>(s: T) -> T.Item {
     __saw_suspend()
     s.pull()
 }

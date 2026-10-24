@@ -18,5 +18,5 @@ func work() -> Result<Int, Box<any Error>> {
 
 func main() {
     let r = __saw_drive(work())
-    print(try! r)               // 20
+    print(try! move r)          // 20
 }

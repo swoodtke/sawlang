@@ -29,7 +29,7 @@ func sibling(stop: Arc<Mutex<Int>>) -> Int {
         k = k + 1
         yield_now()
     }
-    borrow var f = stop.lock() {
+    borrow var f = stop.value().lock() {
         f = 1
         true
     }
@@ -46,7 +46,7 @@ func recirc(s_read: TcpStream, s_write: TcpStream, stop: Arc<Mutex<Int>>) -> Int
     var going = true
     while going {
         // Keep looping until the sibling signals stop.
-        going = borrow var f = stop.lock() {
+        going = borrow var f = stop.value().lock() {
             f == 0
         }
         // The read/write sit under a nested `if` (this `if` is the loop body's

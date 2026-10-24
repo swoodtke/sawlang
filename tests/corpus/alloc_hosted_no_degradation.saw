@@ -6,13 +6,13 @@
 // the copy loop wrote past it. `build_argv` reported an allocation failure as
 // "could not launch process", a different failure from the one that happened.
 //
-// File.read/File.write and Directory.current each folded allocator exhaustion
-// into the same `None` their syscall failures use. Design 123 made all of them
-// panic, so the `None`/`Err` each API returns had exactly one meaning again;
-// design 234 gives the refusal a value to be — `File.read`/`File.write` and
-// `Directory.list` answer `IoErrorKind.ResourcesExhausted`, and `Command.output`
-// peels the two apart as `Result<CommandOutput?, AllocError>`, `Ok(None)`
-// keeping its old "the child could not be run" meaning.
+// File.read/File.write and the working-directory query each folded allocator
+// exhaustion into the same `None` their syscall failures use. Design 123 made
+// all of them panic, so the `None`/`Err` each API returns had exactly one
+// meaning again; design 234 gives the refusal a value to be — `File.read`/
+// `File.write` and `Directory.list` answer `ResourcesExhausted`, and
+// `Command.output` reports a capture that cannot grow the same way, as its
+// `Err(SystemError)`.
 //
 // This test asserts the correct answers still come back with allocation
 // available; the panic paths need a real out-of-memory condition in a child
@@ -24,7 +24,7 @@
 // true
 
 import std.process.*
-import std.directory.*
+import std.env.{Env}
 
 func main() {
     var c = Command(program: "/bin/echo")
@@ -33,10 +33,8 @@ func main() {
     print(out.stdout.trim())            // hello from a child
     print(out.exit_code)                // 0
 
-    // Directory.current still answers, and its None now means only "getcwd
-    // failed" (which with the fixed 1024-byte buffer includes an over-long
-    // path — review M15, still open).
-    if let cwd = Directory.current() {
-        print(cwd.as_str().len() > 0)   // true
-    }
+    // `Env.cwd` still answers, and its `Err` carries only what getcwd(3)
+    // reported.
+    let cwd = try! Env.cwd()
+    print(cwd.as_string().len() > 0)    // true
 }
