@@ -572,8 +572,24 @@ No stage tests the frozen Python compiler any more (SL-666): the `suite`,
 `freestanding`, `bootstrap`, `astdiff`, `irdet`, `reemit`, `fuzz`, `corodiff`,
 `bench`, `minivm` stages and the checks that read `sawc/`'s source left the
 battery. Their tools still run by hand until `sawc/` is deleted, and the
-sections below that describe them describe those tools. One stage still runs
-Stage 0, because sawc has no equivalent yet: `docverify`.
+sections below that describe them describe those tools.
+
+`docverify` (`tools/docverify.py`) checks every fenced Saw block in README.md,
+CLAUDE.md, LANGUAGE_SPEC.md and the saw-lang skill with `sawc coro --check`,
+against what its fence claims:
+
+- `saw` and `saw-body` must compile (`saw-body` is wrapped in a `main`).
+- `saw-error` must be refused with the rule its first line pins
+  (`// error-rule: RULE`, plus an optional `// error-contains: TEXT`), and with
+  no missing-name or missing-import error beside it.
+- `saw-pending SL-NNN` documents something sawc does not build yet. It must
+  still fail, or not yet report its pinned diagnostic, and SL-NNN must be an
+  open issue. Like an XFAIL, it breaks the lane once it passes.
+- `saw-fragment` is exempt but counted: every run prints each source's exempt
+  fraction.
+
+The battery runs it as `tools/docverify.py --self-test`, which first runs
+`tools/test_docverify.py`, the checks of those rules.
 
 The interpreter comes from `$SAW_PYTHON`, else `./.venv/bin/python`, else
 `python3`. A worktree has no venv of its own, so point it at the main

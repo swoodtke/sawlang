@@ -66,13 +66,14 @@ func main() {
 ```
 
 ```saw-error
+// error-rule: syntax.rule.statement-separator
 // error-contains: it does not end one
 func main() {
     let width = 3;
     print(width)
 }
-// error: Parse error at 3:18: a `;` joins two statements on one line; it does
-// not end one — remove it
+// error: a `;` joins two statements on one line; it does not end one
+// help: put the next statement after the `;`, or drop the `;`
 ```
 
 The rejection covers every position where a `;` separates nothing: before a
@@ -87,18 +88,17 @@ this reaches it.
 
 Writing two statements on one line with nothing between them is rejected. The
 separator would be invisible there, so `let a = b (c)` and `x -1` read as one
-statement and are two. The diagnostic names both statements' first tokens,
-because on a crowded line the reader's question is which two the compiler ran
-together.
+statement and are two. The diagnostic points at the second statement, because
+on a crowded line the reader's question is which two the compiler ran together.
 
 ```saw-error
+// error-rule: syntax.rule.juxtaposition
 // error-contains: two statements on one line need a `;` between them
 func main() {
     let width = 3 print(width)
 }
-// error: Parse error at 2:19: two statements on one line need a `;` between
-// them: the first begins with `let`, the second with `print` — write `;`
-// where they meet
+// error: two statements on one line need a `;` between them
+// help: put the second statement on a line of its own, or after a `;`
 ```
 
 It is rejected in every block a statement list can sit in: function and method
@@ -179,10 +179,11 @@ parameter lists, tuples, collection literals, and memberwise struct literals.
 It is rejected in a generic list, which has no wrapping idiom to serve:
 
 ```saw-error
-// error-contains: a trailing comma is not allowed in a generic
+// error-rule: syntax.generic.refused-arg-comma
+// error-contains: a generic argument list takes no trailing comma
 let bad: Vector<Int,> = [1]
-// error: Parse error at 1:20: a trailing comma is not allowed in a generic
-// argument list (it is allowed in `(...)` and `[...]` lists)
+// error: a generic argument list takes no trailing comma
+// help: drop the comma
 ```
 
 A line break directly after `=` ends the statement like any other, so a
@@ -300,18 +301,28 @@ shadow (a slip that silently hides the outer value) is caught while a deliberate
 refinement stays ergonomic:
 
 ```saw-error
-// error-contains: initializer never mentions `n`
+// error-rule: name.shadowing
+// error-contains: mention `n` in the initializer
+func read() -> String { "42" }
+func parse(text: String) -> Int { text.len() }
+func lookup() -> Int? { 7 }
+func show(value: Int) { print(value) }
+func compute() -> Int { 3 }
+
+let refine = true
+let branch = true
 let data = read()
 if refine {
     let data = parse(move data)   // OK: initializer mentions `data` (derived)
-    let data2 = parse(data)       // (in one scope) — mentioning `data` also derives
+    print(data)
 }
-let x: Int? = get()
-if let x = x { use(x) }           // OK: the scrutinee references the shadowed `x`
+let x: Int? = lookup()
+if let x = x { show(x) }          // OK: the scrutinee references the shadowed `x`
 let n = 5
 if branch {
-    let n = compute()             // ERROR: initializer never mentions `n`
-}
+    let n = compute()             // error: `n` shadows an enclosing binding
+    print(n)                      //        without deriving from it; pick another
+}                                 //        name, or mention `n` in the initializer
 ```
 
 - The reference may be **any** use of the shadowed name in the initializer —
@@ -618,8 +629,8 @@ may be exactly one of four:
 
 Any other return type is a compile error at the declaration:
 
-```saw-error
-// error-contains: `main` must return `Void`, `Int`, `Result<Void, E>` or
+```saw-pending SL-707
+// error-contains: `main` must return
 func main() -> String { "done" }
 // error: `main` must return `Void`, `Int`, `Result<Void, E>` or
 //   `Result<Int, E>`, but returns `String`
@@ -633,15 +644,15 @@ the ordinary not-`Printable` diagnostic, reported at `main`.
 ```saw
 import std.file
 import std.path.{Path}
-import std.net.{IoError}
+import std.systemerror.{SystemError}
 
-func main() -> Result<Void, IoError> {
+func main() -> Result<Void, SystemError> {
     var config = try file.File.open(Path(s: "saw.toml"))
     let text = try config.read()
     print("read {text.len()} bytes")
     return
 }
-// With no saw.toml: prints `error: io error: open failed (not found)`, exits 1.
+// With no saw.toml: prints `error: open failed (not found)`, exits 1.
 ```
 
 The status is one byte wide by the time a shell sees it: POSIX `wait(2)` carries
@@ -728,7 +739,20 @@ func main() {
 ### Control Flow
 
 ```saw-error
-// error-contains: duplicate match arm: `1` is already
+// error-rule: match.duplicate
+// error-contains: duplicate match arm: `1` is already matched
+// The names the tour reads.
+enum Direction { case North, case South, case West }
+let a = 3
+let b = 4
+let direction = Direction.West
+let value = 7
+let pair: (Int?, Int) = (2, 2)
+let code = 1
+let vec: Vector<Int> = [10, 20]
+let condition = false
+let found = true
+
 // If expressions (not statements)
 let max = if a > b { a } else { b }
 
@@ -751,7 +775,7 @@ match value {
 }
 // Tuple patterns destructure and nest with the other forms:
 match pair {
-    case (0, 0) -> "origin",
+    case (Some(0), 0) -> "origin",
     case (x, 0) -> "on x axis",
     case (Some(v), n) if v == n -> "match",   // nested payload / Optional pattern
     case (x, y) -> "general",                 // irrefutable arm = fallback
@@ -770,9 +794,9 @@ match pair {
 // overlapping ranges and same-pattern guarded arms are how first-match-wins is
 // written, and both stay legal.
 match code {
-    case 1 -> "one",         // <- line 2 of this snippet
+    case 1 -> "one",
     case 1 -> "one again",   // error: duplicate match arm: `1` is already
-    case _ -> "other"        //   matched by the arm at line 2
+    case _ -> "other"        //   matched by the arm on the line above
 }
 
 // For loops over ranges
@@ -788,9 +812,9 @@ for i in 0..=5 {
 }
 
 // enumerated() yields (index, element) pairs; each_indexed is its closure twin.
-for pair in vec.enumerated() {
-    print(pair.0)   // index
-    print(pair.1)   // element
+for entry in vec.enumerated() {
+    print(entry.0)  // index
+    print(entry.1)  // element
 }
 vec.each_indexed { i, x in print(i) }
 
@@ -862,10 +886,12 @@ stays an ordinary loop that a later edit may falsify, and the compiler does not
 read the condition to decide a type.
 
 ```saw-error
-// error-contains: function `spin` should return `Never` but body has no value
+// error-rule: type.mismatch
+// error-contains: expected `Never`, the type of the function's result
 func spin() -> Never {
     while true { }
-    // error: function `spin` should return `Never` but body has no value
+    // error: expected `Never`, the type of the function's result, which the
+    //        body's last expression is, and found `Void`
 }
 ```
 
@@ -908,10 +934,12 @@ parse error naming `if let ... else` as the one-shot form.
 A `while let` produces no value and cannot be used as an expression:
 
 ```saw-error
-// error-contains: a `while let` loop produces no value and cannot be used as an
-let r = while let x = src.next() { }
-// error: a `while let` loop produces no value and cannot be used as an
-// expression
+// error-rule: type.void-binding
+// error-contains: cannot bind `r` to an expression of type `Void`
+var pending: Vector<Int> = [1, 2]
+let r = while let x = pending.pop() { }
+// error: cannot bind `r` to an expression of type `Void` — it produces no
+//        value
 ```
 
 A `Result`-yielding source composes through `try?`, which turns `Err` into
@@ -1090,14 +1118,16 @@ the prelude, so it needs no import and follows the ordinary one-way flow
 wherever an integer is wanted — comparisons, masks, arithmetic, a `UInt8`
 parameter — and the way back in is `Byte(...)` or an API that produces bytes.
 
-```saw-error
+```saw-pending SL-48
 // error-contains: cannot assign `UInt8` to variable of type `Byte`
+import std.data.{Data}
+
 let b = "hi".byte_at(0)      // Byte
 if b == 0x0A { }             // reads as UInt8; the literal adopts there
 let n = b as Int             // 0..255 — a byte is unsigned, so 0xC3 widens to 195
 let u: UInt8 = b             // flows out with nothing written
-var d = try Data(capacity: 1)
-let _ = try d.push(b)        // a UInt8 parameter takes it
+var d = try! Data(capacity: 1)
+let _ = try! d.push(b)       // a UInt8 parameter takes it
 
 let bad: Byte = 65           // error: cannot assign `UInt8` to variable of type `Byte`
 let ok = Byte(65)            // the constructor is the way in
@@ -1523,16 +1553,20 @@ struct Span {
 }
 ```
 
-A doc comment that documents nothing is an error rather than a silent drop:
+A declaration takes one doc comment. Two runs ahead of it, separated by a blank
+line or a `//` comment, are an error at the second rather than a silent drop of
+either:
 
 ```saw-error
-// error-contains: doc comment is not followed by a documentable
+// error-rule: syntax.lex.doc-attach
+// error-contains: this declaration already has a doc comment
 /// Displaced from `main` by the block below.
 
 /// Prints zero.
 func main() { print(0) }
-// error: Parse error at 1:1: doc comment is not followed by a documentable
-// declaration
+// error: this declaration already has a doc comment, at 3:1; a declaration
+//        takes one
+// help: join the two runs, or make one a `//` comment
 ```
 
 `sawc0 <entry.saw> --emit-docs` type-checks the program and writes a JSON
@@ -2121,7 +2155,7 @@ Because the representation is pinned, a backed enum is a legal field type in a
 struct read through `UnsafeMemory`, so a typed wire view can name a flags byte
 by its type:
 
-```saw
+```saw-pending SL-762
 enum SegFlags: UInt8 {
     case Empty = 0,
     case Exec = 1,
@@ -2210,16 +2244,15 @@ extension Term: NoCopy {}
 An all-inline cycle is refused where it is written, with the path named:
 
 ```saw-error
+// error-rule: type.infinite-size
 // error-contains: recursive type `Tree` has infinite size: its storage contains its own
 enum Tree {
     case Leaf(v: Int),
     case Node(child: Tree)
 }
 // error: recursive type `Tree` has infinite size: its storage contains its own
-//        storage inline, through Tree.Node.child -> Tree
-// hint: hold the recursive member behind a heap indirection — `Box<Tree>`,
-//       `Vector<Tree>` or a `Map` value — so the cycle crosses a pointer and
-//       the layout is finite
+//        storage inline, through Tree.Node -> Tree; hold the recursive member
+//        behind a heap indirection, such as `Box` or `Vector`
 ```
 
 Nothing about the copy policy changes. A recursive type carries owning payloads,
@@ -2422,18 +2455,21 @@ print(owned)             // prints: Ada
 ```
 
 An `ExplicitCopy` or `NoCopy` payload is never duplicated implicitly, so a value
-read is refused and the error names the three consuming spellings:
+read is refused and the error names the consuming spelling:
 
 ```saw-error
-// error-contains: cannot read the payload out of `file` in let binding:
-// `File.open` returns `Result<File, IoError>`; `try?` discards the cause to
+// error-rule: transfer.implicit-copy
+// error-contains: write `move file!` to take the payload
+// `File.open` returns `Result<File, SystemError>`; `try?` discards the cause to
 // give the `File?` this example is about.
+import std.file.{File}
+import std.path.{Path}
+
 var file: File? = try? File.open(Path(s: "/var/log/app.log"))
 let f = file!
-// error: cannot read the payload out of `file` in let binding:
-//        `File` implements NoCopy
-// hint: use `move file!` to transfer the whole binding, or `file.take()`
-//       to move the payload out in place
+// error: this reads a place of type `std.file.File`, which is NoCopy, by
+//        value: only a Copy type copies silently; write `move file!` to take
+//        the payload, or borrow it
 ```
 
 **`move o!`** is the compile-time transfer. It retires the whole binding — there
@@ -2844,9 +2880,11 @@ monomorphized generics, not varargs, so the placeholder count and the argument
 count are compared at compile time:
 
 ```saw-error
-// error-contains: `print` format string has 2 placeholders but 1 argument was given
+// error-rule: format.slot-count
+// error-contains: the format string has 2 `{}` slots, and 1 arguments follow it
 print("{} and {}", 1)
-// error: `print` format string has 2 placeholders but 1 argument was given
+// error: the format string has 2 `{}` slots, and 1 arguments follow it; each
+//        slot takes one argument
 ```
 
 The format string has to be a literal, since that is what the count is read
@@ -3352,7 +3390,8 @@ receiver. The keyword is required, and the parameter list may not disagree
 with it:
 
 ```saw-error
-// error-contains: method `dup` has no receiver — add `&self`/`&var self`, or
+// error-rule: syntax.rule.receiver-and-static
+// error-contains: a method that is not `static` takes a receiver
 struct Bag { n: Int }
 
 extension Bag {
@@ -3360,8 +3399,8 @@ extension Bag {
     func count(&self) -> Int { self.n }                   // instance
 
     func dup(x: Int) -> Int { x * 2 }
-    // error: method `dup` has no receiver — add `&self`/`&var self`, or
-    //        declare it `static func` if a static was intended
+    // error: a method that is not `static` takes a receiver
+    // help: declare `&self` or `&var self` first, or declare the method `static`
 }
 ```
 
@@ -3771,16 +3810,17 @@ Declaring the stricter `NoCopy` on a type that would be on this tier is legal,
 and is how a type that could be copied for free is made move-only anyway:
 
 ```saw-error
-// error-contains: cannot copy value of type `Ticket`
+// error-rule: transfer.implicit-copy
+// error-contains: which is NoCopy, by value
 struct Ticket { code: String }
 extension Ticket: NoCopy {}        // stricter than the automatic tier
 
 func main() {
     let n = 3
     let a = Ticket(code: "ticket-{n}")
-    let b = a                      // error: cannot copy value of type `Ticket`
-                                   //        which implements NoCopy
-    print(b.code)                  // hint: use `move` to transfer ownership instead
+    let b = a                      // error: this reads a place of type `Ticket`,
+                                   //        which is NoCopy, by value; write
+    print(b.code)                  //        `move a` to take it, or borrow it
 }
 ```
 
@@ -3807,12 +3847,14 @@ parts. An `Optional<T>`, a tuple, a fixed array, an enum's payloads and a
 because `File` is, and `Int?` stays trivial.
 
 ```saw-error
-// error-contains: cannot copy value of type
+// error-rule: transfer.implicit-copy
+// error-contains: which is ExplicitCopy, by value
 let v: Vector<Int> = [1, 2, 3]
 let o: Vector<Int>? = move v
 
-let p = o           // error: cannot copy value of type
-                    //        `Vector<Int, GlobalAllocator>?` which implements ExplicitCopy
+let p = o           // error: this reads a place of type
+                    //        `Vector<Int, GlobalAllocator>?`, which is
+                    //        ExplicitCopy, by value
 let q = o.copy()    // ok: an independent buffer
 ```
 
@@ -4228,12 +4270,15 @@ is `Vector.each`'s visitor — and its own return was checked at its own
 arrow. A reference in *parameter* position is untouched anywhere.
 
 ```saw-error
-// error-contains: method `peek` may not return a reference: the return type `&Int`
+// error-rule: type.reference-position
+// error-contains: a return type may not name a reference
+struct Counter { n: Int }
+
 extension Counter {
     func peek(&self) -> &Int { &self.n }
-    // error: method `peek` may not return a reference: the return type `&Int`
-    // is a reference, and references in Saw are PARAMETERS ONLY — a reference
-    // borrows storage for the duration of one call and may not escape it ...
+    // error: a return type may not name a reference: `&Int` is one, and
+    //        references are parameters only: a reference borrows storage for
+    //        the duration of one call and may not escape it ...
 
     func slot(&self) borrows -> &Int { lend self.n }   // the accessor that works
 }
@@ -4309,27 +4354,33 @@ must name a pointer type to qualify —
 `(&x) as Int` is an ordinary expression and the reference in it is refused.
 
 ```saw-error
-// error-contains: `&` here is not a call argument, and references in
+// error-rule: type.reference-position
+// error-contains: `&` here is not a call argument
+struct Counter { n: Int }
+
 extension Counter {
     func cell(&var self) unsafe -> UnsafePointer<Int> {
         (&var self.n) as UnsafePointer<Int>   // the address, into the unsafe tier
     }
 }
 
-let r = &x        // error: `&` here is not a call argument, and references in
-                  // Saw are PARAMETERS ONLY ...
+let x = 4
+let r = &x        // error: `&` here is not a call argument, and references are
+                  //        parameters only ...
 ```
 
 ```saw-error
-// error-contains: field `r` of `Holder` may not be a reference: its type `&Int` is a
+// error-rule: type.reference-position
+// error-contains: a field may not name a reference
 struct Holder { r: &Int }
-// error: field `r` of `Holder` may not be a reference: its type `&Int` is a
-// reference, and references in Saw are PARAMETERS ONLY — a reference borrows
-// storage for the duration of one call and may not escape it ...
+// error: a field may not name a reference: `&Int` is one, and references are
+//        parameters only: a reference borrows storage for the duration of one
+//        call and may not escape it ...
 
+let x = 4
 let f = { &x }
-// error: a closure may not return a reference: this body's value has type
-// `&Int`, which is a reference ...
+// error: `&` here is not a call argument, and references are parameters
+//        only ...
 ```
 
 #### Capturing `self` and reference parameters
@@ -4357,12 +4408,16 @@ parameter, and `self`. Outside that position the environment is heap-allocated
 and outlives the frame it points into, so the capture is refused:
 
 ```saw-error
+// error-rule: capture.escaping-borrow
 // error-contains: an escaping closure cannot capture `self`: a method's receiver is
+struct Counter { n: Int }
+struct Thing { x: Int }
+
 extension Counter {
     func handOut(&self) -> () -> Int { return { self.n + 3 } }
     // error: an escaping closure cannot capture `self`: a method's receiver is
-    // a borrow of storage the CALLER owns — a reference borrows storage for the
-    // duration of one call and may not outlive the frame it points into
+    // a borrow of storage the caller owns, and a borrow may not outlive the
+    // frame it points into
 }
 
 func make(r: &Thing) -> () -> Int { return { r.x + 1 } }
@@ -4575,10 +4630,18 @@ and `borrow var v[0].n = v.pop()!.n`, are legal (see
 [Window extent and nesting](#window-extent-and-nesting)).
 
 ```saw-error
-// error-contains: `p` is written by this assignment while also
+// error-rule: assign.rhs-borrow
+// error-contains: `p.x` is written by this assignment while its right-hand side borrows `p`
+struct Point { x: Int, y: Int }
+func bump(p: &var Point) -> Int { p.x + 1 }
+func shift(v: &var Int) -> Int { v + 1 }
+func combine(acc: Vector<Int>, e: Int) -> Vector<Int> { move acc }
+
 var p = Point(x: 1, y: 2)
-p.x = bump(&var p)      // error: `p` is written by this assignment while also
-                        //        being accessed in the right-hand side
+var acc: Vector<Int> = []
+let e = 3
+p.x = bump(&var p)      // error: `p.x` is written by this assignment while its
+                        //        right-hand side borrows `p` exclusively
 p.x = shift(&var p.y)   // ok: disjoint paths
 acc = combine(move acc, e)   // ok: `move` hands ownership over and the
                              //     assignment revives the binding
@@ -4697,9 +4760,17 @@ the window's whole extent, so nothing escapes (see
 refusal.
 
 ```saw-error
-// error-contains: `borrows -> &var Cell` lends a place a use site may WRITE through
+// error-rule: mutability.immutable
+// error-contains: this method's receiver is `&self`
+struct Cell { n: Int }
+struct Grid { cells: [Cell; 2] }
+
 extension Grid {
     func at(&self, i: Int) borrows -> &var Cell { lend self.cells[i] }
+    // error: this exclusive borrow of `self.cells[i]` would let it be written,
+    //        and this method's receiver is `&self`, a shared borrow that writes
+    //        neither the storage it borrows nor storage reached through it:
+    //        declare the receiver `&var self`
 }
 ```
 
@@ -4766,12 +4837,15 @@ An accessor lends storage its **receiver** already owns. `lend` on the
 accessor's own local or parameter is a compile error:
 
 ```saw-error
-// error-contains: `lend tmp` is not rooted in the receiver
+// error-rule: lend.root
+// error-contains: `lend` hands out `tmp`, which is not rooted in the receiver
+struct Counter { n: Int }
+
 extension Counter {
     func slot(&self) borrows -> &Int {
         var tmp = self.n + 1
-        lend tmp          // error: `lend tmp` is not rooted in the receiver
-    }
+        lend tmp          // error: `lend` hands out `tmp`, which is not rooted
+    }                     //        in the receiver
 }
 ```
 
@@ -6146,7 +6220,7 @@ value is zerofill and an idle mutex costs no image bytes. `Mutex` declares
 fields, and the payload is checked at the static like any other part (see
 [Module-level statics](#module-level-statics), *Zero-init*):
 
-```saw-fragment
+```saw
 import std.mutex.{Mutex}
 
 static REGISTRY: Mutex<Int>
@@ -6489,10 +6563,13 @@ trait NoCopy: Deinit {
 A type conforming to `NoCopy` cannot be copied—only moved. The compiler errors on assignment; use `move` to transfer ownership:
 
 ```saw-error
-// error-contains: Cannot copy NoCopy type 'File'
+// error-rule: transfer.implicit-copy
+// error-contains: which is NoCopy, by value
 struct File {
     handle: Int
 }
+
+func close(handle: Int) { }
 
 extension File: NoCopy {
     func deinit(&var self) {
@@ -6500,10 +6577,12 @@ extension File: NoCopy {
     }
 }
 
-var f = openFile("data.txt")
-let g = f        // Error: Cannot copy NoCopy type 'File'
-let h = move f   // Ok: f is now invalid
-use(f)           // Error: f was moved
+func open_file(name: String) -> File { File(handle: 3) }
+
+var f = open_file("data.txt")
+let g = f        // error: this reads a place of type `File`, which is NoCopy,
+                 //        by value; write `move f` to take it, or borrow it
+let h = move f   // ok: f is now invalid
 // h.deinit() called at scope exit, file closed
 ```
 
@@ -6532,13 +6611,17 @@ A `NoMove` value moves **once, into its home**, and never again. Its home is
 normally its binding, so the constructor's move is the only one:
 
 ```saw-error
-// error-contains: cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where
+// error-rule: transfer.no-move
+// error-contains: is `NoMove`, so it lives where its constructor built it
+func work(n: Int) -> Int { n * 2 }
+
 func make() -> TaskGroup {
     var group = TaskGroup()
     let _ = group.spawn(work(21))
     move group
     // error: cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where
-    //        its constructor built it and may not be relocated.
+    //        its constructor built it and may not be relocated; pass `&var` to
+    //        lend it, or build the value where it has to live
 }
 ```
 
@@ -6600,11 +6683,13 @@ or enum with a `NoMove` member does not compile until it declares `NoMove` (and
 `NoCopy`) itself.
 
 ```saw-error
-// error-contains: `Server` contains NoMove member `group` of type `TaskGroup` but does
+// error-rule: nomove.undeclared
+// error-contains: `Server` contains NoMove member `group`
 struct Server { group: TaskGroup, port: Int }
 extension Server: NoCopy {}
 // error: `Server` contains NoMove member `group` of type `TaskGroup` but does
-//        not declare `NoMove`
+//        not declare `NoMove`: declare `extension Server: NoMove {}` beside
+//        its `NoCopy`, or hold the member behind a `Box` for a movable handle
 ```
 
 Nothing is inherited silently, which means a field's movability can never change
@@ -7119,15 +7204,15 @@ call written as a bare statement throws away the failure it reports, so the
 compiler rejects it:
 
 ```saw-error
-// error-contains: result of `write` is `Result<Void, IoError>` and is silently
+// error-rule: result.discarded
+// error-contains: the result of `write` is
 import std.net.*
 
 func send(stream: &var TcpStream, body: String) {
     stream.write(body)
-    // error: result of `write` is `Result<Void, IoError>` and is silently
-    //        discarded
-    // hint: handle it — `match` it, `try`/`try!`/`try?` it, or return it — or
-    //       write `let _ = ...` to discard it explicitly
+    // error: the result of `write` is `Result<Void, IoError>` and is silently
+    //        discarded: handle it (`match` it, `try` or `try!` it, or return
+    //        it), or write `let _ = ...` to discard it explicitly
 }
 ```
 
@@ -7308,12 +7393,13 @@ range, the check is elided and the cast is free. Out of range, it is a
 **compile error**, not a program that builds and aborts on its first run:
 
 ```saw-error
+// error-rule: constant.cast-range
 // error-contains: `1000` is not representable as `UInt8`, so this cast would always panic
 let ok = 0xFF as UInt8      // fine, and free
 let bad = 1000 as UInt8
-// error: `1000` is not representable as `UInt8`, so this cast would always panic
-// hint: `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep
-//       the low bits, or `UInt8.from(...)` to get `None` instead
+// error: `1000` is not representable as `UInt8`, so this cast would always
+//        panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)`
+//        to keep the low bits, or `UInt8.from(...)` to get `None` instead
 ```
 
 The folding evaluator is the one behind `static_assert` and `[T; N]` lengths,
@@ -7349,15 +7435,13 @@ different width — or of the same width and different signedness — is a compi
 error naming both:
 
 ```saw-error
-// error-contains: operator `*` requires both operands to have the same type, but the
+// error-rule: type.mismatch
+// error-contains: an operator's operands agree on one type, and these are `Int` and `Int16`
 func doubling(n: Int) -> Int {
     n * 2i16
 }
-// error: operator `*` requires both operands to have the same type, but the
-//        left is `Int` and the right is `Int16`
-// hint: drop the `i16` suffix so the literal adopts `Int`, or convert one
-//       operand — `x as Int` panics out of range, `Int.from(x)` answers
-//       `None`, `Int.from(truncating: x)` keeps the low bits
+// error: an operator's operands agree on one type, and these are `Int` and
+//        `Int16`; convert one with `as`
 ```
 
 Implicit promotion happens from **operands whose width is still undecided** and
@@ -7419,12 +7503,14 @@ own signedness, so an unsigned arm zero-extends and keeps its value. Arms with
 no such common type are refused where they are written:
 
 ```saw-error
-// error-contains: the `if` and `else` branches have no common type: `Int` and `UInt64`
+// error-rule: type.mismatch
+// error-contains: the type of the value the branches merge into, and found `UInt64`
 func g(a: Int) -> Int {
     if a > 0 { 11 } else { 7u64 }
 }
-// error: the `if` and `else` branches have no common type: `Int` and `UInt64`
-//        — neither widens into the other without losing a value
+// error: expected `Int`, the type of the value the branches merge into, and
+//        found `UInt64`; only a lossless widening into or out of `Int` or
+//        `UInt` is implicit
 ```
 
 Two distinct fixed widths still do not merge, because they do not convert
@@ -7439,15 +7525,16 @@ an arm exactly as it applies at a `let`. An arm that reads an `ExplicitCopy` or
 is the one a plain transfer names: `move` on the arm, or `.copy()`.
 
 ```saw-error
-// error-contains: cannot copy value of type `Res` which implements NoCopy
+// error-rule: transfer.implicit-copy
+// error-contains: which is NoCopy, by value
 struct Res { w: Int }
 extension Res: NoCopy {}
 
 func main() {
     let a = Res(w: 7)
     let b = if true { a } else { a }
-    // error: cannot copy value of type `Res` which implements NoCopy
-    // hint: use `move` to transfer ownership instead
+    // error: this reads a place of type `Res`, which is NoCopy, by value: only
+    //        a Copy type copies silently; write `move a` to take it, or borrow it
     print(b.w)
 }
 ```
@@ -7466,7 +7553,8 @@ the transfer the closure's own `return` performs, and it takes the same rule
 and the same wording.
 
 ```saw-error
-// error-contains: cannot return NoCopy type `Res` without `move` in closure
+// error-rule: transfer.implicit-copy
+// error-contains: write `move r` to take it
 struct Res { w: Int }
 extension Res: NoCopy {}
 
@@ -7478,8 +7566,8 @@ func run(body: (Res) sync -> Res) -> Int {
 
 func main() {
     print(run({ r in r }))
-    // error: cannot return NoCopy type `Res` without `move` in closure
-    // hint: use `move` to transfer ownership instead
+    // error: this reads a place of type `Res`, which is NoCopy, by value: only
+    //        a Copy type copies silently; write `move r` to take it, or borrow it
 }
 ```
 
@@ -7515,14 +7603,17 @@ before the wrap goes on. All four return targets take it: a function body's
 tail, a method body's tail, an explicit `return`, and a closure body's tail.
 
 ```saw-error
-// error-contains: cannot return NoCopy type `Res` without `move` in function `first`
+// error-rule: transfer.implicit-copy
+// error-contains: a field is not moved out on its own
 struct Res { w: Int }
 extension Res: NoCopy {}
 struct Holder { inner: Res }
 extension Holder: NoCopy {}
 
 func first(h: &Holder) -> Res? { h.inner }
-// error: cannot return NoCopy type `Res` without `move` in function `first`
+// error: this reads a place of type `Res`, which is NoCopy, by value: only a
+//        Copy type copies silently; a field is not moved out on its own, so
+//        borrow it
 ```
 
 `h.inner` names storage the caller owns, so handing it out through the wrap
@@ -7550,7 +7641,8 @@ same checkpoint every other read does — at a return, a by-value argument, a
 `let`, a struct field, or a tuple element alike.
 
 ```saw-error
-// error-contains: cannot copy value of type `Res` which implements NoCopy
+// error-rule: transfer.implicit-copy
+// error-contains: a binding that only borrows has nothing to move
 struct Res { w: Int }
 extension Res: NoCopy {}
 
@@ -7558,7 +7650,9 @@ func sink(r: Res) -> Int { r.w }
 
 extension Res {
     func hand_on(&self) -> Int { sink(self) }
-    // error: cannot copy value of type `Res` which implements NoCopy
+    // error: this reads a place of type `Res`, which is NoCopy, by value: only
+    //        a Copy type copies silently; a binding that only borrows has
+    //        nothing to move, so borrow it
 }
 ```
 
@@ -7578,7 +7672,8 @@ checkpoint — in all four spellings (`try`, `try!`, `try?`, and
 `try … catch { }`, whose catch arm is judged separately as a branch arm).
 
 ```saw-error
-// error-contains: cannot copy value of type `Res` which implements NoCopy
+// error-rule: transfer.implicit-copy
+// error-contains: write `move r` to take it
 struct Res { w: Int }
 extension Res: NoCopy {}
 enum Bad { case Nope }
@@ -7589,8 +7684,9 @@ func made(n: Int) -> Result<Res, Bad> { Res(w: n) }
 func use_it() -> Result<Int, Bad> {
     let r = made(1)
     let a = try r
-    // error: cannot copy value of type `Res` which implements NoCopy
-    // hint: the subject still owns the payload — spell it `try move r`
+    // error: this reads a place of type `Result<Res, Bad>`, which is NoCopy,
+    //        by value: only a Copy type copies silently; write `move r` to take
+    //        it, or borrow it
     a.w
 }
 ```
@@ -7614,12 +7710,14 @@ one of the three spellings from "Integer Conversions", written where the value
 lands.
 
 ```saw-error
-// error-contains: cannot assign `Int` to variable of type `Int8`
+// error-rule: type.mismatch
+// error-contains: expected `Int8`, the type of the annotated binding, and found `Int`
 let n: Int = 300
 let b: Int8 = n
-// error: cannot assign `Int` to variable of type `Int8`
-// hint: write the conversion: `as Int8` panics out of range, `Int8.from(...)`
-//       answers `None`, `Int8.from(truncating: ...)` keeps the low bits
+// error: expected `Int8`, the type of the annotated binding, and found `Int`;
+//        only a lossless widening into or out of `Int` or `UInt` is implicit:
+//        write `as` to panic out of range, `.from(...)` for `None`, or
+//        `.from(truncating: ...)` for the low bits
 ```
 
 There is no position exemption. The rule holds wherever a value lands in a new
@@ -7680,7 +7778,7 @@ knows which side is the source, and general assignability does not.
 A raw-backed enum's case is a compile-time constant (see "Raw backings"), so a
 combination of cases folds in any constant position:
 
-```saw
+```saw-pending SL-457
 enum Perm: UInt8 {
     case Read = 0x01,
     case Write = 0x02,
@@ -7706,8 +7804,10 @@ combination folds and is range-checked against that type, so
 `let mask: UInt8 = Perm.Read | Perm.Write` is a `UInt8` holding 3, and a
 combination too wide for the slot is a compile error rather than a truncation:
 
-```saw-error
+```saw-pending SL-762
+// error-rule: type.mismatch
 // error-contains: constant expression 4111 does not fit in `UInt8` (range 0..=255)
+enum Perm: UInt8 { case Read = 0x01, case Write = 0x02, case Exec = 0x04 }
 let mask: UInt8 = Perm.Read | Perm.Write     // 3
 
 enum Cfg: UInt16 { case Mask = 0x000F, case Wide = 0x1000 }
@@ -8542,12 +8642,13 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   `v.push(1)` or `o.take()`, and `&var x`.
 
   ```saw-error
-  // error-contains: cannot assign to `n`
+  // error-rule: mutability.immutable
+  // error-contains: `n` is captured by value
   func make_counter() -> () -> Int {
       var n = 0
-      { n = n + 1        // error: cannot assign to `n`: it is captured by
-        n }              //        value
-  }
+      { n = n + 1        // error: this assignment writes `n`, and `n` is
+        n }              //        captured by value, which makes it a `let`
+  }                      //        in the closure's body
   ```
 
   An index into a heap-backed container gets no exception. Copies of an
@@ -10367,11 +10468,16 @@ BORROWS ARE REFUSED AT THE FORM. A `&`/`&var` argument of the spawned call, and
 a borrow capture in a closure inside it, are both clean errors:
 
 ```saw-error
+// error-rule: spawn.borrow
 // error-contains: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the
+func fill(into: &var Vector<Int>, count: Int) -> Int { count }
+
 var buffer: Vector<Int> = []
 let filler = Task.spawn(fill(&var buffer, 3))
+print(filler.join())
 // error: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the
-//        spawned call
+//        spawned call. A background task outlives the statement that spawned
+//        it and may be detached, so no join ends the borrow ...
 ```
 
 A group's scope is what ends such a borrow (see *The borrow's extent is the
@@ -10404,14 +10510,16 @@ spawned frame reaches its group through that address, so a group that moved
 would join in one place and be driven from another:
 
 ```saw-error
-// error-contains: cannot `move` `group`: `TaskGroup` is `N
+// error-rule: transfer.no-move
+// error-contains: cannot `move` `group`
+func work(n: Int) -> Int { n * 2 }
+
 func make() -> TaskGroup {
     var group = TaskGroup()
     let _ = group.spawn(work(21))
     move group
-    // error: cannot `move` `group`: `TaskGroup` is `NoMove` … A `TaskGroup` is
-    //        a SCOPE (design 124): its `Deinit` structured-joins its children
-    //        where the group was born …
+    // error: cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where
+    //        its constructor built it and may not be relocated ...
 }
 ```
 
@@ -10449,7 +10557,11 @@ first, while the group has not joined, and the task reaches freed storage. It is
 a compile error naming the order, in either spelling:
 
 ```saw-error
+// error-rule: loan.drop-while-borrowed
 // error-contains: cannot capture `&var n` into a task: `n` is declared AFTER the group
+func run(body: () -> Int) -> Int { body() }
+func bump(n: &var Int) -> Int { n + 1 }
+
 var group = TaskGroup()
 var n = 7
 let h = group.spawn(run({ [&var n] in n = n + 1; n }))
@@ -10459,6 +10571,7 @@ let h = group.spawn(run({ [&var n] in n = n + 1; n }))
 let g = group.spawn(bump(&var n))
 // error: cannot pass `&var n` into a task: `n` is declared AFTER the group
 //        `group` it is spawned into …, and destruction is LIFO
+print(h.join() + g.join())
 ```
 
 The group opens the scope it governs, so it is declared at the top of it.
@@ -10499,13 +10612,16 @@ stays legal with nothing written to say so. Between the spawn and the join the
 root belongs to the task:
 
 ```saw-error
+// error-rule: loan.exclusive-twice
 // error-contains: exclusive access violation: `n` cannot be written here — the task
+func run(body: () -> Int) -> Int { body() }
+
 var n = 0
 var group = TaskGroup()
 let h = group.spawn(run({ [&var n] in n = n + 100; n }))
 n = 5
 // error: exclusive access violation: `n` cannot be written here — the task
-//        spawned at line 3 holds `&var n` until `h.join()` releases it
+//        spawned above holds `&var n` until `h.join()` releases it
 print(h.join())
 print(n)               // fine: the borrow ended at the join
 ```
@@ -11002,6 +11118,7 @@ fixed-width integers, `Int`/`UInt`, `Float`, `UnsafePointer<T>`, and `Void` or
 diagnostic for a type outside it is the same, anchored at the declaration:
 
 ```saw-error
+// error-rule: extern.offload-c-abi
 // error-contains: `extern blocking func slow_named`: parameter `s` has type `String`,
 extern "C" {
     blocking func slow_named(s: String) -> Int
@@ -11431,7 +11548,7 @@ The obligation is bigger than Level 1's and is worth stating before the code:
 any two of them may run at the same instant on the same value. Level 1 gets
 that from the lock. Here you owe it method by method.
 
-```saw
+```saw-pending SL-457
 static REGION_BYTES: Int = 4096
 static CHUNK_BYTES: Int = 16
 
@@ -11755,7 +11872,7 @@ repeat-literal count `[v; N]`, a const generic argument, and a
 `static_assert` condition. Constant arithmetic composes over it, so one
 declaration can size a region and everything derived from it:
 
-```saw
+```saw-pending SL-457
 static PAGE_SHIFT: Int = 12
 static PAGE_SIZE: Int = 1 << PAGE_SHIFT      // derived from the one above
 static PAGE_MASK: Int = PAGE_SIZE - 1
@@ -11776,7 +11893,7 @@ above it and no others. That is also the cycle rule: a forward reference has
 nothing to fold against, and a self reference is the degenerate forward one.
 Both are refused where the name is written.
 
-```saw-error
+```saw-pending SL-762
 // error-contains: static `LATER` is declared after this point
 static EARLY: Int = LATER * 2
 static LATER: Int = 64
@@ -11792,8 +11909,8 @@ declared without an initializer are each refused, and the message names
 which static and why rather than reading as "a static may not be named
 here":
 
-```saw-error
-// error-contains: array length is not a compile-time constant: the mutable static
+```saw-pending SL-457
+// error-contains: the mutable static
 unsafe static var ARENA_BYTES: Int = 1024
 static ARENA: [UInt8; ARENA_BYTES] = [0; 1024]
 // error: array length is not a compile-time constant: the mutable static
@@ -11998,10 +12115,13 @@ above, and it is not special to `Atomic`.
 compile error and `move a` is how it travels.
 
 ```saw-error
-// error-contains: cannot copy value of type `Atomic<Int>` which implements NoCopy
+// error-rule: transfer.implicit-copy
+// error-contains: this reads a place of type `Atomic<Int>`, which is NoCopy, by value
 let local = Atomic(0)
 let alias = local
-// error: cannot copy value of type `Atomic<Int>` which implements NoCopy
+// error: this reads a place of type `Atomic<Int>`, which is NoCopy, by value:
+//        only a Copy type copies silently; write `move local` to take it, or
+//        borrow it
 ```
 
 A copied atomic would be a second counter with its own word, and a `fetch_add`
@@ -12047,7 +12167,7 @@ is the one thing it asks the runtime for, so it serves the freestanding
 profile, where [`Mutex<T>`](#synchronized-access) — which needs a host lock —
 does not.
 
-```saw-fragment
+```saw-body
 import std.spinlock.*
 
 struct Counters { hits: Int, misses: Int }
@@ -12383,7 +12503,7 @@ func main() {
 A static call meets the slot through its result type, so a static that
 returns its own type solves the type's arguments from the annotation:
 
-```saw-fragment
+```saw-body
 struct Tag<T> {
     n: Int
 }
@@ -12403,7 +12523,7 @@ The slot is peeled through the layers the position auto-wraps, so
 explicit argument list is the ordinary type-mismatch error at the declaration.
 A slot that disagrees with an *argument* is a solver conflict:
 
-```saw-error
+```saw-pending SL-751
 // error-contains: required to be both `Int` and `String`
 struct Wrap<T> { value: T }
 let w: Wrap<Int> = Wrap(value: "x")
@@ -12420,10 +12540,11 @@ constrains is the underdetermined error, naming the parameter and the explicit
 spelling:
 
 ```saw-error
-// error-contains: cannot infer type argument `T` for struct `Vector`
+// error-rule: infer.failed
+// error-contains: cannot infer type argument `T` of `Vector`
 let v = Vector()
-// error: cannot infer type argument `T` for struct `Vector`
-// hint: give the type argument(s) explicitly, e.g. `Vector<T>(...)`
+// error: cannot infer type argument `T` of `Vector`: nothing in the call
+//        determines it; write it, as `<T = ...>` does for a type
 ```
 
 **Default type parameters.** A trailing type parameter may declare a **default
@@ -12540,14 +12661,15 @@ where
 
 **Type-parameter bounds name traits.** A bound is checked at the declaration, so
 a non-trait in that position is reported where it is written rather than at every
-use site. `<N: Int>` — the natural guess at a value parameter — says so and
-points at the const spelling:
+use site. `<N: Int>`, the natural guess at a value parameter, is refused as a
+bound that is not a trait; the value spelling is `const N: Int`:
 
 ```saw-error
-// error-contains: `Int` is a type, not a trait, so it cannot bound the type parameter `N`
+// error-rule: type.not-a-trait
+// error-contains: `Int` is not a trait, so it cannot be a bound
 struct FixedBuf<N: Int> { len: Int }
-// error: `Int` is a type, not a trait, so it cannot bound the type parameter `N`
-//   hint: to take a compile-time VALUE, write `const N: Int`
+// error: `Int` is not a trait, so it cannot be a bound, a parent or a
+//        conformance
 ```
 
 #### What a generic body requires of its type parameters (design 219)
@@ -12730,7 +12852,7 @@ A **struct, enum, tuple or array** `T` is the exception, and only outside a
 `static_assert`. Its ABI layout is built during code generation, later than an
 array length is resolved, so the four earlier positions refuse it by name:
 
-```saw-error
+```saw-pending SL-457
 // error-contains: whose layout only code generation knows
 struct Region { a: Int, b: Int }
 
@@ -12999,7 +13121,7 @@ A field's reach here is the INHERITED one, so a `public` struct's bare field
 whose type is private is refused. The fix is usually the narrowing marker rather
 than a wider type, and the diagnostic names it:
 
-```saw-fragment
+```saw
 struct Ledger {
     n: Int
 }
@@ -13341,9 +13463,11 @@ that build a value of it. A signature that merely receives a gated type needs
 the import as much as one that constructs it:
 
 ```saw-error
+// error-rule: name.not-in-prelude
 // error-contains: `Data` is not in the prelude and must be imported
 func take(d: &Data) -> Int { d.len() }
-// error: `Data` is not in the prelude and must be imported
+// error: `Data` is not in the prelude and must be imported: `import
+//        std.data.{Data}` selects it
 ```
 
 The full set: a parameter, a return type, a `let`/`var` annotation, a struct
@@ -13361,13 +13485,13 @@ already bare.
 A std module's surface is the types it declares `public`. Everything else it
 declares is internal to its own file: not in the prelude, not reachable through
 any import form, and not a name a program has to avoid. Asking for one is a
-clean error naming what the module does have.
+clean error saying the name is private to its module.
 
 ```saw-error
-// error-contains: `OpenMode` is not defined in `std.file`
+// error-rule: visibility.private
+// error-contains: `OpenMode` is private in `std.file`
 import std.file.{OpenMode}
-// error: `OpenMode` is not defined in `std.file`
-// hint: available: File
+// error: `OpenMode` is private in `std.file`
 ```
 
 ### Imports
@@ -13390,13 +13514,13 @@ undocumented dependency the form exists to prevent.
 A file that wants both writes both, on two lines that name one module:
 
 ```saw
-import std.net.{IoError}
+import std.systemerror.{SystemError}
 import std.path.{Path}
 
 import std.file
 import std.file.{File}
 
-func open_it(p: Path) -> Result<File, IoError> { File.open(p) }
+func open_it(p: Path) -> Result<File, SystemError> { File.open(p) }
 func exists(p: Path) -> Bool { file.File.exists(p) }
 ```
 
@@ -13952,7 +14076,7 @@ which four bytes are held back for the marker and terminator, so
 `FixedStringBuilder<64>` holds 60 bytes of text; an `N` below 5 is a compile
 error.
 
-```saw-body
+```saw-pending SL-596
 import std.fixedbuf.*
 
 var out = FixedStringBuilder<64>()
@@ -14181,29 +14305,33 @@ aggregate (a struct, tuple, tagged enum or `String`) or one of those other
 optionals is refused at the `extern` declaration (`extern.c-abi`); pass an
 `UnsafePointer<S>` instead.
 
-A handful of C symbols the compiler declares for its own lowering — `printf`,
-`snprintf`, `strcpy`, `strcat`, `abort` — may be declared here too, and the two
-declarations share one symbol when they agree:
+A C symbol another module of the program also declares, a std module's
+included, may be declared here too, and the declarations share one symbol when
+they agree. `std.net` and `std.file` declare `close`:
 
 ```saw
+import std.net.{TcpStream}
+
 extern "C" {
-    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int32
+    func close(fd: Int32) -> Int32
 }
 ```
 
-A declaration that disagrees is refused at the declaration, naming the signature
-the compiler used:
+A declaration that disagrees is refused at the declaration, naming the other
+declaration's module and signature:
 
 ```saw-error
-// error-contains: `printf` is declared `extern "C"` here with a signature the compiler's
+// error-rule: extern.signature-disagree
+// error-contains: but another declaration of the same symbol
+import std.net.{TcpStream}
+
 extern "C" {
-    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int
+    func close(fd: Int) -> Int
 }
-// error: `printf` is declared `extern "C"` here with a signature the compiler's
-//        own declaration of that symbol does not have
-// hint: the compiler declares `printf` for its own string, format and panic
-//       lowering, as `i32 (i8*, ...)` — declare it the same way to share the
-//       symbol, or give your declaration a different name
+// error: `close` is declared here as `(Int) -> Int`, but another declaration
+//        of the same symbol, in `std.file`, declares it `(Int32) -> Int32`:
+//        the program calls one C function by that name, so every declaration
+//        of one symbol must agree on its parameters and its result
 ```
 
 ### Function pointers (`FuncPointer<F>`)
@@ -14239,7 +14367,7 @@ cannot dangle. It copies bitwise, and `Send`/`Sync` derive.
 expected. The literal is emitted under `F`'s own ABI, with no environment
 parameter, so it allocates nothing:
 
-```saw-body
+```saw-pending SL-828
 let doubler: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
 print("{doubler(21)}")                  // prints: 42
 ```
@@ -14248,7 +14376,7 @@ The literal may capture nothing, and what counts as a capture is what the body
 names — an enclosing local, or a method's `self`, whether or not a capture list
 mentions it:
 
-```saw-error
+```saw-pending SL-828
 // error-contains: a closure coerced to `FuncPointer` may capture nothing, but this
 func make(bias: Int) -> FuncPointer<(Int) sync -> Int> {
     { n in n + bias }
@@ -14262,7 +14390,7 @@ through the argument parameter instead, or read it from a `static`.
 
 **Form 2: a named function**, non-generic and declared `sync`:
 
-```saw-body
+```saw-pending SL-828
 func doubled(n: Int) sync -> Int { n * 2 }
 
 let f: FuncPointer<(Int) sync -> Int> = doubled
@@ -14278,7 +14406,7 @@ argument, an annotated `let`, a struct field initializer, a `return`, and a
 `static` initializer. The last is what lets a dispatch table be a `static` —
 the address is a link-time constant, so the table costs no startup code.
 
-```saw
+```saw-pending SL-828
 struct Handler {
     code: Int32,
     run: FuncPointer<(Int) sync -> Int>,
@@ -14304,7 +14432,7 @@ reading an entry PC. It takes a raw pointer, so it is `unsafe` by the ordinary
 rule, and the caller owes the promise that the address is a function of
 signature `F`:
 
-```saw
+```saw-pending SL-828
 func entry_at(pc: Int) unsafe -> FuncPointer<(UInt) sync -> Never> {
     FuncPointer<(UInt) sync -> Never>.from_raw(pc as UnsafePointer<UInt8>)
 }
@@ -14313,7 +14441,7 @@ func entry_at(pc: Int) unsafe -> FuncPointer<(UInt) sync -> Never> {
 A C function taking a callback declares it with the `FuncPointer` type, and
 either construction form crosses:
 
-```saw
+```saw-pending SL-828
 extern "C" {
     func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
                compar: FuncPointer<(UnsafeConstPointer<Int32>,
@@ -14398,7 +14526,7 @@ placement request and never a second way to publish a symbol. Section-name *synt
 `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
 mach-O target is a compile error naming the declaration and the two-part form:
 
-```saw-error
+```saw-pending SL-875
 // error-contains: `@section(".vector_table")` is not a valid section on this target:
 @section(".vector_table")
 func kernel_entry() -> Int32 { 0 }
@@ -14443,7 +14571,7 @@ An `@export`ed function is tagged like any other. `@export` decides the emitted 
 symbol and the linkage, not the name the compiler knows the function by, so two
 modules may export distinct C names from one Saw name:
 
-```saw
+```saw-pending SL-802
 module first {
     @export("first_value")
     public func value() -> Int { 11 }
@@ -14478,7 +14606,7 @@ Three consequences worth stating:
 or a module `static`. The declaration's slot — the stack slot for a local, the
 global for a static — is emitted with an alignment of at least `N` bytes.
 
-```saw-fragment
+```saw
 @align(8)
 static HEADER: [UInt8; 64] = [0; 64]
 
@@ -14515,7 +14643,7 @@ Two positions refuse it. A binding with no storage — `let _`, or a binding of 
 `Void` value — has nothing to align. And a local that lives in a **coroutine
 frame** rather than on the stack is refused where it is written:
 
-```saw-error
+```saw-pending SL-801
 // error-contains: it lives in this function's coroutine frame
 import std.task.*
 
@@ -14618,7 +14746,7 @@ A refusal case's body is text, not a block. The case's header, the clause and
 the case's name, ends its line; the body is the lines after it, up to a line
 that starts with the end marker `@test(end: refuses)`:
 
-```saw-fragment
+```saw
 @test(refuses: "type.mismatch") "a String is not an Int"
 let x: Int = "a"
 @test(end: refuses)
@@ -14649,12 +14777,13 @@ pointers) and `UnsafeMemory<T, Use>` (typed memory at a fixed address). A
 program declares its own with `unsafe struct`:
 
 ```saw-error
+// error-rule: unsafe.type-name
 // error-contains: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`
 unsafe struct UnsafeMmioReg { addr: Int }     // ok
 unsafe struct MmioReg { addr: Int }
-// error: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`
-//   hint: rename it to `UnsafeMmioReg`, or drop the `unsafe` keyword if the
-//         type is safe to name, hold and pass
+// error: an unsafe type must be named `Unsafe*`, but this one is named
+//        `MmioReg`: rename it to `UnsafeMmioReg`, or drop `unsafe` if the type
+//        is safe to name, hold and pass
 ```
 
 The `unsafe` keyword confers the semantics; the compiler then enforces the
@@ -15417,7 +15546,7 @@ once on deinit.
 The constructor is a **static factory method**, because the allocator type
 argument is named at the call site (`Box<Job, JobSlab>.make(...)`):
 
-```saw-fragment
+```saw-body
 match Box<Int>.make(42) {
     case Ok(b)  -> print(borrow b.value())
     case Err(e) -> print(e.size)   // AllocError with size/align context

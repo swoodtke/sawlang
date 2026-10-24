@@ -254,15 +254,15 @@ status (0 for `Ok(())`), and an `Err` prints the error and exits 1:
 ```saw
 import std.file
 import std.path.{Path}
-import std.net.{IoError}
+import std.systemerror.{SystemError}
 
-func main() -> Result<Void, IoError> {
+func main() -> Result<Void, SystemError> {
     var config = try file.File.open(Path(s: "saw.toml"))
     let text = try config.read()
     print("read {text.len()} bytes")
     return
 }
-// With no saw.toml: prints `error: io error: open failed (not found)`, exits 1.
+// With no saw.toml: prints `error: open failed (not found)`, exits 1.
 ```
 
 A command-line program reports failure by returning it, with no `exit()` call
@@ -355,7 +355,7 @@ func first<T: Copy>(v: &Vector<T>) -> T? { v.get(0) }
 
 let names: Vector<String> = ["ada", "alan"]
 let n = first(&names)                       // T = String, inferred
-let lengths = try! names.map({ $0.len() })  // map<Int> solved from the closure
+let lengths = try! names.map({ s in s.len() })  // map<Int> solved from the closure
 ```
 
 Constructors infer the same way, and a declared type annotation is one of the
@@ -459,7 +459,7 @@ its result. The operating system may refuse a thread, so the form hands back
 a `Result<Thread<T>, SystemError>`; `try!` says this program cannot go on
 without one:
 
-```saw-fragment
+```saw
 extern "C" {
     blocking func compress(level: Int32) -> Int
 }
@@ -593,7 +593,8 @@ A type can hold a lent place too. `borrows struct` declares one, and its value
 lives for exactly one `for` statement — which is how iteration is safe:
 
 ```saw-error
-// error-contains: `v` cannot be accessed by reference here
+// error-rule: loan.window-root
+// error-contains: holds `v` shared until the window closes
 func main() {
     var v: Vector<Int> = [1, 2, 3]
     var seen = 0
@@ -603,9 +604,10 @@ func main() {
     }
     print(seen)
 }
-// error: exclusive access violation: `v` cannot be accessed by reference here
-//        — the window opened at line 5 borrows `v` for the whole of the `for`
-//        statement that iterates it
+// error: `v` is borrowed exclusively here while the window of `iter` opened at
+//        6:14 holds `v` shared until the window closes; a window charges its
+//        whole root until it closes, so the root is reached only through the
+//        window's binding
 ```
 
 `Vector.iter()` hands back a `VectorIterator` holding `&Vector<T, A>`, so the

@@ -235,11 +235,16 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   integers of different WIDTH — or the same width and different
   SIGNEDNESS — is a clean error naming both types and the ways out.
   ```saw-error
-  // error-contains: `Int` and `UInt` are two types
+  // error-rule: type.mismatch
+  // error-contains: these are `Int` and `UInt`
+  let n = 3
+  let i = 1
+  let u: UInt = 2
   n * 2      // fine at every integer type: a bare literal adopts
   n * -2     // also a bare literal — the `-` is not a suffix
   n * 2i16   // error on an `Int n`: a suffixed literal is exact-typed
-  i + u      // error: `Int` and `UInt` are two types
+  i + u      // error: an operator's operands agree on one type, and these
+             //        are `Int` and `UInt`
   i < u      // same — and this is the one that silently answered wrong
   ```
   No promotion ladder: an operation has two peers, and picking a winner
@@ -267,14 +272,15 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   value out of a binding is refused where it is written, with the ordinary
   ways out (`move` on the arm, or `.copy()`):
   ```saw-error
-  // error-contains: cannot copy value of type `Res` which implements NoCopy
+  // error-rule: transfer.implicit-copy
+  // error-contains: which is NoCopy, by value
   struct Res { w: Int }
   extension Res: NoCopy {}
 
   func choose(flag: Bool) -> Int {
       let a = Res(w: 7)
-      let b = if flag { a } else { a }   // error: cannot copy value of type
-      b.w                                //        `Res` which implements NoCopy
+      let b = if flag { a } else { a }   // error: this reads a place of type
+      b.w                                //   `Res`, which is NoCopy, by value
   }
   ```
   ```saw-fragment
@@ -295,7 +301,8 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   tail hands its value to the CALLER, so it owes exactly what the closure's own
   `return` owes, in the same words:
   ```saw-error
-  // error-contains: cannot return NoCopy type `Res` without `move` in closure
+  // error-rule: transfer.implicit-copy
+  // error-contains: write `move r` to take it
   struct Res { w: Int }
   extension Res: NoCopy {}
 
@@ -306,8 +313,8 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   }
 
   func main() {
-      print(run({ r in r }))   // error: cannot return NoCopy type `Res`
-  }                            //        without `move` in closure
+      print(run({ r in r }))   // error: this reads a place of type `Res`, which
+  }                            //   is NoCopy, by value; write `move r` to take it
   ```
   ```saw-fragment
   run({ r in move r })                     // the spelling the refusal names
@@ -333,14 +340,17 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   to it, so the read became a "fresh temporary" at EVERY tier at once (NoCopy
   and ExplicitCopy skipped their refusal, `Copy` skipped its retain).
   ```saw-error
-  // error-contains: cannot return NoCopy type `Res` without `move` in function
+  // error-rule: transfer.implicit-copy
+  // error-contains: a field is not moved out on its own
   struct Res { w: Int }
   extension Res: NoCopy {}
   struct Holder { inner: Res }
   extension Holder: NoCopy {}
 
   func first(h: &Holder) -> Res? { h.inner }   // the AUTO-WRAP: judged BEFORE
-  // error: cannot return NoCopy type `Res` without `move` in function `first`
+  // error: this reads a place of type `Res`, which is NoCopy, by value: only a
+  //        Copy type copies silently; a field is not moved out on its own, so
+  //        borrow it
   ```
   ```saw-fragment
   func hand_on(&self) -> Int { sink(self) }    // the RECEIVER: same refusal
@@ -379,13 +389,15 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   lossless widening is free, a narrowing or a same-width sign change is
   one of design 170's three spellings, written where the value lands.
   ```saw-error
-  // error-contains: cannot assign `Int` to `Int8`
+  // error-rule: type.mismatch
+  // error-contains: expected `Int8`, the type of the annotated binding, and found `Int`
   let n: Int = 300
-  let b: Int8 = n          // error: cannot assign `Int` to `Int8`
-                           // hint: `as Int8` / `Int8.from(...)` /
-                           //       `Int8.from(truncating: ...)`
+  let b: Int8 = n          // error: expected `Int8` ... and found `Int`; write
+                           //   `as` to panic out of range, `.from(...)` for
+                           //   `None`, or `.from(truncating: ...)` for the low bits
   let u: UInt = 7
   let i: Int = u           // error: same rule, the sign-flip axis
+  let u32val: UInt32 = 9
   let wide: Int = u32val   // fine: a lossless widening decides nothing
   ```
   The positions, all of them: a `let`/`var` initializer, an assignment
@@ -430,15 +442,16 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   REQUIREMENTS, and an `extern "C" { … }` block. A COMMA-delimited list is
   untouched (a newline means nothing inside one — design 129/147): a struct's
   fields, an enum's cases, a `match`'s arms, a map/set literal, an import's
-  symbol list, every parameter/argument/generic list. The diagnostic names both
-  statements' first tokens:
+  symbol list, every parameter/argument/generic list. The diagnostic points at
+  the second statement:
   ```saw-error
+  // error-rule: syntax.rule.juxtaposition
   // error-contains: two statements on one line need a `;` between them
   func main() {
       let width = 3 print(width)
   }
-  // error: two statements on one line need a `;` between them: the first
-  // begins with `let`, the second with `print` — write `;` where they meet
+  // error: two statements on one line need a `;` between them
+  // help: put the second statement on a line of its own, or after a `;`
   ```
   A `match` arm's BARE body is untouched: it is an EXPRESSION rather than a
   statement list, so it never reaches the rule. The arm grammar owns its own
@@ -472,16 +485,27 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   suppression needs the parser to have committed to the generic reading. An
   unclosed `(`/`[` is reported AT THE OPENER, not at EOF. Wrap a long signature
   or call rather than hoisting extra bindings just to fit a line.
-  **A BINARY EXPRESSION DOES NOT WRAP unless brackets already enclose it**
-  (DF-172d) — neither spelling works, so reach for parentheses:
+  **A BINARY EXPRESSION WRAPS ONLY AFTER ITS OPERATOR** (GRAMMAR.md
+  `syntax.rule.operator-continuation`): a line that ENDS in a binary operator
+  other than `..`/`..=` continues onto the next, and a line that STARTS with
+  one is refused, unless brackets already enclose the break:
   ```saw-error
-  // error-contains: Unexpected token: PIPE
+  // error-rule: parse-error
+  // error-contains: expected an expression
   let d = base | VALID | PAGE
-        | AF | UXN            // error: Unexpected token: PIPE
+        | AF | UXN            // error: expected an expression
+  ```
+  ```saw-body
+  let base: UInt64 = 0x3
+  let VALID: UInt64 = 0x1
+  let PAGE: UInt64 = 0x2
+  let AF: UInt64 = 0x400
+  let UXN: UInt64 = 0x40_0000_0000_0000
   let d = base | VALID | PAGE |
-          AF | UXN            // error: Unexpected token: NEWLINE
-  let d = (base | VALID | PAGE
+          AF | UXN            // OK — the line ends in `|`
+  let e = (base | VALID | PAGE
            | AF | UXN)        // OK — the newline is inside `(`
+  print(d == e)               // prints: true
   ```
   Hits hardest when OR-ing named bits into a hardware descriptor, which is the
   most common long line in a driver.
@@ -870,12 +894,27 @@ var u = w.copy()       // explicit duplicate
   written inside a call in an argument list meets the same disjointness test as
   the arguments beside it:
   ```saw-error
-  // error-contains: the receiver is in the set
-  sink(&var p.a, reset(&var p))          // error: both reach `p`
-  p.total(reset(&var p))                 // error: the receiver is in the set
-  combine(bump(&var n), scale(&var n))   // error: neither ref is at the top level
-  add(&var x, bump(&var y))              // ok: distinct roots
-  scale(&var p.b, bump(&var p.a))        // ok: disjoint PATHS, as ever
+  // error-rule: loan.nested-call
+  // error-contains: is also the receiver of the call
+  struct P { a: Int, b: Int }
+  extension P { func total(&self, x: Int) -> Int { self.a + x } }
+  func sink(r: &var Int, x: Int) { }
+  func reset(p: &var P) -> Int { 0 }
+  func bump(v: &var Int) -> Int { 1 }
+  func scale(v: &var Int, by: Int = 2) -> Int { by }
+  func combine(a: Int, b: Int) -> Int { a + b }
+  func add(v: &var Int, x: Int) { }
+
+  var p = P(a: 1, b: 2)
+  var n = 1
+  var x = 1
+  var y = 2
+  sink(&var p.a, reset(&var p))              // error: both reach `p`
+  let t = p.total(reset(&var p))             // error: `p` is also the receiver
+  let c = combine(bump(&var n), scale(&var n))  // error: neither ref is at the
+                                                //   top level
+  add(&var x, bump(&var y))                  // ok: distinct roots
+  let s = scale(&var p.b, bump(&var p.a))    // ok: disjoint PATHS, as ever
   ```
   The receiver one is the sharpest: the receiver is borrowed for the whole call
   EXPRESSION, so `reset`'s exclusive borrow of `p` overlaps it (before the rule
@@ -961,8 +1000,9 @@ var u = w.copy()       // explicit duplicate
   `compiler/`) still writes the INLINE forms this entry also shows
   (`g[4].weight += 1`, `f(&var v[i])`, `m[k]!.n += 1`, `v.get(i)!.x = 1`,
   `with_ref`/`with_var_ref`, `Mutex.lock { }`), and Stage 0 compiles them with
-  the meaning described below. Write `borrow` in docs and spec prose;
-  `saw-fragment` any block that uses it.
+  the meaning described below. Write `borrow` in docs and spec prose; docverify
+  checks doc examples with sawc, so a block that uses it is a `saw` or
+  `saw-body` block like any other.
   **THE ARROW NAMES THE LENT REFERENCE AND ITS MODE** (SL-333): four spellings,
   `-> &T` / `-> &var T` / `-> &T?` / `-> &var T?`. A use may read or write
   through `-> &var T`; `-> &T` is the READ-ONLY lend and a write
@@ -1414,12 +1454,18 @@ while let job = queue.pop() { }      // DRAIN: one iteration per Some
   refused by the place rule, which names `with_ref`/`swap_out` on the actual
   receiver; that one is unchanged.)
   ```saw-error
-  // error-contains: cannot move out of `r`: it binds
+  // error-rule: transfer.move-from-borrow
+  // error-contains: cannot move out of `r`: it names a place it only borrows
+  struct Res { id: Int }
+  extension Res: NoCopy {}
+  enum Slot { case Filled(r: Res), case Empty }
+  extension Slot: NoCopy {}
+
   func take_it(s: &var Slot) -> Res {
       match s {
-          case Filled(r) -> move r,   // error: cannot move out of `r`: it binds
-          case Empty -> Res(id: 0)    // a payload inside a value this match
-      }                               // only BORROWS ...
+          case Filled(r) -> move r,   // error: cannot move out of `r`: it names
+          case Empty -> Res(id: 0)    // a place it only borrows, ... a part of
+      }                               // a scrutinee a match borrows
   }
   ```
   It does NOT read the copy tier: a borrowed binding is un-retained at every
@@ -1520,9 +1566,9 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   ```saw
   import std.file
   import std.path.{Path}
-  import std.net.{IoError}
+  import std.systemerror.{SystemError}
 
-  func main() -> Result<Void, IoError> {
+  func main() -> Result<Void, SystemError> {
       var config = try file.File.open(Path(s: "saw.toml"))
       let text = try config.read()
       print("read {text.len()} bytes")
@@ -2134,7 +2180,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `Decoder` seam, import-required (`import std.json.{JsonEncoder, JsonDecoder,
   JsonValue}`). The seam half reads exactly like CBOR's, and `encode<T:
   Serialize>(value:)` is the one-call write:
-  ```saw
+  ```saw-pending SL-833
   import std.json.{JsonEncoder, JsonDecoder}
 
   struct Endpoint { host: String, port: Int }
@@ -2182,15 +2228,13 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   place accessors `as_array()` / `as_object()`, which LEND their container
   (`borrows -> &var T?`, so `borrow var doc.as_object()!.insert(...)` reaches it
   in place) rather than copying it:
-  ```saw-fragment
+  ```saw-body
   import std.json.{JsonValue}
 
   let doc = try! JsonValue.parse("\{\"tls\": true, \"ports\": [80, 443]\}")
   print(borrow doc.as_object()!.len())                                 // prints: 2
   if let tls = borrow doc.as_object()!["tls"].as_bool() { print(tls) }  // prints: true
   ```
-  (A fragment only because docverify still compiles with Stage 0, which cannot
-  parse `borrow`; sawc builds it and prints both lines.)
   GOTCHA in that literal: `{` and `}` open interpolation in a Saw string, so a
   JSON document written inline escapes them as `\{` and `\}`. Reading the text
   from a file or a socket needs none of that.
@@ -2210,11 +2254,16 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   instance set, and the runtime condition you wrote to stop the recursion
   decides nothing about which instantiations exist:
   ```saw-error
-  // error-contains: exceeds the instantiation
+  // error-rule: mono.depth
+  // error-contains: this call instantiates a type nested more than 64 deep
+  struct Wrap<T> { inner: T }
+
   func deepen<T>(x: T, n: Int) -> Int {
       if n <= 0 { return 0 }
-      deepen(Wrap<T>(inner: x), n - 1)   // error: exceeds the instantiation
-  }                                      //   depth limit (64): deepen<Int> → …
+      deepen(Wrap<T>(inner: x), n - 1)   // error: this call instantiates a type
+  }                                      //   nested more than 64 deep
+
+  func main() { print(deepen(1, 3)) }
   ```
   Put the growing part behind a `Box`, or make the recursive call non-generic.
   Per CHAIN, not a cap on how many instantiations a program has, so wide code is
@@ -2223,8 +2272,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   (DF-258b), so an older build gives no diagnostic at all.
 - **CONST GENERICS: a parameter that carries a VALUE (design 148).** `const` in
   the parameter position is what keeps it visually distinct from a bounded type
-  param — and `<N: Int>`, the natural guess, is now a clean error pointing at
-  the real spelling:
+  param — and `<N: Int>`, the natural guess, is a clean error
+  (`type.not-a-trait`). The real spelling:
   ```saw-body
   struct FixedBuf<const N: Int> { data: [UInt8; N] }
   extension FixedBuf<N> {                    // constness comes from the
@@ -2255,7 +2304,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   types, `where N > 0` (use `static_assert(N > 0, ...)` in the body), variadics.
 - **The fixed-buffer idiom (std.fixedbuf).** For formatting or scratch bytes
   with no allocator, reach for the std types rather than rolling a buffer:
-  ```saw-body
+  ```saw-pending SL-596
   import std.fixedbuf.*
   var out = FixedStringBuilder<64>()   // 64 bytes inline; holds 60 of text
   out.append("n = ")
@@ -3281,18 +3330,17 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   survive a suspension (design 77): their bindings are frame-resident. A closure
   literal passed STRAIGHT to a call in a task body captures frame locals in every
   position the call can sit in — the body's tail, a `return`, a `let`, an
-  assignment, a condition, a scrutinee, a nested call's argument — which is what
-  makes the shared-counter idiom writable:
+  assignment, a condition, a scrutinee, a nested call's argument. The
+  shared-counter idiom needs no closure at all, since `Mutex.lock()` is an
+  accessor:
   ```saw
   import std.mutex.{Mutex}
 
   func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
-      shared.lock({ &var c in c = c + n; c })   // captures `n`, the parameter
+      borrow var c = shared.value().lock() { c = c + n; c }   // reads `n`, the parameter
   }
   // group.spawn(add(shared.copy(), 1))
   ```
-  (STAGE 0 spelling. In the ruled language `Mutex.lock()` is an accessor and
-  there is no closure: `borrow var c = shared.value().lock() { c = c + n; c }`.)
   Two positions still refuse a capture, cleanly: a bare (non-block) `match` arm
   expression, which cannot host the materialization at all, and a `while`
   CONDITION, where it would run once ahead of a condition that runs every
@@ -3349,12 +3397,15 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   is statically known), which is what keeps SPAWN-JOIN-USE legal with nothing
   extra written:
   ```saw-error
+  // error-rule: loan.exclusive-twice
   // error-contains: `n` cannot be written here — the task
+  func run(body: () -> Int) -> Int { body() }
+
   var n = 0
   var group = TaskGroup()
   let h = group.spawn(run({ [&var n] in n = n + 100; n }))
   n = 5                    // error: `n` cannot be written here — the task
-                           //   spawned at line 3 holds `&var n` until
+                           //   spawned above holds `&var n` until
                            //   `h.join()` releases it
   print(h.join())
   print(n)                 // fine: the borrow ended at the join
@@ -3448,12 +3499,12 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   two DIFFERENT modules), and the bare and qualified spellings are then ONE
   TYPE in every position:
   ```saw
-  import std.net.{IoError}
+  import std.systemerror.{SystemError}
   import std.path.{Path}
 
   import std.file
   import std.file.{File}
-  func open_it(p: Path) -> Result<File, IoError> { File.open(p) }
+  func open_it(p: Path) -> Result<File, SystemError> { File.open(p) }
   func exists(p: Path) -> Bool { file.File.exists(p) }
   ```
   A qualifier no whole-module import bound is a clean error naming the line
@@ -3776,7 +3827,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   at least `public(package)`, a `public` field's type is at least as visible as
   the field. Refused AT THE DECLARATION, naming the type, both tiers and the two
   fixes:
-  ```saw-error
+  ```saw-pending SL-824
   // error-contains: function `give` is public, but the return type names `Hidden`,
   struct Hidden { n: Int }
   public func give() -> Hidden { Hidden(n: 2) }
@@ -4163,7 +4214,7 @@ sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
   trigger, for a callback arriving from C and a loader reading an entry PC.
   A C callback's `F` names raw pointers, so it carries `unsafe` by design 136's
   rule while the `FuncPointer` stays safe:
-  ```saw
+  ```saw-pending SL-828
   extern "C" {
       func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
                  compar: FuncPointer<(UnsafeConstPointer<Int32>,
@@ -4455,14 +4506,17 @@ construct in the owner and lend `&driver` down.
 - **`static` IS REQUIRED ON A STATIC METHOD, and there is no inference**
   (design 236). Write the keyword at the declaration and call it on the TYPE:
   ```saw-error
-  // error-contains: method `dup` has no receiver — add `&self`/`&var self`, or
+  // error-rule: syntax.rule.receiver-and-static
+  // error-contains: a method that is not `static` takes a receiver
+  struct Bag { n: Int }
+
   extension Bag {
       static func make(seed: Int) -> Bag { Bag(n: seed) }
       func count(&self) -> Int { self.n }
 
       func dup(x: Int) -> Int { x * 2 }
-      // error: method `dup` has no receiver — add `&self`/`&var self`, or
-      //        declare it `static func` if a static was intended
+      // error: a method that is not `static` takes a receiver
+      // help: declare `&self` or `&var self` first, or declare the method `static`
   }
   ```
   Three refusals, all at the DECLARATION: a self-less non-`init` `func`
@@ -4666,10 +4720,16 @@ construct in the owner and lend `&driver` down.
   passed directly to a non-escaping parameter** — `[&x]`/`[&var x]`, a reference
   parameter, and `self` alike. Escaping is refused:
   ```saw-error
-  // error-contains: an escaping closure cann
-  func handOut(&self) -> () -> Int { return { self.n + 3 } }
-  // error: an escaping closure cannot capture `self`: a method's receiver is a
-  // borrow of storage the CALLER owns ...
+  // error-rule: capture.escaping-borrow
+  // error-contains: an escaping closure cannot capture `self`
+  struct Counter { n: Int }
+  struct Thing { x: Int }
+
+  extension Counter {
+      func handOut(&self) -> () -> Int { return { self.n + 3 } }
+      // error: an escaping closure cannot capture `self`: a method's receiver
+      // is a borrow of storage the caller owns ...
+  }
   func make(r: &Thing) -> () -> Int { return { r.x + 1 } }
   // error: an escaping closure cannot capture `r`, a reference (`&Thing`) ...
   ```
@@ -5047,7 +5107,7 @@ construct in the owner and lend `&driver` down.
   `static_assert` operand — with const arithmetic composing over it. Write the
   size once and derive the rest; the named-array-type-plus-`sizeof` workaround
   is retired.
-  ```saw-body
+  ```saw-pending SL-457
   static PAGE_SHIFT: Int = 12
   static REGION_SIZE: Int = 1 << (PAGE_SHIFT + 4)      // derives, design 186
   static_assert(REGION_SIZE % 4096 == 0, "the region must be page-aligned")

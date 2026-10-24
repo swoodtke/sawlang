@@ -285,8 +285,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   re-derivation), `abidoc`, then the slow two: `gmgate` (the ownership and
   concurrency oracles, built by sawc, under Guard Malloc, after a self-test
   that a dropped retain still faults; SL-697) and the opt-in `linux` (the run
-  lane in the Linux VM, both arches; see "Linux"). `docverify` still drives
-  Stage 0, which has no sawc equivalent yet. Every stage RUNS even after one fails; the exit code
+  lane in the Linux VM, both arches; see "Linux"). `docverify` checks every
+  doc example with `sawc coro --check` (a `saw-pending SL-NNN` block cites the
+  open issue it waits on). Every stage RUNS even after one fails; the exit code
   is the number of failing stages. Adding a lane means editing `STAGES`.
   RETIRED from the battery (SL-666), the tools staying until SL-667 deletes
   `sawc/`: `suite`, `freestanding`, `bootstrap`, `astdiff`, `irdet`,
