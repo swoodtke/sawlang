@@ -911,7 +911,18 @@ var u = w.copy()       // explicit duplicate
   **EVERY USE OF A `borrows` METHOD SAYS `borrow`** (SL:borrowing §1-§2;
   LANGUAGE_SPEC "The `borrow` construct"). A reader tells a borrow from a copy
   by looking: whatever touches storage in place says `borrow`, whatever looks
-  like a copy IS a copy. Three forms:
+  like a copy IS a copy. sawc ENFORCES it (SL-849): a `borrows` call written
+  bare is `borrows.unmarked-call` at every position (an operand, an argument,
+  a condition, a scrutinee, an `if let` subject, an assignment target, a
+  closure, a call through a bound or `any`), and so is a write through a
+  subscript's place (`v[0].n = 5`, `v[0].bump()`), with a fixit naming
+  `borrow …` or `borrow var …`. The only bare positions are the DIRECT head
+  of a `for` (`for x in v.iter()`) and a `lend` operand. A call INSIDE a `for`
+  head is not the head: write `for i in 0..borrow doc.as_array()!.len()`,
+  which closes at the head (the bare bound held the root for the whole loop).
+  A `borrow` covers its own chain only, so a borrows call in one of its
+  ARGUMENTS takes its own `borrow`. Accessors of the frozen std
+  (`--std-root sawc`) stay exempt until SL-667. Three forms:
   - **Block**: `borrow var slot = v[i] { slot.count += 1 }`,
     `borrow let e = doc.section("net") { print(e.name) }`. Always NAMED; only
     the name reaches the place inside (the head is evaluated once and is
@@ -2164,15 +2175,17 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `to_json_string()`. Its readers answer `None` rather than trapping:
   `is_null()`, `as_bool()`, `as_int()`, `as_float()`, `as_text()`, and the two
   place accessors `as_array()` / `as_object()`, which LEND their container
-  (`borrows -> &var T?`, so `doc.as_object()!.insert(...)` reaches it in place)
-  rather than copying it:
-  ```saw-body
+  (`borrows -> &var T?`, so `borrow var doc.as_object()!.insert(...)` reaches it
+  in place) rather than copying it:
+  ```saw-fragment
   import std.json.{JsonValue}
 
   let doc = try! JsonValue.parse("\{\"tls\": true, \"ports\": [80, 443]\}")
-  print(doc.as_object()!.len())                                  // prints: 2
-  if let tls = doc.as_object()!["tls"]!.as_bool() { print(tls) }  // prints: true
+  print(borrow doc.as_object()!.len())                                 // prints: 2
+  if let tls = borrow doc.as_object()!["tls"].as_bool() { print(tls) }  // prints: true
   ```
+  (A fragment only because docverify still compiles with Stage 0, which cannot
+  parse `borrow`; sawc builds it and prints both lines.)
   GOTCHA in that literal: `{` and `}` open interpolation in a Saw string, so a
   JSON document written inline escapes them as `\{` and `\}`. Reading the text
   from a file or a socket needs none of that.

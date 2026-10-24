@@ -36,7 +36,7 @@ func main() {
     borrow let e = record.as_array() {
         if let _ = e { print("present block") } else { print("absent block") }
     }
-    let count = match record.as_object() {
+    let count = match borrow record.as_object() {
         case Some(borrow let fields) -> fields.len(),
         case None -> 0
     }

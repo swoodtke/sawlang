@@ -1069,6 +1069,10 @@ extension BorrowckProgram {
 
     // The place method call `node` borrows its receiver from, traced, or a
     // path with `count` -1 for a call with no receiver taken by reference.
+    // The call is found by the node it lowers (`MirCall.node`), not by its
+    // block's source stamp, which names the outermost expression lowered
+    // there: a `borrow` wrapper, or a member read off the call's result.
+    // Pinned by `loan.nested-call.place-window` and its marked variants.
     func call_receiver(&self, f: Int, node: Int, facts: &var BorrowckLoans) -> BorrowckPath {
         let rc = self.mir.tc.res_call_at[node]
         if rc < 0 || self.mir.tc.res.calls[rc].classification != ResCallClass.Method {
@@ -1079,7 +1083,7 @@ extension BorrowckProgram {
         while b < info.block_count {
             let block = self.mir.blocks[info.block_first + b]
             b = b + 1
-            if block.term != MirTermKind.Call || block.term_node != node {
+            if block.term != MirTermKind.Call || block.call < 0 || self.mir.calls[block.call].node != node {
                 continue
             }
             let c = self.mir.calls[block.call]

@@ -15,7 +15,8 @@ directory specifies:
 - each refusal fixture, `refuse/RULE[.VARIANT].saw` or
   `refuse/RULE[.VARIANT]/main.saw`, is refused first by the rule and at the
   position its `// refuses:` header names, checked with the flags a second
-  line `// flags: ...` passes (`--runtime`, for a runtime's seams);
+  line `// flags: ...` passes (`--runtime`, for a runtime's seams), and that
+  refusal's message holds each `// message:` line of its leading comment;
 - every rule typecheck refuses by has a fixture;
 - the compiler's own source, the sawc build and each unit program, checks
   with no refusal;
@@ -43,6 +44,7 @@ TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
 _FLAGS = re.compile(r"^// flags: (.*)$")
+_MESSAGE = re.compile(r"^// message: (.+)$")
 _RULE_ID = re.compile(r'"((?:type|conformance|synthesize|copy|unsafe|slice|member|call|infer|'
                       r'transfer|subscript|pattern|format|extension|implicit-member|operator|'
                       r'init|deinit|effect|match|result|borrowing|borrows|consumes|static|'
@@ -206,6 +208,27 @@ def first_error(record, entry=None):
     return None
 
 
+def first_message(record):
+    """The message of a record's first refusal, or ""."""
+    for line in record.split("\n"):
+        if line.startswith("ERROR\t"):
+            return line.split("\t", 3)[3]
+    return ""
+
+
+def fixture_messages(path):
+    """The text of each `// message:` line in a fixture's leading comment."""
+    messages = []
+    with open(path) as fh:
+        for line in fh.read().split("\n"):
+            if not line.startswith("//"):
+                break
+            m = _MESSAGE.match(line)
+            if m:
+                messages.append(m.group(1))
+    return messages
+
+
 def write_header(path, found):
     with open(path) as fh:
         lines = fh.read().split("\n")
@@ -257,6 +280,12 @@ def check_refusals(failures, counts, fill):
         elif at and found[1] != at:
             failures.append("typecheck refusal %s: %s at %s, expected at %s"
                             % (rel(path), rule, found[1], at))
+        else:
+            message = first_message(record)
+            for text in fixture_messages(path):
+                if text not in message:
+                    failures.append("typecheck refusal %s: the message does not hold %r: %s"
+                                    % (rel(path), text, message))
         counts["typecheck refusal fixtures"] = counts.get("typecheck refusal fixtures", 0) + 1
     return named
 

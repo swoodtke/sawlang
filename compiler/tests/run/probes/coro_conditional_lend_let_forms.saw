@@ -193,7 +193,7 @@ extension HolderB {
 }
 
 func if_let_copy_P(h: &var HolderP, i: Int) -> Int {
-    if let c = h.find(i) {
+    if let c = borrow h.find(i) {
         print("body {}", c)
         c
     } else {
@@ -203,7 +203,7 @@ func if_let_copy_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func if_let_copy_B(h: &var HolderB, i: Int) -> Int {
-    if let c = h.find(i) {
+    if let c = borrow h.find(i) {
         print("body {}", c)
         c
     } else {
@@ -213,7 +213,7 @@ func if_let_copy_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func guard_let_copy_P(h: &var HolderP, i: Int) -> Int {
-    guard let c = h.find(i) else {
+    guard let c = borrow h.find(i) else {
         print("absent")
         return -1
     }
@@ -222,7 +222,7 @@ func guard_let_copy_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func guard_let_copy_B(h: &var HolderB, i: Int) -> Int {
-    guard let c = h.find(i) else {
+    guard let c = borrow h.find(i) else {
         print("absent")
         return -1
     }
@@ -233,7 +233,7 @@ func guard_let_copy_B(h: &var HolderB, i: Int) -> Int {
 func while_let_copy_P(h: &var HolderP, i: Int) -> Int {
     var k = i
     var sum = 0
-    while let c = h.find(k) {
+    while let c = borrow h.find(k) {
         sum = sum + c
         k = k + 1
     }
@@ -243,7 +243,7 @@ func while_let_copy_P(h: &var HolderP, i: Int) -> Int {
 func while_let_copy_B(h: &var HolderB, i: Int) -> Int {
     var k = i
     var sum = 0
-    while let c = h.find(k) {
+    while let c = borrow h.find(k) {
         sum = sum + c
         k = k + 1
     }

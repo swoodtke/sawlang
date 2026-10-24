@@ -55,7 +55,7 @@ func bump_block(v: &var Vector<Int>) -> Int {
 }
 
 func matched(v: &var Vector<Int>) -> Int {
-    match v.find(1) {
+    match borrow v.find(1) {
         case Some(borrow let x) -> {
             yield_now()
             x - 100

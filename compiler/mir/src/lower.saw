@@ -4901,7 +4901,14 @@ extension MirProgram {
     }
 
     // The conditional lend a `borrow` expression `e` spells out, or `e`
-    // itself: `borrow v.get(i)` opens the same window `v.get(i)` does.
+    // itself: `borrow v.get(i)` opens the same window `v.get(i)` does, with
+    // the same presence. Pinned by the run probe
+    // `conditional_lend_marked_presence` (SL-864).
+    //
+    // ENTRY POINTS:
+    //     optional_switch
+    //     lower_match
+    //     lower_borrow_block
     func lend_subject(&self, e: Int) -> Int {
         if not self.tc.has_alt(e, Alt.Borrow_Place_Shared) && not self.tc.has_alt(e, Alt.Borrow_Place_Var) {
             return e
@@ -5356,8 +5363,9 @@ extension MirProgram {
             if self.tc.has_alt(c, Alt.Borrow_Binding_Let) || self.tc.has_alt(c, Alt.Borrow_Binding_Var) {
                 let target = self.tc.res.first_node_child(c)
                 let place = self.tc.res.last_node_child(c)
-                if self.conditional_lend(place) {
-                    self.bind_optional_place(target, place)
+                let subject = self.lend_subject(place)
+                if self.conditional_lend(subject) {
+                    self.bind_optional_place(target, subject)
                     continue
                 }
                 let p = self.place_of(place)
@@ -5942,8 +5950,9 @@ extension MirProgram {
         let scrutinee = self.tc.res.first_node_child(e)
         let depth = self.open_scope()
         var root = -1
-        if self.conditional_lend(scrutinee) {
-            let lent = self.bind_optional_place(-1, scrutinee)
+        let subject = self.lend_subject(scrutinee)
+        if self.conditional_lend(subject) {
+            let lent = self.bind_optional_place(-1, subject)
             root = self.place_local(lent)
         } else if self.tc.expr_use[scrutinee] == TcUse.Move {
             let p = self.place_of(scrutinee)

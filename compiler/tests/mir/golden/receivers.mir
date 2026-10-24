@@ -162,12 +162,12 @@ fn receivers.accessor_receiver(g: &var receivers.Grid) -> Void {
     }
 
     bb3: {
-        _7 = copy (_6 as Ok!).0;
-        drop(_6);
         window_close w0 epilogue receivers.Grid.cell() (owner receivers.Grid) -> [return: bb4];
     }
 
     bb4: {
+        _7 = copy (_6 as Ok!).0;
+        drop(_6);
         return;
     }
 }
@@ -211,8 +211,6 @@ fn receivers.chained(g: &var receivers.Grid) -> Void {
     }
 
     bb5: {
-        _10 = copy (_9 as Ok!).0;
-        drop(_9);
         window_close w1 epilogue receivers.Inner.inner(k: Int) (owner receivers.Inner) -> [return: bb6];
     }
 
@@ -221,6 +219,8 @@ fn receivers.chained(g: &var receivers.Grid) -> Void {
     }
 
     bb7: {
+        _10 = copy (_9 as Ok!).0;
+        drop(_9);
         return;
     }
 }
@@ -251,12 +251,12 @@ fn receivers.forced(g: &var receivers.Grid) -> Void {
     }
 
     bb3: {
-        _7 = copy (_6 as Ok!).0;
-        drop(_6);
         window_close w0 epilogue receivers.Grid.find(i: Int) (owner receivers.Grid) -> [return: bb4];
     }
 
     bb4: {
+        _7 = copy (_6 as Ok!).0;
+        drop(_6);
         return;
     }
 }
@@ -270,9 +270,9 @@ fn receivers.keyed(g: &var receivers.Grid) -> Int {
     let _5: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
     let _6: &var receivers.Inner;
     let _7: Int;
-    let _8: Int;
-    let _9: &Int;
-    let _10: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _8: &Int;
+    let _9: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _10: Int;
     window w0: receivers.Grid.cell() exclusive;
     window w1: receivers.Inner.inner(k: Int) exclusive;
     window w2: std.vector.Vector.[](index: Int) shared;
@@ -296,17 +296,16 @@ fn receivers.keyed(g: &var receivers.Grid) -> Int {
     }
 
     bb4: {
-        _10 = ref(shared, (*_5));
-        _9 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, move _7] -> [present: bb5];
+        _9 = ref(shared, (*_5));
+        _8 = window_open w2 prologue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _9, move _7] -> [present: bb5];
     }
 
     bb5: {
-        _8 = copy (*_9);
+        _10 = copy (*_8);
         window_close w2 epilogue std.vector.Vector.[](index: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) -> [return: bb6];
     }
 
     bb6: {
-        _0 = move _8;
         window_close w1 epilogue receivers.Inner.inner(k: Int) (owner receivers.Inner) -> [return: bb7];
     }
 
@@ -315,6 +314,7 @@ fn receivers.keyed(g: &var receivers.Grid) -> Int {
     }
 
     bb8: {
+        _0 = move _10;
         return;
     }
 }
@@ -325,6 +325,7 @@ fn receivers.indexed(g: &var receivers.Grid) -> Int {
     let _2: &var receivers.Inner;
     let _3: &var receivers.Grid;
     let _4: Int;
+    let _5: Int;
     window w0: receivers.Grid.cell() exclusive;
 
     bb0: {
@@ -337,11 +338,12 @@ fn receivers.indexed(g: &var receivers.Grid) -> Int {
     }
 
     bb2: {
-        _0 = copy (*_2).cells[_4];
+        _5 = copy (*_2).cells[_4];
         window_close w0 epilogue receivers.Grid.cell() (owner receivers.Grid) -> [return: bb3];
     }
 
     bb3: {
+        _0 = move _5;
         return;
     }
 }

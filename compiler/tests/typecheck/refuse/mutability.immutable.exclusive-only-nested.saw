@@ -1,4 +1,4 @@
-// refuses: mutability.immutable at 27:13
+// refuses: mutability.immutable at 27:20
 // a window nested in a window, each through a `&var self` accessor with no
 // shared twin, read on a `let` root (SL-470)
 
@@ -24,5 +24,5 @@ extension Outer {
 
 func main() {
     let out = Outer(inner: Bag(cells: [1, 2, 3, 4]))
-    let w = out.bag()[1]
+    let w = borrow out.bag()[1]
 }

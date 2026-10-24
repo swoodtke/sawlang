@@ -42,7 +42,7 @@ func forced(r: &var Row) -> Int {
 }
 
 func direct(r: &var Row) -> Int {
-    match r.find(1) {
+    match borrow r.find(1) {
         case Some(borrow var n) -> {
             n += 1
             n

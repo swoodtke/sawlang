@@ -241,7 +241,7 @@ func block_form_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func match_borrow_var_P(h: &var HolderP, i: Int) -> Int {
-    match h.find(i) {
+    match borrow h.find(i) {
         case Some(borrow var c) -> {
             c += 1
             c
@@ -254,7 +254,7 @@ func match_borrow_var_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func match_borrow_var_B(h: &var HolderB, i: Int) -> Int {
-    match h.find(i) {
+    match borrow h.find(i) {
         case Some(borrow var c) -> {
             c += 1
             c
@@ -267,7 +267,7 @@ func match_borrow_var_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func match_borrow_let_P(h: &var HolderP, i: Int) -> Int {
-    match h.look(i) {
+    match borrow h.look(i) {
         case Some(borrow let c) -> c,
         case None -> {
             print("absent")
@@ -277,7 +277,7 @@ func match_borrow_let_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func match_borrow_let_B(h: &var HolderB, i: Int) -> Int {
-    match h.look(i) {
+    match borrow h.look(i) {
         case Some(borrow let c) -> c,
         case None -> {
             print("absent")
@@ -287,7 +287,7 @@ func match_borrow_let_B(h: &var HolderB, i: Int) -> Int {
 }
 
 func match_copy_P(h: &var HolderP, i: Int) -> Int {
-    match h.find(i) {
+    match borrow h.find(i) {
         case Some(c) -> c,
         case None -> {
             print("absent")
@@ -297,7 +297,7 @@ func match_copy_P(h: &var HolderP, i: Int) -> Int {
 }
 
 func match_copy_B(h: &var HolderB, i: Int) -> Int {
-    match h.find(i) {
+    match borrow h.find(i) {
         case Some(c) -> c,
         case None -> {
             print("absent")

@@ -104,11 +104,11 @@ func cell(c: &Cell) unsafe -> Int {
 
 func plain(b: &var Bag) -> Int {
     var t = 0
-    if var x = b.peek(0) {
+    if var x = borrow b.peek(0) {
         x.n = 5
         t = x.n
     }
-    if let y = b.find(1) {
+    if let y = borrow b.find(1) {
         t = t + y.n
     }
     t

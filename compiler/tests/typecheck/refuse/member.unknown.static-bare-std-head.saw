@@ -5,5 +5,5 @@
 
 func main() {
     let b: Box<Int> = try! Box.new(1)
-    print("{}", b.value())
+    print("{}", borrow b.value())
 }

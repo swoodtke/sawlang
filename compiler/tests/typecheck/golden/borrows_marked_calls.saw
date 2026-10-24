@@ -1,0 +1,129 @@
+// Every `borrows` call written in a `borrow` construct checks clean, at each
+// position `borrows.unmarked-call` refuses the bare call in: a chain head,
+// an argument, an operand, a `for` range's bound, a condition, a scrutinee,
+// an `if let` subject, interpolation, a `return`, an assignment's target and
+// right side, a closure, a bound. So does what the rule exempts: a `lend`
+// operand, a `for` head over a borrowing struct, and a subscript's getitem
+// and setitem (SL-849).
+
+struct Entry { n: Int }
+
+extension Entry {
+    func bump(&var self) { self.n += 1 }
+}
+
+struct Store { items: [Entry; 2] }
+
+extension Store {
+    @synthesize(shared)
+    func slot(&var self, i: Int) borrows -> &var Entry {
+        lend self.items[i]
+    }
+
+    @synthesize(shared)
+    func find(&var self, i: Int) borrows -> &var Entry? {
+        if i < 0 || i >= 2 {
+            return None
+        }
+        lend self.items[i]
+    }
+
+    func count(&self) -> Int { 2 }
+
+    func at(&self, i: Int) -> Int { self.items[i].n }
+
+    func walk(&self) borrows -> Walk {
+        Walk(source: lends self, index: 0)
+    }
+}
+
+borrows struct Walk {
+    source: &Store,
+    index: Int
+}
+
+extension Walk: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index < self.source.count() {
+            let i = self.index
+            self.index = i + 1
+            self.source.at(i)
+        } else {
+            None
+        }
+    }
+}
+
+struct Outer { st: Store }
+
+extension Outer {
+    func first(&var self) borrows -> &var Entry {
+        lend self.st.slot(0)
+    }
+}
+
+trait Lens {
+    func get(&var self) borrows -> &var Entry
+}
+
+extension Store: Lens {
+    func get(&var self) borrows -> &var Entry {
+        lend self.items[0]
+    }
+}
+
+struct Grid { cells: [Int; 2] }
+
+extension Grid {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func take(n: Int) -> Int { n }
+
+func run(f: () -> Int) -> Int { f() }
+
+func first(st: &var Store) -> Int {
+    return borrow st.slot(0).n
+}
+
+func via<T: Lens>(t: &var T) -> Int {
+    borrow t.get().n
+}
+
+func main() {
+    var st = Store(items: [Entry(n: 1), Entry(n: 2)])
+    let a = borrow st.find(0)!.n
+    print(take(borrow st.slot(0).n) + a)
+    print(borrow st.slot(0).n == borrow st.slot(1).n)
+    for i in 0..borrow st.slot(1).n {
+        print(i)
+    }
+    while borrow st.slot(0).n < 3 {
+        borrow var st.slot(0).bump()
+    }
+    if let e = borrow st.find(0) {
+        print("{e.n} {borrow st.slot(1).n}")
+    }
+    match borrow st.slot(0).n {
+        case 1 -> print(1),
+        case _ -> print(0)
+    }
+    borrow var st.slot(0).n = 5
+    borrow var st.find(0)?.n = 8
+    var x = 0
+    x = borrow st.slot(0).n
+    print(x + run({ borrow st.slot(0).n }) + first(&var st) + via(&var st))
+    for n in st.walk() {
+        print(n)
+    }
+    var o = Outer(st: move st)
+    print(borrow o.first().n)
+    var g = Grid(cells: [1, 2])
+    g[0] = 5
+    g[1] += 1
+    print(g[0])
+}

@@ -4614,9 +4614,10 @@ let seen = n
 
 ### Places (`borrows` and `lend`)
 
-**Status: partially implemented.** Accessor declarations and `lend` are built;
-the `borrow` construct, the subscript roles and the shared/exclusive accessor
-pair are planned. A **place** is storage that already exists: a local, a
+**Status: implemented in sawc**, except the `default:` subscript and
+`KeyedPlace` (see [Subscripts](#subscripts-getitem-setitem-and-the-place)):
+accessor declarations, `lend`, the `borrow` construct, the subscript roles and
+the shared/exclusive accessor pair are built. A **place** is storage that already exists: a local, a
 field, a tuple component, an array element, an optional's payload. Places are
 not new — `v.x`, `t.0` and `o!` have always been places. What is new is that a
 *method* can hand one out.
@@ -4773,8 +4774,8 @@ pointer.
 
 #### The `borrow` construct
 
-**Status: planned.** `borrow` marks every use of storage through a `borrows`
-method. It has three forms: a block that names the place, a prefix that borrows
+**Status: implemented in sawc.** `borrow` marks every use of storage through a
+`borrows` method. It has three forms: a block that names the place, a prefix that borrows
 it for one statement or one call, and a `for` loop that borrows each element in
 turn (see [Borrowing structs](#borrowing-structs)). GRAMMAR.md §9 gives their
 spelling (`syntax.borrow.block`, `syntax.borrow.place`, `syntax.borrow.unwrap`,
@@ -4789,6 +4790,44 @@ through another accessor; `lend` is already the explicit borrow marker there.
 The inner borrow opens for as long as the outer lend is open, nested inside it,
 and they close in reverse order. A place reached any other way inside the body
 is an ordinary borrow and is written as one.
+
+Everywhere else a `borrows` call without `borrow` is a compile error, at every
+position an expression can stand in, including a call through a generic bound
+or an `any Trait`. A write through a subscript's place is one too
+(`v[0].n = 5`), since the place is the subscript accessor's. A plain read
+(`v[0].n`), a whole-element store (`v[0] = e`) and a compound assignment of the
+whole element (`v[0] += 1`) are the getitem and setitem, and need nothing. The
+fixit puts `borrow` in front of the place chain, or `borrow var` where the
+program writes through it:
+
+```saw-fragment
+struct Entry { n: Int }
+struct Store { items: [Entry; 2] }
+
+extension Store {
+    func slot(&var self, i: Int) borrows -> &var Entry {
+        lend self.items[i]
+    }
+}
+
+func main() {
+    var st = Store(items: [Entry(n: 1), Entry(n: 3)])
+    for i in 0..st.slot(1).n {
+        print(i)
+    }
+    // error: `st.slot(1)` calls `Store.slot`, a `borrows` method, outside a
+    //        `borrow` construct: a call that lends a place is written with
+    //        `borrow`, so the window it opens shows where it opens; write
+    //        `borrow st.slot(1).n`
+}
+```
+
+A `for` head is the construct only when the call is the head itself, as in
+`for x in v.iter()`. A call inside the head, such as the range bound above, is
+written `0..borrow st.slot(1).n`, and its window closes once the bound is read,
+before the loop body runs. A `borrow` covers its own chain and not the calls in
+its arguments: in `borrow st.slot(take(other.slot(0).n)).n` the inner call is
+written `borrow other.slot(0).n`.
 
 **The block form** names the place and scopes it to a block:
 

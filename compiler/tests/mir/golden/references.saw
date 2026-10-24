@@ -44,15 +44,15 @@ func exclusive(g: &var Grid) -> Int {
 }
 
 func shared(g: &Grid) -> Int {
-    if let r = g.peek() {
+    if let r = borrow g.peek() {
         return r + 1
     }
     0
 }
 
 func element(g: &var Grid) -> Int {
-    g.counted(0) += 1
-    g.counted(1)
+    borrow var g.counted(0) += 1
+    borrow g.counted(1)
 }
 
 func main() {

@@ -47,23 +47,23 @@ func note(n: Int) -> Int {
 }
 
 func accessor_receiver(g: &var Grid) {
-    try! g.cell().items.push(note(1))
+    try! borrow var g.cell().items.push(note(1))
 }
 
 func chained(g: &var Grid) {
-    try! g.cell().inner(note(1)).push(note(2))
+    try! borrow var g.cell().inner(note(1)).push(note(2))
 }
 
 func forced(g: &var Grid) {
-    try! g.find(0)!.items.push(note(1))
+    try! borrow var g.find(0)!.items.push(note(1))
 }
 
 func keyed(g: &var Grid) -> Int {
-    g.cell().inner(note(1))[note(2)]
+    borrow g.cell().inner(note(1))[note(2)]
 }
 
 func indexed(g: &var Grid) -> Int {
-    g.cell().cells[note(1)]
+    borrow g.cell().cells[note(1)]
 }
 
 func compound(g: &var Grid) {

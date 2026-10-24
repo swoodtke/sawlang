@@ -19,5 +19,5 @@ extension Pool: NoCopy {
 
 func main() {
     let shared = try! Arc(Pool(size: 2))
-    print(shared.value().size)
+    print(borrow shared.value().size)
 }

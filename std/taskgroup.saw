@@ -1309,11 +1309,11 @@ extension TaskGroup {
     func recycle(&var self, slot: Int) unsafe -> Retired {
         let cell = self.cell_at(slot)
         let next = self.slots[slot].generation + 1
-        self.slots[slot].generation = next
+        borrow var self.slots[slot].generation = next
         if self.slots[slot].pinned {
             return Retired(cell: cell as Int, free: false)
         }
-        self.slots[slot].cell = None
+        borrow var self.slots[slot].cell = None
         alloc_or_fault(self.free.push(slot), "Task.spawn")
         Retired(cell: cell as Int, free: true)
     }
@@ -1342,12 +1342,12 @@ extension TaskGroup {
                                           descriptor[0].align)
             }
         }
-        self.slots[slot].frame = None
+        borrow var self.slots[slot].frame = None
         // Ahead of `done`, which the deadlock walk reads first: a walk that finds
         // the slot done finds the word set when it reads the driving join's park
         // again (`quiescent_now`).
         let _ = __saw_atomic_add_i64_seq_cst((&cell[0].finished) as UnsafePointer<Int>, 1)
-        self.slots[slot].done = true
+        borrow var self.slots[slot].done = true
         if cell[0].unclaimed || not cell[0].holding {
             return self.recycle(slot)
         }
@@ -1487,8 +1487,8 @@ extension TaskGroup {
             if let cell = self.slots[i].cell {
                 free_cell(cell)
                 let next = self.slots[i].generation + 1
-                self.slots[i].cell = None
-                self.slots[i].generation = next
+                borrow var self.slots[i].cell = None
+                borrow var self.slots[i].generation = next
             }
             i = i + 1
         }
@@ -1618,8 +1618,8 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
         unlock_queue(at)
         return
     }
-    g[0].slots[slot].active = true
-    g[0].slots[slot].runner = record as Int
+    borrow var g[0].slots[slot].active = true
+    borrow var g[0].slots[slot].runner = record as Int
     cell[0].park = PARK_UNSET
     unlock_queue(at)
     let context = (&cell[0].context) as UnsafePointer<TaskContext>
@@ -1627,7 +1627,7 @@ func resume_slot(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointer<
     let poll = resume_frame(cell[0].descriptor, frame, context)
     lock_queue(at)
     count_turn(record)
-    g[0].slots[slot].active = false
+    borrow var g[0].slots[slot].active = false
     var retired = retired_none()
     match poll {
         case Ready -> { retired = g[0].complete(slot) },
@@ -2547,8 +2547,8 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointe
     let s = g[0].slots[slot]
     let cell = g[0].cell_at(slot)
     if let frame = s.frame {
-        g[0].slots[slot].active = true
-        g[0].slots[slot].runner = record as Int
+        borrow var g[0].slots[slot].active = true
+        borrow var g[0].slots[slot].runner = record as Int
         cell[0].park = PARK_UNSET
         let context = (&cell[0].context) as UnsafePointer<TaskContext>
         let descriptor = cell[0].descriptor
@@ -2557,7 +2557,7 @@ func worker_resume(at: UnsafePointer<TaskGroup>, slot: Int, record: UnsafePointe
         let poll = resume_frame(descriptor, frame, context)
         lock_queue(at)
         count_turn(record)
-        g[0].slots[slot].active = false
+        borrow var g[0].slots[slot].active = false
         var finished = false
         match poll {
             case Ready -> {
@@ -3052,7 +3052,7 @@ extension Task<T> {
             unlock_queue(g)
             panic("Task.cancel_addr: this task's result was already joined")
         }
-        g[0].slots[self.slot].pinned = true
+        borrow var g[0].slots[self.slot].pinned = true
         let cell = g[0].cell_at(self.slot)
         unlock_queue(g)
         (&cell[0].cancel) as UnsafePointer<Bool> as Int

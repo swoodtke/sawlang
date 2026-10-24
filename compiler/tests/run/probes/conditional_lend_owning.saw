@@ -58,7 +58,7 @@ func main() {
         }
     }
     print("match {}", m)
-    let d = match v.find(0) {
+    let d = match borrow v.find(0) {
         case Some(borrow var r) -> {
             r.id = 40
             r.id

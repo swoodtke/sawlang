@@ -1415,6 +1415,32 @@ tuple elements, payloads and builtin elements down (`sigil_accessor`), and a
 | a method call's argument, `t.absorb(&var v[0])` | refused | s.method-argument |
 | a local, a field path, a fixed array's element, a raw pointer's element (`(&buf[i]) as UnsafePointer<T>`) | allowed | sigil_places |
 
+**Unmarked `borrows` calls** (SL-849: every call of a `borrows` method is
+written in a `borrow` construct). Settled once places are
+(`check_unmarked_borrows`), over every call of a `borrows` method and every
+subscript whose place a write goes through. A call is written in a `borrow`
+construct when the place chain it sits in (`borrow_chain_top`) ends at a
+`borrow` form, a `lend` or a `for` head (`chain_in_borrow`). One refusal per
+chain, at its innermost call, whose fixit puts `borrow`, or `borrow var` where
+the chain is written through, in front of the chain. Under
+`borrows.unmarked-call`, `u.` abbreviating `refuse/borrows.unmarked-call.`:
+
+| position | verdict | covered by |
+|---|---|---|
+| a chain head, a conditional lend's `!`, a `&self` method on the place | refused, the fix-it `borrow` | u (bare), u.force, u.method |
+| a `&var self` method on the place | refused, the fix-it `borrow var` | u.receiver-write |
+| an argument, an arithmetic operand, a comparison operand | refused | u.argument, u.operand, u.comparison |
+| a `for` range's bound, a `while` or `if` condition, a `match` scrutinee | refused | u.for-range, u.while-condition, u.if-condition, u.match-scrutinee |
+| an `if let` or `guard let` subject, a `??` operand, a `let` initializer | refused | u.if-let, u.guard-let, u.coalesce, u.let |
+| an interpolation hole, a `{}` format argument, a `return`, a tail | refused | u.interpolation, u.format-argument, u.return, u.tail |
+| an assignment's target, plain, compound, through `!` or `?`, or whole; an optional assignment as an `if let` subject; its right side | refused, `borrow var` on a target | u.assign-target, u.compound-target, u.assign-force, u.assign-optional, u.head-assignment, u.assign-whole, u.assign-rhs |
+| a closure body, a call through a bound or `any` | refused | u.closure, u.bound, u.existential |
+| two accessors in one chain; a call inside an argument of a `borrow` form | refused once, at the inner call; refused, the form covers its own chain only | u.chain, u.argument-inside-borrow |
+| a write through a subscript's place: a field, a compound, a `&var self` method | refused, `borrow var` | u.subscript-assign, u.subscript-compound, u.subscript-method |
+| each position spelled `borrow`; a `lend` operand; a `for` head over a borrowing struct; a subscript's getitem, setitem and `+=` | allowed | borrows_marked_calls |
+| a call lending a borrowing struct elsewhere; a sigil in front of the chain | `borrowing.containment`; `borrowing.sigil-place` | borrowing.containment, borrowing.sigil-place |
+| an accessor of the frozen std (`--std-root sawc`), while it is a std root (SL-667) | allowed | the mir and typecheck goldens' `v.get(i)` |
+
 **Escaping function values** (SL:open-questions D35). A function type in a
 storage position is escaping whatever it spells: only a parameter's keeps the
 word, recorded on the parameter (`TcParam.escaping`) while its type takes the
@@ -1533,7 +1559,9 @@ of several positions. A fixture's first line is
 ```
 
 and its first `ERROR` must carry that rule at that position. The second line
-says what the fixture shows.
+says what the fixture shows. A `// message: TEXT` line in the leading comment
+requires that first refusal's message to hold TEXT, which is how a fixture pins
+its fixit.
 
 | rule | refuses |
 |---|---|
@@ -1652,6 +1680,7 @@ says what the fixture shows.
 | `borrowing.var-unwrap` | an `if var`, `guard var` or `while var` binding of the payload of an optional place a `borrow` binding names, or of an optional field of one: it would write a copy, never the place (SL:borrowing §2.4) |
 | `borrowing.lend-chain` | an optional assignment whose head is a conditional lend, with a `?.` hop past the lend's own `?`, at that hop (spec, Optionals: "One fence") |
 | `borrows.result` | a `borrows` function whose result is no place, slice, optional of either or borrowing struct (the accessor-signature reader's `other`) |
+| `borrows.unmarked-call` | a call of a `borrows` method, or a write through a subscript's place, outside a `borrow` construct, at every position (SL-849; the matrix under "Unmarked `borrows` calls") |
 | `borrows.sync-window` | a call that may suspend, for some type argument, in the block of a `borrow` or a `for` whose head calls a `borrows(sync)` accessor (SL:borrowing §2.5) |
 | `consumes.move` | a bare call of a `consumes` method on a place, at every Copy tier: the call spells `(move x).m()`, and a temporary receiver needs no `move` (spec, `consumes`) |
 | `consumes.move-self` | `move self` or `move` of a part of `self` outside a `consumes` method (SL-414) |

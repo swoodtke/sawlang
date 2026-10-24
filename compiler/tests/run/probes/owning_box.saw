@@ -1,3 +1,13 @@
+// probe: stated
+// about: a Box of an owning payload, its payload read through `borrow b.value()` and dropped once with its box (SL-512)
+// stage 0: cannot parse a `borrow` place
+// speeds: -O0 -O2
+// prints: made 7
+// prints: kept 8
+// prints: drop 8
+// prints: string bcd
+// prints: end
+// prints: drop 7
 // A Box of an owning payload: `Box.make` places the value in fresh heap
 // storage and drops nothing there (SL-512); the payload's `deinit` runs once,
 // when its box is dropped.
@@ -13,15 +23,15 @@ extension Noisy: NoCopy {
 
 func keep(b: Box<Noisy>) {
     var held = move b
-    print("kept {}", held.value().id)
+    print("kept {}", borrow held.value().id)
 }
 
 func main() {
     var a = try! Box<Noisy>.make(Noisy(id: 7))
-    print("made {}", a.value().id)
+    print("made {}", borrow a.value().id)
     let b = try! Box<Noisy>.make(Noisy(id: 8))
     keep(move b)
     var s = try! Box<String>.make("abcdef".substring(1, 4))
-    print("string {}", s.value())
+    print("string {}", borrow s.value())
     print("end")
 }
