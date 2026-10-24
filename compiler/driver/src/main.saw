@@ -1469,10 +1469,9 @@ func main() -> Int {
 // The release this compiler is, which `sawc --version` prints as `sawc
 // VERSION`: a toolchain consumer checks it against its pin before trusting a
 // `sawc` found on `PATH`. compiler/tests/run.py fails unless it equals
-// `sawc/version.py`'s `SAWC_VERSION` and `.sawtracker/version`, so a release
-// bump edits all three.
+// `.sawtracker/version`, so a release bump edits both.
 func driver_version() -> String {
-    "0.18.0"
+    "0.19.0"
 }
 
 // The program stages `driver_resolve` runs to.

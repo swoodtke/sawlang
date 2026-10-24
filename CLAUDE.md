@@ -111,7 +111,7 @@ bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
 bin/sawc fix [--check] FILE...  # drops `borrow` prefixes SL:borrowing §12 makes redundant
 bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...
 bin/sawc runtime ...       # `bin/sawc --help` lists every form
-bin/sawc --version         # `sawc 0.18.0`: driver_version, held equal to
+bin/sawc --version         # `sawc 0.19.0`: driver_version, held equal to
                            # .sawtracker/version by run.py
 ```
 With no `--std-root`, it compiles against the checkout's `std/`. The lanes
