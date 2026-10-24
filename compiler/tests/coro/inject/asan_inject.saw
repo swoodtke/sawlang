@@ -141,7 +141,8 @@ func main() {
     }
     assert(named, "no report names `early`: {}", coro.problems.get(0) ?? "")
     let lowering = ll_lowering(&coro)
-    let text = llvm_emit_program(&var coro.mono, &var target, move lowering, "-O0", target_clang_triple(triple))
+    let text = llvm_emit_program(&var coro.mono, &var target, move lowering, "-O0", target_clang_triple(triple),
+                                 false)
     assert(text.len() > 0, "the backend refuses the injected program")
     let created = File.create(Path(s: out))
     var file = match created {

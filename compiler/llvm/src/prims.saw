@@ -41,9 +41,12 @@ extension LlEmitter {
         out.build()
     }
 
+    // One instruction of the body, carrying the current source location
+    // (debug.saw's location funnel).
     public func put(&var self, text: String) {
         try! self.body.append("  ")
         try! self.body.append(text)
+        try! self.body.append(self.dbg_suffix)
         try! self.body.append("\n")
     }
 

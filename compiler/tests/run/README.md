@@ -12,8 +12,10 @@ run/
   sanitize_lane.py  the sanitizer lane, run.py's `sanitize` step ("The sanitizer lane")
   NAME.saw       a program
   stage0/TRIPLE/NAME.stage0  Stage 0's recorded run of NAME.saw on host TRIPLE
-  hello.ll       the `.ll` sawc writes for hello.saw, pinned
-  noalias.defines  the `define` lines sawc writes for noalias.saw's own functions, pinned
+  hello.ll       the `.ll` sawc writes for hello.saw with `-g0`, pinned
+  noalias.defines  the `define` lines sawc writes for noalias.saw's own functions with `-g0`, pinned
+  debug/         the line-table programs and debug_info.ll, the `!dbg` shape of one
+                 function, pinned ("Line tables")
   runtime_dirent.ll  the `.ll` `sawc runtime` writes for runtime/host_macos/dirent.saw, pinned
   frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
   probes/        programs held to what their own headers state ("Probes")
@@ -23,7 +25,7 @@ run/
 ## `sawc build`
 
 ```sh
-.build/sawc-stage1 build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
+.build/sawc-stage1 build [-O0|-O1|-O2|-Os|-Oz] [-g | -g0] [--std-root DIR] [--target TRIPLE]
                    [--sanitize address] [--module-path NAME=DIR]... FILE [-o OUT]
 .build/sawc-stage1 build [...] --emit-ll FILE
 .build/sawc-stage1 build [...] (--freestanding | --runtime) FILE
@@ -49,6 +51,26 @@ is clang's. The `.ll` is written unbuffered and closed explicitly, and clang
 is waited for explicitly, so no step's result rests on a `deinit` (SL:hazards
 S28, whose workaround markers name the canonical buffered form). With
 `--emit-ll` the `.ll` goes to standard output instead and nothing is linked.
+
+The module carries DWARF line tables unless `-g0` is given (`-g` is the
+default spelled; `compiler/llvm/src/debug.saw`). An ELF executable keeps them
+from the one clang run above. A Mach-O executable keeps only a debug map naming
+the object they are in, so a Darwin build with line tables runs three steps
+instead, each of whose failure fails the build:
+
+```
+clang -target TRIPLE SPEED [-fsanitize=address] -c -x ir OUT.ll -o DIR/OUT.o
+clang -target TRIPLE SPEED [-fsanitize=address] DIR/OUT.o -Wl,-reproducible -Wl,-oso_prefix,DIR/ RUNTIME... -o OUT
+dsymutil --oso-prepend-path DIR OUT -o OUT.dSYM
+```
+
+then removes `DIR/OUT.o`. DIR is the real path of OUT's directory, so the
+debug map names the object as `OUT.o` and the binary holds no temporary or
+build directory: two builds in two directories are the same bytes, which the
+fixpoint lane's Stage 3 requires. The linker must be Xcode 15's or later,
+whose `ld -v` names project `ld` and which has `-reproducible`; an older one
+fails the build, naming `-g0`. A runtime source (`sawc runtime`) and the seed
+(`compiler/tools/seed.py`) carry none.
 The `.ll` opens with its link manifest, as comment lines:
 
 ```
@@ -479,9 +501,12 @@ what Stage 0 is no oracle for.
 - a `// due: REASON` program, with `// refuses: RULE at L:C` after it, must
   be refused there by that rule; once sawc builds it the lane fails, so the
   lines come off as the slice grows; every rule of `ll_rules` has one;
-- a build that links prints nothing, standard output or standard error: the
-  linker has no object built for another macOS to warn about;
-- `hello.saw`'s `.ll`, as `sawc build --emit-ll --target arm64-apple-darwin`
+- a build that links prints nothing, standard output or standard error, at
+  -O0 and at -O2: the linker has no object built for another macOS to warn
+  about, and clang's `ignoring invalid debug info` warning, which drops a
+  module's line tables and still exits 0, fails the program;
+- the line tables, below ("Line tables");
+- `hello.saw`'s `.ll`, as `sawc build -g0 --emit-ll --target arm64-apple-darwin`
   writes it, equals `hello.ll` byte for byte, and `runtime/host_macos/dirent.saw`'s,
   as `sawc runtime --emit-ll` writes it for the same target,
   `runtime_dirent.ll` (`--write` rewrites both); naming the target keeps the
@@ -495,7 +520,7 @@ what Stage 0 is no oracle for.
   program's sawc side is built for TRIPLE and held to Stage 0's host build:
   the expected output is the same on every target;
 - `noalias.saw`'s own `define` lines (its functions, its closure and its
-  glue) equal `noalias.defines` (`--write` rewrites it), so each parameter
+  glue), written with `-g0`, equal `noalias.defines` (`--write` rewrites it), so each parameter
   row's attributes are pinned: `&var`, `&var self`, a cell-free `&` and
   `&self` carry `noalias`, a cell-carrying `&`, a raw pointer, a by-value
   aggregate, a function value, a closure's environment and `%ret` do not.
@@ -519,6 +544,35 @@ what Stage 0 is no oracle for.
 
 Stage 0 is the oracle: a difference is a sawc bug until shown otherwise
 (SL:architecture §5).
+
+## Line tables
+
+The backend's line tables (`compiler/llvm/src/debug.saw`) are pinned two ways,
+by the programs of `debug/`:
+
+- **Their shape.** `panic_lines.saw`'s `crash`, as `sawc build --emit-ll
+  --target arm64-apple-darwin` writes it with its default line tables, is cut
+  out with every metadata node its `!dbg` attachments reach, each renumbered
+  by first use, and equals `debug/debug_info.ll` (`--write` rewrites it). The
+  cut leaves the rest of the module out, so an edit to std moves the pin only
+  when it moves `crash` itself.
+- **Their symbolization.** Each program is built at -O0 and -O2, must print
+  nothing and is run: it panics, and its `panic at FILE:LINE` names the line.
+  Every call into `__saw_fail_parts` in the binary whose innermost frame is
+  in FILE must then symbolize to that line, in the function that panics, and
+  there must be one. The call's own address is looked up, not the return
+  address after it, since the helpers never return. On Mach-O the binary's
+  `.dSYM` must be beside it with no object left, `dwarfdump --verify` must
+  pass, and `atos -i` reads it; on Linux `llvm-symbolizer`, the one beside the
+  manifest's clang, reads the executable. `coro_lines.saw`'s `step` suspends,
+  so its frame is a resume function, and at -O2 clang inlines it into the
+  descriptor's thunk: the pin then reads the inlined frame, which keeps
+  `step`'s line only because the thunk carries an artificial subprogram
+  (`debug_artificial`): code inlined into a function with none loses its
+  lines.
+
+The pins launch no process under a debugger, which a sandboxed session may be
+refused; the binary runs alone and every lookup is static.
 
 ## The sanitizer lane
 

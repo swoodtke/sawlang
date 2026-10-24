@@ -1,0 +1,12 @@
+// The line-table pin's plain program (README.md, "Line tables"): `crash`
+// panics at depth 3, and the call into the failure funnel there must
+// symbolize to the panic's own `FILE:LINE`, at -O0 and -O2. `crash` is also
+// the function whose `!dbg` shape debug_info.ll pins.
+func crash(n: Int) -> Int {
+    if n > 2 { panic("crash at depth {}", n) }
+    crash(n + 1) + 1
+}
+
+func main() {
+    print("{}", crash(0))
+}

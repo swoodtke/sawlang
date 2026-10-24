@@ -10,6 +10,8 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attributes, ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
+// For the extension writing `debug_begin`.
+import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawcoro.lower.{CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
 import sawcoro.program.{CoroPoint, CoroPointKind, CoroPoisonAt, CoroResume}
 import sawllvm.module.{LlEmitter, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol,
@@ -60,6 +62,8 @@ extension LlEmitter {
         self.labels = 0
         self.refused = false
         self.resume = -1
+        let symbol = ll_symbol(&mono, k)
+        let dbg = self.debug_begin(&var mono, k, symbol)
         let ret_type = self.local_type(&mono, 0)
         let ret = self.lay_at(&var mono, &var target, ret_type, -1)
         self.sret = ret.kind == TargetKind.Memory
@@ -130,6 +134,7 @@ extension LlEmitter {
                     try! prelude.append(name)
                     try! prelude.append(", ptr ")
                     try! prelude.append(ll_local_slot(j))
+                    try! prelude.append(self.dbg_suffix)
                     try! prelude.append("\n")
                 } else {
                     try! head.append("ptr")
@@ -140,7 +145,9 @@ extension LlEmitter {
                     try! prelude.append(name)
                     try! prelude.append(", i64 ")
                     try! prelude.append(l.size)
-                    try! prelude.append(", i1 false)\n")
+                    try! prelude.append(", i1 false)")
+                    try! prelude.append(self.dbg_suffix)
+                    try! prelude.append("\n")
                 }
                 let attributes = ll_param_attributes(&var mono, k, j, t)
                 if attributes.len() > 0 {
@@ -155,6 +162,8 @@ extension LlEmitter {
         self.drive_storage(&var mono, k, &var prelude)
         try! head.append(")")
         try! head.append(ll_function_attributes(""))
+        try! head.append(dbg)
+        let opening = self.dbg_suffix
         var b = 0
         while b < info.block_count {
             let block = mono.dp.bc.mir.blocks[info.block_first + b]
@@ -165,9 +174,11 @@ extension LlEmitter {
                 self.statement(&var mono, &var target, &stmt)
                 s = stmt.next
             }
+            self.debug_at(&mono, block.term_node, block.term_closing)
             self.block_end(&var mono, &var target, &block)
             b = b + 1
         }
+        self.debug_end()
         if self.refused {
             return
         }
@@ -176,7 +187,9 @@ extension LlEmitter {
         let slots = self.allocas.build()
         try! self.defs.append(slots)
         try! self.defs.append(prelude.build())
-        try! self.defs.append("  br label %bb0\n")
+        try! self.defs.append("  br label %bb0")
+        try! self.defs.append(opening)
+        try! self.defs.append("\n")
         let blocks = self.body.build()
         try! self.defs.append(blocks)
         try! self.defs.append("\}\n\n")
@@ -205,6 +218,9 @@ extension LlEmitter {
         self.resume = r
         self.poison_next = resume.poison_first
         self.poison_end = resume.poison_first + resume.poison_count
+        let symbol = ll_resume_symbol(&mono, k)
+        let dbg = self.debug_begin(&var mono, k, symbol)
+        let opening = self.dbg_suffix
         var j = 0
         while j < info.local_count {
             if self.lowering.resident[resume.resident_first + j] {
@@ -242,6 +258,7 @@ extension LlEmitter {
                 s = stmt.next
                 ordinal = ordinal + 1
             }
+            self.debug_at(&mono, block.term_node, block.term_closing)
             self.put_poisons(b, CoroPoisonAt.Terminator, 0)
             let p = self.point_at(&resume, b)
             if p >= 0 {
@@ -259,6 +276,7 @@ extension LlEmitter {
         self.declare("llvm.trap", "declare void @llvm.trap()")
         self.put("call void @llvm.trap()")
         self.put("unreachable")
+        self.debug_end()
         if self.refused {
             return
         }
@@ -273,14 +291,18 @@ extension LlEmitter {
         var entry = StringBuilder()
         try! entry.append("  store ptr %frame, ptr ")
         try! entry.append(ll_local_slot(resume.frame_local))
+        try! entry.append(opening)
         if resume.context_local >= 0 {
             try! entry.append("\n  store ptr %cx, ptr ")
             try! entry.append(ll_local_slot(resume.context_local))
+            try! entry.append(opening)
         }
         let word = self.word
         try! entry.append("\n  %state = load ")
         try! entry.append(word)
-        try! entry.append(", ptr %frame\n  switch ")
+        try! entry.append(", ptr %frame")
+        try! entry.append(opening)
+        try! entry.append("\n  switch ")
         try! entry.append(word)
         try! entry.append(" %state, label %coro.done [ ")
         try! entry.append(word)
@@ -302,11 +324,14 @@ extension LlEmitter {
             try! entry.append(", label %")
             try! entry.append(ll_state_label("coro.state", point.state))
         }
-        try! entry.append(" ]\n")
+        try! entry.append(" ]")
+        try! entry.append(opening)
+        try! entry.append("\n")
         try! self.defs.append("define internal i32 ")
-        try! self.defs.append(ll_resume_symbol(&mono, k))
+        try! self.defs.append(symbol)
         try! self.defs.append("(ptr %frame, ptr %cx)")
         try! self.defs.append(ll_function_attributes(""))
+        try! self.defs.append(dbg)
         try! self.defs.append(" \{\nentry:\n")
         let slots = self.allocas.build()
         try! self.defs.append(slots)
@@ -501,6 +526,7 @@ extension LlEmitter {
             try! prelude.append(storage)
             try! prelude.append(", ptr ")
             try! prelude.append(ll_local_slot(d.frame))
+            try! prelude.append(self.dbg_suffix)
             try! prelude.append("\n")
         }
     }
@@ -563,6 +589,7 @@ extension LlEmitter {
     // nothing, since coroutine lowering lowers no frame that holds one, and a
     // point outside a frame is inert.
     func statement(&var self, mono: &var MonoProgram, target: &var Target, stmt: &MirStmt) {
+        self.debug_at(&mono, stmt.node, stmt.closing)
         match stmt.kind {
             case Budget -> {},
             case Drop -> {

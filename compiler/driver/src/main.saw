@@ -101,7 +101,7 @@ func driver_usage() -> Int {
     print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
     print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]")
+    print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [--std-root DIR] [--target TRIPLE]")
     print("                  [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...")
     print("                  (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
@@ -128,9 +128,11 @@ func driver_speed_level(flag: String) -> String {
 // refusal prints its record and exits 1, and a failing clang's exit status
 // is the build's (compiler/tests/run/README.md). `--freestanding` and
 // `--runtime` name a profile sawc checks but does not build
-// (`driver_check_profile`). Its arguments start at `args[first]`: 2 after
-// `build`, and 1 for the implicit form `sawc [FLAG]... FILE.saw`, the
-// command line a Stage 0 consumer already writes.
+// (`driver_check_profile`). The program carries DWARF line tables unless
+// `-g0` turns them off; `-g` spells the default (spec, Debug info). Its
+// arguments start at `args[first]`: 2 after `build`, and 1 for the implicit
+// form `sawc [FLAG]... FILE.saw`, the command line a Stage 0 consumer already
+// writes.
 func driver_build(args: &Vector<String>, first: Int) -> Int {
     var std_root = ""
     var triple = ""
@@ -143,6 +145,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var sanitize = false
     var freestanding = false
     var runtime = false
+    var debug = true
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -151,6 +154,10 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
                       || arg.equals("--sanitize"))
         if level.len() > 0 {
             speed = level
+        } else if arg.equals("-g") {
+            debug = true
+        } else if arg.equals("-g0") {
+            debug = false
         } else if arg.equals("--emit-ll") {
             emit = true
         } else if arg.equals("--freestanding") {
@@ -209,7 +216,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
                 return DRIVER_EXIT_USAGE
             }
         }
-        return driver_emit(path, std_root, triple, speed, sanitize, &names, &dirs)
+        return driver_emit(path, std_root, triple, speed, sanitize, debug, &names, &dirs)
     }
     let host = driver_read_runtime("sawc build", &var objects, &var clang)
     if host.len() == 0 {
@@ -236,7 +243,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     let clang_triple = target_clang_triple(triple)
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple,
-                               runtime: false, sanitize_address: sanitize)
+                               runtime: false, sanitize_address: sanitize, debug_info: debug)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -251,19 +258,21 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if not driver_write_file(ll_path, ir.build()) {
         return 1
     }
+    let link = DriverLink(clang: if cross { foreign_clang.build() } else { clang.build() }, ll: ll_path, out: out,
+                          speed: speed, sanitize: sanitize, triple: clang_triple, debug: debug)
     if cross {
-        return driver_link(foreign_clang.build(), ll_path, out, speed, sanitize, clang_triple, &foreign)
+        return driver_link(&link, &foreign)
     }
-    driver_link(clang.build(), ll_path, out, speed, sanitize, clang_triple, &objects)
+    driver_link(&link, &objects)
 }
 
 // `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
-func driver_emit(path: String, std_root: String, triple: String, speed: String, sanitize: Bool,
+func driver_emit(path: String, std_root: String, triple: String, speed: String, sanitize: Bool, debug: Bool,
                  names: &Vector<String>, dirs: &Vector<String>) -> Int {
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                module_triple: target_clang_triple(triple), runtime: false,
-                               sanitize_address: sanitize)
+                               sanitize_address: sanitize, debug_info: debug)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -560,39 +569,273 @@ func driver_write_file(path: String, text: String) -> Bool {
     }
 }
 
-// Runs `CLANG -target TRIPLE SPEED [-fsanitize=address] -x ir LL -x none
-// OBJECTS... LIBRARIES... -o OUT` and returns its exit status, or 1 once the
-// reason it could not run is printed. `sanitize` asks clang to instrument
-// the module's `sanitize_address` functions and link AddressSanitizer's
-// runtime.
-func driver_link(clang: String, ll: String, out: String, speed: String, sanitize: Bool, triple: String,
-                 objects: &Vector<String>) -> Int {
-    var arguments = Vector<String>()
-    try! arguments.push("-target")
-    try! arguments.push(triple)
-    try! arguments.push(speed)
-    if sanitize {
-        try! arguments.push("-fsanitize=address")
+// What `driver_link` links: with `clang`, the module `ll` into the
+// executable `out` at the speed flag `speed`, for the clang triple `triple`;
+// `sanitize` asks clang to instrument the module's `sanitize_address`
+// functions and link AddressSanitizer's runtime, and `debug` says the module
+// carries line tables.
+struct DriverLink {
+    clang: String
+    ll: String
+    out: String
+    speed: String
+    sanitize: Bool
+    triple: String
+    debug: Bool
+}
+
+// Links `link`'s module with `objects` and the target's libraries, and
+// returns the build's exit status, or 1 once the reason it could not is
+// printed. One clang run does it, `CLANG -target TRIPLE SPEED
+// [-fsanitize=address] -x ir LL -x none OBJECTS... LIBRARIES... -o OUT`, and
+// an ELF executable keeps the module's DWARF itself. A Mach-O executable
+// keeps only a debug map naming the object its DWARF is in, so a module with
+// line tables links there through `driver_link_mach_o`. compiler/tools/
+// build.py's `link_module` links as this does, and must agree with it.
+func driver_link(link: &DriverLink, objects: &Vector<String>) -> Int {
+    if link.debug && driver_mach_o(link.triple) {
+        return driver_link_mach_o(&link, &objects)
     }
+    var arguments = driver_link_head(&link)
     try! arguments.push("-x")
     try! arguments.push("ir")
-    try! arguments.push(ll)
+    try! arguments.push(link.ll)
     try! arguments.push("-x")
     try! arguments.push("none")
+    driver_link_tail(&var arguments, &link, &objects)
+    driver_clang("sawc build", link.clang, &arguments)
+}
+
+// The Mach-O link of a module with line tables, which is reproducible, since
+// the fixpoint needs Stage 3 to be Stage 2 byte for byte. The module is
+// compiled to `OUT.o` beside the output; the link takes `-reproducible`, and
+// cuts the output's directory from the object path the debug map records, so
+// the binary names neither a temporary object nor where it was built; then
+// dsymutil writes `OUT.dSYM`, which a debugger and the crash reporter read,
+// and the object is removed. A step that fails fails the build, since a
+// binary whose line tables were lost is not what was asked for.
+func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
+    let dir = driver_output_directory(link.out)
+    if dir.len() == 0 {
+        return 1
+    }
+    let base = driver_base_name(link.out)
+    let object = driver_path(dir, base, ".o")
+    var compile = driver_link_head(&link)
+    try! compile.push("-c")
+    try! compile.push("-x")
+    try! compile.push("ir")
+    try! compile.push(link.ll)
+    try! compile.push("-o")
+    try! compile.push(object)
+    let compiled = driver_clang("sawc build", link.clang, &compile)
+    if compiled != 0 {
+        return compiled
+    }
+    let problem = driver_linker_problem(link.clang, link.out)
+    if problem.len() > 0 {
+        print("sawc build: {}", problem)
+        return 1
+    }
+    var arguments = driver_link_head(&link)
+    try! arguments.push(object)
+    try! arguments.push("-Wl,-reproducible")
+    var prefix = StringBuilder()
+    try! prefix.append("-Wl,-oso_prefix,")
+    try! prefix.append(dir)
+    try! prefix.append("/")
+    try! arguments.push(prefix.build())
+    driver_link_tail(&var arguments, &link, &objects)
+    let linked = driver_clang("sawc build", link.clang, &arguments)
+    if linked != 0 {
+        return linked
+    }
+    let dsymutil = driver_clang_tool(link.clang, "dsymutil", link.out)
+    if dsymutil.len() == 0 {
+        return 1
+    }
+    var bundle = StringBuilder()
+    try! bundle.append(link.out)
+    try! bundle.append(".dSYM")
+    var symbols = Vector<String>()
+    try! symbols.push("--oso-prepend-path")
+    try! symbols.push(dir)
+    try! symbols.push(link.out)
+    try! symbols.push("-o")
+    try! symbols.push(bundle.build())
+    let written = driver_tool("sawc build", "dsymutil", dsymutil, &symbols)
+    if written != 0 {
+        print("sawc build: dsymutil wrote no {}.dSYM, the line tables a debugger and the crash reporter read; -g0 builds without them", link.out)
+        return 1
+    }
+    match File.remove(Path(s: object)) {
+        case Ok(_) -> 0,
+        case Err(e) -> {
+            print("sawc build: cannot remove {}, the object the .dSYM was written from: {}", object, e)
+            1
+        }
+    }
+}
+
+// The arguments every clang run of a link starts with: the target, the speed
+// and the sanitizer.
+func driver_link_head(link: &DriverLink) -> Vector<String> {
+    var arguments = Vector<String>()
+    try! arguments.push("-target")
+    try! arguments.push(link.triple)
+    try! arguments.push(link.speed)
+    if link.sanitize {
+        try! arguments.push("-fsanitize=address")
+    }
+    move arguments
+}
+
+// The arguments a link ends with: the runtime's objects, the target's
+// libraries and the output.
+func driver_link_tail(arguments: &var Vector<String>, link: &DriverLink, objects: &Vector<String>) {
     var i = 0
     while i < objects.len() {
         try! arguments.push(objects.get(i) ?? "")
         i = i + 1
     }
-    let libraries = driver_link_libraries(triple)
+    let libraries = driver_link_libraries(link.triple)
     i = 0
     while i < libraries.len() {
         try! arguments.push(libraries.get(i) ?? "")
         i = i + 1
     }
     try! arguments.push("-o")
-    try! arguments.push(out)
-    driver_clang("sawc build", clang, &arguments)
+    try! arguments.push(link.out)
+}
+
+// Whether the clang triple `triple` names a Mach-O target.
+func driver_mach_o(triple: String) -> Bool {
+    triple.contains("-apple-")
+}
+
+// The real path of the directory output `out` is written into, or "" once
+// the reason it has none is printed. The debug map is cut by this spelling,
+// which is the one the linker records the object's path in.
+func driver_output_directory(out: String) -> String {
+    var dir = "."
+    if let parent = Path(s: out).parent() {
+        let spelled = parent.as_string()
+        if spelled.len() > 0 {
+            dir = spelled
+        }
+    }
+    match Path(s: dir).canonical() {
+        case Ok(real) -> real.as_string(),
+        case Err(e) -> {
+            print("sawc build: cannot find the directory {} is written into: {}", out, e)
+            ""
+        }
+    }
+}
+
+// The file name of `path` without its directory.
+func driver_base_name(path: String) -> String {
+    var start = 0
+    var i = 0
+    while i < path.len() {
+        if (path.byte_at(i) as Int) == DRIVER_SLASH {
+            start = i + 1
+        }
+        i = i + 1
+    }
+    path.substring(start, path.len())
+}
+
+// The program clang runs for the tool `name`, as `-print-prog-name` reports
+// it, or "" once the reason it could not be asked is printed. `out` is the
+// build's output, beside which the answer is captured.
+func driver_clang_tool(clang: String, name: String, out: String) -> String {
+    var asked = StringBuilder()
+    try! asked.append("-print-prog-name=")
+    try! asked.append(name)
+    var arguments = Vector<String>()
+    try! arguments.push(asked.build())
+    if let said = driver_captured(out, "clang", clang, &arguments) {
+        let found = driver_first_line(said)
+        if found.len() > 0 {
+            return found
+        }
+    }
+    print("sawc build: clang {} named no {} for -print-prog-name", clang, name)
+    ""
+}
+
+// Why the linker clang runs cannot link a module with line tables
+// reproducibly, or "": `-reproducible` is Xcode 15's linker's, whose
+// `ld -v` names project `ld`, where the linker before it names `ld64`.
+func driver_linker_problem(clang: String, out: String) -> String {
+    let ld = driver_clang_tool(clang, "ld", out)
+    if ld.len() == 0 {
+        return "no linker to ask for `-reproducible`"
+    }
+    var arguments = Vector<String>()
+    try! arguments.push("-v")
+    guard let said = driver_captured(out, "the linker", ld, &arguments) else {
+        return "the linker's version is unknown"
+    }
+    if said.contains("PROJECT:ld-") {
+        return ""
+    }
+    var problem = StringBuilder()
+    try! problem.append("the linker ")
+    try! problem.append(ld)
+    try! problem.append(" (")
+    try! problem.append(driver_first_line(said))
+    try! problem.append(") is older than Xcode 15's, which has the `-reproducible` a build with line tables links with; update the Command Line Tools, or build with -g0")
+    problem.build()
+}
+
+// What `program`, the tool `tool`, writes to standard output and standard
+// error when run with `arguments`, or None once the reason is printed. The
+// driver runs nothing that suspends, so the text is captured through the file
+// `OUT.tool` beside the build's output `out`, which `sh` redirects into and
+// which is removed after; every path reaches `sh` as an argument, never as
+// script text, so nothing is quoted.
+func driver_captured(out: String, tool: String, program: String, arguments: &Vector<String>) -> String? {
+    var file = StringBuilder()
+    try! file.append(out)
+    try! file.append(".tool")
+    let path = file.build()
+    var shell = Vector<String>()
+    try! shell.push("-c")
+    try! shell.push("out=\"$1\"; shift; exec \"$@\" >\"$out\" 2>&1")
+    try! shell.push("sh")
+    try! shell.push(path)
+    try! shell.push(program)
+    var i = 0
+    while i < arguments.len() {
+        try! shell.push(arguments.get(i) ?? "")
+        i = i + 1
+    }
+    let code = driver_tool("sawc build", tool, "/bin/sh", &shell)
+    guard let said = driver_read_source(path) else {
+        return None
+    }
+    match File.remove(Path(s: path)) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            print("sawc build: cannot remove {}: {}", path, e)
+            return None
+        }
+    }
+    if code != 0 {
+        return None
+    }
+    said
+}
+
+// The first line of `text`, without its line break.
+func driver_first_line(text: String) -> String {
+    var stop = 0
+    while stop < text.len() && (text.byte_at(stop) as Int) != DRIVER_NEWLINE {
+        stop = stop + 1
+    }
+    text.substring(0, stop)
 }
 
 // The libraries a program linked for the clang triple `triple` names after
@@ -615,23 +858,30 @@ func driver_link_libraries(triple: String) -> Vector<String> {
 // Runs the clang at `program` with `arguments` and returns its exit status,
 // or 1 once the reason it could not run is printed, headed by `command`.
 func driver_clang(command: String, program: String, arguments: &Vector<String>) -> Int {
-    var clang = Command(program: program)
+    driver_tool(command, "clang", program, &arguments)
+}
+
+// Runs `program`, the tool `tool`, with `arguments` and returns its exit
+// status, or 1 once the reason it could not run is printed, headed by
+// `command`.
+func driver_tool(command: String, tool: String, program: String, arguments: &Vector<String>) -> Int {
+    var child = Command(program: program)
     var i = 0
     while i < arguments.len() {
-        try! clang.arg(arguments.get(i) ?? "")
+        try! child.arg(arguments.get(i) ?? "")
         i = i + 1
     }
-    // Stage 0 workaround (SL:hazards S28): canonical: let code = try clang.status() — a child handle whose deinit waits for it
-    let waited = clang.wait()
+    // Stage 0 workaround (SL:hazards S28): canonical: let code = try child.status() — a child handle whose deinit waits for it
+    let waited = child.wait()
     match waited {
         case Ok(code) -> {
             if code != 0 {
-                print("{}: clang exited {}", command, code)
+                print("{}: {} exited {}", command, tool, code)
             }
             code as Int
         },
         case Err(e) -> {
-            print("{command}: cannot run clang: {e}")
+            print("{command}: cannot run {tool}: {e}")
             1
         }
     }
@@ -709,8 +959,11 @@ func driver_runtime(args: &Vector<String>) -> Int {
         return DRIVER_EXIT_USAGE
     }
     let speed = driver_runtime_speed()
+    // A runtime carries no line tables: its objects sit in the build cache,
+    // whose absolute path every program's debug map would then name.
     let options = BuildOptions(std_root: std_root, target: host, speed: speed,
-                               module_triple: target_clang_triple(host), runtime: true, sanitize_address: false)
+                               module_triple: target_clang_triple(host), runtime: true, sanitize_address: false,
+                               debug_info: false)
     let names = Vector<String>()
     let dirs = Vector<String>()
     if emit.len() > 0 {

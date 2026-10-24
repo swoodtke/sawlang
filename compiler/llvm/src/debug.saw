@@ -1,0 +1,447 @@
+// DWARF line tables (spec, Debug info): a compile unit, a `DISubprogram` per
+// function the backend writes from a MIR body, an artificial one for each
+// text-written function that calls one of those (`debug_artificial`), and a
+// `!dbg` location on every instruction of each. File names are path-free and
+// the compile unit's
+// directory is `.`: the seed and the fixpoint's moved-directory build need IR
+// that names no absolute path, and Apple's linker writes no debug map for a
+// compile unit without a directory.
+
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.module.{LlEmitter}
+import sawllvm.text.{ll_quoted}
+import sawmir.program.{MirProgram}
+import sawmono.dump.{mono_dump_layouts}
+import sawmono.program.{MonoProgram}
+import sawresolve.program.{ResProgram}
+// For the extension writing `node_module`.
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
+
+static LL_DEBUG_SLASH: Int = 47
+static LL_DEBUG_DOT: Int = 46
+static LL_DEBUG_COLON: Int = 58
+static LL_DEBUG_ZERO: Int = 48
+static LL_DEBUG_NEWLINE: Int = 10
+static LL_DEBUG_AT: Int = 64
+static LL_DEBUG_QUOTE: Int = 34
+static LL_DEBUG_OPEN: Int = 40
+// A location's line and column each take this many values in its cache key,
+// beside the file's metadata id; a larger one is clamped, which only merges
+// two locations' cache entries past that column.
+static LL_DEBUG_SPAN: Int = 1 << 20
+
+// The fixed nodes `debug_metadata` writes: the compile unit, the one
+// subroutine type every subprogram shares, the two module flags and the
+// type's empty list. Every other node is numbered from `LL_DEBUG_FIRST`.
+static LL_DEBUG_CU: Int = 0
+static LL_DEBUG_TYPE: Int = 1
+public static LL_DEBUG_FIRST: Int = 5
+
+extension LlEmitter {
+    // THE LOCATION FUNNEL: which source position the instructions `put`
+    // writes carry. `debug_begin` opens a function's subprogram and points
+    // the location at its declaration; `debug_at` moves it to a MIR node;
+    // `debug_end` closes it, after which nothing carries one. `put` appends
+    // the location to every instruction of a body, so an instruction written
+    // into `body` by any other path has none.
+    // ENTRY POINTS:
+    //     emit_function
+    //     emit_resume
+    //     status_entry
+    //     statement
+    public func debug_begin(&var self, mono: &var MonoProgram, k: Int, symbol: String) -> String {
+        self.dbg_scope = -1
+        self.dbg_suffix = ""
+        self.dbg_locs = Map<Int, Int>()
+        self.dbg_block_files = Vector<Int>()
+        self.dbg_block_scopes = Vector<Int>()
+        if not self.debug {
+            return ""
+        }
+        let node = ll_debug_item_node(&mono, k)
+        var m = -1
+        if node >= 0 {
+            m = mono.dp.bc.mir.tc.node_module(node)
+        }
+        if m < 0 {
+            m = mono.dp.bc.mir.tc.entry_module_index()
+        }
+        let file = self.debug_file(&mono, m)
+        var line = 1
+        var column = 0
+        if let at = ll_debug_position(&mono, node, false) {
+            line = at.0
+            column = at.1
+        }
+        let id = self.debug_id()
+        var text = StringBuilder()
+        try! text.append("!")
+        try! text.append(id)
+        try! text.append(" = distinct !DISubprogram(name: \"")
+        try! text.append(ll_quoted(mono.item_name(k)))
+        try! text.append("\", linkageName: \"")
+        // A symbol is always quoted: `@"` ... `"`.
+        try! text.append(symbol.substring(2, symbol.len() - 1))
+        try! text.append("\", scope: !")
+        try! text.append(file)
+        try! text.append(", file: !")
+        try! text.append(file)
+        try! text.append(", line: ")
+        try! text.append(line)
+        try! text.append(", type: !")
+        try! text.append(LL_DEBUG_TYPE)
+        try! text.append(", scopeLine: ")
+        try! text.append(line)
+        if self.dbg_optimized {
+            try! text.append(", spFlags: DISPFlagDefinition | DISPFlagOptimized, unit: !")
+        } else {
+            try! text.append(", spFlags: DISPFlagDefinition, unit: !")
+        }
+        try! text.append(LL_DEBUG_CU)
+        try! text.append(")\n")
+        try! self.dbg_meta.append(text.build())
+        self.dbg_scope = id
+        self.dbg_scope_file = file
+        self.debug_set(file, line, column)
+        var out = StringBuilder()
+        try! out.append(" !dbg !")
+        try! out.append(id)
+        out.build()
+    }
+
+    public func debug_end(&var self) {
+        self.dbg_scope = -1
+        self.dbg_suffix = ""
+    }
+
+    // Points the location at node `node`: where it starts, or for a
+    // `closing` one (a scope's end) its last byte. A node with no source
+    // position leaves the location where it is.
+    public func debug_at(&var self, mono: &MonoProgram, node: Int, closing: Bool) {
+        if self.dbg_scope < 0 {
+            return
+        }
+        if let at = ll_debug_position(&mono, node, closing) {
+            let m = mono.dp.bc.mir.tc.node_module(node)
+            let file = self.debug_file(&mono, m)
+            self.debug_set(file, at.0, at.1)
+        }
+    }
+
+    func debug_set(&var self, file: Int, line: Int, column: Int) {
+        let key = (file * LL_DEBUG_SPAN + ll_debug_clamp(line)) * LL_DEBUG_SPAN + ll_debug_clamp(column)
+        var id = self.dbg_locs.get(key) ?? -1
+        if id < 0 {
+            let scope = self.debug_scope_for(file)
+            id = self.debug_id()
+            try! self.dbg_locs.insert(key, id)
+            var text = StringBuilder()
+            try! text.append("!")
+            try! text.append(id)
+            try! text.append(" = !DILocation(line: ")
+            try! text.append(line)
+            try! text.append(", column: ")
+            try! text.append(column)
+            try! text.append(", scope: !")
+            try! text.append(scope)
+            try! text.append(")\n")
+            try! self.dbg_meta.append(text.build())
+        }
+        var suffix = StringBuilder()
+        try! suffix.append(", !dbg !")
+        try! suffix.append(id)
+        self.dbg_suffix = suffix.build()
+    }
+
+    // The scope a location in `file` names: the subprogram itself in its own
+    // file, else a lexical block file over it, since a location's line is
+    // read in its scope's file.
+    func debug_scope_for(&var self, file: Int) -> Int {
+        if file == self.dbg_scope_file {
+            return self.dbg_scope
+        }
+        var k = 0
+        while k < self.dbg_block_files.len() {
+            if self.dbg_block_files[k] == file {
+                return self.dbg_block_scopes[k]
+            }
+            k = k + 1
+        }
+        let id = self.debug_id()
+        try! self.dbg_block_files.push(file)
+        try! self.dbg_block_scopes.push(id)
+        var text = StringBuilder()
+        try! text.append("!")
+        try! text.append(id)
+        try! text.append(" = !DILexicalBlockFile(scope: !")
+        try! text.append(self.dbg_scope)
+        try! text.append(", file: !")
+        try! text.append(file)
+        try! text.append(", discriminator: 0)\n")
+        try! self.dbg_meta.append(text.build())
+        id
+    }
+
+    // THE ARTIFICIAL FUNNEL: function definitions `text` the backend writes
+    // as text rather than from a MIR body (thunks, glue without a body, the C
+    // entry point, the compiler's helpers), each given an artificial
+    // subprogram at line 0 and every instruction of it a line-0 location. A
+    // function they call keeps its own lines when clang inlines it into them,
+    // which a caller with no subprogram would drop; a `define` that already
+    // names its subprogram passes through untouched.
+    // ENTRY POINTS:
+    //     llvm_emit_program
+    //     emit_erased_drop
+    //     closure_release
+    //     function_value_drop
+    //     function_value_copy
+    //     offload_thunk
+    //     thread_trampoline
+    public func debug_artificial(&var self, mono: &MonoProgram, text: String) -> String {
+        if not self.debug {
+            return text
+        }
+        var out = StringBuilder()
+        var suffix = ""
+        var start = 0
+        let n = text.len()
+        while start < n {
+            var stop = start
+            while stop < n && (text.byte_at(stop) as Int) != LL_DEBUG_NEWLINE {
+                stop = stop + 1
+            }
+            let line = text.substring(start, stop)
+            if line.starts_with("define ") {
+                suffix = ""
+                if not line.contains(" !dbg !") && line.ends_with(" \{") {
+                    let scope = self.debug_artificial_scope(&mono, ll_debug_defined_symbol(line))
+                    try! out.append(line.substring(0, line.len() - 2))
+                    try! out.append(" !dbg !")
+                    try! out.append(scope)
+                    try! out.append(" \{")
+                    let location = self.debug_id()
+                    var node = StringBuilder()
+                    try! node.append("!")
+                    try! node.append(location)
+                    try! node.append(" = !DILocation(line: 0, scope: !")
+                    try! node.append(scope)
+                    try! node.append(")\n")
+                    try! self.dbg_meta.append(node.build())
+                    var s = StringBuilder()
+                    try! s.append(", !dbg !")
+                    try! s.append(location)
+                    suffix = s.build()
+                } else {
+                    try! out.append(line)
+                }
+            } else if line.starts_with("\}") {
+                suffix = ""
+                try! out.append(line)
+            } else {
+                try! out.append(line)
+                if suffix.len() > 0 && line.starts_with("  ") {
+                    try! out.append(suffix)
+                }
+            }
+            if stop < n {
+                try! out.append("\n")
+            }
+            start = stop + 1
+        }
+        out.build()
+    }
+
+    // An artificial subprogram for the function defined as `symbol`, in the
+    // entry file.
+    func debug_artificial_scope(&var self, mono: &MonoProgram, symbol: String) -> Int {
+        let file = self.debug_file(&mono, mono.dp.bc.mir.tc.entry_module_index())
+        let id = self.debug_id()
+        var text = StringBuilder()
+        try! text.append("!")
+        try! text.append(id)
+        try! text.append(" = distinct !DISubprogram(name: \"")
+        try! text.append(symbol)
+        try! text.append("\", linkageName: \"")
+        try! text.append(symbol)
+        try! text.append("\", scope: !")
+        try! text.append(file)
+        try! text.append(", file: !")
+        try! text.append(file)
+        try! text.append(", line: 0, type: !")
+        try! text.append(LL_DEBUG_TYPE)
+        try! text.append(", scopeLine: 0, flags: DIFlagArtificial, spFlags: DISPFlagDefinition")
+        if self.dbg_optimized {
+            try! text.append(" | DISPFlagOptimized")
+        }
+        try! text.append(", unit: !")
+        try! text.append(LL_DEBUG_CU)
+        try! text.append(")\n")
+        try! self.dbg_meta.append(text.build())
+        id
+    }
+
+    func debug_id(&var self) -> Int {
+        let id = self.dbg_count
+        self.dbg_count = self.dbg_count + 1
+        id
+    }
+
+    // The `DIFile` of module `m`, made once.
+    func debug_file(&var self, mono: &MonoProgram, m: Int) -> Int {
+        while self.dbg_files.len() <= m {
+            try! self.dbg_files.push(-1)
+        }
+        let have = self.dbg_files[m]
+        if have >= 0 {
+            return have
+        }
+        let id = self.debug_id()
+        self.dbg_files[m] = id
+        var line = StringBuilder()
+        try! line.append("!")
+        try! line.append(id)
+        try! line.append(" = !DIFile(filename: \"")
+        try! line.append(ll_quoted(ll_debug_file_name(&mono, m)))
+        try! line.append("\", directory: \".\")\n")
+        try! self.dbg_meta.append(line.build())
+        id
+    }
+
+    // The module's debug metadata, written after everything else, or "".
+    public func debug_metadata(&var self, mono: &MonoProgram) -> String {
+        if not self.debug {
+            return ""
+        }
+        let entry = mono.dp.bc.mir.tc.entry_module_index()
+        let file = self.debug_file(&mono, entry)
+        var out = StringBuilder()
+        try! out.append("\n\n!llvm.dbg.cu = !\{!0\}\n!llvm.module.flags = !\{!2, !3\}\n")
+        try! out.append("!0 = distinct !DICompileUnit(language: DW_LANG_C99, file: !")
+        try! out.append(file)
+        try! out.append(", producer: \"sawc\", isOptimized: ")
+        try! out.append(if self.dbg_optimized { "true" } else { "false" })
+        try! out.append(", runtimeVersion: 0, emissionKind: LineTablesOnly)\n")
+        try! out.append("!1 = !DISubroutineType(types: !4)\n")
+        try! out.append("!2 = !\{i32 7, !\"Dwarf Version\", i32 4\}\n")
+        try! out.append("!3 = !\{i32 2, !\"Debug Info Version\", i32 3\}\n")
+        try! out.append("!4 = !\{null\}\n")
+        try! out.append(self.dbg_meta.build())
+        out.build()
+    }
+}
+
+// The source node item `k` is declared at, else the node that reached it, or
+// -1 for neither.
+func ll_debug_item_node(mono: &MonoProgram, k: Int) -> Int {
+    let d = mono.items[k].decl
+    if d >= 0 {
+        let node = mono.dp.bc.mir.tc.res.decls[d].node
+        if node >= 0 {
+            return node
+        }
+    }
+    mono.items[k].origin_node
+}
+
+// The 1-based line and column of node `node`'s first byte, or of its last for
+// `closing`; None for a node with no source position.
+func ll_debug_position(mono: &MonoProgram, node: Int, closing: Bool) -> (Int, Int)? {
+    if node < 0 {
+        return None
+    }
+    let m = mono.dp.bc.mir.tc.node_module(node)
+    if m < 0 {
+        return None
+    }
+    let span = mono.dp.bc.mir.tc.res.node(node)
+    var offset = span.start
+    if closing && span.end > span.start {
+        offset = span.end - 1
+    }
+    let text = mono.dp.bc.mir.tc.res.position_text(m, offset)
+    var line = 0
+    var column = 0
+    var past = false
+    var k = 0
+    while k < text.len() {
+        let b = text.byte_at(k) as Int
+        if b == LL_DEBUG_COLON {
+            past = true
+        } else if past {
+            column = column * 10 + b - LL_DEBUG_ZERO
+        } else {
+            line = line * 10 + b - LL_DEBUG_ZERO
+        }
+        k = k + 1
+    }
+    if line <= 0 {
+        return None
+    }
+    (line, column)
+}
+
+// The symbol `define` line `line` defines, without its `@` or its quotes. A
+// quoted symbol holds no `"`, which `ll_quoted` spells `\22`.
+func ll_debug_defined_symbol(line: String) -> String {
+    let n = line.len()
+    var at = 0
+    while at < n && (line.byte_at(at) as Int) != LL_DEBUG_AT {
+        at = at + 1
+    }
+    var first = at + 1
+    var stop = first
+    if first < n && (line.byte_at(first) as Int) == LL_DEBUG_QUOTE {
+        first = first + 1
+        stop = first
+        while stop < n && (line.byte_at(stop) as Int) != LL_DEBUG_QUOTE {
+            stop = stop + 1
+        }
+    } else {
+        while stop < n && (line.byte_at(stop) as Int) != LL_DEBUG_OPEN {
+            stop = stop + 1
+        }
+    }
+    line.substring(first, stop)
+}
+
+func ll_debug_clamp(n: Int) -> Int {
+    if n >= LL_DEBUG_SPAN {
+        return LL_DEBUG_SPAN - 1
+    }
+    n
+}
+
+// The name module `m`'s file has in the line tables: the entry file's base
+// name, and every other module's name as a path, `std/vector.saw`,
+// `sawparse/api.saw`, `modules/helper.saw`. Both are fixed by the program
+// alone, never by where its files sit.
+func ll_debug_file_name(mono: &MonoProgram, m: Int) -> String {
+    var name = StringBuilder()
+    if m == mono.dp.bc.mir.tc.entry_module_index() {
+        let path = mono.dp.bc.mir.tc.res.module_file(m)
+        var cut = 0
+        var i = 0
+        while i < path.len() {
+            if (path.byte_at(i) as Int) == LL_DEBUG_SLASH {
+                cut = i + 1
+            }
+            i = i + 1
+        }
+        try! name.append(path.substring(cut, path.len()))
+        return name.build()
+    }
+    let dotted = mono.dp.bc.mir.tc.res.module_name(m)
+    var i = 0
+    while i < dotted.len() {
+        if (dotted.byte_at(i) as Int) == LL_DEBUG_DOT {
+            try! name.append("/")
+        } else {
+            try! name.append(dotted.substring(i, i + 1))
+        }
+        i = i + 1
+    }
+    try! name.append(".saw")
+    name.build()
+}

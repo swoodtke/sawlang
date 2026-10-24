@@ -9,7 +9,7 @@ compiles into the compiler that builds Stage 1.
     python compiler/tools/seed.py publish --target TRIPLE...    # upload what emit wrote; the manifest, the pin
 
 A target's seed is, compressed with xz, the driver's `.ll` as `sawc build
--O2 --emit-ll` writes it (`sawc.ll.xz`), and each runtime source's as `sawc
+-O2 -g0 --emit-ll` writes it (`sawc.ll.xz`), and each runtime source's as `sawc
 runtime --emit-ll` writes it (`runtime/DIR/NAME.ll.xz` for
 `runtime/DIR/NAME.saw`). The files live on the blob host, each named by its
 SHA-256: `compiler/seed/manifest.tsv` lists every target's files with their
@@ -121,6 +121,15 @@ def expected_files(root, triple):
     return [build.SEED_DRIVER] + ["runtime/%s.ll.xz" % src[:-len(".saw")] for src in runtime_sources(root, triple)]
 
 
+def no_line_tables(root):
+    """`-g0` when the driver of the tree at `root` takes it, else nothing. The
+    seed's IR carries no line tables, which would only enlarge it; a tree
+    whose driver predates the flag emits none anyway. Emitting a seed and
+    checking one both ask the tree they build, so the two agree."""
+    with open(os.path.join(root, os.path.relpath(build.DRIVER_ENTRY, REPO)), encoding="utf-8") as fh:
+        return ["-g0"] if '"-g0"' in fh.read() else []
+
+
 def emit_ir(binary, root, triple, name):
     """The `.ll` `binary` emits for the seed file `name` of `triple` from the
     tree at `root`, as bytes; (None, why) when it refuses."""
@@ -131,8 +140,8 @@ def emit_ir(binary, root, triple, name):
         for package, directory in build.STAGE_PACKAGES:
             if os.path.isdir(os.path.join(root, directory)):
                 packages += ["--module-path", "%s=%s" % (package, os.path.join(root, directory))]
-        argv = ([binary, "build", "-O2", "--std-root", "std", "--target", triple] + packages
-                + ["--emit-ll", os.path.relpath(build.DRIVER_ENTRY, REPO)])
+        argv = ([binary, "build", "-O2"] + no_line_tables(root) + ["--std-root", "std", "--target", triple]
+                + packages + ["--emit-ll", os.path.relpath(build.DRIVER_ENTRY, REPO)])
     else:
         source = os.path.join("runtime", name[len("runtime/"):-len(".ll.xz")] + ".saw")
         argv = [binary, "runtime", "--std-root", "std", "--target", triple, "--emit-ll", source]

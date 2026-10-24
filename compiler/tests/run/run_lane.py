@@ -4,7 +4,7 @@ run, and its standard output and exit status compared with Stage 0's recorded
 run of it, built against its own std.
 
     python compiler/tests/run/run_lane.py            # check
-    python compiler/tests/run/run_lane.py --write    # rewrite hello.ll and noalias.defines
+    python compiler/tests/run/run_lane.py --write    # rewrite hello.ll, noalias.defines, debug/debug_info.ll
     python compiler/tests/run/run_lane.py NAME...    # just these programs and probes
     python compiler/tests/run/run_lane.py --stage0 [NAME...]   # record Stage 0's runs
     python compiler/tests/run/run_lane.py --bench    # the timing report over bench/
@@ -32,12 +32,18 @@ run of it, built against its own std.
   standard output's oracle instead:
   sawc must print exactly those lines, and Stage 0 the same lines in some
   other order, since such a hazard moves output and never adds or loses it;
-- a build that links prints nothing: the runtime it links is built at the
-  module's own target, so the linker has nothing to warn about;
-- `hello.saw`'s `.ll`, as the compiler binary writes it, equals `hello.ll`
-  byte for byte, and `runtime/host_macos/dirent.saw`'s, as `sawc runtime`
-  writes it, `runtime_dirent.ll`;
-- `noalias.saw`'s own `define` lines equal `noalias.defines`, and a sawc
+- a build that links prints nothing, at -O0 and at -O2: the runtime it links
+  is built at the module's own target, so the linker has nothing to warn
+  about, and clang's warning that it ignores invalid debug info fails it;
+- `hello.saw`'s `.ll`, as the compiler binary writes it with `-g0`, equals
+  `hello.ll` byte for byte, and `runtime/host_macos/dirent.saw`'s, as `sawc
+  runtime` writes it, `runtime_dirent.ll`;
+- `debug/panic_lines.saw`'s `crash`, with its line tables and the metadata
+  they reach renumbered, equals `debug/debug_info.ll`; and each of `debug/`'s
+  programs, built at -O0 and -O2 and run, panics at a line every call into
+  the failure funnel from that function symbolizes to, inlined or not
+  (README.md, "Line tables");
+- `noalias.saw`'s own `define` lines, written with `-g0`, equal `noalias.defines`, and a sawc
   built from a copy of the backend whose `noalias` funnel skips its
   cell-carrying test fails that comparison at the cell-carrying `&` parameter;
 - every `define` in those two `.ll` files, and in `frame_pointers.saw`'s,
@@ -389,6 +395,8 @@ def check_case(src):
     ok_fast, fast, fast_log = build_new(src, "-O2")
     if not ok_fast:
         return ["run %s: sawc does not build it at -O2: %s" % (rel(src), fast_log[:300])], "fail"
+    if fast_log:
+        return ["run %s: sawc builds it at -O2 but prints: %s" % (rel(src), fast_log[:300])], "fail"
     code_old = old.exit
     # The record holds the output with this checkout's root removed, so
     # sawc's is compared the same way.
@@ -445,7 +453,7 @@ def check_pinned_ir(failures, counts, write):
     Both, and frame_pointers.saw's, define every function keeping a frame
     pointer."""
     hello = check_pinned(failures, counts, write, "hello", os.path.join(HERE, "hello.ll"),
-                         ["build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                         ["build", "-g0", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
                           rel(os.path.join(HERE, "hello.saw"))])
     dirent = check_pinned(failures, counts, write, "runtime dirent", os.path.join(HERE, "runtime_dirent.ll"),
                           ["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
@@ -540,7 +548,7 @@ def noalias_defines(compiler):
     pinned target: (the lines, or None and why). Naming the target keeps the
     pin one file on every host, and lets the injected copy, which has no
     runtime manifest beside it, emit at all."""
-    r = subprocess.run([compiler, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+    r = subprocess.run([compiler, "build", "-g0", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
                         rel(NOALIAS_SOURCE)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     if r.returncode != 0:
         return None, (r.stdout + r.stderr).strip()[:300]
@@ -586,7 +594,7 @@ def check_noalias(failures, counts, write):
         for name, path in build.STAGE_PACKAGES:
             packages += ["--module-path", "%s=%s" % (name, llvm if name == "sawllvm" else path)]
         injected = os.path.join(copy, "sawc")
-        r = subprocess.run([build.SAWC, "build", "-O0", "--std-root", "std"] + packages
+        r = subprocess.run([build.SAWC, "build", "-O0", "-g0", "--std-root", "std"] + packages
                            + [rel(build.DRIVER_ENTRY), "-o", injected], cwd=REPO, capture_output=True, text=True,
                            timeout=BUILD_TIMEOUT)
         if r.returncode != 0:
@@ -604,6 +612,209 @@ def check_noalias(failures, counts, write):
         counts["run noalias injections caught"] = counts.get("run noalias injections caught", 0) + 1
     finally:
         shutil.rmtree(copy, ignore_errors=True)
+
+
+DEBUG = os.path.join(HERE, "debug")
+DEBUG_PANIC = os.path.join(DEBUG, "panic_lines.saw")
+DEBUG_CORO = os.path.join(DEBUG, "coro_lines.saw")
+DEBUG_PINNED = os.path.join(DEBUG, "debug_info.ll")
+# The function whose `!dbg` shape debug_info.ll pins, and the funnel helper
+# whose call sites the symbolization pins look up.
+DEBUG_FUNCTION = '@"saw panic_lines.crash(n: Int)"'
+DEBUG_FAIL = "__saw_fail_parts"
+_METADATA_NODE = re.compile(r"^!(\d+) = (.*)$")
+_METADATA_REFERENCE = re.compile(r"!(\d+)\b")
+_PANIC_SITE = re.compile(r"^panic at ([^:\n]+):(\d+): ", re.M)
+_DISASSEMBLED_FUNCTION = re.compile(r"^[0-9a-f]+ <(.+)>:$")
+_DISASSEMBLED_CALL = re.compile(r"^\s*([0-9a-f]+):\s+(?:bl|call|callq)\s.*<_*" + DEBUG_FAIL + r">")
+_ATOS_SITE = re.compile(r"\(([^()]+):(\d+)\)$")
+_SYMBOLIZER_SITE = re.compile(r"^(.+):(\d+):\d+$")
+
+
+def dbg_shape(text, symbol):
+    """The define of `symbol` in the `.ll` `text`, then every metadata node it
+    reaches, each renumbered by first use: the shape of one function's line
+    tables, whatever the rest of the module numbers. None when `text` defines
+    no `symbol`."""
+    lines = text.split("\n")
+    start = next((k for k, line in enumerate(lines) if line.startswith("define ") and symbol + "(" in line), None)
+    if start is None:
+        return None
+    end = next(k for k in range(start, len(lines)) if lines[k] == "}")
+    body = lines[start:end + 1]
+    nodes = {}
+    for line in lines:
+        m = _METADATA_NODE.match(line)
+        if m:
+            nodes[int(m.group(1))] = m.group(2)
+    order = {}
+    pending = []
+
+    def reach(line):
+        for m in _METADATA_REFERENCE.finditer(line):
+            n = int(m.group(1))
+            if n not in order and n in nodes:
+                order[n] = len(order)
+                pending.append(n)
+
+    for line in body:
+        reach(line)
+    k = 0
+    while k < len(pending):
+        reach(nodes[pending[k]])
+        k += 1
+
+    def renumbered(line):
+        return _METADATA_REFERENCE.sub(lambda m: "!%d" % order.get(int(m.group(1)), int(m.group(1))), line)
+
+    out = [renumbered(line) for line in body] + [""]
+    out += ["!%d = %s" % (order[n], renumbered(nodes[n])) for n in pending]
+    return "\n".join(out) + "\n"
+
+
+def check_debug_shape(failures, counts, write):
+    """panic_lines.saw's `crash`, as sawc writes it for the pinned target with
+    its default line tables, against debug_info.ll (`dbg_shape`)."""
+    r = subprocess.run([build.SAWC, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                        rel(DEBUG_PANIC)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run line tables: sawc wrote no .ll: %s" % r.stdout.strip()[:300])
+        return
+    shape = dbg_shape(r.stdout, DEBUG_FUNCTION)
+    if shape is None:
+        failures.append("run line tables: the .ll defines no %s" % DEBUG_FUNCTION)
+        return
+    if write:
+        with open(DEBUG_PINNED, "w") as fh:
+            fh.write(shape)
+        return
+    if not os.path.exists(DEBUG_PINNED):
+        failures.append("run line tables: no pinned %s" % rel(DEBUG_PINNED))
+        return
+    with open(DEBUG_PINNED) as fh:
+        expected = fh.read()
+    if shape != expected:
+        a = expected.split("\n")
+        b = shape.split("\n")
+        k = next((i for i in range(max(len(a), len(b)))
+                  if (a[i] if i < len(a) else None) != (b[i] if i < len(b) else None)), 0)
+        failures.append("run line tables: %s's shape differs from %s at line %d: %s"
+                        % (DEBUG_FUNCTION, rel(DEBUG_PINNED), k + 1, (b[k] if k < len(b) else "<end>")[:200]))
+    counts["run pinned .ll files"] = counts.get("run pinned .ll files", 0) + 1
+
+
+def manifest_clang(triple):
+    """The clang the runtime manifest of `triple` names, or None."""
+    with open(build.runtime_manifest(triple)) as fh:
+        for line in fh.read().splitlines():
+            if line.startswith("clang "):
+                return line[len("clang "):]
+    return None
+
+
+def clang_tool(clang, name):
+    """The program `clang` runs for the tool `name` (`-print-prog-name`)."""
+    r = subprocess.run([clang, "-print-prog-name=" + name], capture_output=True, text=True)
+    return r.stdout.strip() or name
+
+
+def fail_calls(disassembler, binary):
+    """The address of each call into DEBUG_FAIL, as `disassembler` reads
+    `binary`."""
+    r = subprocess.run([disassembler, "--disassemble", "--no-show-raw-insn", binary], capture_output=True,
+                       text=True, timeout=BUILD_TIMEOUT)
+    calls = []
+    current = ""
+    for line in r.stdout.splitlines():
+        m = _DISASSEMBLED_FUNCTION.match(line)
+        if m:
+            current = m.group(1)
+            continue
+        m = _DISASSEMBLED_CALL.match(line)
+        if m and DEBUG_FAIL not in current:
+            calls.append(int(m.group(1), 16))
+    return calls
+
+
+def symbolized(triple, clang, binary, address):
+    """(function, file base name, line) of the innermost frame the line
+    tables give the instruction at `address` in `binary`, an inlined one
+    included, or (None, None, what was printed). A call's own address, not
+    the return address after it: the failure funnel's helpers never return, so
+    the instruction after their call belongs to whatever follows."""
+    if "-apple-" in build.clang_triple(triple):
+        argv = ["atos", "-i", "-o", binary + ".dSYM", "-arch", triple.split("-")[0], "-l", "0x100000000",
+                hex(address)]
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        first = (r.stdout.strip().split("\n") or [""])[0]
+        m = _ATOS_SITE.search(first)
+        function = first.split(" (in ")[0]
+    else:
+        argv = [clang_tool(clang, "llvm-symbolizer"), "--obj=" + binary, hex(address)]
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        lines = r.stdout.splitlines()
+        m = _SYMBOLIZER_SITE.match(lines[1]) if len(lines) > 1 else None
+        function = lines[0] if lines else ""
+    if m is None:
+        return None, None, (r.stdout + r.stderr).strip()[:300]
+    return function, os.path.basename(m.group(1)), int(m.group(2))
+
+
+def check_symbolization(failures, counts):
+    """Each line-table program, built by sawc at -O0 and -O2 with its default
+    line tables, prints nothing and panics. Then every call into the failure
+    funnel whose innermost frame is in the program's file, wherever clang
+    inlined it, symbolizes to the panic's own `FILE:LINE` in the function
+    that panics, and there is one: through `atos` and the `.dSYM` on Mach-O,
+    whose DWARF must verify, and through `llvm-symbolizer` on the executable
+    elsewhere. coro_lines.saw's `step` is written as a resume function, whose
+    lines are its source function's."""
+    triple = TARGET or build.host_triple()
+    clang = manifest_clang(triple)
+    mach_o = "-apple-" in build.clang_triple(triple)
+    disassembler = "objdump" if mach_o else clang_tool(clang, "llvm-objdump")
+    for src, function in ((DEBUG_PANIC, "panic_lines.crash(n: Int)"), (DEBUG_CORO, "coro_lines.step(n: Int)")):
+        name = os.path.splitext(os.path.basename(src))[0]
+        for speed in ("-O0", "-O2"):
+            where = "run line tables %s %s" % (name, speed)
+            binary = os.path.join(OUT, "%s.lines%s" % (name, speed[1:]))
+            shutil.rmtree(binary + ".dSYM", ignore_errors=True)
+            r = subprocess.run([build.SAWC, "build", speed, "--std-root", "std"] + target_flags()
+                               + [rel(src), "-o", binary], cwd=REPO, capture_output=True, text=True,
+                               timeout=BUILD_TIMEOUT)
+            said = (r.stdout + r.stderr).strip()
+            if r.returncode != 0 or said:
+                failures.append("%s: sawc build exited %d and printed: %s" % (where, r.returncode, said[:300]))
+                continue
+            if mach_o:
+                if os.path.exists(binary + ".o") or not os.path.isdir(binary + ".dSYM"):
+                    failures.append("%s: wants %s.dSYM beside the binary and no object left" % (where, name))
+                    continue
+                v = subprocess.run(["dwarfdump", "--verify", binary + ".dSYM"], capture_output=True, text=True,
+                                   timeout=BUILD_TIMEOUT)
+                if v.returncode != 0 or "No errors." not in v.stdout:
+                    failures.append("%s: dwarfdump --verify fails: %s" % (where, (v.stdout + v.stderr)[-300:]))
+            _, _, err = execute(binary)
+            site = _PANIC_SITE.search(err.decode("utf-8", "replace"))
+            if site is None:
+                failures.append("%s: no panic: %s" % (where, err[:200]))
+                continue
+            file, line = site.group(1), int(site.group(2))
+            found = 0
+            for address in fail_calls(disassembler, binary):
+                got_function, got_file, got_line = symbolized(triple, clang, binary, address)
+                if got_function is None:
+                    failures.append("%s: the call at %s does not symbolize: %s" % (where, hex(address), got_line))
+                    continue
+                if got_file != file:
+                    continue
+                found += 1
+                if got_line != line or function not in got_function:
+                    failures.append("%s: the call at %s symbolizes to %s at %s:%d, the panic is in %s at %s:%d"
+                                    % (where, hex(address), got_function, got_file, got_line, function, file, line))
+            if found == 0:
+                failures.append("%s: no call into %s symbolizes to %s" % (where, DEBUG_FAIL, file))
+            counts["run line-table symbolizations"] = counts.get("run line-table symbolizations", 0) + found
 
 
 def build_runtime(directory, rt_root):
@@ -1371,6 +1582,8 @@ def run(names=None, write=False):
                 failures.append("run rule %s: no due program is refused by it" % rule)
         check_pinned_ir(failures, counts, write)
         check_noalias(failures, counts, write)
+        check_debug_shape(failures, counts, write)
+        check_symbolization(failures, counts)
         check_foreign_targets(failures, counts)
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)

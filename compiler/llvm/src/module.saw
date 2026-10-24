@@ -51,6 +51,23 @@ public struct LlEmitter {
     // bits: set once per program (`llvm_emit_program`).
     word: String
     word_bits: Int
+    // The line tables (debug.saw): whether the module carries them, and
+    // whether its code is optimised; the metadata written so far and the next
+    // node's number; by module its file's node, or -1; and the function being
+    // written's subprogram (-1 for none), its file, the location suffix `put`
+    // appends, its locations by position, and the lexical block file it holds
+    // for each other file it names.
+    debug: Bool
+    dbg_optimized: Bool
+    dbg_meta: StringBuilder
+    dbg_count: Int
+    dbg_files: Vector<Int>
+    dbg_scope: Int
+    dbg_scope_file: Int
+    dbg_suffix: String
+    dbg_locs: Map<Int, Int>
+    dbg_block_files: Vector<Int>
+    dbg_block_scopes: Vector<Int>
 }
 
 extension LlEmitter: NoCopy {}
@@ -128,7 +145,9 @@ extension LlEmitter {
                   pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
                   body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
                   lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0,
-                  word: "", word_bits: 0)
+                  word: "", word_bits: 0, debug: false, dbg_optimized: false, dbg_meta: StringBuilder(),
+                  dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
+                  dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>())
     }
 }
 

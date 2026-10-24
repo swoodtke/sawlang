@@ -732,16 +732,33 @@ by one value per placeholder — `print("x = {}", x)`,
 the placeholder count is checked against the argument count at compile time. See
 [Format arguments and the allocation-free path](#format-arguments-and-the-allocation-free-path).
 
-**Debug info (design 69):** the compiler emits DWARF line tables by default (on
-every build, no flag) — a DICompileUnit, a DISubprogram per function (with its
-Saw name), and a DILocation per statement. **Status:** v0.18.0's compiler
-emits them; `sawc` emits no debug metadata yet.
-A debugger (lldb/gdb) can therefore set line breakpoints and show `file:line`
-backtraces, including for panics. Scope is line tables only in v1 (no
-variable/type info yet). On macOS, source-level stepping needs the intermediate
-`.o` kept (compile with `-c`, then link) or a generated `.dSYM`, because the
-linker leaves DWARF in the object and references it through a debug map; Linux
-embeds DWARF in the executable directly.
+**Debug info (design 69):** `sawc build` emits DWARF line tables by default, at
+every `-O` level. The module has one compile unit, a subprogram per function
+(named as the compiler names the function, `server.handle(count: Int)` for
+`handle` in `server.saw`),
+and a source line and column on every instruction. `-g0` builds without them,
+and `-g` spells the default. A debugger (lldb, gdb) can therefore set line
+breakpoints, and a symbolizer (`atos`, `llvm-symbolizer`, `addr2line`, the
+macOS crash reporter) turns a panic's or a crash's addresses into `file:line`.
+A suspending function's frame is written as a resume function whose lines are
+the function's own source lines. A function clang inlines keeps its lines,
+inlined into a compiler-written helper included. **Status:** line tables only;
+variables and types are not described yet, and a runtime built by `sawc
+runtime` carries none.
+
+File names are fixed by the program, never by where its files sit: the entry
+file is its base name, and every other module is its module path
+(`std/vector.saw`, `mypkg/net.saw`), each under the directory `.`. Two builds
+of one program in two directories are the same bytes.
+
+On Linux the executable carries its DWARF; `strip --strip-debug` removes it.
+On macOS the linker leaves DWARF in the object and records only a debug map,
+so `sawc build` compiles the module to `OUT.o`, links it with the linker's
+`-reproducible`, runs `dsymutil` to write `OUT.dSYM` beside the binary, then
+removes `OUT.o`. The `.dSYM` is what lldb and the crash reporter read. The
+linker must be Xcode 15's or later; with an older one, or when `dsymutil`
+fails, the build fails and names `-g0`. Code that the machine outliner moves
+into a shared `OUTLINED_FUNCTION_N` at `-Oz` reports no source line.
 - `sizeof<T>()` / `alignof<T>()` — the size / alignment of `T` in bytes.
 
 ```saw

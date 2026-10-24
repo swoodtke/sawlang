@@ -1,0 +1,15 @@
+// The line-table pin's coroutine program (README.md, "Line tables"): `step`
+// suspends, so it is written as a resume function, and the call into the
+// failure funnel in that resume function must symbolize to `step`'s source
+// line, the panic's own.
+import std.task.{yield_now}
+
+func step(n: Int) -> Int {
+    yield_now()
+    if n > 2 { panic("stopped at {}", n) }
+    n
+}
+
+func main() {
+    print("{}", step(3))
+}

@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 182 declarations in 17 modules
+# 209 declarations in 18 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -43,12 +43,13 @@ std.env: 10
   method Env.executable_path
   struct Env
 
-std.file: 16
+std.file: 18
   enum OpenMode
   enum SeekOrigin
   extern __saw_rt_fs_lseek
   extern __saw_rt_fs_open
   extern __saw_rt_fs_read
+  extern __saw_rt_fs_unlink
   extern __saw_rt_fs_write
   extern close
   func file_interrupted
@@ -58,6 +59,7 @@ std.file: 16
   method File.open
   method File.opened
   method File.read
+  method File.remove
   method File.write
   struct File
 
@@ -77,6 +79,25 @@ std.float: 14
   method Float._shortest
   method Float.to_bits
 
+std.map: 17
+  enum MapSlot
+  func is_occupied
+  func is_tombstone
+  func open_bucket
+  func value_of
+  init Map.init
+  method Map.bucket_of
+  method Map.copy
+  method Map.deinit
+  method Map.get
+  method Map.hash_of
+  method Map.insert
+  method Map.rehash
+  method Map.rehash_target
+  method Map.table
+  method Map.try_copy
+  struct Map
+
 std.mem: 2
   func copy_bytes
   func drop_in_place
@@ -94,29 +115,34 @@ std.panic: 2
   extern __saw_rt_panic
   func panic_sink
 
-std.path: 6
+std.path: 7
   extern __saw_rt_fs_realpath
   extern free
   init Path.init
   method Path.as_string
   method Path.canonical
+  method Path.parent
   struct Path
 
-std.prelude: 15
+std.prelude: 19
   enum Optional
   enum Result
   func atomic_exchange_word
   func atomic_load_word
   func atomic_store_word
+  init Hasher.init
   method Atomic.compare_exchange
   method Atomic.load
   method Atomic.store
+  method Hasher.finish
   method Optional.is_some
   method UnsafeMutableInterior.ptr
   requirement ExplicitCopy.copy
+  requirement Hashable.hash
   requirement Printable.format
   requirement Printable.to_string
   struct Atomic
+  struct Hasher
   struct UnsafeMutableInterior
 
 std.process: 18
@@ -147,7 +173,7 @@ std.scalar: 6
   method Scalar.value
   struct Scalar
 
-std.string: 25
+std.string: 28
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   func digit_value
@@ -159,13 +185,16 @@ std.string: 25
   method String.byte_at
   method String.c_bytes
   method String.c_string
+  method String.contains
   method String.copy
   method String.copy_range
   method String.deinit
   method String.ends_with
   method String.equals
+  method String.find
   method String.index_of
   method String.is_empty
+  method String.last_index_of
   method String.len
   method String.parse_unsigned
   method String.starts_with

@@ -8,6 +8,7 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
 import sawllvm.closures.{ll_env_lead}
+import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawllvm.erased.{ll_drop_nothing}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
                           LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
@@ -28,10 +29,14 @@ import sawtypecheck.typeops.{TcClient}
 // The program's `.ll`, or "" when the backend refused something, which the
 // refusals in `mono.diags` say. `speed` is the optimisation flag the link
 // manifest carries to clang; `module_triple`, when not empty, is the triple
-// the module names, which the driver passes clang as `-target`.
+// the module names, which the driver passes clang as `-target`. With
+// `debug`, the module carries line tables (debug.saw).
 public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lowering: LlLowering, speed: String,
-                              module_triple: String) -> String {
+                              module_triple: String, debug: Bool) -> String {
     var e = LlEmitter(lowering: move lowering)
+    e.debug = debug
+    e.dbg_optimized = not speed.equals("-O0")
+    e.dbg_count = LL_DEBUG_FIRST
     // The integer type of a word, as `word_type` spells it for `Int`.
     var word = StringBuilder()
     try! word.append("i")
@@ -121,7 +126,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     while k < mono.items.len() {
         if mono.is_task_root(k) && e.resume_of(k) >= 0 {
             let descriptor = e.descriptor(&var mono, &var target, k)
-            try! e.defs.append(descriptor)
+            let defined = e.debug_artificial(&mono, descriptor)
+            try! e.defs.append(defined)
         }
         k = k + 1
     }
@@ -132,7 +138,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     mono.current = -1
     var entry = ""
     if not mono.runtime {
-        entry = e.entry_point(&var mono, &var target)
+        let defined = e.entry_point(&var mono, &var target)
+        entry = e.debug_artificial(&mono, defined)
     }
     if mono.diags.len() > 0 || mono.problems.len() > 0 {
         return ""
@@ -165,15 +172,19 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     if mono.panic_item >= 0 {
         let sink = mono.panic_item
         let symbol = e.plain_symbol(&var mono, sink)
-        try! out.append(ll_fail_helpers(symbol))
+        let failing = e.debug_artificial(&mono, ll_fail_helpers(symbol))
+        try! out.append(failing)
         let renderer = mono.print_failure_item
         if renderer >= 0 {
             let renderer_symbol = e.plain_symbol(&var mono, renderer)
-            try! out.append(ll_print_failure_helper(renderer_symbol, e.word, e.word_bits))
+            let printing = e.debug_artificial(&mono, ll_print_failure_helper(renderer_symbol, e.word, e.word_bits))
+            try! out.append(printing)
         }
     }
     try! out.append("\n\n")
     try! out.append(ll_function_attribute_group(&target, e.lowering.sanitize))
+    let metadata = e.debug_metadata(&mono)
+    try! out.append(metadata)
     out.build()
 }
 
@@ -280,6 +291,8 @@ extension LlEmitter {
         let node = mono.dp.bc.mir.tc.res.decls[main.decl].node
         self.current = main.body
         mono.current = main_item
+        // The C entry has no subprogram, so nothing in it carries a location.
+        self.debug_end()
         self.body = StringBuilder()
         self.allocas = StringBuilder()
         self.temps = 0

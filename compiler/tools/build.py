@@ -168,8 +168,10 @@ def link_module(ll, out, sanitize=False):
     compiler/driver/src/main.saw, which the two must agree with): with the
     clang and the runtime objects the manifest beside `SAWC` names, and with
     `-fsanitize=address` when `sanitize`. For a module no `sawc build` can
-    write, such as one a test hands the backend past a refusal. Returns (ok,
-    clang's output)."""
+    write, such as one a test hands the backend past a refusal. A module
+    with line tables links on Mach-O as `driver_link_mach_o` does: compiled
+    to `OUT.o`, linked reproducibly, then `dsymutil` writes `OUT.dSYM` and the
+    object is removed. Returns (ok, the tools' output)."""
     manifest = os.path.join(os.path.dirname(os.path.realpath(SAWC)), RUNTIME_MANIFEST_NAME)
     triple, clang, objects = None, None, []
     with open(manifest) as fh:
@@ -182,10 +184,37 @@ def link_module(ll, out, sanitize=False):
                 objects.append(line[len("object "):])
     if triple is None or clang is None:
         return False, "%s names no target or no clang" % manifest
-    arguments = [clang, "-target", clang_triple(triple), "-O0"] + (["-fsanitize=address"] if sanitize else [])
-    arguments += ["-x", "ir", ll, "-x", "none"] + objects + link_libraries(triple) + ["-o", out]
-    r = subprocess.run(arguments, capture_output=True, text=True, timeout=LINK_TIMEOUT)
-    return r.returncode == 0, (r.stdout + r.stderr).strip()
+    head = [clang, "-target", clang_triple(triple), "-O0"] + (["-fsanitize=address"] if sanitize else [])
+    tail = objects + link_libraries(triple) + ["-o", out]
+    with open(ll, encoding="utf-8", errors="replace") as fh:
+        lines = LINE_TABLES_MARKER in fh.read()
+    if not (lines and "-apple-" in clang_triple(triple)):
+        r = subprocess.run(head + ["-x", "ir", ll, "-x", "none"] + tail, capture_output=True, text=True,
+                           timeout=LINK_TIMEOUT)
+        return r.returncode == 0, (r.stdout + r.stderr).strip()
+    directory = os.path.realpath(os.path.dirname(os.path.abspath(out)))
+    obj = os.path.join(directory, os.path.basename(out) + ".o")
+    steps = [head + ["-c", "-x", "ir", ll, "-o", obj],
+             head + [obj, "-Wl,-reproducible", "-Wl,-oso_prefix," + directory + "/"] + tail,
+             [clang_tool(clang, "dsymutil"), "--oso-prepend-path", directory, out, "-o", out + ".dSYM"]]
+    said = []
+    for step in steps:
+        r = subprocess.run(step, capture_output=True, text=True, timeout=LINK_TIMEOUT)
+        said.append((r.stdout + r.stderr).strip())
+        if r.returncode != 0:
+            return False, "\n".join(s for s in said if s)
+    os.remove(obj)
+    return True, "\n".join(s for s in said if s)
+
+
+# What a `.ll` with line tables names (compiler/llvm/src/debug.saw).
+LINE_TABLES_MARKER = "!llvm.dbg.cu = "
+
+
+def clang_tool(clang, name):
+    """The program `clang` runs for the tool `name` (`-print-prog-name`)."""
+    r = subprocess.run([clang, "-print-prog-name=" + name], capture_output=True, text=True)
+    return r.stdout.strip() or name
 
 
 def link_driver(compiler, out):
