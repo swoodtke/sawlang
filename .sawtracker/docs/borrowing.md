@@ -986,6 +986,17 @@ as soon as the value is read. `&` of a temporary for a shared argument stays
 legal, and an argument's `&`/`&var` sigil now covers a lent place too, so
 `bump(&var g[4])` is the spelling, as it was before §2.2.
 
+**A window opens after the arguments it feeds** (Ruled, Oct 25: "arguments
+first"). In a chain of unnamed lends, every argument of the calls the window
+reaches is evaluated before the window's accessor prologue runs:
+`b.get(0).bump(by: side("b"))` and `b.get(0).at(side("a")) += 100` both run
+`side(…)` first, then `get`'s prologue. This is §2.2's assignment rule (the
+right side first, then the left side's window) made general. It lets an
+argument read the root (`v[i].set(v.len())`), and it settles SL-840's S4 (the
+receiver's exclusive window begins after the arguments). The receivers in the
+chain are still evaluated left to right, and nested windows open in chain order
+once the arguments are in.
+
 **A `let` of a lend's value copies it.** `let x = v[0]` and `let n = doc.section("net").name`
 read a value out of an unnamed lend, which closes at the read, so they follow
 the copy tier exactly as §2.2's "a borrow whose result is only copied" did. A
@@ -1050,10 +1061,23 @@ value read means.
 
 ### 12.5 Teaching errors
 
-Each refusal names the forms that work. The texts, for the implementer to pin:
-- `let s = sessions[0]` (NoCopy): "`sessions[0]` is lent, and a `let` would keep
-  the lend past this statement. Copy it out with `sessions[0].copy()`, or name
-  the place for a block: `borrow let s = sessions[0] { … }`."
+Each refusal names the forms that work, chosen by the element's copy tier
+(Air, SL-897 c4: a NoCopy type has no `copy()`). The texts, for the implementer
+to pin:
+- `let s = sessions[0]`, ExplicitCopy element: "`sessions[0]` is lent, and a
+  `let` would keep the lend past this statement. Copy it out with
+  `sessions[0].copy()`, or name the place for a block:
+  `borrow let s = sessions[0] { … }`."
+- `let s = sessions[0]`, NoCopy element: "`sessions[0]` is lent, and a `let`
+  would keep the lend past this statement. Name the place for a block,
+  `borrow let s = sessions[0] { … }`, or take the element out
+  (`sessions.swap_out(0, …)`, `sessions.remove(0)`)."
+- **The v0.18.0 migration trap** (Air, SL-897 c4). On v0.18.0 a plain
+  `if let x = m.find(&k)` copied the payload, so code that touches `m` inside
+  the block compiled; under 12.2 it holds `m`'s place for the block and is
+  refused. That refusal gets its own text: "`x` now holds `m.find(&k)`'s place
+  for this block, so `m` is borrowed until the `}`. To work on `m` inside it,
+  copy the value out first: `let v = m.find(&k)` (an optional copy)."
 - `let it = v.iter()`: "`v.iter()` lends a borrowing struct, which lives only as
   long as a block. Loop over it with `for x in v.iter() { … }`, or name it with
   `borrow let it = v.iter() { … }`."
@@ -1076,19 +1100,22 @@ Each refusal names the forms that work. The texts, for the implementer to pin:
 - The spec's borrowing-struct positions widen from "a `for` head or a `borrow`
   block" to every binding form in 12.2, plus an unnamed `for` head.
 
-### 12.7 Proposed (for the Air's review, then the user)
+### 12.7 Three follow-on rules (Ruled, Oct 25; the Air agreed, SL-897 c4)
 
 - **P1, the copy/lend asymmetry.** `var x = v[0]; x.n += 1` writes a copy,
   while `if var x = v.find(0) { x.n += 1 }` writes in place. Both are correct
   under 12.1/12.2, and the second is the point of `var`. The classic mistake is
-  the first, written meaning the second. Proposed: a `-W` warning,
-  `copy-written-then-dropped`, for a binding copied out of a lend that is
-  written and then dropped without being read, naming the in-place spelling.
-- **P2, a type conforming to both `Iterator` and `LendingIterator`.** Proposed:
-  refused at the conformance, so `for x in` has one meaning per type.
-- **P3, `borrow let e = m.find(&k) { … }` binding an optional place.** Proposed:
-  keep (§2.1 already allows it, and it serves a block that handles both cases
-  without `else`), with `if let` documented as the usual form.
+  the first, written meaning the second. Ruled: a `-W` warning,
+  `copy-written-then-dropped`, off by default like every `-W`, for a binding
+  copied out of a lend that is written and then dropped without being read,
+  naming the in-place spelling. It needs sawc's `-W` (SL-879).
+- **P2, one iterator trait per type.** A type conforming to both `Iterator` and
+  `LendingIterator` is refused at the second conformance, naming both, so
+  `for x in t` has one meaning per type.
+- **P3, `borrow let e = m.find(&k) { … }` binding an optional place, stays**
+  (§2.1 allows it, and it serves a block that handles both cases without
+  `else`). Inside it `e` is `&T?`, so `e!` and `e?.f` apply; `if let` gives
+  `&T` directly and is documented as the usual form.
 
 ### 12.8 Migration and pins
 
@@ -1108,5 +1135,10 @@ Each refusal names the forms that work. The texts, for the implementer to pin:
   refused; SL-893's head row; each 12.5 error; SL-684's pair by position.
 - **In-flight work it reshapes:** SL-871 unit 3 (`LendingIterator` lowering
   stays; its spelling is `for x in` / `for var x in`), SL-684 (resolution by
-  position), SL-893 (pinned here). sawtracker (ST-97) adopts the new spelling
-  before it commits its port.
+  position), SL-893 (pinned here), SL-840's S4 (settled by 12.1's
+  arguments-first rule). sawtracker (ST-97) lands its port on v0.18.0 as it
+  is, and migrates at its bump to v0.19.0 with the tool; its markers are the
+  fix-it's first real consumer.
+- **Pins also cover:** one of each chain shape for the arguments-first order
+  (a plain method on a lent place, an accessor on a lent place), each with a
+  printing prologue; the tier-chosen error texts; the v0.18.0 `if let` trap.
