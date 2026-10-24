@@ -1,0 +1,16 @@
+// A test-only `main` is no entry point: a normal build passes test-only
+// declarations over, so a program whose only `main` is one, in either
+// spelling, declares none (SL-874).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the program declares no `main`
+
+@test
+func main() {
+    print("test main")
+}
+
+@test {
+    func main(x: Int) {
+        print("group test main {}", x)
+    }
+}

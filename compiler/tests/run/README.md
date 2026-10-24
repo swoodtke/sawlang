@@ -606,6 +606,11 @@ among its prose:
 - `// speeds: -O0 -O2`, the levels sawc builds it at, each a build held whole
   (a read of an uninitialised local can pass at one level and not another);
 - `// prints: LINE`, a line of its standard output, in order;
+- `// exits: N`, on a `stated` probe, the exit status its run ends with, 0 to
+  255, where a probe stating none must exit 0;
+- `// stderr: LINE`, on a `stated` probe, a line of its standard error, in
+  order: a probe stating any writes exactly those lines there, and one stating
+  none is not held to its standard error;
 - `// panics: TEXT`, text its panic line on standard error holds;
 - `// undefined: SYMBOL`, a symbol its link must leave undefined;
 - `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, under
@@ -626,7 +631,7 @@ among its prose:
 
 | kind | sawc at each speed | its lines |
 |---|---|---|
-| `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines and exits 0, and with `// leaks: none` leaks nothing | `prints`, at least one; at most one `leaks` |
+| `stated` | builds it with nothing printed; the binary prints exactly its `// prints:` lines, writes exactly its `// stderr:` lines on standard error when it states any, and exits with its `// exits:` status, else 0, and with `// leaks: none` leaks nothing | `prints` and `stderr`, at least one between them; at most one `exits`; at most one `leaks` |
 | `panics` | builds it with nothing printed; the binary prints exactly its `// prints:` lines on standard output and one `panic at` line holding the `// panics:` text on standard error, followed by nothing or by the panic path's task dump (its header, then each task's line and its frame lines), and aborts | `prints`, any number; one `panics` |
 | `link-fails` | does not link it: the build prints no refusal, and the linker names every `// undefined:` symbol undefined | `undefined`, at least one |
 | `custom` | whatever its function in `run_lane.py`'s `CUSTOM_PROBES` checks | `probe` and `about` alone |

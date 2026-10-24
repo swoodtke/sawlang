@@ -4,9 +4,11 @@ reads and judges them, so a lane over tests/corpus/ needs neither it nor
 Stage 0.
 
 Only the directives a run is judged by are read: `EXPECT:`, `EXPECT-OUTPUT:`
-with its continuation lines, `EXPECT-OUTPUT-CONTAINS:`, `EXPECT-PANIC-CONTAINS:`,
-`EXPECT-EXIT:`, `EXPECT-ERROR-CONTAINS:` and `COMPILE-FLAGS:`. The header ends
-at the first line that is neither blank nor a comment.
+with its continuation lines, `EXPECT-OUTPUT-CONTAINS:`, `EXPECT-STDERR-CONTAINS:`,
+`EXPECT-PANIC-CONTAINS:`, `EXPECT-EXIT:`, `EXPECT-ERROR-CONTAINS:` and
+`COMPILE-FLAGS:`. The header ends at the first line that is neither blank nor
+a comment. `EXPECT-STDERR-CONTAINS:` is this lane's own: a line a successful
+run writes to standard error, as a failing `main`'s error is (SL-874).
 """
 import os
 
@@ -16,6 +18,7 @@ class Directives:
         self.expect = None
         self.output = []
         self.output_contains = []
+        self.stderr_contains = []
         self.panic_contains = []
         self.error_contains = []
         self.exit = None
@@ -47,6 +50,11 @@ def read(path):
                     text = text[1:]
                 if text:
                     d.output_contains.append(text)
+                in_output = False
+            elif "// EXPECT-STDERR-CONTAINS:" in line:
+                text = line.split("// EXPECT-STDERR-CONTAINS:")[1].strip()
+                if text:
+                    d.stderr_contains.append(text)
                 in_output = False
             elif "// EXPECT-OUTPUT:" in line:
                 in_output = True
@@ -109,6 +117,12 @@ def judge(d, code, stdout, stderr):
         found = stdout.find(want, cursor)
         if found < 0:
             return "the output does not contain %r%s" % (want, " in order" if want in stdout else "")
+        cursor = found + len(want)
+    cursor = 0
+    for want in d.stderr_contains:
+        found = stderr.find(want, cursor)
+        if found < 0:
+            return "standard error does not contain %r%s" % (want, " in order" if want in stderr else "")
         cursor = found + len(want)
     if d.output and stdout.strip().split("\n") != d.output:
         got = stdout.strip().split("\n")

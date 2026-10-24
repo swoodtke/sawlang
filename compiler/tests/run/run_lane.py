@@ -53,6 +53,8 @@ run of it, built against its own std.
 - each `probes/NAME.saw` states in its leading comment lines how it is held
   (README.md, "Probes"): `// probe: stated` is built by sawc alone at its
   `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
+  then exits with its `// exits:` status, 0 when it states none, with exactly
+  its `// stderr:` lines on standard error when it states any,
   `// probe: panics` prints them and then panics with its `// panics:` text,
   `// probe: link-fails` fails to link with each `// undefined:` symbol
   undefined, `// ll defines:` and `// ll omits:` hold each build's `.ll`, a
@@ -820,7 +822,7 @@ def long_accessor_source(ifs):
 PROBES = os.path.join(HERE, "probes")
 # A probe's header lines, `// NAME: VALUE`, as README.md's "Probes" lists them.
 _DIRECTIVE = re.compile(
-    r"^// (probe|about|stage 0|speeds|prints|panics|undefined|ll defines|ll omits|leaks|c helper): ?(.*)$")
+    r"^// (probe|about|stage 0|speeds|prints|exits|stderr|panics|undefined|ll defines|ll omits|leaks|c helper): ?(.*)$")
 # A C helper's name: a `.c` file in `probes/` itself.
 _C_HELPER = re.compile(r"^[A-Za-z0-9_]+\.c$")
 _ISSUE = re.compile(r"\(SL-\d+\)$")
@@ -831,7 +833,7 @@ SPEEDS = ("-O0", "-O1", "-O2", "-Os", "-Oz")
 _BUILT = {"probe": (1, 1), "about": (1, 1), "stage 0": (1, 1), "speeds": (1, 1),
           "ll defines": (0, None), "ll omits": (0, None), "c helper": (0, 1)}
 PROBE_LINES = {
-    "stated": dict(_BUILT, prints=(1, None), leaks=(0, 1)),
+    "stated": dict(_BUILT, prints=(0, None), exits=(0, 1), stderr=(0, None), leaks=(0, 1)),
     "panics": dict(_BUILT, prints=(0, None), panics=(1, 1)),
     "link-fails": dict(_BUILT, undefined=(1, None)),
     "custom": {"probe": (1, 1), "about": (1, 1)},
@@ -885,6 +887,12 @@ def probe_problems(src, header):
                                "" if most == 1 else "s", n))
     if header.get("leaks", ["none"]) != ["none"]:
         problems.append("%s: `// leaks:` states `none`, the one leak count the lane holds a probe to" % where)
+    exits = header.get("exits", ["0"])[0]
+    if not re.match(r"^(0|[1-9][0-9]{0,2})$", exits) or int(exits) > 255:
+        problems.append("%s: `// exits:` states a status, 0 to 255" % where)
+    # A stated run states what it writes, on one stream or the other.
+    if kind == "stated" and not header.get("prints") and not header.get("stderr"):
+        problems.append("%s: a stated probe states at least one `// prints:` or `// stderr:` line" % where)
     about = header.get("about", [])
     if len(about) == 1 and not _ISSUE.search(about[0]):
         problems.append("%s: its `// about:` line ends with its issue, `(SL-N)`" % where)
@@ -1004,10 +1012,14 @@ def held_probe(src, header):
                                                   log[:300]))
             continue
         elif kind == "stated":
-            want = "".join(line + "\n" for line in header["prints"]).encode()
-            code, out, _ = execute(binary)
-            if code != 0 or out != want:
-                failures.append("%s: exit %s, prints %r, not %r" % (where, code, out[:300], want))
+            want = "".join(line + "\n" for line in header.get("prints", [])).encode()
+            status = int(header.get("exits", ["0"])[0])
+            said = "".join(line + "\n" for line in header.get("stderr", [])).encode()
+            code, out, err = execute(binary)
+            if code != status or out != want:
+                failures.append("%s: exit %s, prints %r, not exit %d printing %r" % (where, code, out[:300], status, want))
+            elif "stderr" in header and err != said:
+                failures.append("%s: writes %r on standard error, not %r" % (where, err[:300], said))
             elif "leaks" in header:
                 found = leak_problems(where, binary)
                 if found is None:

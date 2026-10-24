@@ -1,0 +1,36 @@
+// probe: stated
+// about: a sync `main() -> Result<Void, SystemError>` that propagates an `Err` with `try`, its error `SystemError`, writes `error: ` and the rendered error on standard error and exits 1 (SL-874)
+// stage 0: writes the error on standard output, where sawc writes standard error
+// speeds: -O0 -O2
+// prints: start
+// prints: middle
+// exits: 1
+// stderr: error: open failed (not found)
+// leaks: none
+
+import std.file
+import std.path.{Path}
+import std.systemerror.{SystemError}
+
+func opening_error() -> SystemError {
+    match file.File.open(Path(s: "/nonexistent/sl874")) {
+        case Ok(_) -> panic("opened"),
+        case Err(e) -> e
+    }
+}
+
+func step(fail: Bool) -> Result<Void, SystemError> {
+    if fail {
+        return opening_error()
+    }
+    return
+}
+
+func main() -> Result<Void, SystemError> {
+    print("start")
+    try step(false)
+    print("middle")
+    try step(true)
+    print("unreached")
+    return
+}

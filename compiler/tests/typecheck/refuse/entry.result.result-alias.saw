@@ -1,0 +1,19 @@
+// refuses: entry.result at 17:6
+// message: whose `Ok` payload is an alias, which is a type of its own
+// a `main` returning a `Result` whose `Ok` payload is a distinct alias of `Int`
+
+type Status = Int
+
+struct Missing {
+    shelf: Int
+}
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("no such shelf")
+    }
+}
+
+func main() -> Result<Status, Missing> {
+    return Missing(shelf: 3)
+}

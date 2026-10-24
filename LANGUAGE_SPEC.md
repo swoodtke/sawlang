@@ -617,19 +617,24 @@ ordered call binding rule, by design (design 66).
 ### The entry point
 
 **Status: implemented.** A program starts at `main`, a top-level function
-taking no parameters. Its return type is the program's **exit status**, and it
-may be exactly one of four:
+taking no parameters. The entry module declares exactly one: a second `main`
+is a compile error at the later declaration, and a program with none is
+refused when it is built. A test-only `main` is not the entry point. The return
+type of `main` is the program's **exit status**, and it may be exactly one of
+four:
 
 | Written | Exit status |
 |---|---|
 | `func main()` | 0 |
 | `func main() -> Int` | the value |
-| `func main() -> Result<Void, E>` | 0 on `Ok`; on `Err`, the error is printed and the status is 1 |
-| `func main() -> Result<Int, E>` | the `Ok` payload; on `Err`, the error is printed and the status is 1 |
+| `func main() -> Result<Void, E>` | 0 on `Ok`; on `Err`, the error is written on standard error and the status is 1 |
+| `func main() -> Result<Int, E>` | the `Ok` payload; on `Err`, the error is written on standard error and the status is 1 |
 
-Any other return type is a compile error at the declaration:
+Any other return type is a compile error at the declaration, a distinct alias
+of `Int` included, since an alias is a type of its own:
 
-```saw-pending SL-707
+```saw-error
+// error-rule: entry.result
 // error-contains: `main` must return
 func main() -> String { "done" }
 // error: `main` must return `Void`, `Int`, `Result<Void, E>` or
@@ -640,6 +645,11 @@ func main() -> String { "done" }
 prints it the way `"{e}"` does, so an erased `Result<T, Box<any Error>>` works
 through its vtable like anything else. An error type that conforms to neither is
 the ordinary not-`Printable` diagnostic, reported at `main`.
+
+The `Err` line is `error: `, the rendered error and a line break, written as one
+line on standard error under the output lock, as a panic's message is. It is
+written once `main` has returned and the thread's background tasks have been
+cancelled and joined, so anything they print on their way out comes before it.
 
 ```saw
 import std.file
@@ -652,7 +662,8 @@ func main() -> Result<Void, SystemError> {
     print("read {text.len()} bytes")
     return
 }
-// With no saw.toml: prints `error: open failed (not found)`, exits 1.
+// With no saw.toml: writes `error: open failed (not found)` on standard error,
+// exits 1.
 ```
 
 The status is one byte wide by the time a shell sees it: POSIX `wait(2)` carries

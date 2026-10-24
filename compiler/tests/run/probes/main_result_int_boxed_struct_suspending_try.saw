@@ -1,0 +1,41 @@
+// probe: stated
+// about: a suspending `main() -> Result<Int, Box<any Error>>` that propagates an `Err` with `try`, its error a struct owning a `String` boxed as `Box<any Error>`, writes `error: ` and the rendered error on standard error and exits 1 (SL-874)
+// stage 0: writes the error on standard output, where sawc writes standard error
+// speeds: -O0 -O2
+// prints: start
+// prints: middle 7
+// exits: 1
+// stderr: error: no such shelf: top
+// leaks: none
+
+import std.task.{yield_now}
+
+struct Missing {
+    shelf: String
+}
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("no such shelf: ")
+        try! into.append(self.shelf)
+    }
+}
+
+extension Missing: Error {}
+
+func step(fail: Bool) -> Result<Int, Missing> {
+    if fail {
+        return Missing(shelf: "top")
+    }
+    return 7
+}
+
+func main() -> Result<Int, Box<any Error>> {
+    yield_now()
+    print("start")
+    let a = try step(false)
+    print("middle {}", a)
+    let b = try step(true)
+    print("unreached {}", b)
+    return 0
+}

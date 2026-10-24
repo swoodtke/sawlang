@@ -1,0 +1,18 @@
+// probe: stated
+// about: the saw-lang skill's `main`-returns-the-exit-status example, as written, run where no `saw.toml` is: it writes the error on standard error and exits 1 (SL-874)
+// stage 0: writes the error on standard output, where sawc writes standard error
+// speeds: -O0 -O2
+// exits: 1
+// stderr: error: open failed (not found)
+// leaks: none
+
+import std.file
+import std.path.{Path}
+import std.systemerror.{SystemError}
+
+func main() -> Result<Void, SystemError> {
+    var config = try file.File.open(Path(s: "saw.toml"))
+    let text = try config.read()
+    print("read {text.len()} bytes")
+    return
+}

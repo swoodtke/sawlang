@@ -7,6 +7,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.kinds.{res_is_type_alt}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
@@ -17,6 +18,7 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.tier.{tc_bit}
+import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
@@ -52,6 +54,11 @@ public func tc_check_inits(p: &var TcProgram) {
     p.check_inits()
     p.check_deinit_placement()
     p.check_consumes_placement()
+}
+
+// The entry point's signature: what `main` may take and return.
+public func tc_check_entry_point(p: &var TcProgram) {
+    p.check_main_signature()
 }
 
 static TC_MASK_UNSEEN: Int = 0
@@ -984,6 +991,158 @@ extension TcProgram {
             let site = self.decl_site(d - 1)
             self.refuse_in(info.module, site, "init.result", msg.build())
         }
+    }
+
+    // THE ENTRY-POINT FUNNEL: the entry module declares one production
+    // `main`, which takes nothing and returns one of the four types an exit
+    // status carries, an `Err`'s error type renderable (spec, The entry
+    // point). A test-only `main` and a dependency's `main` are ordinary
+    // functions. A module with no `main` at all checks clean here, since a
+    // checked file need not be a program; the build refuses it
+    // (`entry.missing`).
+    // ENTRY POINTS:
+    //     tc_check_entry_point
+    public func check_main_signature(&var self) {
+        if self.runtime_build {
+            return
+        }
+        let m = self.entry_module_index()
+        let mains = self.production_mains(m)
+        if mains.len() == 0 {
+            return
+        }
+        let first = mains[0]
+        var k = 1
+        while k < mains.len() {
+            let later = self.decl_site(mains[k])
+            k = k + 1
+            // Two `main`s no call could tell apart are the overload rule's.
+            if self.refused_with(m, later, "overload.indistinguishable") {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("`main` is already declared at ")
+            try! msg.append(self.res.node_position(m, self.decl_site(first)))
+            try! msg.append(": a program has one entry point, so `main` takes no overloads")
+            self.refuse_in(m, later, "entry.duplicate", msg.build())
+        }
+        let s = self.sigs[first]
+        let site = self.decl_site(first)
+        if s.param_count > 0 || s.generic_count > 0 {
+            var msg = StringBuilder()
+            if s.param_count > 0 {
+                try! msg.append("`main` takes no parameters: a program reads its arguments with `Env.args()` (std.env)")
+            } else {
+                try! msg.append("`main` takes no type parameters: the entry point is one function, called with none")
+            }
+            self.refuse_in(m, site, "entry.parameters", msg.build())
+        }
+        let t = s.result
+        if self.has_error_type(t) {
+            return
+        }
+        let int_type = self.int_type()
+        let written = self.written_return(first)
+        let spelled = self.type_text(t)
+        let as_written = if written >= 0 { self.text(m, written) } else { spelled }
+        if not self.is_void(t) && t != int_type && not self.is_result(t) {
+            self.refuse_entry_result(m, site, spelled, "")
+            return
+        }
+        // A distinct alias is a type of its own, whichever type it stands
+        // for, as the whole result and as a `Result`'s `Ok` payload.
+        if written >= 0 && self.names_alias(written) {
+            self.refuse_entry_result(m, site, as_written, ", an alias, which is a type of its own")
+            return
+        }
+        if not self.is_result(t) {
+            return
+        }
+        let ok = self.types.arg(t, 0)
+        if not self.is_void(ok) && ok != int_type {
+            self.refuse_entry_result(m, site, spelled, "")
+            return
+        }
+        if written >= 0 && self.child_count(written) > 1 && self.names_alias(self.child(written, 1)) {
+            self.refuse_entry_result(m, site, as_written, ", whose `Ok` payload is an alias, which is a type of its own")
+            return
+        }
+        let error = self.types.arg(t, 1)
+        if not self.has_error_type(error) && not self.formattable(error, first, -1, m, false) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.type_text(error))
+            try! msg.append("` is formatted when `main` returns an `Err`, and it is neither `Printable` nor a primitive")
+            self.refuse_in(m, site, "format.argument", msg.build())
+        }
+    }
+
+    func refuse_entry_result(&var self, m: Int, site: Int, spelled: String, why: String) {
+        var msg = StringBuilder()
+        try! msg.append("`main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `")
+        try! msg.append(spelled)
+        try! msg.append("`")
+        try! msg.append(why)
+        self.refuse_in(m, site, "entry.result", msg.build())
+    }
+
+    // The entry module `m`'s production `main` functions, in source order.
+    public func production_mains(&self, m: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if m < 0 {
+            return move out
+        }
+        let id = self.res.names.find("main")
+        if id < 0 {
+            return move out
+        }
+        var at = self.res.top.first(m, id)
+        while at >= 0 {
+            let d = self.res.top.value(at)
+            at = self.res.top.following(at)
+            let info = self.res.decls[d]
+            if info.test_only || info.kind != ResDeclKind.Func || info.node < 0 {
+                continue
+            }
+            let start = self.res.nodes[self.decl_site(d)].start
+            var k = out.len()
+            try! out.push(d)
+            while k > 0 && self.res.nodes[self.decl_site(out[k - 1])].start > start {
+                let earlier = out[k - 1]
+                out[k] = earlier
+                k = k - 1
+            }
+            out[k] = d
+        }
+        move out
+    }
+
+    // Whether module `m` already has a refusal by `rule` at node `id`.
+    func refused_with(&self, m: Int, id: Int, rule: String) -> Bool {
+        let start = self.res.nodes[id].start
+        var k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            k = k + 1
+            if d.module == m && d.start == start && d.id.equals(rule) {
+                return true
+            }
+        }
+        false
+    }
+
+    // Function `d`'s written return type node, or -1 when it writes none.
+    func written_return(&self, d: Int) -> Int {
+        let node = self.res.decls[d].node
+        var k = 0
+        while k < self.child_count(node) {
+            let c = self.child(node, k)
+            if res_is_type_alt(self.node_alt(c)) {
+                return c
+            }
+            k = k + 1
+        }
+        -1
     }
 
     // The receiver an `init` builds: its extension's `Self`.

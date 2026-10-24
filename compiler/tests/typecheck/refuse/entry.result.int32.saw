@@ -1,0 +1,8 @@
+// refuses: entry.result at 6:6
+// message: but returns `Int32`
+// a `main` returning an integer that is not `Int`: the status is an `Int`,
+// so a narrow or an unsigned one is a second spelling of it
+
+func main() -> Int32 {
+    3
+}

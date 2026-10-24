@@ -1,0 +1,12 @@
+// refuses: entry.duplicate at 10:6
+// message: `main` is already declared at 6:6
+// a second production `main` after one with a parameter: the later
+// declaration is the duplicate, whichever of the two is plain
+
+func main(x: Int) {
+    print("main {}", x)
+}
+
+func main() {
+    print("plain")
+}

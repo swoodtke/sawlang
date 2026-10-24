@@ -298,17 +298,17 @@ conformance/G04_mt_main_int_exit_status.saw	pass	-	-
 conformance/G05_suspending_main_void_exit_zero.saw	pass	-	-
 conformance/G06_panic_in_suspending_main_aborts.saw	pass	-	-
 conformance/G07_panic_in_spawned_task_mt_aborts.saw	pass	-	-
-conformance/G08_sync_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/G09_sync_main_result_err_exits_one.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/G10_suspending_main_result_ok_exit_status.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/G11_suspending_main_result_void_err_exits_one.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/G12_main_returning_string_refused.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/G13_main_returning_bool_refused.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
-conformance/G14_main_returning_optional_refused.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
+conformance/G08_sync_main_result_ok_exit_status.saw	pass	-	-
+conformance/G09_sync_main_result_err_exits_one.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/G10_suspending_main_result_ok_exit_status.saw	pass	-	-
+conformance/G11_suspending_main_result_void_err_exits_one.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/G12_main_returning_string_refused.saw	pass	-	entry.result: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `String`
+conformance/G13_main_returning_bool_refused.saw	pass	-	entry.result: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Bool`
+conformance/G14_main_returning_optional_refused.saw	pass	-	entry.result: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Int?`
 conformance/G15_main_int_exit_status_truncates.saw	pass	-	-
-conformance/G16_try_propagates_out_of_main.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
+conformance/G16_try_propagates_out_of_main.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/G17_early_return_from_main.saw	pass	-	-
-conformance/G18_main_result_void_ok_exit_zero.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
+conformance/G18_main_result_void_ok_exit_zero.saw	pass	-	-
 conformance/K02_nonsend_across_suspend_local_mt.saw	pass	-	coro.spawn-not-send: cannot spawn `work`: local `v` of type `std.vector.Vector<() sync -> Int, std.alloc.GlobalAllocator>` is held across a suspension but is not `Send`; the function type `() sync ->
 conformance/K100_shutdown_rides_cancellation.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 conformance/K111_suspension_causes_decide_framing.saw	pass	-	-
@@ -735,7 +735,7 @@ coro_match_arm_binding_positions.saw	pass	-	-
 coro_match_arm_payload_drops.saw	pass	-	-
 coro_match_binds_scrutinee.saw	pass	-	-
 coro_match_move_out_releases_once_in_loop_try_and_task.saw	pass	-	-
-coro_match_moved_payload_survives_return.saw	crash	INVARIANT	a `main` returning anything but Void or Int is not in the backend slice yet
+coro_match_moved_payload_survives_return.saw	pass	-	-
 coro_method_root_and_embedded.saw	pass	-	-
 coro_mixed_match_payload_released_at_extraction.saw	stage0-wrong	annotated SL-513	sawc meets its directives
 coro_module_json_encode_in_task.saw	pass	-	-
@@ -931,6 +931,8 @@ drive_site_in_suspending_body.saw	pass	-	coro.drive-in-suspending: `__saw_drive`
 drive_site_in_suspending_function.saw	pass	-	coro.drive-in-suspending: `__saw_drive_steps` may not appear in `runner`, which itself suspends. This body already runs inside an executor, so `s(...)` needs no drive site: call it directly and the su
 duration_prelude.saw	pass	-	-
 else_if_test.saw	pass	-	-
+entry_point_missing_main_refused.saw	pass	judged by its own directives (no oracle)	entry.missing: the program declares no `main`: it starts at a top-level `func main()`, and a test-only `main` is not one
+entry_point_only_test_main_refused.saw	pass	judged by its own directives (no oracle)	entry.missing: the program declares no `main`: it starts at a top-level `func main()`, and a test-only `main` is not one
 enum145_generic_methods.saw	pass	-	-
 enum145_import_scope.saw	pass	-	-
 enum145_import_scope_error.saw	refused	typecheck member.unknown	`modules.enum145_base.Level` has no method `shout` this module can see

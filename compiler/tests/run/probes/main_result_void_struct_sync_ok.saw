@@ -1,0 +1,25 @@
+// probe: stated
+// about: a sync `main() -> Result<Void, Missing>` that returns `Ok`, its error a struct owning a `String`, exits with the `Ok` payload, 0 for `Ok(())` (SL-874)
+// stage 0: runs it alike; the cell is stated beside the error cells, whose stream Stage 0 differs on
+// speeds: -O0 -O2
+// prints: start
+// exits: 0
+// leaks: none
+
+struct Missing {
+    shelf: String
+}
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("no such shelf: ")
+        try! into.append(self.shelf)
+    }
+}
+
+extension Missing: Error {}
+
+func main() -> Result<Void, Missing> {
+    print("start")
+    return
+}

@@ -1,0 +1,29 @@
+// probe: stated
+// about: a suspending `main() -> Result<Void, Missing>` that returns an `Err`, its error a struct owning a `String`, writes `error: ` and the rendered error on standard error and exits 1 (SL-874)
+// stage 0: writes the error on standard output, where sawc writes standard error
+// speeds: -O0 -O2
+// prints: start
+// exits: 1
+// stderr: error: no such shelf: top
+// leaks: none
+
+import std.task.{yield_now}
+
+struct Missing {
+    shelf: String
+}
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("no such shelf: ")
+        try! into.append(self.shelf)
+    }
+}
+
+extension Missing: Error {}
+
+func main() -> Result<Void, Missing> {
+    yield_now()
+    print("start")
+    return Missing(shelf: "top")
+}

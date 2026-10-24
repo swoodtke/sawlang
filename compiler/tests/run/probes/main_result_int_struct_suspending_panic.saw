@@ -1,0 +1,27 @@
+// probe: panics
+// about: a suspending `main() -> Result<Int, Missing>` that panics, its error a struct owning a `String`, aborts with the panic, whatever it returns (SL-874)
+// stage 0: runs it alike; the cell is stated beside the error cells, whose stream Stage 0 differs on
+// speeds: -O0 -O2
+// prints: start
+// panics: boom
+
+import std.task.{yield_now}
+
+struct Missing {
+    shelf: String
+}
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("no such shelf: ")
+        try! into.append(self.shelf)
+    }
+}
+
+extension Missing: Error {}
+
+func main() -> Result<Int, Missing> {
+    yield_now()
+    print("start")
+    panic("boom")
+}

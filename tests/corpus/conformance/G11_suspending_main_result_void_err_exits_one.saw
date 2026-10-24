@@ -7,7 +7,7 @@
 // epilogue.
 // EXPECT: success
 // EXPECT-EXIT: 1
-// EXPECT-OUTPUT-CONTAINS: config unreadable
+// EXPECT-STDERR-CONTAINS: error: config unreadable
 
 import std.task.{yield_now}
 

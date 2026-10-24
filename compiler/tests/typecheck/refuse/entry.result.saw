@@ -1,0 +1,7 @@
+// refuses: entry.result at 5:6
+// message: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `String`
+// a `main` whose return type no exit status carries
+
+func main() -> String {
+    "done"
+}

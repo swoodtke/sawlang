@@ -1,0 +1,11 @@
+// refuses: format.argument at 9:6
+// message: is formatted when `main` returns an `Err`, and it is neither `Printable` nor a primitive
+// a `main` returning a `Result` whose error type an `Err` cannot render
+
+struct Quiet {
+    code: Int
+}
+
+func main() -> Result<Void, Quiet> {
+    return Quiet(code: 1)
+}

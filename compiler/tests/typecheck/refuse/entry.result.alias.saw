@@ -1,0 +1,9 @@
+// refuses: entry.result at 7:6
+// message: but returns `Status`, an alias, which is a type of its own
+// a `main` returning a distinct alias of `Int`
+
+type Status = Int
+
+func main() -> Status {
+    Status(3)
+}

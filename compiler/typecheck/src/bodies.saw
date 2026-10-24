@@ -3183,21 +3183,12 @@ extension TcProgram {
         if self.has_error(t) {
             return
         }
-        let printable = self.known.printable
         let env = self.current_decl
         let ext = self.current_ext
         let viewer = self.current
         let in_test = self.current_test
-        if self.satisfies(t, printable, env, ext, viewer, in_test) {
+        if self.formattable(t, env, ext, viewer, in_test) {
             return
-        }
-        // An erased box, `Box<any Error>` above all, renders its payload
-        // through the existential's vtable.
-        if self.is_box(t) {
-            let payload = self.arg_of(t, 0)
-            if self.kind_of(payload) == TcKind.Any && self.satisfies(payload, printable, env, ext, viewer, in_test) {
-                return
-            }
         }
         var msg = StringBuilder()
         try! msg.append("`")

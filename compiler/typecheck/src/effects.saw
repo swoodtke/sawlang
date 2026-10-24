@@ -690,19 +690,6 @@ extension TcProgram {
         self.refuse_at(at, "effect.task-blocks", msg.build())
     }
 
-    // The entry module's index, or -1.
-    func entry_module_index(&self) -> Int {
-        var m = 0
-        while m < self.res.module_count() {
-            let info = self.res.module(m)
-            if info.kind == ResModuleKind.Entry && info.available {
-                return m
-            }
-            m = m + 1
-        }
-        return -1
-    }
-
     // The call at `e`, where its callee's Copy requirement and forbidden
     // conditions meet the call's type arguments, and so do those of each
     // default it leaves out, which the caller evaluates.

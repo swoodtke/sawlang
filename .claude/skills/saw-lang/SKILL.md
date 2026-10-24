@@ -1558,8 +1558,8 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   may always ignore should not have been a Result.
 - **`main` RETURNS THE EXIT STATUS, and may return exactly four things**
   (design 221): `Void` (0), `Int` (the value), `Result<Void, E>` and
-  `Result<Int, E>` (the `Ok` payload, 0 for `Ok(())`; an `Err` PRINTS the error
-  and exits 1). Anything else is refused at the declaration — ``error: `main`
+  `Result<Int, E>` (the `Ok` payload, 0 for `Ok(())`; an `Err` writes
+  `error: <the error>` on STANDARD ERROR and exits 1). Anything else is refused at the declaration — ``error: `main`
   must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns
   `String` ``. So a failing command-line program `return`s its failure instead
   of calling libc `exit()`:

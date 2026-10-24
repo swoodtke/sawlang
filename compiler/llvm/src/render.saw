@@ -204,6 +204,109 @@ extension LlEmitter {
         self.put_label(pass)
     }
 
+    // THE ONE PLACE a `Result` from `main` becomes the C entry's `i32`
+    // status (spec, The entry point): `Ok(n)` is `n` and `Ok(())` is 0; an
+    // `Err` writes `error: `, the error rendered as a format argument is,
+    // and a line break, as one line on standard error, and is 1. The Result
+    // at `at`, a plain `main`'s result slot or a lowered one's frame result,
+    // is the entry's to drop once the status is read.
+    // ENTRY POINTS:
+    //   entry_point
+    public func main_status(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int,
+                            node: Int) -> String {
+        let ok_decl = mono.dp.bc.mir.result_case("Ok")
+        let err_decl = mono.dp.bc.mir.result_case("Err")
+        let c = target.case_of(&var mono.dp.bc.mir.tc, t, ok_decl)
+        let status = self.slot(4, 4)
+        let tag = self.tag_of(&var mono, &var target, at, t, node)
+        var cmp = StringBuilder()
+        try! cmp.append("icmp eq i64 ")
+        try! cmp.append(tag)
+        try! cmp.append(", ")
+        try! cmp.append(c.tag)
+        let ok = self.assign(cmp.build())
+        let succeeded = self.new_label("main.ok")
+        let failed = self.new_label("main.err")
+        let done = self.new_label("main.exit")
+        self.branch(ok, succeeded, failed)
+        self.put_label(succeeded)
+        let value = mono.dp.bc.mir.tc.types.arg(t, 0)
+        if mono.dp.bc.mir.tc.is_void(value) {
+            self.store("i32", "0", status)
+        } else {
+            let vl = self.lay_at(&var mono, &var target, value, node)
+            let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, ok_decl, 0)
+            let value_at = self.offset_addr(at, off)
+            let n = self.load(ll_value_type(&vl), value_at)
+            var code = n
+            if vl.bits > 32 {
+                var narrow = StringBuilder()
+                try! narrow.append("trunc ")
+                try! narrow.append(ll_value_type(&vl))
+                try! narrow.append(" ")
+                try! narrow.append(n)
+                try! narrow.append(" to i32")
+                code = self.assign(narrow.build())
+            }
+            self.store("i32", code, status)
+        }
+        self.jump(done)
+        self.put_label(failed)
+        let error = mono.dp.bc.mir.tc.types.arg(t, 1)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, err_decl, 0)
+        let payload = self.offset_addr(at, off)
+        var parts = LlParts()
+        self.render_fixed(&var mono, &var target, payload, error, node, &var parts)
+        self.write_error_line("error: ", &parts)
+        self.store("i32", "1", status)
+        self.jump(done)
+        self.put_label(done)
+        self.drop_at(&var mono, t, at)
+        self.load("i32", status)
+    }
+
+    // One line on standard error: `lead`, then each run of `parts`, then a
+    // line break, under the output lock so no other thread's line lands
+    // inside it. The write is best-effort, as the seam is: a status that
+    // could not be reported has nowhere else to go (runtime/ABI.md,
+    // `__saw_rt_write_error`).
+    func write_error_line(&var self, lead: String, parts: &LlParts) {
+        self.declare("__saw_rt_output_lock", "declare void @__saw_rt_output_lock()")
+        self.declare("__saw_rt_output_unlock", "declare void @__saw_rt_output_unlock()")
+        var declaration = StringBuilder()
+        try! declaration.append("declare void @__saw_rt_write_error(ptr, ")
+        try! declaration.append(self.word)
+        try! declaration.append(")")
+        self.declare("__saw_rt_write_error", declaration.build())
+        self.put("call void @__saw_rt_output_lock()")
+        let lead_bytes = self.text_bytes(lead)
+        var lead_len = StringBuilder()
+        try! lead_len.append(lead_bytes.len())
+        let lead_at = self.pooled(&lead_bytes, false, 0)
+        self.write_error_run(lead_at, lead_len.build())
+        var k = 0
+        while k < parts.kinds.len() {
+            self.write_error_run(parts.firsts.get(k) ?? "", parts.seconds.get(k) ?? "")
+            k = k + 1
+        }
+        let line_break = self.text_bytes("\n")
+        let line_break_at = self.pooled(&line_break, false, 0)
+        self.write_error_run(line_break_at, "1")
+        self.put("call void @__saw_rt_output_unlock()")
+    }
+
+    func write_error_run(&var self, bytes: String, length: String) {
+        var call = StringBuilder()
+        try! call.append("call void @__saw_rt_write_error(ptr ")
+        try! call.append(bytes)
+        try! call.append(", ")
+        try! call.append(self.word)
+        try! call.append(" ")
+        try! call.append(length)
+        try! call.append(")")
+        self.put(call.build())
+    }
+
     // The concrete result type of item `k`'s function.
     public func item_result(&self, mono: &MonoProgram, k: Int) -> Int {
         let body = mono.items[k].body

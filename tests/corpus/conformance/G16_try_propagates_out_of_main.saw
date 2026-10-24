@@ -7,7 +7,7 @@
 // EXPECT: success
 // EXPECT-EXIT: 1
 // EXPECT-OUTPUT-CONTAINS: a = 10
-// EXPECT-OUTPUT-CONTAINS: no such shelf: 9
+// EXPECT-STDERR-CONTAINS: error: no such shelf: 9
 
 struct Missing { shelf: Int }
 

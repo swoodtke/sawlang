@@ -1,0 +1,7 @@
+// refuses: entry.parameters at 5:6
+// message: `main` takes no type parameters
+// a generic `main`, which the entry calls with no type arguments to fill it
+
+func main<T>() {
+    print("generic")
+}

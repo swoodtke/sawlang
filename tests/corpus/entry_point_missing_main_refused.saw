@@ -1,0 +1,9 @@
+// A program with no `main` is refused at the build, with a rule: a checked
+// file need not be a program, so typecheck passes it and the build, which
+// owes an entry point, names what is missing (SL-874).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the program declares no `main`
+
+func helper() -> Int {
+    3
+}

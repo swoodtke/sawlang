@@ -14,6 +14,7 @@ import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PAR
 import sawcoro.lower.{CORO_STATE_START}
 import sawllvm.module.{LlEmitter, LlLowering, ll_bt_table_address, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar,
                        ll_reaches_extern, ll_resume_symbol, ll_symbol, ll_value_type}
+import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_quoted}
 import sawparse.grammar.{Alt}
 import sawresolve.model.{ResDeclKind}
@@ -57,8 +58,13 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         if mono.exec_item >= 0 {
             e.defines("__saw_frame_resume")
         }
+        // A checked file need not be a program, so only a build owes a
+        // `main`; typecheck's entry-point funnel holds one that is declared
+        // to its rules (`check_main_signature`).
         if mono.main_item < 0 {
-            try! mono.problems.push("the entry module declares no `main` with a body")
+            let entry = mono.dp.bc.mir.tc.entry_module_index()
+            let root = mono.dp.bc.mir.tc.res.module(entry).root
+            mono.refuse(root, "entry.missing", "the program declares no `main`: it starts at a top-level `func main()`, and a test-only `main` is not one")
             return ""
         }
     }
@@ -174,8 +180,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
 extension LlEmitter {
     // The C entry point: `main(argc, argv)` keeps both for the argument
     // accessors the compiler emits into every program (runtime/ABI.md, "Program
-    // arguments"), runs the program's `main`, and exits with its `Int`, or 0
-    // for a `Void` main. A plain `main` is called, then the background group
+    // arguments"), runs the program's `main`, and exits with its `Int`, 0 for
+    // a `Void` main, or what `main_status` reads from a `Result`. A plain `main` is called, then the background group
     // closed when the program spawns, since a task may still be running; one
     // with a lowered frame gets that frame on this function's stack, at state
     // 0, and is handed to the entry executor with its descriptor, its result
@@ -213,10 +219,21 @@ extension LlEmitter {
             try! out.append(resume.align)
             try! out.append("\n")
         }
-        try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
         let returns_int = l.kind == TargetKind.Int && mono.dp.bc.mir.tc.is_integer(result)
+        let returns_result = mono.dp.bc.mir.tc.is_result(result)
+        if returns_result {
+            let body = self.result_entry(&var mono, &var target, result, &l, r)
+            try! out.append(self.allocas.build())
+            try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
+            try! out.append(body)
+            try! out.append("\}\n\n")
+            return out.build()
+        }
+        try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
         if l.kind != TargetKind.Zero && not returns_int {
-            mono.refuse(-1, "backend.not-yet", "a `main` returning anything but Void or Int is not in the backend slice yet")
+            // Typecheck admits a `main` returning `Void`, `Int` or a `Result`
+            // of either and nothing else (`check_main_signature`).
+            try! mono.problems.push("a `main` returning anything but Void, Int or a Result of either reached the backend")
         } else if r >= 0 {
             let resume = self.lowering.resumes[r]
             try! out.append("  store ")
@@ -267,6 +284,86 @@ extension LlEmitter {
         }
         try! out.append("\}\n\n")
         out.build()
+    }
+
+    // The C entry's body past its argument stores, for a `main` returning a
+    // `Result` of type `t`, laid out as `l`: the call, or the frame handed
+    // to the executor (`r` its resume, else -1), then the status
+    // `main_status` reads from the result. Written through the function
+    // state an item's body is, its entry slots left in `allocas`. The error
+    // line follows the background group's close, which a plain `main`'s call
+    // is followed by and the executor does before it returns.
+    func result_entry(&var self, mono: &var MonoProgram, target: &var Target, t: Int, l: &TargetLayout,
+                      r: Int) -> String {
+        let main_item = mono.main_item
+        let main = mono.items[main_item]
+        let node = mono.dp.bc.mir.tc.res.decls[main.decl].node
+        self.current = main.body
+        mono.current = main_item
+        self.body = StringBuilder()
+        self.allocas = StringBuilder()
+        self.temps = 0
+        self.labels = 0
+        self.refused = false
+        self.resume = -1
+        self.sret = false
+        var at = ""
+        if r >= 0 {
+            let resume = self.lowering.resumes[r]
+            var state = StringBuilder()
+            try! state.append(CORO_STATE_START)
+            let word = self.word
+            self.store(word, state.build(), "%frame")
+            // Stage 0 workaround (SL:hazards S4): canonical: let executor = self.plain_symbol(&var mono, mono.exec_item)
+            let exec_item = mono.exec_item
+            let executor = self.plain_symbol(&var mono, exec_item)
+            var call = StringBuilder()
+            try! call.append("call void ")
+            try! call.append(executor)
+            try! call.append("(")
+            try! call.append(ll_spelled("ptr", ll_descriptor_symbol(&mono, main_item)))
+            try! call.append(", ptr %frame)")
+            self.put(call.build())
+            at = self.offset_addr("%frame", resume.result)
+        } else {
+            at = self.slot(l.size, l.align)
+            let symbol = self.plain_symbol(&var mono, main_item)
+            var call = StringBuilder()
+            try! call.append("call ")
+            if ll_is_scalar(&l) {
+                try! call.append(ll_value_type(&l))
+                try! call.append(" ")
+                try! call.append(symbol)
+                try! call.append("()")
+                let value = self.assign(call.build())
+                self.store(ll_value_type(&l), value, at)
+            } else {
+                try! call.append("void ")
+                try! call.append(symbol)
+                try! call.append("(")
+                try! call.append(ll_spelled("ptr", at))
+                try! call.append(")")
+                self.put(call.build())
+            }
+            if mono.spawn_close_item >= 0 {
+                // Stage 0 workaround (SL:hazards S4): canonical: let closer = self.plain_symbol(&var mono, mono.spawn_close_item)
+                let close = mono.spawn_close_item
+                let closer = self.plain_symbol(&var mono, close)
+                var line = StringBuilder()
+                try! line.append("call void ")
+                try! line.append(closer)
+                try! line.append("()")
+                self.put(line.build())
+            }
+        }
+        let status = self.main_status(&var mono, &var target, at, t, node)
+        var ret = StringBuilder()
+        try! ret.append("ret i32 ")
+        try! ret.append(status)
+        self.put(ret.build())
+        self.current = -1
+        mono.current = -1
+        self.body.build()
     }
 
     // Item `k`'s frame descriptor, the constant record the executor reaches

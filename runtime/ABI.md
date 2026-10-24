@@ -182,7 +182,9 @@ Writes `len` bytes from `ptr` to standard error, unbuffered: the hosted default
 calls `write(2)` on fd 2 until every byte is out, retrying an interrupted call,
 so nothing waits in a buffer an abort discards. It takes no lock. It is
 best-effort and returns nothing by design: its callers are on the way to an
-abort, and a failed write there has no one left to report to. Everything a
+abort, or writing the one `error: ` line of a `main` that returned an `Err`
+just before the exit status 1, and a failed write there has no one left to
+report to. Everything a
 panic prints goes through it, the message and the task dump the executor
 writes after it. A freestanding runtime must supply it when a program links
 the executor (`std.taskgroup`), whose panic sink calls it.

@@ -4,7 +4,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
-import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
+import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule, ResModuleKind}
 import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
@@ -683,6 +683,34 @@ extension TcProgram {
                 return d
             }
             at = self.res.top.following(at)
+        }
+        return -1
+    }
+
+    // Whether type node `t` names a type alias by its path's last segment.
+    public func names_alias(&self, t: Int) -> Bool {
+        if self.child_count(t) == 0 {
+            return false
+        }
+        let path = self.child(t, 0)
+        let segments = self.child_count(path)
+        if segments == 0 {
+            return false
+        }
+        let leaf = self.child(path, segments - 1)
+        let b = self.binding_at(leaf)
+        b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias
+    }
+
+    // The entry module's index, or -1.
+    public func entry_module_index(&self) -> Int {
+        var m = 0
+        while m < self.res.module_count() {
+            let info = self.res.module(m)
+            if info.kind == ResModuleKind.Entry && info.available {
+                return m
+            }
+            m = m + 1
         }
         return -1
     }

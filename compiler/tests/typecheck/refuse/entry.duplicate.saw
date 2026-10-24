@@ -1,0 +1,11 @@
+// refuses: entry.duplicate at 9:6
+// message: `main` is already declared at 5:6
+// a second production `main`, an overload any other function could have
+
+func main() {
+    print("plain")
+}
+
+func main(x: Int) {
+    print("main {}", x)
+}

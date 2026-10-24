@@ -249,7 +249,8 @@ See [Error Handling](LANGUAGE_SPEC.md#5-error-handling) in the spec.
 
 `main` may return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, and
 nothing else. `Void` exits 0, an `Int` is the status, an `Ok` payload is the
-status (0 for `Ok(())`), and an `Err` prints the error and exits 1:
+status (0 for `Ok(())`), and an `Err` writes the error on standard error and
+exits 1:
 
 ```saw
 import std.file
@@ -262,7 +263,8 @@ func main() -> Result<Void, SystemError> {
     print("read {text.len()} bytes")
     return
 }
-// With no saw.toml: prints `error: open failed (not found)`, exits 1.
+// With no saw.toml: writes `error: open failed (not found)` on standard error,
+// exits 1.
 ```
 
 A command-line program reports failure by returning it, with no `exit()` call

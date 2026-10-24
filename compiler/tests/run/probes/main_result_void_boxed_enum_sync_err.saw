@@ -1,0 +1,23 @@
+// probe: stated
+// about: a sync `main() -> Result<Void, Box<any Error>>` that returns an `Err`, its error a user enum boxed as `Box<any Error>`, writes `error: ` and the rendered error on standard error and exits 1 (SL-874)
+// stage 0: writes the error on standard output, where sawc writes standard error
+// speeds: -O0 -O2
+// prints: start
+// exits: 1
+// stderr: error: bad thing
+// leaks: none
+
+enum Oops { case Bad }
+
+extension Oops: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("bad thing")
+    }
+}
+
+extension Oops: Error {}
+
+func main() -> Result<Void, Box<any Error>> {
+    print("start")
+    return Oops.Bad
+}

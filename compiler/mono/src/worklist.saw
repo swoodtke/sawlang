@@ -97,8 +97,36 @@ extension MonoProgram {
             self.instantiate(k)
             k = k + 1
         }
+        self.need_main_exit()
+        while k < self.items.len() {
+            self.current = k
+            self.instantiate(k)
+            k = k + 1
+        }
         self.current = -1
         self.report_depth()
+    }
+
+    // What the C entry's exit needs from a `main` returning a `Result`
+    // (the backend's `main_status`): the error rendered into a fixed builder
+    // over stack scratch, as a format argument is, and the Result's drop,
+    // which runs once the status is read. Asked once `main`'s concrete body
+    // exists, so its result type is the one the entry reads.
+    func need_main_exit(&var self) {
+        let k = self.main_item
+        if k < 0 || self.items[k].body < 0 {
+            return
+        }
+        let f = self.dp.bc.mir.funcs[self.items[k].body]
+        let result = self.dp.bc.mir.locals[f.local_first].ty
+        let info = self.dp.bc.mir.tc.types.ty(result)
+        if info.kind != TcKind.Nominal || info.decl != self.dp.bc.mir.tc.known.result {
+            return
+        }
+        let node = self.dp.bc.mir.tc.res.decls[self.items[k].decl].node
+        let error = self.dp.bc.mir.tc.types.arg(result, 1)
+        let _ = self.need_fixed_render(k, error, node)
+        self.need_drop(k, result, node)
     }
 
     func index_bodies(&var self) {

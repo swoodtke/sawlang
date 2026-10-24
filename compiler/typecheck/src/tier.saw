@@ -791,6 +791,24 @@ extension TcProgram {
         answer
     }
 
+    // Whether a value of type `t` renders, seen from declaration `env_decl`
+    // in module `viewer`: it is `Printable`, or an erased box
+    // (`Box<any Error>` above all) whose existential's vtable renders its
+    // payload.
+    public func formattable(&var self, t: Int, env_decl: Int, env_ext: Int, viewer: Int, in_test: Bool) -> Bool {
+        let printable = self.known.printable
+        if self.satisfies(t, printable, env_decl, env_ext, viewer, in_test) {
+            return true
+        }
+        let info = self.types.ty(t)
+        if info.kind != TcKind.Nominal || info.decl != self.known.box || info.count == 0 {
+            return false
+        }
+        let payload = self.types.arg(t, 0)
+        self.types.ty(payload).kind == TcKind.Any && self.satisfies(payload, printable, env_decl, env_ext, viewer,
+                                                                     in_test)
+    }
+
     // `satisfies`, with no conformance of declaration `hidden` answering for
     // `tr` at any depth: what `t` meets were `hidden`'s assertions of `tr`
     // deleted.

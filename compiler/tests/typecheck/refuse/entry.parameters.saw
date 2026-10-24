@@ -1,0 +1,7 @@
+// refuses: entry.parameters at 5:6
+// message: `main` takes no parameters
+// a `main` with a parameter, which would read the C entry's `argc`
+
+func main(n: Int) {
+    print("{}", n)
+}
