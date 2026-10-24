@@ -26,9 +26,8 @@ tools/battery.sh corpusdiff
 
 ## The programs
 
-The corpus programs are found as `test_runner.py` finds the suite's under
-`examples/`: every `.saw` below `tests/corpus/` outside a `modules`
-directory, but those marked `EXPECT: skip`. Each is paired with the file of
+The corpus programs are every `.saw` below `tests/corpus/` outside a
+`modules` directory, but those marked `EXPECT: skip`. Each is paired with the file of
 the same path below `examples/` (SL:architecture §5), its twin.
 
 **The twin relation** (`oracle.twin_state`, SL-667). `examples/` is frozen:
@@ -60,7 +59,7 @@ program to `stage0/TRIPLE/PATH.stage0`, in the format
 (`compiler/tests/coro/stage0/`) shares:
 
 - a program whose twin is `EXPECT: success` or `EXPECT: panic` is run twice
-  from the repository root, as `test_runner.py` runs it, and the record holds
+  from the repository root, as Stage 0's suite ran it, and the record holds
   its exit status, standard output and standard error, a stream that differs
   between the runs recorded as `varies`;
 - a refusal test, and any build Stage 0 refuses, holds Stage 0's whole
@@ -81,12 +80,13 @@ PATH...` writes just the records named: `--reuse` keeps each raw result saved
 under `.build/corpusdiff/stage0-raw/` whose twin and program have not
 changed, so an interrupted write resumes where it stopped. It refuses a
 detached or native program, and a whole write keeps a detached program's row
-and record as they are. The snapshot is the oracle that outlives `sawc/`:
+and record as they are. The snapshot is the oracle that outlives Stage 0:
 `check` and `run` only read it, and only `snapshot` runs Stage 0, through
 `oracle.v0_root`, which asks the toolchain resolver for v0.18.0's checkout
 (`SAWLANG_V0_ROOT`, else fetched and cached). Its records therefore hold
 v0.18.0's std and runtime, as they stood at the freeze; a std file's path
-reads `sawc/std/...` wherever that checkout is (`oracle.unrooted`).
+reads as v0.18.0's `sawc/std/...` wherever that checkout is
+(`oracle.unrooted`).
 
 ## The measurement
 

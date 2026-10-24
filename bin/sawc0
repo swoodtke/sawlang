@@ -1,11 +1,12 @@
 #!/bin/sh
-# `sawc0` on a $PATH: Stage 0, the frozen Python compiler in `sawc/` (in this
-# checkout while it holds one, else in the v0 compiler's checkout).
+# `sawc0` on a $PATH: v0.18.0's compiler, the frozen Python Stage 0, run from
+# the v0 checkout the resolver names (`SAWLANG_V0_ROOT`, else v0.18.0 fetched
+# and cached).
 #
-# `sawc` names the sawlang toolchain, whichever compiler that is; `sawc0`
-# names Stage 0 and nothing else, for a caller that needs Stage 0 itself
-# (Blade's build, the frozen sources' recipes). Like `bin/sawc`, it execs the
-# checkout it lives in, and `make install` symlinks it onto a prefix.
+# `sawc` names the sawlang toolchain; `sawc0` names Stage 0 and nothing else,
+# for a caller that needs it (Blade's build, the frozen sources' recipes, a
+# snapshot's regeneration). This tree holds no Stage 0, so the shim always
+# forwards; `make install` symlinks it onto a prefix.
 set -eu
 
 # Resolve this script through any symlinks before taking the directory above
@@ -19,30 +20,11 @@ while [ -L "$self" ]; do
         *) self=$(dirname "$self")/$link ;;
     esac
 done
-# `SAWLANG_ROOT` wins, matching `bin/sawc` and the resolver's own precedence
-# (design 238 D-b): what the operator named beats what was inferred.
-ROOT=${SAWLANG_ROOT:-$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)}
+ROOT=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)
 
-# A checkout without Stage 0 forwards to the v0 compiler's own checkout, which
-# the resolver names (`SAWLANG_V0_ROOT`, else v0.18.0 fetched and cached). That
-# checkout's shim runs its own tree, so `SAWLANG_ROOT` is handed on as it.
-if [ ! -f "$ROOT/sawc/sawc.py" ]; then
-    V0=$(python3 "$ROOT/tools/toolchain.py" v0-root) || exit 1
-    SAWLANG_ROOT=$V0
-    export SAWLANG_ROOT
-    exec "$V0/bin/sawc0" "$@"
-fi
-
-# The checkout's venv is where llvmlite lives. A machine that installed it
-# globally instead is served by the fallback; a machine with neither is told
-# so rather than left to fail somewhere deeper.
-PY="$ROOT/.venv/bin/python"
-if [ ! -x "$PY" ]; then
-    PY=$(command -v python3 || true)
-fi
-if [ -z "$PY" ]; then
-    echo "sawc0: no Python found — expected $ROOT/.venv/bin/python or python3" >&2
-    exit 1
-fi
-
-exec "$PY" "$ROOT/sawc/sawc.py" "$@"
+# The v0 checkout's own shim runs its own tree and venv, so `SAWLANG_ROOT` is
+# handed on as that checkout.
+V0=$(python3 "$ROOT/tools/toolchain.py" v0-root) || exit 1
+SAWLANG_ROOT=$V0
+export SAWLANG_ROOT
+exec "$V0/bin/sawc0" "$@"

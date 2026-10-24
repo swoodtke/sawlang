@@ -2271,12 +2271,15 @@ spelling holds. The spec still:
   `guard cond else { … }`, and does not say that identifiers are ASCII only
   (syntax.pat.none, syntax.stmt.guard-condition, syntax.lex.ascii-identifier).
 
-## 16. Differences from today's parser
+## 16. Differences from v0.18.0's parser
 
-The reference compiler's parser (`sawc/parser/`) was checked against this
-grammar over every tracked `.saw` file and a set of small test programs. Where
-the two disagree, a row below says which way and why. Where a grammar rule
-(§13) and today's parser refuse the same form, no row is needed. The kinds are:
+This section is a record against v0.18.0's compiler, Stage 0, which this tree
+no longer holds. Its parser (that checkout's `sawc/parser/`) was checked
+against this grammar over every tracked `.saw` file and a set of small test
+programs; "today's parser" in the table below is that parser, and every
+`sawc/` path in it is a path in the v0.18.0 checkout. Where the two disagree,
+a row below says which way and why. Where a grammar rule (§13) and that parser
+refuse the same form, no row is needed. The kinds are:
 
 - `ruled`: a ruling changed the syntax, and today's parser predates it.
 - `later`: the grammar parses the form, and a later stage refuses it, because

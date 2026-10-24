@@ -1,42 +1,25 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install freestanding-test compiler-test astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb toolchain
+.PHONY: all clean help blade install compiler-test gmgate abidoc toolchain
 
 # Default target
-all: test
-
-# Run all tests
-test:
-	@python3 test_runner.py
-
-# Run tests with verbose output
-test-verbose:
-	@python3 test_runner.py -v
-
-# Run a specific test by name
-test-filter:
-	@python3 test_runner.py -f $(FILTER)
-
-# Blade self-hosting bootstrap (design 64 B8): Blade builds + tests Blade
-# through its own resolve/lock/module-path/incremental pipeline.
-blade-bootstrap:
-	@python3 tools/blade_bootstrap.py
+all: compiler-test
 
 # The install story (design 238 unit 3, D-b1): put `sawc`, `sawc0` and `blade`
 # on a $PATH. There is nothing to package — `sawc` is the self-hosted compiler,
 # which its shim builds from this tree on first use (compiler/tools/build.py),
-# `sawc0` is Stage 0's Python entry point, and Blade is built from Saw source —
-# so `bin/` holds three shims into this checkout and `install` symlinks them
-# onto a prefix. An installed name therefore always means THIS tree, and
-# re-installing after a `git pull` is unnecessary.
+# `sawc0` forwards to v0.18.0's compiler in the v0 checkout (`SAWLANG_V0_ROOT`,
+# else the pinned tag, fetched and cached), and Blade is built from Saw source —
+# so `bin/` holds three shims and `install` symlinks them onto a prefix. An
+# installed name therefore always means THIS tree, and re-installing after a
+# `git pull` is unnecessary.
 #
 #   make install                    # -> ~/.local/bin
 #   make install PREFIX=/usr/local/bin
 #
 # Blade is built first because its shim execs a binary rather than a script.
-# Blade is written in Stage 0's language, so the build goes through
-# `bin/sawc0`. That shim finds `.venv/bin/python` itself, so this target,
-# unlike `make test`, does not need the venv activated.
+# Blade is frozen in v0.18.0's language (blade/README.md), so the build goes
+# through `bin/sawc0`.
 PREFIX ?= $(HOME)/.local/bin
 BLADE_BIN := .build/blade
 
@@ -55,72 +38,17 @@ install: blade
 	@echo "Installed sawc, sawc0 and blade -> $(PREFIX)"
 	@echo "  (add it to your PATH if it is not already there)"
 
-# The freestanding QEMU suite (design 238 unit 1): tiny programs that name the
-# compiler's freestanding features DIRECTLY — `--freestanding`,
-# `--no-hidden-alloc`, `--runtime-provider` + the rt/ABI.md check, cross-target
-# codegen (a 32-bit target from a 64-bit host), fixed-address linking,
-# `--module-path` composition, and `blade build --target <triple>` — built,
-# LINKED AND RUN under QEMU `virt` on riscv32 AND arm64. Requires
-# qemu-system-riscv32, qemu-system-aarch64, ld.lld, and clang (the harness
-# probes and prints install hints). `--arch <name>` runs one, for development.
-# This is the compiler's cross-target gate; the SOS kernel itself lives in the
-# sawos repository since design 238 unit 5 (Aug 28 2026) with its own harness.
-freestanding-test:
-	@python3 tools/freestanding_runner.py
-
 # The self-hosted compiler's tests (compiler/README.md): its unit programs, the
 # golden token fixtures, and the subset checker over its own source.
 compiler-test:
 	@python3 compiler/tests/run.py
 
-# AST dump acceptance harness (design 126 R11), the parser-port oracle: dump
-# every tracked .saw file and require the dump to be COMPLETE (no node type
-# falls through a dispatcher) and byte-stable across runs.
-astdiff:
-	@python3 tools/astdiff.py
-
-# Design 126's "zero grafted AST writes" exit criterion, mechanized (design 194
-# unit 1). 126 checked it once by hand and eleven grafts crept back. A grafted
-# field is invisible to `dataclasses.fields()` — which is what the monomorphizer
-# walks — so it survives substitution un-rewritten, the RC-2 bug all over again.
-astgraft:
-	@python3 tools/test_ast_graft.py
-
-# Compiler output determinism (design 126 R2): compile a corpus sample twice,
-# in fresh processes under differing PYTHONHASHSEED, and require byte-identical
-# IR. Zero non-reproducible files is the acceptance bar.
-#
-# `irdet` samples 40 examples — fast enough for per-commit use. `irdet-all`
-# sweeps the WHOLE corpus and is the standard for a brief's final gate battery
-# (design 146 unit D): a random sample cannot police a whole-corpus property,
-# and design 141 proved it — two nondeterministic emission orders had been
-# sitting in the tree unnoticed until adding two unrelated examples reshuffled
-# the sample onto one of them.
-# The harness itself is written in SAW (design 155, the first devtool port):
-# `devtools/irdet/`, built here with the frozen compiler. It drives Stage 0,
-# `sawc0` — the tool is Saw, the compiler under test is not.
-IRDET_BIN := .build/irdetbin
-
-$(IRDET_BIN): devtools/irdet/src/main.saw
-	@python3 sawc/sawc.py devtools/irdet/src/main.saw -o $(IRDET_BIN)
-
-# These two are the INTERACTIVE spellings — you read the output. `make`'s own
-# exit status follows the binary's, which is honest again now that a suspending
-# `main` propagates its value (DF-220b). The GATE spelling is
-# `tools/battery.sh irdet`, which reads the `--jsonl` records instead, because a
-# gate should not depend on the bug it gates being fixed (design 221 Part D).
-irdet: $(IRDET_BIN)
-	@./$(IRDET_BIN)
-
-irdet-all: $(IRDET_BIN)
-	@./$(IRDET_BIN) --all
-
 # Ownership gate under Guard Malloc (design 159 unit 4). A missing retain does
 # not fail an ordinary run: the surplus release lands in a freed-but-mapped
-# block and the program exits 0, which is how DF-151b sat in a green tree from
-# design 73 onward. Guard Malloc unmaps freed blocks, so an over-release faults
-# at the instruction that made it. Small curated lanes — the ownership oracles
-# only, since a page per allocation is far too slow for the whole suite.
+# block and the program exits 0. Guard Malloc unmaps freed blocks, so an
+# over-release faults at the instruction that made it. Small curated lanes —
+# the ownership oracles only, since a page per allocation is far too slow for
+# the whole corpus.
 #
 # TWO lanes since design 192 unit 4: `ownership` is about values (copies,
 # retains, drops, containers) and `concurrency` is the same failures where the
@@ -135,33 +63,6 @@ gmgate:
 abidoc:
 	@python3 tools/test_runtime_abi_doc.py
 
-# Properties of the emitted IR the examples suite structurally cannot express
-# (design 187): a `-c` compile embeds the same coroutine frames a hosted one
-# does (the suite runs programs, so it never looks at an object file), and every
-# `__saw_rt_*` seam the compiler declares has the width rt/ABI.md gives it on a
-# 32-bit target as well as a 64-bit one (the suite does not cross-compile, and
-# `word` and `Int64` are the same type where it runs). Both were miscompiles.
-ircontract:
-	@python3 tools/test_ir_contract.py
-
-# The prelude allowlist against the spec's own module table (design 188 unit 7).
-# `IMPORT_REQUIRED_STD_MODULES` decides which std names need an import and the
-# spec's table documents the same partition; nothing tied them together, so they
-# drifted and `SpinLock`/`SlabHead` were reachable bare for as long as the spec
-# said otherwise. Drift is invisible from both ends — the compiler is consistent
-# and the document is coherent — so it needs a test of its own.
-preludegate:
-	@python3 tools/test_prelude_gate_doc.py
-
-# The internal-compiler-error report (design 192 unit 2). An ICE is a path no
-# corpus program takes, so nothing else exercises the machinery: delete the
-# breadcrumb stamp from a dispatch and the whole suite still passes. This
-# injects a failure into the typechecker and into codegen and reads the report
-# back — one line, a FILE:LINE:COL anchor, the AST node's name, and the full
-# traceback under SAW_DEBUG=1.
-icebreadcrumb:
-	@python3 tools/test_ice_breadcrumb.py
-
 # The toolchain resolver (design 238 unit 4): the one place a consumer of this
 # repository locates `sawc`, `blade` and the packages it compiles against. All
 # four resolution steps, the pin's version check and the refusal that names
@@ -169,24 +70,6 @@ icebreadcrumb:
 # happens to be installed and the fetch never touches the network.
 toolchain:
 	@python3 tools/test_toolchain.py
-
-# The logical-backtrace table (design 158 unit 1): cross-check every frame
-# record against the frame-layout report the same compile produced. A wrong
-# offset there reads a live frame at the wrong place and prints a confident lie,
-# which no runtime test would catch. `bttable-sizes` reports what the
-# always-linked table costs per program.
-bttable:
-	@python3 tools/test_bt_table.py
-
-bttable-sizes:
-	@python3 tools/test_bt_table.py --sizes
-
-# The lldb commands (design 158 unit 2): drive a real lldb over a real binary
-# and check that `saw table` / `saw tasks` / `saw bt` agree with the fixture.
-# Skips where lldb is absent, and downgrades to the no-process tier where lldb
-# cannot attach.
-lldbtest:
-	@python3 tools/test_lldb_saw.py
 
 # Clean build artifacts. Everything generated lives under a `.build/` directory
 # — the repo's own, plus one per Saw package holding that package's per-target
@@ -197,40 +80,18 @@ clean:
 	@rm -rf blade/.build libs/*/.build
 	@echo "Cleaned build directories"
 
-# Run tests sequentially (original behavior)
-test-sequential:
-	@python3 test_runner.py --sequential
-
 # Show help
 help:
 	@echo "Saw Language Makefile"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  make test            - Run all tests in parallel (default)"
-	@echo "  make test-verbose    - Run tests with verbose output"
-	@echo "  make test-sequential - Run tests sequentially (no parallelism)"
-	@echo "  make test-filter     - Run tests matching FILTER pattern"
-	@echo "                         Example: make test-filter FILTER=enum"
-	@echo "  make blade           - Build the package manager into .build/blade"
+	@echo "  make compiler-test   - The self-hosted compiler's tests (the default)"
+	@echo "  make blade           - Build the package manager into .build/blade (through sawc0)"
 	@echo "  make install         - Put sawc, sawc0 + blade on a PATH (PREFIX=~/.local/bin)"
-	@echo "  make freestanding-test - Build + run the freestanding feature suite under QEMU (riscv32 AND arm64)"
-	@echo "  make compiler-test   - The self-hosted compiler's tests (compiler/)"
-	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
-	@echo "  make astgraft        - No pass stamps an AST attribute no class declares"
-	@echo "  make irdet           - IR determinism over a 40-example sample (per commit)"
-	@echo "  make irdet-all       - IR determinism over the WHOLE corpus (final gate)"
 	@echo "  make gmgate          - Ownership + concurrency oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - runtime/ABI.md describes exactly the frozen seam set"
-	@echo "  make ircontract      - -c embeds what hosted embeds; seam widths match rt/ABI.md"
-	@echo "  make preludegate     - The import gate matches LANGUAGE_SPEC's module table"
 	@echo "  make toolchain       - The toolchain resolver: four steps, version check, refusal"
-	@echo "  make icebreadcrumb   - An internal compiler error reports one located line"
-	@echo "  make bttable         - Task-backtrace table vs the frame layouts"
-	@echo "  make bttable-sizes   - What the always-linked backtrace table costs"
-	@echo "  make lldbtest        - saw tasks / saw bt under a real lldb"
 	@echo "  make clean           - Remove build artifacts"
 	@echo "  make help            - Show this help message"
 	@echo ""
-	@echo "Test runner options (via python3 test_runner.py):"
-	@echo "  -j N, --jobs N       - Number of parallel workers"
-	@echo "  --sequential         - Run tests sequentially"
+	@echo "The per-patch gate is ./build.sh test; the full battery is tools/battery.sh."

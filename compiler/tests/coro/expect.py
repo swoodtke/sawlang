@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""A corpus program's run directives, read and judged as `test_runner.py`
-reads and judges them, so a lane over tests/corpus/ needs neither it nor
-Stage 0.
+"""A corpus program's run directives, read and judged as Stage 0's suite
+read and judged them, so a lane over tests/corpus/ needs no Stage 0.
 
 Only the directives a run is judged by are read: `EXPECT:`, `EXPECT-OUTPUT:`
 with its continuation lines, `EXPECT-OUTPUT-CONTAINS:`, `EXPECT-STDERR-CONTAINS:`,
@@ -83,7 +82,7 @@ def read(path):
     return d
 
 
-# Every other directive test_runner.py reads closes an `EXPECT-OUTPUT:` block
+# Every other directive the corpus uses closes an `EXPECT-OUTPUT:` block
 # without being taken as output.
 _OTHER = ("// EXPECT-SYMBOL-UNDEFINED:", "// EXPECT-OBJECT-MAX-BYTES:", "// EXPECT-IR-CONTAINS:",
           "// EXPECT-IR-ABSENT:", "// EXPECT-ERROR-ABSENT:", "// EXPECT-WARNING-CONTAINS:",

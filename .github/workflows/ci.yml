@@ -1,8 +1,9 @@
 name: CI
 
-# Gating moved to sawtracker (Sep 2026): patches are tested and approved
-# there before they merge to GitHub, so nothing triggers on push/PR any
-# more. Manual runs stay available while sawtracker's runner ramps up.
+# Gating lives in sawtracker: patches are tested and approved there before they
+# merge to GitHub, so nothing triggers on push/PR. A manual run executes the
+# same entry point the server's per-patch gate does, with no changed-path
+# narrowing, so every part runs.
 on:
   workflow_dispatch:
 
@@ -12,8 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: test (${{ matrix.os }})
+  gate:
+    name: gate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -23,180 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The gate's tools use the standard library alone; build.sh makes the
+      # venv from this interpreter.
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          # 3.12 has llvmlite 0.48 wheels on both Linux and macOS. The compiler
-          # itself runs on 3.14 locally, but the pinned llvmlite has no 3.14
-          # manylinux wheel yet — 3.12 keeps CI wheel-only (no source builds).
-          python-version: '3.12'
+          python-version: '3.14'
 
-      # sawc links objects with `clang`; the Linux runner needs it on PATH
-      # (macOS ships clang with Xcode).
+      # sawc's .ll is compiled and linked by clang, which must take
+      # opaque-pointer IR (LLVM 15 or later); macOS ships one with Xcode.
       - name: Install clang (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang
 
-      - name: Install llvmlite
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r sawc/requirements.txt
-
-      - name: Compiler test suite (test_runner.py)
-        run: python test_runner.py
-
-      - name: Debug-info line tables (design 69)
-        run: python tools/test_debug_info.py
-
-      - name: Task-backtrace table (design 158)
-        run: python tools/test_bt_table.py
-
-      - name: Toolchain resolver (design 238 unit 4)
-        run: python tools/test_toolchain.py
-
-      - name: lldb task backtraces (design 158; skips where lldb is absent)
-        run: python tools/test_lldb_saw.py
-
-      - name: Blade self-hosting bootstrap (builds + tests Blade)
-        run: python tools/blade_bootstrap.py
-
-      - name: Library package tests (semver, toml, imgformat)
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .build
-          # Every path dependency Blade declares has to be mapped here, the
-          # imgformat one included: `blade/src/sosimg.saw` imports it, so a
-          # build missing the flag fails with `module imgformat not found`.
-          python sawc/sawc.py blade/src/main.saw -o .build/blade_ci \
-            --module-path blade=blade/src \
-            --module-path toml=libs/toml/src \
-            --module-path semver=libs/semver/src \
-            --module-path imgformat=libs/imgformat/src
-          export SAWC="python $(pwd)/sawc/sawc.py"
-          BLADE="$(pwd)/.build/blade_ci"
-          (cd libs/semver && "$BLADE" test)
-          (cd libs/toml && "$BLADE" test)
-          (cd libs/imgformat && "$BLADE" test)
-
-  # The self-hosted compiler (compiler/README.md): sawc and its unit programs
-  # built by the frozen compiler, the golden token fixtures, and the subset
-  # checker over the compiler's own source.
-  compiler:
-    name: compiler (ubuntu)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      # clang links sawc and the unit programs.
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
-
-      - name: Install llvmlite
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r sawc/requirements.txt
-
-      - name: Compiler tests (compiler/tests/run.py)
-        run: python compiler/tests/run.py
-
-  # AST dump acceptance harness (design 126 R11), the parser-port oracle: dump
-  # every tracked .saw file and require the dump to be complete (no node type
-  # falls through a dispatcher) and byte-stable across runs. Parse-only, so it
-  # needs no clang and builds no Saw binary.
-  astdiff:
-    name: astdiff (ubuntu)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install llvmlite
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r sawc/requirements.txt
-
-      - name: AST dump sweep (make astdiff)
-        run: make astdiff
-
-  # Compiler output determinism (design 126 R2): compile a corpus sample twice
-  # under differing PYTHONHASHSEED and require byte-identical IR. The harness is
-  # written in Saw (design 155); `make irdet` builds it first, so this job needs
-  # clang for the link as well as llvmlite for the compile.
-  irdet:
-    name: irdet (ubuntu)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
-
-      - name: Install llvmlite
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r sawc/requirements.txt
-
-      - name: Determinism sweep (make irdet)
-        run: make irdet
-
-  # The sos job left with the kernel (design 238 unit 5, Aug 28 2026 — sos/
-  # lives in the sawos repository, which runs its own CI against the pinned
-  # toolchain). The freestanding job below is the cross-target coverage that
-  # replaced it here.
-
-  # The freestanding feature suite (design 238 unit 1): tiny QEMU-executed
-  # programs naming the compiler's freestanding features directly —
-  # `--freestanding`, `--no-hidden-alloc`, `--runtime-provider` + the rt/ABI.md
-  # check, cross-target codegen from a 64-bit host, fixed-address linking,
-  # `--module-path` composition, and `blade build --target <triple>`.
-  #
-  # IT IS ITS OWN JOB, not a step of the one above and not a battery stage that
-  # CI happens to reach. The `sos` job runs `make sos-test` directly, so nothing
-  # about `tools/battery.sh` touches CI — and design 238 unit 5 DELETES the sos
-  # job when `sos/` leaves this repository. Without this job the net after that
-  # unit would be no freestanding coverage in CI at all, which is the whole
-  # reason unit 1 lands before the split rather than after it.
-  #
-  # Ubuntu only, for the reason the sos job gives: brew qemu on the macOS runner
-  # is slow/flaky and Linux coverage suffices.
-  freestanding:
-    name: freestanding-test (ubuntu)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      # The same host toolchain the sos job installs, and the same reasons: the
-      # harness assembles boot.S and support.c with clang, links with ld.lld,
-      # and runs the ELF under qemu-system-riscv32 and qemu-system-aarch64.
-      # qemu-system-misc provides riscv32; qemu-system-arm provides aarch64
-      # (split out on Ubuntu 24.04, which ubuntu-latest now uses).
-      - name: Install host toolchain (clang, lld, qemu)
-        run: sudo apt-get update && sudo apt-get install -y clang lld qemu-system-misc qemu-system-arm
-
-      - name: Install llvmlite
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r sawc/requirements.txt
-
-      - name: Freestanding QEMU suite (make freestanding-test)
-        run: make freestanding-test
+      - name: The per-patch gate, every part (./build.sh test)
+        run: ./build.sh test

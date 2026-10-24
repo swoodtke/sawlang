@@ -577,12 +577,11 @@ other bytes fails, naming the command that records it:
 Stage 0 and runs it as the lane runs sawc's, and writes its record for this
 host; over every program it also removes a record that names none. That and
 `--bench` are the lane's only runs of Stage 0, and both take the v0 compiler
-from `oracle.v0_compiler`, which names its checkout in one place: this tree
-until `sawc/` is deleted, then a checkout of the last tag that holds `sawc/`
-(SL-667 names it). The Linux records are written in the VM:
-`tools/linux.py stage0 [NAME...]` runs
-`--stage0` in its clone of HEAD and copies `aarch64-unknown-linux-gnu/` back,
-as `tools/linux.py seed` copies the seed.
+from `oracle.v0_compiler`, which names its checkout in one place: v0.18.0's
+(`tools/toolchain.py v0-root`: `SAWLANG_V0_ROOT`, else the tag fetched and
+cached). The VM's clone of HEAD holds no Stage 0, so the Linux records are not
+rewritten: a Linux record is v0.18.0's, and a program edited since is
+rerecorded on the Mac only, or converted to a stated probe.
 
 A record says which program bytes it was made from, not which Stage 0 made
 it: every snapshot that compares with Stage 0 is v0.18.0's, regenerated only

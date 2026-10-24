@@ -1,12 +1,12 @@
 /* The Saw runtime C shim (design 113b).
  *
- * The `__saw_rt_*` runtime ABI (sawc/rt/ABI.md) is authored in Saw under
- * `--runtime-build`, except the bodies below. Each is here because of a
+ * The `__saw_rt_*` runtime ABI (runtime/ABI.md) is authored in Saw, built by
+ * `sawc runtime`, except the bodies below. Each is here because of a
  * specific Saw FFI gap, named by its DF number; a body moves to Saw when its
  * gap closes. Keep this file as small as the gaps require.
  *
  * This is the hosted (macOS/Linux) shim, compiled with clang by
- * sawc/rt_build.py.
+ * `sawc runtime`.
  *
  * `_GNU_SOURCE` must precede the first include: glibc returns EAI_NODATA but
  * only declares it under `__USE_GNU`, and without the macro that code falls
@@ -225,7 +225,7 @@ void __saw_rt_panic(const char *msg, size_t len) {
 /* ---- DF-113a: no C macro -----------------------------------------------
  * `open(2)` flag bits differ per host, so `__saw_rt_fs_open` takes a portable
  * mode and this translates it. Keep the mode numbers in step with `OpenMode`
- * in sawc/std/file.saw. */
+ * in std/file.saw. */
 #include <fcntl.h>
 
 long __saw_open_flags(long mode) {
@@ -238,7 +238,7 @@ long __saw_open_flags(long mode) {
 }
 
 /* ---- DF-113a: no C macro, no per-host struct layout (design 184) --------
- * The getaddrinfo walk is Saw (sawc/rt/common/os_ops.saw); these projections
+ * The getaddrinfo walk is Saw (runtime/common/os_ops.saw); these projections
  * are header facts it cannot see. `struct addrinfo` orders `ai_addr` and
  * `ai_canonname` differently on glibc and macOS, and the `EAI_*` codes differ
  * in value and sign between hosts.
@@ -680,7 +680,7 @@ long __saw_signal_drain(long signo) {
 }
 
 /* ---- DF-113b: the blocking-extern offload thread ------------------------
- * The offload seams are Saw (sawc/rt/common/offload.saw); this thread body is
+ * The offload seams are Saw (runtime/common/offload.saw); this thread body is
  * C because it calls a raw function pointer. `job->fn` is a compiler-
  * synthesized thunk that reads its arguments from `job->args` (design 183),
  * so this file needs no arity knowledge. The body touches only its own job
@@ -719,8 +719,8 @@ void *__saw_offload_thread_ptr(void) {
 
 /* ---- DF-186c: no 32-bit atomics through a pointer -----------------------
  * The Linux body of `__saw_rt_lock_acquire` / `_release`, the one-word lock
- * behind `Mutex<T>` (rt/ABI.md). The macOS body is Saw
- * (sawc/rt/host_macos/lock.saw).
+ * behind `Mutex<T>` (runtime/ABI.md). The macOS body is Saw
+ * (runtime/host_macos/lock.saw).
  *
  * The futex word is the low four bytes of the `Int` std passes in; both
  * hosted targets are little-endian. Drepper's three states: 0 unlocked,

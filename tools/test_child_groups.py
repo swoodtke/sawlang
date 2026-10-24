@@ -13,7 +13,6 @@ of the case must be gone within the grace. A child in a group of its own
 ignores TERM, so the KILL after the grace is on trial too, and each hanging
 child has a grandchild, so the reach to the whole group is.
 """
-import argparse
 import os
 import re
 import shutil
@@ -22,7 +21,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from pathlib import Path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
@@ -31,8 +29,8 @@ import gate_jobs  # noqa: E402
 
 # Slack on top of a grace, for polling and process teardown.
 SLACK_SECONDS = 3.0
-# How long a driver may take to have its hanging child running; test_runner
-# compiles its child first.
+# How long a driver may take to have its hanging child running; run.py builds
+# sawc before its first step starts.
 READY_SECONDS = 180.0
 
 HANG = """#!/bin/sh
@@ -55,32 +53,18 @@ open("%s.%d.ready" % (sys.argv[0], os.getpid()), "w").close()
 time.sleep(600)
 """
 
-HANG_SAW = """// EXPECT: success
-// EXPECT-EXIT: 0
-func main() {
-    while true {
-        sleep(Duration.ms(100))
-    }
-}
-"""
-
 STEP_OUT = os.path.join(REPO, ".build", "compiler-tests-steps")
 
 # runner -> (the grace it gives its children; how the case knows they run:
-# "script" by the hanging script's marker, "saw" by the program's pid staying
-# alive, "line" by the driver writing `ready`, "group" by two markers of
-# children in the driver's own group, "steps" by a run.py step's result file
-# appearing; the log, under the case's directory, in which a real `main`'s
-# handler must report, or None)
+# "script" by the hanging script's marker, "group" by two markers of children
+# in the driver's own group, "steps" by a run.py step's result file appearing;
+# the log, under the case's directory, in which a real `main`'s handler must
+# report, or None)
 RUNNERS = {
-    "test_runner": (child_groups.GRACE_SECONDS, "saw", "driver.log"),
     # compiler/tests/oracle.py: the run and the sawc build the coroutine
-    # census, its Stage 0 snapshot and the corpus differential all launch.
+    # census, its snapshot and the corpus differential all launch.
     "oracle_run": (child_groups.GRACE_SECONDS, "script", None),
     "oracle_build": (child_groups.GRACE_SECONDS, "script", None),
-    "test_worker": (child_groups.RUNNER_GRACE_SECONDS, "script", None),
-    # The daemon's own main installs the handler that ends its job groups.
-    "remote_worker_selftest": (2 * child_groups.RUNNER_GRACE_SECONDS, "line", "worker/worker.log"),
     # compiler/tests/run.py itself, its steps each in a process of its own.
     "run_steps": (child_groups.RUNNER_GRACE_SECONDS, "steps", "driver.log"),
     "recognizer_workers": (0.0, "group", None),
@@ -90,13 +74,6 @@ HANDLER_LINE = "SIGTERM: ended its child process groups"
 
 
 # --- the driver: one runner's launch code, in a process of its own ---------
-
-class _Sink:
-    broken = False
-
-    def emit(self, **_event):
-        pass
-
 
 def _observe_starts(pidfile):
     """Append each pid `child_groups.start` returns to `pidfile`."""
@@ -113,14 +90,6 @@ def _observe_starts(pidfile):
 def drive(runner, work, pidfile):
     _observe_starts(pidfile)
     hang = os.path.join(work, "hang")
-    if runner == "test_runner":
-        sys.path.insert(0, REPO)
-        import test_runner
-        discover = test_runner.discover_tests
-        test_runner.discover_tests = lambda _examples: discover(Path(work) / "examples")
-        sys.argv = ["test_runner.py", "-j", "1", "--settle-lag", "1"]
-        test_runner.main()
-        return
     # Children in the driver's own group need no handler: the TERM reaches them.
     if runner == "recognizer_workers":
         sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "grammar"))
@@ -146,21 +115,6 @@ def drive(runner, work, pidfile):
         else:
             oracle.build.SAWC = hang
             oracle.sawc_build(os.path.join(REPO, "examples", "hello.saw"), os.path.join(work, "hello"), [])
-    elif runner == "test_worker":
-        import test_worker
-        config = argparse.Namespace(job_root=os.path.join(work, "jobs"), job_timeout=600.0,
-                                    venv=sys.executable)
-        job = test_worker.JobRunner(config, {}, None, _Sink())
-        job.tree.mkdir(parents=True)
-        job._await(job._spawn([hang], job.dir / "job.log"))
-    elif runner == "remote_worker_selftest":
-        import remote_worker_selftest
-        root = Path(work) / "worker"
-        root.mkdir()
-        remote_worker_selftest.Worker(root, seed_runtime=False)
-        with open(pidfile, "a") as fh:
-            fh.write("ready\n")
-        time.sleep(600)
 
 
 # --- the cases -------------------------------------------------------------
@@ -170,8 +124,8 @@ def _recorded(pidfile):
         with open(pidfile) as fh:
             words = fh.read().split()
     except FileNotFoundError:
-        return [], False
-    return [int(w) for w in words if w.isdigit()], "ready" in words
+        return []
+    return [int(w) for w in words if w.isdigit()]
 
 
 def _alive(pgid):
@@ -194,14 +148,7 @@ def _ready(kind, work, pidfile, steps_before):
         return len([n for n in os.listdir(work) if n.endswith(".ready")]) >= 2
     if kind == "steps":
         return bool(_step_results() - steps_before)
-    pids, line = _recorded(pidfile)
-    if not pids:
-        return False
-    if kind == "line":
-        return line
-    if kind == "script":
-        return any(os.path.exists(os.path.join(work, "hang.%d.ready" % p)) for p in pids)
-    return _alive(pids[-1])
+    return any(os.path.exists(os.path.join(work, "hang.%d.ready" % p)) for p in _recorded(pidfile))
 
 
 def _setup(work):
@@ -210,9 +157,6 @@ def _setup(work):
         with open(path, "w") as fh:
             fh.write(text)
         os.chmod(path, 0o755)
-    os.makedirs(os.path.join(work, "examples"))
-    with open(os.path.join(work, "examples", "hang.saw"), "w") as fh:
-        fh.write(HANG_SAW)
 
 
 def _marked(work):
@@ -259,13 +203,12 @@ def _verdict(driver, kind, grace, work, pidfile, steps_before):
         if driver.poll() is not None or time.monotonic() > deadline:
             return "the driver never had its child running (status %s)" % driver.poll(), []
         time.sleep(0.1)
-    if kind in ("saw", "steps"):
-        # Past test_runner's retry of a program that dies as it is exec'd, or
-        # into a run.py step's own launches.
+    if kind == "steps":
+        # Into a run.py step's own launches.
         time.sleep(1.0)
     if kind in ("group", "steps"):
         return _group_verdict(driver, kind, grace, work)
-    pids = [p for p in _recorded(pidfile)[0] if _alive(p)]
+    pids = [p for p in _recorded(pidfile) if _alive(p)]
     child_groups.kill(driver, signal.SIGTERM)
     started = time.monotonic()
     limit = grace + SLACK_SECONDS
@@ -362,6 +305,10 @@ def main():
         drive(*sys.argv[2:5])
         return 0
     child_groups.install()
+    # An empty table would pass with no case run.
+    if not RUNNERS:
+        print("child groups: FAIL: no runner is tested")
+        return 1
     wanted = sys.argv[1:] or list(RUNNERS)
     unknown = [r for r in wanted if r not in RUNNERS]
     if unknown:

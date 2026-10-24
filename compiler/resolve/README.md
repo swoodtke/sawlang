@@ -225,8 +225,9 @@ These are the reversible readings the unit made; SL-445's report lists them.
   nothing yet. A bare name a glob import misses only because the
   declaration is private in its module is refused as `visibility.private`.
 - A module of Stage 0's std sees the gated std tier bare, where any other
-  module is refused with the import that supplies the name: `sawc/std` is
-  written for the frozen compiler's one std namespace, in which
+  module is refused with the import that supplies the name: v0.18.0's std
+  (that checkout's `sawc/std`) is written for the frozen compiler's one std
+  namespace, in which
   `std/file.saw` names `Path` and `IoError` with no import. The new std's
   modules write their imports.
 - A function beside a type of its name is a duplicate declaration, since

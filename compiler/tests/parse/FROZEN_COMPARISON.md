@@ -1,8 +1,9 @@
 # The frozen-parser comparison
 
 SL-424's contract, item 9: the self-hosted parser was compared once with the
-frozen parser in `sawc/parser/` over the part of the language that did not
-change, and the result is recorded here. After this check only the fixtures of
+frozen parser (v0.18.0's `sawc/parser/`) over the part of the language that
+did not change, and the result is recorded here. Every `sawc/` path below is
+a path in the v0.18.0 checkout. After this check only the fixtures of
 `compiler/tests/parse/` count, so it is not a lane: nothing in
 `compiler/tests/run.py` runs it. The script, `compiler/tools/frozen_compare.py`,
 and the `tests/corpus/MIGRATION.tsv` it reads are in the v0.18.0 tree, where

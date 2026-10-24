@@ -183,8 +183,8 @@ compiler, because `sawc0` refuses `move self` while parsing.)
 ## Running them
 
 ```bash
-./.venv/bin/python test_runner.py -f conformance/    # the suite alone (~9s)
-./.venv/bin/python test_runner.py                    # they run in the battery too
+./.venv/bin/python compiler/tests/corpusdiff/corpusdiff.py run conformance/M22_place_write_let_root.saw   # one row
+./.venv/bin/python compiler/tests/corpusdiff/corpusdiff.py gate          # every row, with the whole corpus
 ```
 
 ## Mutability — a non-`var` binding cannot be mutated

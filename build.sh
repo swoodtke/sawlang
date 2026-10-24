@@ -34,10 +34,10 @@ done
 if [ -n "${SAW_PYTHON:-}" ]; then
     PY="$SAW_PYTHON"
 else
+    # The gate's tools use the standard library alone, so the venv needs no
+    # packages; it only pins the interpreter the gate runs under.
     if [ ! -x .venv/bin/python ]; then
         python3 -m venv .venv
-        .venv/bin/python -m pip install --quiet --upgrade pip
-        .venv/bin/python -m pip install --quiet -r sawc/requirements.txt
     fi
     PY=.venv/bin/python
 fi

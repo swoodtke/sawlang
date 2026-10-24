@@ -157,10 +157,7 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   retiring design 185's signed platform-`Int` domain): each literal is
   written at the type the expression adopts and each operation runs at its
   operands' type, as at run time, so `static HIGH: UInt64 = 1 << 63` is 2^63
-  and `~0` at a `UInt8` slot is 255. STAGE 0 (`sawc/`) still folds in the
-  signed domain and refuses both (``constant expression -9223372036854775808
-  does not fit in `UInt64` ``), so code it compiles masks
-  (`~0 & 0xFFFF_FFFF`) or writes the literal. A runtime operand is not a
+  and `~0` at a `UInt8` slot is 255. A runtime operand is not a
   constant, so `n * 2` is untouched. Treat all of it as working now and
   SUSPECT in older builds: most positions SILENTLY TRUNCATED (`1 << 20` at
   `UInt16` printed 0), the repeat literal and the `??` operand carried the
@@ -186,9 +183,7 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   initializer has type `Int` ``) — a `UInt` slot needed an `as UInt` its
   `UInt32` twin did not — so a build that demands the cast predates it. The
   range check comes with the adoption, and the fold is typed at pointer width
-  too: `~(0 as UInt)` is `UInt.max`. STAGE 0 folds it in the signed domain
-  and refuses it (DF-283c), so `UInt.max` is the spelling that works in
-  both.
+  too: `~(0 as UInt)` is `UInt.max`.
   **AND SO DOES A MIXED-BINOP OPERAND (DF-243a, fixed Aug 22)** — the one
   position on the bare literal's list that ladder had not reached. A const
   expression beside a typed operand adopts that operand's width in a
@@ -533,13 +528,13 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   ordinary. One space after the marker is stripped; body text is opaque
   (Markdown by convention). A block that documents nothing is a clean error
   ("doc comment is not followed by a documentable declaration"), never a silent
-  drop. `sawc0 <entry> --emit-docs` emits the whole surface as JSON (signatures,
-  suspending-vs-sync effect, self borrows/consumes, conformances) for the entry
-  module plus every module it imports; write user-facing doc text per the
-  saw-docs skill. A `borrows` accessor's `self` kind is its declared receiver,
-  plus a `lends` record (lent type, root charge `shared`/`exclusive`,
-  `borrows(sync)`); a `@synthesize(shared)` twin is its own item. Stage 0
-  still reports `window` for the receiver and no `lends` record.
+  drop. `--emit-docs` (not yet in `sawc`, SL-880) emits the whole surface as
+  JSON (signatures, suspending-vs-sync effect, self borrows/consumes,
+  conformances) for the entry module plus every module it imports; write
+  user-facing doc text per the saw-docs skill. A `borrows` accessor's `self`
+  kind is its declared receiver, plus a `lends` record (lent type, root charge
+  `shared`/`exclusive`, `borrows(sync)`); a `@synthesize(shared)` twin is its
+  own item.
 - Shadowing (design 100/107): a `let`/`var`/`for`-var that shadows an ENCLOSING
   binding (an outer local/param/capture/loop-var or a module `static`) is a
   compile ERROR unless its initializer MENTIONS the shadowed name —
@@ -649,7 +644,7 @@ works but is no longer required anywhere. Three things to know:
 The gate itself is `Arc.with_unique(body:) -> R?` — runs `body` on a `&var`
 borrow of the payload when the handle is the only strong owner, `None` when
 shared (Arc's `value()` lends the payload read-only, so a `&var self` payload
-method has no other path; Stage 0's forwarding refuses one too).
+method has no other path).
 **A struct that OWNS one of those must pick its own copy policy** — the #1 thing
 you hit writing Saw. `struct Holder { v: Vector<Int> }` does not compile bare;
 the compiler knows how to DESTROY it but not whether you want it duplicated:
@@ -1000,14 +995,11 @@ var u = w.copy()       // explicit duplicate
   `lend`s while a `borrows(sync)` borrow is open (forwarding a lock's place, or
   lending its own buffer while holding a lock) must itself be `borrows(sync)`,
   else that `lend` is refused.
-  **STAGE 0 (`sawc/`) DOES NOT PARSE `borrow`** — it lexes `borrow` as an
-  identifier. Code Stage 0 compiles (`blade/`, `libs/`, `examples/`,
-  `compiler/`) still writes the INLINE forms this entry also shows
-  (`g[4].weight += 1`, `f(&var v[i])`, `m[k]!.n += 1`, `v.get(i)!.x = 1`,
-  `with_ref`/`with_var_ref`, `Mutex.lock { }`), and Stage 0 compiles them with
-  the meaning described below. Write `borrow` in docs and spec prose; docverify
-  checks doc examples with sawc, so a block that uses it is a `saw` or
-  `saw-body` block like any other.
+  The frozen dirs (`blade/`, `libs/`, `examples/`) are v0.18.0's language,
+  which has no `borrow` and writes these places inline; v0.18.0's own skill
+  describes it, and nothing here is written in it. Write `borrow` in docs and
+  spec prose; docverify checks doc examples with sawc, so a block that uses it
+  is a `saw` or `saw-body` block like any other.
   **THE ARROW NAMES THE LENT REFERENCE AND ITS MODE** (SL-333): four spellings,
   `-> &T` / `-> &var T` / `-> &T?` / `-> &var T?`. A use may read or write
   through `-> &var T`; `-> &T` is the READ-ONLY lend and a write
@@ -1041,14 +1033,9 @@ var u = w.copy()       // explicit duplicate
   (a body that writes `self` is refused there by the ordinary error); a read
   then uses the `&self` accessor (least privilege), a write the `&var self` one.
   std `Vector.[]` is declared this way. When the two bodies DIFFER, write both
-  (`Data.[]`, below). Stage 0 still compiles the old accessor model: it keeps
-  `#lend_var` and use-site shared/exclusive inference, and parses neither
-  `@synthesize(shared)` on a method ("attributes are not supported on methods")
-  nor a `&self`/`&var self` pair of `[]` ("already defined … with an
-  indistinguishable signature"). Window extent: a `borrow` block's window is
+  (`Data.[]`, below). Window extent: a `borrow` block's window is
   its block, a statement form's its statement (closing early once a copied
-  result is read), an argument's the call; in Stage 0's inline forms it is the
-  smallest expression that turns the place back into a value. Windows
+  result is read), an argument's the call. Windows
   NEST (`borrow var b[0][1].n += 1` is two, epilogues LIFO) and a nested WRITE makes every
   containing window exclusive too, so an immutable root is refused by NAME. A place borrow charges its
   ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
@@ -1093,10 +1080,7 @@ var u = w.copy()       // explicit duplicate
   (unless the accessor is a cell-carrying `&self` one). A method call is an
   assignment target only when it lends a place; anything else is refused naming
   the method. Fence: a second `?` hop past the lend is not supported — bind
-  first. STAGE 0 spells these inline (design 176): `v[i] = fresh` through the
-  place, `m[k]! = fresh` (panics on absent), `c.slot(i) = fresh`,
-  `m[k]?.field = v` / `v.get(i)?.field = v` (an absent head there skips the
-  RHS too).
+  first.
   **`borrows -> &T?` / `-> &var T?` is the CONDITIONAL lend**: each path either `lend`s or
   plainly `return None`. The absent path opens NO window and runs NO epilogue.
   UNWRAPPING ONE SAYS `borrow`: `if borrow let c = g.at(i) { … } else { … }`,
@@ -1108,34 +1092,26 @@ var u = w.copy()       // explicit duplicate
   takes NO borrow binding (`guard borrow let …` is refused; use
   `if borrow let … { } else { }`). On the absent path no borrow is open, so
   the root is usable there (insert-on-miss). `Vector.find(i)` is the vector's
-  conditional lend; `v.get(i)` / `m.get(k)` return optional COPIES. In STAGE 0
-  `if let x = d.at(i)` binds the place and `d.at(i)!.m()` panics if absent.
+  conditional lend; `v.get(i)` / `m.get(k)` return optional COPIES.
   `lend` may not be in a LOOP, so a body that has to
   SEARCH splits in two: a plain function finds the index, the accessor lends it
   (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
   follow design 131's table: retain for Copy, clean error for
-  ExplicitCopy/NoCopy, whose hint names `borrow` / `swap_out` (Stage 0's names
-  `with_ref` / `swap_out`). A plain `print(v[0])`, `"{v[0]}"` or `v[0] == w[0]`
-  is a getitem copy too (D29); for a NoCopy element write
-  `print(borrow v[0])`, `"{borrow v[0]}"`, `borrow v[0] == borrow w[0]`.
-  Stage 0 borrows the plain forms in place.
+  ExplicitCopy/NoCopy, whose hint names `borrow` / `swap_out`. A plain
+  `print(v[0])`, `"{v[0]}"` or `v[0] == w[0]` is a getitem copy too (D29); for
+  a NoCopy element write `print(borrow v[0])`, `"{borrow v[0]}"`,
+  `borrow v[0] == borrow w[0]`.
   **MOVING A LOCAL INTO A WINDOW WORKS** — ruled:
   `borrow var slots[0].push(move h)` is an ordinary move inside the window (a
   window is NOT a closure in the ruled language; it may span suspensions and
-  `return`/`break` close it). STAGE 0: `slots[0].push(move h)`,
-  `bag.at().take(r: move h)`, and the same shape through
-  `with_ref`/`with_var_ref` all consume `h` once. Stage 0's window is a closure, and a
-  `move` capture into a NON-ESCAPING closure transfers WHEN THE BODY RUNS: the
-  environment holds a pointer to the local, and the body takes the value as it
-  starts. So a conditional lend whose absent path skips the body leaves `h`
-  alone and it deinits at the end of its own scope, and a body that took it and
-  did not move it on deinits it at the body's end. Refused until Aug 24
-  (DF-218h — ``cannot copy value of type `Res` which implements NoCopy``,
-  anchored at a receiver that copies nothing), so distrust the shape in an older
-  build, where the workaround was to move into a plain local first. An ESCAPING
+  `return`/`break` close it). A `move` capture into a NON-ESCAPING closure
+  transfers WHEN THE BODY RUNS: the environment holds a pointer to the local,
+  and the body takes the value as it starts. So a body that is skipped leaves
+  the local alone and it deinits at the end of its own scope, and a body that
+  took it and did not move it on deinits it at the body's end. An ESCAPING
   closure keeps the creation-time transfer, and its body may not move ITS
-  capture out at all (SL-469, a compile error in sawc; Stage 0 still compiles
-  it and double-frees, DF-255a) — pass the value as a parameter instead.
+  capture out at all (SL-469, a compile error) — pass the value as a parameter
+  instead.
   **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
   DF-146d) — how a slot-enum container gets an accessor at all:
   ```saw-fragment
@@ -1146,7 +1122,6 @@ var u = w.copy()       // explicit duplicate
       }
   }
   ```
-  (Stage 0 spelling: `match self.slots[i] { case Filled(_, r) -> { lend r }, … }`.)
   A `lend` inside a `borrow` block keeps that block's borrow open while the
   accessor's own lend is open; only the `lend` operand itself needs no
   `borrow` (`lend self.sections[i]` forwards another accessor's place). The
@@ -1231,22 +1206,13 @@ var u = w.copy()       // explicit duplicate
   `for borrow let s in sessions.iter() { … }` / `for borrow var c in
   grid.cells() { … }` borrow each element in place (needs a
   `LendingIterator`); plain `for x in …` over one COPIES each element (needs
-  copyable elements); `for borrow let i in 0..n` is refused. Stage 0 (`sawc0`)
-  keeps its four refusals: shared fields only, `&self` origin only, owned
-  `Item`, no temporary head.
-  Fences, ruled language: any borrow may span a suspend unless the accessor is
+  copyable elements); `for borrow let i in 0..n` is refused.
+  Fences: any borrow may span a suspend unless the accessor is
   `borrows(sync)`; function types carry `borrows`/`borrows(sync)` (legal to
   spell, but no expression makes such a value: no method references, and a closure
   has no receiver to root a `lend` in — the type describes methods); traits may
   require `borrows` methods (`KeyedPlace`); a body may forward a conditional
-  place by borrowing it and lending the bound place. STAGE 0 fences: a borrows
-  ACCESSOR's body is `sync` and its `lend` window never spans a suspend
-  (`with_ref`/`with_var_ref` stay the long-window spelling and keep the same
-  rule; the `for` window over a BORROWING STRUCT is the one that does span
-  one), no borrows function VALUES or existentials, no trait requirements, and
-  a borrows body cannot FORWARD another CONDITIONAL place (`lend
-  other.get(k)!` is not expressible — split the search out and lend your own
-  storage instead). `Set` gets no
+  place by borrowing it and lending the bound place. `Set` gets no
   element accessor: a write would change an element's hash, and a `-> &Element`
   view is not what an element accessor is for.
 - Deterministic LIFO destruction (`Deinit` trait); never call
@@ -1275,8 +1241,7 @@ var u = w.copy()       // explicit duplicate
   is held by an implicit binding older than the arm's, so it dies AFTER the
   body and its bindings (per iteration for `while let`), on early exits too: a
   `_`-discarded guard or fd stays held through the arm. `let (a, _)`,
-  `guard let (a, _)` and `let _` still discard at the statement. Stage 0 drops
-  at arm entry (SL:hazards C11); sawc is right.
+  `guard let (a, _)` and `let _` still discard at the statement.
 - `let _ = expr` = true discard (consumes + drops immediately). It is also the
   REQUIRED spelling for dropping a `Result` (design 151, Errors below).
 
@@ -1430,8 +1395,7 @@ while let job = queue.pop() { }      // DRAIN: one iteration per Some
   termination in the body and, when a refactor loses the `break`, fails as a HANG
   rather than an error. (That spelling also MISCOMPILED over a suspension until
   DF-233a, so treat a pre-Aug-16 one as suspect.) The scrutinee may suspend, in
-  a driven or spawned body, under a TUPLE pattern too (sawc lowers it; Stage 0
-  refuses it, as it does the `if let`/`guard let` form).
+  a driven or spawned body, under a TUPLE pattern too.
 - **An EXACT duplicate arm is a compile error**, reported at the second and
   naming the first's line — no input reaches it. Equality is textual after
   literal normalization (`case 10` and `case 0x0A` are one pattern), and an
@@ -1722,17 +1686,16 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   instead); a final method result is unrestricted. Composes with `??`/`if let`/
   `guard let`/`!`. Chained ASSIGNMENT `x?.y = v` writes the payload field in place
   iff every hop is non-None (RULED, SL:open-questions W3: the RHS is evaluated
-  FIRST, on both paths, and a short-circuit skips only the write; Stage 0 and
-  the text below skip the RHS too. A place head is
-  `borrow var m.find(&k)?.n = v` in the ruled language; ordinary transfer rules
+  FIRST, on both paths, and a short-circuit skips only the write; a place head
+  is `borrow var m.find(&k)?.n = v`; ordinary transfer rules
   — `move`/`.copy()` for ExplicitCopy/NoCopy); it types `Void?` (discard in
   statement position; consume "did it write" via `guard let _ = x?.y = v else {}`
   — `_` is blessed as an `if let`/`guard let` pattern that binds nothing + drops
   the payload). The COMPOUND spelling `x?.y += v` writes the same storage
   (design 227): the field is read, the operator applied and the result written
   back on the non-None path, and a None head runs neither the write nor the RHS.
-  Every compound operator works, a place head does (Stage 0 `m[k]?.n += 1`,
-  ruled `borrow var m.find(&k)?.n += 1`, writes inside the window), and the
+  Every compound operator works, a place head does
+  (`borrow var m.find(&k)?.n += 1` writes inside the window), and the
   operand rules are the compound statement's — both integer
   operands agree, a bare literal adopts the field's width. It was a parse error
   until Aug 15, so treat it as working now and SUSPECT in older builds.
@@ -2153,7 +2116,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   (a narrowing cast would panic; the range is checked first).
 - **THE FORMAT IS `std.cbor` (design 169 units 3+4)** — CBOR RFC 8949 in its
   DETERMINISTIC profile, import-required (`import std.cbor.{CborEncoder,
-  CborDecoder}`), both profiles. Frozen contract: `sawc/std/CBOR.md`; golden
+  CborDecoder}`), both profiles. Frozen contract: `std/CBOR.md`; golden
   blobs: `tests/cbor_vectors/` (32 accept + 20 reject, gating the Saw codec AND
   `tools/sawcbor.py` over `cbor2`).
   ```saw-fragment
@@ -2385,8 +2348,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   always did. Allocates NOTHING (a static table walk over a read-only table the
   compiler links into every binary, not an unwind), so it works under a denied
   allocator, freestanding, and inside a panic handler; under a debugger,
-  `command script import tools/lldb_saw.py` adds `saw tasks` / `saw bt` /
-  `saw table`. The MT walk is unsynchronized and says so in its header; an ST
+  `command script import <v0.18.0 checkout>/tools/lldb_saw.py` adds
+  `saw tasks` / `saw bt` / `saw table` (the script lives in that release; the
+  table's encoding is unchanged). The MT walk is unsynchronized and says so in its header; an ST
   group is exact. GOTCHA: a RUNNING task's line is its last park point, not where
   it is executing — the `running` marker is the tell.
 - **`sleep` takes a `Duration` and nothing else** (design 180). The bare-Int form
@@ -3142,10 +3106,6 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   through it works on both sides of a suspension: a reference that spans one
   is held in the frame as its words, two for an erased one (the value's
   address and its vtable's), like any other reference (SL-721, ruled Oct 16).
-  STAGE 0 (`sawc/`) refuses it, driven or spawned ("cannot be a parameter of
-  the suspending function"), because it holds such a reference as a handle to
-  a referent whose size it must name; code Stage 0 compiles takes a
-  `Box<any Trait>` or a generic bound instead.
   **BUT A DISPATCH WHOSE IMPLEMENTATIONS ARE ALL SYNC FRAMES NOTHING (SL-323,
   ruled Sep 20).** The refusal above fires first, so every dispatch that gets
   as far as the framing question names a method no conformance suspends in — a
@@ -3162,9 +3122,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   }
   ```
   SUSPECT IT IN OLDER BUILDS: the dispatch used to count as a frame boundary,
-  so `via` joined the driven set and Stage 0 then refused its own erased
-  PARAMETER — an ordinary erased helper was simply uncallable from a driven
-  body, with a diagnostic about a frame it never needed.
+  so `via` joined the driven set and the erased PARAMETER was refused — an
+  ordinary erased helper was simply uncallable from a driven body, with a
+  diagnostic about a frame it never needed.
 - A suspending
   METHOD call in a
   driven/spawned body embeds as a driven sub-frame in EVERY control-flow
@@ -3272,8 +3232,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   Still a clean,
   user-anchored compile error (NOT a silent block): a suspending `try { } catch
   { }` block whose try body raises TWO OR MORE distinct error types (below). A
-  suspension-spanning `if let`/`guard let`/`while let` with a TUPLE pattern is
-  lowered by sawc and refused by Stage 0.
+  suspension-spanning `if let`/`guard let`/`while let` with a TUPLE pattern
+  works.
   A NESTED generic call whose template suspends UNCONDITIONALLY without calling a
   type-param method (`func g<T>(x: T) -> T { yield_now(); x }` called nested) PARKS
   since design 218 unit 1.5 — write it and it takes its turn. Until then it
@@ -3539,9 +3499,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   }
   ```
   If member lookup then fails on the shadowing value, the error names the
-  declaration that took the name and the three ways out. `sawc0 -W
+  declaration that took the name and the three ways out. `-W
   shadowed-qualifier` flags the DECLARATION instead of waiting for the use
-  (warnings are off by default and never affect the exit code).
+  (warnings are off by default and never affect the exit code; not yet in
+  `sawc`, SL-879).
   **THE GATED-STD TIER IS WHY `import mine.{Thread}` MEANS YOURS (design 255).**
   `Thread` is `std.task`'s and is merged into every program, but no program may
   write the name before `import std.task` — so a file that names its own,
@@ -3561,7 +3522,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 - Two imports binding ONE qualifier is an error AT THE IMPORT naming both
   paths; `as` fixes it. Any import form makes the module a DIRECT import, so
   choosing qualified access never loses its design-142 extensions.
-  `sawc/std/` is reachable ONLY through a `std.`-prefixed path (DF-225e,
+  `std/` is reachable ONLY through a `std.`-prefixed path (DF-225e,
   Aug 21), so a bare `import data` names YOUR module — the collision above
   is a collision of qualifiers, never a second compilation of a std file.
 - **AN IMPORT CYCLE IS A COMPILE ERROR NAMING THE LOOP** (DF-232e, Aug 21):
@@ -3916,9 +3877,6 @@ covers the chain of the two accessors:
 ```saw-fragment
 let n = borrow var c = shared.value().lock() { c = c + 5; c }   // shared: Arc<Mutex<Int>> -> n == 5
 ```
-STAGE 0 spells it with a closure whose own result comes back,
-`lock<R>(body: (&var T) sync -> R) -> R`, the same shape Stage 0's
-`SpinLock.lock` has: `let n = shared.lock({ c in c = c + 5; c })`.
 
 ## Systems/embedded corner
 `static NAME: T = const_init` (Sync-only, immortal, and NEVER OPTIONAL —
@@ -3951,10 +3909,8 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
     RE-ENTRY: through the same name a compile error, through another name a
     run-time PANIC (from `try_lock` too), never a spin-forever (SL-843); the
     owner comes from the `__saw_rt_lock_owner()` seam, the calling thread
-    hosted and (planned) the CPU/hart + interrupt context freestanding. STAGE 0
-    spells them `lock({ c in ... })` / `try_lock({ … })` with a `sync`-ENFORCED
-    body returning its own result, and taking the lock while holding it
-    spins forever. NoCopy, so it cannot be captured into
+    hosted and (planned) the CPU/hart + interrupt context freestanding.
+    NoCopy, so it cannot be captured into
     a closure — reach one through a static or a `&` param. Needs real
     target atomics: on rv32i, naming one is a compile error pointing at
     `--target-features +a`. Short critical sections; a waiter burns its
@@ -3995,16 +3951,13 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   and either buildable field by field HERE (every field visible at any depth,
   no `init` override) or a type declaring `ZeroInit`. Refused: another
   module's struct with a `private` field, `String`, a payload enum, a raw enum
-  with no zero case (Stage 0 accepts that one and an exhaustive `match` reads
-  garbage), a closure field, `FuncPointer`. A type whose zero is meaningful
+  with no zero case, a closure field, `FuncPointer`. A type whose zero is meaningful
   says so in ITS DEFINING FILE (never in test code for a production type),
   `extension Gauge: ZeroInit {}`, checked like a
   static (no override allowed; a generic one is conditional,
   `extension Lock<T: ZeroInit>: ZeroInit {}`, and the argument is then checked
   at the static from the static's module, so `static STATS:
-  SpinLock<Counters>` needs no line on a local `Counters`). STAGE 0 has no
-  `ZeroInit`: code it compiles can't declare one, and under its std sawc
-  refuses a bare `SpinLock`/`Mutex`/`Once` static (their fields are private).
+  SpinLock<Counters>` needs no line on a local `Counters`).
 - **A STATIC INITIALIZER IS A CONSTANT EXPRESSION (design 186).** Three
   tiers and no others: (1) zero-init, the bare declaration; (2) whatever
   the const evaluator folds — arithmetic, the bitwise operators,
@@ -4109,7 +4062,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
 - **A package can BE the runtime** (design 149): `[package] runtime = true`
   in Saw.toml lets it `@export` the frozen `__saw_rt_*` seams, links no
   runtime beside it, and CHECKS each seam's signature against
-  `sawc/rt/ABI.md` — a wrong arity or width is a compile error naming the
+  `runtime/ABI.md` — a wrong arity or width is a compile error naming the
   document rather than a clean link and a wrong answer at run time.
 - **Wire/register structures are TYPED VIEWS, never offset arithmetic**
   (user idiom ruling, Aug 5). Declare the layout ONCE as a struct of
@@ -4129,12 +4082,12 @@ Float, UnsafePointer, Void/Never — no Bool/String/aggregates by
 value; an exported return may not be optional — a seam returns a raw
 `UnsafePointer<T>`, the `?`-wrapping is the caller's `extern` decl).
 `@export` of a reserved runtime symbol (`main`, `saw_*`, `__saw_*`) is an
-error — EXCEPT in a runtime build (`sawc runtime`, or Stage 0's `sawc0
---runtime-build`; design 113b), which lets the per-host runtime under
-`runtime/` export exactly the frozen `__saw_rt_*` ABI (sync-only; a non-ABI
-`__saw_rt_*` name / a suspending body is a clean error). You only touch this
-when authoring `runtime/`, and Stage 0's copy `sawc/rt/` must change with it:
-`compiler/tools/runtime_table.py` fails on any difference.
+error — EXCEPT in a runtime build (`sawc runtime`; design 113b), which lets
+the per-host runtime under `runtime/` export exactly the frozen `__saw_rt_*`
+ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
+error). You only touch this when authoring `runtime/`; run.py's
+`runtime_table` step (`compiler/tools/runtime_table.py`) then holds sawc's
+compiled-in ABI table to `runtime/ABI.md` and the runtime's sources.
 - **`@export` IS THE ONLY WAY A DECLARATION REACHES THE LINKER (SL-274).** Every
   other definition is emitted with a MODULE-MANGLED symbol (`read` in a module
   `wire` is `read$m$wire`; the ENTRY module has no path and renders as the EMPTY
@@ -4324,8 +4277,7 @@ which drags the obligation into the caller through the trigger rule itself.
 Std policy: an `unsafe` function is short enough to review as a unit.
 **Accessor rule:** on a safe type every indexed accessor is checked. A direct
 accessor PANICS out of range (`Vector.[]`/`set`/`swap`/`swap_out`, `Data.[]`,
-`Data.set`, `FixedBuf.set`, `String.byte_at`/`substring`; STAGE 0's
-`with_ref`/`with_var_ref` too); a
+`Data.set`, `FixedBuf.set`, `String.byte_at`/`substring`); a
 `get`-shaped one returns `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`,
 `FixedBuf.get`). Never a silent
 no-op, never a clamp, never an ignorable status flag (`Data.set` returned one).
@@ -4337,10 +4289,8 @@ is worth distrusting in an older build.
 `<what>: index out of range: <i> (len <n>)`, with a range accessor spelling both
 bounds (`range out of range: {}..{} (len {})`). Design 137's `{}` arguments, not
 interpolation, so the message costs no allocation and works freestanding.
-For scoped no-copy element access, the ruled language writes `borrow`
-(`borrow let e = v[i] { … }`, `borrow var e = v[i] { … }`); STAGE 0 uses
-`Vector.with_ref`/`with_var_ref` (a non-escaping `&T`/`&var T` closure
-borrow, invalidation-proof).
+For scoped no-copy element access, write `borrow`
+(`borrow let e = v[i] { … }`, `borrow var e = v[i] { … }`).
 **MMIO driver idiom (blessed, design 112 — use for EVERY memory-mapped
 device):** two structs per device — a register-block struct that IS the
 hardware layout (declaration-order ABI; `ReadOnly<T>` for read-only registers)
@@ -4371,7 +4321,7 @@ construct in the owner and lend `&driver` down.
 - **ON A `borrows` ACCESSOR THE RECEIVER SIGIL SETTLES THE ROOT** (SL:borrowing
   §3) — read this before writing an accessor. A `&var self` accessor borrows
   its receiver EXCLUSIVELY at every use, reads included, whatever its body does:
-  `print(borrow g[4].n)` (Stage 0: `print(g[4].n)`) on a `let g` is refused when `Grid.[]` is
+  `print(borrow g[4].n)` on a `let g` is refused when `Grid.[]` is
   `&var self ... -> &var Cell` with no `&self` form. Nothing is inferred from the
   body or from the use. For shared reads, give the type a `&self` accessor of
   the same name: `@synthesize(shared)` derives it when the body never writes
@@ -4396,8 +4346,8 @@ construct in the owner and lend `&driver` down.
   body and the caller's storage — the receiver arrives by pointer, so a write
   the rule failed to catch would LAND rather than vanish.
   **A PLACE WINDOW is the fourth spelling** (DF-176c): where the field's type
-  publishes a `borrows` accessor, `borrow var self.grid[0] += 100` (Stage 0:
-  `self.grid[0] += 100`) is the same error, and
+  publishes a `borrows` accessor, `borrow var self.grid[0] += 100` is the same
+  error, and
   where the accessor lends FROM makes no difference — `self.rows[0][0] += 100`
   through `Vector.[]`'s heap buffer is refused too. A READ (`self.grid[0]`) is
   legal only through a `&self` accessor (written or `@synthesize(shared)`);
@@ -4421,7 +4371,7 @@ construct in the owner and lend `&driver` down.
   **THERE IS NO INTERIOR-MUTABILITY EXEMPTION** — design 186 dissolved the
   `{Atomic, SpinLock, UnsafeMemory}` list it used to be, and found it protected
   nothing. `self.n.fetch_add(1)`, `borrow var c = self.cell.lock() { … }`
-  (STAGE 0: `self.cell.lock({ ... })`) and a user cell
+  and a user cell
   wrapper's `self.hits.bump()` are all `&self` METHODS, which this rule never
   refused; what makes them reach the caller's storage is the CELL-CARRYING
   by-pointer receiver, not an exemption. A `&var self` method on a field stays
@@ -4464,11 +4414,7 @@ construct in the owner and lend `&driver` down.
   its operands' type, as the emitted code would. So `1 << 63` is 2^63 at a
   `UInt64` slot and `Int.min` at an `Int` one, `1 << 31` at an `Int32` is
   `Int32.min`, `~0` is 255 at `UInt8` and -1 at `Int`, and a shift count
-  outside `0..<width` is a compile error rather than a folded surprise. STAGE 0
-  still folds in design 185's signed platform-`Int` domain, where a fold that
-  goes negative fits no unsigned slot (`~(0 as UInt)` is refused there,
-  DF-283c), so code Stage 0 compiles masks the value back (`0xFF & ~0`) or
-  writes it (`UInt.max`).
+  outside `0..<width` is a compile error rather than a folded surprise.
   Precedence is Saw's, NOT C's: the bitwise tier sits BELOW comparison, so a
   compared mask needs its parentheses (`(a | b) == 3`, never `a | b == 3`).
   **FLAG ENUMS**: a raw-backed case is a constant, so `Perm.Read | Perm.Write`
@@ -4581,10 +4527,7 @@ construct in the owner and lend `&driver` down.
   bounded extension (`extension Wrap<T: Equatable>`; use `extension Wrap<T>`).
   An `init` taking a subset, an extra parameter or other types is an ordinary
   overload; one whose DEFAULTED shape equals the fields is refused as
-  indistinguishable. STAGE 0 refuses every `init` whose labels are the field
-  names ("ambiguous with field initialization"), so code Stage 0 compiles
-  (`compiler/`, `blade/`, `libs/`, `examples/`) cannot use an override yet;
-  sawc alone has it.
+  indistinguishable.
 - **ENUMS TAKE EXTENSIONS, same as structs** (design 145): instance methods with
   `&self`/`&var self` (`match self` is the idiomatic body, `self = Other` the
   whole-value replacement), `static func` methods, hand-written trait
@@ -4631,12 +4574,8 @@ construct in the owner and lend `&driver` down.
   EVERY cyclic shape was an internal compiler error before Aug 27
   (``Undefined enum: Json``, once the demanded copy policy was declared), so
   code that works around one with an index into a side `Vector` predates this.
-  TWO GOTCHAS while writing one: Stage 0's `Box` payload-method forwarding
-  reaches a STRUCT payload's methods and NOT an ENUM payload's (DF-261d; the
-  ruled language forwards nothing, `borrow next.value().walk()`), and an
-  optional chain through a `Box<T>?` field is an ICE (DF-261e) — so traverse a
-  box-linked ENUM by matching at each level you own rather than by a method
-  call through the box.
+  A `Box` forwards nothing: reach a payload's method through its accessor,
+  `borrow next.value().walk()`.
 - An escaping closure (bound/returned/stored/`spawn`) is **Copy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once
@@ -4683,7 +4622,6 @@ construct in the owner and lend `&driver` down.
   let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
   let bump = { borrow var c = shared.value().lock() { c = c + 1; c } }   // escaping: share it
   ```
-  (STAGE 0 spells the lock with a closure: `shared.lock({ &var c in c = c + 1; c })`.)
   An escaping closure keeps NO mutable captured state; `Arc<Mutex<T>>` is the
   way to change state across calls. Untouched: reads, the closure's own
   locals/params, a `&var` closure parameter, a capture that is already a
@@ -4692,10 +4630,7 @@ construct in the owner and lend `&driver` down.
   and a write to a captured raw
   pointer's POINTEE (`p[0] = v`) — the one unsafe allowance a `let` has. A
   capture is judged EXACTLY as a `let` of its type: `h.deref().bump()` on a
-  `[move h]` `UnsafeRef` is refused, as on a `let h`. GOTCHA: the FROZEN
-  Stage 0 compiler (`sawc/`) refuses only the assignment forms and still
-  accepts `v[i] = x` and `v.push(1)` on a capture — sawc refuses them, so do
-  not write them.
+  `[move h]` `UnsafeRef` is refused, as on a `let h`.
 - **AN ESCAPING CLOSURE NEVER CONSUMES A CAPTURE (SL-469, user ruling Oct 9).**
   Its env is shared by every copy and outlives each call, so `move` of a
   by-value capture in an escaping body is a compile error — into an argument,
@@ -4706,9 +4641,7 @@ construct in the owner and lend `&driver` down.
   `[move r]` transfers when the body runs (`run({ [move r] in sink(move r) })`
   is fine); or, for a value consumed at most once across calls, capture an
   `Arc<Mutex<T?>>` and `take()` it under the lock. A `Thread.spawn` brace is
-  exempt (its capture list is its parameter list, and it runs once). Stage 0
-  still compiles the escaping consume and double-frees it (DF-255a) — never
-  write it.
+  exempt (its capture list is its parameter list, and it runs once).
 - **A closure body MAY NAME `self`** (design 216) — and a `&T`/`&var T` PARAMETER
   of the enclosing function. Both are captured BY BORROW: the body reads the live
   value, and through `&var self` / a `&var T` param it WRITES the caller's
@@ -4799,49 +4732,25 @@ construct in the owner and lend `&driver` down.
   (lazy `e`, via the `KeyedPlace` trait): `counts[w, default: 0] += 1`,
   `borrow var s = sessions[id, default: Session()] { … }` — specified, not yet
   shipped (std has no `KeyedPlace`). Multi-arg `m[r, c]` with
-  `[]=(r, c, value:)`.
-  Everything below in this entry is STAGE 0's model, which `blade/`, `libs/`,
-  `examples/` and `compiler/` still compile against:
-- **STAGE 0: `v[i]` is a PLACE, not a copy** (design 146) — `Data` has the same `d[i]`.
-  Reach the element THROUGH it: `v[i].count += 1`, `v[i] = fresh`
-  (whole-element write, old element deinits once), `v[i].method()`,
-  `f(&var v[i])`. Taking it OUT as a value (`let e = v[i]`) follows the copy
-  tier: bitwise for trivial, RETAIN for Copy, clean ERROR for
-  ExplicitCopy/NoCopy. Both `v[i]` and `d[i]` PANIC out of range.
-  **`Vector.get(i)` is the `None`-returning twin** — a conditional lend, the
-  same lowering: `if let e = v.get(i)` is a value read (so the copy tier
-  applies), `v.get(i)!.count += 1` opens an exclusive window, and the absent
-  path opens no window at all. A move-only element is REFUSED at a value read
-  now; it used to come out as a non-retained alias two lookups double-freed.
-  `swap_out(i, v)` moves a slot out; `with_ref`/`with_var_ref(i, body)` are
-  still the multi-statement / long-window spellings (a place window is ONE
-  expression) and the only way to hold a borrow across several statements.
-  **`Map` has the subscript too** (DF-146d): `m["k"] borrows -> &var V?`, a
-  conditional lend over the slot's enum payload. `m["k"]!.n += 1` writes the
-  stored value, `m["k"]!.push(x)` grows a `Vector` value where it sits (no
-  read-modify-write of the whole entry), `m["k"] ?? d` and `if let _ = m["k"]`
-  take the absent path with no window at all. **`m.get(k)` IS that same
-  accessor** under a named spelling (design 176): one conditional lend, two
-  names, same copy-tier rule on a value read. It used to hand back an owned
-  `V?`, which for a NoCopy value was a non-retained alias two lookups double-freed
-  (DF-146j) — reach one through the window (`m.get(k)!.method()`) or take it out
-  with `remove`. `Set` has no
-  element accessor on purpose: its elements are the table's keys, and a write
-  through one would change an element's hash.
+  `[]=(r, c, value:)`. `swap_out(i, v)` moves a slot out. `Set` has no element
+  accessor on purpose: its elements are the table's keys, and a write through
+  one would change an element's hash.
+- **ITERATION, RANGES AND READS.**
   `iter()`/`enumerated()` carry a `T: Copy` bound (design 122): `next()` yields
   an element the consumer OWNS, so a NoCopy element is reached through a place
-  or `with_ref`, never a `for` loop. **AND THE ITERATOR BORROWS THE VECTOR FOR
-  THE WHOLE LOOP** (design 275 U3): it is a `borrows struct` holding
-  `&Vector<T, A>`, the `for` statement is its window, and the body may read the
-  collection but not grow it, replace it, move it or swap its elements — the
-  same exclusivity error `v.push` already gets inside a `with_ref` window. It
+  (`borrow`), never a plain `for` loop. **AND THE ITERATOR
+  BORROWS THE VECTOR FOR THE WHOLE LOOP** (design 275 U3): it is a `borrows
+  struct` holding `&Vector<T, A>`, the `for` statement is its window, and the
+  body may read the collection but not grow it, replace it, move it or swap its
+  elements — the same exclusivity error `v.push` already gets inside a `borrow`
+  window. It
   was an owned value carrying a raw buffer pointer and a length snapshot
   before, so a body that pushed until the buffer reallocated read FREED MEMORY
   in safe code at exit 0 (`seen = 1025` for a sum of 10, SL-321) — treat a
   mutating body as a clean error now and SUSPECT it in older builds. Collect
   what you need first, or index with a `while` loop if you must mutate while
   walking. Since design 130's accessor rule,
-  `set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `String.byte_at(i)` and
+  `set`/`swap`/`swap_out`, `String.byte_at(i)` and
   `String.substring(s, e)` ALL PANIC out of range — no silent no-op
   (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty
   `substring(i, i)` is still legal; a REVERSED range panics.
@@ -4854,9 +4763,10 @@ construct in the owner and lend `&driver` down.
   write of one spelling disagreed; distrust a side-effecting index in an older
   build. Nothing changes for an ordinary index — a literal, a name, arithmetic
   over those — which could never tell the two apart.
-  **`Box<T, A>.value()` IS ONE TOO** (design 218 unit 1.5 stage 3c): it lends the
-  heap payload where it sits, at EVERY payload type. `b.value().method()`
-  borrows it, `b.value().n += 1` writes it in the box's own allocation, and a
+  **`Box<T, A>.value()` IS A PLACE** (design 218 unit 1.5 stage 3c): it lends the
+  heap payload where it sits, at EVERY payload type. `borrow b.value().method()`
+  borrows it, `borrow var b.value().n += 1` writes it in the box's own
+  allocation, and a
   value read follows the copy tier — a `Box<Int>`/`Box<String>` reads out
   exactly as before, a move-only payload gets the place-read refusal naming the
   window. It used to be bounded `T: ExplicitCopy` with a body spelling
@@ -4874,23 +4784,13 @@ construct in the owner and lend `&driver` down.
   ```
   Copy-tier elements are unaffected, and member hops off a plain subscript
   (`v[0].id`, `v[0].m()`) are getitems too.
-  STAGE 0: sawc0 still treats rendering and comparison positions as an in-place
-  borrow, so a plain `print(v[0])` of a move-only element compiles there.
-  GOTCHA (Stage 0): the window spans the whole expression that asks for the borrow, so
-  anything else in it is inside the window — an `assert` condition naming the
-  place's own root (`assert(v[0].n == 1, "{}", v[0])`) wants a `let` of its own
-  first, and so does the two-places-ONE-container comparison `v[0] == v[1]`
-  (DF-248a). The error there TEACHES the split, because the assignment shape one
-  line up compiles.
 - **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
   `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
   `case Empty` or `case Occupied(_)` look at the discriminant through the
   borrow — no copy, no drop — so they work on a move-only place, where a value
   read is refused. A `match` on a place matches it WHERE IT SITS, and an arm
   that does bind binds the payload in place, so the copy tier is consulted for
-  that one binding rather than the whole element. In Stage 0 two shapes stay on
-  the value-read path because its window is a closure: an arm that `return`s/`break`s
-  out of the function, and an arm that `move`s its own binding out.
+  that one binding rather than the whole element.
   Holding one index and reading several values (`doc.section_at(i).get("a")`,
   `...get("b")`) is still the idiom when reads must span STATEMENTS — a place
   window is one expression, so an INDEX is what survives.
@@ -4927,8 +4827,7 @@ construct in the owner and lend `&driver` down.
   ```
   An alias's construction over a constant is a constant (user ruling, Oct
   10), in a `static`, a `static_assert` and a raw case's value; an array
-  length or repeat count does not take it yet. STAGE 0 refuses it in every
-  constant position, so code Stage 0 compiles writes the bare literal.
+  length or repeat count does not take it yet.
   **ORDERED COMPARISON WORKS SINCE Aug 28 (design 252, closing DF-270d) —
   SUSPECT IT IN OLDER BUILDS.** `<`/`<=`/`>`/`>=` with a `Byte` (or any distinct
   alias over an unsigned type) on the LEFT used to be lowered SIGNED, so

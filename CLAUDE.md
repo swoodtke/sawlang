@@ -16,16 +16,8 @@ conflict is temporary. Open work:
 
 ## Repo map
 ```
-sawc/              # Stage 0, `sawc0`: the frozen compiler, Python + llvmlite
-  sawc.py          # CLI; lexer.py; parser/; ast_nodes.py
-  typechecker/     # Type checking passes (mixin classes)
-  codegen/         # LLVM IR generation (mixin classes)
-  coro_transform.py# Source-level coroutine transform
-  builtin.saw      # Built-in traits; std/ = stdlib (.saw)
-  rt/              # Stage 0's copy of runtime/ as v0.18.0 froze it: Stage 0
-                   # builds it (--runtime-build), caches it under .build/rt/
-                   # and links it into its hosted builds. Nothing gates it;
-                   # a runtime change is made in runtime/ alone (SL-667).
+std/               # The standard library (.saw), plus the CBOR and JSON wire
+                   # contracts (CBOR.md, JSON.md)
 runtime/           # The runtime (design 113/113b, v2 by 117): ABI.md freezes
                    # the __saw_rt_* seam contract; the seam bodies are AUTHORED
                    # IN SAW here — common/ (os_ops.saw = status-carrying tcp/fs/
@@ -45,7 +37,7 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # from https://blobs.sawlang.com/ into .build/blobs/; and
                    # its pin; README.md "The seed" is the bump, a manifest and
                    # pin diff), tools/ (build.py builds the seed with clang,
-                   # Stage 1 with the seed, Stage 2 with Stage 1; no sawc/;
+                   # Stage 1 with the seed, Stage 2 with Stage 1;
                    # the source may use the whole language, and
                    # subset_check.py keeps its hygiene rules, read with
                    # sawc) and tests/ (run.py: unit programs, golden fixtures,
@@ -61,32 +53,35 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # arrives as tests/parse/ in SL-406 phase 2.
 examples/          # FROZEN: the Stage 0 snapshots' key (Testing); the live
                    # programs are tests/corpus/
-blade/             # Blade package manager (written in Saw)
-libs/              # Real Saw library packages (semver, toml)
-tools/blade_bootstrap.py  # Self-hosting bootstrap loop
-designs/           # Design briefs + todo.md tracker
+blade/             # Blade package manager (written in Saw), FROZEN
+libs/              # Real Saw library packages (semver, toml), FROZEN
 libs/imgformat/    # the sosimg layout (design 238 unit 2, moved from sos/):
                    # Blade consumes it via a path dependency, the sawos
-                   # kernel via --module-path. Its tests run in LIB_DIRS.
+                   # kernel via --module-path.
+tests/freestanding/, prototypes/, devtools/bench/, devtools/dogfood/  # FROZEN
+                   # The frozen dirs are v0.18.0's language: each README gives
+                   # its v0 recipe, and run.py's `frozen` step holds each to
+                   # the tree tools/frozen_trees.tsv records.
+designs/           # Design briefs + todo.md tracker
 bin/, tools/toolchain.py  # `make install` shims + the toolchain resolver
                    # (design 238 units 3-4): SAWLANG_ROOT / $PATH+pin /
-                   # cached fetch, one funnel, `toolchain` battery lane
+                   # cached fetch, one funnel, `toolchain` battery lane;
+                   # `toolchain.py v0-root` names the v0 checkout
 ```
 SawOS left this repository (design 238 unit 5, Aug 28 2026): the kernel,
 HALs, runtime, root server and their tests live in the sawos repo
 (`../sawos` locally), flattened to its root, building against a sawlang
 checkout through the resolver (`SAWLANG_ROOT` is the everyday spelling).
-sawlang references sawos nowhere; the freestanding suite is the compiler's
-cross-target gate.
+sawlang references sawos nowhere. sawos builds through a pin at or before
+v0.18.0 until `sawc` builds freestanding objects (SL-865).
 
 ## Python environment
-Dependencies live in `.venv/` (Python 3.14, llvmlite). ALWAYS use it:
+The tools use the standard library alone; `.venv/` (Python 3.14) pins the
+interpreter, and `./build.sh test` makes it when absent. ALWAYS use it:
 ```bash
-./.venv/bin/python test_runner.py
-./.venv/bin/python sawc/sawc.py examples/hello.saw -o hello
+./.venv/bin/python compiler/tests/run.py --only units
 ```
-The Makefile calls bare `python3`, so `make test` needs the venv
-activated first.
+The Makefile calls bare `python3`; activate the venv to make that the venv's.
 
 ## Linux (SL-536)
 Linux builds run in the `sawlang-linux` Lima VM (`tools/lima/sawlang-linux.yaml`:
@@ -107,8 +102,7 @@ cannot. `build.py --runtime TRIPLE` configures another target's runtime.
 ## Compiler usage (dev)
 `sawc` is the self-hosted compiler. `bin/sawc` (installed by `make install`)
 runs `compiler/tools/build.py --quiet` first, which builds the stages on first
-use and after any change to their sources, then execs `.build/sawc-stage2`;
-it never falls back to Stage 0.
+use and after any change to their sources, then execs `.build/sawc-stage2`.
 ```bash
 bin/sawc build [-O0|-O1|-O2|-Os|-Oz] [--std-root DIR] [--target TRIPLE]
     [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
@@ -124,48 +118,24 @@ run the stage binaries directly (`build.SAWC`; `SAWC_STAGE=1` selects Stage
 1, `SAWC_BINARY` hands a chosen binary down, `SAWC_CLANG` names the clang); a
 `SAWC2_*` spelling is refused, naming its new name.
 
-Stage 0 is `sawc0`: `bin/sawc0` runs the command below. Blade, `libs/` and the
-freestanding suite are Stage 0 sources, so they build with `sawc0`
-(`bin/blade` sets `SAWC` to it when unset).
-```bash
-./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
-    [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all]
-    [-O0 | -O2 | -Os | -Oz]
-    [--emit-frame-layout] [--emit-bt-table] [--emit-frame-ledger]
-    [--target TRIPLE] [--target-features FEATURES]
-    [--module-path NAME=DIR]
-    [--freestanding] [--runtime-build] [--runtime-provider]
-    [--no-hidden-alloc] [-W NAME | -W all]
-```
-That is the complete flag set (`sawc.py:2081-2190`); `-o` defaults to
-`.build/<source>`. `--emit-frame-ledger` (design 275 U1) dumps the
-coroutine transform's DISCOVERY LEDGER instead of code — one FRAME row
-per frame key it reached (kind, suspension causes, the decision — `framed` /
-`no-frame-owed` / `template` / `refused` — its reason, home module, where the
-body came from) and one SITE row per suspension position (its context and
-outcome: embed / inline / refuse). Deterministically ordered and path-free, so
-two compilers' dumps diff: it is the instrument behaviour preservation is proven
-with. U1's fourth outcome, `declined`, is GONE from both tables — design 275 U2
-spent that worklist. `--no-hidden-alloc` (design 135) rejects the
-allocations the compiler inserts that no source construct names.
-`-W` (design 150) enables a warning category (repeatable, `-W all` for
-every one; warnings are off by default and never affect the exit code).
-Default pipeline is O1-style; design 265 added `-O2`/`-Os`/`-Oz`
-through the one `speed_level` funnel (`-Oz` enables the machine
-outliner via `minsize`; the sos image took -24% from it — sos opts in
-explicitly, freestanding does NOT imply a size level). `--module-path` maps a package name to a
-module dir (Blade uses this per dependency). `--runtime-build` (design
-113b) compiles a Saw runtime that `@export`s the frozen `__saw_rt_*` ABI
-(sync-only, object output) — used to build `sawc/rt/`; the hosted runtime
-objects are built + cached under `.build/rt/` and auto-linked (delete
-`.build/rt/` to force a rebuild; `-v` lists the linked objects).
+`--module-path` maps a package name to a module dir (Blade uses this per
+dependency). Not in `sawc` yet, though the spec documents them: object output
+(`-c`), `--no-hidden-alloc` and `--target-features` (SL-865), the `-W`
+warnings (SL-879), and `--emit-docs` (SL-880).
+
+`sawc0` is v0.18.0's compiler, the frozen Python Stage 0. This tree does not
+hold it: `bin/sawc0` forwards to the v0 checkout `tools/toolchain.py v0-root`
+names (`SAWLANG_V0_ROOT`, else v0.18.0 fetched and cached under
+`~/.cache/saw-toolchain`). Only the frozen dirs' recipes (Blade, `libs/`; their
+READMEs; `bin/blade` sets `SAWC` to `sawc0` when unset) and a Stage 0
+snapshot's regeneration run it.
 
 ## Testing
-- **No gate runs the frozen Python compiler (SL-666).** `test_runner.py`
-  (`make test`) over `examples/`, the freestanding suite, Blade's bootstrap
-  and the lanes that read or drive `sawc/` gate nothing; their tools run by
-  hand until `sawc/` is deleted (SL-667). Blade, `libs/` and
-  `tests/freestanding/` are frozen sources until their port (SL-661).
+- **The frozen dirs gate nothing but their own bytes.** Blade, `libs/`,
+  `tests/freestanding/`, `prototypes/`, `devtools/bench/`,
+  `devtools/dogfood/` and `examples/` are v0.18.0's sources until their port
+  (SL-661); nothing builds them, and run.py's `frozen` step fails a patch that
+  changes one (the tree `tools/frozen_trees.tsv` records, nothing uncommitted).
 - `./build.sh test` — the sawtracker patch gate's entry point
   (`.sawtracker/tests.json` runs `./build.sh test --changed-since HEAD^`
   on every submitted patch): bootstraps `.venv` if absent (or uses
@@ -179,8 +149,7 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `tools/suite_lock.sh`, `.sawtracker/`), or when the changed paths are
   unknown. The parts: the `fixpoint` lane
   (`compiler/tests/fixpoint/fixpoint_lane.py`) over `compiler/`, `std/`,
-  `runtime/`, `tests/corpus/` and `sawc/` (the lanes it replays name Stage
-  0's frozen std, `--std-root sawc`, explicitly); the full `grammarcorpus` over
+  `runtime/` and `tests/corpus/`; the full `grammarcorpus` over
   `GRAMMAR.md`, `LANGUAGE_SPEC.md`, `compiler/tests/grammar/` and what sawc's
   token dump and parser come from (`compiler/lex/`, `compiler/parse/`,
   `compiler/driver/`, `compiler/tools/build.py`, `compiler/seed/`) — without
@@ -267,7 +236,7 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   one tree required of an accepted one; a refused file is classified by
   whether sawc's parser refuses it too; `--write` records a deliberate
   change for review), `corpusdiff` (the gate form, above),
-  `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
+  `citations` (DF-248c, Aug 24: stale XFAIL citations against the
   tracker's closed set + committed conflict markers over tracked files —
   the gate for the files nothing compiles), `docverify`, `toolchain` (design
   238 unit 4: the sawlang-artifact resolver — four steps, the pin's version
@@ -275,7 +244,7 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   heartbeat and wait, build.sh handing the wait to the gate, and a TERMed
   gate giving the lock back, against a lock directory of its own),
   `patchgate` (`tools/test_patch_gate.py`: the gate's decision per changed
-  path, no part naming the Python compiler, and the baseline's regression
+  path, every script a part runs existing, and the baseline's regression
   rule), `childgroups` (SL-603: `tools/test_child_groups.py` TERMs each
   runner over hanging children and requires every one gone; a launch either
   stays in its runner's process group or starts its own through
@@ -289,28 +258,18 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   doc example with `sawc coro --check` (a `saw-pending SL-NNN` block cites the
   open issue it waits on). Every stage RUNS even after one fails; the exit code
   is the number of failing stages. Adding a lane means editing `STAGES`.
-  RETIRED from the battery (SL-666), the tools staying until SL-667 deletes
-  `sawc/`: `suite`, `freestanding`, `bootstrap`, `astdiff`, `irdet`,
-  `reemit`, `fuzz`, `corodiff`, `bench`, `minivm`, and the checks over
-  `sawc/`'s own source (`icebreadcrumb`, `astgraft`, `closurestate`,
-  `transferdecisions`, `producertaxonomy`, `corodiscovery`, `corototality`,
-  `windowseam`, `stdseed`, `forgetgate`, `ircontract`, `preludegate`,
-  `moduletag`, `stdtypes`, `bttable`).
-- Pyright diagnostics on sawc/ are NOISE (mixin `self.X` false
-  positives) — ignore unless a real behavior test fails.
 
 ## Scratch compilations
 For throwaway experiments do NOT write .saw files to /tmp or via
 heredocs/echo (not auto-approved). Instead:
 1. Write the file (Write tool) under `.build/scratch/` (gitignored)
-2. `bin/sawc .build/scratch/foo.saw -o .build/scratch/foo` (the self-hosted
-   compiler; `bin/sawc0` for Stage 0)
+2. `bin/sawc .build/scratch/foo.saw -o .build/scratch/foo`
 3. `./.build/scratch/foo`
 
 ## Command hygiene (avoids permission prompts)
 - Read files with the Read tool (batch multiple Reads); never `cat`
   via Bash loops.
-- Navigate sawc/ Python with the LSP tool (workspaceSymbol,
+- Navigate Python with the LSP tool (workspaceSymbol,
   goToDefinition, findReferences); Grep/Glob for text search. Plain
   read-only `grep`/`ls` are allowlisted fallbacks; `find`/pipelines
   are not.
@@ -326,7 +285,7 @@ heredocs/echo (not auto-approved). Instead:
 
 ## Code comments (user, Sep 23 2026; SL-357)
 Comments are for the reader of the code as it is now, not a log of how it
-got here. They apply to sawc/ Python, C and every `.saw` file.
+got here. They apply to Python, C and every `.saw` file.
 1. Explain WHY: invariants, hazards, and non-obvious constraints a careful
    reader would get wrong. Never narrate WHAT the next lines do.
 2. Present tense only. No "used to", "previously", "retired", "no longer",
@@ -443,13 +402,10 @@ review before submission; compiler briefs follow the normal flow.
 blocked dependency STOPS that unit, files a DF (mechanism named, per
 obligation 4), and reports; it never codes around a compiler defect.
 Never add attribution trailers (Co-Authored-By etc.) to commit messages.
-HANDOFF.md is session state — never commit it. A fix that closes a
-finding filed by a differential/fuzz harness removes the harness's
-known-ledger entry (corodiff_known.txt, sawfuzz_known.txt) in the SAME
-commit, and its gate includes that harness's lane.
+HANDOFF.md is session state — never commit it.
 
 **THE SUITE LOCK (machine-wide, sawlang's):** all suite-shaped invocations
-in THIS repo (test_runner, battery.sh, freestanding_runner; `./build.sh
+in THIS repo (`compiler/tests/run.py`, battery.sh; `./build.sh
 test` takes it itself) serialize through a mkdir lock at
 `/private/tmp/claude-<uid>/saw-suite-lock` (uid = `id -u`; the sawos repo
 has its OWN lock path so the two never queue on each other), taken and
@@ -600,7 +556,7 @@ suspending calls embed at any nesting depth / control-flow position
 or error cleanly — never silently block (96, 101, 104) — and, since 120,
 in any EXPRESSION position too (chains, args, receivers, operands,
 literals, interpolation, return, `try!`, `?.` hops, value if/match,
-`??`/`&&`/`||` RHS) via an ANF hoist in coro_transform that preserves
+`??`/`&&`/`||` RHS) via an ANF hoist in the coroutine transform that preserves
 evaluation order and short-circuits; references
 span suspends (88) and forward onward as re-borrows (106) + whole-referent
 replacement `x = v` / `self = v` through `&var` (110: uniform with closures,
@@ -643,10 +599,10 @@ Qualifier bindings are WEAK — locals -> module decls -> imported bare
 names -> qualifiers last — so a local `data`/`path`/`time` shadows one
 lexically with no error, and the member-lookup failure names the
 shadowing decl + three outs. Two imports on one qualifier error at the
-import. Every form is a design-142 direct import. sawc0 gained `-W <name>`
-/ `-W all` (design 150 4b): warnings OFF by default, never affect exit
-code, no -Werror; first category `shadowed-qualifier`, emitted at the
-declaration. Unsafe surface (design 130 + 136, superseding 81's marking rules):
+import. Every form is a design-142 direct import. Warnings (design 150 4b,
+`-W <name>` / `-W all`; not in `sawc` yet, SL-879): OFF by default, never
+affect exit code, no -Werror; first category `shadowed-qualifier`, emitted at
+the declaration. Unsafe surface (design 130 + 136, superseding 81's marking rules):
 unsafety is type-carried and DECLARED per declaration — `unsafe struct` marks a
 type (compiler-enforced `Unsafe*` name; a plain `struct UnsafeDefaults` gets no
 semantics); a function whose body or signature NAMES, BINDS, RECEIVES or
@@ -696,12 +652,13 @@ ExplicitCopy/NoCopy demand `move o!` on a local, `o!.copy()`, or
 uses); `Deinit` is NON-declarable — a copy-policy conformance carries any
 hand-written deinit body, which PREFIXES the synthesized field drops (131).
 Doc comments (121):
-`///` (following decl) + `//!` (module) lexed as trivia in BOTH lexers
+`///` (following decl) + `//!` (module) lexed as trivia
 (`sawc lex --docs` dump), parser-attached with unattached-doc
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
-members); std.task + std.time docstringed; the saw-docs skill is the
+members; not in `sawc` yet, SL-880); std.task + std.time docstringed; the saw-docs skill is the
 style guide for all user-facing doc text.
-The Aug-6 batch (135-161): `--no-hidden-alloc` rejects the THREE allocations
+The Aug-6 batch (135-161): `--no-hidden-alloc` (not in `sawc` yet, SL-865)
+rejects the THREE allocations
 the compiler inserts that no source construct names — interpolation anywhere
 (no panic/assert carve-out), an escaping closure's captured env, and
 single-arg `print` of a user Printable (135); `{}` FORMAT ARGUMENTS on
@@ -729,7 +686,7 @@ authoring (149): `unsafe static var` for compound global state (prefix
 position, exempt from Sync, triggers 130's rule at every touching function),
 `SpinLock<T>` const-initializable in a static with a `sync`-ENFORCED body, an
 all-zero static costs no image bytes, and `[package] runtime = true` lets a
-package BE the runtime with each seam checked against rt/ABI.md. Discarding a
+package BE the runtime with each seam checked against runtime/ABI.md. Discarding a
 `Result` is a COMPILE ERROR in every implicit-discard position — `let _ =` is
 the explicit out, Result only (151). The automatic Copy TIER (named
 ImplicitCopy before design 219 unified the silently-copyable tier): a
@@ -737,7 +694,6 @@ struct/enum whose owning members are all trivial/Copy IS Copy
 with no declaration owed, copies retaining each member (139 wrappers carry the
 tier they wrap; 159 fixed the missing retain). A tuple index never eats a
 following `.`, so `t.0.name` and `t.0.1` work and a float literal needs a
-digit on each side (161). Tooling: the test runner is two-stage and pipelined
-behind a settle lag (156) and can shard onto a sandboxed remote worker (160) —
-see TESTING.md. Blade (package manager
-in Saw) is self-hosting. License: Apache-2.0 WITH LLVM-exception.
+digit on each side (161). Tooling: see TESTING.md. Blade (package manager
+in Saw, frozen in v0.18.0's language) is self-hosting. License: Apache-2.0
+WITH LLVM-exception.

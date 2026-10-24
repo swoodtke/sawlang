@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The per-patch gate decides by changed path, runs no Python compiler, and
-fails a patch on any corpus program whose verdict moved (SL-666).
+"""The per-patch gate decides by changed path and fails a patch on any corpus
+program whose verdict moved (SL-666).
 
     python tools/test_patch_gate.py
 
@@ -8,8 +8,8 @@ Checks, with nothing built or run:
 
 - `patch_gate.plan` over representative changed-path sets: which parts run,
   and why;
-- no part's command names the frozen Python compiler or a runner of it, and
-  every directory sawc is built from is an input of the corpus differential;
+- every script a part runs exists, and every directory sawc is built from is
+  an input of the corpus differential;
 - `corpusdiff.regressions`, the baseline's rule, over synthetic rows: a new
   bucket or key fails, an improvement included, as does a new detail inside
   `stage0-wrong`, a program the baseline lacks and a baseline row nothing
@@ -57,8 +57,7 @@ CASES = (
     ({"tools/patch_gate.py"}, ALL),
     ({".sawtracker/tests.json"}, ALL),
     ({"designs/todo.md"}, ("compiler tests",)),
-    ({"sawc/codegen/calls.py"}, ("compiler tests",)),
-    ({"test_runner.py"}, ("compiler tests",)),
+    ({"tools/sawcbor.py"}, ("compiler tests",)),
     ({"tests/freestanding/cases/hello.saw"}, ("compiler tests", GRAMMAR_FILES)),
     ({"blade/src/main.saw", "libs/toml/src/lib.saw"}, ("compiler tests", GRAMMAR_FILES)),
     ({"compiler/typecheck/src/check.saw"}, ("compiler tests", "fixpoint", "corpusdiff", GRAMMAR_FILES)),
@@ -85,13 +84,17 @@ def check_plans():
                                                                            ", ".join(ran), ", ".join(want)))
 
 
-def check_no_python_compiler():
+def check_parts():
     names = [name for name, _ in patch_gate.PARTS]
     check(names == list(ALL), "the gate's parts are %s, want %s" % (names, list(ALL)))
-    retired = ("sawc/", "test_runner.py", "freestanding_runner.py", "astdiff.py")
+    # A part naming a script that is gone would fail every patch at run time,
+    # not here, and only on the patches that reach it.
     for name, command in patch_gate.PARTS:
-        for word in command:
-            check(not any(r in word for r in retired), "part %s runs %s, which is retired" % (name, word))
+        script = command[0]
+        check(os.path.isfile(os.path.join(REPO, script)), "part %s runs %s, which does not exist" % (name, script))
+    for _, _, _, command in patch_gate.PER_FILE:
+        check(os.path.isfile(os.path.join(REPO, command[0])), "a per-file check runs %s, which does not exist"
+              % command[0])
     for part, inputs in patch_gate.SUITE_INPUTS.items():
         check(part in names, "SUITE_INPUTS names %s, which is no part" % part)
     for _, directory in patch_gate.build.STAGE_PACKAGES:
@@ -198,7 +201,7 @@ def check_stage_table_threads():
 
 def main():
     check_plans()
-    check_no_python_compiler()
+    check_parts()
     check_regressions()
     check_wrong_refusal()
     check_driver_refusals()

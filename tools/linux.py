@@ -11,8 +11,6 @@
                                      # or a passing SKIP when the VM is not running
     tools/linux.py seed              # a seed bump's Linux half: sync, emit the Linux targets'
                                      # seed in the VM, copy it back, publish it from here
-    tools/linux.py stage0 [NAME...]  # sync, record Stage 0's run-lane runs in the VM, copy
-                                     # them into compiler/tests/run/stage0/
 
 The VM is `tools/lima/sawlang-linux.yaml`. This tool never starts, stops or
 creates it: starting it from inside a sandboxed session fails at the
@@ -26,10 +24,10 @@ with limactl's message: the VM's state is unknown, and the lane fails on it
 The host checkout is mounted read-only, so the VM builds in a clone on its own
 disk, `~/sawlang/<checkout name>`. `sync` carries COMMITS: the clone is checked
 out at this checkout's HEAD, and uncommitted changes stay behind (it warns).
-The clone gets its own `.venv`, Python 3.14 from uv with sawc0's requirements
-and llvmlite pinned as on the Mac, so Stage 0 can record the run lane's
-Linux oracle inside the VM (`stage0`), and every stage is built natively
-there from the Linux seed.
+The clone gets its own `.venv`, Python 3.14 from uv with no packages (the
+tools use the standard library alone), and every stage is built natively
+there from the Linux seed. The run lane's Linux records are v0.18.0's
+compiler's, and nothing here rewrites them.
 `seed` writes that seed (compiler/README.md, "The seed"): Stage 1 built in the
 VM emits it, it is copied back into this checkout's `.build/seed-write/`, and
 `seed.py publish` uploads it from here, since only this machine holds the blob
@@ -48,10 +46,8 @@ EXIT_NOT_RUNNING = 3
 # limactl is installed but cannot report Lima's state (a sandbox that cannot
 # read ~/.lima, say): the VM's state is unknown, which is no reason to skip.
 EXIT_LIMA_FAILED = 4
-# The Stage 0 environment the clone's venv gets: the Mac's Python minor and
-# its llvmlite, exactly.
+# The clone's venv gets the Mac's Python minor.
 PYTHON = "3.14"
-LLVMLITE = "llvmlite==0.48.0"
 UV = "$HOME/.local/bin/uv"
 # Each arch the run lane runs on, and the target sawc cross-builds for it:
 # None is the VM's own (native aarch64); x86_64 binaries run under Rosetta.
@@ -165,10 +161,8 @@ git_ clean -fdq
 if [ ! -x .venv/bin/python ]; then
     __UV__ venv -q --python __PYTHON__ .venv
 fi
-__UV__ pip install -q --python .venv/bin/python -r sawc/requirements.txt "__LLVMLITE__"
-echo "linux: $dest at $(git_ rev-parse --short HEAD), $(.venv/bin/python --version), \
-llvmlite $(.venv/bin/python -c 'import llvmlite; print(llvmlite.__version__)')"
-""".replace("__UV__", UV).replace("__PYTHON__", PYTHON).replace("__LLVMLITE__", LLVMLITE)
+echo "linux: $dest at $(git_ rev-parse --short HEAD), $(.venv/bin/python --version)"
+""".replace("__UV__", UV).replace("__PYTHON__", PYTHON)
 
 
 def sync(record):
@@ -271,38 +265,12 @@ def command_seed(record, args):
     return publish.returncode
 
 
-def command_stage0(record, args):
-    """The VM's Stage 0 records the run lane's runs of HEAD's programs (or
-    the NAMEs) for its host, and that host's records replace this
-    checkout's (compiler/tests/run/README.md, "The oracle")."""
-    if any(a.startswith("-") for a in args):
-        return usage()
-    dest = sync(record)
-    r = run_in_vm([".venv/bin/python", "compiler/tests/run/run_lane.py", "--stage0"] + args, workdir=dest)
-    if r.returncode != 0:
-        print("linux: the VM does not record Stage 0's runs (exit %d)" % r.returncode)
-        return r.returncode
-    records = os.path.join(REPO, "compiler", "tests", "run", "stage0")
-    host = "aarch64-unknown-linux-gnu"
-    if not args:
-        shutil.rmtree(os.path.join(records, host), ignore_errors=True)
-    os.makedirs(records, exist_ok=True)
-    r = limactl(["copy", "-r", "%s:%s/compiler/tests/run/stage0/%s" % (VM, dest, host), records])
-    if r.returncode != 0:
-        raise VmError("linux: cannot copy compiler/tests/run/stage0/%s out of the VM (exit %d)"
-                      % (host, r.returncode))
-    print("linux: compiler/tests/run/stage0/%s, recorded at %s" % (host, host_git(["rev-parse", "--short",
-                                                                                     "HEAD"])))
-    return 0
-
-
 COMMANDS = {
     "status": command_status,
     "sync": command_sync,
     "shell": command_shell,
     "run-lane": command_run_lane,
     "seed": command_seed,
-    "stage0": command_stage0,
 }
 
 

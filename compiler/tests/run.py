@@ -15,7 +15,8 @@ kinds and lex errors must cover the lexer's; runs the subset checker over the
 compiler source and its own fixtures in `subset/`; compares the std suspension
 table with `tools/std_suspension.txt`; holds the seed's fetch funnel to its
 cases against a local blob host (`seed/`); requires the driver's release
-number, what `--version` prints and the release tag to agree; compares the
+number, what `--version` prints and the release tag to agree; holds each
+frozen directory to the tree `tools/frozen_trees.tsv` records; compares the
 runtime ABI table compiled into sawc with `runtime/ABI.md` and the runtime's
 sources; and runs the grammar lint,
 the reference recognizer's own tests in `grammar/`, and the parser corpus's
@@ -454,6 +455,42 @@ def run_version(run):
     run.count("version sources agreeing", len(found) + 1)
 
 
+FROZEN_TREES = os.path.join(REPO, "tools", "frozen_trees.tsv")
+
+
+def run_frozen(run):
+    """Each frozen directory is the tree `tools/frozen_trees.tsv` records, with
+    nothing in it changed or untracked. Nothing builds these sources, so no
+    other step would notice an edit, and their v0.18.0 recipes hold only while
+    they are unchanged (SL-667)."""
+    rows = []
+    with open(FROZEN_TREES, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, 1):
+            line = line.rstrip("\n")
+            if not line or line.startswith("#"):
+                continue
+            fields = line.split("\t")
+            if len(fields) != 2:
+                run.fail("frozen: %s:%d is not `DIRECTORY<TAB>TREE`" % (os.path.relpath(FROZEN_TREES, REPO), number))
+                continue
+            rows.append(fields)
+    if not rows:
+        run.fail("frozen: %s records no directory" % os.path.relpath(FROZEN_TREES, REPO))
+    for directory, want in rows:
+        head = subprocess.run(["git", "rev-parse", "HEAD:" + directory], cwd=REPO, capture_output=True, text=True)
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "--", directory],
+                                cwd=REPO, capture_output=True, text=True)
+        if head.returncode != 0 or status.returncode != 0:
+            run.fail("frozen: git cannot read %s: %s" % (directory, (head.stderr + status.stderr).strip()))
+            continue
+        if head.stdout.strip() != want:
+            run.fail("frozen: %s is tree %s at HEAD, not the frozen %s" % (directory, head.stdout.strip(), want))
+        changed = status.stdout.splitlines()
+        if changed:
+            run.fail("frozen: %s has %d uncommitted change(s), first %s" % (directory, len(changed), changed[0]))
+    run.count("frozen trees", len(rows))
+
+
 def run_runtime_table(run):
     """The runtime ABI table compiled into sawc against a fresh reading of
     runtime/ABI.md, and each host's runtime sources and shim against it."""
@@ -675,6 +712,7 @@ STEPS = (
     Step("std_suspension", "after build"),
     Step("seed", "always"),
     Step("version", "built"),
+    Step("frozen", "always"),
     Step("runtime_table", "after build"),
     Step("grammar_lint", "after build"),
     Step("recognizer", "after build"),

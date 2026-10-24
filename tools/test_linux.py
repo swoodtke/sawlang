@@ -8,7 +8,8 @@ run: limactl absent, no `sawlang-linux` instance, or one that is stopped. A
 limactl that cannot report Lima's state (a sandbox that cannot read ~/.lima)
 leaves the VM's state unknown, so `status` exits 4 with limactl's own message
 and the lane fails on it. Each case runs `status` and `lane` with a stub
-limactl first on a PATH that holds no real one; no VM is touched.
+limactl first on a PATH that holds no real one; no VM is touched. The retired
+`stage0` command is refused with the usage.
 """
 import os
 import shutil
@@ -66,9 +67,16 @@ def main():
             failures.append("%s: `lane` passes without saying it SKIPPED: %s" % (name, lane_said.strip()[:300]))
         if want_lane != 0 and "SKIPPED" in lane_said:
             failures.append("%s: `lane` fails but says it SKIPPED: %s" % (name, lane_said.strip()[:300]))
+    # The VM has no v0 compiler, so its clone cannot record the run lane's
+    # oracle: `stage0` is no command, refused with the usage before any VM call.
+    r = subprocess.run([sys.executable, LINUX, "stage0"], cwd=REPO, capture_output=True, text=True, timeout=60)
+    if r.returncode != 2 or "stage0" in r.stdout + r.stderr:
+        failures.append("`stage0` exits %d, not 2 with a usage that never names it: %s"
+                        % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
     for failure in failures:
         print(failure)
-    print("linux tool: %s: %d stub cases" % ("FAIL (%d)" % len(failures) if failures else "ok", len(CASES)))
+    print("linux tool: %s: %d stub cases, `stage0` refused" % ("FAIL (%d)" % len(failures) if failures else "ok",
+                                                               len(CASES)))
     return 1 if failures else 0
 
 

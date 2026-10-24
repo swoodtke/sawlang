@@ -74,7 +74,8 @@ reference material states facts.
 | moves/consumes/borrows self (ownership effect of a method) | takes ownership of itself |
 
 Spell compiler/tool names lowercase as they are invoked: `sawc` (the
-self-hosted compiler), `sawc0` (Stage 0), `blade`. The language is Saw
+compiler), `sawc0` (v0.18.0's Stage 0, named only where a frozen source or a
+recorded snapshot needs it), `blade`. The language is Saw
 (capital S). Design references ("design 88") belong in dev docs and briefs,
 not user-facing pages — user docs cite the spec section instead.
 

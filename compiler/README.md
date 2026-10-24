@@ -3,9 +3,10 @@
 The Saw compiler written in Saw (epic SL-398). The seed, its own IR, builds
 Stage 1, so the compiler and its std may use the whole language; the
 constraint is what the pinned seed compiles, which the bootstrap build
-enforces. The frozen Python compiler in `sawc/`, Stage 0, stays only as the
-oracle whose recorded runs the lanes compare with; by name it is `sawc0`
-(`bin/sawc0`). The design lives in the
+enforces. Stage 0, the frozen Python compiler of v0.18.0, is not in this tree:
+it stays only as the oracle whose recorded runs the lanes compare with, and by
+name it is `sawc0` (`bin/sawc0`, which forwards to the v0 checkout
+`tools/toolchain.py v0-root` names). The design lives in the
 tracker's docs, which `~/bin/sawtracker doc show NAME` prints:
 
 - **SL:architecture**: the stages and their contracts (§3), the shared
@@ -96,8 +97,7 @@ compiler/
                       check, recorded in std_suspension.txt by --write (the v0
                       compiler) and compiled into typecheck/src/stdsuspension.saw
     runtime_table.py  the runtime ABI table, from runtime/ABI.md and the runtime's
-                      sources, compiled into typecheck/src/runtimeabi.saw; and
-                      Stage 0's copy of the runtime held to runtime/
+                      sources, compiled into typecheck/src/runtimeabi.saw
   tests/
     run.py            the test runner
     oracle.py         Stage 0's recorded snapshots: the record format every lane
@@ -186,12 +186,10 @@ The seed is sawc compiled by clang from its own LLVM IR, which `seed/`
 names by SHA-256 and the blob host serves (below). Stage 1 is the sawc the seed builds at -O2,
 `.build/sawc-stage1`. Stage 2 is sawc built by Stage 1 at -O2,
 `.build/sawc-stage2`, and Stage 3 is Stage 2 building itself. The fixpoint is
-Stage 3 equal to Stage 2, byte for byte. Stage 0, the frozen Python compiler
-in `sawc/`, builds none of them, nor the unit programs (`build.py ENTRY -o
-OUT`, by sawc); the lanes read its recorded snapshots (`tests/oracle.py`),
-and only a snapshot's regeneration runs it. A record does not name the Stage
-0 that made it, so a change under `sawc/` rerecords every snapshot
-(`tests/run/README.md`, "The oracle"):
+Stage 3 equal to Stage 2, byte for byte. Stage 0 builds none of them, nor the
+unit programs (`build.py ENTRY -o OUT`, by sawc); the lanes read its recorded
+snapshots (`tests/oracle.py`), and only a snapshot's regeneration runs it,
+from the v0.18.0 checkout (`tests/run/README.md`, "The oracle"):
 
 ```sh
 ./.venv/bin/python compiler/tools/build.py            # builds the seed, Stage 1, then Stage 2
@@ -460,7 +458,7 @@ Two lanes run apart from the runner. The corpus differential's regression
 gate (`tests/corpusdiff/README.md`) runs every corpus program through sawc
 and fails on any verdict that moved from its baseline. The per-patch gate runs
 the fixpoint lane when `compiler/` (the seed included), `std/`, `runtime/` or
-`sawc/` (Stage 0) changes, and the battery's `fixpoint` stage runs it by hand:
+`tests/corpus/` changes, and the battery's `fixpoint` stage runs it by hand:
 
 - **The fixpoint** (`tests/fixpoint/fixpoint_lane.py`): the seed check
   (`tools/seed.py check`, "The seed" above), then Stage 1's `.ll` of

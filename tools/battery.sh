@@ -12,9 +12,6 @@
 # so is the fixpoint" are different situations and you want to know which one
 # you are in. The exit code is the number of failing stages.
 #
-# No stage runs the frozen Python compiler (sawc/): the lanes that tested it
-# left the battery with the per-patch gate's move to sawc (SL-666).
-#
 #   tools/battery.sh                    # everything but the manual lanes
 #   tools/battery.sh --quick            # skip the slow lanes (gmgate, linux)
 #   tools/battery.sh compiler fixpoint  # named stages only
@@ -53,7 +50,7 @@ STAGES=(
     "compiler|no|the self-hosted compiler: unit programs, golden fixtures, the subset checker, the grammar lint|$PY compiler/tests/run.py"
     "fixpoint|no|Stage 2 (sawc built by sawc) agrees with Stage 1 on every lane's invocations, and Stage 3 = Stage 2|env SAW_FIXPOINT_FULL=1 $PY compiler/tests/fixpoint/fixpoint_lane.py"
     "grammarcorpus|no|every tracked .saw against GRAMMAR.md: its recorded verdict, one tree when accepted|$PY compiler/tests/grammar/corpus.py"
-    "corpusdiff|no|every tests/corpus program through sawc against Stage 0's snapshot: no verdict moved from the baseline|$PY compiler/tests/corpusdiff/corpusdiff.py gate"
+    "corpusdiff|no|every tests/corpus program through sawc against v0.18.0's recorded snapshot: no verdict moved from the baseline|$PY compiler/tests/corpusdiff/corpusdiff.py gate"
     "citations|no|the files nothing compiles: stale DF/SL citations, committed conflict markers|$PY tools/check_citations.py"
     "docverify|no|every Saw example in README/CLAUDE/spec/skill compiles as its marker claims, checked by sawc|$PY tools/docverify.py --self-test"
     "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"

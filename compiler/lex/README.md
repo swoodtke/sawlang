@@ -1,8 +1,9 @@
 # sawlex: the Saw lexer, in Saw
 
 The lexer stage of the self-hosted compiler (`compiler/README.md`). It produces
-the same token kinds, token boundaries and 1-based `line:col` positions as the
-Python lexer in `sawc/lexer.py`, except where GRAMMAR.md's lexical layer (§2)
+the same token kinds, token boundaries and 1-based `line:col` positions as
+v0.18.0's Python lexer (that checkout's `sawc/lexer.py`), except where
+GRAMMAR.md's lexical layer (§2)
 decides otherwise, and GRAMMAR.md §16 records each such difference:
 
 - `borrow` is a keyword here and an identifier there;

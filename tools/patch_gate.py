@@ -5,8 +5,7 @@
 
 `build.sh` bootstraps the venv and holds the suite lock around this script,
 passing the time it waited for the lock in `SAW_GATE_LOCK_WAIT`. Every part
-builds and runs the self-hosted compiler; none runs the Python one. The
-self-hosted compiler's tests always run. The fixpoint lane, the full grammar
+builds and runs sawc, the self-hosted compiler. sawc's tests always run. The fixpoint lane, the full grammar
 corpus and the corpus differential's regression gate run only when a changed
 path is one they read (`SUITE_INPUTS`); without the full grammar corpus, each
 changed .saw file gets that check on its own (`PER_FILE`). With no source of

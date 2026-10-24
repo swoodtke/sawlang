@@ -1,8 +1,8 @@
 // OS-divergent errno and socket helpers (design 117) — macOS.
 //
 // `__saw_rt_last_syserror()` reads the calling thread's errno and returns the
-// portable SysError tag (sawc/rt/ABI.md). The status-carrying ops in
-// sawc/rt/common/os_ops.saw call it immediately after a failing syscall, so
+// portable SysError tag (runtime/ABI.md). The status-carrying ops in
+// runtime/common/os_ops.saw call it immediately after a failing syscall, so
 // nothing can clobber errno first and std never sees a raw errno.
 // `__saw_rt_last_raw_code()` returns the raw number that classification folded
 // away. `sin_set_family` stamps the host's sockaddr_in prefix.

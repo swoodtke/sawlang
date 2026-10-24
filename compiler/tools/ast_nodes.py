@@ -1,9 +1,13 @@
 """
 Saw Language AST Node Definitions
 
-The frozen parser's tree, v0.18.0's `sawc/ast_nodes.py` byte for byte below
-this docstring: `sawc_reading` rebuilds sawc's parse dump as these nodes, so
-the subset checker's rules and the parser's lanes read one tree.
+The frozen parser's tree, v0.18.0's `sawc/ast_nodes.py` below this docstring:
+`sawc_reading` rebuilds sawc's parse dump as these nodes, so the subset
+checker's rules and the parser's lanes read one tree. It is that file byte for
+byte except where the original reached into the rest of the frozen compiler:
+`SawType.__repr__` reads `_display_name` below instead of importing it, and
+`SawType.substitute` with its constant folding is absent, since nothing here
+substitutes types and its evaluator is not in this tree.
 """
 
 import copy as _copy
@@ -11,6 +15,16 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 from enum import Enum, auto
+
+
+def _display_name(identity: Optional[str]) -> Optional[str]:
+    """The short name of a module-qualified identity (`Header$m$dep` ->
+    `Header`); `$` cannot occur in a source identifier, so a plain name passes
+    through untouched."""
+    if not identity:
+        return identity
+    idx = identity.find("$m$")
+    return identity if idx < 0 else identity[:idx]
 
 
 def annotation(default=None, **kwargs):
@@ -357,7 +371,7 @@ class SawType:
         # what the author wrote, in every diagnostic, doc page and AST dump that
         # goes through `str(t)`. Anything comparing types must compare
         # identities instead (`_type_key`), never this string.
-        from type_identity import display_name as _short
+        _short = _display_name
         if self.kind == TypeKind.TUPLE and self.element_types:
             if self.tuple_field_names:
                 types_str = ", ".join(
@@ -530,134 +544,6 @@ class SawType:
         if self.kind == TypeKind.REFERENCE and self.inner_type:
             return self.inner_type
         return self
-
-    def substitute(self, type_map: Dict[str, 'SawType']) -> 'SawType':
-        """Substitute type parameters with concrete types.
-
-        Args:
-            type_map: Mapping from type parameter names to concrete types
-
-        Returns:
-            A new SawType with type parameters replaced by their concrete types
-        """
-        # Handle type parameters (T, U, etc.)
-        if self.kind == TypeKind.TYPE_PARAM and self.type_param_name:
-            if self.type_param_name in type_map:
-                return type_map[self.type_param_name]
-            return self
-
-        # Handle struct types (may have type args, or name might be a type param)
-        if self.kind == TypeKind.STRUCT and self.struct_name:
-            # Check if struct name is actually a type parameter
-            if self.struct_name in type_map:
-                return type_map[self.struct_name]
-            # Substitute in type arguments. The `symbol` RIDES ALONG: only the
-            # arguments changed, so the head still names the same declaration,
-            # and `_resolve_type` prefers that symbol over whichever declaration
-            # the asking module's view maps the bare name to. Dropping it would
-            # let a substituted type re-point at a same-named type in another
-            # module.
-            if self.type_args:
-                substituted_args = [t.substitute(type_map) for t in self.type_args]
-                return SawType(TypeKind.STRUCT, struct_name=self.struct_name,
-                               type_args=substituted_args, symbol=self.symbol)
-            return self
-
-        # Handle enum types (may have type args)
-        if self.kind == TypeKind.ENUM and self.enum_name:
-            if self.type_args:
-                substituted_args = [t.substitute(type_map) for t in self.type_args]
-                return SawType(TypeKind.ENUM, enum_name=self.enum_name,
-                               type_args=substituted_args, symbol=self.symbol)
-            return self
-
-        # Handle optional types
-        if self.kind == TypeKind.OPTIONAL and self.inner_type:
-            substituted_inner = self.inner_type.substitute(type_map)
-            return SawType(TypeKind.OPTIONAL, inner_type=substituted_inner)
-
-        # Handle pointer types
-        if self.kind == TypeKind.POINTER and self.inner_type:
-            substituted_inner = self.inner_type.substitute(type_map)
-            return SawType(TypeKind.POINTER, inner_type=substituted_inner, pointer_mutable=self.pointer_mutable)
-
-        # Handle reference types
-        if self.kind == TypeKind.REFERENCE and self.inner_type:
-            substituted_inner = self.inner_type.substitute(type_map)
-            return SawType(TypeKind.REFERENCE, inner_type=substituted_inner, reference_mutable=self.reference_mutable)
-
-        # Handle tuple types
-        if self.kind == TypeKind.TUPLE and self.element_types:
-            substituted_elements = [t.substitute(type_map) for t in self.element_types]
-            return SawType(TypeKind.TUPLE, element_types=substituted_elements,
-                           tuple_field_names=self.tuple_field_names)
-
-        # Handle array types. The LENGTH substitutes too: a `[UInt8; N]` field
-        # of a const-generic struct becomes `[UInt8; 256]` here, which is what
-        # lets every reader downstream treat `array_size` as a plain int.
-        if self.kind == TypeKind.ARRAY and self.array_element_type:
-            substituted_element = self.array_element_type.substitute(type_map)
-            size, size_expr = self._substituted_length(type_map)
-            return SawType(TypeKind.ARRAY,
-                           array_element_type=substituted_element,
-                           array_size=size, array_size_expr=size_expr)
-
-        # Handle function types
-        if self.kind == TypeKind.FUNCTION:
-            substituted_params = [t.substitute(type_map) for t in (self.param_types or [])]
-            substituted_return = self.func_return_type.substitute(type_map) if self.func_return_type else None
-            return SawType(TypeKind.FUNCTION, param_types=substituted_params, func_return_type=substituted_return, func_is_sync=self.func_is_sync, func_is_escaping=self.func_is_escaping, func_escaping_stamped=self.func_escaping_stamped, func_is_unsafe=self.func_is_unsafe)
-
-        # Primitives and other types don't need substitution
-        return self
-
-    def const_int(self):
-        """The integer a CONST_VALUE denotes, folding its expression if needed.
-
-        A const argument written as arithmetic (`Ring<2 * 128>`) reaches some
-        paths before any pass has folded it. Folding on read makes every
-        consumer — mangling, substitution, the codegen environment — agree that
-        `Ring<2 * 128>` and `Ring<256>` are one instantiation, which is the
-        property the whole scheme rests on. Closed expressions only; one
-        mentioning a parameter has no value yet and answers None.
-        """
-        if self.const_value is not None:
-            return self.const_value
-        if self.array_size_expr is None:
-            return None
-        from const_eval import const_eval, ConstEvalError
-        try:
-            value = const_eval(self.array_size_expr)
-        except ConstEvalError:
-            return None
-        if isinstance(value, bool) or not isinstance(value, int):
-            return None
-        self.const_value = value
-        return value
-
-    def _substituted_length(self, type_map):
-        """Resolve an array length against a substitution.
-
-        Returns `(size, size_expr)`. A length that was already a number stays
-        one. A symbolic length whose parameters are all bound by `type_map`
-        evaluates through the one constant evaluator; one that is still
-        partially abstract — a nested generic being substituted a layer at a
-        time — keeps its expression and gets resolved on the next pass.
-        """
-        if self.array_size is not None or self.array_size_expr is None:
-            return self.array_size, self.array_size_expr
-        env = {}
-        for name, t in type_map.items():
-            if t is not None and t.kind == TypeKind.CONST_VALUE:
-                value = t.const_int()
-                if value is None:
-                    return None, self.array_size_expr
-                env[name] = value
-        from const_eval import const_eval, ConstEvalError
-        try:
-            return int(const_eval(self.array_size_expr, env=env)), self.array_size_expr
-        except ConstEvalError:
-            return None, self.array_size_expr
 
 
 @dataclass

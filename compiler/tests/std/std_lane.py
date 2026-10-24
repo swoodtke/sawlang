@@ -20,7 +20,7 @@ profile, and the lang-item table.
 - each `shape/NAME.fixture` edit of a copy of `std/` is refused first by the
   rule the fixture names, with its message;
 - each `pairs/` program exits 0 in Stage 0's recorded run of it, built
-  against `sawc/std` (`stage0/HOST/NAME.stage0`, which `--stage0` writes
+  against v0.18.0's std (`stage0/HOST/NAME.stage0`, which `--stage0` writes
   through the v0 compiler and which is stale once the pair or the file
   fixtures change), or panics with the text its `// expect-panic:` line
   names, and checks, lowers and evaluates clean with sawc against `std/`; one
@@ -370,7 +370,7 @@ def stage0_command(names=()):
 
 
 def record_stage0(names=None):
-    """Stage 0 builds each pair against `sawc/std` and runs it, and its record
+    """Stage 0 builds each pair against v0.18.0's std and runs it, and its record
     replaces the one in `STAGE0`; over every pair, a record naming none is
     removed. The lane's only run of Stage 0, through the v0 compiler
     (`oracle.v0_compiler`)."""

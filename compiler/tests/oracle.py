@@ -246,9 +246,9 @@ def first_error(log):
 
 def run_binary(binary, timeout=RUN_TIMEOUT, cwd=REPO, arguments=()):
     """(exit status, or None on a timeout; stdout; stderr; seconds), run from
-    `cwd`, the repository root as test_runner.py runs a program unless a lane
+    `cwd`, the repository root as Stage 0's suite ran a program unless a lane
     runs its own elsewhere. A run that dies by a signal having written nothing
-    is run once more, as test_runner.py does, since that is how a binary the
+    is run once more, as that suite did, since that is how a binary the
     kernel has not finished validating dies."""
     for attempt in (1, 2):
         start = time.monotonic()
@@ -352,7 +352,7 @@ def meets_expect(d, build_ok, runs):
 
 def refusal_meets_expect(d, code, log):
     """`yes`, or `no: WHY`, for a refusal test: whether Stage 0's diagnostics
-    hold every `EXPECT-ERROR-CONTAINS` text, as test_runner.py asks."""
+    hold every `EXPECT-ERROR-CONTAINS` text, as Stage 0's suite asked."""
     missing = [w for w in d.error_contains if w not in unrooted(log)]
     if code == 0:
         return "no: Stage 0 builds it"

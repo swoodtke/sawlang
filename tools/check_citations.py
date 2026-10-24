@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""The stale-citation lint, the committed-conflict-marker check (DF-248c), and
-the diagnostic-suppression gate (design 218 unit 1.5).
+"""The stale-citation lint and the committed-conflict-marker check (DF-248c).
 
-THREE CHECKS, ONE BLIND SPOT. Every gate in this tree observes BEHAVIOUR. A
+TWO CHECKS, ONE BLIND SPOT. Every gate in this tree observes BEHAVIOUR. A
 file that nothing compiles — a tracker entry, an INDEX row, an XFAIL citation
 — can say anything at all and no lane will notice, which is how a pin came to
 cite a finding that had closed two days earlier and how three git
-conflict-marker blocks came to sit on `main`, one of them in `designs/todo.md`
-since Aug 22. Check 3 is the same blind spot inside the compiler: a pass that
-runs a check and then DELETES its diagnostics behaves exactly like a pass that
-never ran one, so only reading the source can tell them apart. This lane is
-what reads what nothing else can see.
+conflict-marker blocks came to sit on `main`. This lane is what reads what
+nothing else can see.
 
 CHECK 2 — COMMITTED CONFLICT MARKERS — is the simpler one, so it goes first. A
 line beginning `<<<<<<<` PAIRED with a later line beginning `>>>>>>>` in the
@@ -22,7 +18,7 @@ verified by grep when this landed, and the fix if a file ever legitimately
 carries the shape is an explicit path list here with a comment saying why, never
 a widened directory skip.
 
-CHECK 1 — STALE CITATIONS. An XFAIL marker and a differential harness's known-ledger row are both PROMISES:
+CHECK 1 — STALE CITATIONS. An XFAIL marker is a PROMISE:
 "this fails, we know why, here is the finding". Every gate reads the promise in
 exactly one direction — a pin that starts PASSING is an XPASS and breaks the
 build. Nothing looks the other way. A pin whose finding was CLOSED by a ruling
@@ -33,8 +29,7 @@ cell that is green. That is what happened to
 days after DF-232n closed.
 
 This lane closes that direction. It collects every citation the tree makes —
-the first finding id of a `// XFAIL:` reason in any tracked `.saw` file, and
-the leading id of each row of the harness known-ledgers under `tools/` — and
+the first finding id of a `// XFAIL:` reason in any tracked `.saw` file — and
 checks each against the tracker's CLOSED set.
 
 TWO ID SCHEMES, TWO AUTHORITIES (Sep 9). A citation may name a `DF-` number or
@@ -99,10 +94,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 TODO = REPO_ROOT / "designs" / "todo.md"
 DONE_GLOB = "done_*.md"
-
-# The known-ledgers a differential harness keeps beside itself. Each is
-# `DF-NUMBER <TAB> signature`, `#` comments, blank lines ignored.
-KNOWN_LEDGERS = ("corodiff_known.txt", "sawfuzz_known.txt")
 
 # Directories with nothing tracked in them.
 SKIP_DIRS = {".git", ".build", ".venv", "__pycache__", "node_modules"}
@@ -181,7 +172,7 @@ class Citation:
     ident: str    # a DF number or an SL issue id; "" when the reason cites none
     path: Path
     line: int
-    kind: str     # "xfail" | "ledger"
+    kind: str     # "xfail"
     text: str
 
     @property
@@ -292,19 +283,6 @@ def collect_citations() -> list[Citation]:
             found.append(Citation(ident.group(0) if ident else "",
                                   path, number, "xfail", reason.strip()))
 
-    for name in KNOWN_LEDGERS:
-        path = REPO_ROOT / "tools" / name
-        if not path.exists():
-            continue
-        for number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1):
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            ident = IDENT_RE.match(stripped)
-            if ident:
-                found.append(
-                    Citation(ident.group(0), path, number, "ledger", stripped))
     return found
 
 
@@ -459,61 +437,7 @@ def self_test() -> list[str]:
                  "<<<<<<<<< nine of them"):
         if CONFLICT_OPEN_RE.match(line) or CONFLICT_CLOSE_RE.match(line):
             failures.append(f"must NOT be read as a marker: {line}")
-
-    # The suppression recogniser, against the exact four lines design 218 unit
-    # 1.5 stage 2 deleted from `typechecker/effects.py` — this check reports
-    # zero on a healthy tree, so without a self-test it would be
-    # indistinguishable from a check that recognises nothing.
-    for line in ("        del self.reporter.errors[saved_errors:]",
-                 "            del self.reporter.warnings[saved_warnings:]",
-                 "        del reporter.errors[n:]"):
-        if not SUPPRESSION_RE.match(line):
-            failures.append(f"a suppression must be recognised: {line}")
-    for line in ("        del self.errors[0]",
-                 "        # del self.reporter.errors[saved:]",
-                 "        self.reporter.errors.clear()"):
-        if SUPPRESSION_RE.match(line):
-            failures.append(f"must NOT be read as a suppression: {line}")
     return failures
-
-
-# CHECK 3 — DIAGNOSTIC SUPPRESSION (design 218 unit 1.5 stage 2).
-#
-# `del self.reporter.errors[saved:]` — a pass runs a check and then throws the
-# check's answer away. Four of these sat in `typechecker/effects.py` for
-# months: the per-instantiation re-check reported real faults into a list it
-# then truncated, so a soundness error in a monomorphized instance was found by
-# NOTHING, and the 218 charter's "no judgment with real errors ever runs on any
-# instance" is the sentence they wrote.
-#
-# It belongs in THIS lane for the same reason the other two checks do: nothing
-# else can see it. Every gate in the tree observes BEHAVIOUR, and the behaviour
-# of a check whose diagnostics are deleted is identical to the behaviour of no
-# check at all. Only reading the source says otherwise.
-#
-# The pattern is deliberately narrow — a `del` against a reporter's own
-# `errors`/`warnings` list. Adding a diagnostic to the list and removing it is
-# the whole shape; a pass that legitimately decides not to report simply does
-# not call the reporter.
-SUPPRESSION_RE = re.compile(
-    r"^\s*del\s+\S*\.?reporter\.(errors|warnings)\s*\[")
-
-
-def find_diagnostic_suppressions() -> list[tuple[str, int, str]]:
-    """Every tracked `sawc/**.py` line that deletes reported diagnostics."""
-    out: list[tuple[str, int, str]] = []
-    for rel in tracked_files():
-        if not rel.startswith("sawc/") or not rel.endswith(".py"):
-            continue
-        path = REPO_ROOT / rel
-        try:
-            text = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        for i, line in enumerate(text.splitlines(), 1):
-            if SUPPRESSION_RE.match(line):
-                out.append((rel, i, line.strip()))
-    return out
 
 
 def main() -> int:
@@ -536,8 +460,6 @@ def main() -> int:
         print(f"check_citations: `git ls-files` failed ({exc}) — the "
               "conflict-marker check cannot enumerate the tree")
         return 2
-
-    suppressions = find_diagnostic_suppressions()
 
     citations = collect_citations()
     todo_anchors, done_anchors = collect_anchors()
@@ -593,24 +515,8 @@ def main() -> int:
             continue
         info.append((cite, "no tracker entry is anchored on it"))
 
-    print(f"citations: {len(citations)} "
-          f"({sum(1 for c in citations if c.kind == 'xfail')} xfail, "
-          f"{sum(1 for c in citations if c.kind == 'ledger')} ledger); "
-          f"conflict markers: {len(conflicts)}; "
-          f"diagnostic suppressions: {len(suppressions)}")
-
-    if suppressions:
-        print()
-        print(f"DIAGNOSTIC SUPPRESSION ({len(suppressions)}) — a pass deletes "
-              "its own diagnostics:")
-        for name, lineno, text in suppressions:
-            print(f"  {name}:{lineno}  {text}")
-        print()
-        print("Design 218 unit 1.5 stage 2 removed the last of these. A check "
-              "that reports and then deletes is a type-stamping device wearing "
-              "a checker's clothes: it cannot catch anything, and nothing "
-              "downstream knows it did not. Report the diagnostic, or do not "
-              "run the check.")
+    print(f"citations: {len(citations)} xfail; "
+          f"conflict markers: {len(conflicts)}")
 
     if conflicts:
         print()
@@ -646,7 +552,7 @@ def main() -> int:
               "drop the marker — or the finding is not closed after all and the "
               "tracker entry is what needs correcting.")
 
-    if stale or conflicts or suppressions:
+    if stale or conflicts:
         return 1
 
     print(f"citations: {ok} open, {len(info)} undecided, 0 stale; "

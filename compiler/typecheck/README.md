@@ -563,7 +563,8 @@ each lang item a source declares to its role's shape, its cases and payload
 labels, its requirements and their signatures, its fields, conformances and
 the methods its module writes, and refuses a difference as `lang.shape`,
 naming the first part that differs. The expected shapes are Stage 0's
-`builtin.saw`, so every lane over `sawc/` checks the table against it. The
+`builtin.saw` (v0.18.0's), so a lane over a Stage 0 std root checks the table
+against it. The
 String layer's two types, `String` and `StringBuilder`, carry an API beyond
 what the compiler calls, so their shapes are sets of parts each must hold:
 String's single field, its Copy conformance with the retain and release

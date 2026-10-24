@@ -29,7 +29,7 @@ implementation wins and this document is the bug.
 1. **Safety without sacrifice** - Memory safety and thread safety by default, with explicit opt-out for low-level control
 2. **Zero-cost abstractions** - High-level constructs compile to efficient machine code
 3. **Expressiveness** - Clean, readable syntax that reduces boilerplate
-4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `sawc0 --no-hidden-alloc`: every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
+4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `--no-hidden-alloc` (not yet in `sawc`, SL-865): every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
 5. **Progressive disclosure** - Simple things are simple, complex things are possible
 
 ### Non-Goals
@@ -723,8 +723,9 @@ the placeholder count is checked against the argument count at compile time. See
 [Format arguments and the allocation-free path](#format-arguments-and-the-allocation-free-path).
 
 **Debug info (design 69):** the compiler emits DWARF line tables by default (on
-every build, no flag) via llvmlite debug metadata — a DICompileUnit, a
-DISubprogram per function (with its Saw name), and a DILocation per statement.
+every build, no flag) — a DICompileUnit, a DISubprogram per function (with its
+Saw name), and a DILocation per statement. **Status:** v0.18.0's compiler
+emits them; `sawc` emits no debug metadata yet.
 A debugger (lldb/gdb) can therefore set line breakpoints and show `file:line`
 backtraces, including for panics. Scope is line tables only in v1 (no
 variable/type info yet). On macOS, source-level stepping needs the intermediate
@@ -1580,7 +1581,7 @@ func main() { print(0) }
 // help: join the two runs, or make one a `//` comment
 ```
 
-`sawc0 <entry.saw> --emit-docs` type-checks the program and writes a JSON
+`--emit-docs` (not yet in `sawc`, SL-880) type-checks the program and writes a JSON
 description of it instead of code (to `-o`, else stdout). It covers the entry
 file's module and every module the program imports, `std` included, so a file
 that imports what you want documented is the whole driver. Each item carries its
@@ -1602,9 +1603,7 @@ accessor therefore reports `self` as `borrows`, since it serves a `let` root,
 and its root charge as `exclusive`. A `&self` accessor derived by
 `@synthesize(shared)` is its own item, marked `synthesized: "shared"`.
 
-**Status:** Stage 0 (`sawc0`) still reports a `borrows` accessor's receiver kind
-as `window` (`borrows-var` when its body writes `self`) and emits no `lends`
-record. `sawc` has no `--emit-docs` yet.
+**Status:** `sawc` has no `--emit-docs` yet (SL-880).
 
 ### Composite Types
 
@@ -3112,9 +3111,8 @@ one slot that differs: a bare literal DOES adopt there, so
 a constant expression is itself a constant expression, the identity at the
 underlying type, so it is accepted wherever a constant is (see *The constant
 grammar*), and `Byte(300)` is refused because 300 does not fit a `UInt8`.
-**Status:** Stage 0 refuses the construction in every constant position
-("must be initialized by a compile-time constant"). The self-hosted compiler
-takes it in a `static` initializer, a `static_assert` and a raw case's value;
+**Status:** `sawc` takes it in a `static` initializer, a `static_assert` and a
+raw case's value;
 an array length, a repeat count and a const generic argument accept it only
 once those positions are folded by the same evaluator.
 
@@ -3378,9 +3376,7 @@ A derived `copy()` duplicates an existing value field by field and calls no
 `init`. A synthesized `Deserialize` constructs through the override (see
 [Serialization](#serialization-serialize-deserialize-encoder-decoder)).
 
-**Status:** the self-hosted compiler implements the override. Stage 0 refuses
-every `init` whose labels are exactly the field names, whatever their types,
-as ambiguous with field initialization.
+**Status:** implemented.
 
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
@@ -8182,8 +8178,7 @@ trait Deserialize {
   case `InitFailed = 13`, "the type's init refused the decoded fields". It
   allocates nothing and does not carry the `init`'s own error, which a
   caller who needs it gets by writing `deserialize` by hand. **Status:**
-  planned, with the self-hosted compiler's serde; Stage 0 refuses the
-  override itself.
+  planned, with the self-hosted compiler's serde.
   Unlike the Equatable/Comparable/Hashable derivations, which codegen emits from
   the field layout, these two synthesize a real source body and hand it to the
   ordinary front end — a derived body is made of `try`, method calls and a `for`
@@ -8199,7 +8194,7 @@ trait Deserialize {
 
 **Status: implemented** (`designs/169-serialize-cbor.md`, `std/cbor.saw`).
 CBOR (RFC 8949) restricted to its **deterministic encoding** profile. The wire
-contract is frozen in `sawc/std/CBOR.md`, and `tools/sawcbor.py` is a second
+contract is frozen in `std/CBOR.md`, and `tools/sawcbor.py` is a second
 implementation of that same document over the `cbor2` library; the blobs under
 `tests/cbor_vectors/` are what the two are held to. Import-required, and present
 in both profiles.
@@ -10817,8 +10812,8 @@ embedded by value inside one allocation at compile-time-known offsets, each
 carrying a state word naming its resume point, and the compiler records what
 those states mean in a read-only table linked into every binary
 (`__saw_bt_table`). So the dump needs no runtime support: it works in the
-freestanding profile and inside a panic handler. `sawc0 --emit-bt-table` decodes
-the table as JSON, and `tools/test_bt_table.py --sizes` reports what it costs.
+freestanding profile and inside a panic handler. `sawc coro --bt-table` dumps
+the table a program's frames produce.
 
 The dump lists every thread's groups. It reads each one under that group's
 lock into a buffer and writes nothing until it holds no lock, so a blocked
@@ -10840,11 +10835,13 @@ buffer, the dump counts in one walk and writes in another, so the count may
 disagree with the lines, and the header says
 `(unsynchronized snapshot; counted apart from the lines)`.
 
-**Under a debugger.** `tools/lldb_saw.py` reads the same table out of a stopped
-process:
+**Under a debugger.** v0.18.0's `tools/lldb_saw.py` reads the same table out of
+a stopped process. It reads it with that release's decoder, so it runs from a
+v0.18.0 checkout (`SAWLANG_V0_ROOT`); `sawc` writes the table in the same
+encoding:
 
 ```
-(lldb) command script import tools/lldb_saw.py
+(lldb) command script import /path/to/sawlang-v0.18.0/tools/lldb_saw.py
 (lldb) saw tasks     # one line per live task
 (lldb) saw bt        # every live task's logical backtrace
 (lldb) saw table     # the binary's frame table, decoded (no process needed)
@@ -13783,8 +13780,8 @@ hint: `data` here is the binding declared on line 4, which shadows the module
       directly (`import std.data.{Data}`)
 ```
 
-`sawc0 -W shadowed-qualifier` flags the declaration instead of waiting for the
-use. See [Compiler warnings](#compiler-warnings).
+`-W shadowed-qualifier` flags the declaration instead of waiting for the
+use (not yet in `sawc`, SL-879). See [Compiler warnings](#compiler-warnings).
 
 #### Qualifier collisions
 
@@ -13798,7 +13795,7 @@ import data              // error: two imports bind the qualifier `data`:
                          // hint: rename one with `as`, e.g. `import data as <name>`
 ```
 
-The second import there names YOUR module, not std's. `sawc/std/` is reachable
+The second import there names YOUR module, not std's. `std/` is reachable
 only through a `std.`-prefixed path. A bare `import data` searches, in order,
 the importing file's own directory, then its package root (the package's
 `src/`, see [Package Structure](#package-structure)), then the configured search
@@ -13886,7 +13883,9 @@ above covers it.
 
 ### Compiler warnings
 
-`sawc0 -W <name>` enables a warning category; `-W all` enables every one.
+**Status:** not yet in `sawc` (SL-879).
+
+`-W <name>` enables a warning category; `-W all` enables every one.
 Warnings are off by default and never affect the exit code — there is no
 `-Werror`. An unrecognized category is an error, so a misspelled flag cannot
 quietly disable itself and read as a clean build.
@@ -13896,7 +13895,7 @@ quietly disable itself and read as a clean build.
 | `shadowed-qualifier` | a declaration takes the name of a module qualifier bound by an import, so qualified access is unavailable in its scope |
 
 ```
-$ sawc0 app.saw -W shadowed-qualifier
+$ sawc app.saw -W shadowed-qualifier
 warning [-W shadowed-qualifier]: `data` shadows the module qualifier bound by `import std.data`
   --> app.saw:5:5
    |
@@ -14213,16 +14212,18 @@ the frame's deinit, and the deinit is a no-op afterwards.
 
 ### Profiles (hosted and freestanding)
 
-**Status: freestanding stage 1 implemented.** Saw compiles under two profiles.
+**Status: freestanding stage 1 implemented in v0.18.0's compiler; `sawc`
+checks a program against the profile but does not build an object yet
+(SL-865).** Saw compiles under two profiles.
 The default **hosted** profile links libc and provides everything above. The
-**freestanding** profile (`sawc0 --freestanding`, optionally with `--target
+**freestanding** profile (`--freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
 unlinked object file. In this profile the runtime rests on the `__saw_rt_*` seam
 symbols the environment must supply at link time — `__saw_rt_alloc(size, align)`,
 `__saw_rt_dealloc(ptr, size, align)`, `__saw_rt_write_line(parts, count)` (the
 line `print` writes), the noreturn
 `__saw_rt_panic(msg, len)` and the rest of the frozen set — which the hosted
-profile satisfies by linking a runtime built from `sawc/rt/`. Freestanding
+profile satisfies by linking a runtime built from `runtime/`. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
 hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
@@ -14230,15 +14231,16 @@ hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
 printing are unavailable. See `designs/19-freestanding-profile.md` for the full design.
 
 **A package may BE the runtime.** `[package] runtime = true` in `Saw.toml`
-declares a package a runtime provider (blade passes `sawc
---runtime-provider`). It may then `@export` the frozen `__saw_rt_*` names, no
-runtime of the compiler's is linked beside it, and every exported seam's
-signature is checked against the contract in `sawc/rt/ABI.md` at compile time. A
-mismatch — the wrong arity, or a `word` return where the ABI says `Int64` — is a
-compile error naming the document, rather than a clean link and a wrong answer at
-run time. `sawc0 --runtime-build`, which is how `sawc/rt/` itself is compiled, is
-the same permission plus a std-free unlinked build; a kernel wants the package
-form.
+declares a package a runtime provider (`sawc build --runtime`; blade passes
+v0.18.0's spelling, `--runtime-provider`). It may then `@export` the frozen
+`__saw_rt_*` names, no runtime of the compiler's is linked beside it, and every
+exported seam's signature is checked against the contract in `runtime/ABI.md`
+at compile time. A mismatch — the wrong arity, or a `word` return where the ABI
+says `Int64` — is a compile error naming the document, rather than a clean link
+and a wrong answer at run time. `sawc runtime`, which is how `runtime/` itself
+is compiled, is the same permission plus a std-free build; a kernel wants the
+package form. **Status:** `sawc build --runtime` checks the package but does
+not build it yet (SL-865).
 
 **On aarch64 the freestanding profile turns Advanced SIMD OFF**
 (`-neon,-fp-armv8`, design 172). An AArch64 core traps every SIMD instruction at
@@ -14251,12 +14253,12 @@ it. The general-registers-only lowering is complete: the backend has an
 instruction for everything, and the cost is a few extra `ldp`/`stp` pairs on a
 large struct move.
 
-`--target-features` OVERRIDES it completely. A kernel whose boot code *does*
-enable `CPACR_EL1.FPEN` before any compiled code runs, and that wants the
-vectorized block moves back, asks for them by name:
+`--target-features` (not yet in `sawc`, SL-865) OVERRIDES it completely. A
+kernel whose boot code *does* enable `CPACR_EL1.FPEN` before any compiled code
+runs, and that wants the vectorized block moves back, asks for them by name:
 
 ```bash
-sawc0 kernel.saw -o kernel.o --freestanding --target aarch64-unknown-none-elf \
+sawc kernel.saw -o kernel.o --freestanding --target aarch64-unknown-none-elf \
     --target-features +neon,+fp-armv8
 ```
 
@@ -14529,8 +14531,8 @@ it alive.
 **Symbol hygiene.** Two exports resolving to the same symbol are an error (an
 unmangled C symbol must be unique); colliding with a reserved runtime symbol
 (`main`, `saw_*`, `__saw_*`) is an error. **Exception — the runtime-build mode
-(design 113b):** the per-host Saw runtime under `sawc/rt/` implements the
-`__saw_rt_*` ABI (`sawc/rt/ABI.md`). Compiling it with `sawc0 --runtime-build`
+(design 113b):** the per-host Saw runtime under `runtime/` implements the
+`__saw_rt_*` ABI (`runtime/ABI.md`). Compiling it with `sawc runtime`
 loosens the reservation for EXACTLY the frozen `__saw_rt_*` ABI names (a
 misspelled/non-ABI `__saw_rt_*` export is a clean error naming the valid set; a
 suspending seam body is rejected — the runtime is sync-only); every other
@@ -15471,14 +15473,15 @@ state, and it no longer exists.
 
 ### No hidden allocations (`--no-hidden-alloc`)
 
-**Status: implemented (design 135).** `Vector.push` allocates, and it says so:
+**Status: implemented (design 135) in v0.18.0's compiler; not yet in `sawc`
+(SL-865).** `Vector.push` allocates, and it says so:
 a method with a contract, an allocator in the type. The guarantee is about the
 other case — the compiler allocating on its own authority, where nothing in the
-source says a heap block is involved. `sawc0 --no-hidden-alloc` rejects every
+source says a heap block is involved. `--no-hidden-alloc` rejects every
 such site at compile time.
 
 "Named" means named by the **expression** or by a **type the author wrote**.
-The classification below covers every allocation `sawc0` emits.
+The classification below covers every allocation the compiler emits.
 
 | Site | What triggers it | Named | Under the flag |
 |---|---|---|---|
@@ -15643,118 +15646,62 @@ possible and accepted at this stage (documented in `std/slab.saw`).
 
 ---
 
-## Appendix 0: The Compilers (`sawc` and `sawc0`)
+## Appendix 0: The Compiler (`sawc`)
 
-**Status: implemented.** Two compilers lower Saw to LLVM IR and then to a
-native executable, and both print the same release with `--version`.
-
-`sawc` is the self-hosted compiler in `compiler/`, which
-`compiler/tools/build.py` builds from its own source, and which `bin/sawc`
-builds on first use. `sawc build <source.saw> [-o <file>]` compiles and links
-a program; `sawc <source.saw> [-o <file>]`, with the subcommand left out, is
-the same command. `sawc --help` lists its other subcommands and their flags.
-
-`sawc0` is Stage 0, the frozen reference compiler in `sawc/` (Python +
-llvmlite). The options below are `sawc0`'s; `sawc` takes only the ones its
-usage text lists.
+**Status: implemented.** `sawc` lowers Saw to LLVM IR, which clang compiles and
+links into a native executable. It is the self-hosted compiler in `compiler/`,
+which `compiler/tools/build.py` builds from its own source, and which `bin/sawc`
+builds on first use.
 
 ```
-sawc0 <source.saw> [options]
-
-  --version    Print the compiler version and exit. A plain semver from one
-               source-of-truth constant, and the only thing a consumer that
-               pinned a toolchain can check an installed compiler against —
-               so a change to user-visible behaviour bumps it.
-  -o <file>    Output executable name (default: .build/<source>)
-  -c           Compile to an object file (.o) only — no linking, no main() required
-  -v           Verbose output (pipeline stages)
-  --emit-ir    Emit LLVM IR only, don't compile
-  --emit-ast   Dump the typed AST (debugging)
-  --emit-docs  Type-check and emit documentation JSON instead of code, for the
-               entry module and every module it imports (see Doc comments).
-               Writes to -o, else stdout.
-  --emit-docs-all
-               Same, keeping private fields, methods and inits.
-  -O0          Disable optimization passes (raw codegen: entry-block allocas,
-               no mem2reg, no inlining)
-  -O1          Optimize for speed. The default — a compile with no -O flag
-               runs this pipeline
-  -O2          Optimize for speed harder: more inlining, GVN, vectorization.
-               Slower to compile, and the always-on bounds and overflow checks
-               put a side-effecting exit in every loop iteration, which blocks
-               the vectorizers on idiomatic code. Measure before adopting it
-  -Os          Optimize for size: the -O2 pipeline with every function marked
-               `optsize`
-  -Oz          Optimize for size above all else: `minsize` too, which turns on
-               LLVM's machine outliner. Expect slower code
-               The last -O flag on the command line wins.
-  --target TRIPLE
-               Cross-compile for a target triple (default: the host)
-  --target-features FEATURES
-               LLVM subtarget features for --target, comma separated (e.g.
-               `+m,+a,+c` for rv32imac). A triple names an architecture but not
-               its optional extensions; base rv32i has no divide instruction,
-               so an integer `/` becomes a libcall freestanding cannot link.
-               Overrides the freestanding profile's own default (below).
-  --freestanding
-               Freestanding profile: runtime seams as declarations only, no
-               hosted std modules, unlinked object output.
-               On aarch64 it also implies `--target-features -neon,-fp-armv8`
-               (below).
-  --no-hidden-alloc
-               Reject allocations the compiler inserts that no source construct
-               names: string interpolation, an escaping closure's captured
-               environment, and `print` of a user Printable. Allocations the
-               source names are unaffected. Orthogonal to --freestanding; see
-               No hidden allocations.
-  --runtime-build
-               Compile a Saw runtime that `@export`s the frozen `__saw_rt_*`
-               ABI. Sync-only, unlinked object output; builds `sawc/rt/`.
-  --runtime-provider
-               This package IS a runtime (design 149; blade passes it for
-               `[package] runtime = true`). Permits `@export`ing the frozen
-               seams, checks each against sawc/rt/ABI.md, and links no runtime
-               of ours beside it. Unlike --runtime-build this is an ordinary
-               package build: std is available and the output links.
-  --module-path NAME=DIR
-               Map package NAME to source directory DIR (`import NAME` ->
-               DIR/lib.saw, `import NAME.sub` -> DIR/sub.saw). Repeatable;
-               this is how the package manager wires dependencies, and how
-               a package names itself (DIR is the package's `src/`; see
-               Package Structure).
-  -W NAME      Enable a warning category (repeatable; `-W all` for every one).
-               Warnings are off by default and never affect the exit status.
-               See Compiler warnings.
-  --ids        With --emit-ast, include each node's stable node_id. Off by
-               default: ids are stable within a run but carry no
-               cross-implementation meaning, so the canonical dump omits them.
-  --emit-frame-layout
-               Emit the coroutine frame layout report as JSON instead of code:
-               per monomorphized frame, its size, alignment, and every field's
-               offset. Writes to -o, else stdout. Analysis only.
-  --emit-bt-table
-               Emit the logical task-backtrace table as JSON instead of code:
-               per monomorphized frame, the name/file it prints and the source
-               line or embedded child for each resume state. Writes to -o,
-               else stdout. Analysis only; the table itself is always linked.
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]
+           [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
+           (FILE [-o OUT] | --emit-ll FILE)
+sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
+sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
+             (--out DIR | --emit-ll FILE)
+sawc lex | parse | resolve | typecheck | mir | eval | borrowck | drops | mono | coro ...
+sawc --version
 ```
+
+- `--version` prints the release: a plain semver, and the only thing a
+  consumer that pinned a toolchain can check an installed compiler against, so
+  a change to user-visible behaviour bumps it.
+- `-o` names the executable (default: `.build/<source>`); `--emit-ll` writes the
+  program's LLVM IR instead and links nothing.
+- `--target` cross-compiles for a triple (default: the host).
+- `--module-path NAME=DIR` maps package NAME to source directory DIR
+  (`import NAME` -> `DIR/lib.saw`, `import NAME.sub` -> `DIR/sub.saw`).
+  Repeatable; this is how the package manager wires dependencies, and how a
+  package names itself (DIR is the package's `src/`; see Package Structure).
+- `--sanitize address` builds under AddressSanitizer.
+- `--freestanding` and `--runtime` check a program against the freestanding
+  profile or the runtime-package rules (see Profiles); neither builds yet.
+- `sawc runtime` builds the hosted runtime from `runtime/`.
+- The stage subcommands (`lex` through `coro`) run the compiler's front end to
+  that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`
+  checks a file through every stage before code generation, with no `main`
+  needed. `sawc --help` lists every form and flag.
+
+**Not yet in `sawc`.** The spec documents several flags of v0.18.0's compiler,
+`sawc0`, that `sawc` does not take yet: object output (`-c`),
+`--no-hidden-alloc` and `--target-features` (SL-865); the `-W` warning
+categories (SL-879); and `--emit-docs` (SL-880). Code that needs them, and the
+sources frozen in v0.18.0's language (Blade, `libs/`), build with `sawc0`,
+which `bin/sawc0` runs from a v0.18.0 checkout (`SAWLANG_V0_ROOT`, else the tag
+fetched and cached). Its full option list is that release's Appendix 0.
 
 ### Optimization levels
 
-By default `sawc0` runs an O1-style pass pipeline (allocas hoisted to the entry
-block, mem2reg, and the rest of LLVM's O1 module pipeline). `-O0` turns it off
-for debugging raw output. `-O2` runs LLVM's O2 pipeline. `-Os` and `-Oz` run
-that same pipeline with every function the module defines marked `optsize`,
-and `minsize` as well at `-Oz`; those attributes are what every size-sensitive
-decision in LLVM reads, the machine outliner included, which is why `-Oz`
-replaces repeated instruction sequences with calls to outlined bodies.
-
-The default stays `-O1` for every profile. `--freestanding` does not imply a
-size level; a kernel or embedded build asks for one by name.
+`sawc` hands the `-O` level to clang, which compiles the program's LLVM IR
+with that pipeline; with no flag it is `-O0`. `-O2` runs LLVM's O2 pipeline,
+and `-Os`/`-Oz` its size pipelines, `-Oz`'s `minsize` being what turns on the
+machine outliner, which replaces repeated instruction sequences with calls to
+outlined bodies. `--freestanding` does not imply a size level; a kernel or
+embedded build asks for one by name.
 
 Semantics do not change with the level. A program's output, its panics and its
-exit status are the same at every one of the five, and the compiler test suite
-pins that with the same program compiled at `-O2`, `-Os` and `-Oz`.
+exit status are the same at every one of the five.
 
 Two things to know before reaching for a level:
 
@@ -15768,8 +15715,9 @@ Two things to know before reaching for a level:
 
 Size levels are also available to a riscv target through
 `--target-features +save-restore`, which replaces prologue and epilogue
-register saves with calls to `__riscv_save_N` / `__riscv_restore_N`. `sawc0`
-does not enable it for you at any level: those routines live in the compiler
+register saves with calls to `__riscv_save_N` / `__riscv_restore_N` (once
+`sawc` takes `--target-features`, SL-865). The compiler does not enable it for
+you at any level: those routines live in the compiler
 runtime library, and the freestanding profile links none, so enabling it by
 default would turn `-Os` into an unresolved symbol on exactly the targets that
 want it. Ask for it where you have the routines to link.
@@ -15786,7 +15734,7 @@ identifier). The opaque/static-dispatch counterpart, when it lands, will use the
 provisional keyword `generic`.
 
 **Reserved means lexed as a keyword.** The first list below is exactly the
-lexer's keyword table (`sawc/lexer.py`); those words cannot be used as
+lexer's keyword table (GRAMMAR.md §2); those words cannot be used as
 identifiers anywhere. Everything in the second list is recognized by the parser
 or the typechecker in one specific position and is an ordinary identifier
 everywhere else, so `let module = 3` and a method named `parent` both compile.

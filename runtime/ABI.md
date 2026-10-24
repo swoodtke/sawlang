@@ -69,11 +69,13 @@ Every C-ABI signature below fits the design-58 `@export` whitelist (fixed-width
 ints, `Int`/`UInt`, `UnsafePointer`, `Void`/`Never`) — a runtime written in Saw
 exports each body under its `__saw_rt_*` name.
 
-**The signatures below are machine-checked (design 149).** `runtime_abi.py`
-parses them out of this file, and a compile that builds a runtime — `sawc
---runtime-build` for `sawc/rt/`, or `--runtime-provider` for a package declaring
-`[package] runtime = true` — checks every exported seam against the signature
-written here. A mismatch is a compile error naming this document. Arity and
+**The signatures below are machine-checked (design 149).**
+`compiler/tools/runtime_table.py` parses them out of this file into the table
+compiled into sawc (`compiler/typecheck/src/runtimeabi.saw`, held to this file
+by run.py's `runtime_table` step), and a compile that builds a runtime —
+`sawc runtime` for `runtime/`, or `sawc build --runtime` for a package
+declaring `[package] runtime = true` — checks every exported seam against the
+signature written here. A mismatch is a compile error naming this document. Arity and
 machine width are what is compared: `word`, `ptr` and every `i8*`/`i8**`/`word*`
 spelling are one pointer-width class (the C ABI does not distinguish them at this
 width, and this document uses `word` and `ptr` for the same handles), while
@@ -313,8 +315,8 @@ into `IoError` (`IoError.of(syscall:tag:)`), whose text names the kind
 **Adding tags.** Tags 17-21 are the failures that can only happen off loopback
 (DF-215a); 22-23 name a bad descriptor and a failed device (SL-785). Widening this table is additive, not an ABI change: no existing tag
 is renumbered (`Other` keeps 16, which is why 17-21 sit after it rather than
-beside their neighbours), and no seam signature moves, so `runtime_abi.py`'s
-arity/width check and `make abidoc`'s symbol-set check are unaffected. A
+beside their neighbours), and no seam signature moves, so the arity/width
+check and `make abidoc`'s symbol-set check are unaffected. A
 runtime that never returns 17-21 is still correct, and a consumer that does not
 know a tag degrades to a catch-all: std turns a tag into an `IoErrorKind`
 through `IoErrorKind.of(tag:)`, which answers `Unknown` for a tag it does not
@@ -597,7 +599,7 @@ runtime implementing this seam may take as long as it needs; what it may not do
 is assume a caller is willing to wait on the calling thread.
 
 Two consequences for an implementer. The body itself is ordinary sync code (the
-offload happens on the std side), so `--runtime-build`'s sync-only discipline
+offload happens on the std side), so the runtime build's sync-only discipline
 applies here as to every other seam. And both pointers obey design 183's rule:
 they address the parked task's frame or the heap, so the worker thread may
 still be reading and writing through them for the whole call, cancellation
@@ -1119,7 +1121,7 @@ records the holding thread (`__saw_rt_lock_owner`, below) in an owner word
 beside this one, and panics before it calls `acquire` on a lock the calling
 thread already holds. The hosted bodies do not survive one (`os_unfair_lock`
 kills the process with no message, and the futex waits forever), so the check
-stays in std, where the panic has a message and the task dump. Stage 0's std keeps no owner. Both are `sync` (a
+stays in std, where the panic has a message and the task dump. Both are `sync` (a
 seam never suspends a task), which is why a `Mutex` window cannot suspend.
 
 Host bodies: macOS is `os_unfair_lock_lock`/`_unlock` in Saw
@@ -1386,7 +1388,7 @@ on one side alone.
   address of the task's park word (the root token), the address of its
   cancel word, and the task's identity, as std's `TaskContext`. A park
   records its reason in the park word, in the park word vocabulary of
-  `sawc/std/taskgroup.saw` (0 is a ready yield), before it returns
+  `std/taskgroup.saw` (0 is a ready yield), before it returns
   `Pending`.
 - **`__saw_frame_resume(descriptor: ptr, frame: ptr, cx: ptr) -> i32`**: one
   resume of `frame` through `descriptor`'s `resume`, returning the `Poll`
@@ -1414,11 +1416,11 @@ on one side alone.
 
 ## Authoring a runtime in Saw (design 113b)
 
-The hosted runtime is **authored in Saw** under `sawc/rt/`, compiled with
-`--runtime-build`, plus a C shim for the bodies a Saw FFI gap blocks. Layout:
+The hosted runtime is **authored in Saw** under `runtime/`, compiled with
+`sawc runtime`, plus a C shim for the bodies a Saw FFI gap blocks. Layout:
 
 ```
-sawc/rt/
+runtime/
   common/       OS-independent bodies: mem.saw (alloc, dealloc, deny_after),
                 sleep.saw, op_budget.saw, thread_executor.saw (the
                 per-thread executor word), pthread.saw (mutex/cond init,
@@ -1435,14 +1437,15 @@ sawc/rt/
   shim.c        the bodies a Saw FFI gap blocks (below)
 ```
 
-**The `--runtime-build` compile mode.** `@export("__saw_rt_<name>")` is allowed for
-exactly the frozen ABI set (the compiler validates against `sawc/runtime_abi.py`);
-a misspelled/non-ABI `__saw_rt_*` export is a clean error naming the valid set.
-The module is sync-only; only `builtin.saw` is loaded. Objects are built and
-cached under `.build/rt/<key>/` (the key hashes every input that can change the
-built runtime: the rt sources, `shim.c`, the triple, and the compiler and std
-sources) and auto-linked for hosted builds (`sawc -v` lists them). The
-freestanding profile links no runtime (verified by
+**The runtime compile mode (`sawc runtime`).** `@export("__saw_rt_<name>")` is
+allowed for exactly the frozen ABI set (the compiler validates against its
+compiled-in table, above); a misspelled/non-ABI `__saw_rt_*` export is a clean
+error naming the valid set. The module is sync-only. `compiler/tools/build.py`
+builds the objects with the Stage 1 compiler and caches them under
+`.build/rt2/<key>/` (the key covers Stage 1, `runtime/`, std, the target and
+clang); `.build/sawc-runtime.txt`, the runtime manifest beside the stages,
+names them, and a hosted `sawc build` links against them. The freestanding
+profile links no runtime (verified by
 `freestanding_seams_extern_no_runtime`).
 
 **The C floor: `shim.c`.** Each body there is C because of a named Saw FFI gap,

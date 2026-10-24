@@ -101,8 +101,8 @@ def flat(path):
 
 
 def programs():
-    """Every corpus program, as test_runner.py finds them under examples/:
-    each .saw outside a `modules` directory not marked `EXPECT: skip`."""
+    """Every corpus program: each .saw outside a `modules` directory not
+    marked `EXPECT: skip`."""
     found = []
     for root, dirs, files in os.walk(CORPUS):
         dirs.sort()
@@ -702,7 +702,7 @@ def commit():
         return r.stdout.strip() if r.returncode == 0 else ""
     head = git("rev-parse", "HEAD")
     base = git("merge-base", "HEAD", "origin/main") or git("merge-base", "HEAD", "main")
-    dirty = git("status", "--porcelain", "--untracked-files=no", "compiler", "std", "sawc")
+    dirty = git("status", "--porcelain", "--untracked-files=no", "compiler", "std", "runtime")
     return head + (" (with uncommitted changes)" if dirty else ""), base
 
 

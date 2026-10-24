@@ -615,8 +615,9 @@ A parked task is its root's frame, every child it drives embedded at a fixed
 offset, and each frame's state word says where it stopped; so its logical
 stack is a walk of a static table, `__saw_bt_table` (SL:coroutines A16a,
 `compiler/coro/src/bttable.saw`), built from the lowered frames once they
-are packed. Its bytes are Stage 0's format (`sawc/backtrace_table.py`), so
-`tools/lldb_saw.py` and the in-process walker read one encoding: a 32-byte
+are packed. Its bytes are Stage 0's format (v0.18.0's
+`sawc/backtrace_table.py`), so the in-process walker and v0.18.0's
+`tools/lldb_saw.py` read one encoding: a 32-byte
 header, a 24-byte record per frame (its symbol, the dump name of its item;
 its name, the declaration's path in its module, as a cause chain names it;
 its file's base name; its first state, its state count and its state word's

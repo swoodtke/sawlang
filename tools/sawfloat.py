@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The Python half of the design-253 Float<->text contract.
 
-`sawc/std/float.saw` and `std/float.saw` (Stage 0's std and the new one) each
-hold Saw's shortest-round-trip formatter and its correctly-rounded parser. This tool holds the ORACLE for both: CPython's own
+`std/float.saw` holds Saw's shortest-round-trip formatter and its
+correctly-rounded parser. This tool holds the ORACLE for it: CPython's own
 `repr`/`float()` are correctly-rounded shortest-round-trip conversions, so the
 golden vectors under `tests/float_vectors/` are two independent implementations
 checked against each other rather than one implementation checked against
@@ -60,7 +60,7 @@ expects. Given the shortest digit string `d` and `decpt` (the value is
 taken on trust.
 
 Non-finite values are `nan` / `inf` / `-inf` (Saw-facing text, NOT JSON — see
-`sawc/std/JSON.md` for what JSON does with them). They are in
+`std/JSON.md` for what JSON does with them). They are in
 `shortest.tsv` too: a NaN's bit pattern is not unique, so the row uses the
 canonical quiet NaN and `parse.tsv` carries the other spellings.
 """
@@ -145,7 +145,7 @@ def _render(neg: bool, digits: str, decpt: int) -> str:
 # for WHICH inputs are accepted: it takes leading and trailing whitespace,
 # `infinity`, any casing of `NaN`, and PEP-515 underscores, none of which
 # `String.to_float` does. So the grammar is written out here too, as a second
-# implementation of the one `sawc/std/float.saw` documents:
+# implementation of the one `std/float.saw` documents:
 #
 #   float := sign? ( digits ('.' digits?)? | '.' digits ) ([eE] sign? digits)?
 #          | sign? ('nan' | 'inf')
@@ -364,8 +364,7 @@ def parse_rows():
 
 
 # ---------------------------------------------------------------------------
-# The Ryu power-of-five tables, which live INSIDE `sawc/std/float.saw` and
-# `std/float.saw`
+# The Ryu power-of-five tables, which live INSIDE `std/float.saw`
 #
 # A shortest-round-trip formatter is only as correct as its tables, and a
 # mistyped hex digit in 1236 of them would show up as one wrong value in a
@@ -381,10 +380,9 @@ POW5_TABLE_SIZE = 326            # indices 1..325 are reached
 TABLE_BEGIN = ("// BEGIN GENERATED TABLES — regenerate with "
                "`tools/sawfloat.py tables`")
 TABLE_END = "// END GENERATED TABLES"
-# Both stds' float modules carry the generated tables: Stage 0's and the new
-# std's, which sawc compiles. `tables` writes both and the check holds both.
-FLOAT_SAWS = (os.path.join(REPO, "sawc", "std", "float.saw"),
-              os.path.join(REPO, "std", "float.saw"))
+# The float modules that carry the generated tables; `tables` writes each and
+# the check holds each.
+FLOAT_SAWS = (os.path.join(REPO, "std", "float.saw"),)
 
 
 def _pow5bits(e: int) -> int:
@@ -493,7 +491,7 @@ def cmd_tables():
 
 
 def verify_tables():
-    """The committed tables of both float modules, re-derived. Returns a list
+    """The committed tables of every float module, re-derived. Returns a list
     of failures; a missing module is one."""
     failures = []
     want = table_lines()
@@ -683,7 +681,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("gen", help="rewrite the golden vectors")
-    sub.add_parser("tables", help="splice the Ryu tables into both float.saw modules")
+    sub.add_parser("tables", help="splice the Ryu tables into std/float.saw")
     v = sub.add_parser("verify", help="check the committed vectors")
     v.add_argument("--rule", action="store_true",
                    help="also re-check the documented render rule against repr")

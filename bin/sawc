@@ -29,7 +29,7 @@ done
 ROOT=${SAWLANG_ROOT:-$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)}
 
 # build.py needs only Python's standard library; the checkout's venv is
-# preferred where there is one, as `sawc0` prefers it.
+# preferred where there is one.
 PY="$ROOT/.venv/bin/python"
 if [ ! -x "$PY" ]; then
     PY=$(command -v python3 || true)

@@ -33,9 +33,10 @@ see [TESTING.md](TESTING.md).
 - **Allocation is visible in the type.** The allocating containers carry their
   allocator as a type parameter, and the only implicit copies are cheap ones: a
   bitwise copy or a refcount bump. No assignment is secretly O(n). Duplicating
-  a `Vector` is a visible `.copy()`. `sawc0 --no-hidden-alloc` turns this into a
+  a `Vector` is a visible `.copy()`. `--no-hidden-alloc` turns this into a
   check: every allocation must be named by code you wrote, and the compiler
-  allocating on its own authority is a compile error. An allocation that fails
+  allocating on its own authority is a compile error (not yet in `sawc`,
+  SL-865). An allocation that fails
   is reported, not survived: `push`, `insert`, `append` and the allocating
   constructors return `Result<_, AllocError>`.
 - **Destruction is deterministic.** Values are destroyed last-in-first-out as
@@ -757,12 +758,12 @@ See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
 - **Doc comments are checked.** `///` documents the declaration that follows,
   `//!` the file; one that documents nothing is a compile error rather than a
   silent drop. `--emit-docs` writes the program's documentation as JSON,
-  signatures and bounds included. See
+  signatures and bounds included (not yet in `sawc`, SL-880). See
   [Doc comments](LANGUAGE_SPEC.md#doc-comments).
 
 ## Standard library
 
-The standard library lives in `sawc/std/` and includes:
+The standard library lives in `std/` and includes:
 
 - **String** — immutable, reference-counted, always valid UTF-8.
 - **StringBuilder** — growable builder; a fixed-capacity mode allocates
@@ -843,7 +844,7 @@ Saw is freestanding: the same language targets bare metal.
   address, with volatile `read()`/`write()` for device registers.
 - **No hidden allocations, enforced**: `--no-hidden-alloc` rejects the
   allocations the compiler would insert on its own authority, and names the
-  spelling that does not allocate.
+  spelling that does not allocate (not yet in `sawc`, SL-865).
 - **Global state**: `Atomic<Int>`, `SpinLock<T>`, `Mutex<T>`, and `Once<T>`
   cover the common shapes, all declarable as a bare `static`. Compound state
   whose consistency comes from a serialization argument uses
@@ -909,10 +910,12 @@ func boot() {
 ```
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
-optional extensions, a feature list:
+optional extensions, a feature list. `sawc` does not yet write a freestanding
+object or take `--no-hidden-alloc` or `--target-features` (SL-865); with them,
+the build reads:
 
 ```bash
-sawc0 kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
+sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
     --target riscv32-unknown-none-elf --target-features +m,+a,+c
 ```
 
@@ -934,24 +937,18 @@ See [Interoperability](LANGUAGE_SPEC.md#10-interoperability) and
 
 ### Requirements
 
-- Python 3.14 (a virtualenv is used; see below)
-- `llvmlite` (LLVM bindings)
-- Clang (for linking)
-
-### Setup
-
-The compiler runs from a project-local virtualenv at `.venv/`:
-
-```bash
-python3 -m venv .venv
-./.venv/bin/pip install llvmlite
-```
+- Python 3.14, standard library only (the build and test tools are Python)
+- Clang 15 or later (LLVM opaque pointers), which compiles and links `sawc`'s
+  output
+- HTTPS to `blobs.sawlang.com` on the first build, which fetches the bootstrap
+  seed
 
 ### Compile and run
 
 ```bash
-# Compile a program (-o names the output; default is .build/<source>)
-./.venv/bin/python sawc/sawc.py examples/hello.saw -o hello
+# Compile a program (-o names the output; default is .build/<source>).
+# The first run builds sawc itself.
+bin/sawc tests/corpus/hello.saw -o hello
 
 # Run it
 ./hello
@@ -959,8 +956,9 @@ python3 -m venv .venv
 
 ### Putting `sawc` and `blade` on your PATH
 
-`make install` builds Blade and symlinks three shims, `sawc`, `sawc0` and
-`blade`, onto a prefix (`~/.local/bin` by default):
+`make install` builds Blade (with `sawc0`, below, so the first install fetches
+v0.18.0 unless `SAWLANG_V0_ROOT` names a checkout) and symlinks three shims,
+`sawc`, `sawc0` and `blade`, onto a prefix (`~/.local/bin` by default):
 
 ```bash
 make install                        # -> ~/.local/bin
@@ -971,14 +969,21 @@ The shims exec this checkout. `sawc` is the self-hosted compiler: before each
 run it has `compiler/tools/build.py` bring its build up to date, so the first
 run builds it (which needs clang, and HTTPS to the seed's blob host) and an edit or a `git pull` changes what the name means with no
 reinstall. A tree whose compiler does not build makes `sawc` fail with
-build.py's reason. `sawc0` runs Stage 0, the Python compiler in `sawc/`.
-Blade is written in Stage 0's language, so `blade` runs the `sawc0` beside it
-unless `SAWC` names another compiler. If you would rather install nothing,
-put `<checkout>/bin` on your `PATH` instead; the shims work either way.
+build.py's reason. `sawc0` is v0.18.0's compiler, the Python Stage 0 this tree
+no longer holds: the shim forwards to a v0.18.0 checkout, the one
+`SAWLANG_V0_ROOT` names or else one fetched and cached. Blade is frozen in
+v0.18.0's language, so `blade` runs the `sawc0` beside it unless `SAWC` names
+another compiler. If you would rather install nothing, put `<checkout>/bin` on
+your `PATH` instead; the shims work either way.
 
-`sawc --version` and `sawc0 --version` print the same release. Bumping it is
-part of shipping a user-visible change, because a consumer that pins a
-toolchain has only this string to check an installed compiler against.
+`sawc --version` prints the release. Bumping it is part of shipping a
+user-visible change, because a consumer that pins a toolchain has only this
+string to check an installed compiler against.
+
+A consumer that builds Stage 0's language through this repository (sawos, or
+any `SAWLANG_ROOT` user that needs `sawc0`'s command line) builds through a
+pin at or before v0.18.0 until `sawc` builds freestanding objects (SL-865).
+sawos's copy of the toolchain resolver follows this one when its work resumes.
 
 ### Linux
 
@@ -1000,84 +1005,61 @@ that cannot.
 
 ### Compiler options
 
-These are Stage 0's options, which `sawc0` takes. `sawc --help` lists the
-self-hosted compiler's subcommands and flags; `sawc FILE.saw -o OUT` is its
-`sawc build`.
+`sawc FILE.saw -o OUT` is `sawc build`; `sawc --help` lists every subcommand,
+one per compiler stage (`lex`, `parse`, `resolve`, `typecheck`, `mir`, `eval`,
+`borrowck`, `drops`, `mono`, `coro`), each with `--dump` or `--check`.
 
 ```bash
-./.venv/bin/python sawc/sawc.py <source.saw> [options]
-
-Options:
-  --version          Print the compiler version and exit
-  -o <file>          Output file name (default: .build/<source>)
-  -c                 Compile to an object file only (no linking, no main required)
-  -v                 Verbose output
-  --emit-ir          Output LLVM IR only
-  --emit-ast         Dump the typed AST for debugging
-  --ids              With --emit-ast, include each node's stable node_id
-  --emit-docs        Emit documentation JSON instead of code
-  --emit-docs-all    Same, keeping private fields, methods, and inits
-  --emit-frame-layout
-                     Emit the coroutine frame layout report as JSON
-  --emit-bt-table    Decode the linked task-backtrace table as JSON
-  -O0                Disable optimization (raw codegen, for debugging)
-  -O1                Optimize for speed, the default level
-  -O2                Optimize for speed harder: more inlining, GVN,
-                     vectorization. Slower to compile
-  -Os                Optimize for size
-  -Oz                Optimize for size above all else, machine outliner on
-  --target <triple>  Cross-compile for a target triple (default: the host)
-  --target-features <list>
-                     LLVM subtarget features for --target (e.g. +m,+a,+c)
-  --freestanding     Freestanding profile: no hosted std, unlinked object output
-  --no-hidden-alloc  Reject allocations the compiler inserts that your source
-                     does not name
-  --runtime-build    Build a Saw runtime exporting the __saw_rt_* ABI
-  --runtime-provider This package IS a runtime: it may export the __saw_rt_*
-                     seams, each checked against sawc/rt/ABI.md
-  --module-path NAME=DIR
-                     Map a package name to a source directory (repeatable)
-  -W <name>          Enable a warning category (repeatable; `-W all` for every
-                     one). Warnings are off by default and never affect the
-                     exit code. Categories: shadowed-qualifier
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]
+           [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
+           (FILE [-o OUT] | --emit-ll FILE)
+sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
+             (--out DIR | --emit-ll FILE)
+sawc --version
 ```
+
+The `-O` level is handed to clang, and is `-O0` when none is given. `--target`
+cross-compiles for a triple (the
+host by default), and `--module-path` maps a package name to its source
+directory. `--freestanding` and `--runtime` check a program against the
+freestanding profile or the runtime package's rules (each exported `__saw_rt_*`
+seam against `runtime/ABI.md`) but do not build it yet (SL-865). `sawc runtime`
+builds the hosted runtime from `runtime/`.
+
+The spec documents some compiler flags that `sawc` does not take yet: object
+output (`-c`), `--no-hidden-alloc` and `--target-features` (SL-865), the `-W`
+warning categories (SL-879), and `--emit-docs` (SL-880).
 
 ## Running tests
 
-The compiler ships a test runner covering every example. `make test` calls bare
-`python3`, so activate the virtualenv first (or invoke the runner directly):
+`./build.sh test` runs the per-patch gate, the same entry point the merge
+server runs: the compiler's own tests (`compiler/tests/run.py`) always, and the
+fixpoint, grammar-corpus and corpus-differential parts when a change reaches
+their inputs (`--changed-since REV` names the change; with none, every part
+runs).
 
 ```bash
-# Activate the venv, then run the full suite
-source .venv/bin/activate
-make test
-
-# ...or invoke the runner directly without activating
-./.venv/bin/python test_runner.py
-
-# Filter by pattern
-make test-filter FILTER=enum
+./build.sh test                                  # every part
+./build.sh test --changed-since main             # what a branch's change needs
+./.venv/bin/python compiler/tests/run.py --only units,parser   # named steps
+tools/battery.sh --list                          # the full battery's stages
 ```
 
-The suite can also be split across two machines over the network. See
-[TESTING.md](TESTING.md) for the remote worker setup, the sandbox profile, and
-application-level testing with `blade test`.
+See [TESTING.md](TESTING.md) for the test directives, the conformance suite, the
+battery, and application-level testing with `blade test`.
 
 ## Blade package manager
 
 Saw includes Blade, a package manager written in Saw itself. It has a TOML
 parser, a manifest model, a dependency resolver, a deterministic lockfile, git
-fetching, and incremental builds.
+fetching, and incremental builds. Blade and its `libs/` packages are frozen in
+v0.18.0's language until their port to `sawc` (blade/README.md), so they build
+with that release's compiler, `sawc0`.
 
 ```bash
-# Build the package manager (`make blade` does exactly this). Map Blade's own
-# module root, since its modules import one another as `blade.X`, and the
-# libs/toml, libs/semver and libs/imgformat packages it depends on
-./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade \
-    --module-path blade=blade/src \
-    --module-path toml=libs/toml/src \
-    --module-path semver=libs/semver/src \
-    --module-path imgformat=libs/imgformat/src
+# Build the package manager with v0.18.0's compiler: bin/sawc0 runs the
+# checkout SAWLANG_V0_ROOT names, or one it fetches and caches when it is unset
+SAWLANG_V0_ROOT=/path/to/sawlang-v0.18.0 make blade     # -> .build/blade
 
 # Use it
 ./.build/blade new myproject   # scaffold a new project
@@ -1141,22 +1123,19 @@ expects. The divergences are ownership and effects, not surface syntax.
 ## Project structure
 
 ```
-sawc/                  # Compiler implementation
-  sawc.py              # CLI entry point
-  lexer.py             # Tokenizer
-  parser/              # Recursive descent parser
-  ast_nodes.py         # AST node definitions
-  typechecker/         # Type checking passes
-  codegen/             # LLVM IR code generator
-  namespace.py         # Module/symbol resolution
-  builtin.saw          # Built-in traits
-  std/                 # Standard library (.saw files)
+compiler/              # sawc, the compiler, written in Saw: one package per stage
+                       # (lex, parse, resolve, typecheck, mir, ..., llvm), the
+                       # driver, the bootstrap seed's manifest, tools/ and tests/
+std/                   # Standard library (.saw files)
+runtime/               # The runtime, authored in Saw (ABI.md is its contract)
 bin/                   # `sawc`, `sawc0` and `blade` shims (see `make install`)
-examples/              # Example programs (also the compiler test suite)
-blade/                 # Blade package manager (written in Saw)
-libs/                  # Real Saw library packages (semver, toml, imgformat)
+tests/corpus/          # The corpus programs, measured on every patch
+examples/              # Frozen: the key of v0.18.0's recorded snapshots
+blade/                 # Blade package manager (written in Saw), frozen
+libs/                  # Real Saw library packages (semver, toml, imgformat), frozen
 designs/               # Design briefs and the project tracker
 LANGUAGE_SPEC.md       # Full language specification
+GRAMMAR.md             # The formal grammar
 TESTING.md             # Test suite documentation
 ```
 
@@ -1180,10 +1159,12 @@ Saw is in active development. Implemented so far:
   and earned shadowing.
 - **Systems work** — pluggable allocators, memory-mapped I/O, `static_assert`,
   C-ABI exports, `SpinLock<T>` and `unsafe static var` for global state,
-  allocation-free formatting, and `--no-hidden-alloc`.
-- **Tooling** — source-location literals, doc comments with `--emit-docs`
-  extraction, opt-in compiler warnings, reachability-scoped code generation with
-  a dead-stripped link, and the Blade package manager, which is self-hosting.
+  allocation-free formatting, and `--no-hidden-alloc` (in v0.18.0's compiler;
+  not yet in `sawc`, SL-865).
+- **Tooling** — source-location literals, checked doc comments,
+  reachability-scoped code generation with a dead-stripped link, and the Blade
+  package manager, which is self-hosting. `--emit-docs` extraction and opt-in
+  compiler warnings are v0.18.0's and not yet in `sawc` (SL-880, SL-879).
 
 [LANGUAGE_SPEC.md](LANGUAGE_SPEC.md) is the authoritative language reference.
 When it and the compiler disagree, the compiler wins and the spec is the bug.

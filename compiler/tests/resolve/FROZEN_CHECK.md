@@ -6,7 +6,7 @@ definition of what resolve must answer.
 
 ## The tables (`prelude_check.py`)
 
-- The std module table lists exactly the files under `sawc/std`.
+- The std module table lists exactly the files under v0.18.0's `sawc/std`.
 - No synthetic builtin declaration is declared by `builtin.saw` or std.
 - Every name the frozen prelude makes visible that a curated core would keep
   is in the prelude table, from the module the frozen compiler says declares

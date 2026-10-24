@@ -94,9 +94,10 @@ MODULE_DIRS = {
 
 PIN_FILE = "sawlang.pin"
 
-# The v0 compiler, `sawc0`: the last release whose tree holds the frozen Python
-# compiler in `sawc/`. The Stage 0 snapshots were recorded by it, and only a
-# snapshot's regeneration or a frozen source's build runs it (`v0_root`).
+# The v0 compiler, `sawc0`: v0.18.0, the last release whose tree holds the
+# frozen Python compiler (that checkout's `sawc/`). The Stage 0 snapshots were
+# recorded by it, and only a snapshot's regeneration or a frozen source's build
+# runs it (`v0_root`).
 V0_ENV = "SAWLANG_V0_ROOT"
 V0_TAG = "v0.18.0"
 V0_VERSION = "0.18.0"
@@ -327,8 +328,7 @@ def _fetch(sha, env, verbose=False):
     """Step 3: `swoodtke/sawlang` at `sha`, cached, with a venv beside it.
 
     Publishes by RENAME so a fetch that dies half way leaves nothing a later
-    run can mistake for a complete checkout — the same reason `test_runner.py`
-    publishes its result directory atomically (design 220).
+    run can mistake for a complete checkout.
     """
     dest = os.path.join(_cache_root(env), sha)
     if _looks_like_sawlang(dest):
@@ -481,8 +481,8 @@ def resolve(env=None, consumer_root=None, verbose=False):
     named_blade = env.get("BLADE")
 
     if named_sawc:
-        # A string, because that is how Blade already takes it and how a CI
-        # job already writes it (`SAWC="python .../sawc.py"`).
+        # A string, because that is how Blade already takes it, an
+        # interpreter and its script included (`SAWC="python3 .../sawc.py"`).
         sawc_argv = named_sawc.split()
     elif root:
         sawc_argv = _sawc_from_root(root)

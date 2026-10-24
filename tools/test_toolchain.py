@@ -150,6 +150,25 @@ def test_step1_named_root(tmp):
         "is not a sawlang checkout", "bin/sawc")
 
 
+def test_step1_v0_13_root(tmp):
+    print("step 1: SAWLANG_ROOT at a v0.13.0 checkout")
+    # v0.13.0's shape: `bin/sawc` runs that tree's Stage 0 (`sawc/sawc.py`),
+    # and there is no self-hosted compiler. A consumer pinned there still
+    # resolves, by the shim, to that tree's own compiler.
+    root = make_checkout(tmp, "v0.13.0")
+    os.makedirs(os.path.join(root, "sawc"))
+    with open(os.path.join(root, "sawc", "sawc.py"), "w") as f:
+        f.write("# a stand-in v0.13.0 compiler\n")
+    with open(os.path.join(root, "sawc", "version.py"), "w") as f:
+        f.write('SAWC_VERSION = "0.13.0"\n')
+    c = consumer(tmp)
+    tc = resolve(env={"SAWLANG_ROOT": root, "PATH": ""}, consumer_root=c)
+    check("a v0.13.0 checkout is a sawlang checkout", tc.root == root, tc.root)
+    check("its own bin/sawc is the compiler", tc.sawc() == [os.path.join(root, "bin", "sawc")], tc.sawc())
+    check("its packages resolve under it",
+          tc.module_source("toml") == os.path.join(root, "libs", "toml", "src"))
+
+
 def test_step1_beats_path(tmp):
     print("step 1: a named root beats an installed compiler")
     root = make_checkout(tmp, "editing")
@@ -408,6 +427,7 @@ def test_unknown_package(tmp):
 TESTS = [
     test_step1_in_repo_default,
     test_step1_named_root,
+    test_step1_v0_13_root,
     test_step1_beats_path,
     test_step1_named_artifacts,
     test_step2_path,

@@ -1,0 +1,12 @@
+# The frozen directories and the git tree each is held to (compiler/tests/run.py,
+# the `frozen` step). Each is v0.18.0's sources, which nothing in this tree
+# builds; its README gives the v0 recipe. A change to one is a deliberate act
+# that edits its row here in the same patch.
+# DIRECTORY	TREE
+blade	d737b2c56f82bb06ee641c0faa8d4ce069b91c6c
+libs	3e243bc72faae9d2166d9c4d41e627891f69cdd5
+tests/freestanding	56f5eaef792c7a15231d2e00b5fd425a0d1d9585
+examples	1a5b257209a532d443f819d08080ae3b62c97e36
+devtools/bench	32142990e6c6efc463d96ac0fc01c7e80b74600b
+devtools/dogfood	019cba6702e615a98481a2142f97bc3eec9857b8
+prototypes	957f127ebf61d565883c537179e70af888807d12

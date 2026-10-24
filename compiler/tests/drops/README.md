@@ -182,7 +182,7 @@ discarded where it is made. The check reads and adds nothing, so a program it
 accepts elaborates exactly as before (golden `fates`).
 
 **The escape matrix**, each row against Stage 0's spawn-obligation funnel
-(`sawc/typechecker/types.py`), each cell probed with both compilers:
+(v0.18.0's `sawc/typechecker/types.py`), each cell probed with both compilers:
 
 | route | sawc | Stage 0 |
 |---|---|---|

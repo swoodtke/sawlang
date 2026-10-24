@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The Python half of the design-169 wire contract.
 
-`sawc/std/CBOR.md` is the frozen profile. This tool holds the OTHER
+`std/CBOR.md` is the frozen profile. This tool holds the OTHER
 implementation of it, over the `cbor2` library, so the golden vectors under
 `tests/cbor_vectors/` are checked against two independent readers rather than
 against whichever one was written first.
