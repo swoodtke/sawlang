@@ -1,0 +1,14 @@
+// refuses: borrowing.exclusive-alias at 13:5
+// two `&var` fields, an owned one between them: the second aliases the first's one root (SL-871)
+
+struct Grid {
+    cells: Vector<Int>
+}
+
+extension Grid: NoCopy {}
+
+borrows struct Cells {
+    grid: &var Grid,
+    index: Int,
+    other: &var Grid
+}

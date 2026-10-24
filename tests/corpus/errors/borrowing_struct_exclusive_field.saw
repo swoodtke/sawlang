@@ -1,19 +1,19 @@
-// K145 (design 275 U3): A BORROWING STRUCT HOLDS SHARED REFERENCES ONLY.
+// K145 and K212 (SL-871 unit 1): A BORROWING STRUCT'S REFERENCE FIELD IS
+// `&T` OR `&var T`, AND A `&var` FIELD STANDS ALONE.
 //
-// U3 is a shared-window feature. An iterator carrying `&var Collection` could
-// REALLOCATE the very collection an outer shared iterator is reading through
-// its own field, and recording the root alone would not catch it — so a `&var`
-// field is refused at the field, with the rule named. That is DISTINCT from
-// `next(&var self)`: the cursor is the iterator's OWN state, and mutating it
-// is not mutable access to the borrowed collection.
+// A `&var` field is legal: its producer takes `&var self`, so the window
+// charges the root exclusively for the struct's whole life, and each `next`
+// reborrows through the struct (`Writer` below declares cleanly). What stays
+// refused:
 //
-// The generic window record still reserves shared/exclusive MODES for later
-// clients; the exclusive-window derivation, with its writer-versus-reader and
-// nested-window rows, is the follow-up's to specify.
+//   * a slice field, which no `lends self` fills;
+//   * a `&var` field beside another reference field: every reference field is
+//     filled with `lends self`, so the two would alias the one root, a writer
+//     beside another path to it (ruled by the user, Oct 24).
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: may not be an EXCLUSIVE reference
-// EXPECT-ERROR-CONTAINS: a borrowing struct holds SHARED references only
-// EXPECT-ERROR-CONTAINS: Lend it shared
+// EXPECT-ERROR-CONTAINS: and `&[Int]` is a slice, which no `lends self` makes
+// EXPECT-ERROR-CONTAINS: holds the `&var` field `bag` and the reference field `view`
+// EXPECT-ERROR-CONTAINS: so both would alias the one root
 
 struct Bag {
     private items: Vector<Int>
@@ -22,6 +22,17 @@ extension Bag: NoCopy {}
 
 borrows struct Writer {
     private bag: &var Bag
+    private index: Int
+}
+
+borrows struct Sliced {
+    private items: &[Int]
+    private index: Int
+}
+
+borrows struct Aliased {
+    private bag: &var Bag
+    private view: &Bag
     private index: Int
 }
 

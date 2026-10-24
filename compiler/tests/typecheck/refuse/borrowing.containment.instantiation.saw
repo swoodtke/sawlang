@@ -1,0 +1,46 @@
+// refuses: borrowing.containment at 44:9
+// a borrowing struct's own value passed to a generic function, which infers a type parameter at it and takes a copy by value (SL-871)
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct Walk {
+    bag: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, index: 0)
+    }
+}
+
+extension Walk: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.bag.items.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.bag.items[i]
+    }
+}
+
+func advance<I: Iterator>(it: I) -> Int {
+    var x = it
+    var n = 0
+    while let _ = x.next() {
+        n = n + 1
+    }
+    n
+}
+
+extension Walk {
+    func rest(&self) -> Int {
+        advance(self)
+    }
+}

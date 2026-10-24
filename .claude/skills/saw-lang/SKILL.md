@@ -1157,33 +1157,38 @@ var u = w.copy()       // explicit duplicate
   the `&T` field is the ordinary reference spelling, `borrows` on a
   VALUE-returning signature says the result borrows the receiver, and `lends
   self` at the initializer is the body's proof. THE VALUE LIVES ONLY IN ITS
-  WINDOW: legal in exactly one position, the DIRECT head of a `for` whose
-  receiver is a place rooted in a named binding. `let it = v.iter()` is
-  refused, and so is `for x in make_vector().iter()` ("bind the collection
-  first" — a temporary has no persistent storage for the window to point
-  into), an argument, a field, a `move` operand, a `??` operand, a closure
-  return. NOTHING ERASES IT either: not `Optional<It>`, `Vector<It>`,
-  `Box<It>`, a bare `T`, an `any Trait`, or a function type's return or
-  parameter (`() -> It`, `(It) -> Int`) — each refused at the DECLARATION
-  that names the type, which is what makes a laundering helper unwritable
-  rather than caught. `lends self` is the ONLY origin (a projection, another
-  reference parameter and a local are each refused by name). Owned fields and
-  a `deinit` work; at the close the struct is destroyed and THEN the root
-  charge ends, so a `deinit` may read through the reference.
-  **THE RULED LANGUAGE LIFTS FOUR OF STAGE 0'S REFUSALS** (SL:borrowing §2.6):
-  a `&var` field is allowed (the collection is charged exclusively for the
-  struct's life, each `next` reborrows through it); a `&var self` accessor may
-  lend one (root exclusive); a TEMPORARY may be the head
-  (`for x in make_vector().iter()`, kept alive for the loop); and an item may
-  be LENT — `LendingIterator`, `func next(&var self) borrows -> &var Item?`
-  (or `&Item?`), beside the owned-item `Iterator` (ranges, generators). A
-  `borrow` block head is the second legal position besides a `for` head.
+  WINDOW: the DIRECT head of a `for` (a temporary receiver is kept alive for
+  the loop, so `for x in make_vector().iter()` works). `let it = v.iter()` is
+  refused, and so are an argument, a field, a `move` operand, a `??` operand
+  and a closure return. NOTHING ERASES IT either: not `Optional<It>`,
+  `Vector<It>`, `Box<It>`, a bare `T`, an `any Trait`, or a function type's
+  return or parameter (`() -> It`, `(It) -> Int`): each is refused at the
+  DECLARATION that names the type, and an INFERRED type argument is refused
+  too (`advance(self)` into `<I: Iterator>`, `Optional.Some(self)`, `[self]`),
+  so a laundering helper can't be written or called. `lends self` is the ONLY
+  origin (a projection, another reference parameter and a local are each
+  refused by name). Owned fields and a `deinit` work; at the close the struct
+  is destroyed and THEN the root charge ends, so a `deinit` may read through
+  the reference.
+  **EXCLUSIVE BORROWING STRUCTS** (SL-871 unit 1): a field may be `&var T`,
+  filled by `lends self` from a `&var self` accessor (a `&self` one is
+  `lends.origin`). The root is charged exclusively for the struct's whole
+  window, so the `for` body can't touch the collection at all, and each
+  `next` reborrows through the struct. A struct with a `&var` field holds NO
+  other reference field (`borrowing.exclusive-alias`: both would alias the
+  one root). A write through the `&var` field follows its path: from a
+  `&self` method it's refused.
+  **STILL PLANNED:** a `borrow` block head as the second legal position
+  (SL-871 unit 2), and LENT items. RULED SHAPE: ONE `LendingIterator`,
+  `func next(&var self) borrows -> &Item?`; an impl may lend MORE
+  (`-> &var Item?`), and `for borrow var` needs the concrete `next` to lend
+  `&var` (SL-871 unit 3).
   `for borrow let s in sessions.iter() { … }` / `for borrow var c in
   grid.cells() { … }` borrow each element in place (needs a
   `LendingIterator`); plain `for x in …` over one COPIES each element (needs
-  copyable elements); `for borrow let i in 0..n` is refused. Stage 0 keeps all
-  four refusals: shared fields only, `&self` origin only, owned `Item`, no
-  temporary head.
+  copyable elements); `for borrow let i in 0..n` is refused. Stage 0 (`sawc0`)
+  keeps its four refusals: shared fields only, `&self` origin only, owned
+  `Item`, no temporary head.
   Fences, ruled language: any borrow may span a suspend unless the accessor is
   `borrows(sync)`; function types carry `borrows`/`borrows(sync)` (legal to
   spell, but no expression makes such a value: no method references, and a closure

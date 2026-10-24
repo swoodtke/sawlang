@@ -887,7 +887,7 @@ Every body construct in the slice, and how it is typed:
 | `while`, `while { }`, `while let`, `for`, `break`, `continue`, `return` | `Void`, or `Never` with no `break` | control, places |
 | `let`, `var`, destructuring, assignment, compound assignment, `guard`, `lend` | statements | funnel, patterns, declarations |
 | a `borrow` block, `borrow` place, `if borrow let` | the place's type, borrowed | borrows |
-| `lends self`, a reference field's value in the construction a `borrows -> S` function returns | `&Self`, shared, typed as `&self` is; any other operand, a `&var self` receiver, and every other position refused (the origin funnel, below) | declarations; lends.origin, lends.position, slice.not-yet.lends-exclusive |
+| `lends self`, a reference field's value in the construction a `borrows -> S` function returns | `&Self` from a `&self` receiver, `&var Self` from a `&var self` one; a `&self` receiver filling a `&var` field, any other operand, and every other position refused (the origin funnel, below) | declarations; lends.origin, lends.origin.shared-receiver, lends.position |
 | `borrow var PLACE`, `borrow PLACE` where a `&var T` or `&T` parameter expects it | the place passed by reference, `&var T` or `&T` (SL:borrowing §2.2) | borrow_arguments |
 | a default value whose parameter's type is a type parameter, `b: T = 0` | a literal or constant chain typed `T`, whose own type drives each call's inference unless `T` has a written default type, or `None`, which needs each call's `T` optional; checked against each call's `T`, a literal or constant expression folded at it (design 108); a static or raw case in it refused | generic_defaults; literal_default_range; generic-default, generic-default-overflow, generic-default-negative, generic-default-static, generic-default-raw-case, generic-default-type-default, generic-default-type-default-float |
 | patterns: wildcard, literal, range, tuple, variant, name, `None`, borrow binding | the matched type; bindings copy, take, move or alias | patterns, places |
@@ -900,7 +900,6 @@ Every body construct in the slice, and how it is typed:
 | a `try(as ...)` route | `slice.not-yet` (the alternative) |
 | an open range, `a..` or `..b` | `slice.not-yet` (the alternative) |
 | `for borrow`, `while borrow`, `move *p` | `slice.not-yet` (the alternative) |
-| `lends self` from a `&var self` receiver | `slice.not-yet` |
 | `break` with a value | `slice.not-yet` (`syntax.stmt.break`) |
 | a method or static method named without its call | `slice.not-yet` (`syntax.expr.member`) |
 | a call of a type parameter with arguments, `T(x)` | `slice.not-yet` (`syntax.expr.call`) |
@@ -1031,6 +1030,9 @@ against Stage 0:
 | a function type's parameter or result | refused | borrowing.containment.function-type |
 | a `borrows` call lending one as an argument, a receiver, or any other value position but a head | refused | borrowing.containment.argument, .receiver |
 | a construction outside a returning path of the `borrows` function that lends it | refused | borrowing.containment.construction |
+| a type argument a call infers from one or names, its own or its owner's: a generic function, a generic method, a closure whose parameter the call infers (SL-871) | refused | borrowing.containment.instantiation, .instantiation-method, .instantiation-closure |
+| a value a body builds that holds one: `Optional.Some`, `Result.Err`, a collection literal (SL-871) | refused | borrowing.containment.instantiation-optional, .instantiation-result, .instantiation-collection |
+| a `&var` field beside another reference field, either order, a second `&var` included (SL-871) | refused | borrowing.exclusive-alias, .two-exclusive |
 | a `for` head, a `borrow` head, a reference parameter | allowed | body_rules |
 
 **The origin funnel** (`check_lend_origins`, `compiler/typecheck/src/bodychecks.saw`;
@@ -1043,10 +1045,11 @@ whose every reference field is `lends self`, and nothing else constructs one.
 | cell | verdict | covered by |
 |---|---|---|
 | `lends self` from a `&self` receiver, on every path | allowed | declarations; run `lends_for`, `lends_for_suspends` |
+| `lends self` from a `&var self` receiver, into a `&var` field or a `&` one; the window charges the root exclusively (SL-871) | allowed | run probes `exclusive_borrowing_struct_for`, `exclusive_borrowing_struct_suspends`; borrowck `loan.window-root.exclusive-carrier` |
+| `lends self` from a `&self` receiver into a `&var` field (SL-871) | refused | lends.origin.shared-receiver |
 | `lends self.items`, a projection | refused | lends.origin |
 | `lends other`, a reference parameter | refused | lends.origin.parameter |
 | `lends spare`, a local | refused | lends.origin.local |
-| `lends self` from a `&var self` receiver | refused | slice.not-yet.lends-exclusive |
 | `lends self` outside such a construction | refused | lends.position |
 | a path yielding another producer's result | refused | lends.path |
 | a path whose construction fills a reference field with something else | refused | lends.path.construction |
@@ -1219,6 +1222,8 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | an `unsafe static var` | allowed | mutability |
 | a raw pointer's pointee, through a `let` pointer or a `&self` receiver | allowed | mutability |
 | `&self` writing storage the receiver points at (SL:borrowing §9, SL-483): a `Vector` field's element assigned, compound-assigned, passed `borrow var`, opened in a `borrow var` block; a `&var self` method of one; a hand-written accessor lending out of a `Vector`; a nested chain; a `[&self]` capture's write; a prologue write in a `&self` `borrows` body; a read through a `&var self` accessor with no shared twin | refused | mutability.immutable.shared-receiver-heap, -heap-compound, -heap-argument, -heap-block, -heap-method, -heap-accessor, -heap-chain, mutability.immutable.shared-capture-heap, mutability.immutable.shared-accessor-heap, mutability.immutable.exclusive-only-heap |
+| a borrowing struct's `&var` field written through `&self` or a `&Cells` parameter, assigned or passed `&var` (SL-871) | refused | mutability.immutable.exclusive-field-shared-self, -shared-parameter, -shared-self-argument |
+| a `for` head through an exclusive borrowing struct's `&var self` producer on a `let` root or a `&` parameter (SL-871) | refused | mutability.immutable.exclusive-carrier-let-root, -shared-parameter-root |
 | a raw pointer's pointee from `&self`: `p[0] = v`, `*p = v`, a pointer read out of a `Vector` field (SL:open-questions D28); a `&self` accessor's lend, whose receiver is only read (SL:borrowing §3); storage the receiver points at under `&var self` | allowed | mutability |
 | a `&self` `borrows` body writing through a window on `self`'s inline storage (row M33) | refused | mutability.immutable.shared-accessor-window |
 | a read through a `&var self` accessor with no shared twin, on a `let` root, at each window opener: a subscript, a named accessor, a conditional lend through `!`, a `borrow let` head, a `for` head, a nested window, a method call's receiver; a `&self` accessor forwarding its lend through one (rows K123, K125, K129) | refused | mutability.immutable.exclusive-only-subscript, -accessor, -conditional, -borrow-let, -for-head, -nested, -receiver, -forwarded-lend |
@@ -1239,7 +1244,7 @@ function type, whose own nodes answer. Under `type.reference-position`:
 | a function type's return, written as a parameter's or a field's type | refused | type.reference-position.function-type-return, type.reference-position.field-function-type |
 | a return naming one in a tuple, an optional (`&Int?`), a type argument | refused | type.reference-position.return-tuple, type.reference-position.return-optional, type.reference-position.return-vector |
 | a struct field, an enum payload, a static | refused | type.reference-position.field, type.reference-position.payload, type.reference-position.static |
-| an exclusive field of a borrowing struct | refused | type.reference-position.borrowing-field |
+| a slice field of a borrowing struct | refused | type.reference-position.borrowing-field |
 | a type argument, in a parameter's type too: `Vector`, `Map`'s value, `Optional<&T>` written, `Box`, nested | refused | type.reference-position.type-argument, type.reference-position.map-value, type.reference-position.optional-written, type.reference-position.box, type.reference-position.nested-generic |
 | a type argument written at a call, `idn<&Int>(&x)` | refused | type.reference-position.explicit-instantiation |
 | an alias used as a field's or a return's type | refused | type.reference-position.alias-field, type.reference-position.alias-return |
@@ -1265,7 +1270,7 @@ function type, whose own nodes answer. Under `type.reference-position`:
 | a parameter: `&T`, `&var T`, `&[T]`, `&any Trait`, an alias of a reference, an extern's | allowed | reference_positions |
 | a function type's parameter, `(&Int) sync -> R` | allowed | reference_positions |
 | a `borrows` lend: `-> &T`, `-> &var T`, `-> &var T?` (SL:borrowing §2) | allowed | reference_positions |
-| a borrowing struct's shared field (spec, Borrowing structs; `borrowing.containment` keeps its values in their window) | allowed | reference_positions |
+| a borrowing struct's `&T` or `&var T` field (spec, Borrowing structs; `borrowing.containment` keeps its values in their window) | allowed | reference_positions; run probe `exclusive_borrowing_struct_for` |
 | a type alias standing for a reference | allowed | reference_positions |
 | a bare `&` as a call argument, and as the operand of a cast to a raw pointer (DF-163f) | allowed | reference_positions |
 | a reference read through a binding into an unannotated `let` or a closure's inferred result, which gives the value | allowed | reference_positions |
@@ -1632,7 +1637,7 @@ its fixit.
 | `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected, though not one whose slot holds a type already refused, which adopts the error type |
 | `implicit-member.no-type` | an implicit member where nothing expects a type, with the `Enum.Case` fix-it |
 | `mutability.immutable` | a write or an exclusive borrow of a place nothing makes writable: rooted in a `let`, a pattern's, a `for` loop's or a closure parameter's binding, a parameter taken by value, a plain `static`, `self` under `&self`, a binding a closure captured by value (in every closure, SL-472) or by shared borrow, or reached through a shared reference or a read-only lend (the mutability matrix) |
-| `type.reference-position` | a reference where a type is stored, returned or bound: every written position but a parameter, a function type's parameter, a `borrows` lend and a borrowing struct's shared field, at any depth; a bare `&` outside a call argument or a pointer cast; a binding inferred to name one; a call instantiated at one (the reference-position matrix) |
+| `type.reference-position` | a reference where a type is stored, returned or bound: every written position but a parameter, a function type's parameter, a `borrows` lend and a borrowing struct's `&T` or `&var T` field, at any depth; a bare `&` outside a call argument or a pointer cast; a binding inferred to name one; a call instantiated at one (the reference-position matrix) |
 | `transfer.partial-move` | a spelled `move` of a part of a binding: a field, a tuple element, an element, an optional field's payload, at any depth (the field move-out matrix) |
 | `transfer.move-from-borrow` | a spelled `move` of a binding that owns nothing: a reference, a closure's reference parameter, a `borrow` binding, a `[&x]` or `[&var x]` capture, a pattern's binding aliasing a part of a borrowed scrutinee, which a name reading through a borrow is as a scrutinee (spec, Reference Semantics; DF-288a) |
 | `transfer.implicit-copy` | an ExplicitCopy or NoCopy place read by value with no `move`, payload reads included (design 131), and a projection's (`T.Item` in a generic body, a trait's own `Item` in its default bodies); a closure's capture of one by value with nothing written, with the fix-it `[move x]`; a repeat literal's element, whatever the value is, a temporary or a `move` included, refused once, as the repeat (SL-612); a plain subscript of such an element read where its position keeps nothing, a getitem all the same, with the fix-it `borrow` (D29). A place read's hint offers only what compiles for its shape, `move` on a binding that owns its value or on its optional's payload, `take()` on an optional place a write through lands in (a `var`, a `&var` parameter, `&var self`), and through an owned root that is never written a move of the root into a `var` first, `.copy()` where the type meets `ExplicitCopy`, and names the tier only where the type establishes one (SL-500; golden `implicit_copy_hints`, and golden `implicit_copy_fixes` with each fix applied) |
@@ -1667,8 +1672,9 @@ its fixit.
 | `static.zero-invalid` | a static or `unsafe static var` with no initializer whose all-zero value holds, at any depth, a part with no valid zero: a `String`, an enum with a payload, a raw-backed enum with no case of value 0, a function, a `FuncPointer`, `Never`, naming it (SL-660; the zero-init matrix below) |
 | `static.cycle` | a static whose value depends on itself, through any number of statics, named in order |
 | `static_assert.failed` | a `static_assert` whose condition folds to `false`, at the top of a file or in a body, a static it names declared later or in a module checked later included (`.declared-later`, `.declared-later-module`); one over a layout once the layout-assert funnel measures it (Layout asserts) |
-| `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type; a `borrows` call lending one anywhere but such a head; a construction of one outside a returning path of the `borrows` function that lends it |
-| `lends.origin` | a `lends` whose operand is not `self`: a projection of the receiver, a parameter, a local, named in the message (spec, Borrowing structs, "The origin is the receiver") |
+| `borrowing.containment` | a borrowing struct (spec, Borrowing structs) bound outside the head of a `borrow` or a `for`, taken as a parameter by value, stored in a field or a payload, erased to an existential, returned by a function that does not lend it with `borrows`, or carried by a function type; a `borrows` call lending one anywhere but such a head; a construction of one outside a returning path of the `borrows` function that lends it; a type argument a call infers or names at one, and a value a body builds that holds one (SL-871) |
+| `borrowing.exclusive-alias` | a borrowing struct holding a `&var` field and another reference field, named both: every reference field is `lends self`, so the two would alias the one root (SL-871) |
+| `lends.origin` | a `lends` whose operand is not `self`: a projection of the receiver, a parameter, a local, named in the message; `lends self` from a `&self` receiver into a `&var` field (spec, Borrowing structs, "The origin is the receiver") |
 | `lends.position` | a `lends` anywhere but a reference field's value in a construction a `borrows` function returns |
 | `lends.path` | a returning path of a `borrows -> S` function that ends in anything but a construction of `S` with `lends self` in every reference field, at the path's value |
 | `escaping.stored` | a non-escaping function value (a parameter whose function type does not say `escaping`, or a local bound to one) in a position that holds it past the call: a field, a payload, an element, an Optional, a return, an assignment's target, an escaping closure's capture, a type argument, an `escaping` parameter (D35) |

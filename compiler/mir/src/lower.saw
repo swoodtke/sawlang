@@ -2024,9 +2024,10 @@ extension MirProgram {
             case Expr_Ref_Shared -> MirVal(operand: self.reference(e, false)),
             case Expr_Ref_Exclusive -> MirVal(operand: self.reference(e, true)),
             // `lends self` hands the receiver's reference to the borrowing
-            // struct as `&self` would; the loan it stands for is the window
-            // the caller opens (SL:architecture §3.6).
-            case Expr_Lends -> MirVal(operand: self.reference(e, false)),
+            // struct in the mode typecheck gave it, the receiver's; the loan
+            // it stands for is the window the caller opens (SL:architecture
+            // §3.6).
+            case Expr_Lends -> MirVal(operand: self.reference(e, self.tc.kind_of(t) == TcKind.Ref && self.tc.types.ty(t).a == 1)),
             case Expr_Move_Place -> self.move_val(e),
             case Expr_Try_Propagate -> MirVal(operand: self.try_propagate(e)),
             case Expr_Try_Force -> self.try_force(e),

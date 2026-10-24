@@ -120,6 +120,8 @@ extension TcProgram {
                 self.check_function_containment(decl)
             } else if info.kind == ResDeclKind.Enum {
                 self.check_raw_backing(decl)
+            } else if info.kind == ResDeclKind.Struct && self.is_borrowing_struct(decl) {
+                self.check_exclusive_alias(decl)
             } else if info.kind == ResDeclKind.Static {
                 self.check_static_type(decl)
             }
@@ -657,6 +659,50 @@ extension TcProgram {
         ""
     }
 
+    // A borrowing struct with a `&var` field holds no other reference field:
+    // every reference field is filled with `lends self`, so a second one
+    // would alias the one root beside a writer.
+    func check_exclusive_alias(&var self, d: Int) {
+        let members = self.members_of(d)
+        var first = -1
+        var exclusive = -1
+        var k = 0
+        while k < members.len() {
+            let f = members[k]
+            k = k + 1
+            let t = self.sigs[f].result
+            if self.res.decls[f].kind != ResDeclKind.Field || t < 0 || self.kind_of(t) != TcKind.Ref {
+                continue
+            }
+            if first < 0 {
+                first = f
+                if self.types.ty(t).a == 1 {
+                    exclusive = f
+                }
+                continue
+            }
+            if exclusive < 0 && self.types.ty(t).a == 1 {
+                exclusive = f
+            }
+            if exclusive < 0 {
+                continue
+            }
+            let other = if exclusive == f { first } else { f }
+            let info = self.res.decls[d]
+            var msg = StringBuilder()
+            try! msg.append("the borrowing struct `")
+            try! msg.append(self.res.decl_path(d))
+            try! msg.append("` holds the `&var` field `")
+            try! msg.append(self.name_text(self.res.decls[exclusive].name))
+            try! msg.append("` and the reference field `")
+            try! msg.append(self.name_text(self.res.decls[other].name))
+            try! msg.append("`: every reference field is filled with `lends self`, so both would alias the one root, a writer beside another path to it; a borrowing struct with a `&var` field holds no other reference field, so reach the root through that one")
+            let site = self.decl_site(f)
+            self.refuse_in(info.module, site, "borrowing.exclusive-alias", msg.build())
+            return
+        }
+    }
+
     func refuse_containment(&var self, m: Int, at: Int, t: Int, how: String) {
         var msg = StringBuilder()
         try! msg.append("the borrowing struct `")
@@ -727,14 +773,17 @@ extension TcProgram {
         }
     }
 
-    // A binding of a borrowing struct outside a `borrow` head, and an
-    // erasure of one into an existential.
+    // A binding of a borrowing struct outside a `borrow` head, an erasure of
+    // one into an existential, and one composed into another type.
     func check_node_containment(&var self, id: Int) {
         let t = self.expr_types[id]
         if t < 0 {
             return
         }
         let binding = self.has_alt(id, Alt.Stmt_BindingName) || self.has_alt(id, Alt.Pat_Name)
+        if not binding && self.check_composed_containment(id, t) {
+            return
+        }
         if binding && self.expr_place[id] {
             let u = self.expr_use[id]
             if u != TcUse.Borrow && u != TcUse.BorrowVar && u != TcUse.Test {
@@ -754,6 +803,95 @@ extension TcProgram {
                 self.refuse_containment(m, id, found, "erased to an existential")
             }
         }
+    }
+
+    // THE instantiation containment check: a borrowing struct may not
+    // instantiate a type parameter, written or inferred, nor be held inside
+    // another type a body builds (spec, Borrowing structs, "Nothing erases
+    // it"). A generic would take the struct by value, a copy whose
+    // references alias the one window. Returns whether node `id` was refused.
+    //
+    // ENTRY POINTS:
+    //     check_node_containment
+    func check_composed_containment(&var self, id: Int, t: Int) -> Bool {
+        // A variant pattern takes its scrutinee's type, which the
+        // scrutinee answers for.
+        if self.has_alt(id, Alt.Pat_Variant) || self.has_alt(id, Alt.Pat_Pattern_Variant) {
+            return false
+        }
+        let m = self.node_in_module(id)
+        let held = self.composed_borrowing(t)
+        if held >= 0 && self.builds_value(id) {
+            var how = StringBuilder()
+            try! how.append("held inside `")
+            try! how.append(self.type_text(t))
+            try! how.append("`")
+            self.refuse_containment(m, id, held, how.build())
+            return true
+        }
+        let at = self.call_at[id]
+        if at < 0 {
+            return false
+        }
+        let c = self.calls[at]
+        var found = -1
+        var k = 0
+        while k < c.inst_count && found < 0 {
+            found = self.borrowing_named(self.insts[c.inst_first + k])
+            k = k + 1
+        }
+        if found < 0 && c.owner >= 0 && self.kind_of(c.owner) == TcKind.Nominal {
+            // A receiver that composes one is refused where it stands.
+            let receiver = self.call_receiver(id)
+            let shown = receiver >= 0 && self.composed_borrowing(self.expr_types[receiver]) >= 0
+            let args = self.nominal_args(c.owner)
+            k = 0
+            while k < args.len() && found < 0 && not shown {
+                found = self.borrowing_named(args[k])
+                k = k + 1
+            }
+        }
+        if found < 0 {
+            return false
+        }
+        var how = StringBuilder()
+        try! how.append("a type argument of `")
+        if c.target >= 0 {
+            try! how.append(self.res.decl_path(c.target))
+        } else {
+            try! how.append(self.text(m, id))
+        }
+        try! how.append("`, which would take it by value")
+        self.refuse_containment(m, id, found, how.build())
+        true
+    }
+
+    // Whether node `id` builds a value of its type: a call, a construction,
+    // a case or a literal. Every other node holding one reaches it through
+    // a part that builds it.
+    func builds_value(&self, id: Int) -> Bool {
+        if self.call_at[id] >= 0 {
+            return true
+        }
+        self.has_alt(id, Alt.Expr_Array) || self.has_alt(id, Alt.Expr_Repeat) || self.has_alt(id, Alt.Expr_Map_Entries) || self.has_alt(id, Alt.Expr_Set) || self.has_alt(id, Alt.Expr_Tuple_Positional) || self.has_alt(id, Alt.Expr_Tuple_Named)
+    }
+
+    // The borrowing struct type `t` holds inside another type, or -1: `t`
+    // itself is none, and neither is a reference, which passes a bound place
+    // onward, nor a function type, whose instantiation is the call's that
+    // takes it.
+    func composed_borrowing(&self, t: Int) -> Int {
+        if t < 0 {
+            return -1
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Func {
+            return -1
+        }
+        if info.kind == TcKind.Nominal && self.is_borrowing_struct(info.decl) {
+            return -1
+        }
+        self.borrowing_named(t)
     }
 
     // Whether function `d` is one whose body the unsafe trigger rule asks

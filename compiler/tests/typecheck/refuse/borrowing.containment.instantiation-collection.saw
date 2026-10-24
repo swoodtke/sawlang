@@ -1,0 +1,37 @@
+// refuses: borrowing.containment at 35:9
+// a collection literal of a borrowing struct (SL-871)
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct Walk {
+    bag: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, index: 0)
+    }
+}
+
+extension Walk: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.bag.items.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.bag.items[i]
+    }
+}
+
+extension Walk {
+    func count(&self) -> Int {
+        [self].len()
+    }
+}

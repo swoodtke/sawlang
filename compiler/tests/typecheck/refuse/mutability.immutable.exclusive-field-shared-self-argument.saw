@@ -1,0 +1,44 @@
+// refuses: mutability.immutable at 42:20
+// `&var` of a borrowing struct's `&var` field passed on from a `&self` method (SL-871)
+
+struct Grid {
+    cells: Vector<Int>
+    n: Int
+}
+
+extension Grid: NoCopy {}
+
+borrows struct Cells {
+    grid: &var Grid,
+    index: Int
+}
+
+extension Grid {
+    func cells(&var self) borrows -> Cells {
+        Cells(grid: lends self, index: 0)
+    }
+
+    func size(&self) -> Int { self.cells.len() }
+
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+extension Cells: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.grid.cells.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.grid.cells[i]
+    }
+}
+
+func reset(g: &var Grid) { g.n = 0 }
+
+extension Cells {
+    func poke(&self) {
+        reset(&var self.grid)
+    }
+}

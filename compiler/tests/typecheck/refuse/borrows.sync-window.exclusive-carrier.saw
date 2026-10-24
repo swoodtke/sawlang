@@ -1,0 +1,42 @@
+// refuses: borrows.sync-window at 38:9
+// a `borrows(sync)` exclusive borrowing struct's window, and a suspension in the loop body (SL-871)
+
+import std.task.*
+
+struct Grid {
+    cells: Vector<Int>
+}
+
+extension Grid: NoCopy {}
+
+borrows struct Cells {
+    grid: &var Grid,
+    index: Int
+}
+
+extension Grid {
+    func cells(&var self) borrows(sync) -> Cells {
+        Cells(grid: lends self, index: 0)
+    }
+}
+
+extension Cells: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.grid.cells.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.grid.cells[i]
+    }
+}
+
+func walk(g: &var Grid) -> Int {
+    var t = 0
+    for c in g.cells() {
+        yield_now()
+        t = t + c
+    }
+    t
+}

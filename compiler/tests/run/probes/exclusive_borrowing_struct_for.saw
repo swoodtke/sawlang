@@ -1,0 +1,142 @@
+// probe: stated
+// about: an exclusive borrowing struct at a `for` head: `&var` fields, a `&var self` origin, writes through the field in `next` and `deinit` (SL-871)
+// stage 0: refuses a `&var` field of a borrowing struct (K145)
+// speeds: -O0 -O2
+// leaks: none
+// prints: cells deinit at 3 of 3
+// prints: note sum dropped
+// prints: sum = 36
+// prints: cells deinit at 1 of 3
+// prints: note find dropped
+// prints: first = 21
+// prints: cells deinit at 1 of 3
+// prints: note break dropped
+// prints: seen = 0, cells = 31 12 13, visits = 3
+// prints: peeked = 56
+// prints: temp 11
+// prints: temp 12
+// prints: cells deinit at 2 of 2
+// prints: note temp dropped
+// prints: grid deinit, visits 1
+// prints: done
+// prints: grid deinit, visits 3
+// Spec-derived expectation (no oracle): each `next` adds 10 to the cell it
+// hands out, through the `&var` field; on every route out (the end, a
+// `return`, a `break`) the struct's `deinit` runs first, bumping `visits`
+// and reading the grid through the field, then its owned `note` drops, and
+// only then does the window close. A `&var self` producer of a struct with a
+// shared field reads; a temporary root lives until its window closes.
+
+struct Grid {
+    cells: Vector<Int>
+    visits: Int
+}
+
+extension Grid: NoCopy {
+    func deinit(&var self) { print("grid deinit, visits {}", self.visits) }
+}
+
+struct Note {
+    label: String
+}
+
+extension Note: NoCopy {
+    func deinit(&var self) { print("note {} dropped", self.label) }
+}
+
+borrows struct Cells {
+    grid: &var Grid,
+    index: Int,
+    note: Note
+}
+
+extension Cells: NoCopy {
+    func deinit(&var self) {
+        self.grid.visits = self.grid.visits + 1
+        print("cells deinit at {} of {}", self.index, self.grid.cells.len())
+    }
+}
+
+extension Cells: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.grid.cells.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.grid.cells[i] = self.grid.cells[i] + 10
+        self.grid.cells[i]
+    }
+}
+
+borrows struct Peek {
+    grid: &Grid,
+    index: Int
+}
+
+extension Peek: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.grid.cells.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.grid.cells[i]
+    }
+}
+
+extension Grid {
+    func cells(&var self, label: String) borrows -> Cells {
+        Cells(grid: lends self, index: 0, note: Note(label: label))
+    }
+
+    func peek(&var self) borrows -> Peek {
+        Peek(grid: lends self, index: 0)
+    }
+}
+
+func sum_all(g: &var Grid) -> Int {
+    var t = 0
+    for c in g.cells("sum") {
+        t = t + c
+    }
+    t
+}
+
+func first_over(g: &var Grid, limit: Int) -> Int {
+    for c in g.cells("find") {
+        if c > limit {
+            return c
+        }
+    }
+    -1
+}
+
+func make_grid() -> Grid {
+    Grid(cells: [1, 2], visits: 0)
+}
+
+func main() {
+    var g = Grid(cells: [1, 2, 3], visits: 0)
+    print("sum = {}", sum_all(&var g))
+    print("first = {}", first_over(&var g, 20))
+    var seen = 0
+    for c in g.cells("break") {
+        if c > 20 {
+            break
+        }
+        seen = seen + c
+    }
+    print("seen = {}, cells = {} {} {}, visits = {}", seen, g.cells[0], g.cells[1], g.cells[2], g.visits)
+    var peeked = 0
+    for c in g.peek() {
+        peeked = peeked + c
+    }
+    print("peeked = {}", peeked)
+    for c in make_grid().cells("temp") {
+        print("temp {}", c)
+    }
+    print("done")
+}

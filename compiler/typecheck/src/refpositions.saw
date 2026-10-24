@@ -50,13 +50,13 @@ enum TcRefPosition {
 }
 
 // What may stand at the top of a position's type: nothing, any reference (a
-// parameter), a lend (`&T`, `&var T`, `&[T]`, `&[T]?`), or a shared reference
-// (a borrowing struct's field).
+// parameter), a lend (`&T`, `&var T`, `&[T]`, `&[T]?`), or a reference that
+// is no slice (a borrowing struct's field, which `lends self` fills).
 enum TcRefAllow {
     case Nothing,
     case AnyReference,
     case Lend,
-    case SharedReference
+    case FieldReference
 }
 
 // The part of a type a reference was found in.
@@ -163,9 +163,9 @@ extension TcProgram {
             }
             if pos == TcRefPosition.BorrowingField && hit.within == TcRefWithin.Top {
                 var msg = StringBuilder()
-                try! msg.append("a borrowing struct's field holds a shared reference only, and `")
+                try! msg.append("a borrowing struct's field holds `&T` or `&var T`, which `lends self` fills, and `")
                 try! msg.append(self.type_text(t))
-                try! msg.append("` is exclusive: a window is shared, and an exclusive field could reallocate the storage another reader walks; lend it shared, with `&`")
+                try! msg.append("` is a slice, which no `lends self` makes: hold a reference to the collection and read its elements through it")
                 self.refuse_in(m, at, "type.reference-position", msg.build())
             } else {
                 self.refuse_reference(m, at, t, hit, tc_ref_position_text(pos))
@@ -251,8 +251,7 @@ extension TcProgram {
         }
         let info = self.types.ty(t)
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice {
-            let shared = info.a == 0
-            let allowed = allow == TcRefAllow.AnyReference || allow == TcRefAllow.Lend || (allow == TcRefAllow.SharedReference && shared && info.kind == TcKind.Ref)
+            let allowed = allow == TcRefAllow.AnyReference || allow == TcRefAllow.Lend || (allow == TcRefAllow.FieldReference && info.kind == TcKind.Ref)
             if allowed {
                 return self.reference_part(info.b, TcRefWithin.Referent)
             }
@@ -540,7 +539,7 @@ func tc_ref_allow(pos: TcRefPosition) -> TcRefAllow {
         case FunctionTypeParameter -> TcRefAllow.AnyReference,
         case Alias -> TcRefAllow.AnyReference,
         case Lend -> TcRefAllow.Lend,
-        case BorrowingField -> TcRefAllow.SharedReference,
+        case BorrowingField -> TcRefAllow.FieldReference,
         case _ -> TcRefAllow.Nothing
     }
 }

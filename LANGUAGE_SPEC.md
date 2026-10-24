@@ -5831,9 +5831,10 @@ declaration's terms.**
 
 #### Borrowing structs
 
-**Status: partially implemented.** The shared, `for`-headed form is built;
-`&var` fields, a `&var self` origin, a temporary or `borrow` head, and
-`LendingIterator` are planned. A **borrowing struct** is a type that holds a
+**Status: partially implemented.** The `for`-headed form is built, shared and
+exclusive: `&T` and `&var T` fields, a `&self` or `&var self` origin, and a
+temporary receiver at the head. A `borrow` head and `LendingIterator` are
+planned. A **borrowing struct** is a type that holds a
 lent place. It is declared `borrows struct`, one of its fields is a plain
 reference, and a `borrows` function returns one by value:
 
@@ -5883,13 +5884,18 @@ buffer pointer and a length snapshot, so a body that pushed until the buffer
 reallocated read freed memory in safe code.
 
 **Nothing erases it.** A borrowing struct may not instantiate a type parameter
-— not `Optional<It>`, `Result<It, E>`, `Vector<It>`, `Box<It>` or a bare `T` —
-may not sit in a function type's return or parameters (`() -> It`,
+— not `Optional<It>`, `Result<It, E>`, `Vector<It>`, `Box<It>` or a bare `T`,
+whether the type argument is written or a call infers it — may not sit in a function type's return or parameters (`() -> It`,
 `(It) -> Int`, however deeply nested), may not be erased into an `any Trait`
 existential, and may not be a parameter, a struct field, a plain return type or
 an associated type. Each is refused at
 the declaration that names the type, so a helper that would forward one cannot
-be written rather than being caught at its call. It may conform to `Iterator`
+be written rather than being caught at its call. Inside the struct's own
+methods, a call that infers a type parameter from `self` (`advance(self)` for
+a generic `advance<I: Iterator>(it: I)`) and a value that holds `self`
+(`Optional.Some(self)`, `[self]`, a tuple) are refused where they are written:
+the generic would take a copy of the struct by value, and the copy's
+references would alias the window's. It may conform to `Iterator`
 or `LendingIterator`, which is how `for` reaches `next`, and only static
 dispatch reaches the conformance.
 
@@ -5909,6 +5915,35 @@ is sound because the collection is charged exclusively for the struct's whole
 life, and each `next` reborrows through the struct, which freezes it while an
 element is live. Mutating the borrowing struct's own state is a separate matter
 — `next(&var self)` advances its cursor.
+
+```saw-fragment
+borrows struct Cells {
+    grid: &var Grid
+    index: Int
+}
+
+extension Grid {
+    func cells(&var self) borrows -> Cells {
+        Cells(grid: lends self, index: 0)
+    }
+}
+
+for c in grid.cells() { total += c }   // `grid` is held exclusively
+```
+
+Three rules follow from the exclusive charge:
+
+- A `&var` field is filled only from a `&var self` receiver. `lends self` in a
+  `&self` accessor lends shared, and a `&var` field refuses it (`lends.origin`):
+  two `&self` windows on one root could each hold a writer.
+- A borrowing struct with a `&var` field holds no other reference field. Every
+  reference field is filled with `lends self`, so a second one would alias the
+  same root beside the writer, and the declaration is refused
+  (`borrowing.exclusive-alias`), naming both fields.
+- The field writes only where the path that reaches it does. Through
+  `next(&var self)` the grid is writable; through a `&self` method of the
+  struct, or a `&Cells` parameter, it is read-only, as any storage a `&self`
+  receiver points at is.
 
 **Two iterator traits.** `Iterator` hands out owned items,
 `func next(&var self) -> Item?`; ranges and generators implement it, as in

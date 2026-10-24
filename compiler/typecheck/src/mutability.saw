@@ -307,8 +307,9 @@ extension TcProgram {
 
     // Whether place `e` may be written, walked to its root. The walk stops
     // where nothing above decides: a raw pointer's pointee, a `&var`
-    // reference, and a place a `&self` accessor lends, whose receiver is only
-    // read, as the accessor's own `lend` was judged (SL:borrowing §3).
+    // reference that is no field, and a place a `&self` accessor lends,
+    // whose receiver is only read, as the accessor's own `lend` was judged
+    // (SL:borrowing §3).
     func place_verdict(&var self, e: Int, tables: &var TcMutTables) -> TcWriteVerdict {
         if e < 0 {
             return TcWriteVerdict.ok()
@@ -324,6 +325,15 @@ extension TcProgram {
                 if b.kind == ResBindKind.Local && b.node >= 0 {
                     return self.narrowed_reference(b.node, e, &tables)
                 }
+            }
+            // A borrowing struct's `&var` field is reached through a path,
+            // and writes only where that path does, since `&self` is
+            // read-only all the way down; a parameter is a root, so its
+            // mode is its whole verdict (pinned by
+            // mutability.immutable.exclusive-field-shared-self).
+            if self.has_alt(e, Alt.Expr_Member) {
+                let base = self.res.first_node_child(e)
+                return self.place_verdict(base, &var tables)
             }
             return TcWriteVerdict.ok()
         }

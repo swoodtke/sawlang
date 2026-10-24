@@ -1,8 +1,8 @@
 // refuses: type.reference-position at 6:12
-// a borrowing struct's field holds a shared reference only: an exclusive one
-// could reallocate storage another reader walks
+// a borrowing struct's field holds `&T` or `&var T`, which `lends self`
+// fills, and a slice is neither
 
 borrows struct Walker {
-    items: &var Vector<Int>,
+    items: &[Int],
     index: Int
 }

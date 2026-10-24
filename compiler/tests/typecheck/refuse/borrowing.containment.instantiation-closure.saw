@@ -1,0 +1,39 @@
+// refuses: borrowing.containment at 37:9
+// a closure whose parameter is inferred from a generic call at a borrowing struct (SL-871)
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct Walk {
+    bag: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, index: 0)
+    }
+}
+
+extension Walk: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.bag.items.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.bag.items[i]
+    }
+}
+
+func apply<T>(x: T, f: (T) -> Int) -> Int { f(x) }
+
+extension Walk {
+    func rest(&self) -> Int {
+        apply(self, { w in w.index })
+    }
+}

@@ -2908,7 +2908,7 @@ extension TcProgram {
             case Expr_Cast -> self.cast_expr(e),
             case Expr_Ref_Shared -> self.ref_expr(e, false),
             case Expr_Ref_Exclusive -> self.ref_expr(e, true),
-            case Expr_Lends -> self.lends_expr(e),
+            case Expr_Lends -> self.lends_expr(e, want),
             case Expr_Move_Place -> self.move_expr(e),
             case Expr_Deref -> self.deref_expr(e),
             case Expr_Try_Propagate -> self.try_expr(e, 0),
@@ -4539,12 +4539,12 @@ extension TcProgram {
         self.set_type(e, t, false)
     }
 
-    // `lends self`: the receiver lent, shared, to a reference field of the
-    // borrowing struct a `borrows` function constructs, typed as `&self`
-    // is. Where it may stand is the origin funnel's (bodychecks.saw); the
-    // operand is checked here (spec, Borrowing structs, "The origin is the
-    // receiver").
-    func lends_expr(&var self, e: Int) -> Int {
+    // `lends self`: the receiver lent to a reference field of the borrowing
+    // struct a `borrows` function constructs, in the receiver's mode, so
+    // `&var self` lends `&var Self`; `want` is the field's type. Where it
+    // may stand is the origin funnel's (bodychecks.saw); the operand is
+    // checked here (spec, Borrowing structs, "The origin is the receiver").
+    func lends_expr(&var self, e: Int, want: Int) -> Int {
         let operand = self.res.first_node_child(e)
         let place = self.unparen(operand)
         if not self.has_alt(place, Alt.Expr_Self) {
@@ -4555,14 +4555,29 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         let d = self.current_decl
-        if d >= 0 && self.sigs[d].receiver == TcReceiver.Exclusive {
+        let exclusive = d >= 0 && self.sigs[d].receiver == TcReceiver.Exclusive
+        if not exclusive && want >= 0 && self.kind_of(want) == TcKind.Ref && self.types.ty(want).a == 1 {
             let _ = self.expr(operand, TC_WANT_NONE)
             self.set_use(operand, TcUse.Borrow)
-            self.not_yet(e, "`lends self` from a `&var self` receiver")
+            self.refuse_shared_lends(e, want)
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        self.ref_expr(e, false)
+        self.ref_expr(e, exclusive)
+    }
+
+    // `lends self` from a `&self` receiver into a `&var` field: a shared
+    // charge with a writer inside it would let two `&self` windows on one
+    // root each hold a writer.
+    func refuse_shared_lends(&var self, e: Int, want: Int) {
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.text(m, e))
+        try! msg.append("` fills a `")
+        try! msg.append(self.type_text(want))
+        try! msg.append("` field from a `&self` receiver, which lends shared: a `&var` field is filled only from an exclusive receiver, whose window charges the root exclusively; declare the receiver `&var self`, or hold the field as `&`")
+        self.refuse(e, "lends.origin", msg.build())
     }
 
     // A `lends` whose operand is not `self`, refused by what it names.

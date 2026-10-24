@@ -804,11 +804,17 @@ extension BorrowckProgram {
         l >= 0 && mir_func_local(&self.mir, f, l).kind == MirLocalKind.Record
     }
 
-    // Whether window `w` of function `f` charges its root exclusively
-    // (SL:borrowing §3): the use site borrowed exclusively, or the accessor
-    // takes `&var self` or lends `&var` and declares no shared twin. Stage
-    // 0's std predates declared modes: each of its accessors serves both
-    // from one declaration, the use site choosing (design 141).
+    // THE window-charge funnel: whether window `w` of function `f` charges
+    // its root exclusively (SL:borrowing §3), a place window's and a
+    // borrowing struct's alike: the use site borrowed exclusively, or the
+    // accessor takes `&var self` or lends `&var` and declares no shared
+    // twin. A borrowing struct's `&var` field is filled only from a
+    // `&var self` receiver, so its window is always exclusive. Stage 0's std
+    // predates declared modes: each of its accessors serves both from one
+    // declaration, the use site choosing (design 141).
+    //
+    // ENTRY POINTS:
+    //     loan_windows
     public func window_charges_exclusively(&self, f: Int, w: Int) -> Bool {
         let info = self.mir.funcs[f]
         let window = self.mir.windows[info.window_first + w]

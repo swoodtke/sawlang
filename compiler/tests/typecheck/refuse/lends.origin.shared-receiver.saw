@@ -1,0 +1,19 @@
+// refuses: lends.origin at 17:21
+// `lends self` from a `&self` receiver filling a `&var` field: a shared charge with a writer inside it (spec, Borrowing structs)
+
+struct Grid {
+    cells: Vector<Int>
+}
+
+extension Grid: NoCopy {}
+
+borrows struct Cells {
+    grid: &var Grid,
+    index: Int
+}
+
+extension Grid {
+    func cells(&self) borrows -> Cells {
+        Cells(grid: lends self, index: 0)
+    }
+}

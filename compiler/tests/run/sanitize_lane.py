@@ -45,25 +45,28 @@ OUT = os.path.join(REPO, ".build", "sanitize-lane")
 # The run lane's programs that hold a `blocking` extern's offload.
 OFFLOAD_PINS = ("offload_cancel_waits_for_the_call", "offload_start_refused", "suspend_blocking_main")
 PROBE_KINDS = ("stated", "panics")
-# The probes the lane builds: the thread and coroutine probes, the generic
-# defaults, where a value computed at another width than its slot's is a stack
-# overwrite (SL-830), and the conditional lends, whose lent reference is read
-# out of an Optional only on the present path (SL-686), and the borrow value
-# reads, whose windows close before the value they read is used or dropped,
-# the parts read out of a temporary, whose rest drops apart from them, and the
-# temporaries a `match` arm binds whole, which the binding alone releases, and
-# the `borrows` bodies and `consumes` methods that suspend, whose frames hold
-# the accessor's locals and the unmoved fields across the suspension, and the
-# dumps of running tasks, whose walk must read no drive's released slot, the
-# forwarding accessors, whose record carries the inner window's record, the
-# accessors with several `lend` sites, each closing only the windows its
-# taken site opened, and the epilogues a bare `return` ends early, which
-# leave the record's locals and an inner window's record from wherever the
-# `return` stands.
-PROBE_PATTERNS = ("thread_*.saw", "coro_*.saw", "generic_default_*.saw", "conditional_lend_*.saw",
-                  "borrow_value_read_*.saw", "temporary_part_*.saw", "match_whole_binding_*.saw",
-                  "borrows_body_suspends_*.saw", "consumes_suspending_*.saw", "running_task_dump_*.saw",
-                  "forward_lend_*.saw", "lend_sites_*.saw", "epilogue_return_*.saw")
+# The probes the lane builds, one pattern per line so independent additions
+# merge: each is a family whose frames or temporaries a stack-scoped bug would
+# corrupt (a value computed at another width than its slot, a lent reference
+# read off the absent path, a drive's released slot, a window record carried
+# across a lend, an exclusive borrowing struct's `&var` field written through
+# until the struct is destroyed).
+PROBE_PATTERNS = (
+    "thread_*.saw",
+    "coro_*.saw",
+    "generic_default_*.saw",
+    "conditional_lend_*.saw",
+    "borrow_value_read_*.saw",
+    "temporary_part_*.saw",
+    "match_whole_binding_*.saw",
+    "borrows_body_suspends_*.saw",
+    "consumes_suspending_*.saw",
+    "running_task_dump_*.saw",
+    "forward_lend_*.saw",
+    "lend_sites_*.saw",
+    "epilogue_return_*.saw",
+    "exclusive_borrowing_struct_*.saw",
+)
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600
 RUN_TIMEOUT = 60

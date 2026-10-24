@@ -1,0 +1,47 @@
+// refuses: loan.window-root at 42:18
+// two exclusive borrowing-struct windows on one root, one nested in the other (spec, Borrowing structs)
+
+struct Grid {
+    cells: Vector<Int>
+    n: Int
+}
+
+extension Grid: NoCopy {}
+
+borrows struct Cells {
+    grid: &var Grid,
+    index: Int
+}
+
+extension Grid {
+    func cells(&var self) borrows -> Cells {
+        Cells(grid: lends self, index: 0)
+    }
+
+    func size(&self) -> Int { self.cells.len() }
+
+    func bump(&var self) { self.n = self.n + 1 }
+}
+
+extension Cells: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.grid.cells.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.grid.cells[i]
+    }
+}
+
+func main() {
+    var g = Grid(cells: [1, 2], n: 0)
+    var t = 0
+    for c in g.cells() {
+        for d in g.cells() {
+            t = t + c * d
+        }
+    }
+    print(t)
+}

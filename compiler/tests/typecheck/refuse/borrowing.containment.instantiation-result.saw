@@ -1,0 +1,40 @@
+// refuses: borrowing.containment at 35:15
+// `Result.Err` of a borrowing struct, a Result instantiated at it (SL-871)
+
+struct Bag {
+    items: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+borrows struct Walk {
+    bag: &Bag,
+    index: Int
+}
+
+extension Bag {
+    func walk(&self) borrows -> Walk {
+        Walk(bag: lends self, index: 0)
+    }
+}
+
+extension Walk: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        if self.index >= self.bag.items.len() {
+            return None
+        }
+        let i = self.index
+        self.index = i + 1
+        self.bag.items[i]
+    }
+}
+
+extension Walk {
+    func failed(&self) -> Int {
+        match Result<Int, Walk>.Err(self) {
+            case Ok(_) -> 0,
+            case Err(_) -> 1
+        }
+    }
+}

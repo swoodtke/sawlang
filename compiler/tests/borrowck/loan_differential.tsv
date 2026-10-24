@@ -3,7 +3,6 @@ tests/corpus/chain_assign_exclusivity_in_literal.saw	accepts	owned	slice.not-yet
 tests/corpus/conformance/M36_shared_self_capture_refuses_write.saw	accepts	owned	typecheck: mutability.immutable, a write through a shared `[&self]` capture
 tests/corpus/errors/borrowing_field_alias_exclusive.saw	accepts	owned	typecheck: mutability.immutable, a write through a borrowing struct's shared field
 tests/corpus/errors/borrowing_field_is_read_only.saw	accepts	owned	typecheck: mutability.immutable, a write through a borrowing struct's shared field
-tests/corpus/errors/borrowing_struct_exclusive_field.saw	accepts	owned	typecheck: type.reference-position, an exclusive field in a borrowing struct
 tests/corpus/errors/consumes_needs_var_self.saw	accepts	owned	parse: the effect slot's spelling refuses the program first
 tests/corpus/errors/lend_accessor_param.saw	accepts	owned	typecheck: type.mismatch refuses `lend other` first; its other half, `lend fallback`, is lend.root (compiler/tests/borrowck/refuse/lend.root.parameter.saw)
 tests/corpus/errors/mutex_guarded_for_suspends.saw	accepts	owned	slice.not-yet: a borrow block over Stage 0's closure-taking Mutex.lock

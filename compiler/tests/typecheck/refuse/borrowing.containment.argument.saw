@@ -1,5 +1,5 @@
-// refuses: borrowing.containment at 23:16
-// a `borrows` call lending a borrowing struct, passed as a generic function's argument rather than standing at the head of a `for` (spec, Borrowing structs)
+// refuses: borrowing.containment at 23:11
+// a `borrows` call lending a borrowing struct, passed as a generic function's argument rather than standing at the head of a `for`: the call instantiating `keep` at it is refused first, and the `borrows` call outside a head after it (spec, Borrowing structs)
 
 struct Bag {
     n: Int
