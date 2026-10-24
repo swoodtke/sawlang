@@ -6,10 +6,8 @@
 
 import std.env.{c_string_length}
 import std.file.{File}
-import std.path.{Path}
-import std.string.{string_from_bytes}
+import std.path.{Path, system_text}
 import std.systemerror.{SystemError, SystemErrorKind}
-import std.utf8.{utf8_error_offset}
 
 extern "C" {
     // The `DIR*`, or NULL with the positive tag stored through `status_out`
@@ -45,8 +43,9 @@ extension Directory {
     /// directory is empty. Returns `Err(SystemError)` with the reason
     /// opendir(3) refused, such as `NotFound` or `PermissionDenied`; a path
     /// holding a NUL byte is `InvalidArgument`, and a list that cannot grow
-    /// is `ResourcesExhausted`. Panics if an entry's name is not valid UTF-8,
-    /// which no `String` may hold.
+    /// is `ResourcesExhausted`. An entry whose name is not valid UTF-8, which
+    /// no `Path` can hold yet, fails the whole listing with `InvalidUtf8`
+    /// (SL-902).
     public static func list(path: Path) unsafe -> Result<Vector<Path>, SystemError> {
         let text = path.as_string()
         var status = 0
@@ -68,14 +67,16 @@ extension Directory {
             if is_dot_entry(name) {
                 continue
             }
-            let length = c_string_length(name)
-            if let offset = utf8_error_offset(name, length) {
-                closedir(stream)
-                panic("Directory.list: an entry's name is not valid UTF-8 (byte {})", offset)
-            }
             // readdir reuses the entry's buffer, so the name is copied out
             // before the next call.
-            let full = path.join(string_from_bytes(name, length))
+            let entry_name = match system_text("readdir", name, c_string_length(name)) {
+                case Ok(decoded) -> decoded,
+                case Err(failure) -> {
+                    closedir(stream)
+                    return failure
+                }
+            }
+            let full = path.join(entry_name)
             match result.push(full) {
                 case Ok(_) -> {},
                 case Err(_) -> {

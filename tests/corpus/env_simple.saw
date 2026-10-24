@@ -8,7 +8,7 @@ import std.env.{Env}
 func main() {
     // Set and read a custom variable (deterministic test)
     let _ = Env.set("SAW_TEST_VAR", "hello from saw")
-    if let value = Env.get("SAW_TEST_VAR") {
+    if let value = try! Env.get("SAW_TEST_VAR") {
         print("SAW_TEST_VAR:")
         print(value)
     }

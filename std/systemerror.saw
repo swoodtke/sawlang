@@ -15,10 +15,11 @@ extern "C" {
 
 /// What kind of failure an operating-system operation reported.
 ///
-/// The kinds are the runtime's portable tags, plus `UnexpectedEnd` and
-/// `LaunchFailed`, which the standard library raises itself. Several platform codes share one kind
-/// (`EACCES` and `EPERM` are both `PermissionDenied`), and `Unknown` is a
-/// failure the portable set has no word for.
+/// The kinds are the runtime's portable tags, plus `UnexpectedEnd`,
+/// `LaunchFailed` and `InvalidUtf8`, which the standard library raises
+/// itself. Several platform codes share one kind (`EACCES` and `EPERM` are
+/// both `PermissionDenied`), and `Unknown` is a failure the portable set has
+/// no word for.
 public enum SystemErrorKind {
     /// The operation would have blocked, and the descriptor is non-blocking.
     case WouldBlock,
@@ -71,7 +72,11 @@ public enum SystemErrorKind {
     case UnexpectedEnd,
     /// A child process could not run its program: it exited 127, the code
     /// the spawn's child reports when the program cannot be executed.
-    case LaunchFailed
+    case LaunchFailed,
+    /// The operating system gave text that is not valid UTF-8, such as a
+    /// file name or an environment variable's value, which no `String` may
+    /// hold.
+    case InvalidUtf8
 }
 
 // The runtime's portable tags (runtime/ABI.md, "Errors"). Tag 0 is success
@@ -179,7 +184,8 @@ extension SystemErrorKind {
             case InvalidDescriptor -> "invalid descriptor",
             case InputOutputFailed -> "input/output failed",
             case UnexpectedEnd -> "unexpected end of data",
-            case LaunchFailed -> "the program could not be launched"
+            case LaunchFailed -> "the program could not be launched",
+            case InvalidUtf8 -> "not valid UTF-8"
         }
     }
 }
@@ -220,7 +226,7 @@ extension SystemError {
     //     File.remove
     //     File.rename
     //     Command.wait
-    //     Command.output
+    //     std.process.process_outcome
     //     Thread.__saw_started
     //     std.panic.print_failure
     public(package) static func of(operation: String, tag: Int) -> SystemError {

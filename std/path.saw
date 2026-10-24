@@ -156,7 +156,8 @@ extension Path {
     /// Returns `Err(SystemError)` with the reason realpath(3) failed, such as
     /// `NotFound` when a component does not exist or `PermissionDenied` when
     /// a directory on the way cannot be searched; text holding a NUL byte is
-    /// `InvalidArgument`. Panics if the resolved path is not valid UTF-8.
+    /// `InvalidArgument`, and a resolved path that is not valid UTF-8, which
+    /// no `Path` can hold yet, is `InvalidUtf8` (SL-902).
     public func canonical(&self) unsafe -> Result<Path, SystemError> {
         if self.text.index_of(0).is_some() {
             return SystemError.raised("realpath", SystemErrorKind.InvalidArgument)
@@ -169,12 +170,28 @@ extension Path {
         while resolved[length] != 0 {
             length = length + 1
         }
-        if let offset = utf8_error_offset(resolved, length) {
-            free(resolved)
-            panic("Path.canonical: the path is not valid UTF-8 (byte {})", offset)
-        }
-        let text = string_from_bytes(resolved, length)
+        let decoded = system_text("realpath", resolved, length)
         free(resolved)
-        return Path(text: text)
+        return Path(text: try decoded)
     }
+}
+
+// THE SYSTEM TEXT FUNNEL: the `count` bytes at `bytes`, which the operating
+// system supplied, copied into a `String`, or `InvalidUtf8` for `operation`
+// when they are not UTF-8. Every std op that makes a `String` from such bytes
+// goes through it, so none panics on them; `Command.output` decodes its
+// capture with `Data.to_string` and raises the same kind. The caller still
+// owns `bytes`.
+// ENTRY POINTS:
+//     Path.canonical
+//     Env.executable_path
+//     Env.argument
+//     Env.get
+//     Env.cwd
+//     Directory.list
+public(package) func system_text(operation: String, bytes: UnsafePointer<Int8>, count: Int) unsafe -> Result<String, SystemError> {
+    if utf8_error_offset(bytes, count).is_some() {
+        return SystemError.raised(operation, SystemErrorKind.InvalidUtf8)
+    }
+    string_from_bytes(bytes, count)
 }

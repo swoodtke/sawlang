@@ -971,7 +971,7 @@ enums_match_bind.saw	pass	-	-
 enums_positional.saw	pass	-	-
 enums_simple.saw	pass	-	-
 env_error_surfaced.saw	pass	-	-
-env_simple.saw	pass	-	-
+env_simple.saw	pass	judged by its own directives (edited since its oracle)	-
 equatable_array_field.saw	pass	-	-
 equatable_auto_enum.saw	pass	-	-
 equatable_auto_struct.saw	pass	-	-

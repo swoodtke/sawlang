@@ -1,0 +1,53 @@
+// probe: stated
+// about: an argument that is not UTF-8 is the Err of kind InvalidUtf8 of Env.argument and Env.args, never a panic, beside their Ok once it is UTF-8 again and argument's Ok(None) out of range (SL-895)
+// stage 0: its frozen std's `Env.argument` returns `String?` and panics on the argument
+// speeds: -O0 -O2
+// leaks: none
+// prints: argument InvalidUtf8 true
+// prints: argument renders args failed (not valid UTF-8)
+// prints: args InvalidUtf8 true
+// prints: argument restored true
+// prints: args restored true
+// prints: out of range is None true
+// The program's own name, argv[0], is made invalid in place by writing 0xFF
+// over its last byte, which no launcher here can pass, and then restored.
+import std.env.{Env}
+import std.systemerror.{SystemErrorKind}
+
+extern "C" {
+    func __saw_rt_get_argv() -> UnsafePointer<UnsafePointer<Int8>>
+}
+
+func main() unsafe {
+    let name = __saw_rt_get_argv()[0]
+    var last = 0
+    while name[last + 1] != 0 {
+        last = last + 1
+    }
+    let kept = name[last]
+    name[last] = -1
+    match Env.argument(0) {
+        case Ok(_) -> print("argument UNEXPECTED ok"),
+        case Err(e) -> {
+            print("argument InvalidUtf8 {}", e.kind() == SystemErrorKind.InvalidUtf8)
+            print("argument renders {}", e)
+        }
+    }
+    match Env.args() {
+        case Ok(_) -> print("args UNEXPECTED ok"),
+        case Err(e) -> print("args InvalidUtf8 {}", e.kind() == SystemErrorKind.InvalidUtf8)
+    }
+    name[last] = kept
+    match Env.argument(0) {
+        case Ok(found) -> print("argument restored {}", found.is_some()),
+        case Err(e) -> print("argument UNEXPECTED {}", e)
+    }
+    match Env.args() {
+        case Ok(all) -> print("args restored {}", all.len() == Env.argument_count()),
+        case Err(e) -> print("args UNEXPECTED {}", e)
+    }
+    match Env.argument(Env.argument_count()) {
+        case Ok(found) -> print("out of range is None {}", found.is_none()),
+        case Err(e) -> print("out of range UNEXPECTED {}", e)
+    }
+}

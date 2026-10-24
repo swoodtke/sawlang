@@ -1894,6 +1894,15 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   The working directory is `Env.cwd() -> Result<Path, SystemError>`, carrying
   the cause getcwd(3) gave (`NotFound` once the directory is removed), and
   `Env.set_cwd(path)` changes it. There is no `Directory.current`.
+  TEXT FROM THE OS IS CHECKED, NEVER A PANIC: bytes that are not UTF-8 are the
+  op's `Err` of kind `SystemErrorKind.InvalidUtf8` — `Env.get(name) ->
+  Result<String?, SystemError>` (`Ok(None)` = unset, so a default is
+  `(try! Env.get("TMPDIR")) ?? "/tmp"` or a `match`; `??` and `if let` do not
+  take the Result itself), `Env.argument(i) -> Result<String?, SystemError>`,
+  `Env.args() -> Result<Vector<String>, SystemError>` (growth refused =
+  `ResourcesExhausted`), and `Env.cwd`/`executable_path`, `Path.canonical`,
+  `Directory.list` (one bad entry fails the WHOLE listing until a `Path` can
+  hold non-UTF-8 bytes, SL-902), `Command.output`.
 
 ## Traits & generics
 ```saw-fragment
@@ -3821,9 +3830,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 **Every allocating std operation returns `Result<_, AllocError>`.** One spelling
 per operation; the signature says whether it can fail. That is
 `push`/`append`/`insert`/`reserve`/`set`/`detached`/`map`/
-`keys`/`values`/`Box.make`/`String.split`/`String.to_data`/`Env.args`/
-`Command.arg`/`env` (`Command.output` reports a capture that cannot grow as
-`ResourcesExhausted`, inside its `SystemError`), and the constructors `Vector(capacity:)`,
+`keys`/`values`/`Box.make`/`String.split`/`String.to_data`/
+`Command.arg`/`env` (`Command.output` reports a capture that cannot grow, and
+`Env.args` a vector that cannot grow, as `ResourcesExhausted`, inside its
+`SystemError`), and the constructors `Vector(capacity:)`,
 `Data(capacity:)`, `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()`,
 `TaskGroup(threads:)` (a fallible `init` returns `Result<Self, E>` — DF-245a —
 so the CALL keeps its spelling and gains one word). `Mutex(value:)` allocates
@@ -4963,7 +4973,10 @@ construct in the owner and lend `&driver` down.
   siblings run for the child's whole life. It SUSPENDS, so a `sync` function
   cannot call it. Cancelling the task ends the WAIT, not the child (which keeps
   running; a later spawn reaps it), and the Err is `Interrupted`. A capture that
-  is not UTF-8 is `InvalidArgument`, one that cannot grow `ResourcesExhausted`.
+  is not UTF-8 is `InvalidUtf8`, one that cannot grow `ResourcesExhausted`.
+  For a child whose output is NOT TEXT (`gzip -c`, an image), call
+  `output_bytes() -> Result<CommandByteOutput, SystemError>`: the same spawn,
+  drain and park, with `stdout: Data` undecoded beside `exit_code`/`success()`.
   There is no `run()` and no `ProcessError`.
   `env(name:value:)` sets ONE environment variable for the CHILD only, under
   `arg`'s discipline — the name and the value are bytes the child receives

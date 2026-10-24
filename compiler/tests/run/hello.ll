@@ -69,19 +69,20 @@ target triple = "arm64-apple-macosx11.0.0"
 @.bytes.33 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"input/output failed\00" }, align 16
 @.bytes.34 = private unnamed_addr constant { i64, i64, [23 x i8] } { i64 -1, i64 22, [23 x i8] c"unexpected end of data\00" }, align 16
 @.bytes.35 = private unnamed_addr constant { i64, i64, [34 x i8] } { i64 -1, i64 33, [34 x i8] c"the program could not be launched\00" }, align 16
-@.bytes.36 = private unnamed_addr constant [10 x i8] c"string.saw"
-@.bytes.37 = private unnamed_addr constant [63 x i8] c"String: over-release of a String reference (refcount underflow)"
+@.bytes.36 = private unnamed_addr constant { i64, i64, [16 x i8] } { i64 -1, i64 15, [16 x i8] c"not valid UTF-8\00" }, align 16
+@.bytes.37 = private unnamed_addr constant [10 x i8] c"string.saw"
+@.bytes.38 = private unnamed_addr constant [63 x i8] c"String: over-release of a String reference (refcount underflow)"
 @"static std.string.HEADER_WORDS" = internal global i64 2
 @"static std.string.BLOCK_ALIGN" = internal global i64 16
 @"static std.stringbuilder.MARKER_LEN" = internal global i64 3
 @"static std.stringbuilder.FIRST_CAPACITY" = internal global i64 16
-@.bytes.38 = private unnamed_addr constant [36 x i8] c"String.byte_at: index out of range: "
-@.bytes.39 = private unnamed_addr constant [6 x i8] c" (len "
-@.bytes.40 = private unnamed_addr constant [1 x i8] c")"
-@.bytes.41 = private unnamed_addr constant [0 x i8] c""
+@.bytes.39 = private unnamed_addr constant [36 x i8] c"String.byte_at: index out of range: "
+@.bytes.40 = private unnamed_addr constant [6 x i8] c" (len "
+@.bytes.41 = private unnamed_addr constant [1 x i8] c")"
+@.bytes.42 = private unnamed_addr constant [0 x i8] c""
 @"static std.stringbuilder.MINUS_SIGN" = internal global i64 45
 @"static std.stringbuilder.ASCII_ZERO" = internal global i64 48
-@.bytes.42 = private unnamed_addr constant [7 x i8] c"mem.saw"
+@.bytes.43 = private unnamed_addr constant [7 x i8] c"mem.saw"
 @"static std.stringbuilder.MARKER_BYTE_0" = internal global i64 226
 @"static std.stringbuilder.MARKER_BYTE_1" = internal global i64 128
 @"static std.stringbuilder.MARKER_BYTE_2" = internal global i64 166
@@ -716,7 +717,7 @@ bb2:
   %t6 = icmp eq i64 %t5, 0
   br i1 %t6, label %forced.0, label %unforced.1
 unforced.1:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 252)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 258)
   unreachable
 forced.0:
   %t7 = getelementptr i8, ptr %l6, i64 8
@@ -734,7 +735,7 @@ bb3:
   %t14 = icmp eq i64 %t13, 0
   br i1 %t14, label %forced.2, label %unforced.3
 unforced.3:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 253)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 259)
   unreachable
 forced.2:
   %t15 = getelementptr i8, ptr %l9, i64 8
@@ -757,7 +758,7 @@ bb5:
   %t23 = icmp eq i64 %t22, 0
   br i1 %t23, label %forced.4, label %unforced.5
 unforced.5:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 254)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 260)
   unreachable
 forced.4:
   %t24 = getelementptr i8, ptr %l14, i64 8
@@ -822,7 +823,7 @@ bb17:
   %t49 = icmp eq i64 %t48, 0
   br i1 %t49, label %forced.6, label %unforced.7
 unforced.7:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 260)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 266)
   unreachable
 forced.6:
   %t50 = getelementptr i8, ptr %l20, i64 8
@@ -843,7 +844,7 @@ bb18:
   %t59 = icmp eq i64 %t58, 0
   br i1 %t59, label %forced.8, label %unforced.9
 unforced.9:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 261)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 267)
   unreachable
 forced.8:
   %t60 = getelementptr i8, ptr %l24, i64 8
@@ -855,7 +856,7 @@ bb19:
   %t63 = icmp eq i64 %t62, 0
   br i1 %t63, label %forced.10, label %unforced.11
 unforced.11:
-  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 263)
+  call void @__saw_fail_try(ptr @.bytes.7, i64 15, i64 269)
   unreachable
 forced.10:
   %t64 = getelementptr i8, ptr %l27, i64 8
@@ -1603,161 +1604,167 @@ bb0:
   %t0 = load ptr, ptr %l1
   %t1 = load i32, ptr %t0
   %t2 = zext i32 %t1 to i64
-  switch i64 %t2, label %nocase.0 [ i64 0, label %bb2 i64 1, label %bb3 i64 2, label %bb4 i64 3, label %bb5 i64 4, label %bb6 i64 5, label %bb7 i64 6, label %bb8 i64 7, label %bb9 i64 8, label %bb10 i64 9, label %bb11 i64 10, label %bb12 i64 11, label %bb13 i64 12, label %bb14 i64 13, label %bb15 i64 14, label %bb16 i64 15, label %bb17 i64 16, label %bb18 i64 17, label %bb19 i64 18, label %bb20 i64 19, label %bb21 i64 20, label %bb22 i64 21, label %bb23 i64 22, label %bb24 i64 23, label %bb25 i64 24, label %bb26 ]
+  switch i64 %t2, label %nocase.0 [ i64 0, label %bb2 i64 1, label %bb3 i64 2, label %bb4 i64 3, label %bb5 i64 4, label %bb6 i64 5, label %bb7 i64 6, label %bb8 i64 7, label %bb9 i64 8, label %bb10 i64 9, label %bb11 i64 10, label %bb12 i64 11, label %bb13 i64 12, label %bb14 i64 13, label %bb15 i64 14, label %bb16 i64 15, label %bb17 i64 16, label %bb18 i64 17, label %bb19 i64 18, label %bb20 i64 19, label %bb21 i64 20, label %bb22 i64 21, label %bb23 i64 22, label %bb24 i64 23, label %bb25 i64 24, label %bb26 i64 25, label %bb27 ]
 nocase.0:
   unreachable
 bb1:
   call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 8, i1 false)
   ret void
 bb2:
-  br label %bb27
-bb3:
   br label %bb28
-bb4:
+bb3:
   br label %bb29
-bb5:
+bb4:
   br label %bb30
-bb6:
+bb5:
   br label %bb31
-bb7:
+bb6:
   br label %bb32
-bb8:
+bb7:
   br label %bb33
-bb9:
+bb8:
   br label %bb34
-bb10:
+bb9:
   br label %bb35
-bb11:
+bb10:
   br label %bb36
-bb12:
+bb11:
   br label %bb37
-bb13:
+bb12:
   br label %bb38
-bb14:
+bb13:
   br label %bb39
-bb15:
+bb14:
   br label %bb40
-bb16:
+bb15:
   br label %bb41
-bb17:
+bb16:
   br label %bb42
-bb18:
+bb17:
   br label %bb43
-bb19:
+bb18:
   br label %bb44
-bb20:
+bb19:
   br label %bb45
-bb21:
+bb20:
   br label %bb46
-bb22:
+bb21:
   br label %bb47
-bb23:
+bb22:
   br label %bb48
-bb24:
+bb23:
   br label %bb49
-bb25:
+bb24:
   br label %bb50
-bb26:
+bb25:
   br label %bb51
+bb26:
+  br label %bb52
 bb27:
+  br label %bb53
+bb28:
   %t3 = getelementptr i8, ptr @.bytes.11, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t3)
   br label %bb1
-bb28:
+bb29:
   %t4 = getelementptr i8, ptr @.bytes.12, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t4)
   br label %bb1
-bb29:
+bb30:
   %t5 = getelementptr i8, ptr @.bytes.13, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t5)
   br label %bb1
-bb30:
+bb31:
   %t6 = getelementptr i8, ptr @.bytes.14, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t6)
   br label %bb1
-bb31:
+bb32:
   %t7 = getelementptr i8, ptr @.bytes.15, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t7)
   br label %bb1
-bb32:
+bb33:
   %t8 = getelementptr i8, ptr @.bytes.16, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t8)
   br label %bb1
-bb33:
+bb34:
   %t9 = getelementptr i8, ptr @.bytes.17, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t9)
   br label %bb1
-bb34:
+bb35:
   %t10 = getelementptr i8, ptr @.bytes.18, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t10)
   br label %bb1
-bb35:
+bb36:
   %t11 = getelementptr i8, ptr @.bytes.19, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t11)
   br label %bb1
-bb36:
+bb37:
   %t12 = getelementptr i8, ptr @.bytes.20, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t12)
   br label %bb1
-bb37:
+bb38:
   %t13 = getelementptr i8, ptr @.bytes.21, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t13)
   br label %bb1
-bb38:
+bb39:
   %t14 = getelementptr i8, ptr @.bytes.22, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t14)
   br label %bb1
-bb39:
+bb40:
   %t15 = getelementptr i8, ptr @.bytes.23, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t15)
   br label %bb1
-bb40:
+bb41:
   %t16 = getelementptr i8, ptr @.bytes.24, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t16)
   br label %bb1
-bb41:
+bb42:
   %t17 = getelementptr i8, ptr @.bytes.25, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t17)
   br label %bb1
-bb42:
+bb43:
   %t18 = getelementptr i8, ptr @.bytes.26, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t18)
   br label %bb1
-bb43:
+bb44:
   %t19 = getelementptr i8, ptr @.bytes.27, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t19)
   br label %bb1
-bb44:
+bb45:
   %t20 = getelementptr i8, ptr @.bytes.28, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t20)
   br label %bb1
-bb45:
+bb46:
   %t21 = getelementptr i8, ptr @.bytes.29, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t21)
   br label %bb1
-bb46:
+bb47:
   %t22 = getelementptr i8, ptr @.bytes.30, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t22)
   br label %bb1
-bb47:
+bb48:
   %t23 = getelementptr i8, ptr @.bytes.31, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t23)
   br label %bb1
-bb48:
+bb49:
   %t24 = getelementptr i8, ptr @.bytes.32, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t24)
   br label %bb1
-bb49:
+bb50:
   %t25 = getelementptr i8, ptr @.bytes.33, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t25)
   br label %bb1
-bb50:
+bb51:
   %t26 = getelementptr i8, ptr @.bytes.34, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t26)
   br label %bb1
-bb51:
+bb52:
   %t27 = getelementptr i8, ptr @.bytes.35, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t27)
+  br label %bb1
+bb53:
+  %t28 = getelementptr i8, ptr @.bytes.36, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t28)
   br label %bb1
 }
 
@@ -1927,7 +1934,7 @@ bb6:
   %t30 = icmp ne i8 %t29, 0
   br i1 %t30, label %bb10, label %bb11
 bb7:
-  call void @__saw_fail(ptr @.bytes.36, i64 10, i64 787, ptr @.bytes.37, i64 63)
+  call void @__saw_fail(ptr @.bytes.37, i64 10, i64 787, ptr @.bytes.38, i64 63)
   unreachable
   unreachable
 bb8:
@@ -1952,7 +1959,7 @@ bb13:
   %t36 = extractvalue { i64, i1 } %t34, 1
   br i1 %t36, label %check.0, label %checked.1
 check.0:
-  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 791)
+  call void @__saw_fail_overflow(ptr @.bytes.37, i64 10, i64 791)
   unreachable
 checked.1:
   store i64 %t35, ptr %l17
@@ -1979,7 +1986,7 @@ checked.1:
   %t51 = extractvalue { i64, i1 } %t49, 1
   br i1 %t51, label %check.2, label %checked.3
 check.2:
-  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 793)
+  call void @__saw_fail_overflow(ptr @.bytes.37, i64 10, i64 793)
   unreachable
 checked.3:
   store i64 %t50, ptr %l23
@@ -1989,7 +1996,7 @@ checked.3:
   %t55 = extractvalue { i64, i1 } %t53, 1
   br i1 %t55, label %check.4, label %checked.5
 check.4:
-  call void @__saw_fail_overflow(ptr @.bytes.36, i64 10, i64 793)
+  call void @__saw_fail_overflow(ptr @.bytes.37, i64 10, i64 793)
   unreachable
 checked.5:
   store i64 %t54, ptr %l24
@@ -2583,7 +2590,7 @@ bb8:
   %t31 = load i64, ptr %l11
   store i64 0, ptr %t32
   %t33 = getelementptr i8, ptr %t32, i64 8
-  store ptr @.bytes.38, ptr %t33
+  store ptr @.bytes.39, ptr %t33
   %t34 = getelementptr i8, ptr %t32, i64 16
   store i64 36, ptr %t34
   %t35 = getelementptr i8, ptr %t32, i64 24
@@ -2593,7 +2600,7 @@ bb8:
   %t37 = getelementptr i8, ptr %t32, i64 48
   store i64 0, ptr %t37
   %t38 = getelementptr i8, ptr %t32, i64 56
-  store ptr @.bytes.39, ptr %t38
+  store ptr @.bytes.40, ptr %t38
   %t39 = getelementptr i8, ptr %t32, i64 64
   store i64 6, ptr %t39
   %t40 = getelementptr i8, ptr %t32, i64 72
@@ -2603,10 +2610,10 @@ bb8:
   %t42 = getelementptr i8, ptr %t32, i64 96
   store i64 0, ptr %t42
   %t43 = getelementptr i8, ptr %t32, i64 104
-  store ptr @.bytes.40, ptr %t43
+  store ptr @.bytes.41, ptr %t43
   %t44 = getelementptr i8, ptr %t32, i64 112
   store i64 1, ptr %t44
-  call void @__saw_fail_parts(ptr @.bytes.36, i64 10, i64 234, ptr @.bytes.41, i64 0, ptr %t32, i64 5)
+  call void @__saw_fail_parts(ptr @.bytes.37, i64 10, i64 234, ptr @.bytes.42, i64 0, ptr %t32, i64 5)
   unreachable
   unreachable
 }
@@ -3080,7 +3087,7 @@ bb4:
   %t20 = extractvalue { i64, i1 } %t18, 1
   br i1 %t20, label %check.0, label %checked.1
 check.0:
-  call void @__saw_fail_overflow(ptr @.bytes.42, i64 7, i64 18)
+  call void @__saw_fail_overflow(ptr @.bytes.43, i64 7, i64 18)
   unreachable
 checked.1:
   store i64 %t19, ptr %l8

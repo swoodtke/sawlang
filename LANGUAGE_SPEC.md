@@ -1380,6 +1380,9 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   buffer read off a socket or a file surfaces the failure instead of minting a
   String that breaks the invariant. `Utf8Error` conforms to `Error`, so it
   interpolates and boxes at an erased `Result<T, Box<any Error>>` boundary.
+  The std operations that take text from the operating system (an environment
+  value, an argument, a path) run the same scan and report bytes that fail it
+  as `SystemErrorKind.InvalidUtf8` (§9, "Text from the operating system").
 - **Access views, never `s[i]`.** There is deliberately no integer indexing (it
   conflates bytes with scalars). Two iterator views are provided instead:
   `bytes()` yields the raw bytes and `scalars()` yields the Unicode scalar
@@ -14017,7 +14020,7 @@ so the module list below is also the import list: a leaf name is what
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
 `Thread<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
-`Command`/`CommandOutput` (std.process — a real argv spawn, never a shell: one
+`Command`/`CommandOutput`/`CommandByteOutput` (std.process — a real argv spawn, never a shell: one
 `arg()` is one argv element and nothing in it is split, expanded or executed;
 run `/bin/sh -c` explicitly if a shell is what you want, design 122. `env(name:
 value:)` sets one environment variable in the child's environment only, under
@@ -14029,7 +14032,10 @@ SystemError>` blocks the calling thread until the child exits and never
 suspends, so a `sync` function may call it. `output() -> Result<CommandOutput,
 SystemError>` is COOPERATIVE: the stdout drain runs on a worker thread and the
 wait parks on the child's exit through the reactor, so siblings run for the
-child's whole lifetime and no thread waits. A program that cannot be executed
+child's whole lifetime and no thread waits. A capture that is not UTF-8 is
+`output()`'s `InvalidUtf8`; `output_bytes() -> Result<CommandByteOutput,
+SystemError>` runs and waits the same way and hands back the captured `Data`
+undecoded, for a child whose output is not text. A program that cannot be executed
 is `LaunchFailed`, and cancelling an `output()` ends the WAIT with
 `Interrupted` while the child keeps running),
 `std.net` (`TcpListener`/`TcpStream`),
@@ -14050,6 +14056,22 @@ it, and neither does libc when it reads the environment for itself: glibc's
 resolver reads `LOCALDOMAIN` and `RES_OPTIONS` while `TcpStream.connect`
 resolves a name. Such a read racing an `Env.set` is outside what the lock
 guarantees.
+
+**Text from the operating system.** An environment value, a program argument,
+a file name or a path that the system hands back is bytes, and a `String`
+holds only UTF-8, so every std operation that makes one into a `String` or a
+`Path` checks it first. Bytes that are not UTF-8 are that operation's
+`Err(SystemError)` of kind `InvalidUtf8`, never a panic and never a silent
+replacement. The operations are `Env.get(name) -> Result<String?,
+SystemError>` (`Ok(None)`: not set), `Env.argument(index) -> Result<String?,
+SystemError>` (`Ok(None)`: out of range), `Env.args() -> Result<Vector<String>,
+SystemError>` (a vector that cannot grow is `ResourcesExhausted`),
+`Env.cwd()`, `Env.executable_path()`, `Path.canonical()`, `Directory.list` and
+`Command.output()`. A `Path` holds only UTF-8 for now (SL-902), so a directory
+holding one entry whose name is not UTF-8 fails `Directory.list` whole, and
+such a working directory fails `Env.cwd()`. A file's contents stay bytes:
+`File.read` returns `Data`, and `Data.to_string()` reports its own
+`Utf8Error`.
 
 **`File` reads.** `read()` reads the rest of a regular file, sized by the length
 lseek(2) reports, so a pipe or FIFO, which has no length, is its `Err`.
@@ -15395,9 +15417,9 @@ match frames.push(Frame(id: 1)) {
 The operations are `Vector.push`/`reserve`/`map`, `Map.insert`/`keys`/`values`,
 `Set.insert` and its algebra, `Data.push`/`set`/`append`/`append_bytes`/
 `reserve`/`detached`, `StringBuilder.append`,
-`Box.make`, `String.split`/`to_data`, `Env.args`, `Command.arg`/`env`
-(`Command.output` reports a capture that cannot grow as `ResourcesExhausted`,
-inside its `SystemError`), and the constructors `Vector(capacity:)`, `Data(capacity:)`,
+`Box.make`, `String.split`/`to_data`, `Command.arg`/`env`
+(`Command.output` reports a capture that cannot grow, and `Env.args` a vector
+that cannot grow, as `ResourcesExhausted`, inside its `SystemError`), and the constructors `Vector(capacity:)`, `Data(capacity:)`,
 `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()` and
 `TaskGroup(threads:)`. A constructor reports through the `Result<Self, E>` init
 form, so the call keeps its spelling and the caller gains one word.

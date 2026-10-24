@@ -1,0 +1,154 @@
+// probe: stated
+// about: a path the system gives that is not UTF-8 is the Err of kind InvalidUtf8 of Env.cwd, Path.canonical, Directory.list and Env.executable_path, never a panic, beside each one's Ok on UTF-8 paths (SL-895)
+// stage 0: its frozen std panics on each of these paths
+// speeds: -O0 -O2
+// leaks: none
+// prints: cwd Ok true
+// prints: canonical Ok true
+// prints: list Ok 0
+// prints: executable_path Ok true
+// prints: list InvalidUtf8 true
+// prints: cwd InvalidUtf8 true
+// prints: canonical InvalidUtf8 true
+// prints: executable_path InvalidUtf8 true
+// prints: cleaned up true
+// The program makes a directory whose name ends in the byte 0xFF beside its
+// own binary, enters it, and hard-links its binary into it, then runs the link
+// as a child that reports its own executable path. The sites are exercised on
+// Linux, which takes the name, so there each InvalidUtf8 line is the site's
+// own Err; `tools/linux.py run-lane` runs it. On macOS the lines hold because
+// APFS refuses the name, so no path that is not UTF-8 can exist there.
+import std.directory.{Directory}
+import std.env.{Env}
+import std.path.{Path}
+import std.process.{Command}
+import std.systemerror.{SystemError, SystemErrorKind}
+
+extern "C" {
+    func mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int32
+    func rmdir(path: UnsafePointer<Int8>) -> Int32
+    func chdir(path: UnsafePointer<Int8>) -> Int32
+    func link(existing: UnsafePointer<Int8>, new: UnsafePointer<Int8>) -> Int32
+    func unlink(path: UnsafePointer<Int8>) -> Int32
+    func getpid() -> Int32
+}
+
+// rwxr-xr-x
+static DIRECTORY_MODE: Int = 493
+
+// The variable that tells the program it runs as the child.
+func child_flag() -> String {
+    "SAW_PROBE_PATHS_CHILD"
+}
+
+// `head`, then 0xFF when `invalid`, then `tail`, as a C string in `buffer`.
+func fill(buffer: &var [Int8; 4096], head: String, invalid: Bool, tail: String) {
+    var end = 0
+    for i in 0..head.len() {
+        buffer[end] = Int8.from(truncating: head.byte_at(i))
+        end = end + 1
+    }
+    if invalid {
+        buffer[end] = -1
+        end = end + 1
+    }
+    for i in 0..tail.len() {
+        buffer[end] = Int8.from(truncating: tail.byte_at(i))
+        end = end + 1
+    }
+    buffer[end] = 0
+}
+
+// The name of the directory that is not UTF-8, relative to the work directory.
+func bad_dir(buffer: &var [Int8; 4096], tail: String) {
+    fill(&var buffer, "x", true, tail)
+}
+
+func is_invalid_utf8(e: &SystemError) -> Bool {
+    e.kind() == SystemErrorKind.InvalidUtf8
+}
+
+func child() unsafe {
+    match Env.executable_path() {
+        case Ok(_) -> print("executable_path UNEXPECTED ok"),
+        case Err(e) -> print("executable_path InvalidUtf8 {}", is_invalid_utf8(&e))
+    }
+}
+
+func main() unsafe {
+    if Env.contains(child_flag()) {
+        child()
+        return
+    }
+    let binary = try! Env.executable_path()
+    let base = Path(s: binary).parent() ?? Path(s: ".")
+    let work = base.join("paths_not_utf8_{getpid()}")
+    try! Directory.create(work)
+    try! Env.set_cwd(work)
+
+    match Env.cwd() {
+        case Ok(p) -> print("cwd Ok {}", p.is_absolute()),
+        case Err(e) -> print("cwd UNEXPECTED {}", e)
+    }
+    match Path(s: ".").canonical() {
+        case Ok(p) -> print("canonical Ok {}", p.is_absolute()),
+        case Err(e) -> print("canonical UNEXPECTED {}", e)
+    }
+    match Directory.list(Path(s: ".")) {
+        case Ok(v) -> print("list Ok {}", v.len()),
+        case Err(e) -> print("list UNEXPECTED {}", e)
+    }
+    print("executable_path Ok {}", binary.len() > 0)
+
+    var name: [Int8; 4096] = [0; 4096]
+    bad_dir(&var name, "")
+    let nameable = mkdir((&name) as UnsafePointer<Int8>, DIRECTORY_MODE) == 0
+
+    match Directory.list(Path(s: ".")) {
+        case Ok(v) -> print("list InvalidUtf8 {}", not nameable && v.len() == 0),
+        case Err(e) -> print("list InvalidUtf8 {}", nameable && is_invalid_utf8(&e))
+    }
+    var linked = false
+    if nameable {
+        var existing: [Int8; 4096] = [0; 4096]
+        var copy: [Int8; 4096] = [0; 4096]
+        fill(&var existing, binary, false, "")
+        bad_dir(&var copy, "/copy")
+        linked = link((&existing) as UnsafePointer<Int8>, (&copy) as UnsafePointer<Int8>) == 0
+        assert(linked, "link refused")
+        assert(chdir((&name) as UnsafePointer<Int8>) == 0, "chdir refused")
+    }
+    match Env.cwd() {
+        case Ok(_) -> print("cwd InvalidUtf8 {}", not nameable),
+        case Err(e) -> print("cwd InvalidUtf8 {}", nameable && is_invalid_utf8(&e))
+    }
+    match Path(s: ".").canonical() {
+        case Ok(_) -> print("canonical InvalidUtf8 {}", not nameable),
+        case Err(e) -> print("canonical InvalidUtf8 {}", nameable && is_invalid_utf8(&e))
+    }
+    if linked {
+        var c = Command(program: "./copy")
+        try! c.env(child_flag(), "1")
+        match c.output() {
+            case Ok(r) -> print("{}", r.stdout.trim()),
+            case Err(e) -> print("child UNEXPECTED {}", e)
+        }
+    } else {
+        print("executable_path InvalidUtf8 true")
+    }
+
+    try! Env.set_cwd(work)
+    var cleaned = true
+    if nameable {
+        var copy: [Int8; 4096] = [0; 4096]
+        bad_dir(&var copy, "/copy")
+        cleaned = unlink((&copy) as UnsafePointer<Int8>) == 0
+        cleaned = cleaned && rmdir((&name) as UnsafePointer<Int8>) == 0
+    }
+    try! Env.set_cwd(base)
+    match Directory.remove(work) {
+        case Ok(_) -> {},
+        case Err(_) -> cleaned = false
+    }
+    print("cleaned up {}", cleaned)
+}

@@ -155,7 +155,7 @@ extension IoErrorKind {
     /// does not know, such as one a newer runtime reports.
     public static func of(tag: Int) -> IoErrorKind {
         // std.systemerror holds std's one table of the runtime's tags. The
-        // two kinds it adds name failures std raises itself, which no tag
+        // kinds it adds name failures std raises itself, which no tag
         // carries.
         match system_error_kind(tag) {
             case WouldBlock -> IoErrorKind.WouldBlock,
@@ -182,7 +182,8 @@ extension IoErrorKind {
             case InvalidDescriptor -> IoErrorKind.InvalidDescriptor,
             case InputOutputFailed -> IoErrorKind.InputOutputFailed,
             case UnexpectedEnd -> IoErrorKind.Unknown,
-            case LaunchFailed -> IoErrorKind.Unknown
+            case LaunchFailed -> IoErrorKind.Unknown,
+            case InvalidUtf8 -> IoErrorKind.Unknown
         }
     }
 

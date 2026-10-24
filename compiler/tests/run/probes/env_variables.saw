@@ -1,3 +1,18 @@
+// probe: stated
+// about: Env.get, set, unset and contains over a variable of the program's own, Env.get's Ok(None) for one that is unset (SL-895)
+// stage 0: its frozen std's `Env.get` returns `String?`, with no channel for a value that is not UTF-8
+// speeds: -O0 -O2
+// prints: false
+// prints: true
+// prints: first
+// prints: first
+// prints: third
+// prints: true
+// prints: 0
+// prints: false
+// prints: unset
+// prints: set empty name: surfaced
+// prints: unset empty name: surfaced
 // Env.get, set, unset and contains over a variable of this program's own, and
 // the failure of a set with an empty name surfacing as an Err.
 import std.env.{Env}
@@ -6,22 +21,22 @@ func main() {
     print(Env.contains("SAW_RUN_PIN_VAR"))
     try! Env.set("SAW_RUN_PIN_VAR", "first")
     print(Env.contains("SAW_RUN_PIN_VAR"))
-    print(Env.get("SAW_RUN_PIN_VAR")!)
+    print((try! Env.get("SAW_RUN_PIN_VAR"))!)
 
     // overwrite: false leaves the value alone and still succeeds.
     try! Env.set("SAW_RUN_PIN_VAR", "second", overwrite: false)
-    print(Env.get("SAW_RUN_PIN_VAR")!)
+    print((try! Env.get("SAW_RUN_PIN_VAR"))!)
     try! Env.set("SAW_RUN_PIN_VAR", "third")
-    print(Env.get("SAW_RUN_PIN_VAR")!)
+    print((try! Env.get("SAW_RUN_PIN_VAR"))!)
 
     // An empty value is a set variable.
     try! Env.set("SAW_RUN_PIN_VAR", "")
     print(Env.contains("SAW_RUN_PIN_VAR"))
-    print(Env.get("SAW_RUN_PIN_VAR")!.len())
+    print((try! Env.get("SAW_RUN_PIN_VAR"))!.len())
 
     try! Env.unset("SAW_RUN_PIN_VAR")
     print(Env.contains("SAW_RUN_PIN_VAR"))
-    if let _ = Env.get("SAW_RUN_PIN_VAR") {
+    if let _ = try! Env.get("SAW_RUN_PIN_VAR") {
         print("still set")
     } else {
         print("unset")

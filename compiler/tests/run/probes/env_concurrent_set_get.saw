@@ -49,12 +49,12 @@ func hammer(me: Int) unsafe -> Int {
     while round < ROUNDS {
         let want = "own-{me}-{round}-abcdefghijklmnopqrstuvwxyz"
         try! Env.set(own, want)
-        let mine = Env.get(own) ?? ""
+        let mine = (try! Env.get(own)) ?? ""
         if mine != want {
             wrong = wrong + 1
         }
         try! Env.set(shared_name(), shared_value(me))
-        let shared = Env.get(shared_name()) ?? ""
+        let shared = (try! Env.get(shared_name())) ?? ""
         if not is_shared_value(shared) {
             wrong = wrong + 1
         }
@@ -92,7 +92,7 @@ func main() {
     print("threads {}", THREADS)
     print("rounds {}", ROUNDS)
     print("reads that saw no stored value {}", wrong)
-    if let last = Env.get(shared_name()) {
+    if let last = try! Env.get(shared_name()) {
         print("shared value at the end is one written {}", is_shared_value(last))
     } else {
         print("shared value at the end is missing")

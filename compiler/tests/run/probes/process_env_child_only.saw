@@ -50,7 +50,7 @@ func main() {
     let out = try! c.output()
     print("child saw {}", out.stdout)
     print("parent has first {}", Env.contains("SAW_PROBE_FIRST"))
-    print("parent keeps parent {}", (Env.get("SAW_PROBE_INHERITED") ?? "") == "parent")
+    print("parent keeps parent {}", ((try! Env.get("SAW_PROBE_INHERITED")) ?? "") == "parent")
     print("empty name InvalidArgument {}", bad("", "v"))
     print("name with = InvalidArgument {}", bad("A=B", "v"))
     print("NUL in value InvalidArgument {}", bad("SAW_PROBE_NUL", "a\0b"))

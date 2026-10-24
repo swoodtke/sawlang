@@ -1,3 +1,21 @@
+// probe: stated
+// about: Directory.create, remove and exists, and the Err each mutation surfaces (SL-895)
+// stage 0: its frozen std's `Env.get`, which names the temporary root, returns `String?`
+// speeds: -O0 -O2
+// prints: before: false
+// prints: create: ok
+// prints: after create: true
+// prints: create again: already exists
+// prints: create under a missing parent: not found
+// prints: create inner: ok
+// prints: remove non-empty: other error
+// prints: still there: true
+// prints: file created
+// prints: exists on a file: true
+// prints: remove inner: ok
+// prints: remove: ok
+// prints: after remove: false
+// prints: remove again: not found
 // Directory.create, remove and exists on a scratch directory of the
 // program's own, named by its pid under the temporary root, and the Err each
 // mutation surfaces: a second create, a second remove, a missing parent and a
@@ -12,7 +30,7 @@ extern "C" {
 }
 
 func scratch_root() -> Path {
-    let root = Path(s: Env.get("TMPDIR") ?? "/tmp")
+    let root = Path(s: (try! Env.get("TMPDIR")) ?? "/tmp")
     let pid = getpid()
     root.join("saw_directory_create_remove_{pid}")
 }

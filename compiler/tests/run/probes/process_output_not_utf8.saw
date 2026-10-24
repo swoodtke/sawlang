@@ -1,0 +1,47 @@
+// probe: stated
+// about: a child's standard output that is not UTF-8 is output()'s Err of kind InvalidUtf8, never a panic, while output_bytes() hands back the bytes and the exit code undecoded; a UTF-8 capture is output()'s Ok (SL-895)
+// stage 0: its frozen std's `Command` has no `output_bytes()`, and reports the capture as `InvalidArgument`
+// speeds: -O0 -O2
+// leaks: none
+// prints: output InvalidUtf8 true
+// prints: output renders output failed (not valid UTF-8)
+// prints: bytes 97 255 98 code 3
+// prints: binary 255 254 success true
+// prints: random 16
+// prints: text [ab] success true
+import std.process.{Command}
+import std.systemerror.{SystemErrorKind}
+
+func shell(script: String) -> Command {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg(script)
+    move c
+}
+
+func main() {
+    let invalid = shell("printf 'a\\377b'; exit 3")
+    match invalid.output() {
+        case Ok(_) -> print("output UNEXPECTED ok"),
+        case Err(e) -> {
+            print("output InvalidUtf8 {}", e.kind() == SystemErrorKind.InvalidUtf8)
+            print("output renders {}", e)
+        }
+    }
+    match invalid.output_bytes() {
+        case Ok(r) -> print("bytes {} {} {} code {}", r.stdout[0], r.stdout[1], r.stdout[2], r.exit_code),
+        case Err(e) -> print("bytes UNEXPECTED {}", e)
+    }
+    match shell("printf '\\377\\376'").output_bytes() {
+        case Ok(r) -> print("binary {} {} success {}", r.stdout[0], r.stdout[1], r.success()),
+        case Err(e) -> print("binary UNEXPECTED {}", e)
+    }
+    match shell("head -c 16 /dev/urandom").output_bytes() {
+        case Ok(r) -> print("random {}", r.stdout.len()),
+        case Err(e) -> print("random UNEXPECTED {}", e)
+    }
+    match shell("printf ab").output() {
+        case Ok(r) -> print("text [{}] success {}", r.stdout, r.success()),
+        case Err(e) -> print("text UNEXPECTED {}", e)
+    }
+}

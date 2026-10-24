@@ -1,0 +1,61 @@
+// probe: stated
+// about: an environment value that is not UTF-8 is Env.get's Err of kind InvalidUtf8, never a panic, beside the Ok of a UTF-8 value and the Ok(None) of an unset one (SL-895)
+// stage 0: its frozen std's `Env.get` returns `String?` and panics on the value
+// speeds: -O0 -O2
+// leaks: none
+// prints: bad value InvalidUtf8 true
+// prints: bad value renders getenv failed (not valid UTF-8)
+// prints: good value ab
+// prints: unset is None true
+// The value is stored through C's setenv, since no `String` can carry the
+// byte 0xFF that makes it invalid.
+import std.env.{Env}
+import std.systemerror.{SystemErrorKind}
+
+extern "C" {
+    func setenv(name: UnsafePointer<Int8>, value: UnsafePointer<Int8>, overwrite: Int32) -> Int32
+}
+
+// `text`'s bytes as a C string in `buffer`, with 0xFF before the NUL when
+// `invalid`.
+func fill(buffer: &var [Int8; 64], text: String, invalid: Bool) {
+    let length = text.len()
+    for i in 0..length {
+        buffer[i] = Int8.from(truncating: text.byte_at(i))
+    }
+    var end = length
+    if invalid {
+        buffer[end] = -1
+        end = end + 1
+    }
+    buffer[end] = 0
+}
+
+func store(name: String, value: String, invalid: Bool) unsafe {
+    var key: [Int8; 64] = [0; 64]
+    var text: [Int8; 64] = [0; 64]
+    fill(&var key, name, false)
+    fill(&var text, value, invalid)
+    assert(setenv((&key) as UnsafePointer<Int8>, (&text) as UnsafePointer<Int8>, 1) == 0, "setenv refused")
+}
+
+func main() unsafe {
+    store("SAW_PROBE_NOT_UTF8", "a", true)
+    match Env.get("SAW_PROBE_NOT_UTF8") {
+        case Ok(_) -> print("bad value UNEXPECTED ok"),
+        case Err(e) -> {
+            print("bad value InvalidUtf8 {}", e.kind() == SystemErrorKind.InvalidUtf8)
+            print("bad value renders {}", e)
+        }
+    }
+    store("SAW_PROBE_NOT_UTF8", "ab", false)
+    match Env.get("SAW_PROBE_NOT_UTF8") {
+        case Ok(found) -> print("good value {}", found ?? "<none>"),
+        case Err(e) -> print("good value UNEXPECTED {}", e)
+    }
+    try! Env.unset("SAW_PROBE_NOT_UTF8")
+    match Env.get("SAW_PROBE_NOT_UTF8") {
+        case Ok(found) -> print("unset is None {}", found.is_none()),
+        case Err(e) -> print("unset UNEXPECTED {}", e)
+    }
+}

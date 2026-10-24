@@ -23,7 +23,7 @@ func process_id() unsafe -> Int32 {
 }
 
 func main() {
-    let root = Path(s: Env.get("TMPDIR") ?? "/tmp")
+    let root = Path(s: (try! Env.get("TMPDIR")) ?? "/tmp")
     let prefix = root.join("saw_directory_nul_{process_id()}")
     let holding_nul = Path(s: "{prefix.as_string()}\u{0}rest")
 
