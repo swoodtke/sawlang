@@ -1123,9 +1123,16 @@ to pin:
   `compiler/tests/run`, `tests/corpus` and the parser fixtures), plus the spec
   (about 380 lines), GRAMMAR.md (about 90) and the skill (about 130). The frozen
   trees (`examples/`, `blade/`, `libs/`, `tests/freestanding/`, `prototypes/`,
-  `devtools/`) are not migrated. The change is mechanical once the grammar and
-  the checker accept both spellings for one landing; the old spelling is then
-  refused with a fixit naming the new one.
+  `devtools/`) are not migrated.
+- **The transition** (Ruled, Oct 25). The first landing accepts BOTH
+  spellings: the old prefix draws a warning carrying a fix-it, and a mechanical
+  tool drops the prefix wherever this section makes it redundant, leaving the
+  named `borrow … { }` blocks. That landing is tagged **v0.19.0**, so a
+  consumer pinned to v0.18.0 (sawtracker, ST-97: about 90 required `borrow`
+  sites plus 275 SL-849 markers) bumps to a compiler that takes both, runs the
+  tool, and moves on. The tool migrates std, the corpus and the tests the same
+  way. A later release refuses the old prefix, with the same fix-it in the
+  error.
 - **Units:** the grammar and parser (both spellings, then the old refused); the
   typecheck and borrowck rules of 12.1–12.5 through ONE window-scoping funnel
   (obligation 1: its entry points are the binding forms of 12.2 and the
