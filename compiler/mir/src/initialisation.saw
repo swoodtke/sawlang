@@ -24,7 +24,7 @@
 
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
-import sawmir.model.{MirCallKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProjKind, MirRvalueKind,
+import sawmir.model.{MirAccessor, MirCallKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProjKind, MirRvalueKind,
                          MirStmtKind, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawtypecheck.model.{TC_EFFECT_CONSUMES}
@@ -36,13 +36,23 @@ public static MIR_INIT_PARTIAL: Int = 4
 public static MIR_INIT_MOVED: Int = 8
 public static MIR_INIT_DROPPED: Int = 16
 
+// What a `lend` site carries of one record local (`record_site_kinds`):
+// nothing, the local whole, the local maybe initialised under its drop
+// flag, or nothing of a local the site's path moved away, which that path's
+// epilogue resumes as moved.
+public static MIR_RECORD_ABSENT: Int = 0
+public static MIR_RECORD_WHOLE: Int = 1
+public static MIR_RECORD_MAYBE: Int = 2
+public static MIR_RECORD_GONE: Int = 3
+
 // What an access does to the place it names: a read (a copy, a switch, an
 // index, a write through a reference), a move, a borrow, a write that
 // assigns the path, or a drop. An accessor's record carries a local that is
 // only maybe initialised at `lend` with its drop flag: the prologue's write
 // into the record is a transfer, which ends the local as a move does but
 // uses nothing, since the local may already be gone; the epilogue's load out
-// of it is a resume, which leaves the local maybe initialised. A take
+// of it is a resume, which leaves the local maybe initialised, except on the
+// path of a site that carries it whole (`MirInit.plain_loads`). A take
 // capture's `take(p, flag)` is a take of `p`: a use like a move, which leaves
 // `p` whole or moved, since the closure body takes it only if it runs.
 public enum MirAccessKind {
@@ -99,6 +109,14 @@ public struct MirInit {
     // `block * path_count + path`: the conditions at the block's entry.
     entry: Vector<Int>
     reached: Vector<Bool>
+    // An epilogue's loads of a flagged record field at the head of a site's
+    // resume block where that site carries the local whole: a write, not a
+    // resume, so the site's path never sees it maybe moved.
+    plain_loads: Vector<Int>
+    // An epilogue's record locals a site carries gone, as pairs of that
+    // site's resume block and the local: the edge into the block leaves the
+    // local moved, as the site's `lend` left it, rather than unassigned.
+    gone_entries: Vector<Int>
 }
 
 extension MirInit: NoCopy {}
@@ -106,6 +124,30 @@ extension MirInit: NoCopy {}
 extension MirInit {
     public func path_count(&self) -> Int {
         self.path_local.len()
+    }
+
+    // Whether `gone_entries` pairs block `b` with local `l`.
+    public func gone_on_entry(&self, b: Int, l: Int) -> Bool {
+        var k = 0
+        while k + 1 < self.gone_entries.len() {
+            if self.gone_entries[k] == b && self.gone_entries[k + 1] == l {
+                return true
+            }
+            k = k + 2
+        }
+        false
+    }
+
+    // Whether statement `s` is one of `plain_loads`.
+    public func plain_load(&self, s: Int) -> Bool {
+        var k = 0
+        while k < self.plain_loads.len() {
+            if self.plain_loads[k] == s {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 
     // The conditions path `q` may be in, in `state`.
@@ -198,6 +240,31 @@ public func mir_drop_label(own: Int) -> MirDropLabel {
     MirDropLabel.Flagged
 }
 
+// Whether a site of record kind `kind` writes the local into the record and
+// its epilogue path reads it back.
+public func mir_record_kind_held(kind: Int) -> Bool {
+    kind == MIR_RECORD_WHOLE || kind == MIR_RECORD_MAYBE
+}
+
+// Whether every one of `sites` rows of record kinds, `width` wide from
+// `first` in `rows`, holds record local `field` alike: an epilogue reads
+// such a field at its entry, any other at the head of each holding site's
+// resume block.
+public func mir_record_field_shared(rows: &Vector<Int>, first: Int, width: Int, sites: Int, field: Int) -> Bool {
+    let kind = rows[first + field]
+    if not mir_record_kind_held(kind) {
+        return false
+    }
+    var k = 1
+    while k < sites {
+        if rows[first + k * width + field] != kind {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
 public func mir_drop_label_name(label: MirDropLabel) -> String {
     match label {
         case Static -> "static",
@@ -216,7 +283,8 @@ extension MirProgram {
                            path_local: Vector<Int>(), path_parent: Vector<Int>(),
                            path_kind: Vector<MirProjKind>(), path_decl: Vector<Int>(),
                            path_index: Vector<Int>(), path_ty: Vector<Int>(), path_child: Vector<Int>(),
-                           path_sibling: Vector<Int>(), entry: Vector<Int>(), reached: Vector<Bool>())
+                           path_sibling: Vector<Int>(), entry: Vector<Int>(), reached: Vector<Bool>(),
+                           plain_loads: self.record_plain_loads(f), gone_entries: self.record_gone_entries(f))
         var k = 0
         while k < info.local_count {
             try! facts.path_local.push(k)
@@ -292,7 +360,10 @@ extension MirProgram {
                     var q = 0
                     while q < n {
                         let at = target * n + q
-                        let out = if target == unwritten { skipped[q] } else { state[q] }
+                        var out = if target == unwritten { skipped[q] } else { state[q] }
+                        if facts.gone_on_entry(target, facts.path_local[q]) {
+                            out = MIR_INIT_MOVED
+                        }
                         let joined = facts.entry[at] | out
                         if joined != facts.entry[at] {
                             facts.entry[at] = joined
@@ -646,6 +717,76 @@ extension MirProgram {
         true
     }
 
+    // What `lend` site `site` of accessor `acc` carries of its record local
+    // `field`, one of the `MIR_RECORD_*` kinds: the stored rows of
+    // `record_site_kinds` (split.saw), the one place that decides them.
+    public func record_site_kind(&self, acc: &MirAccessor, site: Int, field: Int) -> Int {
+        let width = self.funcs[acc.prologue].record_count
+        self.aux[acc.site_field_first + site * width + field]
+    }
+
+    // The statements of epilogue `f` that `MirInit.plain_loads` lists: with
+    // several `lend` sites, each load at the head of a site's resume block
+    // of a flagged record field that site carries whole.
+    func record_plain_loads(&self, f: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Epilogue || info.decl < 0 || info.record_count == 0 {
+            return move out
+        }
+        let a = self.accessor_of[info.decl]
+        if a < 0 {
+            return move out
+        }
+        let acc = self.accessors[a]
+        var k = 0
+        while k < acc.lend_sites && acc.lend_sites > 1 {
+            let r = self.aux[acc.site_resume_first + k]
+            if r >= 0 && r < info.block_count {
+                var s = self.blocks[info.block_first + r].first
+                while s >= 0 {
+                    let field = self.record_load_field(f, s)
+                    let flagged = field >= 0 && self.aux[info.record_flags_first + field] >= 0
+                    if flagged && self.record_site_kind(&acc, k, field) == MIR_RECORD_WHOLE {
+                        try! out.push(s)
+                    }
+                    s = self.stmts[s].next
+                }
+            }
+            k = k + 1
+        }
+        move out
+    }
+
+    // The pairs `MirInit.gone_entries` lists for epilogue `f`: each site's
+    // resume block with each record local that site carries gone.
+    func record_gone_entries(&self, f: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        let info = self.funcs[f]
+        if info.kind != MirFuncKind.Epilogue || info.decl < 0 || info.record_count == 0 {
+            return move out
+        }
+        let a = self.accessor_of[info.decl]
+        if a < 0 {
+            return move out
+        }
+        let acc = self.accessors[a]
+        var k = 0
+        while k < acc.lend_sites {
+            let r = self.aux[acc.site_resume_first + k]
+            var j = 0
+            while j < info.record_count && r >= 0 && r < info.block_count {
+                if self.record_site_kind(&acc, k, j) == MIR_RECORD_GONE {
+                    try! out.push(r)
+                    try! out.push(self.aux[info.record_first + j])
+                }
+                j = j + 1
+            }
+            k = k + 1
+        }
+        move out
+    }
+
     // Statement `s`'s accesses, in evaluation order: an assignment's
     // operands, the place a `ref` borrows, the target's index locals, then
     // the target; a drop's place.
@@ -675,7 +816,7 @@ extension MirProgram {
             }
             if stmt.place >= 0 {
                 var kind = MirAccessKind.Write
-                if self.record_resume_field(f, s) >= 0 {
+                if self.record_resume_field(f, s) >= 0 && not facts.plain_load(s) {
                     kind = MirAccessKind.Resume
                 }
                 self.init_place_access(kind, stmt.place, s, &facts, &var out)
@@ -711,6 +852,17 @@ extension MirProgram {
     // a local from, `_L = move (*_1).K`, when that entry carries a flag; -1
     // for any other statement.
     public func record_resume_field(&self, f: Int, s: Int) -> Int {
+        let k = self.record_load_field(f, s)
+        if k < 0 {
+            return -1
+        }
+        self.aux[self.funcs[f].record_flags_first + k]
+    }
+
+    // The record local K whose field statement `s` of epilogue `f` loads
+    // into its local, `_L = move (*_1).K` (a `copy` for a copyable local);
+    // -1 for any other statement.
+    public func record_load_field(&self, f: Int, s: Int) -> Int {
         let info = self.funcs[f]
         let stmt = self.stmts[s]
         if info.kind != MirFuncKind.Epilogue || stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
@@ -725,15 +877,25 @@ extension MirProgram {
         }
         let o = self.lists[rv.first]
         let operand = self.operands[o]
-        if operand.kind != MirOperandKind.Move || operand.place < 0 {
+        if operand.kind == MirOperandKind.Const || operand.place < 0 {
             return -1
         }
-        self.record_entry_flag(f, operand.place)
+        self.record_entry_index(f, operand.place)
     }
 
     // When place `p` is a record entry of half `f`, `(*_1).K` for a record
     // local K, the field of that entry's flag, else -1.
     public func record_entry_flag(&self, f: Int, p: Int) -> Int {
+        let k = self.record_entry_index(f, p)
+        if k < 0 {
+            return -1
+        }
+        self.aux[self.funcs[f].record_flags_first + k]
+    }
+
+    // When place `p` is a record entry of half `f`, `(*_1).K` for a record
+    // local K, that K, else -1.
+    public func record_entry_index(&self, f: Int, p: Int) -> Int {
         let info = self.funcs[f]
         if p < 0 {
             return -1
@@ -751,7 +913,7 @@ extension MirProgram {
         if k < 0 || k >= info.record_count {
             return -1
         }
-        self.aux[info.record_flags_first + k]
+        k
     }
 
     // Block `b`'s terminator's accesses: a switch's operand or place; a

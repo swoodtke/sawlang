@@ -594,8 +594,9 @@ extension DropsProgram {
         net
     }
 
-    // A prologue's `lend`, a return that writes its record, writes every
-    // flag field of it.
+    // A prologue's `lend`, a return that writes its record, writes the flag
+    // field of every record local it writes, and nothing of a local its
+    // site does not carry (`record_site_kinds`).
     func verify_record_flags(&self, f: Int, out: &var Vector<String>) {
         let info = self.bc.mir.funcs[f]
         if info.kind != MirFuncKind.Prologue || info.record_count == 0 {
@@ -605,7 +606,7 @@ extension DropsProgram {
         while b < info.block_count {
             let block = self.bc.mir.blocks[info.block_first + b]
             if block.term == MirTermKind.Return {
-                var locals = 0
+                var locals = Vector<Int>()
                 var flags = Vector<Int>()
                 var s = block.first
                 while s >= 0 {
@@ -613,13 +614,15 @@ extension DropsProgram {
                     s = stmt.next
                     let field = self.record_field_written(&stmt)
                     if field >= 0 && field < info.record_count {
-                        locals = locals + 1
+                        try! locals.push(field)
                     } else if field >= 0 {
                         try! flags.push(field)
                     }
                 }
-                var k = 0
-                while k < info.record_count && locals > 0 {
+                var i = 0
+                while i < locals.len() {
+                    let k = locals[i]
+                    i = i + 1
                     let slot = self.bc.mir.aux[info.record_flags_first + k]
                     var found = slot < 0
                     var j = 0
@@ -632,7 +635,6 @@ extension DropsProgram {
                     if not found {
                         self.verify_problem(f, b, -1, "returns from a `lend` without writing a record local's drop flag", &var out)
                     }
-                    k = k + 1
                 }
             }
             b = b + 1

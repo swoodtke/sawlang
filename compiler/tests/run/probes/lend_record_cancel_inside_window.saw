@@ -1,0 +1,68 @@
+// probe: stated
+// about: a task cancelled while suspended inside the window of a two-site accessor runs only its site's epilogue and drops that site's local once (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi 0
+// prints: epi 1 2
+// prints: drop t2
+// prints: r 5 5
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct Two {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two: NoCopy {}
+
+extension Two {
+    func pick(&var self, first: Bool, i: Int) borrows -> &var Int {
+        if first {
+            lend self.a[i]
+            print("epi 0")
+        } else {
+            let t = Tag(id: 2)
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t.id)
+        }
+    }
+}
+
+func worker(first: Bool) -> Int {
+    var s = Two(a: [0], b: [0])
+    borrow var x = s.pick(first, 0) {
+        while not cancelled() {
+            yield_now()
+        }
+        x += 5
+    }
+    s.a[0] + s.b[0]
+}
+
+func main() {
+    var g = TaskGroup()
+    let h0 = g.spawn(worker(true))
+    let h1 = g.spawn(worker(false))
+    sleep(Duration.ms(20))
+    h0.cancel()
+    let r0 = h0.join()
+    h1.cancel()
+    let r1 = h1.join()
+    print("r {} {}", r0, r1)
+}

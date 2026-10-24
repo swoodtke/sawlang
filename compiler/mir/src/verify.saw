@@ -40,8 +40,9 @@
 
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_dump_module, mir_module_functions}
-import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
-                        MirInit}
+import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MIR_RECORD_ABSENT,
+                        MIR_RECORD_GONE, MIR_RECORD_MAYBE, MIR_RECORD_WHOLE, MirAccess, MirAccessKind, MirInit,
+                        mir_record_field_shared, mir_record_kind_held}
 import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFunc, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue, MirRvalueKind,
                          MirDriveForm, MirSpawnForm, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind,
@@ -495,11 +496,13 @@ extension MirProgram {
             return
         }
         if info.kind == MirFuncKind.Epilogue {
-            self.verify_epilogue_record(f, acc.record, &var out)
             self.verify_carried(f, acc.prologue, &var out)
             self.verify_site_windows(f, &acc, &var out)
-        } else {
-            self.verify_prologue_record(f, acc.record, &var out)
+            if self.verify_site_fields(f, &acc, &var out) {
+                self.verify_epilogue_record(f, &acc, &var out)
+            }
+        } else if self.site_fields_in_range(f, &acc) {
+            self.verify_prologue_record(f, &acc, &var out)
         }
     }
 
@@ -510,46 +513,250 @@ extension MirProgram {
         (s.effects & TC_EFFECT_BORROWS) != 0 && place
     }
 
-    func verify_epilogue_record(&var self, f: Int, record: Int, out: &var Vector<String>) {
+    // Epilogue `f` reads each record field where its accessor's site rows
+    // say (`record_site_kind`): a field every site holds alike at the entry,
+    // any other at the head of each holding site's resume block and nowhere
+    // else, so never on the path of a site it is absent or gone at, and each
+    // local it reads is read again after. A local
+    // read before any of that is live at the entry, which catches a site's
+    // path reading what its `lend` never wrote.
+    func verify_epilogue_record(&var self, f: Int, acc: &MirAccessor, out: &var Vector<String>) {
         let info = self.funcs[f]
         let n = info.local_count
         let live = self.recomputed_liveness(f)
+        let width = info.record_count
         var k = 0
         while k < n {
-            let is_record_param = record >= 0 && k == 1
-            if live[k] && not is_record_param {
-                var text = StringBuilder()
-                try! text.append("local _")
-                try! text.append(k)
-                try! text.append(" is read in the epilogue before the record gives it: the record misses a local live across `lend`")
-                self.problem(f, &var out, text.build())
+            let is_record_param = acc.record >= 0 && k == 1
+            let field = self.record_field_of(f, k)
+            if live[k] && not is_record_param && field < 0 {
+                self.record_problem(f, "local _", k, " is read in the epilogue before the record gives it: the record misses a local live across `lend`", &var out)
+            } else if live[k] && field >= 0 {
+                // A gone site's path reads its local as moved; an absent
+                // site's path must not read it at all.
+                var j = 0
+                while j < acc.lend_sites {
+                    let r = self.aux[acc.site_resume_first + j]
+                    let absent = self.record_site_kind(&acc, j, field) == MIR_RECORD_ABSENT
+                    if r > 0 && r < info.block_count && absent && live[r * n + k] {
+                        self.record_problem(f, "record local _", k, " is read on the path of a `lend` site that does not carry it", &var out)
+                    }
+                    j = j + 1
+                }
             }
             k = k + 1
         }
-        let entry = self.blocks[info.block_first]
-        var succ = Vector<Int>()
-        var opened = -1
-        self.successors(f, &entry, &var succ, &var opened)
         k = 0
-        while k < info.record_count {
+        while k < width {
             let l = self.aux[info.record_first + k]
-            var read = false
+            let shared = mir_record_field_shared(&self.aux, acc.site_field_first, width, acc.lend_sites, k)
+            let at_entry = self.record_load_in(f, 0, k)
+            if at_entry >= 0 && not shared {
+                self.record_problem(f, "the entry reads record field ", k, ", which its `lend` sites do not all carry alike", &var out)
+            } else if at_entry < 0 && shared {
+                self.record_problem(f, "the entry does not read record field ", k, ", which every `lend` site carries", &var out)
+            } else if shared && not self.read_after_load(f, 0, at_entry, l, &live) {
+                self.record_problem(f, "record local _", l, " is never read after the `lend`: the record holds a local not live across it", &var out)
+            }
             var j = 0
-            while j < succ.len() {
-                if live[succ[j] * n + l] {
-                    read = true
+            while j < acc.lend_sites {
+                let r = self.aux[acc.site_resume_first + j]
+                let own = not shared && mir_record_kind_held(self.record_site_kind(&acc, j, k))
+                var at = -1
+                if r > 0 && r < info.block_count {
+                    at = self.record_load_in(f, r, k)
+                }
+                if at >= 0 && not own {
+                    self.record_problem(f, "a `lend` site's resume block reads record field ", k, ", which that site's `lend` does not write", &var out)
+                } else if at < 0 && own {
+                    self.record_problem(f, "a `lend` site's resume block does not read record field ", k, ", which that site holds", &var out)
+                } else if own && not self.read_after_load(f, r, at, l, &live) {
+                    self.record_problem(f, "record local _", l, " is never read after its site's `lend`: the record holds a local not live across it", &var out)
                 }
                 j = j + 1
             }
-            if not read {
-                var text = StringBuilder()
-                try! text.append("record local _")
-                try! text.append(l)
-                try! text.append(" is never read after the `lend`: the record holds a local not live across it")
-                self.problem(f, &var out, text.build())
+            k = k + 1
+        }
+    }
+
+    // The record field half `f` keeps its local `l` in, or -1.
+    func record_field_of(&self, f: Int, l: Int) -> Int {
+        let info = self.funcs[f]
+        var k = 0
+        while k < info.record_count {
+            if self.aux[info.record_first + k] == l {
+                return k
             }
             k = k + 1
         }
+        -1
+    }
+
+    // One record problem of half `f`: `before`, the number `n`, `after`.
+    func record_problem(&self, f: Int, before: String, n: Int, after: String, out: &var Vector<String>) {
+        var text = StringBuilder()
+        try! text.append(before)
+        try! text.append(n)
+        try! text.append(after)
+        self.problem(f, &var out, text.build())
+    }
+
+    // The statement of block `b` of epilogue `f` that reads record field
+    // `k` into its local, or -1.
+    func record_load_in(&self, f: Int, b: Int, k: Int) -> Int {
+        let info = self.funcs[f]
+        var s = self.blocks[info.block_first + b].first
+        while s >= 0 {
+            if self.record_load_field(f, s) == k {
+                return s
+            }
+            s = self.stmts[s].next
+        }
+        -1
+    }
+
+    // Whether local `l` of `f` is read after statement `s` of block `b`
+    // before a whole write: later in the block, or at the entry of a
+    // successor by `live`, the recomputed liveness.
+    func read_after_load(&self, f: Int, b: Int, s: Int, l: Int, live: &Vector<Bool>) -> Bool {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var at = self.stmts[s].next
+        while at >= 0 {
+            let stmt = self.stmts[at]
+            at = stmt.next
+            if stmt.kind == MirStmtKind.Assign && stmt.rvalue >= 0 {
+                let rv = self.rvalues[stmt.rvalue]
+                var j = 0
+                var read = self.place_names(rv.place, l) || self.place_names(rv.flag, l)
+                while j < rv.count {
+                    let o = self.lists[rv.first + j]
+                    if o >= 0 && self.operands[o].kind != MirOperandKind.Const && self.place_names(self.operands[o].place, l) {
+                        read = true
+                    }
+                    j = j + 1
+                }
+                if stmt.place >= 0 && self.places[stmt.place].count > 0 && self.place_names(stmt.place, l) {
+                    read = true
+                }
+                if read {
+                    return true
+                }
+                if stmt.place >= 0 && self.places[stmt.place].local == l && self.places[stmt.place].count == 0 {
+                    return false
+                }
+            } else if stmt.kind == MirStmtKind.Drop && self.place_names(stmt.place, l) {
+                return true
+            }
+        }
+        if block.term == MirTermKind.Switch {
+            let o = block.operand
+            if o >= 0 && self.operands[o].kind != MirOperandKind.Const && self.place_names(self.operands[o].place, l) {
+                return true
+            }
+            if self.place_names(block.place, l) {
+                return true
+            }
+        } else if block.term == MirTermKind.Call {
+            let c = self.calls[block.call]
+            var j = 0
+            while j < c.arg_count {
+                let o = self.lists[c.arg_first + j]
+                if o >= 0 && self.operands[o].kind != MirOperandKind.Const && self.place_names(self.operands[o].place, l) {
+                    return true
+                }
+                j = j + 1
+            }
+        }
+        var succ = Vector<Int>()
+        var opened = -1
+        self.successors(f, &block, &var succ, &var opened)
+        var j = 0
+        while j < succ.len() {
+            if live[succ[j] * info.local_count + l] {
+                return true
+            }
+            j = j + 1
+        }
+        false
+    }
+
+    // Whether place `p` names local `l`, as its root or an index.
+    func place_names(&self, p: Int, l: Int) -> Bool {
+        if p < 0 {
+            return false
+        }
+        let info = self.places[p]
+        if info.local == l {
+            return true
+        }
+        var k = 0
+        while k < info.count {
+            let step = self.projs[info.first + k]
+            if step.kind == MirProjKind.Index && step.index == l {
+                return true
+            }
+            k = k + 1
+        }
+        false
+    }
+
+    // Whether accessor `acc`'s site rows fit `aux` for half `f`'s record.
+    func site_fields_in_range(&self, f: Int, acc: &MirAccessor) -> Bool {
+        let width = self.funcs[f].record_count
+        acc.site_field_first >= 0 && acc.site_field_first + acc.lend_sites * width <= self.aux.len()
+    }
+
+    // Epilogue `f`'s site rows (`record_site_kinds`) are well formed: in
+    // range, each a kind; a maybe one only for a flagged local and a flagged
+    // local maybe at some site; every local carried, held or gone, by some
+    // site; and a window's own record carried only at a site whose row marks
+    // that window open, and only whole. Returns whether the rows can be read.
+    func verify_site_fields(&self, f: Int, acc: &MirAccessor, out: &var Vector<String>) -> Bool {
+        let info = self.funcs[f]
+        if not self.site_fields_in_range(f, &acc) {
+            self.problem(f, &var out, "an accessor's per-site record rows are out of range of `aux`")
+            return false
+        }
+        var fine = true
+        var k = 0
+        while k < info.record_count {
+            let l = self.aux[info.record_first + k]
+            let flagged = self.aux[info.record_flags_first + k] >= 0
+            let w = self.window_of_record(&info, l)
+            var carried = false
+            var maybe = false
+            var j = 0
+            while j < acc.lend_sites {
+                let kind = self.record_site_kind(&acc, j, k)
+                j = j + 1
+                if kind != MIR_RECORD_ABSENT && kind != MIR_RECORD_GONE && not mir_record_kind_held(kind) {
+                    self.record_problem(f, "a `lend` site's row holds no record kind for field ", k, "", &var out)
+                    fine = false
+                    continue
+                }
+                if kind != MIR_RECORD_ABSENT {
+                    carried = true
+                }
+                if kind == MIR_RECORD_MAYBE {
+                    maybe = true
+                }
+                if w >= 0 && kind != MIR_RECORD_ABSENT {
+                    let marked = self.aux[acc.site_open_first + (j - 1) * info.window_count + w] != 0
+                    if kind != MIR_RECORD_WHOLE || not marked {
+                        self.record_problem(f, "a `lend` site carries the record of window w", w, " without that window open there, or other than whole", &var out)
+                    }
+                }
+            }
+            if maybe != flagged {
+                self.record_problem(f, "record field ", k, "'s drop flag disagrees with its sites: a field has one exactly when some `lend` site carries it maybe initialised", &var out)
+            }
+            if not carried {
+                self.record_problem(f, "record field ", k, " is carried by no `lend` site", &var out)
+            }
+            k = k + 1
+        }
+        fine
     }
 
     // Which locals of `f` are live at each block's entry, `block *
@@ -839,16 +1046,22 @@ extension MirProgram {
         false
     }
 
-    func verify_prologue_record(&self, f: Int, record: Int, out: &var Vector<String>) {
+    // Each `lend` of prologue `f` writes exactly the record locals its site
+    // holds (`record_site_kind`), never an absent or gone one, the site named
+    // by the resume index it
+    // writes when there are several; a flag field is drop elaboration's to
+    // write.
+    func verify_prologue_record(&self, f: Int, acc: &MirAccessor, out: &var Vector<String>) {
+        let record = acc.record
         if record < 0 {
             return
         }
         let info = self.funcs[f]
         let fields = self.tc.types.ty(record).count
-        let open = self.window_entries(f)
+        // The resume index is the record's last field when there is one.
+        let index_field = if acc.lend_sites > 1 { fields - 1 } else { -1 }
         var b = 0
         while b < info.block_count {
-            let here = b
             let block = self.blocks[info.block_first + b]
             b = b + 1
             if block.term != MirTermKind.Return {
@@ -860,6 +1073,8 @@ extension MirProgram {
                 try! written.push(false)
                 k = k + 1
             }
+            var site = if acc.lend_sites > 1 { -1 } else { 0 }
+            var any = false
             var s = block.first
             while s >= 0 {
                 let stmt = self.stmts[s]
@@ -872,46 +1087,57 @@ extension MirProgram {
                     let step = self.projs[place.first + 1]
                     if step.kind == MirProjKind.Tuple && step.index < fields {
                         written[step.index] = true
+                        any = true
+                        if step.index == index_field {
+                            site = self.resume_index_written(&stmt, acc.lend_sites)
+                        }
                     }
                 }
             }
-            // A record local's flag field is drop elaboration's to write.
-            k = 0
-            var unwritten = 0
-            while k < info.record_count {
-                let slot = self.aux[info.record_flags_first + k]
-                if slot >= 0 && slot < fields {
-                    written[slot] = false
-                    unwritten = unwritten + 1
-                }
-                k = k + 1
+            // A conditional lend's absent path writes nothing.
+            if not any {
+                continue
             }
-            // A window's record local is written only where its window is
-            // open, so the record of a window another site opened is no field
-            // of this one.
+            if site < 0 {
+                self.problem(f, &var out, "a prologue's `lend` writes the record without a resume index naming one of its sites")
+                continue
+            }
             k = 0
             while k < info.record_count && k < fields {
-                let w = self.window_of_record(&info, self.aux[info.record_first + k])
-                if w >= 0 && not open[here * info.window_count + w] {
-                    if written[k] {
-                        self.problem(f, &var out, "a prologue's `lend` writes the record of a window it did not open")
-                    }
-                    unwritten = unwritten + 1
+                let held = mir_record_kind_held(self.record_site_kind(&acc, site, k))
+                if written[k] && not held {
+                    self.record_problem(f, "a prologue's `lend` writes record field ", k, ", which its site does not hold (absent or gone)", &var out)
+                } else if held && not written[k] {
+                    self.record_problem(f, "a prologue's `lend` does not write record field ", k, ", which its site holds", &var out)
                 }
                 k = k + 1
-            }
-            var count = 0
-            k = 0
-            while k < fields {
-                if written[k] {
-                    count = count + 1
-                }
-                k = k + 1
-            }
-            if count != 0 && count != fields - unwritten {
-                self.problem(f, &var out, "a prologue's `lend` writes some of the record's fields and not others")
             }
         }
+    }
+
+    // The site a resume-index write `stmt` names, a constant below `sites`,
+    // or -1.
+    func resume_index_written(&self, stmt: &MirStmt, sites: Int) -> Int {
+        if stmt.rvalue < 0 {
+            return -1
+        }
+        let rv = self.rvalues[stmt.rvalue]
+        if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+            return -1
+        }
+        let o = self.operands[self.lists[rv.first]]
+        if o.kind != MirOperandKind.Const || o.text < 0 {
+            return -1
+        }
+        let text = self.tc.name_text(o.text)
+        var k = 0
+        while k < sites {
+            if text.equals(k.to_string()) {
+                return k
+            }
+            k = k + 1
+        }
+        -1
     }
 
     // Whether MIR function `f` holds a call that may suspend.

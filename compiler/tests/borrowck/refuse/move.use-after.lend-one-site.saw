@@ -1,0 +1,31 @@
+// refuses: move.use-after at 24:9
+// a one-site accessor's local moved away before its `lend` and read after
+// it: the `lend` neither writes it into the state record nor reads it back,
+// and the epilogue resumes it as moved, so the read is a use after move
+// (SL-873)
+import std.task.*
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(r: Res) -> Int { r.id }
+
+struct One {
+    a: Vector<Int>
+}
+extension One: NoCopy {}
+
+extension One {
+    func pick(&var self, i: Int) borrows -> &var Int {
+        let r = Res(id: 1)
+        let _ = take(move r)
+        yield_now()
+        lend self.a[i]
+        print("{}", r.id)
+    }
+}
+
+func main() {
+    var t = One(a: [0])
+    borrow var t.pick(0) += 1
+}

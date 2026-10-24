@@ -440,6 +440,10 @@ public struct MirAccessor {
     // (`window_open_after`).
     site_resume_first: Int
     site_open_first: Int
+    // A third run, per site, a row of the record's locals: the kind of each
+    // at that site's `lend`, one of the `MIR_RECORD_*` kinds
+    // (`record_site_kinds`, read through `record_site_kind`).
+    site_field_first: Int
     // Whether each half holds a call that may suspend.
     prologue_suspends: Bool
     epilogue_suspends: Bool

@@ -1,0 +1,62 @@
+// probe: stated
+// about: a local maybe moved at site 0 (a drop flag) and another local held at site 1 are each written, flagged and read back on their own site's path only (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: sink t1
+// prints: drop t1
+// prints: epi 0
+// prints: epi 0
+// prints: drop t1
+// prints: epi 1 2
+// prints: drop t2
+// prints: a 2 b 2
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct Two {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two: NoCopy {}
+
+extension Two {
+    func pick(&var self, first: Bool, c: Bool, i: Int) borrows -> &var Int {
+        if first {
+            let t = Tag(id: 1)
+            if c {
+                sink(move t)
+            }
+            yield_now()
+            lend self.a[i]
+            print("epi 0")
+        } else {
+            let u = Tag(id: 2)
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", u.id)
+        }
+    }
+}
+
+func main() {
+    var s = Two(a: [0], b: [0])
+    borrow var s.pick(true, true, 0) += 1
+    borrow var s.pick(true, false, 0) += 1
+    borrow var s.pick(false, false, 0) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}

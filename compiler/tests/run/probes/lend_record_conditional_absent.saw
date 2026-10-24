@@ -1,0 +1,69 @@
+// probe: stated
+// about: a conditional accessor whose site 0 holds a local, whose site 1 holds none, and whose absent path holds its own, across suspensions, runs each path's epilogue only and drops each local once (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi 0 1
+// prints: drop t1
+// prints: epi 1
+// prints: absent 9
+// prints: drop t9
+// prints: none
+// prints: a 1 b 2
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct Two {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two: NoCopy {}
+
+extension Two {
+    func find(&var self, which: Int, i: Int) borrows -> &var Int? {
+        if which == 0 {
+            let t = Tag(id: 1)
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t.id)
+        } else if which == 1 {
+            yield_now()
+            lend self.b[i]
+            print("epi 1")
+        } else {
+            let u = Tag(id: 9)
+            yield_now()
+            print("absent {}", u.id)
+            return None
+        }
+    }
+}
+
+func main() {
+    var s = Two(a: [0], b: [0])
+    var k = 0
+    while k < 3 {
+        if borrow var x = s.find(k, 0) {
+            yield_now()
+            x += k + 1
+        } else {
+            print("none")
+        }
+        k = k + 1
+    }
+    print("a {} b {}", s.a[0], s.b[0])
+}

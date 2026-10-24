@@ -1,0 +1,75 @@
+// probe: stated
+// about: three `lend` sites chosen by `match`, the middle one alone holding a local across a suspension, read it back only on that site's path (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi a
+// prints: epi b 2
+// prints: drop t2
+// prints: epi c
+// prints: a 1 b 2 c 3
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct Two {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two: NoCopy {}
+
+enum Which {
+    case A,
+    case B,
+    case C
+}
+
+struct Three {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Three: NoCopy {}
+
+extension Three {
+    func pick(&var self, w: Which, i: Int) borrows -> &var Int {
+        match w {
+            case A -> {
+                lend self.a[i]
+                print("epi a")
+            },
+            case B -> {
+                let t = Tag(id: 2)
+                yield_now()
+                lend self.b[i]
+                print("epi b {}", t.id)
+            },
+            case C -> {
+                lend self.c[i]
+                print("epi c")
+            }
+        }
+    }
+}
+
+func main() {
+    var s = Three(a: [0], b: [0], c: [0])
+    borrow var s.pick(Which.A, 0) += 1
+    borrow var s.pick(Which.B, 0) += 2
+    borrow var s.pick(Which.C, 0) += 3
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}

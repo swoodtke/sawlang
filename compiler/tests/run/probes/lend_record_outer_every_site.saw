@@ -1,0 +1,54 @@
+// probe: stated
+// about: one local declared before two `lend` sites and read after each is read at the epilogue's entry, as one field both sites hold alike (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi 0 1
+// prints: drop t1
+// prints: epi 1 1
+// prints: drop t1
+// prints: a 1 b 2
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct Two {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two: NoCopy {}
+
+extension Two {
+    func pick(&var self, first: Bool, i: Int) borrows -> &var Int {
+        let t = Tag(id: 1)
+        if first {
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t.id)
+        } else {
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t.id)
+        }
+    }
+}
+
+func main() {
+    var s = Two(a: [0], b: [0])
+    borrow var s.pick(true, 0) += 1
+    borrow var s.pick(false, 0) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}

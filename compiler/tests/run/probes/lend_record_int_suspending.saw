@@ -1,0 +1,514 @@
+// probe: stated
+// about: an accessor with two or three `lend` sites, each holding an `Int` across its own `lend` or none, for every set of holding sites, with the accessor and the caller's window suspending, writes into the state record and reads back on each site's path only the locals that site holds, each dropped once, conformance row K220 (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: cell n2_h0
+// prints: epi 0 0
+// prints: epi 1
+// prints: a 1 b 2 c 0
+// prints: cell n2_h1
+// prints: epi 0
+// prints: epi 1 1
+// prints: a 1 b 2 c 0
+// prints: cell n2_h01
+// prints: epi 0 0
+// prints: epi 1 1
+// prints: a 1 b 2 c 0
+// prints: cell n3_h0
+// prints: epi 0 0
+// prints: epi 1
+// prints: epi 2
+// prints: a 1 b 2 c 3
+// prints: cell n3_h1
+// prints: epi 0
+// prints: epi 1 1
+// prints: epi 2
+// prints: a 1 b 2 c 3
+// prints: cell n3_h2
+// prints: epi 0
+// prints: epi 1
+// prints: epi 2 2
+// prints: a 1 b 2 c 3
+// prints: cell n3_h01
+// prints: epi 0 0
+// prints: epi 1 1
+// prints: epi 2
+// prints: a 1 b 2 c 3
+// prints: cell n3_h02
+// prints: epi 0 0
+// prints: epi 1
+// prints: epi 2 2
+// prints: a 1 b 2 c 3
+// prints: cell n3_h12
+// prints: epi 0
+// prints: epi 1 1
+// prints: epi 2 2
+// prints: a 1 b 2 c 3
+// prints: cell n3_h012
+// prints: epi 0 0
+// prints: epi 1 1
+// prints: epi 2 2
+// prints: a 1 b 2 c 3
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+struct Bag {
+    v: Vector<Int>
+}
+
+extension Bag: NoCopy {}
+
+struct Sites_n2_h0 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n2_h0: NoCopy {}
+
+extension Sites_n2_h0 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            let t0 = 0 + 100 * i
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t0)
+        } else {
+            yield_now()
+            lend self.b[i]
+            print("epi 1")
+        }
+    }
+}
+
+func cell_n2_h0() {
+    print("cell n2_h0")
+    var s = Sites_n2_h0(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n2_h1 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n2_h1: NoCopy {}
+
+extension Sites_n2_h1 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            yield_now()
+            lend self.a[i]
+            print("epi 0")
+        } else {
+            let t1 = 1 + 100 * i
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t1)
+        }
+    }
+}
+
+func cell_n2_h1() {
+    print("cell n2_h1")
+    var s = Sites_n2_h1(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n2_h01 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n2_h01: NoCopy {}
+
+extension Sites_n2_h01 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            let t0 = 0 + 100 * i
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t0)
+        } else {
+            let t1 = 1 + 100 * i
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t1)
+        }
+    }
+}
+
+func cell_n2_h01() {
+    print("cell n2_h01")
+    var s = Sites_n2_h01(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h0 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h0: NoCopy {}
+
+extension Sites_n3_h0 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            let t0 = 0 + 100 * i
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t0)
+        } else if which == 1 {
+            yield_now()
+            lend self.b[i]
+            print("epi 1")
+        } else {
+            yield_now()
+            lend self.c[i]
+            print("epi 2")
+        }
+    }
+}
+
+func cell_n3_h0() {
+    print("cell n3_h0")
+    var s = Sites_n3_h0(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h1 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h1: NoCopy {}
+
+extension Sites_n3_h1 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            yield_now()
+            lend self.a[i]
+            print("epi 0")
+        } else if which == 1 {
+            let t1 = 1 + 100 * i
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t1)
+        } else {
+            yield_now()
+            lend self.c[i]
+            print("epi 2")
+        }
+    }
+}
+
+func cell_n3_h1() {
+    print("cell n3_h1")
+    var s = Sites_n3_h1(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h2 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h2: NoCopy {}
+
+extension Sites_n3_h2 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            yield_now()
+            lend self.a[i]
+            print("epi 0")
+        } else if which == 1 {
+            yield_now()
+            lend self.b[i]
+            print("epi 1")
+        } else {
+            let t2 = 2 + 100 * i
+            yield_now()
+            lend self.c[i]
+            print("epi 2 {}", t2)
+        }
+    }
+}
+
+func cell_n3_h2() {
+    print("cell n3_h2")
+    var s = Sites_n3_h2(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h01 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h01: NoCopy {}
+
+extension Sites_n3_h01 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            let t0 = 0 + 100 * i
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t0)
+        } else if which == 1 {
+            let t1 = 1 + 100 * i
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t1)
+        } else {
+            yield_now()
+            lend self.c[i]
+            print("epi 2")
+        }
+    }
+}
+
+func cell_n3_h01() {
+    print("cell n3_h01")
+    var s = Sites_n3_h01(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h02 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h02: NoCopy {}
+
+extension Sites_n3_h02 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            let t0 = 0 + 100 * i
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t0)
+        } else if which == 1 {
+            yield_now()
+            lend self.b[i]
+            print("epi 1")
+        } else {
+            let t2 = 2 + 100 * i
+            yield_now()
+            lend self.c[i]
+            print("epi 2 {}", t2)
+        }
+    }
+}
+
+func cell_n3_h02() {
+    print("cell n3_h02")
+    var s = Sites_n3_h02(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h12 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h12: NoCopy {}
+
+extension Sites_n3_h12 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            yield_now()
+            lend self.a[i]
+            print("epi 0")
+        } else if which == 1 {
+            let t1 = 1 + 100 * i
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t1)
+        } else {
+            let t2 = 2 + 100 * i
+            yield_now()
+            lend self.c[i]
+            print("epi 2 {}", t2)
+        }
+    }
+}
+
+func cell_n3_h12() {
+    print("cell n3_h12")
+    var s = Sites_n3_h12(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+struct Sites_n3_h012 {
+    a: Vector<Int>
+    b: Vector<Int>
+    c: Vector<Int>
+}
+
+extension Sites_n3_h012: NoCopy {}
+
+extension Sites_n3_h012 {
+    func pick(&var self, which: Int, i: Int) borrows -> &var Int {
+        if which == 0 {
+            let t0 = 0 + 100 * i
+            yield_now()
+            lend self.a[i]
+            print("epi 0 {}", t0)
+        } else if which == 1 {
+            let t1 = 1 + 100 * i
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t1)
+        } else {
+            let t2 = 2 + 100 * i
+            yield_now()
+            lend self.c[i]
+            print("epi 2 {}", t2)
+        }
+    }
+}
+
+func cell_n3_h012() {
+    print("cell n3_h012")
+    var s = Sites_n3_h012(a: [0], b: [0], c: [0])
+    borrow var x0 = s.pick(0, 0) {
+        yield_now()
+        x0 += 1
+    }
+    borrow var x1 = s.pick(1, 0) {
+        yield_now()
+        x1 += 2
+    }
+    borrow var x2 = s.pick(2, 0) {
+        yield_now()
+        x2 += 3
+    }
+    print("a {} b {} c {}", s.a[0], s.b[0], s.c[0])
+}
+
+func main() {
+    cell_n2_h0()
+    cell_n2_h1()
+    cell_n2_h01()
+    cell_n3_h0()
+    cell_n3_h1()
+    cell_n3_h2()
+    cell_n3_h01()
+    cell_n3_h02()
+    cell_n3_h12()
+    cell_n3_h012()
+}

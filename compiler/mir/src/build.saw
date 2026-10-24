@@ -437,7 +437,7 @@ extension MirProgram {
     //     lower_while_let
     //     lower_for
     //     lower_closure
-    //     copy_blocks
+    //     copy_statements
     //     copy_terminator
     //     build_prologue
     //     build_epilogue

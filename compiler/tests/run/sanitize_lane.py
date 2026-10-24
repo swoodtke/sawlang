@@ -51,7 +51,8 @@ PROBE_KINDS = ("stated", "panics")
 # read off the absent path, a drive's released slot, a window record carried
 # across a lend, an exclusive borrowing struct's `&var` field written through
 # until the struct is destroyed, a `Result` the C entry reads out of `main`'s
-# frame after the executor returns).
+# frame after the executor returns, a state record field one `lend` site's
+# path left unwritten).
 PROBE_PATTERNS = (
     "thread_*.saw",
     "coro_*.saw",
@@ -69,6 +70,7 @@ PROBE_PATTERNS = (
     "exclusive_borrowing_struct_*.saw",
     "main_result_*.saw",
     "copy_hook_suspends_*.saw",
+    "lend_record_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

@@ -1,0 +1,59 @@
+// probe: stated
+// about: a generic two-site accessor, monomorphised, whose second site alone holds a local reads it back only on that site's path (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: epi 0
+// prints: epi 1 2
+// prints: drop t2
+// prints: a 1 b 2
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct Two {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two: NoCopy {}
+
+struct Pair<T> {
+    a: Vector<T>
+    b: Vector<T>
+}
+
+extension Pair<T>: NoCopy {}
+
+extension Pair<T> {
+    func pick(&var self, first: Bool, i: Int) borrows -> &var T {
+        if first {
+            lend self.a[i]
+            print("epi 0")
+        } else {
+            let t = Tag(id: 2)
+            yield_now()
+            lend self.b[i]
+            print("epi 1 {}", t.id)
+        }
+    }
+}
+
+func main() {
+    var s = Pair<Int>(a: [0], b: [0])
+    borrow var s.pick(true, 0) += 1
+    borrow var s.pick(false, 0) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}

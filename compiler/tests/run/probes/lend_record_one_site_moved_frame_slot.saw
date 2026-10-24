@@ -1,0 +1,53 @@
+// probe: stated
+// about: a one-site accessor whose local is held across one suspension, then moved away before the suspension ahead of its `lend`, neither writes nor reads back its dead frame slot (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: pre 1
+// prints: sink t1
+// prints: drop t1
+// prints: epi
+// prints: a 1
+import std.task.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: NoCopy {
+    func deinit(&var self) {
+        print("drop t{}", self.id)
+    }
+}
+
+func sink(t: Tag) {
+    print("sink t{}", t.id)
+}
+
+struct One {
+    a: Vector<Int>
+}
+
+extension One: NoCopy {}
+
+extension One {
+    // `t` is held across a suspension (a frame slot), then moved away
+    // before the suspension ahead of the one `lend`.
+    func pick(&var self, c: Bool, i: Int) borrows -> &var Int {
+        let t = Tag(id: 1)
+        if c {
+            yield_now()
+            print("pre {}", t.id)
+        }
+        sink(move t)
+        yield_now()
+        lend self.a[i]
+        print("epi")
+    }
+}
+
+func main() {
+    var s = One(a: [0])
+    borrow var s.pick(true, 0) += 1
+    print("a {}", s.a[0])
+}

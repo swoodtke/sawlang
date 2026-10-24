@@ -1,0 +1,420 @@
+// probe: stated
+// about: two-site accessors whose locals are or are not held across a suspension inside the accessor, lending a `Vector.[]` place or a field, from statement and block windows, the reviewer's three shapes and the variants between them and the faulting cells: each site reads back only its own local (SL-873)
+// stage 0: cannot parse a `borrow` statement or block
+// speeds: -O0 -O2
+// leaks: none
+// prints: case air1_statement
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case air2_block_yield
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case air3_both_top_yield
+// prints: 11
+// prints: 22
+// prints: 11
+// prints: 22
+// prints: a 2 b 4
+// prints: case v_both_branch_yields
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case v_holder0_yield_only
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case v_holder1_yield_only
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case v_top_and_branch1
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case v_h0_yield_site0
+// prints: 11
+// prints: e1
+// prints: a 1 b 2
+// prints: case v_h0_yield_site1
+// prints: 11
+// prints: e1
+// prints: a 1 b 2
+// prints: case f_both_branch_yields
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+// prints: case f_holder0_yield_only
+// prints: 11
+// prints: 22
+// prints: a 1 b 2
+import std.task.*
+
+struct Two0 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two0: NoCopy {}
+
+extension Two0 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_air1_statement() {
+    print("case air1_statement")
+    var s = Two0(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two1 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two1: NoCopy {}
+
+extension Two1 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_air2_block_yield() {
+    print("case air2_block_yield")
+    var s = Two1(a: [0], b: [0])
+    yield_now()
+    borrow var p = s.pick(true) {
+        yield_now()
+        p += 1
+    }
+    borrow var q = s.pick(false) {
+        yield_now()
+        q += 2
+    }
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two2 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two2: NoCopy {}
+
+extension Two2 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        yield_now()
+        if first {
+            let x = 11
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_air3_both_top_yield() {
+    print("case air3_both_top_yield")
+    var s = Two2(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    borrow var p = s.pick(true) {
+        yield_now()
+        p += 1
+    }
+    borrow var q = s.pick(false) {
+        yield_now()
+        q += 2
+    }
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two3 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two3: NoCopy {}
+
+extension Two3 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            yield_now()
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            yield_now()
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_v_both_branch_yields() {
+    print("case v_both_branch_yields")
+    var s = Two3(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two4 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two4: NoCopy {}
+
+extension Two4 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            yield_now()
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_v_holder0_yield_only() {
+    print("case v_holder0_yield_only")
+    var s = Two4(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two5 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two5: NoCopy {}
+
+extension Two5 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            yield_now()
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_v_holder1_yield_only() {
+    print("case v_holder1_yield_only")
+    var s = Two5(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two6 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two6: NoCopy {}
+
+extension Two6 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        yield_now()
+        if first {
+            let x = 11
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            let y = 22
+            yield_now()
+            lend self.b[0]
+            print("{}", y)
+        }
+    }
+}
+
+func run_v_top_and_branch1() {
+    print("case v_top_and_branch1")
+    var s = Two6(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two7 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two7: NoCopy {}
+
+extension Two7 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            yield_now()
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            lend self.b[0]
+            print("e1")
+        }
+    }
+}
+
+func run_v_h0_yield_site0() {
+    print("case v_h0_yield_site0")
+    var s = Two7(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two8 {
+    a: Vector<Int>
+    b: Vector<Int>
+}
+
+extension Two8: NoCopy {}
+
+extension Two8 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            lend self.a[0]
+            print("{}", x)
+        } else {
+            yield_now()
+            lend self.b[0]
+            print("e1")
+        }
+    }
+}
+
+func run_v_h0_yield_site1() {
+    print("case v_h0_yield_site1")
+    var s = Two8(a: [0], b: [0])
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a[0], s.b[0])
+}
+
+struct Two9 {
+    a: Int
+    b: Int
+}
+
+extension Two9: NoCopy {}
+
+extension Two9 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            yield_now()
+            lend self.a
+            print("{}", x)
+        } else {
+            let y = 22
+            yield_now()
+            lend self.b
+            print("{}", y)
+        }
+    }
+}
+
+func run_f_both_branch_yields() {
+    print("case f_both_branch_yields")
+    var s = Two9(a: 0, b: 0)
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a, s.b)
+}
+
+struct Two10 {
+    a: Int
+    b: Int
+}
+
+extension Two10: NoCopy {}
+
+extension Two10 {
+    func pick(&var self, first: Bool) borrows -> &var Int {
+        if first {
+            let x = 11
+            yield_now()
+            lend self.a
+            print("{}", x)
+        } else {
+            let y = 22
+            lend self.b
+            print("{}", y)
+        }
+    }
+}
+
+func run_f_holder0_yield_only() {
+    print("case f_holder0_yield_only")
+    var s = Two10(a: 0, b: 0)
+    yield_now()
+    borrow var s.pick(true) += 1
+    borrow var s.pick(false) += 2
+    print("a {} b {}", s.a, s.b)
+}
+
+func main() {
+    run_air1_statement()
+    run_air2_block_yield()
+    run_air3_both_top_yield()
+    run_v_both_branch_yields()
+    run_v_holder0_yield_only()
+    run_v_holder1_yield_only()
+    run_v_top_and_branch1()
+    run_v_h0_yield_site0()
+    run_v_h0_yield_site1()
+    run_f_both_branch_yields()
+    run_f_holder0_yield_only()
+}
