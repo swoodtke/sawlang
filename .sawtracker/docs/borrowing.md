@@ -8,6 +8,8 @@ Each decision below is marked **Ruled** (the user decided), **Proposed** (the
 lead's recommendation, not yet ruled), or **Deferred**. Everything was decided
 in conversation on Sep 24 2026.
 
+**§12, Block-scoped lends (Ruled, Oct 25 2026), supersedes the `borrow` spelling of §1, §2.2, §2.4, §2.6, §5.1, §6, §9 and §9.1.** A lend is named only by a binding that opens its own block (`borrow`, `if let`, `while let`, `for`, a `match` arm), and an unnamed lend lasts for its expression; the sections it names keep their evaluation rules, and are rewritten to it.
+
 ## 1. Principles
 
 - **A reader can tell a copy from a borrow by looking.** Anything that touches
@@ -911,3 +913,200 @@ in them. Each note says what the migrated code looks like.
 - (Settled: `default:` is lazy (§5.4); static roots are the unsafe author's
   obligation, with an optional warning (§8a); `borrows(sync)` is the declared
   opt-out from spanning suspensions (§2.5).)
+
+## 12. Block-scoped lends (Ruled, Oct 25 2026)
+
+**Ruled by the user:** "a borrows struct can be bound at the beginning of a
+scope — so it should work for `borrow`, `if let` and `while let` but not for
+`guard let`, since that binds the struct for the remainder of the enclosing
+scope instead of the scoped block." The reasoning, in the user's words: the
+`borrow` keyword was there "so it was obvious in the code when the returned
+value is borrowed from somewhere and needs to be handled differently. However,
+if we have good teaching errors, maybe that isn't a big deal, and the extra
+noise in the code maybe isn't worth whatever value the obviousness provides."
+A `for` body bounds its windows the way a statement does, so it needs no marker
+either.
+
+**The rule, in two sentences:**
+1. **An unnamed lend lasts for its expression.** A `borrows` call that no binding
+   names (`v[1] += 1`, `print(m[k].name)`, `bump(&var g[4])`) opens its window
+   for the enclosing statement, or for the head expression when it sits in a
+   `for`, `if` or `while` head, and closes there.
+2. **A named lend lasts for the block its binding opens.** A lend may be bound
+   only by a binding that opens its own block (`borrow`, `if let`, `while let`,
+   `for`, a `match` arm), and that block is its window. A binding that names a
+   lend for the rest of the enclosing scope (`let`, `var`, `guard let`) is
+   refused.
+
+What it keeps from §1: every window's end is a brace or the end of a statement,
+visible to the reader. What it gives up: the call site no longer says that a
+place is lent rather than copied. The type of the callee says it (`borrows`),
+and the teaching errors below say it wherever the difference matters.
+
+**This section supersedes**, and each one's text is rewritten to it:
+- §1's first and third principles ("anything that touches storage in place says
+  `borrow`"; "a `borrows` function can be called only through the `borrow`
+  construct");
+- §2.2's spelling: the statement form drops the `borrow` prefix. Its evaluation
+  rules all stand (12.1);
+- §2.4's `if borrow let|var`, `while borrow let|var` and `case Some(borrow var x)`
+  spellings, and its rule that a plain `if let x = e` copies the payload (12.2);
+- §2.6's `for borrow let|var x in …` spelling (12.2);
+- §5.1's "the spelling at the call site picks the role" (12.4);
+- §6's `borrow` at an argument and its refusal of `&buf[4..]` (12.1);
+- §9's first bullet (inline place use is retired) and its plain-`if let`
+  bullet, which are both un-retired;
+- §9.1's notes that spell `borrow` (K7, K9, K12, K16), which drop the prefix.
+
+### 12.1 Unnamed lends
+
+A `borrows` call that no binding names is an **unnamed lend**. Its window is the
+innermost enclosing statement, except in a head: in a `for`, `if`, `while` or
+`match` head, it is the head expression alone, closing before the body runs
+unless the lend itself is what the head binds (12.2).
+
+| Position | Example | Window |
+|---|---|---|
+| assignment target | `v[i] = x`, `g[r][c].weight = w` | the statement |
+| compound assignment | `v[i] += 1`, `m[k].hits += 1` | the statement |
+| method call on the lent place | `queues[k].push(job)` | the statement |
+| field or method read | `print(doc.section("net").name)` | the statement |
+| argument, by reference | `bump(&var g[4])`, `checksum(&buf[4..])` | the call |
+| a head's sub-expression | `for i in 0..st.projects.as_array()!.len() { … }` | the head expression (SL-893) |
+| a condition | `if m.find(&k)?.ready ?? false { … }` | the condition |
+| interpolation, format argument | `"{v[0].name}"`, `print("{}", v[0].n)` | the statement |
+| a `?` conditional write | `m.find(&k)?.value = 7` | the statement; type `Void?` |
+
+Every evaluation rule of §2.2 stands unchanged: the right side of an assignment
+is evaluated before the left side's window opens; an absent conditional write
+still evaluates its right side; a chain of `borrows` calls is a chain of nested
+reborrows closing in reverse order at the statement's end; several windows in
+one statement are checked together; a window whose result is only copied closes
+as soon as the value is read. `&` of a temporary for a shared argument stays
+legal, and an argument's `&`/`&var` sigil now covers a lent place too, so
+`bump(&var g[4])` is the spelling, as it was before §2.2.
+
+**A `let` of a lend's value copies it.** `let x = v[0]` and `let n = doc.section("net").name`
+read a value out of an unnamed lend, which closes at the read, so they follow
+the copy tier exactly as §2.2's "a borrow whose result is only copied" did. A
+NoCopy value or a borrowing struct cannot be copied out, so `let s = sessions[0]`
+and `let it = v.iter()` are refused, naming the block forms. A conditional lend
+read whole is an optional copy (§2.2: `let c = b.slot(0)` is `T?`). So `let`,
+`var` and `guard let` never hold a window; they hold a value or are refused.
+
+### 12.2 Named lends: the binding forms
+
+| Binding | Example | Window | Mode |
+|---|---|---|---|
+| `borrow let` / `borrow var` block (§2.1) | `borrow var slot = v[i] { slot.count += 1 }` | the block | `let` reads, `var` writes |
+| `if let` / `if var` over a conditional lend | `if var e = m.find(&k) { e.count += 1 } else { … }` | the then-block; a miss opens none and the `else` block has none | as above |
+| `while let` / `while var` | `while var e = it.find(&k) { e.count += 1 }` | each iteration's body; the head runs again after the window closes | as above |
+| `for x in` / `for var x in` over a `LendingIterator` | `for var c in grid.cells() { c.weight += 1 }` | each iteration's body; the iterator's own window is the whole loop | as above |
+| a `match` arm whose pattern binds a lent payload | `match slot { case Occupied(_, var v) -> { lend v } … }` | the arm | as above |
+| several bindings (§2.3) | `borrow var row = grid[r], var cell = row[c] { … }` | the block; close in reverse | per binding |
+
+- **The scrutinee or head decides lend versus value.** A binding over a lend binds
+  the lent place; over an owned value (`if let x = opt`, `m.get(k)`) it binds the
+  value, as today. `if let x = e` over an optional place therefore binds the
+  place, read-only, and `if var x = e` binds it writable. §2.4's refusal of
+  `if var` on a place goes: `var` is now the writable lend, not a write to a
+  copy.
+- **`if let` and `while let` require a conditional lend** (`borrows -> &T?`).
+  Over an unconditional lend (`v[i]`) they are refused, naming `borrow let`.
+- **`guard let` takes no lend** (§2.4's rule, restated): its binding would live
+  to the end of the enclosing scope. Refused, naming `if let … { } else { }`.
+- **`borrow` survives as the unconditional named block**, the one form with no
+  condition and no loop. It may also bind a conditional lend as an optional
+  place, as §2.1 allows; `if let` is the usual spelling for that.
+- **A lend cannot leave its block.** Returning it, storing it in a field or a
+  collection, or capturing it in an escaping closure is refused, as today. A
+  non-escaping closure may capture it for the closure's call (§9).
+
+### 12.3 Modes
+
+§3's table stands with `borrow let`/`borrow var` read as "a `let` binding" / "a
+`var` binding". For an unnamed lend, the position gives the mode: a write
+position (an assignment target, a compound assignment, a `&var` argument, a
+`&var self` method call) is exclusive, and every other position is shared,
+choosing the `&self` variant when one exists (§4's least privilege). The root
+charge still follows the declaration (§3), never the use.
+
+### 12.4 Subscript roles by position
+
+§5.1's three roles stay; the position picks among them, not a keyword:
+
+| Spelling | Role |
+|---|---|
+| `m[k]` read as a value | getitem (a declared one is called as written; a derived one is a shared lend plus a copy, §5.2) |
+| `m[k] = v` | setitem |
+| `m[k] += 1`, `m[k].field = v`, `m[k].push(x)`, `bump(&var m[k])` | the place accessor when one is declared; for `op=` with none, getitem then setitem (§5.1) |
+| `borrow var e = m[k] { … }`, `for … in`, `if let` heads | the place accessor |
+
+A plain member and a `borrows` member of one name and parameters (SL-684) are
+separated the same way: a value read picks the plain one and a write position or
+a binding head picks the `borrows` one. Where neither position decides (a
+shared read with both declared), the plain one wins, since a copy is what a
+value read means.
+
+### 12.5 Teaching errors
+
+Each refusal names the forms that work. The texts, for the implementer to pin:
+- `let s = sessions[0]` (NoCopy): "`sessions[0]` is lent, and a `let` would keep
+  the lend past this statement. Copy it out with `sessions[0].copy()`, or name
+  the place for a block: `borrow let s = sessions[0] { … }`."
+- `let it = v.iter()`: "`v.iter()` lends a borrowing struct, which lives only as
+  long as a block. Loop over it with `for x in v.iter() { … }`, or name it with
+  `borrow let it = v.iter() { … }`."
+- `guard let e = m.find(&k) else { … }`: "`m.find(&k)` lends a place, and a
+  `guard` would keep it to the end of the scope. Use `if let e = m.find(&k) { … } else { … }`."
+- `if let x = v[i]` (unconditional): "`v[i]` always lends a place, so there is
+  nothing for `if let` to test. Use `borrow let x = v[i] { … }`."
+- Escapes (return, field store, escaping capture): the existing refusals, with
+  the window's block named.
+
+### 12.6 What does not change
+
+- §2.5: any window may span a suspension unless its accessor is
+  `borrows(sync)`; a statement window that suspends inside its statement is
+  allowed on the same terms, so a lock still cannot be held across a
+  suspension, marked or not.
+- §2.7: `lend` forwarding, the lent-type pick, `borrows(sync)` propagation.
+- §3, §4, §5.2–5.4 (the `default:` subscript's table reads with the prefix
+  dropped), §6's other rules, §7, §8, §8a.
+- The spec's borrowing-struct positions widen from "a `for` head or a `borrow`
+  block" to every binding form in 12.2, plus an unnamed `for` head.
+
+### 12.7 Proposed (for the Air's review, then the user)
+
+- **P1, the copy/lend asymmetry.** `var x = v[0]; x.n += 1` writes a copy,
+  while `if var x = v.find(0) { x.n += 1 }` writes in place. Both are correct
+  under 12.1/12.2, and the second is the point of `var`. The classic mistake is
+  the first, written meaning the second. Proposed: a `-W` warning,
+  `copy-written-then-dropped`, for a binding copied out of a lend that is
+  written and then dropped without being read, naming the in-place spelling.
+- **P2, a type conforming to both `Iterator` and `LendingIterator`.** Proposed:
+  refused at the conformance, so `for x in` has one meaning per type.
+- **P3, `borrow let e = m.find(&k) { … }` binding an optional place.** Proposed:
+  keep (§2.1 already allows it, and it serves a block that handles both cases
+  without `else`), with `if let` documented as the usual form.
+
+### 12.8 Migration and pins
+
+- **Scope.** About 2,800 lines in tracked `.saw` files spell `borrow` (most in
+  `compiler/tests/run`, `tests/corpus` and the parser fixtures), plus the spec
+  (about 380 lines), GRAMMAR.md (about 90) and the skill (about 130). The frozen
+  trees (`examples/`, `blade/`, `libs/`, `tests/freestanding/`, `prototypes/`,
+  `devtools/`) are not migrated. The change is mechanical once the grammar and
+  the checker accept both spellings for one landing; the old spelling is then
+  refused with a fixit naming the new one.
+- **Units:** the grammar and parser (both spellings, then the old refused); the
+  typecheck and borrowck rules of 12.1–12.5 through ONE window-scoping funnel
+  (obligation 1: its entry points are the binding forms of 12.2 and the
+  positions of 12.1); the migration of std, the corpus and the tests; the spec,
+  GRAMMAR.md, skill and README rewrite.
+- **Pins:** one row per 12.1 position and per 12.2 binding form, accepted and
+  refused; SL-893's head row; each 12.5 error; SL-684's pair by position.
+- **In-flight work it reshapes:** SL-871 unit 3 (`LendingIterator` lowering
+  stays; its spelling is `for x in` / `for var x in`), SL-684 (resolution by
+  position), SL-893 (pinned here). sawtracker (ST-97) adopts the new spelling
+  before it commits its port.
