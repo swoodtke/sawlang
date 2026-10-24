@@ -14185,14 +14185,16 @@ holds `=`, or a NUL byte in a name, value, program or argument, is
 standard error wherever its standard output goes. `wait() -> Result<Int32,
 SystemError>` blocks the calling thread until the child exits and never
 suspends, so a `sync` function may call it. `output() -> Result<CommandOutput,
-SystemError>` is COOPERATIVE: the stdout drain runs on a worker thread and the
-wait parks on the child's exit through the reactor, so siblings run for the
+SystemError>` is COOPERATIVE: the stdout drain parks on the child's pipe and the
+wait parks on the child's exit, both through the reactor, so siblings run for the
 child's whole lifetime and no thread waits. A capture that is not UTF-8 is
 `output()`'s `InvalidUtf8`; `output_bytes() -> Result<CommandByteOutput,
 SystemError>` runs and waits the same way and hands back the captured `Data`
 undecoded, for a child whose output is not text. A program that cannot be executed
-is `LaunchFailed`, and cancelling an `output()` ends the WAIT with
-`Interrupted` while the child keeps running),
+is `LaunchFailed`. Cancelling an `output()` ends the WAIT, on the pipe or on the
+exit, with `Interrupted`. The child keeps running with its standard output
+closed, so a later write of its own raises `SIGPIPE`, and a later spawn reaps
+it),
 `std.net` (`TcpListener`/`TcpStream`),
 `std.duration` (`Duration`) and `std.time` (`Instant`), plus `Int`/`Float`
 numeric extensions and the

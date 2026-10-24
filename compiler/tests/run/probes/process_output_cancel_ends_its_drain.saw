@@ -1,0 +1,120 @@
+// probe: stated
+// about: a task cancelled while `Command.output()` or `output_bytes()` drains its child's standard output gets `Interrupted` at once, in a cooperative group and a pool alike, and the child keeps running until a later spawn reaps it (SL-896)
+// stage 0: cannot run it, since its `std.process` has no `Command.output()` that returns a `Result` and ends in `SystemError.Interrupted`
+// speeds: -O0 -O2
+// leaks: none
+// prints: output, silent child: interrupted early true, cancelled true
+// prints: output, child wrote first: interrupted early true, cancelled true
+// prints: output_bytes, silent child: interrupted early true, cancelled true
+// prints: output in a pool: interrupted early true, cancelled true
+// prints: children still running after the cancels: true
+// prints: zombies left for nobody: 0
+// prints: children still running after the sweep: false
+// prints: deinits=4
+//
+// Every child keeps its standard output open for its whole second, so the
+// drain is still reading when the cancel lands 50 ms in. A drain that is not
+// cut short returns once the child exits, far outside EARLY_MS. Once the
+// children have exited, one more spawn sweeps the orphan list, and
+// `waitpid(-1, WNOHANG)` then counts what no one reaped.
+
+import std.process.{Command, CommandOutput, CommandByteOutput}
+import std.systemerror.{SystemError, SystemErrorKind}
+import std.task.*
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+    func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+}
+
+static EARLY_MS: Int = 400
+static WNOHANG: Int32 = 1
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Held { id: Int }
+extension Held: NoCopy { func deinit(&var self) { let _ = DEINITS.fetch_add(1) } }
+
+func now_ms() -> Int {
+    (__saw_rt_clock_monotonic_nanos() / 1_000_000) as Int
+}
+
+func child(script: String) -> Command {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg(script)
+    move c
+}
+
+func interrupted(e: &SystemError) -> Bool {
+    match e.kind() {
+        case Interrupted -> true,
+        case _ -> false
+    }
+}
+
+// Runs one cell and reports it; `bytes` picks `output_bytes()`.
+func cell(name: String, script: String, bytes: Bool) -> Int {
+    let _held = Held(id: 1)
+    let c = child(script)
+    let start = now_ms()
+    let stopped = if bytes {
+        match c.output_bytes() {
+            case Ok(_) -> false,
+            case Err(e) -> interrupted(&e)
+        }
+    } else {
+        match c.output() {
+            case Ok(_) -> false,
+            case Err(e) -> interrupted(&e)
+        }
+    }
+    let early = stopped && now_ms() - start < EARLY_MS
+    print("{}: interrupted early {}, cancelled {}", name, early, cancelled())
+    0
+}
+
+func cancelled_cell(name: String, script: String, bytes: Bool) {
+    var g = TaskGroup()
+    let t = g.spawn(cell(name, script, bytes))
+    sleep(Duration.ms(50))
+    t.cancel()
+    let _ = t.join()
+}
+
+func pool_cell() {
+    var pool = try! TaskGroup(threads: 2)
+    let t = pool.spawn(cell("output in a pool", "sleep 1", false))
+    sleep(Duration.ms(50))
+    t.cancel()
+    let _ = t.join()
+}
+
+func running_children() unsafe -> Bool {
+    var status: Int32 = 0
+    waitpid(-1, (&status) as UnsafePointer<Int32>, WNOHANG) == 0
+}
+
+func leftovers() unsafe -> Int {
+    var count = 0
+    var status: Int32 = 0
+    while waitpid(-1, (&status) as UnsafePointer<Int32>, WNOHANG) > 0 {
+        count = count + 1
+    }
+    count
+}
+
+func main() {
+    cancelled_cell("output, silent child", "sleep 1", false)
+    cancelled_cell("output, child wrote first", "echo hi; sleep 1", false)
+    cancelled_cell("output_bytes, silent child", "sleep 1", true)
+    pool_cell()
+    print("children still running after the cancels: {}", running_children())
+    sleep(Duration.ms(1200))
+    var sweeper = Command(program: "/bin/sh")
+    try! sweeper.arg("-c")
+    try! sweeper.arg("exit 0")
+    let _ = try! sweeper.wait()
+    print("zombies left for nobody: {}", leftovers())
+    print("children still running after the sweep: {}", running_children())
+    print("deinits={}", DEINITS.load())
+}

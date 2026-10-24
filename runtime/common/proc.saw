@@ -18,8 +18,9 @@
 // identical POSIX on both hosts.
 //
 // `read_stdout` blocks the calling thread, because this pipe descriptor is
-// blocking. std declares it `blocking`, so it runs on a worker thread while
-// the task parks.
+// blocking; a caller declares it `blocking`, so it runs on a worker thread
+// while the task parks. A caller that must be able to stop waiting takes the
+// pipe instead (`take_stdout`) and parks on it as it would on a socket.
 //
 // The environment seams live here too, beside the spawn that reads `environ`
 // for a child, because every one of them takes the one environment lock and
@@ -407,6 +408,21 @@ func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) unsafe ->
         return n
     }
     0 - __saw_rt_last_syserror()
+}
+
+// Hand the read end of the child's captured stdout to the caller, who owns it
+// from here and closes it; the job stops owning it, so neither the reap nor a
+// release closes it a second time. Returns the descriptor, or -Invalid for a job
+// spawned without capture or whose pipe was already taken.
+@export("__saw_rt_proc_take_stdout")
+func rt_proc_take_stdout(job: Int) unsafe -> Int {
+    let p = job as UnsafePointer<ProcJob>
+    let fd = p[0].stdout_fd
+    if fd < (0 as Int32) {
+        return 0 - ((SysError.Invalid as UInt8) as Int)
+    }
+    p[0].stdout_fd = NO_FD
+    fd as Int
 }
 
 // A descriptor that becomes readable once the child has exited, so a waiting

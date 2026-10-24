@@ -1,0 +1,66 @@
+// probe: stated
+// about: a task cancelled while `Command.output()` drains a child that writes without pause gets `Interrupted`, and the pipe it closes ends that child the way a vanished reader does, so the next spawn reaps it (SL-896)
+// stage 0: cannot run it, since its `std.process` has no `Command.output()` that returns a `Result` and ends in `SystemError.Interrupted`
+// speeds: -O0 -O2
+// leaks: none
+// prints: interrupted: true
+// prints: zombies left for nobody: 0
+// prints: children still running after the sweep: false
+//
+// The child writes forever, so the pipe always has bytes and the drain never
+// parks: the cancel is seen between two reads. A drain that ignored it would
+// never return. With the read end closed, the child's next write raises
+// SIGPIPE, which ends it; the sweep then reaps it.
+
+import std.process.{Command, CommandOutput}
+import std.systemerror.{SystemErrorKind}
+
+extern "C" {
+    func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
+}
+
+static WNOHANG: Int32 = 1
+
+func chatty() -> Bool {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg("while :; do echo chatter; done")
+    match c.output() {
+        case Ok(_) -> false,
+        case Err(e) -> {
+            match e.kind() {
+                case Interrupted -> true,
+                case _ -> false
+            }
+        }
+    }
+}
+
+func running_children() unsafe -> Bool {
+    var status: Int32 = 0
+    waitpid(-1, (&status) as UnsafePointer<Int32>, WNOHANG) == 0
+}
+
+func leftovers() unsafe -> Int {
+    var count = 0
+    var status: Int32 = 0
+    while waitpid(-1, (&status) as UnsafePointer<Int32>, WNOHANG) > 0 {
+        count = count + 1
+    }
+    count
+}
+
+func main() {
+    var g = TaskGroup()
+    let t = g.spawn(chatty())
+    sleep(Duration.ms(50))
+    t.cancel()
+    print("interrupted: {}", t.join())
+    sleep(Duration.ms(300))
+    var sweeper = Command(program: "/bin/sh")
+    try! sweeper.arg("-c")
+    try! sweeper.arg("exit 0")
+    let _ = try! sweeper.wait()
+    print("zombies left for nobody: {}", leftovers())
+    print("children still running after the sweep: {}", running_children())
+}

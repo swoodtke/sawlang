@@ -735,10 +735,12 @@ asks for a descriptor (`wait_fd`) and parks it on the reactor with the ordinary
 read-interest registration. A runtime that cannot hand out a wait descriptor is
 still correct: `try_wait` alone is a poll, slower but never wedging anything.
 
-The stdout drain still blocks (a pipe read has nothing else to be), but std
-declares `read_stdout` `blocking`, so every call is offloaded to a worker
-thread and the task parks. The v1 blocking reap `__saw_rt_proc_wait` is not
-part of this contract (see the change table).
+**The stdout drain uses no thread either (SL-896).** std takes the pipe's read
+end out of the job (`take_stdout`), makes it nonblocking and parks on it like a
+socket, so a cancelled task stops waiting on the pipe as it does on the exit.
+`read_stdout`, the blocking read of a pipe the job still owns, stays for a
+caller that wants it offloaded. The v1 blocking reap `__saw_rt_proc_wait` is
+not part of this contract (see the change table).
 
 ### `__saw_rt_proc_spawn(path: i8*, argv: i8**, flags: word) -> word`
 Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
@@ -791,6 +793,19 @@ may take as long as it needs, and what it may not do is assume a caller is
 willing to wait on the calling thread. `buf` obeys design 183's pointer rule:
 it addresses the parked task's frame or the heap, so the worker may write
 through it for the whole call, cancellation included.
+
+### `__saw_rt_proc_take_stdout(job: word) -> word`
+Hand the read end of the child's captured stdout to the caller: the descriptor
+(`>= 0`), or `-Invalid` for a job spawned without capture or whose pipe was
+already taken. From then on the caller owns it and closes it; the job no longer
+does, so the reap and `release` leave it alone, and `read_stdout` on the job
+answers `0` at once.
+
+This is what makes the drain an ordinary reactor park (SL-896): std sets the
+descriptor nonblocking (`__saw_rt_set_nonblocking`), reads it with
+`__saw_rt_fs_read`, and parks on read interest between reads. A cancel then
+ends the drain where an offloaded read could not be ended, and the canceller
+closes the pipe while the job, holding only the child, goes on to be reaped.
 
 ### `__saw_rt_proc_wait_fd(job: word) -> word`
 A descriptor that becomes **readable once the child has exited**, or `-tag`.
@@ -1297,6 +1312,7 @@ a flag bit.
 | SL-768 (c2) | sawc 0.16.0: standard output reports and serializes. **Changed** signatures: `__saw_rt_write` returns `0`/`-tag` where it returned `void`, and `__saw_rt_executable_path` takes `status_out` and reports a positive tag with its NULL. **New:** `__saw_rt_write_line` (the line `print` writes, its parts and line break under the output lock), `__saw_rt_output_lock`/`_unlock` (the recursive output lock, around a dump) and `__saw_rt_tcp_socketpair`. **Changed** contracts with the same signature: `__saw_rt_write` and `__saw_rt_panic` take the output lock; `__saw_rt_pthread_mutex_init_default` and `__saw_rt_pthread_cond_init_default` report `EAGAIN` as `Exhausted` (SL-783). Every runtime provider follows it |
 | SL-793 | `__saw_rt_thread_executor` and `__saw_rt_set_thread_executor`: two new symbols, the per-thread word std's executor keeps its record's address in, so a cooperative group's tasks run only on the thread that drives it. No existing signature moved. A freestanding runtime supplies both when a program links the executor; a single-threaded one keeps a static word |
 | SL-826 | `__saw_rt_fs_realpath`: one new symbol, status-carrying like `__saw_rt_fs_getcwd`, so `Path.canonical` reports the cause realpath gave. No existing signature moved |
+| SL-896 | `__saw_rt_proc_take_stdout`: one new symbol, handing the capture pipe's read end from the job to the caller, so std drains it on the reactor and a cancel ends the drain. No existing signature moved; `read_stdout` stays |
 
 ## The compiler → executor boundary (design 118)
 

@@ -1,7 +1,7 @@
-// A `Thread.spawn` body calling a std method the suspension table answers
-// for: `Command.output` both parks cooperatively and offloads a `blocking`
-// extern, so the body is refused, naming the source it strikes on
-// (conformance row K112). The form itself checks: the std declares `Thread`
+// A `Thread.spawn` body calling a std method that parks cooperatively:
+// `Command.output` drains its child's pipe and waits for its exit on the
+// reactor, so the body is refused, naming the chain down to the first park
+// it reaches inside std. The form itself checks: the std declares `Thread`
 // and `SystemError`.
 
 import std.process.{Command}

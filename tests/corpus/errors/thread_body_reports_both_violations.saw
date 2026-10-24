@@ -33,7 +33,7 @@
 //
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: closure calls `boundary` → yield_now
-// EXPECT-ERROR-CONTAINS: closure calls `run_job` → `execute` → `checked` → `Command.output` → io_wait
+// EXPECT-ERROR-CONTAINS: closure calls `run_job` → `execute` → `checked` → `Command.output` → `process_captured` → `process_drained` → `process_drain_pipe` → `yield_now`
 // EXPECT-ERROR-CONTAINS: 2 error(s) generated
 
 import std.process.{Command}

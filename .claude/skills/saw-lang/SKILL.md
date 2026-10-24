@@ -4986,11 +4986,14 @@ construct in the owner and lend `&driver` down.
   not launch — the spawn's cause, `LaunchFailed` when the child could not exec
   (exit 127), `InvalidArgument` for a NUL byte in the program or an argument.
   `output() -> Result<CommandOutput, SystemError>` captures stdout (stderr is
-  inherited) and is COOPERATIVE: the drain runs on a worker thread (the seam is
-  `blocking`, so it is offloaded) and the wait parks on the child's exit, so
-  siblings run for the child's whole life. It SUSPENDS, so a `sync` function
-  cannot call it. Cancelling the task ends the WAIT, not the child (which keeps
-  running; a later spawn reaps it), and the Err is `Interrupted`. A capture that
+  inherited) and is COOPERATIVE: the drain parks on the child's pipe and the
+  wait on its exit, both through the reactor, so siblings run for the child's
+  whole life. It SUSPENDS, so a `sync` function cannot call it. Cancelling the
+  task ends the WAIT, in the drain or at the exit, not the child: it keeps
+  running with its stdout closed (its next write raises SIGPIPE) and a later
+  spawn reaps it; the Err is `Interrupted`. SUSPECT a pre-SL-896 build, where a
+  cancel during the drain was ignored until the child closed its stdout, and
+  usually lost outright (`Ok` after the child's whole life). A capture that
   is not UTF-8 is `InvalidUtf8`, one that cannot grow `ResourcesExhausted`.
   For a child whose output is NOT TEXT (`gzip -c`, an image), call
   `output_bytes() -> Result<CommandByteOutput, SystemError>`: the same spawn,

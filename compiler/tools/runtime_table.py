@@ -97,6 +97,7 @@ RUNTIME_SEAMS = frozenset({
     "__saw_rt_proc_spawn",
     "__saw_rt_proc_spawn_env",
     "__saw_rt_proc_read_stdout",
+    "__saw_rt_proc_take_stdout",
     "__saw_rt_proc_exit_fd",
     "__saw_rt_proc_wait_fd",
     "__saw_rt_proc_try_wait",

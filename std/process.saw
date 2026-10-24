@@ -29,17 +29,20 @@ extern "C" {
     // while it runs, or another negated tag; every answer but `-WouldBlock`
     // destroys the job.
     func __saw_rt_proc_try_wait(job: Int) -> Int
-    // Reads up to `len` bytes of the child's captured stdout: the count (0 at
-    // end of stream) or a negated tag. The pipe blocks for as long as the child
-    // stays silent, so the call is offloaded to a worker thread and the task
-    // parks; `buf` outlives the call, which a cancelled task still waits for.
-    blocking func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
+    // Hands the read end of the child's captured stdout over, or a negated tag.
+    // The caller owns the descriptor from then on, and the job never closes it.
+    func __saw_rt_proc_take_stdout(job: Int) -> Int
+    // Sets O_NONBLOCK on a descriptor: 0 or a negated tag.
+    func __saw_rt_set_nonblocking(fd: Int) -> Int
+    // One read(2): the count (0 at end of stream) or a negated tag.
+    func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func close(fd: Int32) -> Int32
     // A descriptor readable once the child has exited, owned by the job, or a
     // negated tag when this child cannot be waited for by descriptor.
     func __saw_rt_proc_wait_fd(job: Int) -> Int
     // Drops the job without waiting: the child keeps running, and one that
-    // exits later is never reaped. Std calls it when a drain fails, which
-    // must close the pipe, and when the orphan list cannot take the job.
+    // exits later is never reaped. Std calls it only when the orphan list
+    // cannot take the job.
     func __saw_rt_proc_release(job: Int)
     // Parks the calling thread for the given nanoseconds.
     func __saw_rt_sleep_ns(ns: UInt64)
@@ -72,10 +75,8 @@ static ARGV_END_BYTE: Int8 = 0
 static NAME_END: Byte = 61
 // The most one read of the child's stdout takes.
 static DRAIN_CHUNK: Int = 4096
-// The answer of a drain that std itself refused, by the growth of the captured
-// bytes. It is below every negated tag, so it never collides with one.
-static DRAIN_REFUSED: Int = -1000
-// The exit-wait descriptor is waited on for reading, with no deadline.
+// The pipe and the exit-wait descriptor are both waited on for reading, with
+// no deadline.
 static READ_INTEREST: Int = 0
 static PARK_NO_DEADLINE: UInt64 = 0
 // The first capacity of the orphan list, in jobs.
@@ -244,10 +245,12 @@ extension Command {
     /// `LaunchFailed` too, as it does there), a read of the child's pipe that failed,
     /// standard output that is not UTF-8 (`InvalidUtf8`; `output_bytes()`
     /// takes it as it is), and a capture that could not grow
-    /// (`ResourcesExhausted`). A task cancelled while it waits for the child to
-    /// exit gets `Interrupted`: cancellation ends the wait, not the child,
-    /// which keeps running; a later spawn reaps it once it has exited. A read of the pipe is not cut short, so the cancel is seen
-    /// once the child closes it.
+    /// (`ResourcesExhausted`). A task cancelled while it waits, on the pipe or
+    /// on the exit, gets `Interrupted`: cancellation ends the wait, not the
+    /// child. The child keeps running with its standard output closed, so a
+    /// later write of its own gets `SIGPIPE`, as it would writing into a shell
+    /// pipeline whose reader has gone, and a later spawn reaps it once it has
+    /// exited.
     public func output(&self) unsafe -> Result<CommandOutput, SystemError> {
         let job = try self.spawned(self.redirection(true))
         let data = try process_captured(job)
@@ -530,16 +533,14 @@ func process_reaped(job: Int) unsafe -> Int {
     answer
 }
 
-// The captured bytes of `job`'s child, or the failure that ended the drain.
-// A pipe that cannot be read leaves a child that may never exit, so the job is
-// dropped rather than waited on. Release closes the pipe, so a child still
-// writing dies of SIGPIPE, which an orphaned job holding the read end open
-// would not do; std has no seam to close it alone.
+// The captured bytes of `job`'s child, or the failure that ended the drain, a
+// cancel included. The drain has closed the pipe by then, so the child is not
+// waited on: it goes on the orphan list, still running, to be reaped later.
 func process_captured(job: Int) unsafe -> Result<Data, SystemError> {
     match process_drained(job) {
         case Ok(bytes) -> bytes,
         case Err(failure) -> {
-            __saw_rt_proc_release(job)
+            process_abandon(job)
             failure
         }
     }
@@ -559,44 +560,69 @@ func process_outcome(status: Int) unsafe -> Result<Int32, SystemError> {
 }
 
 // Everything the child writes to its captured stdout, read until it closes the
-// pipe. Each read lands in the captured bytes' own spare room, which the worker
-// thread writes while the task is parked: the block is heap storage, so it
-// outlives the call, and no raw pointer stays in the suspended frame (a
-// multi-threaded group must be able to move the frame). A read that fails is
-// the failure, never the bytes read before it.
+// pipe, or the failure or cancel that ended the drain. The pipe is taken out of
+// the job and closed here on every path, so a drain that stops early leaves the
+// child no reader. A read that fails is the failure, never the bytes read
+// before it.
 func process_drained(job: Int) unsafe -> Result<Data, SystemError> {
+    let fd = __saw_rt_proc_take_stdout(job)
+    if fd < 0 {
+        return SystemError.raised("read", system_error_kind(0 - fd))
+    }
+    let answer = process_drain_pipe(fd)
+    let _ = close(fd as Int32)
+    answer
+}
+
+// The drain of the pipe `fd`, made nonblocking so that its wait is a reactor
+// park: a cancel ends that park, where a read offloaded to a worker thread
+// would run on until the child closed the pipe (SL-896). Each read lands in the
+// captured bytes' own spare room, asked for afresh, so no raw pointer stays in
+// the suspended frame.
+func process_drain_pipe(fd: Int) unsafe -> Result<Data, SystemError> {
+    let set = __saw_rt_set_nonblocking(fd)
+    if set < 0 {
+        return SystemError.of("fcntl", 0 - set)
+    }
     var collected = Data()
-    var refusal = 0
-    var draining = true
-    while draining {
+    while not cancelled() {
         match collected.reserve(DRAIN_CHUNK) {
             case Ok(_) -> {},
             case Err(_) -> {
-                refusal = DRAIN_REFUSED
-                draining = false
+                return SystemError.raised("read", SystemErrorKind.ResourcesExhausted)
             }
         }
-        if draining {
-            let n = __saw_rt_proc_read_stdout(job, collected.spare(), DRAIN_CHUNK)
-            if n > 0 {
-                collected.grow(n)
-            } else {
-                if n < 0 {
-                    refusal = n
+        let n = __saw_rt_fs_read(fd, collected.spare(), DRAIN_CHUNK)
+        if n == 0 {
+            return collected
+        }
+        if n > 0 {
+            collected.grow(n)
+            // A pipe that always has bytes must not keep the task's siblings
+            // from running.
+            if __saw_rt_op_budget_tick() != 0 {
+                yield_now()
+            }
+        } else {
+            match system_error_kind(0 - n) {
+                case WouldBlock -> {
+                    match io_wait(fd, READ_INTEREST, PARK_NO_DEADLINE) {
+                        case Cancelled -> {
+                            return SystemError.raised("output", SystemErrorKind.Interrupted)
+                        },
+                        case _ -> {
+                            __saw_rt_op_budget_reset()
+                        }
+                    }
+                },
+                case Interrupted -> {},
+                case _ -> {
+                    return SystemError.of("read", 0 - n)
                 }
-                draining = false
             }
         }
     }
-    if refusal == DRAIN_REFUSED {
-        return SystemError.raised("read", SystemErrorKind.ResourcesExhausted)
-    }
-    if refusal < 0 {
-        // The worker thread classified the failure, so no raw code is stamped
-        // on this one.
-        return SystemError.raised("read", system_error_kind(0 - refusal))
-    }
-    collected
+    SystemError.raised("output", SystemErrorKind.Interrupted)
 }
 
 // Whether a reap's answer says the child is still running: `-WouldBlock`.
