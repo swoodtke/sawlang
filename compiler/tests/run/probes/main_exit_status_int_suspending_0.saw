@@ -1,0 +1,15 @@
+// probe: stated
+// about: a suspending `main() -> Int` returning 0, inside 0...255, exits with it (SL-892)
+// stage 0: not run; the cell is stated beside the out-of-range cells of a rule Stage 0 predates
+// speeds: -O0 -O2
+// prints: start
+// exits: 0
+// leaks: none
+
+import std.task.{yield_now}
+
+func main() -> Int {
+    yield_now()
+    print("start")
+    return 0
+}

@@ -1,0 +1,15 @@
+// Conformance row G15 — an exit status never collides with success: a `main`
+// returning a status outside 0...255 panics
+//
+// `wait(2)` carries eight bits of status, so a status the platform narrowed
+// would read as another one, 256 as success among them. The entry point checks
+// the value before the process exits and panics at `main`'s declaration
+// instead of handing the platform a value it would narrow.
+// EXPECT: panic
+// EXPECT-OUTPUT: wide
+// EXPECT-PANIC-CONTAINS: panic at G15_main_int_exit_status_out_of_range_panics.saw:12: main returned exit status 300, which is outside 0...255
+
+func main() -> Int {
+    print("wide")
+    return 300
+}

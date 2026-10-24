@@ -626,9 +626,9 @@ four:
 | Written | Exit status |
 |---|---|
 | `func main()` | 0 |
-| `func main() -> Int` | the value |
+| `func main() -> Int` | the value, which must be in 0...255 |
 | `func main() -> Result<Void, E>` | 0 on `Ok`; on `Err`, the error is written on standard error and the status is 1 |
-| `func main() -> Result<Int, E>` | the `Ok` payload; on `Err`, the error is written on standard error and the status is 1 |
+| `func main() -> Result<Int, E>` | the `Ok` payload, which must be in 0...255; on `Err`, the error is written on standard error and the status is 1 |
 
 Any other return type is a compile error at the declaration, a distinct alias
 of `Int` included, since an alias is a type of its own:
@@ -667,8 +667,18 @@ func main() -> Result<Void, SystemError> {
 ```
 
 The status is one byte wide by the time a shell sees it: POSIX `wait(2)` carries
-eight bits, so a `main` returning 300 is observed as 44. Saw passes the value to
-the C entry unchanged and the platform does the narrowing.
+eight bits. A status the platform narrowed could read as a different one, and
+256 would read as success, so Saw checks the value before the process exits. A
+`main` whose `Int`, or `Ok` payload, is outside 0...255 panics at its
+declaration:
+
+```text
+panic at tool.saw:4: main returned exit status 256, which is outside 0...255
+```
+
+The check runs once `main` has returned and its background tasks have been
+joined, so it follows anything they print, and like any panic it aborts the
+process.
 
 `main` may suspend (see [Concurrency](#6-concurrency)) whatever it returns. The
 compiler replaces a suspending `main` with an entry executor that drives its

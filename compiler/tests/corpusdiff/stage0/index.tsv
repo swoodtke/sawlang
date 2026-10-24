@@ -305,7 +305,6 @@ conformance/G11_suspending_main_result_void_err_exits_one.saw	arm64-apple-darwin
 conformance/G12_main_returning_string_refused.saw	arm64-apple-darwin	same	64a2c96ad53e	64a2c96ad53e	error	refused	-	-	-	450:6d84ccdce8a1	yes	`main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `String`
 conformance/G13_main_returning_bool_refused.saw	arm64-apple-darwin	same	c4437698bcca	c4437698bcca	error	refused	-	-	-	444:12a3ec0bb0ff	yes	`main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Bool`
 conformance/G14_main_returning_optional_refused.saw	arm64-apple-darwin	same	de77f2359c0e	de77f2359c0e	error	refused	-	-	-	448:e80aeb645fff	yes	`main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Int?`
-conformance/G15_main_int_exit_status_truncates.saw	arm64-apple-darwin	same	1241b2a849f0	1241b2a849f0	success	ok	44	5:cbda94fecc7e	0:e3b0c44298fc	-	yes	-
 conformance/G16_try_propagates_out_of_main.saw	arm64-apple-darwin	same	24e8eb0304ec	24e8eb0304ec	success	ok	1	31:57898ea3c4e6	0:e3b0c44298fc	-	yes	-
 conformance/G17_early_return_from_main.saw	arm64-apple-darwin	same	3d7494c9ef81	3d7494c9ef81	success	ok	3	6:1925258482b3	0:e3b0c44298fc	-	yes	-
 conformance/G18_main_result_void_ok_exit_zero.saw	arm64-apple-darwin	same	421f68de6ad0	421f68de6ad0	success	ok	0	9:318585d34b81	0:e3b0c44298fc	-	yes	-

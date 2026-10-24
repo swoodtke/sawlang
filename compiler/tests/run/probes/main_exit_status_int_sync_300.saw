@@ -1,0 +1,11 @@
+// probe: panics
+// about: a sync `main() -> Int` returning 300, outside 0...255, panics at `main`'s declaration instead of exiting with a narrowed status (SL-892)
+// stage 0: exits 44, the low byte of 300, as its record of conformance row G15's former program shows
+// speeds: -O0 -O2
+// prints: start
+// panics: main returned exit status 300, which is outside 0...255
+
+func main() -> Int {
+    print("start")
+    return 300
+}

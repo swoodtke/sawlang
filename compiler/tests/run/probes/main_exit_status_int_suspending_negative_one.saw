@@ -1,0 +1,14 @@
+// probe: panics
+// about: a suspending `main() -> Int` returning -1, outside 0...255, panics at `main`'s declaration instead of exiting with a narrowed status (SL-892)
+// stage 0: not run; the probe states a rule Stage 0 predates
+// speeds: -O0 -O2
+// prints: start
+// panics: main returned exit status -1, which is outside 0...255
+
+import std.task.{yield_now}
+
+func main() -> Int {
+    yield_now()
+    print("start")
+    return -1
+}

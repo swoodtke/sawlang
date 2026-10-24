@@ -47,7 +47,8 @@ freeze (`frozen_sha`), so a program is in one of four states:
   same way, under `judged by its own directives (no oracle)`.
 
 Neither a detached nor a native program reaches `stage0-wrong`, and no
-annotation applies to one.
+annotation applies to one. A renamed program retires its old path, whose row
+and record are removed from the snapshot, and the new path is native.
 
 ## The Stage 0 snapshot
 

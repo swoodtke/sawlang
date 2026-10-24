@@ -1,0 +1,12 @@
+// probe: stated
+// about: a sync `main() -> Int` returning 255, inside 0...255, exits with it (SL-892)
+// stage 0: not run; the cell is stated beside the out-of-range cells of a rule Stage 0 predates
+// speeds: -O0 -O2
+// prints: start
+// exits: 255
+// leaks: none
+
+func main() -> Int {
+    print("start")
+    return 255
+}

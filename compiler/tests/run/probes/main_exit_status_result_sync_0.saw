@@ -1,0 +1,24 @@
+// probe: stated
+// about: a sync `main() -> Result<Int, Refusal>` returning `Ok(0)`, inside 0...255, exits with it (SL-892)
+// stage 0: not run; the cell is stated beside the out-of-range cells of a rule Stage 0 predates
+// speeds: -O0 -O2
+// prints: start
+// exits: 0
+// leaks: none
+
+struct Refusal {
+    reason: String
+}
+
+extension Refusal: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.reason)
+    }
+}
+
+extension Refusal: Error {}
+
+func main() -> Result<Int, Refusal> {
+    print("start")
+    return 0
+}

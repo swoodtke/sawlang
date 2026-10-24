@@ -7,7 +7,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot}
-import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_RUN, LlParts, ll_parts_push}
+import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts, ll_parts_push}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirOperandKind, MirRvalue}
 import sawmir.program.{MirProgram}
@@ -205,13 +205,14 @@ extension LlEmitter {
     }
 
     // THE ONE PLACE a `Result` from `main` becomes the C entry's `i32`
-    // status (spec, The entry point): `Ok(n)` is `n` and `Ok(())` is 0; an
-    // `Err` writes `error: `, the error rendered as a format argument is,
-    // and a line break, as one line on standard error, and is 1. The Result
-    // at `at`, a plain `main`'s result slot or a lowered one's frame result,
-    // is the entry's to drop once the status is read.
+    // status (spec, The entry point): `Ok(n)` is `n`, checked by
+    // `exit_status`, and `Ok(())` is 0; an `Err` writes `error: `, the error
+    // rendered as a format argument is, and a line break, as one line on
+    // standard error, and is 1. The Result at `at`, a plain `main`'s result
+    // slot or a lowered one's frame result, is the entry's to drop once the
+    // status is read.
     // ENTRY POINTS:
-    //   entry_point
+    //   status_entry
     public func main_status(&var self, mono: &var MonoProgram, target: &var Target, at: String, t: Int,
                             node: Int) -> String {
         let ok_decl = mono.dp.bc.mir.result_case("Ok")
@@ -238,16 +239,7 @@ extension LlEmitter {
             let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, ok_decl, 0)
             let value_at = self.offset_addr(at, off)
             let n = self.load(ll_value_type(&vl), value_at)
-            var code = n
-            if vl.bits > 32 {
-                var narrow = StringBuilder()
-                try! narrow.append("trunc ")
-                try! narrow.append(ll_value_type(&vl))
-                try! narrow.append(" ")
-                try! narrow.append(n)
-                try! narrow.append(" to i32")
-                code = self.assign(narrow.build())
-            }
+            let code = self.exit_status(&var mono, n, &vl, node)
             self.store("i32", code, status)
         }
         self.jump(done)
@@ -263,6 +255,59 @@ extension LlEmitter {
         self.put_label(done)
         self.drop_at(&var mono, t, at)
         self.load("i32", status)
+    }
+
+    // THE ONE PLACE the `Int` `main` returns, bare or as `Ok`, laid out as
+    // `l`, becomes the C entry's `i32` status: a value outside 0...255 panics
+    // at `main`'s declaration `node`, since the platform keeps eight bits and
+    // a narrowed status could read as another, 256 as success (spec, The
+    // entry point). One unsigned compare covers both ends, a negative value
+    // reading as a large one.
+    // ENTRY POINTS:
+    //   main_status
+    //   status_entry
+    public func exit_status(&var self, mono: &var MonoProgram, n: String, l: &TargetLayout, node: Int) -> String {
+        let ty = ll_value_type(&l)
+        var cmp = StringBuilder()
+        try! cmp.append("icmp ule ")
+        try! cmp.append(ty)
+        try! cmp.append(" ")
+        try! cmp.append(n)
+        try! cmp.append(", 255")
+        let inside = self.assign(cmp.build())
+        let pass = self.new_label("main.status")
+        let fail = self.new_label("main.outside")
+        self.branch(inside, pass, fail)
+        self.put_label(fail)
+        var wide = n
+        if l.bits < 64 {
+            var widen = StringBuilder()
+            try! widen.append("sext ")
+            try! widen.append(ty)
+            try! widen.append(" ")
+            try! widen.append(n)
+            try! widen.append(" to i64")
+            wide = self.assign(widen.build())
+        }
+        let tail = self.text_bytes(", which is outside 0...255")
+        var tail_length = StringBuilder()
+        try! tail_length.append(tail.len())
+        let tail_at = self.pooled(&tail, false, 0)
+        var parts = LlParts()
+        ll_parts_push(&var parts, LL_PART_SIGNED, wide, "")
+        ll_parts_push(&var parts, LL_PART_RUN, tail_at, tail_length.build())
+        self.fail_parts(&var mono, node, "main returned exit status ", &parts)
+        self.put_label(pass)
+        if l.bits <= 32 {
+            return n
+        }
+        var narrow = StringBuilder()
+        try! narrow.append("trunc ")
+        try! narrow.append(ty)
+        try! narrow.append(" ")
+        try! narrow.append(n)
+        try! narrow.append(" to i32")
+        self.assign(narrow.build())
     }
 
     // One line on standard error: `lead`, then each run of `parts`, then a

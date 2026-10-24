@@ -180,8 +180,9 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
 extension LlEmitter {
     // The C entry point: `main(argc, argv)` keeps both for the argument
     // accessors the compiler emits into every program (runtime/ABI.md, "Program
-    // arguments"), runs the program's `main`, and exits with its `Int`, 0 for
-    // a `Void` main, or what `main_status` reads from a `Result`. A plain `main` is called, then the background group
+    // arguments"), runs the program's `main`, and exits with 0 for a `Void`
+    // main, or the status `status_entry` computes from an `Int` or a `Result`.
+    // A plain `main` is called, then the background group
     // closed when the program spawns, since a task may still be running; one
     // with a lowered frame gets that frame on this function's stack, at state
     // 0, and is handed to the entry executor with its descriptor, its result
@@ -221,8 +222,8 @@ extension LlEmitter {
         }
         let returns_int = l.kind == TargetKind.Int && mono.dp.bc.mir.tc.is_integer(result)
         let returns_result = mono.dp.bc.mir.tc.is_result(result)
-        if returns_result {
-            let body = self.result_entry(&var mono, &var target, result, &l, r)
+        if returns_result || returns_int {
+            let body = self.status_entry(&var mono, &var target, result, &l, r)
             try! out.append(self.allocas.build())
             try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
             try! out.append(body)
@@ -230,12 +231,11 @@ extension LlEmitter {
             return out.build()
         }
         try! out.append("  store i32 %argc, ptr @__saw_argc\n  store ptr %argv, ptr @__saw_argv\n")
-        if l.kind != TargetKind.Zero && not returns_int {
+        if l.kind != TargetKind.Zero {
             // Typecheck admits a `main` returning `Void`, `Int` or a `Result`
             // of either and nothing else (`check_main_signature`).
             try! mono.problems.push("a `main` returning anything but Void, Int or a Result of either reached the backend")
         } else if r >= 0 {
-            let resume = self.lowering.resumes[r]
             try! out.append("  store ")
             try! out.append(self.word)
             try! out.append(" ")
@@ -247,22 +247,9 @@ extension LlEmitter {
             try! out.append("(ptr ")
             try! out.append(ll_descriptor_symbol(&mono, main_item))
             try! out.append(", ptr %frame)\n")
-            if returns_int {
-                try! out.append("  %result = getelementptr i8, ptr %frame, i64 ")
-                try! out.append(resume.result)
-                try! out.append("\n  %status = load ")
-                try! out.append(ll_value_type(&l))
-                try! out.append(", ptr %result\n")
-            }
         } else {
             let symbol = self.plain_symbol(&var mono, main_item)
-            if returns_int {
-                try! out.append("  %status = call ")
-                try! out.append(ll_value_type(&l))
-                try! out.append(" ")
-            } else {
-                try! out.append("  call void ")
-            }
+            try! out.append("  call void ")
             try! out.append(symbol)
             try! out.append("()\n")
             if mono.spawn_close_item >= 0 {
@@ -273,27 +260,20 @@ extension LlEmitter {
                 try! out.append("()\n")
             }
         }
-        if not returns_int {
-            try! out.append("  ret i32 0\n")
-        } else if l.bits > 32 {
-            try! out.append("  %code = trunc ")
-            try! out.append(ll_value_type(&l))
-            try! out.append(" %status to i32\n  ret i32 %code\n")
-        } else {
-            try! out.append("  ret i32 %status\n")
-        }
+        try! out.append("  ret i32 0\n")
         try! out.append("\}\n\n")
         out.build()
     }
 
-    // The C entry's body past its argument stores, for a `main` returning a
-    // `Result` of type `t`, laid out as `l`: the call, or the frame handed
-    // to the executor (`r` its resume, else -1), then the status
-    // `main_status` reads from the result. Written through the function
-    // state an item's body is, its entry slots left in `allocas`. The error
-    // line follows the background group's close, which a plain `main`'s call
-    // is followed by and the executor does before it returns.
-    func result_entry(&var self, mono: &var MonoProgram, target: &var Target, t: Int, l: &TargetLayout,
+    // The C entry's body past its argument stores, for a `main` returning an
+    // `Int` or a `Result` of type `t`, laid out as `l`: the call, or the
+    // frame handed to the executor (`r` its resume, else -1), then the
+    // status `exit_status` checks the `Int` into or `main_status` reads from
+    // the result. Written through the function state an item's body is, its
+    // entry slots left in `allocas`. The error line follows the background
+    // group's close, which a plain `main`'s call is followed by and the
+    // executor does before it returns.
+    func status_entry(&var self, mono: &var MonoProgram, target: &var Target, t: Int, l: &TargetLayout,
                       r: Int) -> String {
         let main_item = mono.main_item
         let main = mono.items[main_item]
@@ -307,7 +287,9 @@ extension LlEmitter {
         self.refused = false
         self.resume = -1
         self.sret = false
+        let returns_result = mono.dp.bc.mir.tc.is_result(t)
         var at = ""
+        var value = ""
         if r >= 0 {
             let resume = self.lowering.resumes[r]
             var state = StringBuilder()
@@ -325,19 +307,29 @@ extension LlEmitter {
             try! call.append(", ptr %frame)")
             self.put(call.build())
             at = self.offset_addr("%frame", resume.result)
+            if not returns_result {
+                value = self.load(ll_value_type(&l), at)
+            }
         } else {
-            at = self.slot(l.size, l.align)
             let symbol = self.plain_symbol(&var mono, main_item)
             var call = StringBuilder()
             try! call.append("call ")
-            if ll_is_scalar(&l) {
+            if not returns_result {
                 try! call.append(ll_value_type(&l))
                 try! call.append(" ")
                 try! call.append(symbol)
                 try! call.append("()")
-                let value = self.assign(call.build())
-                self.store(ll_value_type(&l), value, at)
+                value = self.assign(call.build())
+            } else if ll_is_scalar(&l) {
+                at = self.slot(l.size, l.align)
+                try! call.append(ll_value_type(&l))
+                try! call.append(" ")
+                try! call.append(symbol)
+                try! call.append("()")
+                let result = self.assign(call.build())
+                self.store(ll_value_type(&l), result, at)
             } else {
+                at = self.slot(l.size, l.align)
                 try! call.append("void ")
                 try! call.append(symbol)
                 try! call.append("(")
@@ -356,7 +348,12 @@ extension LlEmitter {
                 self.put(line.build())
             }
         }
-        let status = self.main_status(&var mono, &var target, at, t, node)
+        var status = ""
+        if returns_result {
+            status = self.main_status(&var mono, &var target, at, t, node)
+        } else {
+            status = self.exit_status(&var mono, value, &l, node)
+        }
         var ret = StringBuilder()
         try! ret.append("ret i32 ")
         try! ret.append(status)

@@ -1546,8 +1546,10 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   ```
   `E` must be renderable (`Printable`; `Error` refines it, and an erased
   `Box<any Error>` works through its vtable) — the Err path prints it the way
-  `"{e}"` does. The status is POSIX-narrowed to a byte by the platform, so 300
-  is observed as 44. `main` may SUSPEND at any of the four. Treat all of this as
+  `"{e}"` does. The status must be in 0...255: an `Int` or `Ok` payload outside
+  it PANICS at `main`'s declaration (`main returned exit status 300, which is
+  outside 0...255`), since the platform would narrow it and 256 would read as
+  success. `main` may SUSPEND at any of the four. Treat all of this as
   working now and SUSPECT in older builds: a suspending `main` used to drop its
   value and exit 0 whatever it returned, `-> Result` emitted a struct-returning
   `@main` against a C ABI expecting `int` (a stable, meaningless 138), and

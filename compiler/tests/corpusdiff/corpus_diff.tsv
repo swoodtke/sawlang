@@ -305,7 +305,7 @@ conformance/G11_suspending_main_result_void_err_exits_one.saw	pass	judged by its
 conformance/G12_main_returning_string_refused.saw	pass	-	entry.result: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `String`
 conformance/G13_main_returning_bool_refused.saw	pass	-	entry.result: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Bool`
 conformance/G14_main_returning_optional_refused.saw	pass	-	entry.result: `main` must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns `Int?`
-conformance/G15_main_int_exit_status_truncates.saw	pass	-	-
+conformance/G15_main_int_exit_status_out_of_range_panics.saw	pass	judged by its own directives (no oracle)	-
 conformance/G16_try_propagates_out_of_main.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/G17_early_return_from_main.saw	pass	-	-
 conformance/G18_main_result_void_ok_exit_zero.saw	pass	-	-

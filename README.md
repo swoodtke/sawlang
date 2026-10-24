@@ -269,8 +269,10 @@ func main() -> Result<Void, SystemError> {
 ```
 
 A command-line program reports failure by returning it, with no `exit()` call
-and no status constant to keep in sync. The eight-bit narrowing a shell sees is
-POSIX's: 300 arrives as 44. `main` may suspend whatever it returns.
+and no status constant to keep in sync. A shell sees eight bits of status, so
+a status outside 0...255 is a panic at `main`'s declaration rather than a
+narrowed value that could read as success. `main` may suspend whatever it
+returns.
 
 See [The entry point](LANGUAGE_SPEC.md#the-entry-point) in the spec.
 
