@@ -1,0 +1,41 @@
+// refuses: coro.copy-through-glue at 28:17
+// a bound's implementation copies its `T` silently; reached through a generic caller, the copy runs `Heavy`'s glue, which typecheck's call-site check cannot see
+// message: a copy of `coro.copy-through-glue.Heavy` happens here, and it runs generated glue that calls `Heavy.copy()`, which suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+trait Maker {
+    func make(&self) -> Int
+}
+
+struct Box1<T: Copy> {
+    v: T
+}
+
+extension Box1<T: Copy>: Maker {
+    func make(&self) -> Int {
+        let w = self.v
+        let _ = w
+        1
+    }
+}
+
+func run<M: Maker>(m: &M) -> Int {
+    m.make()
+}
+
+func main() {
+    let b = Box1(v: Heavy(n: 1))
+    print(run(&b))
+}

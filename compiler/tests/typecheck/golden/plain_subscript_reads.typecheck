@@ -20,7 +20,7 @@
     (requirement Sized2.size 43:10 (signature (receiver shared) (params) -> Int))
     (extension 46:1 (target plain_subscript_reads.Point) (conforms plain_subscript_reads.Sized2))
     (method Point.size 47:10 private (signature (receiver shared) (params) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func first 52:6 private (signature (generics (T (bounds plain_subscript_reads.Sized2))) (params (v &std.vector.Vector<T, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends when T.Sized2.size) (sync-callable unless T.Sized2.size) (copy T)))
+    (func first 52:6 private (signature (generics (T (bounds plain_subscript_reads.Sized2))) (params (v &std.vector.Vector<T, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends when T.Sized2.size) (sync-callable unless T.Sized2.size) (copy T) (refuses-when (copy T.Copy.copy))))
     (func tag 56:6 private (signature (params (v &std.vector.Vector<plain_subscript_reads.Slot, std.alloc.GlobalAllocator> shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func main 69:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members

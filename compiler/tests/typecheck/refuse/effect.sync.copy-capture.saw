@@ -1,0 +1,25 @@
+// refuses: effect.sync at 19:16
+// a closure's copy capture, made where the closure is, in a `sync` function
+// message: a copy of `effect.sync.copy-capture.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(a: Heavy) sync -> Int {
+    let g = { [a] in a.n }
+    g()
+}
+
+func main() {
+    print(f(Heavy(n: 1)))
+}

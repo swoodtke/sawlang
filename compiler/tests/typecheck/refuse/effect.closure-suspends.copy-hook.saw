@@ -1,0 +1,43 @@
+// refuses: effect.closure-suspends at 36:13
+// an inserted copy runs a hook whose closure calls its `T`'s `step`, at a `T` whose `step` suspends
+// message: this calls `Closing.copy` with `T` as `effect.closure-suspends.copy-hook.Slow`
+
+import std.task.*
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Closing<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Closing<T: Worker>: Copy {
+    func copy(&self) -> Closing<T> {
+        let w = self.w
+        let f = { [w] in w.step() }
+        Closing(n: self.n + f(), w: self.w)
+    }
+}
+
+func inserted(c: &Closing<Slow>) -> Int {
+    let d = c
+    d.n
+}
+
+func main() {
+    let c = Closing(n: 1, w: Slow(n: 2))
+    print(inserted(&c))
+}

@@ -1,0 +1,28 @@
+// refuses: effect.closure-suspends at 20:17
+// a copy in a closure body, which cannot suspend
+// message: a closure body cannot suspend, and a copy of `effect.closure-suspends.copy.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(a: Heavy) -> Int {
+    let g = { [a] in
+        let b = a
+        b.n
+    }
+    g()
+}
+
+func main() {
+    print(f(Heavy(n: 1)))
+}

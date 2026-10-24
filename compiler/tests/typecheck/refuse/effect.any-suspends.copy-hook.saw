@@ -1,0 +1,45 @@
+// refuses: effect.any-suspends at 38:13
+// an inserted copy runs a hook that makes its `T` `any Worker`, at a `T` whose `step` suspends
+// message: this calls `Erased.copy` with `T` as `effect.any-suspends.copy-hook.Slow`
+
+import std.task.*
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Erased<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Erased<T: Worker>: Copy {
+    func copy(&self) -> Erased<T> {
+        Erased(n: self.n + dispatch(&self.w), w: self.w)
+    }
+}
+
+func dispatch(d: &any Worker) -> Int {
+    d.step()
+}
+
+func inserted(e: &Erased<Slow>) -> Int {
+    let c = e
+    c.n
+}
+
+func main() {
+    let e = Erased(n: 1, w: Slow(n: 2))
+    print(inserted(&e))
+}

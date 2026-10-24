@@ -1,0 +1,26 @@
+// refuses: effect.sync at 19:13
+// an Optional's payload read by value with `!` in a `sync` function
+// message: a copy of `effect.sync.copy-payload.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(o: &Heavy?) sync -> Int {
+    let b = o!
+    b.n
+}
+
+func main() {
+    let o: Heavy? = Heavy(n: 1)
+    print(f(&o))
+}

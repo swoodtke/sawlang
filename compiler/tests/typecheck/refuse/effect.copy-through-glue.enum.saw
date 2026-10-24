@@ -1,0 +1,34 @@
+// refuses: effect.copy-through-glue at 24:13
+// an enum whose payload is a `Heavy`, copied whole
+// message: a copy of `effect.copy-through-glue.enum.Slot` happens here
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+enum Slot {
+    case Full(h: Heavy),
+    case Empty
+}
+
+func f(s: &Slot) -> Int {
+    let t = s
+    match t {
+        case Full(h) -> 1,
+        case Empty -> 0
+    }
+}
+
+func main() {
+    let s = Slot.Full(h: Heavy(n: 1))
+    print(f(&s))
+}

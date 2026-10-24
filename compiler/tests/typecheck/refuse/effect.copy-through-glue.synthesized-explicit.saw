@@ -1,0 +1,33 @@
+// refuses: effect.copy-through-glue at 26:13
+// a spelled `.copy()` of a `@synthesize ExplicitCopy` struct runs glue that calls a field's suspending ExplicitCopy hook
+// message: a copy of `effect.copy-through-glue.synthesized-explicit.Book` happens here, and it runs generated glue that calls `Ledger.copy()`
+
+import std.task.*
+
+struct Ledger {
+    n: Int
+}
+
+extension Ledger: ExplicitCopy {
+    func copy(&self) -> Ledger {
+        yield_now()
+        Ledger(n: self.n + 1)
+    }
+}
+
+struct Book {
+    l: Ledger
+}
+
+@synthesize
+extension Book: ExplicitCopy {}
+
+func f(b: &Book) -> Int {
+    let c = b.copy()
+    c.l.n
+}
+
+func main() {
+    let b = Book(l: Ledger(n: 1))
+    print(f(&b))
+}

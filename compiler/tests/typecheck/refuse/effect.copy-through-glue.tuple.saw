@@ -1,0 +1,26 @@
+// refuses: effect.copy-through-glue at 19:13
+// a tuple holding a `Heavy`, copied whole
+// message: a copy of `(effect.copy-through-glue.tuple.Heavy, Int)` happens here
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(t: &(Heavy, Int)) -> Int {
+    let u = t
+    u.1
+}
+
+func main() {
+    let t = (Heavy(n: 1), 2)
+    print(f(&t))
+}

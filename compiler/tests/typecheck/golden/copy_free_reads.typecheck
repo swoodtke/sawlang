@@ -2,8 +2,8 @@
   (declarations
     (struct Point 8:8 private)
     (field Point.x 9:5 private Int)
-    (func three 12:6 private (signature (generics (T)) (params (f () -> T owned)) -> [T; 3]) (summary body (suspends no) (sync-callable no) (copy T)))
-    (func twice 16:6 private (signature (generics (T)) (params (x T owned)) -> [T; 2]) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (func three 12:6 private (signature (generics (T)) (params (f () -> T owned)) -> [T; 3]) (summary body (suspends no) (sync-callable no) (copy T) (refuses-when (copy T.Copy.copy))))
+    (func twice 16:6 private (signature (generics (T)) (params (x T owned)) -> [T; 2]) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (func repeats 20:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable no)))
     (func pick 32:6 private (signature (params (o &Int? shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func pick_point 36:6 private (signature (params (o &var copy_free_reads.Point? exclusive)) -> copy_free_reads.Point) (summary body (suspends no) (sync-callable yes)))

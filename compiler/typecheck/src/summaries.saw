@@ -22,8 +22,8 @@ import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKING, TC_CAUSE_BLOCKS_T
                                TC_CAUSE_COOPERATIVE, TC_CAUSE_DISPATCH, TC_CAUSE_PAIRED, TC_CAUSE_TEST_SUSPEND,
                                TC_CAUSE_UNCLASSIFIED,
                                TC_COPY_COVERED, TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC,TC_FLAG_BLOCKING, TC_FLAG_DEFAULT_BODY,
-                               TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TC_ITEM_CALL,
-                               TC_ITEM_COPY,
+                               TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD,
+                               TC_ITEM_CALL, TC_ITEM_CAPTURE, TC_ITEM_COPY,
                                TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_DECLARED, TC_SUMMARY_NONE, TC_SUMMARY_TABLE,
                                TC_SUMMARY_UNTABLED, TC_TIER_COPY, TcAdjust, TcAdjustKind, TcAtom,
                                TcCall, TcConformance, TcDefault, TcItem, TcParam, TcRole, TcSig, TcStatus,
@@ -53,6 +53,14 @@ public struct TcAcc {
     owner: Int
     // The unit being summarized, whose dependencies each summary read adds to.
     unit: Int
+    // A copy's hook that suspends where the copy runs generated glue
+    // (`eval_copy`), and the type whose copy reaches it; -1 for none.
+    blocked_hook: Int
+    blocked_type: Int
+    // Each copy hook `eval_copy` reached and the type it ran at, whose own
+    // Copy requirements and forbidden conditions the copy site meets.
+    hooks: Vector<Int>
+    hook_types: Vector<Int>
 }
 
 extension TcAcc: NoCopy {}
@@ -61,7 +69,7 @@ extension TcAcc {
     public init(owner: Int, unit: Int) -> TcAcc {
         TcAcc(suspends: false, nonsync: false, causes: 0, thread_causes: 0, suspend_atoms: Vector<TcAtom>(),
               nonsync_atoms: Vector<TcAtom>(), copies: Vector<TcAtom>(), forbids: Vector<TcAtom>(), owner: owner,
-              unit: unit)
+              unit: unit, blocked_hook: -1, blocked_type: -1, hooks: Vector<Int>(), hook_types: Vector<Int>())
     }
 
     // A cause a call has in every context alike.
@@ -376,6 +384,7 @@ extension TcProgram {
             }
             var here = owner
             if id != root && self.has_alt(id, Alt.Expr_Closure) {
+                self.note_capture_items(id, owner)
                 here = self.units.len()
                 let first = self.items.len()
                 let d = self.units[top].decl
@@ -444,6 +453,74 @@ extension TcProgram {
         }
         if self.erased_trait(id) >= 0 {
             try! self.items.push(TcItem(kind: TC_ITEM_ERASE, node: id, unit: u))
+        }
+    }
+
+    // The type copy item `id` duplicates: the one its position implies, else
+    // the place's own.
+    public func copy_item_type(&self, id: Int) -> Int {
+        let implied = if id < self.implied_copies.len() { self.implied_copies[id] } else { -1 }
+        if implied >= 0 { implied } else { self.copied_type(id) }
+    }
+
+    // The node a copy or capture item's copy is refused at.
+    public func copy_item_site(&self, item: &TcItem) -> Int {
+        if item.kind == TC_ITEM_CAPTURE {
+            return self.captures[item.node].site
+        }
+        item.node
+    }
+
+    // What the copy item `item` costs (`eval_copy`).
+    public func eval_copy_item(&var self, item: &TcItem, acc: &var TcAcc) {
+        if item.kind == TC_ITEM_CAPTURE {
+            let cap = self.captures[item.node]
+            let spelled = cap.site >= 0 && self.has_alt(cap.site, Alt.Expr_Capture_Copy)
+            self.eval_copy(cap.ty, cap.site, spelled, &var acc)
+            return
+        }
+        let t = self.copy_item_type(item.node)
+        if self.has_alt(item.node, Alt.Expr_Repeat) {
+            self.eval_repeat_copy(item.node, t, &var acc)
+            return
+        }
+        self.eval_copy(t, item.node, false, &var acc)
+    }
+
+    // Repeat literal `e`'s copies of its element, of type `t`: each after
+    // the first is the element's copy glue, which the backend runs.
+    func eval_repeat_copy(&var self, e: Int, t: Int, acc: &var TcAcc) {
+        let arr = self.expr_types[e]
+        if arr >= 0 && self.kind_of(arr) == TcKind.Array {
+            let length = self.types.arg(arr, 0)
+            let li = self.types.ty(length)
+            if li.kind == TcKind.ConstInt && li.a <= 1 {
+                return
+            }
+        }
+        var seen = TcMemo.empty()
+        self.eval_glue_copy(t, e, &var acc, &var seen)
+    }
+
+    // A capture item for each by-value copy capture of closure `id`, in unit
+    // `u`, the one the closure is made in, since the copy happens there.
+    func note_capture_items(&var self, id: Int, u: Int) {
+        let found = self.closure_index.first(id, 0)
+        if found < 0 {
+            return
+        }
+        let ordinal = self.closure_index.value(found)
+        if ordinal >= self.capture_first.len() {
+            return
+        }
+        let first = self.capture_first[ordinal]
+        var j = 0
+        while j < self.capture_count[ordinal] {
+            let at = first + j
+            j = j + 1
+            if self.captures[at].use == TcUse.Copy && self.captures[at].ty >= 0 {
+                try! self.items.push(TcItem(kind: TC_ITEM_CAPTURE, node: at, unit: u))
+            }
         }
     }
 
@@ -672,10 +749,24 @@ extension TcProgram {
                         self.join_closure(&var acc, &var inner, item.node)
                     }
                 }
-            } else if item.kind == TC_ITEM_COPY {
-                let implied = if item.node < self.implied_copies.len() { self.implied_copies[item.node] } else { -1 }
-                let t = if implied >= 0 { implied } else { self.copied_type(item.node) }
-                let _ = self.copy_needs(t, item.node, item.node, &var acc)
+            } else if item.kind == TC_ITEM_COPY || item.kind == TC_ITEM_CAPTURE {
+                if item.kind == TC_ITEM_COPY {
+                    let t = self.copy_item_type(item.node)
+                    let _ = self.copy_needs(t, item.node, item.node, &var acc)
+                }
+                // The copy is a call of its hook, owed as a call is.
+                let item_unit = self.units[item.unit]
+                let site = self.copy_item_site(&item)
+                var inner = TcAcc(owner: unit.decl, unit: reader)
+                self.eval_copy_item(&item, &var inner)
+                if item_unit.sync {
+                    self.join_sync(&var acc, &var inner, site)
+                }
+                if own {
+                    self.join_own(&var acc, &var inner)
+                } else {
+                    self.join_closure(&var acc, &var inner, site)
+                }
             } else if item.kind == TC_ITEM_ERASE {
                 self.erase_conditions(item.node, &var acc)
             }
@@ -1178,6 +1269,11 @@ extension TcProgram {
                 } else {
                     try! acc.nonsync_atoms.push(a)
                 }
+                // A `copy()` called through a parameter runs its
+                // instantiation's copy glue, which cannot suspend (SL-877).
+                if suspension && self.is_copy_requirement(req) {
+                    try! acc.forbids.push(TcAtom(ty: recv, req: req, site: e, origin: e, kind: TC_FORBID_COPY))
+                }
                 return
             }
             self.conservative(suspension, &var acc)
@@ -1195,6 +1291,12 @@ extension TcProgram {
         }
         let side = if suspension { 1 } else { 0 }
         if not followed.mark(recv, req * 2 + side) {
+            return
+        }
+        // Either policy's `copy()` is the type's one copy, which a Copy-tier
+        // type answers for `ExplicitCopy`'s too, however it is written.
+        if self.is_copy_requirement(req) {
+            self.eval_copy_condition(recv, e, suspension, &var acc)
             return
         }
         let impl = self.impl_of(recv, req)
@@ -1432,6 +1534,287 @@ extension TcProgram {
         }
     }
 
+    // THE COPY-COST FUNNEL: what a copy of a value of type `t` at node `e`
+    // adds to `acc`, the copy the source never writes as a call included.
+    // A type whose policy conformance writes its own `copy()`
+    // copies by calling that hook directly, so the copy costs what a call of
+    // the hook at `t` would: it may suspend, and its caller with it. Any
+    // other copy that is not the bits runs generated glue, and a copy of a
+    // type parameter runs its instantiation's copy, neither of which can
+    // suspend yet (SL-877): a hook there that suspends is no suspension but
+    // `acc.blocked_hook`, which the copy site refuses, and one that would
+    // suspend at an instantiation is a forbidden condition. `spelled` is a
+    // spelled `[copy x]`, which an ExplicitCopy hook answers too.
+    // ENTRY POINTS:
+    //     eval_copy_item
+    //     eval_copy_condition
+    //     check_copy_call
+    public func eval_copy(&var self, t: Int, e: Int, spelled: Bool, acc: &var TcAcc) {
+        if t < 0 {
+            return
+        }
+        let hook = self.direct_copy_hook(t, spelled)
+        if hook >= 0 {
+            self.eval_hook(hook, t, e, &var acc)
+            return
+        }
+        var seen = TcMemo.empty()
+        self.eval_glue_copy(t, e, &var acc, &var seen)
+    }
+
+    // The `copy()` a copy of type `t` calls directly, the one its policy
+    // conformance writes, or -1: MIR lowers exactly these copies as a call of
+    // the hook, and every other copy that is not the bits as glue. Only a
+    // type of the Copy tier copies silently; a spelled `[copy x]` also reaches
+    // an ExplicitCopy hook.
+    public func direct_copy_hook(&var self, t: Int, spelled: Bool) -> Int {
+        let d = self.nominal_decl(t)
+        if d < 0 || self.is_primitive_decl(d) {
+            return -1
+        }
+        if not spelled && not self.copies_silently(t) {
+            return -1
+        }
+        self.policy_copy(d)
+    }
+
+    // A call of copy hook `hook` on a value of type `t`, as a call of it
+    // would cost: its summary, each condition over `t`'s parameters at `t`'s
+    // arguments. Its Copy requirements and forbidden conditions over the
+    // owner's parameters join the owner's; the copy site meets the concrete
+    // ones (`check_hook_at`), which `acc.hooks` names it for.
+    public func eval_hook(&var self, hook: Int, t: Int, e: Int, acc: &var TcAcc) {
+        let s = self.summary_for(hook, &acc)
+        try! acc.hooks.push(hook)
+        try! acc.hook_types.push(t)
+        var j = 0
+        while j < s.copy_count {
+            let a = self.atoms[s.copy_first + j]
+            j = j + 1
+            let inner = self.impl_subst(a.ty, hook, t)
+            let _ = self.copy_needs(inner, e, a.origin, &var acc)
+        }
+        j = 0
+        while j < s.forbid_count {
+            let a = self.atoms[s.forbid_first + j]
+            j = j + 1
+            let inner = self.strip_refs(self.impl_subst(a.ty, hook, t))
+            if self.is_own_condition(inner, acc.owner) {
+                try! acc.forbids.push(TcAtom(ty: inner, req: a.req, site: e, origin: a.origin, kind: a.kind))
+            }
+        }
+        if s.suspends {
+            acc.suspends = true
+        }
+        if s.nonsync {
+            acc.nonsync = true
+        }
+        acc.add_causes_of(&s)
+        var k = 0
+        while k < s.suspend_count {
+            let a = self.atoms[s.suspend_first + k]
+            k = k + 1
+            let inner = self.impl_subst(a.ty, hook, t)
+            self.eval_condition(inner, a.req, e, true, &var acc)
+        }
+        k = 0
+        while k < s.nonsync_count {
+            let a = self.atoms[s.nonsync_first + k]
+            k = k + 1
+            let inner = self.impl_subst(a.ty, hook, t)
+            self.eval_condition(inner, a.req, e, false, &var acc)
+        }
+    }
+
+    // The hooks a copy of `t` that runs glue reaches, part by part as the
+    // glue copies them: a hook that suspends is `acc.blocked_hook`, and one
+    // that suspends only at some instantiation of the owner's parameters, as
+    // a copy of one of those does, is a forbidden condition.
+    func eval_glue_copy(&var self, t: Int, e: Int, acc: &var TcAcc, seen: &var TcMemo) {
+        // Each part once, however many paths reach it (SL-639).
+        if t < 0 || seen.get(t, 0) >= 0 {
+            return
+        }
+        seen.set(t, 0, 1)
+        let info = self.types.ty(t)
+        match info.kind {
+            case Param -> self.forbid_copy_of(t, e, &var acc),
+            case SelfType -> self.forbid_copy_of(t, e, &var acc),
+            case Tuple -> {
+                var k = 0
+                while k < info.count {
+                    let a = self.types.arg(t, k)
+                    self.eval_glue_copy(a, e, &var acc, &var seen)
+                    k = k + 1
+                }
+            },
+            case Array -> self.eval_glue_copy(info.b, e, &var acc, &var seen),
+            case Nominal -> self.eval_glue_nominal(t, e, &var acc, &var seen),
+            case _ -> {}
+        }
+    }
+
+    func eval_glue_nominal(&var self, t: Int, e: Int, acc: &var TcAcc, seen: &var TcMemo) {
+        let info = self.types.ty(t)
+        let d = info.decl
+        if self.is_primitive_decl(d) {
+            return
+        }
+        let hook = self.policy_copy(d)
+        if hook >= 0 {
+            var inner = TcAcc(owner: acc.owner, unit: acc.unit)
+            self.eval_hook(hook, t, e, &var inner)
+            if inner.suspends && acc.blocked_hook < 0 {
+                acc.blocked_hook = hook
+                acc.blocked_type = t
+                acc.causes = acc.causes | inner.causes
+                acc.thread_causes = acc.thread_causes | inner.thread_causes
+            }
+            var k = 0
+            while k < inner.suspend_atoms.len() {
+                let a = inner.suspend_atoms[k]
+                k = k + 1
+                try! acc.forbids.push(TcAtom(ty: a.ty, req: a.req, site: e, origin: e, kind: TC_FORBID_COPY))
+            }
+            self.join_hook_conditions(&var acc, &inner)
+            return
+        }
+        var args = Vector<Int>()
+        var k = 0
+        while k < info.count {
+            try! args.push(self.types.arg(t, k))
+            k = k + 1
+        }
+        let s = TcSubst(owner: d, args: move args)
+        let kind = self.res.decls[d].kind
+        let members = self.members_of(d)
+        k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            let mk = self.res.decls[m].kind
+            if mk == ResDeclKind.Field && kind == ResDeclKind.Struct {
+                let part = self.subst(self.sigs[m].result, &s)
+                self.eval_glue_copy(part, e, &var acc, &var seen)
+            } else if mk == ResDeclKind.Case && kind == ResDeclKind.Enum {
+                let cs = self.sigs[m]
+                var p = 0
+                while p < cs.param_count {
+                    let part = self.subst(self.params[cs.param_first + p].ty, &s)
+                    self.eval_glue_copy(part, e, &var acc, &var seen)
+                    p = p + 1
+                }
+            }
+        }
+    }
+
+    // What a hook reached through glue, evaluated into `inner`, leaves the
+    // copy that reaches it: its Copy requirements, forbidden conditions and
+    // the hooks the copy site meets.
+    func join_hook_conditions(&var self, acc: &var TcAcc, inner: &TcAcc) {
+        var k = 0
+        while k < inner.copies.len() {
+            try! acc.copies.push(inner.copies[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.forbids.len() {
+            try! acc.forbids.push(inner.forbids[k])
+            k = k + 1
+        }
+        k = 0
+        while k < inner.hooks.len() {
+            try! acc.hooks.push(inner.hooks[k])
+            try! acc.hook_types.push(inner.hook_types[k])
+            k = k + 1
+        }
+    }
+
+    // A copy of the owner's type parameter `t`, which runs whatever copy its
+    // instantiation has: refused there when that copy suspends.
+    func forbid_copy_of(&var self, t: Int, e: Int, acc: &var TcAcc) {
+        if not self.is_own_condition(t, acc.owner) {
+            return
+        }
+        let req = self.copy_requirement(self.known.copy)
+        if req < 0 {
+            return
+        }
+        try! acc.forbids.push(TcAtom(ty: t, req: req, site: e, origin: e, kind: TC_FORBID_COPY))
+    }
+
+    // Requirement `req` through concrete type `t` when it is a copy policy's
+    // `copy()`: the type's copy, as the glue that answers a requirement call
+    // makes it (`eval_copy`), with a hook it reaches through glue counted as
+    // the suspension the instantiation's forbidden condition refuses.
+    func eval_copy_condition(&var self, t: Int, e: Int, suspension: Bool, acc: &var TcAcc) {
+        let depth = self.copy_depth
+        var w = 0
+        while w < depth {
+            if self.copy_walk[w] == t {
+                return
+            }
+            w = w + 1
+        }
+        if depth < self.copy_walk.len() {
+            self.copy_walk[depth] = t
+        } else {
+            try! self.copy_walk.push(t)
+        }
+        self.copy_depth = depth + 1
+        var inner = TcAcc(owner: acc.owner, unit: acc.unit)
+        self.eval_copy(t, e, true, &var inner)
+        self.copy_depth = depth
+        let blocked = inner.blocked_hook >= 0
+        if suspension && (inner.suspends || blocked) {
+            acc.suspends = true
+            acc.causes = acc.causes | inner.causes
+            acc.thread_causes = acc.thread_causes | inner.thread_causes
+        }
+        if not suspension && (inner.nonsync || inner.suspends || blocked) {
+            acc.nonsync = true
+            acc.causes = acc.causes | inner.causes
+            acc.thread_causes = acc.thread_causes | inner.thread_causes
+        }
+        var k = 0
+        while suspension && k < inner.suspend_atoms.len() {
+            try! acc.suspend_atoms.push(inner.suspend_atoms[k])
+            k = k + 1
+        }
+        k = 0
+        while not suspension && k < inner.nonsync_atoms.len() {
+            try! acc.nonsync_atoms.push(inner.nonsync_atoms[k])
+            k = k + 1
+        }
+    }
+
+    // Whether requirement `req` is the `copy()` of `Copy` or `ExplicitCopy`.
+    public func is_copy_requirement(&self, req: Int) -> Bool {
+        if req < 0 {
+            return false
+        }
+        let info = self.res.decls[req]
+        let policy = info.parent >= 0 && (info.parent == self.known.copy || info.parent == self.known.explicit_copy)
+        policy && info.kind == ResDeclKind.Requirement && self.name_text(info.name).equals("copy")
+    }
+
+    // Trait `tr`'s `copy()` requirement, or -1.
+    public func copy_requirement(&self, tr: Int) -> Int {
+        if tr < 0 {
+            return -1
+        }
+        let reqs = self.members_of(tr)
+        var j = 0
+        while j < reqs.len() {
+            let r = reqs[j]
+            j = j + 1
+            if self.is_copy_requirement(r) {
+                return r
+            }
+        }
+        return -1
+    }
+
     // Whether type parameter `t` declares a bound on the Copy tier.
     func declares_copy_bound(&var self, t: Int) -> Bool {
         let info = self.types.ty(t)
@@ -1573,6 +1956,8 @@ extension TcProgram {
                 try! one.append("(sync ")
             } else if a.kind == TC_FORBID_THREAD {
                 try! one.append("(thread ")
+            } else if a.kind == TC_FORBID_COPY {
+                try! one.append("(copy ")
             }
             try! one.append(self.type_text(a.ty))
             if a.req >= 0 {

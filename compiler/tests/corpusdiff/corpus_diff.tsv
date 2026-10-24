@@ -347,7 +347,7 @@ conformance/K25_cross_module_embed_private_static_const_position.saw	refused	typ
 conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	pass	-	-
 conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
-conformance/K29_copy_policy_hook_must_be_sync.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
+conformance/K29_copy_policy_hook_must_be_sync.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 conformance/K30_generic_container_of_pinned_is_pinned.saw	refused	typecheck member.unknown	`std.taskgroup.TaskGroup` has no method `is_empty` this module can see
 conformance/K31_generic_arc_share_at_non_sync_refused.saw	pass	-	coro.spawn-not-send: cannot spawn `bump_many`: parameter `a` of type `std.arc.Arc<K31_generic_arc_share_at_non_sync_refused.Cell>` is not `Send`, so the task frame cannot cross to a worker thread. Sha
 conformance/K32_task_cell_result_and_cancel.saw	stage0-wrong	annotated SL-769	sawc meets its directives
@@ -1082,7 +1082,7 @@ errors/consumes_suspending_field_move.saw	stage0-wrong	annotated SL-859	sawc bui
 errors/consumes_suspending_handwritten_deinit.saw	stage0-wrong	annotated SL-859	sawc builds it, and its run exits 0
 errors/consumes_trait_requirement.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/consumes_trait_requirement.saw` (syntax.rule.requirement-borrows), so its declarations are not available
 errors/copy_bound_missing.saw	pass	-	type.bound: `T` has no `copy()`: no bound makes it `ExplicitCopy`; declare `T: ExplicitCopy`, or `Copy`
-errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: cannot suspend in the `Copy` `copy()` of `Heavy`: `Heavy.copy` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`
+errors/copy_policy_hook_suspends_in_sync_fn.saw	pass	-	effect.sync: `silent` is declared `sync`, and a copy of `copy_policy_hook_suspends_in_sync_fn.Heavy` happens here, and `Heavy.copy()` suspends
 errors/coro_assign_rhs_move_beside_early_exit.saw	stage0-wrong	annotated SL-234	sawc meets its directives
 errors/coro_buried_early_exit_beside_a_move.saw	stage0-wrong	annotated SL-234	sawc meets its directives
 errors/coro_closure_body_suspends_with_no_driven_root.saw	pass	-	effect.closure-suspends: a closure body cannot suspend, and this calls `yield_now`, which may suspend: call it outside the closure

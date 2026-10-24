@@ -1,0 +1,25 @@
+// refuses: effect.blocking-body at 19:13
+// a copy in a `blocking` function, which is thread context
+// message: which is `blocking`: a copy of `effect.blocking-body.copy.Heavy` happens here
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(a: Heavy) blocking -> Int {
+    let b = a
+    b.n
+}
+
+func main() blocking {
+    print(f(Heavy(n: 1)))
+}

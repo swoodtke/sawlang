@@ -1,0 +1,32 @@
+// refuses: effect.sync at 24:17
+// a copy in a `deinit`, which runs where nothing may suspend
+// message: a copy of `effect.sync.copy-deinit.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+struct Keeper {
+    h: Heavy
+}
+
+extension Keeper: NoCopy {
+    func deinit(&var self) {
+        let b = self.h
+        print(b.n)
+    }
+}
+
+func main() {
+    let k = Keeper(h: Heavy(n: 1))
+    print(k.h.n)
+}

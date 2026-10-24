@@ -1,0 +1,261 @@
+// probe: stated
+// about: a copy that calls a suspending `copy()` hook directly suspends its caller at each position (SL-859)
+// stage 0: refuses a `copy()` hook that suspends at its conformance (K29's former rule)
+// speeds: -O0 -O2
+// leaks: none
+// Each position where a copy of `Heavy` calls its hook directly, the hook
+// ceding once: a `let` from a place, a field, a getitem inside its window, an
+// argument, an assignment's drop-and-copy, a returned place, a literal's
+// element, `o!`, `if let`, `guard let`, `while let`, a field initialiser, a
+// field assignment and a payload binding. Run beside a ticker task, so each
+// copy is seen to cede, then again as a task of its own.
+// prints:   hook 0 before
+// prints:     tick 0
+// prints:   hook 0 after
+// prints: let 1
+// prints:   hook 10 before
+// prints:     tick 1
+// prints:   hook 10 after
+// prints: field 11
+// prints:   hook 20 before
+// prints:     tick 2
+// prints:   hook 20 after
+// prints: getitem 21
+// prints:   hook 0 before
+// prints:     tick 3
+// prints:   hook 0 after
+// prints: argument 1
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: assign 1
+// prints:   hook 10 before
+// prints:   hook 10 after
+// prints: return 11
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: literal 2
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints: payload 82
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints: guard 41
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints: while 82
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: init 1
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: field assign 1
+// prints:   hook 80 before
+// prints:   hook 80 after
+// prints: match 81
+// prints: task
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: let 1
+// prints:   hook 10 before
+// prints:   hook 10 after
+// prints: field 11
+// prints:   hook 20 before
+// prints:   hook 20 after
+// prints: getitem 21
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: argument 1
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: assign 1
+// prints:   hook 10 before
+// prints:   hook 10 after
+// prints: return 11
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: literal 2
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints: payload 82
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints: guard 41
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints:   hook 40 before
+// prints:   hook 40 after
+// prints: while 82
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: init 1
+// prints:   hook 0 before
+// prints:   hook 0 after
+// prints: field assign 1
+// prints:   hook 80 before
+// prints:   hook 80 after
+// prints: match 81
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+    tag: String
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        print("  hook {} before", self.n)
+        yield_now()
+        print("  hook {} after", self.n)
+        Heavy(n: self.n + 1, tag: self.tag)
+    }
+}
+
+struct Holder {
+    h: Heavy
+    k: Int
+}
+
+extension Holder: NoCopy {}
+
+enum Slot {
+    case Full(h: Heavy),
+    case Empty
+}
+
+func take(h: Heavy) -> Int {
+    h.n
+}
+
+func let_from_place(a: &Heavy) -> Int {
+    let b = a
+    b.n
+}
+
+func field_read(s: &Holder) -> Int {
+    let b = s.h
+    b.n
+}
+
+func getitem(v: &Vector<Heavy>) -> Int {
+    let b = v[0]
+    b.n
+}
+
+func argument(a: &Heavy) -> Int {
+    take(a)
+}
+
+func assign_from_place(a: &Heavy) -> Int {
+    var b = Heavy(n: 50, tag: "fifty")
+    b = a
+    b.n
+}
+
+func return_place(s: &Holder) -> Heavy {
+    s.h
+}
+
+func literal(a: &Heavy) -> Int {
+    let v: Vector<Heavy> = [a, a]
+    v.len()
+}
+
+func payload(o: &Heavy?) -> Int {
+    let b = o!
+    var c = 0
+    if let x = o {
+        c = x.n
+    }
+    b.n + c
+}
+
+func guard_let(o: &Heavy?) -> Int {
+    guard let x = o else {
+        return -1
+    }
+    x.n
+}
+
+func while_let(o: &Heavy?) -> Int {
+    var total = 0
+    var rounds = 0
+    while let x = o {
+        total = total + x.n
+        rounds = rounds + 1
+        if rounds == 2 {
+            break
+        }
+    }
+    total
+}
+
+func field_init(a: &Heavy) -> Int {
+    let s = Holder(h: a, k: 1)
+    s.h.n
+}
+
+func field_assign(s: &var Holder, a: &Heavy) -> Int {
+    s.h = a
+    s.h.n
+}
+
+func match_binding(s: &Slot) -> Int {
+    match s {
+        case Full(h) -> {
+            let g = h
+            g.n
+        },
+        case Empty -> -1
+    }
+}
+
+func ticker() {
+    var i = 0
+    while i < 4 {
+        print("    tick {}", i)
+        yield_now()
+        i = i + 1
+    }
+}
+
+func run_all() {
+    let a = Heavy(n: 0, tag: "zero")
+    print("let {}", let_from_place(&a))
+    let s = Holder(h: Heavy(n: 10, tag: "ten"), k: 1)
+    print("field {}", field_read(&s))
+    let v: Vector<Heavy> = [Heavy(n: 20, tag: "twenty")]
+    print("getitem {}", getitem(&v))
+    print("argument {}", argument(&a))
+    print("assign {}", assign_from_place(&a))
+    print("return {}", return_place(&s).n)
+    print("literal {}", literal(&a))
+    let o: Heavy? = Heavy(n: 40, tag: "forty")
+    print("payload {}", payload(&o))
+    print("guard {}", guard_let(&o))
+    print("while {}", while_let(&o))
+    print("init {}", field_init(&a))
+    var hs = Holder(h: Heavy(n: 70, tag: "seventy"), k: 1)
+    print("field assign {}", field_assign(&var hs, &a))
+    let sl = Slot.Full(h: Heavy(n: 80, tag: "eighty"))
+    print("match {}", match_binding(&sl))
+}
+
+func main() {
+    let t = Task.spawn(ticker())
+    run_all()
+    t.join()
+    print("task")
+    let u = Task.spawn(run_all())
+    u.join()
+}

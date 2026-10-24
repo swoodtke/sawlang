@@ -3,12 +3,12 @@
     (struct Cell 8:15 public (generics (T)))
     (field Cell.value 9:5 public T)
     (extension 12:1 (target declared_bounds.Cell<T>) (where (T Copy)))
-    (method Cell.get 13:17 public (signature (receiver shared) (params) -> T) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (method Cell.get 13:17 public (signature (receiver shared) (params) -> T) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (extension 18:1 (target declared_bounds.Cell<T>))
-    (method Cell.peek 19:10 private (signature (receiver shared) (params) -> T) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (method Cell.peek 19:10 private (signature (receiver shared) (params) -> T) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (method Cell.replace 23:17 public (signature (receiver exclusive) (params (next T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
     (extension 28:1 (target declared_bounds.Cell<T>) (where (T ExplicitCopy)))
-    (method Cell.duplicate 29:17 public (signature (receiver shared) (params) -> T) (summary body (suspends when T.ExplicitCopy.copy) (sync-callable unless T.ExplicitCopy.copy)))
+    (method Cell.duplicate 29:17 public (signature (receiver shared) (params) -> T) (summary body (suspends when T.ExplicitCopy.copy) (sync-callable unless T.ExplicitCopy.copy) (refuses-when (copy T.ExplicitCopy.copy))))
     (func main 34:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (declared_bounds.Cell

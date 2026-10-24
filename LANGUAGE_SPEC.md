@@ -3607,8 +3607,8 @@ the type](#policy-conformances-declared-beside-the-type)).
 - **The retain hook is a performance footgun, and stating that is the whole
   contract.** The body runs at transfer sites no source construct names, so a
   heavy one costs on every silent copy. Cheap and infallible is the expected
-  shape. The compiler enforces one part of it, `sync` (below); the rest is the
-  author's documented choice.
+  shape. A hook that suspends is legal and makes each copy that calls it a
+  suspension point (below); the cost is the author's documented choice.
 - **`NoCopy`** — never duplicable, on purpose (`File`, `Mutex`, `Box`,
   `SpinLock`, `Once`, [`Atomic`](#atomicint) — a copy of any of those is a
   second, independent piece of state; currently also `Map`/`Set`, whose
@@ -3707,25 +3707,40 @@ the type](#policy-conformances-declared-beside-the-type)).
       print(g.fd)            // prints: 101
   }
   ```
-- **A hand-written `copy()` must be `sync`.** The `copy()` body
-  inside a copy-policy conformance is the retain hook: the compiler calls it at
-  transfer sites the source never spells, so a suspension inside it would
-  suspend a function that declared itself `sync` with nothing on the page to
-  show for it. A suspending body is refused at the conformance, where the
-  author can act on it:
+- **A hand-written `copy()` may suspend.** The `copy()` body inside a
+  copy-policy conformance runs at copies the source never writes as a call:
+  a `let` or an assignment from a place, an argument, a return, a field
+  initialiser, a literal's element, a payload read, a closure's capture. Each
+  such copy calls the hook directly, so a hook that suspends makes the copy a
+  suspension point of the function it is in, exactly as a call of the hook
+  there would be. The effect analysis sees every one, so a function that
+  copies such a value suspends, and a copy is refused wherever a suspending
+  call is: in a `sync` function, a `deinit`, a closure body, a
+  `Thread.spawn` body, a `blocking` function, and inside a `borrows(sync)`
+  window. The refusal names the copy:
 
   ```
-  error: cannot suspend in the `Copy` `copy()` of `Heavy`: method
-         `Heavy.copy` calls yield_now (`Heavy.copy` suspends at line 8)
-  hint: a copy-policy `copy()` runs at compiler-inserted call sites and must be
-        `sync` ...
+  error: `total` is declared `sync`, and a copy of `Heavy` happens here, and
+         `Heavy.copy()` suspends
   ```
 
-  Writing `sync` is optional: a body the effect analysis finds suspension-free
-  already satisfies the rule, which is how every std hook (`Arc`, `Channel`,
-  `Vector`) passes with nothing written. The rule is mechanical; the rest of
-  the hook's contract is not. A `copy()` the compiler inserts everywhere should
-  be cheap and infallible, and a heavy one is legal at the author's cost.
+  A copy that does not call the hook directly cannot suspend yet. That is a
+  copy that runs generated code over a value's parts (a tuple, an Optional,
+  a fixed array, an enum or a `@synthesize` conformance holding the type, and
+  the later elements of a repeat literal) and a generic body's copy of a type
+  parameter, `Vector.copy()` and a `for` over `v.iter()` among them. Such a
+  copy is refused where it is written, or at the call that instantiates the
+  generic body, when the hook it reaches suspends:
+
+  ```
+  error: a copy of `Pair` happens here, and it runs generated glue that
+         calls `Heavy.copy()`, the `copy()` of `Heavy`, which suspends: a copy
+         through generated glue or a generic `T` cannot suspend yet (SL-877)
+  ```
+
+  Every std hook (`Arc`, `Channel`, `Vector`) is suspension-free, and a hook
+  the compiler runs at every copy should stay cheap and infallible; a heavy or
+  suspending one is legal at the author's cost.
 
 ```saw-body
 // Trivial: implicit bitwise copy, both valid

@@ -1,0 +1,33 @@
+// refuses: effect.sync at 26:13
+// a field read by value in a `sync` function
+// message: a copy of `effect.sync.copy-field.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+struct Holder {
+    h: Heavy
+    k: Int
+}
+
+extension Holder: NoCopy {}
+
+func f(s: &Holder) sync -> Int {
+    let b = s.h
+    b.n
+}
+
+func main() {
+    let s = Holder(h: Heavy(n: 1), k: 2)
+    print(f(&s))
+}

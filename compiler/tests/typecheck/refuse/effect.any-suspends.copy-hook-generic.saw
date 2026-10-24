@@ -1,0 +1,45 @@
+// refuses: effect.any-suspends at 44:11
+// a generic body's copy of `Erased<T>` carries the hook's condition to the call that instantiates it
+// message: this calls `generic` with `T` as `effect.any-suspends.copy-hook-generic.Slow`
+
+import std.task.*
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Erased<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Erased<T: Worker>: Copy {
+    func copy(&self) -> Erased<T> {
+        Erased(n: self.n + dispatch(&self.w), w: self.w)
+    }
+}
+
+func dispatch(d: &any Worker) -> Int {
+    d.step()
+}
+
+func generic<T: Worker>(e: &Erased<T>) -> Int {
+    let c = e
+    c.n
+}
+
+func main() {
+    let e = Erased(n: 1, w: Slow(n: 2))
+    print(generic(&e))
+}

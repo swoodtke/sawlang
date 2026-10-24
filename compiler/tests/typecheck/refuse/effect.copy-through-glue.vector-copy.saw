@@ -1,0 +1,26 @@
+// refuses: effect.copy-through-glue at 19:13
+// `Vector.copy()` copies each element through `T`'s copy glue
+// message: this calls `Vector.copy` with `T` as `effect.copy-through-glue.vector-copy.Heavy`
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(v: &Vector<Heavy>) -> Int {
+    let w = v.copy()
+    w.len()
+}
+
+func main() {
+    let v: Vector<Heavy> = [Heavy(n: 1)]
+    print(f(&v))
+}

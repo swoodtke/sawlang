@@ -692,15 +692,20 @@ enum Bag { case Full(t: Vector<Int>), case Empty }   // Vector<Int> is ExplicitC
 @synthesize
 extension Bag: ExplicitCopy {}   // copy() over the ACTIVE variant's payload
 ```
-**A HAND-WRITTEN `copy()` IS THE RETAIN HOOK, AND MUST BE `sync`** (design 219).
-A `copy()` body inside a Copy/ExplicitCopy conformance is called at
-transfer sites no source construct names, so a suspending one is refused AT the
-conformance ("a copy-policy `copy()` runs at compiler-inserted call sites and
-must be `sync`"). You need not write `sync` — a body that never suspends
-already passes, which is how std's own hooks (`Arc`, `Channel`) do. What the
-compiler does not check is the rest of the contract: a hook it inserts
-everywhere should be cheap and infallible, and a heavy one costs on every
-silent transfer.
+**A HAND-WRITTEN `copy()` IS THE RETAIN HOOK, AND IT MAY SUSPEND** (SL-859).
+A `copy()` body inside a Copy/ExplicitCopy conformance runs at copies no source
+call names (`let b = a`, an argument, a return, `o!`, a field initialiser, a
+closure's `[a]`). Each of those calls the hook DIRECTLY, so a suspending hook
+makes the copy a suspension point of its function, and the copy is refused
+where a suspending call is: a `sync` function, a `deinit`, a closure body, a
+`Thread.spawn` body, a `blocking` function, a `borrows(sync)` window ("a copy
+of `T` happens here, and `T.copy()` suspends"). GOTCHA: a copy through
+generated glue cannot suspend yet (SL-877) and is refused at the copy
+(`effect.copy-through-glue`): a tuple/Optional/array/enum/`@synthesize` type
+holding the hooked type copied whole, `[a; 3]`, a generic body's silent copy of
+`T`, and std's `Vector.copy()`, `Vector.get` and `for x in v.iter()` at that
+type. Keep hooks cheap and infallible anyway: one runs on every silent
+transfer. std's own hooks (`Arc`, `Channel`, `Vector`) never suspend.
 **WRAPPERS CARRY THE TIER OF WHAT THEY WRAP** (design 139). Every type has
 exactly one transfer class, and a composite is never weaker than its parts: an
 `Optional<T>`, a tuple, a `[T; N]`, an enum payload and a `Result<T, E>` all take

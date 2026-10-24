@@ -5396,9 +5396,9 @@ extension TcProgram {
             return false
         }
         if self.copies_silently(t) {
-            if self.mentions_param(t) {
-                self.implied_copies[e] = t
-            }
+            // The literal's copies after the first are glue's, which the
+            // copy-cost funnel judges at the literal (SL-859).
+            self.implied_copies[e] = t
             return false
         }
         var msg = StringBuilder()

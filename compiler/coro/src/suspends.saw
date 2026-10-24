@@ -36,13 +36,13 @@ public func coro_rules() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("coro.blocking-drop-position")
     try! out.push("coro.closure-drop-blocks")
+    try! out.push("coro.copy-through-glue")
     try! out.push("coro.drive-in-suspending")
     try! out.push("coro.format-suspends")
     try! out.push("coro.not-yet")
     try! out.push("coro.spawn-not-send")
     try! out.push("coro.suspending-cycle")
     try! out.push("coro.task-drop-blocks")
-    try! out.push("effect.sync")
     move out
 }
 
@@ -68,8 +68,8 @@ extension CoroEdges: NoCopy {}
 // fixpoint, solved breadth first from the sources over the edges reversed,
 // so each item is marked once, a cycle suspends only when a call in it
 // reaches a source, and each item's cause chain is a shortest one. Then
-// refuses each cycle among the items that suspend, and each copy-policy
-// `copy()` and each `Printable.format` that suspends at its instantiation.
+// refuses each cycle among the items that suspend, each copy glue that calls
+// one, and each `Printable.format` that suspends at its instantiation.
 public func coro_solve_suspension(coro: &var CoroProgram) {
     let count = coro.mono.items.len()
     coro.suspending = Vector<Bool>()
@@ -124,7 +124,7 @@ public func coro_solve_suspension(coro: &var CoroProgram) {
     coro_check_summaries(&var coro)
     let cycles = coro_refuse_cycles(&var coro, &edges)
     coro.cyclic = cycles > 0
-    coro_refuse_copy_hooks(&var coro)
+    coro_refuse_suspending_glue(&var coro)
     coro_refuse_suspending_formats(&var coro)
 }
 
@@ -450,40 +450,60 @@ func coro_refuse_cycle(coro: &var CoroProgram, edges: &CoroEdges, component: &Ve
     coro.refuse(start, node, "coro.suspending-cycle", msg.build())
 }
 
-// Refuses each item that is the hand-written `copy()` of a `Copy` or
-// `ExplicitCopy` conformance and suspends at its instantiation, at its
-// declaration (spec: a hand-written `copy()` must be `sync`), since the
-// compiler calls it at transfer sites no source construct names. Typecheck
-// refuses one that suspends at every instantiation; one that suspends only
-// at some, through a bound, is decided here, item by item.
-func coro_refuse_copy_hooks(coro: &var CoroProgram) {
+// THE GLUE BACKSTOP: refuses each copy glue item whose body calls an item
+// that suspends, at the copy that first reached the glue. Glue
+// calls each part's hook as a plain call, so a hook that suspends there has
+// no frame to suspend into until glue is lowered as a coroutine (SL-877).
+// Typecheck refuses each such copy it can see, at the copy site; this
+// catches the instantiations it cannot, one reached through a bound's
+// implementation among them.
+// ENTRY POINTS:
+//   coro_solve_suspension
+func coro_refuse_suspending_glue(coro: &var CoroProgram) {
     var k = 0
-    while k < coro.suspending.len() {
+    while k < coro.mono.items.len() {
         let item = k
         k = k + 1
-        if not coro.suspending[item] {
+        let it = coro.mono.items[item]
+        if it.kind != MonoItemKind.CopyGlue || it.body < 0 {
             continue
         }
-        // Stage 0 workaround (SL:hazards S4): canonical: let c = coro_copy_conformance(&coro, coro.item_decl(item))
-        let d = coro.item_decl(item)
-        let c = coro_copy_conformance(&coro, d)
-        if c < 0 {
-            continue
+        let info = coro.mono.dp.bc.mir.funcs[it.body]
+        var b = 0
+        while b < info.block_count {
+            let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call || coro_call_suspends(&coro, block.call) {
+                continue
+            }
+            let callee = coro.mono.call_item(block.call)
+            if not coro_item_suspends(&coro, callee) {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("a copy of `")
+            try! msg.append(coro.mono.dp.bc.mir.tc.type_text(it.glue_type))
+            try! msg.append("` happens here, and it runs generated glue that calls `")
+            try! msg.append(coro.item_label(callee))
+            try! msg.append("()`, which suspends: a copy through generated glue or a generic `T` cannot suspend yet (SL-877)")
+            let node = coro_glue_site(&coro, item)
+            coro.refuse(item, node, "coro.copy-through-glue", msg.build())
+            break
         }
-        let conformance = coro.mono.dp.bc.mir.tc.conformances[c]
-        var msg = StringBuilder()
-        try! msg.append("cannot suspend in the `")
-        try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(conformance.trait_decl))
-        try! msg.append("` `copy()` of `")
-        try! msg.append(coro.mono.dp.bc.mir.tc.res.decl_path(conformance.type_decl))
-        try! msg.append("`: method `")
-        try! msg.append(coro.item_label(item))
-        try! msg.append("` calls ")
-        coro_append_cause_path(&coro, item, false, &var msg)
-        // Stage 0 workaround (SL:hazards S4): canonical: coro.refuse(item, coro.item_node(item), "effect.sync", msg.build())
-        let node = coro.item_node(item)
-        coro.refuse(item, node, "effect.sync", msg.build())
     }
+}
+
+// The node of the first copy on the chain of items that reached item `k`.
+func coro_glue_site(coro: &CoroProgram, k: Int) -> Int {
+    var at = k
+    while at >= 0 {
+        let it = coro.mono.items[at]
+        if it.origin_node >= 0 {
+            return it.origin_node
+        }
+        at = it.origin
+    }
+    return -1
 }
 
 // THE SYNC-FORMAT CHECK, its per-instance half: refuses each item that is a
@@ -619,32 +639,6 @@ func coro_parks(coro: &CoroProgram, c: Int) -> Bool {
         return false
     }
     coro.mono.dp.bc.mir.tc.is_park_point(info.target)
-}
-
-// The conformance whose written `copy()` declaration `d` is, of the `Copy`
-// or `ExplicitCopy` trait, or -1.
-func coro_copy_conformance(coro: &CoroProgram, d: Int) -> Int {
-    if d < 0 {
-        return -1
-    }
-    let copy = coro.mono.dp.bc.mir.tc.known.copy
-    let explicit = coro.mono.dp.bc.mir.tc.known.explicit_copy
-    var k = 0
-    while k < coro.mono.dp.bc.mir.tc.conformances.len() {
-        let c = coro.mono.dp.bc.mir.tc.conformances[k]
-        if c.trait_decl >= 0 && (c.trait_decl == copy || c.trait_decl == explicit) {
-            var j = 0
-            while j < c.status_count {
-                let st = coro.mono.dp.bc.mir.tc.statuses[c.status_first + j]
-                if st.kind == TcStatusKind.Written && st.member == d {
-                    return k
-                }
-                j = j + 1
-            }
-        }
-        k = k + 1
-    }
-    return -1
 }
 
 // How a sync-context message names the source call `c` reaches: a

@@ -1,0 +1,34 @@
+// refuses: effect.copy-through-glue at 27:13
+// a copy of a `@synthesize` Copy struct runs glue that calls a field's suspending hook
+// message: a copy of `effect.copy-through-glue.Pair` happens here, and it runs generated glue that calls `Heavy.copy()`
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+struct Pair {
+    h: Heavy
+    k: Int
+}
+
+@synthesize
+extension Pair: Copy {}
+
+func f(p: &Pair) -> Int {
+    let q = p
+    q.h.n
+}
+
+func main() {
+    let p = Pair(h: Heavy(n: 1), k: 2)
+    print(f(&p))
+}

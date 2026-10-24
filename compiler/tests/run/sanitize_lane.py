@@ -68,6 +68,7 @@ PROBE_PATTERNS = (
     "epilogue_return_*.saw",
     "exclusive_borrowing_struct_*.saw",
     "main_result_*.saw",
+    "copy_hook_suspends_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

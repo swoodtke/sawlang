@@ -436,10 +436,12 @@ public static TC_SUMMARY_TABLE: Int = 3
 public static TC_SUMMARY_UNTABLED: Int = 4
 
 // What a unit's item is: a call, a copy of a place, a coercion to an
-// existential.
+// existential, a closure's by-value capture copied where the closure is made.
+// A capture item's `node` is its index in the capture table.
 public static TC_ITEM_CALL: Int = 1
 public static TC_ITEM_COPY: Int = 2
 public static TC_ITEM_ERASE: Int = 3
+public static TC_ITEM_CAPTURE: Int = 4
 
 // `copy_partner`'s mark on a copy whose Copy requirement another read of the
 // same local carries, so it adds no item of its own.
@@ -453,6 +455,9 @@ public static TC_FORBID_ERASE: Int = 2
 public static TC_FORBID_SYNC: Int = 3
 // A `blocking` body that suspends, which no thread can resume.
 public static TC_FORBID_THREAD: Int = 4
+// A copy that runs generated glue or a type parameter's copy, which cannot
+// suspend (SL-877): refused where the copy's hook would.
+public static TC_FORBID_COPY: Int = 5
 
 // One condition of a summary: requirement `req` called through `ty`, a type
 // parameter or a trait's `Self`. `site` is the node in the summarized body

@@ -1,0 +1,45 @@
+// refuses: effect.any-suspends at 38:13
+// a tuple's copy glue reaches the hook, whose condition is met at the copy
+// message: this calls `Erased.copy` with `T` as `effect.any-suspends.copy-hook-glue.Slow`
+
+import std.task.*
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        yield_now()
+        self.n
+    }
+}
+
+struct Erased<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Erased<T: Worker>: Copy {
+    func copy(&self) -> Erased<T> {
+        Erased(n: self.n + dispatch(&self.w), w: self.w)
+    }
+}
+
+func dispatch(d: &any Worker) -> Int {
+    d.step()
+}
+
+func glued(t: &(Erased<Slow>, Int)) -> Int {
+    let u = t
+    u.1
+}
+
+func main() {
+    let t = (Erased(n: 1, w: Slow(n: 2)), 3)
+    print(glued(&t))
+}

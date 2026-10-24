@@ -1,0 +1,28 @@
+// refuses: loan.sync-suspend at 21:13
+// a copy out of a `borrows(sync)` window (`Mutex.lock`) whose hook suspends would hold the lock across the suspension
+// message: a `borrows(sync)` borrow cannot be held across a suspension
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+import std.mutex.{Mutex}
+
+func f(m: &Mutex<Heavy>) -> Int {
+    let b = borrow m.lock()
+    b.n
+}
+
+func main() {
+    let m = Mutex(value: Heavy(n: 1))
+    print(f(&m))
+}

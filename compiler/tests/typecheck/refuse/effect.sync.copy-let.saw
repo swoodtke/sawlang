@@ -1,0 +1,25 @@
+// refuses: effect.sync at 19:13
+// a `let` from a place in a `sync` function copies `Heavy` by calling its suspending hook
+// message: a copy of `effect.sync.copy-let.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(a: Heavy) sync -> Int {
+    let b = a
+    b.n
+}
+
+func main() {
+    print(f(Heavy(n: 1)))
+}

@@ -1,0 +1,37 @@
+// refuses: effect.copy-through-glue at 31:10
+// a `@synthesize` Copy struct passed by value
+// message: a copy through generated glue or a generic `T` cannot suspend yet (SL-877)
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+struct Pair {
+    h: Heavy
+    k: Int
+}
+
+@synthesize
+extension Pair: Copy {}
+
+func take(p: Pair) -> Int {
+    p.k
+}
+
+func f(p: &Pair) -> Int {
+    take(p)
+}
+
+func main() {
+    let p = Pair(h: Heavy(n: 1), k: 2)
+    print(f(&p))
+}

@@ -1,0 +1,29 @@
+// refuses: effect.copy-through-glue at 20:5
+// a `for` over a vector's `iter()` copies each element through `T`'s copy glue
+// message: this calls `VectorIterator.next` with `T` as `effect.copy-through-glue.for-loop.Heavy`
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(v: &Vector<Heavy>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        total = total + x.n
+    }
+    total
+}
+
+func main() {
+    let v: Vector<Heavy> = [Heavy(n: 1)]
+    print(f(&v))
+}

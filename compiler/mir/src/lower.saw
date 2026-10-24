@@ -1876,18 +1876,18 @@ extension MirProgram {
         c.arg_first = self.push_args(&args)
         c.arg_count = 1
         c.dest = self.place_local(l)
+        // A hook that suspends makes the copy a suspension point (SL-859).
+        self.copy_suspension(&var c, hook, t)
         let _ = self.call_and_continue(c)
         let q = self.place_local(l)
         self.op_move(q)
     }
 
     // The retain hook of Copy-tier type `t`, the `copy()` its `Copy`
-    // conformance writes, or -1.
+    // conformance writes, or -1: typecheck's answer, which its copy-cost
+    // funnel reads too.
     func copy_hook(&var self, t: Int) -> Int {
-        if not self.tc.copies_silently(t) {
-            return -1
-        }
-        self.declared_copy(t)
+        self.tc.direct_copy_hook(t, false)
     }
 
     // A lowered value as a place: an operand is held in a temporary first,

@@ -1,0 +1,26 @@
+// refuses: effect.sync at 19:13
+// an element read by value through a subscript in a `sync` function
+// message: a copy of `effect.sync.copy-getitem.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func f(v: &Vector<Heavy>) sync -> Int {
+    let b = v[0]
+    b.n
+}
+
+func main() {
+    let v: Vector<Heavy> = [Heavy(n: 1)]
+    print(f(&v))
+}

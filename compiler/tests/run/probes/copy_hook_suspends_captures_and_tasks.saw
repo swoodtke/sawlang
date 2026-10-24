@@ -1,0 +1,160 @@
+// probe: stated
+// about: a closure's copy capture, a spawn's argument and a bound-dependent hook suspend where they copy (SL-859)
+// stage 0: refuses a `copy()` hook that suspends at its conformance (K29's former rule)
+// speeds: -O0 -O2
+// leaks: none
+// The copies made where something is built or started: a closure's `[a]`,
+// implicit and `[copy l]` captures, copied when the closure is made; a
+// `Task.spawn` and a `group.spawn` argument, copied by the spawner; and a
+// hook whose suspension depends on its type argument, which suspends at
+// `Wrap<Slow>` and not at `Wrap<Fast>`. A ticker shows each copy cede.
+// prints:   hook 1 before
+// prints:     tick 0
+// prints:   hook 1 after
+// prints: list 2
+// prints:   hook 1 before
+// prints:     tick 1
+// prints:   hook 1 after
+// prints: implicit 2
+// prints:   ledger 5 before
+// prints:     tick 2
+// prints:   ledger 5 after
+// prints: copy word 6
+// prints:   slow step
+// prints:     tick 3
+// prints: slow 4
+// prints: fast 4
+// prints:   hook 1 before
+// prints:   hook 1 after
+// prints:   hook 2 before
+// prints:   hook 2 after
+// prints: spawned 3
+// prints:   hook 1 before
+// prints:   hook 1 after
+// prints:   hook 2 before
+// prints:   hook 2 after
+// prints: group 3
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        print("  hook {} before", self.n)
+        yield_now()
+        print("  hook {} after", self.n)
+        Heavy(n: self.n + 1)
+    }
+}
+
+struct Ledger {
+    n: Int
+}
+
+extension Ledger: ExplicitCopy {
+    func copy(&self) -> Ledger {
+        print("  ledger {} before", self.n)
+        yield_now()
+        print("  ledger {} after", self.n)
+        Ledger(n: self.n + 1)
+    }
+}
+
+trait Worker {
+    func step(&self) -> Int
+}
+
+struct Slow {
+    n: Int
+}
+
+extension Slow: Worker {
+    func step(&self) -> Int {
+        print("  slow step")
+        yield_now()
+        self.n
+    }
+}
+
+struct Fast {
+    n: Int
+}
+
+extension Fast: Worker {
+    func step(&self) -> Int {
+        self.n
+    }
+}
+
+struct Wrap<T: Worker> {
+    n: Int
+    w: T
+}
+
+extension Wrap<T: Worker>: Copy {
+    func copy(&self) -> Wrap<T> {
+        let bump = self.w.step()
+        Wrap(n: self.n + bump, w: self.w)
+    }
+}
+
+func list_capture(a: Heavy) -> Int {
+    let f = { [a] in a.n }
+    f()
+}
+
+func implicit_capture(a: Heavy) -> Int {
+    let b = 0
+    let f = { a.n + b }
+    f()
+}
+
+func copy_word_capture(l: Ledger) -> Int {
+    let f = { [copy l] in l.n }
+    f()
+}
+
+func slow_wrap(w: &Wrap<Slow>) -> Int {
+    let c = w
+    c.n
+}
+
+func fast_wrap(w: &Wrap<Fast>) -> Int {
+    let c = w
+    c.n
+}
+
+func body(h: Heavy) -> Int {
+    let b = h
+    b.n
+}
+
+func ticker() {
+    var i = 0
+    while i < 4 {
+        print("    tick {}", i)
+        yield_now()
+        i = i + 1
+    }
+}
+
+func main() {
+    let t = Task.spawn(ticker())
+    print("list {}", list_capture(Heavy(n: 1)))
+    print("implicit {}", implicit_capture(Heavy(n: 1)))
+    print("copy word {}", copy_word_capture(Ledger(n: 5)))
+    let s = Wrap(n: 1, w: Slow(n: 3))
+    print("slow {}", slow_wrap(&s))
+    let f = Wrap(n: 1, w: Fast(n: 3))
+    print("fast {}", fast_wrap(&f))
+    t.join()
+    let a = Heavy(n: 1)
+    let task = Task.spawn(body(a))
+    print("spawned {}", task.join())
+    let group = TaskGroup()
+    let h = group.spawn(body(a))
+    print("group {}", h.join())
+}

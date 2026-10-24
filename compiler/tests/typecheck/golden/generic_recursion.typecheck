@@ -9,7 +9,7 @@
     (extension 38:1 (target generic_recursion.Chain<T>) (where (T Copy)))
     (method Chain.walk 39:10 private (signature (generics (U)) (receiver shared) (params (u U owned) (n Int owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func run 47:6 private (signature (params (body (Int) -> Int owned) (n Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
-    (func closed 51:6 private (signature (generics (T)) (params (x T owned) (n Int owned)) -> Int) (summary body (suspends no) (sync-callable no) (copy T)))
+    (func closed 51:6 private (signature (generics (T)) (params (x T owned) (n Int owned)) -> Int) (summary body (suspends no) (sync-callable no) (copy T) (refuses-when (copy T.Copy.copy))))
     (func main 58:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members
     (generic_recursion.Chain

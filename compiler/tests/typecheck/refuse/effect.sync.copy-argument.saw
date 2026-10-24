@@ -1,0 +1,29 @@
+// refuses: effect.sync at 23:10
+// an argument passed by value in a `sync` function
+// message: a copy of `effect.sync.copy-argument.Heavy` happens here, and `Heavy.copy()` suspends
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func take(h: Heavy) -> Int {
+    h.n
+}
+
+func f(a: &Heavy) sync -> Int {
+    take(a)
+}
+
+func main() {
+    let a = Heavy(n: 1)
+    print(f(&a))
+}

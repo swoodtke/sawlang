@@ -9,9 +9,9 @@ ERROR	copy.requirement	compiler/tests/typecheck/golden/catch_paths.saw:47:11	`in
     (field Fault.code 14:5 private Int)
     (func sink 17:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func risky 19:6 private (signature (params (n Int owned)) -> Result<Int, catch_paths.Fault>) (summary body (suspends no) (sync-callable yes)))
-    (func caught 21:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (func caught 21:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (func untried 31:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func inline 40:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T)))
+    (func inline 40:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy T) (refuses-when (copy T.Copy.copy))))
     (func main 44:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (catch_paths.Res

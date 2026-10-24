@@ -1567,6 +1567,10 @@ extension MirProgram {
     // evaluated at its source node, say it may suspend, and a conditional
     // one carries the conditions they leave.
     func verify_suspension(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.copied >= 0 {
+            self.verify_copy_suspension(f, &c, &var out)
+            return
+        }
         if c.node < 0 || self.tc.call_at[c.node] < 0 {
             if c.suspend != MirSuspend.Never {
                 self.problem(f, &var out, "a call no summary answers is marked a suspension point")
@@ -1601,6 +1605,28 @@ extension MirProgram {
         }
         if want == MirSuspend.When && c.cond_count == 0 {
             self.problem(f, &var out, "a conditional suspension point carries no condition")
+        }
+    }
+
+    // An inserted copy's hook call is a suspension point exactly when the
+    // copy's cost says it may suspend (`copy_effect`).
+    func verify_copy_suspension(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
+        if c.target < 0 {
+            self.problem(f, &var out, "an inserted copy's call names no hook")
+            return
+        }
+        var acc = TcAcc(owner: self.funcs[f].owner, unit: -1)
+        self.copy_effect(c.target, c.copied, &var acc)
+        var want = MirSuspend.Never
+        if self.thread_plain_call(self.thread_context(f), &acc) {
+            want = MirSuspend.Never
+        } else if acc.suspends {
+            want = MirSuspend.Always
+        } else if acc.suspend_atoms.len() > 0 {
+            want = MirSuspend.When
+        }
+        if want != c.suspend {
+            self.problem(f, &var out, "an inserted copy's suspension point disagrees with its hook's cost")
         }
     }
 

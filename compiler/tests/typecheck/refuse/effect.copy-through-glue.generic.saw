@@ -1,0 +1,26 @@
+// refuses: effect.copy-through-glue at 25:11
+// a generic body's silent copy of `T`, instantiated at `Heavy`, refused at the call
+// message: this calls `dup` with `T` as `effect.copy-through-glue.generic.Heavy`
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func dup<T: Copy>(x: &T) -> T {
+    let y = x
+    y
+}
+
+func main() {
+    let a = Heavy(n: 1)
+    print(dup(&a).n)
+}

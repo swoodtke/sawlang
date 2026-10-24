@@ -1,0 +1,25 @@
+// refuses: effect.thread-body at 21:17
+// a copy in a `Thread.spawn` body, which runs no executor
+// message: cannot suspend in a `Thread.spawn { ... }` body: a copy of `effect.thread-body.copy.Heavy` happens here
+
+import std.task.*
+
+struct Heavy {
+    n: Int
+}
+
+extension Heavy: Copy {
+    func copy(&self) -> Heavy {
+        yield_now()
+        Heavy(n: self.n + 1)
+    }
+}
+
+func main() {
+    let a = Heavy(n: 1)
+    var t = try! Thread.spawn { [move a] in
+        let b = a
+        b.n
+    }
+    print(t.join())
+}

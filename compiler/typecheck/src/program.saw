@@ -278,6 +278,11 @@ public struct TcProgram {
     // Each problem the summary verifier found, and its module.
     summary_problems: Vector<String>
     summary_problem_modules: Vector<Int>
+    // The types whose copy `eval_copy_condition` is evaluating, the first
+    // `copy_depth` of `copy_walk`: a type whose copy reaches its own copy
+    // again, through a hook's condition, adds nothing more there.
+    copy_walk: Vector<Int>
+    copy_depth: Int
     // The literal a unary minus is typing, or -1, and that minus: a negated
     // literal is one literal, so its range is its negation's (SL:open-questions
     // D6), and a refusal of it is anchored at the minus.
@@ -449,7 +454,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       std_rows: TcStdRows(keys: Vector<String>(), verdicts: Vector<Int>(), causes: Vector<Int>(),
                                           labels: Vector<String>()),
                       untabled: Vector<Int>(),
-                      summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(),
+                      summary_problems: Vector<String>(), summary_problem_modules: Vector<Int>(), copy_walk: Vector<Int>(), copy_depth: 0,
                       negated_literal: -1, negation: -1, generic_default: -1, fold_written: -1,
                       meets_trait: Vector<Int>(), closures: Vector<Int>(),
                       closure_decls: Vector<Int>(), capture_first: Vector<Int>(),

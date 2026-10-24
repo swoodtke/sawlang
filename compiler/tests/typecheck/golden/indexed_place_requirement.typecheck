@@ -9,7 +9,7 @@
     (field Holder.slots 9:20 private std.vector.Vector<indexed_place_requirement.Slot<K>, std.alloc.GlobalAllocator>)
     (extension 11:1 (target indexed_place_requirement.Holder<K>) (conforms NoCopy))
     (extension 13:1 (target indexed_place_requirement.Holder<K>))
-    (method Holder.tag_at 14:10 private (signature (receiver shared) (params (i Int owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy K)))
+    (method Holder.tag_at 14:10 private (signature (receiver shared) (params (i Int owned)) -> Int) (summary body (suspends no) (sync-callable yes) (copy K) (refuses-when (copy K.Copy.copy))))
     (func main 23:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (indexed_place_requirement.Res

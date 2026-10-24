@@ -5,10 +5,10 @@
     (extension 9:1 (target generic_captures.Res) (conforms NoCopy))
     (func run 11:6 private (signature (params (f () -> Int owned)) -> Int) (summary body (suspends no) (sync-callable no)))
     (func measure 15:6 private (signature (generics (T)) (params (x &T shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
-    (func spelled 20:6 private (signature (generics (T (bounds ExplicitCopy))) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
-    (func silent 25:6 private (signature (generics (T (bounds Copy))) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
+    (func spelled 20:6 private (signature (generics (T (bounds ExplicitCopy))) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no) (refuses-when (copy T.Copy.copy))))
+    (func silent 25:6 private (signature (generics (T (bounds Copy))) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no) (refuses-when (copy T.Copy.copy))))
     (func moved 30:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no)))
-    (func inferred 35:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no) (copy T)))
+    (func inferred 35:6 private (signature (generics (T)) (params (x T owned)) -> Int) (summary body (suspends no) (sync-callable no) (copy T) (refuses-when (copy T.Copy.copy))))
     (func main 39:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable no))))
   (members
     (generic_captures.Res

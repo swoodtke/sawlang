@@ -63,6 +63,8 @@ LANGUAGE_CHANGED = {
         "a call that leaves out a suspending default suspends in the caller and runs (SL-656 (b))",
     "coro_suspending_default_omitted_cross_module.saw":
         "a call that leaves out a suspending default suspends in the caller and runs (SL-656 (b))",
+    "conformance/K29_copy_policy_hook_must_be_sync.saw":
+        "a hand-written `copy()` may suspend where a copy calls it directly (SL-859; run lane probes/copy_hook_suspends_direct_positions)",
     "conformance/P08_borrows_body_suspends.saw":
         "a `borrows` body may suspend unless it is `borrows(sync)` (SL-559; run lane probes/coro_windows_held)",
     "errors/consumes_suspending_field_move.saw":

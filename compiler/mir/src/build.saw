@@ -1056,7 +1056,7 @@ extension MirProgram {
                 spelling: -1, callee: -1, arg_first: self.lists.len(), arg_count: 0, dest: -1, next: -1,
                 absent: -1, window: -1, suspend: MirSuspend.Never, cond_first: self.conds.len(),
                 cond_count: 0, node: node, half: -1, spawn: MirSpawnForm.Absent,
-                drive: MirDriveForm.Absent, ordering_operator: -1)
+                drive: MirDriveForm.Absent, ordering_operator: -1, copied: -1)
     }
 
     // Ends the current block in call `c` and continues in a new block on its
@@ -1120,6 +1120,36 @@ extension MirProgram {
         let owner = self.funcs[self.cur].owner
         var acc = TcAcc(owner: owner, unit: -1)
         self.call_effect(e, &c, &var acc)
+        self.mark_suspension(&var c, &acc)
+    }
+
+    // Whether the call of copy hook `hook` that a copy of type `t` makes is
+    // a suspension point: the copy's cost, which typecheck's copy-cost
+    // funnel decides, evaluated where the function being lowered stands.
+    //
+    // ENTRY POINTS:
+    //   copy_suspension
+    //   verify_copy_suspension
+    public func copy_effect(&var self, hook: Int, t: Int, acc: &var TcAcc) {
+        if self.tc.res.decls[hook].kind == ResDeclKind.Requirement {
+            // A bound's `copy()` runs its instantiation's glue, which cannot
+            // suspend; typecheck refuses the instantiation that would.
+            return
+        }
+        self.tc.eval_hook(hook, t, -1, &var acc)
+    }
+
+    // Marks call `c`, the hook call a copy of type `t` makes, by its cost.
+    public func copy_suspension(&var self, c: &var MirCall, hook: Int, t: Int) {
+        let owner = self.funcs[self.cur].owner
+        var acc = TcAcc(owner: owner, unit: -1)
+        self.copy_effect(hook, t, &var acc)
+        c.copied = t
+        self.mark_suspension(&var c, &acc)
+    }
+
+    // Call `c`'s suspension point from what evaluating it gathered.
+    func mark_suspension(&var self, c: &var MirCall, acc: &TcAcc) {
         let f = self.cur
         let threaded = self.thread_context(f)
         if self.thread_plain_call(threaded, &acc) {

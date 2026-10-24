@@ -1,0 +1,35 @@
+// refuses: copy.requirement at 28:13
+// an inserted copy runs a hook whose body copies its `T` silently, at a NoCopy `T`: the hook's Copy requirement is met at the copy, as at a spelled `.copy()`
+// message: `Keep.copy` requires `T` to be Copy
+
+struct Pinned {
+    n: Int
+}
+
+extension Pinned: NoCopy {
+    func deinit(&var self) {
+        print("drop pinned {}", self.n)
+    }
+}
+
+struct Keep<T> {
+    n: Int
+    v: T
+}
+
+extension Keep<T>: Copy {
+    func copy(&self) -> Keep<T> {
+        let v = self.v
+        Keep(n: self.n, v: move v)
+    }
+}
+
+func inserted(k: &Keep<Pinned>) -> Int {
+    let c = k
+    c.n
+}
+
+func main() {
+    let k = Keep(n: 1, v: Pinned(n: 2))
+    print(inserted(&k))
+}

@@ -1,8 +1,9 @@
 // Phase 3 of type checking (SL:architecture §3.4, "Order", "Effects"): the
 // checks that consume phase 2's summaries. A `sync` body calls only
-// sync-callable targets; a copy-policy `copy()` never suspends; each call
+// sync-callable targets, and copies nothing whose hook is not; each call
 // site meets its callee's inferred Copy requirement at its own type
-// arguments; a closure body never suspends; and a
+// arguments; a closure body never suspends; a copy through generated glue
+// reaches no hook that suspends; and a
 // coercion to `any Trait` is refused when an implementation it dispatches to
 // may suspend. The last two are what make a call through a function value or
 // an existential sound to treat as never suspending.
@@ -23,8 +24,8 @@ import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.model.{TC_BIND_DEFAULT, TC_CAUSE_BLOCKS_THREAD, TC_CAUSE_PAIRED, TC_EFFECT_BLOCKING,
                                TC_EFFECT_CONSTEXPR, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_VARIADIC, TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_WRITTEN_RETURN,
-                               TC_FORBID_CLOSURE, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD, TcReceiver,
-                               TC_ITEM_CALL, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
+                               TC_FORBID_CLOSURE, TC_FORBID_COPY, TC_FORBID_ERASE, TC_FORBID_SYNC, TC_FORBID_THREAD,
+                               TcReceiver, TC_ITEM_CALL, TC_ITEM_CAPTURE, TC_ITEM_COPY, TC_ITEM_ERASE, TC_SUMMARY_BODY, TC_SUMMARY_TABLE, TC_SUMMARY_UNTABLED,
                                TcAtom, TcCall, TcConformance, TcItem, TcRole, TcStatus, TcStatusKind,
                                TcSummary, TcUnit, TcUse}
 import sawtypecheck.program.{TcProgram}
@@ -55,51 +56,10 @@ extension TcProgram {
             u = u + 1
         }
         self.check_sync_requirements()
-        self.check_copy_hooks()
         self.check_format_hooks()
         self.check_declared_requirements()
         self.check_entry_root()
         self.check_blocking_declarations()
-    }
-
-    // A hand-written `copy()` of a copy-policy conformance must not suspend
-    // (spec: "A hand-written `copy()` must be `sync`"): the compiler calls it
-    // at transfer sites no source construct names, so it is refused at the
-    // conformance. A suspension conditional on a type argument's own `copy()`
-    // is answered by that conformance's check.
-    func check_copy_hooks(&var self) {
-        var k = 0
-        while k < self.conformances.len() {
-            let c = self.conformances[k]
-            k = k + 1
-            if c.trait_decl < 0 || c.type_decl < 0 || (c.trait_decl != self.known.copy && c.trait_decl != self.known.explicit_copy) {
-                continue
-            }
-            var j = 0
-            while j < c.status_count {
-                let st = self.statuses[c.status_first + j]
-                j = j + 1
-                if st.kind != TcStatusKind.Written || st.member < 0 || not self.is_function_decl(st.member) {
-                    continue
-                }
-                if not self.summaries[st.member].suspends {
-                    continue
-                }
-                let trait_name = self.res.decls[c.trait_decl].name
-                let type_name = self.res.decls[c.type_decl].name
-                var msg = StringBuilder()
-                try! msg.append("cannot suspend in the `")
-                try! msg.append(self.name_text(trait_name))
-                try! msg.append("` `copy()` of `")
-                try! msg.append(self.name_text(type_name))
-                try! msg.append("`: `")
-                try! msg.append(self.res.decl_path(st.member))
-                try! msg.append("` may suspend, and a copy-policy `copy()` runs at compiler-inserted call sites, so it must be `sync`")
-                let info = self.res.decls[st.member]
-                let site = self.decl_site(st.member)
-                self.refuse_in(info.module, site, "effect.sync", msg.build())
-            }
-        }
     }
 
     // THE SYNC-FORMAT CHECK, its declaration half: a written `Printable.format`
@@ -340,10 +300,127 @@ extension TcProgram {
                     self.check_task_root(item.node, owner)
                 }
                 self.check_call_site(item.node, owner)
+            } else if item.kind == TC_ITEM_COPY || item.kind == TC_ITEM_CAPTURE {
+                self.check_copy_site(&item, unit, owner)
             } else if item.kind == TC_ITEM_ERASE {
                 self.check_erasure(item.node, owner)
             }
         }
+    }
+
+    // THE COPY-SITE CHECK: a copy the source never writes as a call is
+    // judged where it happens, as a call of its hook there would be: the
+    // hook's own requirements and forbidden conditions at the copied type,
+    // a `sync` body's, a thread-context body's and a closure body's rules,
+    // and anywhere when the copy reaches a suspending hook through generated
+    // glue, which cannot suspend yet (SL-877).
+    // ENTRY POINTS:
+    //     check_unit_items
+    func check_copy_site(&var self, item: &TcItem, unit: TcUnit, owner: Int) {
+        var acc = TcAcc(owner: owner, unit: -1)
+        self.eval_copy_item(&item, &var acc)
+        let site = self.copy_item_site(&item)
+        let spelled = item.kind == TC_ITEM_CAPTURE && site >= 0 && self.has_alt(site, Alt.Expr_Capture_Copy)
+        let t = if item.kind == TC_ITEM_CAPTURE { self.captures[item.node].ty } else { self.copy_item_type(item.node) }
+        self.check_reached_hooks(site, owner, &acc)
+        if acc.blocked_hook >= 0 {
+            self.refuse_glue_copy(site, t, acc.blocked_type, acc.blocked_hook)
+            return
+        }
+        if not acc.suspends && not acc.nonsync && (acc.causes & TC_CAUSE_BLOCKS_THREAD) == 0 {
+            return
+        }
+        let hook = self.direct_copy_hook(t, spelled)
+        if unit.sync && (acc.suspends || acc.nonsync) {
+            var msg = StringBuilder()
+            if unit.node >= 0 {
+                try! msg.append("this closure's type is `sync`, and ")
+            } else {
+                try! msg.append("`")
+                try! msg.append(self.res.decl_path(owner))
+                let info = self.res.decls[owner]
+                if self.name_text(info.name).equals("deinit") && not self.declares_sync(owner) {
+                    try! msg.append("` is a `deinit`, which runs where nothing may suspend, and ")
+                } else if (self.sigs[owner].effects & TC_EFFECT_SYNC) == 0 {
+                    try! msg.append("` is declared `constexpr`, which implies `sync`, and ")
+                } else {
+                    try! msg.append("` is declared `sync`, and ")
+                }
+            }
+            try! msg.append(self.copy_text(t, hook, acc.suspends))
+            self.refuse_at(site, "effect.sync", msg.build())
+        }
+        if unit.thread {
+            if tc_thread_struck(acc.thread_causes) == 0 {
+                return
+            }
+            var msg = StringBuilder()
+            if unit.node < 0 {
+                try! msg.append("cannot suspend in `")
+                try! msg.append(self.res.decl_path(owner))
+                try! msg.append("`, which is `blocking`: ")
+                try! msg.append(self.copy_text(t, hook, true))
+                try! msg.append(": a `blocking` body is thread context, where no executor runs to resume a suspension")
+                self.refuse_at(site, "effect.blocking-body", msg.build())
+                return
+            }
+            try! msg.append("cannot suspend in a `Thread.spawn \{ ... \}` body: ")
+            try! msg.append(self.copy_text(t, hook, true))
+            try! msg.append(": a spawned thread runs no executor, so there is nothing there to resume a suspension")
+            self.refuse_at(site, "effect.thread-body", msg.build())
+            return
+        }
+        if unit.node >= 0 && acc.suspends {
+            var msg = StringBuilder()
+            try! msg.append("a closure body cannot suspend, and ")
+            try! msg.append(self.copy_text(t, hook, true))
+            try! msg.append(": copy it outside the closure")
+            self.refuse_at(site, "effect.closure-suspends", msg.build())
+        }
+    }
+
+    // Each hook a copy at `site` reached, at the type it ran at.
+    func check_reached_hooks(&var self, site: Int, owner: Int, acc: &TcAcc) {
+        var k = 0
+        while k < acc.hooks.len() {
+            self.check_hook_at(site, owner, acc.hooks[k], acc.hook_types[k])
+            k = k + 1
+        }
+    }
+
+    // `` a copy of `T` happens here, and `T.copy()` suspends ``, or, when
+    // `suspends` is false, that the hook is not sync-callable.
+    func copy_text(&var self, t: Int, hook: Int, suspends: Bool) -> String {
+        var out = StringBuilder()
+        try! out.append("a copy of `")
+        try! out.append(self.type_text(t))
+        try! out.append("` happens here, and `")
+        if hook >= 0 {
+            try! out.append(self.res.decl_path(hook))
+        } else {
+            try! out.append(self.type_text(t))
+            try! out.append(".copy")
+        }
+        if suspends {
+            try! out.append("()` suspends")
+        } else {
+            try! out.append("()` is not sync-callable")
+        }
+        out.build()
+    }
+
+    // A copy at `site` of type `t` that runs generated glue reaching `hook`,
+    // the `copy()` of part type `part`, which suspends.
+    func refuse_glue_copy(&var self, site: Int, t: Int, part: Int, hook: Int) {
+        var msg = StringBuilder()
+        try! msg.append("a copy of `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` happens here, and it runs generated glue that calls `")
+        try! msg.append(self.res.decl_path(hook))
+        try! msg.append("()`, the `copy()` of `")
+        try! msg.append(self.type_text(part))
+        try! msg.append("`, which suspends: a copy through generated glue or a generic `T` cannot suspend yet (SL-877)")
+        self.refuse_at(site, "effect.copy-through-glue", msg.build())
     }
 
     // A call inside a `sync` body must be sync-callable. Inside a generic
@@ -703,6 +780,7 @@ extension TcProgram {
             return
         }
         let d = c.target
+        self.check_copy_call(e, &c, owner)
         if self.is_function_decl(d) {
             let s = self.summaries[d]
             self.check_summary_at(e, owner, d, &s, &c)
@@ -719,6 +797,32 @@ extension TcProgram {
         }
     }
 
+    // A spelled `.copy()` whose target is a copy policy's requirement on a
+    // concrete type, a synthesized or composite copy: mono answers it with
+    // the type's copy glue, so a hook it reaches that suspends is refused at
+    // the call, as the copy-site check refuses a silent copy.
+    func check_copy_call(&var self, e: Int, c: &TcCall, owner: Int) {
+        if not self.is_copy_requirement(c.target) || c.owner < 0 {
+            return
+        }
+        let recv = self.strip_refs(c.owner)
+        let kind = self.kind_of(recv)
+        if kind == TcKind.Param || kind == TcKind.SelfType || kind == TcKind.Any || kind == TcKind.Error {
+            return
+        }
+        var acc = TcAcc(owner: owner, unit: -1)
+        self.eval_copy(recv, e, true, &var acc)
+        self.check_reached_hooks(e, owner, &acc)
+        if acc.blocked_hook >= 0 {
+            self.refuse_glue_copy(e, recv, acc.blocked_type, acc.blocked_hook)
+            return
+        }
+        let hook = self.direct_copy_hook(recv, true)
+        if hook >= 0 && acc.suspends {
+            self.refuse_glue_copy(e, recv, recv, hook)
+        }
+    }
+
     // Summary `s`, of function `d` or one of its defaults, at call `c` at
     // `e`: each Copy requirement and forbidden condition at the call's type
     // arguments.
@@ -728,30 +832,62 @@ extension TcProgram {
             let a = self.atoms[s.copy_first + k]
             k = k + 1
             let t = self.call_subst(a.ty, d, &c)
-            var acc = TcAcc(owner: owner, unit: -1)
-            if not self.copy_needs(t, e, a.origin, &var acc) {
-                self.refuse_copy_requirement(e, d, &a, t)
-            }
+            self.check_copy_atom(e, owner, d, &a, t)
         }
         k = 0
         while k < s.forbid_count {
             let a = self.atoms[s.forbid_first + k]
             k = k + 1
             let t = self.call_subst(a.ty, d, &c)
-            let recv = self.strip_refs(t)
-            if self.is_own_condition(recv, owner) {
-                continue
-            }
-            var acc = TcAcc(owner: owner, unit: -1)
-            let sync_kind = a.kind == TC_FORBID_SYNC
-            self.eval_condition(recv, a.req, e, not sync_kind, &var acc)
-            if a.kind == TC_FORBID_THREAD {
-                if acc.suspends && tc_thread_struck(acc.thread_causes) != 0 {
-                    self.refuse_forbidden(e, d, &a, recv)
-                }
-            } else if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
+            self.check_forbid_atom(e, owner, d, &a, t)
+        }
+    }
+
+    // Copy hook `hook` at receiver type `t`, run by the copy at `e`: each Copy
+    // requirement and forbidden condition of its summary at `t`'s arguments,
+    // as a spelled call of it would meet them (`check_summary_at`).
+    func check_hook_at(&var self, e: Int, owner: Int, hook: Int, t: Int) {
+        let s = self.summaries[hook]
+        var k = 0
+        while k < s.copy_count {
+            let a = self.atoms[s.copy_first + k]
+            k = k + 1
+            let at = self.impl_subst(a.ty, hook, t)
+            self.check_copy_atom(e, owner, hook, &a, at)
+        }
+        k = 0
+        while k < s.forbid_count {
+            let a = self.atoms[s.forbid_first + k]
+            k = k + 1
+            let at = self.impl_subst(a.ty, hook, t)
+            self.check_forbid_atom(e, owner, hook, &a, at)
+        }
+    }
+
+    // Copy requirement `a` of function `d`, at type `t`, met at `e`.
+    func check_copy_atom(&var self, e: Int, owner: Int, d: Int, a: &TcAtom, t: Int) {
+        var acc = TcAcc(owner: owner, unit: -1)
+        if not self.copy_needs(t, e, a.origin, &var acc) {
+            self.refuse_copy_requirement(e, d, &a, t)
+        }
+    }
+
+    // Forbidden condition `a` of function `d`, its subject `t`, met at `e`;
+    // a condition over the owner's own parameter is its callers'.
+    func check_forbid_atom(&var self, e: Int, owner: Int, d: Int, a: &TcAtom, t: Int) {
+        let recv = self.strip_refs(t)
+        if self.is_own_condition(recv, owner) {
+            return
+        }
+        var acc = TcAcc(owner: owner, unit: -1)
+        let sync_kind = a.kind == TC_FORBID_SYNC
+        self.eval_condition(recv, a.req, e, not sync_kind, &var acc)
+        if a.kind == TC_FORBID_THREAD {
+            if acc.suspends && tc_thread_struck(acc.thread_causes) != 0 {
                 self.refuse_forbidden(e, d, &a, recv)
             }
+        } else if (sync_kind && acc.nonsync) || (not sync_kind && acc.suspends) {
+            self.refuse_forbidden(e, d, &a, recv)
         }
     }
 
@@ -1782,6 +1918,15 @@ extension TcProgram {
             try! msg.append(self.res.node_position(m, a.origin))
             try! msg.append(": a `blocking` body is thread context, where no executor runs to resume a suspension")
             self.refuse_at(e, "effect.blocking-body", msg.build())
+            return
+        }
+        if a.kind == TC_FORBID_COPY {
+            try! msg.append("its body copies a value at ")
+            try! msg.append(self.res.module_file(m))
+            try! msg.append(":")
+            try! msg.append(self.res.node_position(m, a.origin))
+            try! msg.append(" whose copy reaches it through generated glue or a type parameter's copy: a copy through generated glue or a generic `T` cannot suspend yet (SL-877)")
+            self.refuse_at(e, "effect.copy-through-glue", msg.build())
             return
         }
         if a.kind == TC_FORBID_ERASE {
