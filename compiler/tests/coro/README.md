@@ -329,13 +329,20 @@ block `bbB`, whose child slot is at offset S, is rewritten too (SL:coroutines
 
 - `bbB` gains, after its statements, one write per argument into the child's
   parameter slot, `(*_F).[S + P: T] = arg`, the argument moving or copying
-  as the call passed it;
+  as the call passed it, and then the state word's write of the drive's
+  state N, `(*_F).[0: Int] = const N`, so a task backtrace read while the
+  child runs follows the live child;
 - the call keeps its target and loses its arguments and its destination: it
   is the drive, which passes nothing;
 - when the call has a destination, its return edge goes to a new block,
   numbered after the body's own, `dest = move (*_F).[S + R: T]; goto ->
   bbN`, which moves the child's result out once it is `Ready` and continues
   where the call returned;
+- a call that returns reaches that block, or where it returned, through one
+  more new block, `(*_F).[0: Int] = const -2 - N; goto -> bbM`: the state
+  past the drive, below the done state, which keeps the drive's line for the
+  backtrace and names no child, since the child's slot is released from here
+  on (SL-863);
 - a conditional window's open, whose call also has an absent edge, loses
   that edge: a drive continues on one. Its new block moves the prologue's
   Optional into a new stack local `_p`, which becomes the window's presence
@@ -472,14 +479,16 @@ Nothing else changes: no drop and no window close is added, since teardown is th
 own, and the writes and the move-out are the transfers the call made. After
 lowering, every drive is checked: its call carries no arguments and no
 destination, its block writes each of the child's parameters (its slot read
-from the child's frame) exactly once, and a call with a destination returns to its
-move-out. A broken one is an `INVARIANT` line, which the unit program
+from the child's frame) exactly once and ends writing the drive's state, a call
+that returns does so through the write of the state past the drive, and a call
+with a destination then reaches its move-out. A broken one is an `INVARIANT` line, which the unit program
 `compiler/coro/tests/drive_invariant.saw` provokes by unlinking a write. The
 resume function, `resume(frame, cx) -> Poll` (runtime/ABI.md, "The
 compiler → executor boundary"), is the body's blocks behind a switch on the
 state word: state 0 enters at `bb0`, state N re-enters suspension point N,
 and the done state (-1) traps, since a driver that resumes a done frame has
-lost track of it. A return records the done state and returns `Ready`. At a
+lost track of it; so does a state past a drive, which only a running frame
+holds. A return records the done state and returns `Ready`. At a
 suspension point, in place of its call:
 
 - **a park**, of any reason, an op-budget point's yield among them, records

@@ -3171,6 +3171,9 @@ static BT_FRAME_STATE_OFF: Int = 20
 static BT_STATE_REC_SIZE: Int = 12
 static BT_STATE_CHILD: Int = 4
 static BT_STATE_CHILD_OFF: Int = 8
+// A state word at or below this names a state, as this minus the word, whose
+// drive has returned while the frame runs on (`bt_state_record`).
+static BT_STATE_PAST: Int = -2
 
 // A logical stack deeper than this, or a walk over more groups and records
 // than this, is a corrupt structure rather than a program: the dump may run
@@ -3435,8 +3438,9 @@ func dump_group(sink: &var DumpSink, table: UnsafePointer<UInt8>, g: UnsafePoint
 
 // One task's line, then its stack, innermost frame first: a reader looks for
 // where a task is stopped, not where it started. A task running on the
-// dumping thread is suspended further up its stack, and its frames show its
-// last suspension; one running on another thread has no stack here, since
+// dumping thread shows its live frames, down to the drive it is inside, since
+// a frame's state word names its drive only while that drive runs
+// (`bt_state_record`); one running on another thread has no stack here, since
 // its frames change as the dump would read them.
 func dump_task(sink: &var DumpSink, table: UnsafePointer<UInt8>, number: Int, slot: Int, s: &TaskSlot) unsafe {
     dump_text(&var sink, "  task group ")
@@ -3569,25 +3573,43 @@ func bt_frame_record(table: UnsafePointer<UInt8>, index: Int) unsafe -> Int {
     bt_u32(table, BT_HDR_FRAMES) + index * BT_FRAME_REC_SIZE
 }
 
-// The offset of the state record frame `at` is in, or -1 when the table does
-// not describe the frame or its state word.
-func bt_state_record(table: UnsafePointer<UInt8>, at: BtFrameAt) unsafe -> Int {
+// What frame `at`'s state word says: the offset of the state record it names,
+// or -1, and whether the frame runs on past that state's drive.
+struct BtFrameState {
+    record: Int
+    past: Bool
+}
+
+// THE STATE FUNNEL: the state frame `at`'s word names. A frame running on
+// past a drive holds `BT_STATE_PAST - state` (the coroutine lowering's
+// `coro_state_past`), which keeps the drive's line and names no child, since
+// that child has returned and its slot is released or reused (SL-863). A
+// frame the table does not describe, or a word naming no state, has no record.
+// ENTRY POINTS:
+//     bt_child
+//     bt_write_frame
+func bt_state_record(table: UnsafePointer<UInt8>, at: BtFrameAt) unsafe -> BtFrameState {
+    let none = BtFrameState(record: -1, past: false)
     if not bt_known_frame(table, at.index) {
-        return -1
+        return none
     }
     let rec = bt_frame_record(table, at.index)
-    let state = ((at.addr + bt_u32(table, rec + BT_FRAME_STATE_OFF)) as UnsafePointer<Int>)[0]
+    let word = ((at.addr + bt_u32(table, rec + BT_FRAME_STATE_OFF)) as UnsafePointer<Int>)[0]
+    let past = word <= BT_STATE_PAST
+    let state = if past { BT_STATE_PAST - word } else { word }
     if state < 0 || state >= bt_u32(table, rec + BT_FRAME_STATES) {
-        return -1
+        return none
     }
-    bt_u32(table, BT_HDR_STATES) + (bt_u32(table, rec + BT_FRAME_FIRST) + state) * BT_STATE_REC_SIZE
+    let record = bt_u32(table, BT_HDR_STATES) + (bt_u32(table, rec + BT_FRAME_FIRST) + state) * BT_STATE_REC_SIZE
+    BtFrameState(record: record, past: past)
 }
 
 // The child frame `at`'s state drives, or `at` itself when the state parks
-// the frame, or names nothing.
+// the frame, its drive has returned, or it names nothing.
 func bt_child(table: UnsafePointer<UInt8>, at: BtFrameAt) unsafe -> BtFrameAt {
-    let rec = bt_state_record(table, at)
-    if rec < 0 {
+    let state = bt_state_record(table, at)
+    let rec = state.record
+    if rec < 0 || state.past {
         return at
     }
     // Biased by one in the encoding: 0 is "parks itself", not "frame 0".
@@ -3641,7 +3663,7 @@ func bt_write_frame(sink: &var DumpSink, table: UnsafePointer<UInt8>, at: BtFram
         return
     }
     let rec = bt_frame_record(table, at.index)
-    let state = bt_state_record(table, at)
+    let state = bt_state_record(table, at).record
     dump_text(&var sink, "    at ")
     bt_write_name(&var sink, table, bt_u32(table, rec + BT_FRAME_FILE))
     if state >= 0 {

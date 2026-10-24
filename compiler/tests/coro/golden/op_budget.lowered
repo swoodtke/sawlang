@@ -35,7 +35,8 @@ fn op_budget.count(limit: Int) -> Int {
     }
 
     bb4: {
-        call std.task.yield_now() [] -> [return: bb5] suspends;
+        (*_5).[0: Int] = const 2: Int;
+        call std.task.yield_now() [] -> [return: bb7] suspends;
     }
 
     bb5: {
@@ -48,6 +49,11 @@ fn op_budget.count(limit: Int) -> Int {
         (*_5).[8: Int] = const 128: Int;
         (*(*_6).park) = const 0: Int;
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+
+    bb7: {
+        (*_5).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #7: op_budget.held(limit: Int) task root  (frame size 40 align 8, pointer _9)
@@ -70,7 +76,8 @@ fn op_budget.held(limit: Int) -> Int {
         (*_9).[8: Int] = const 128: Int;
         _3 = op_budget.Guarded { n: const 0: Int };
         (*_9).[32: op_budget.Guarded] = move _3;
-        call std.task.yield_now() [] -> [return: bb1] suspends;
+        (*_9).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb8] suspends;
     }
 
     bb1: {
@@ -106,6 +113,11 @@ fn op_budget.held(limit: Int) -> Int {
     bb7: {
         (*_9).[16: Int] = copy (*_9).[32: op_budget.Guarded].n;
         return;
+    }
+
+    bb8: {
+        (*_9).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 resume #8: op_budget.spin(limit: Int) task root  (frame size 40 align 8, pointer _6, context _7)

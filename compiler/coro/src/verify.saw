@@ -26,7 +26,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawcoro.frames.{coro_driven_child, coro_frame_of, coro_offloaded_extern}
 import sawcoro.lower.{CORO_PARK_FD, CORO_PARK_READY, CORO_PARK_TIMER, CoroContext, coro_call_decl, coro_cancel_read,
                       coro_child_offset, coro_context_shape, coro_frame_lowered, coro_offload_done_item,
-                      coro_offload_park_item}
+                      coro_offload_park_item, coro_past_target}
 import sawcoro.program.{CoroBefore, CoroBeforeBody, CoroBeforePoint, CoroFrame, CoroPoison, CoroPoisonAt,
                         CoroProgram, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_call_suspends}
@@ -1702,9 +1702,21 @@ func coro_verify_move_out(coro: &var CoroProgram, b: &CoroBeforeBody, c: Int, pr
         return
     }
     let info = coro.mono.dp.bc.mir.funcs[b.body]
-    var moves = post.next >= 0 && post.next < info.block_count
+    // The return edge writes the state past the drive first
+    // (`coro_lower_drive`), and reaches the move-out through that write.
+    var returns = post.next
+    let fr = coro_frame_of(&coro, b.item)
+    if fr >= 0 {
+        let fv = coro.frames[fr]
+        let state_at = coro_child_offset(&coro, &fv, CoroValueKind.State, -1)
+        let through = coro_past_target(&coro, b.body, post.next, frame, state_at)
+        if through >= 0 {
+            returns = through
+        }
+    }
+    var moves = returns >= 0 && returns < info.block_count
     if moves {
-        let block = coro.mono.dp.bc.mir.blocks[info.block_first + post.next]
+        let block = coro.mono.dp.bc.mir.blocks[info.block_first + returns]
         let from = coro_verify_one_move(&coro, &block)
         moves = from >= 0 && coro_verify_slot_offset(&coro, from, frame) == result
         if moves && pre.absent >= 0 {
@@ -3314,11 +3326,20 @@ func coro_verify_call_lifetimes(coro: &CoroProgram, b: &CoroBeforeBody, fv: &Cor
         if pts.state[bb] >= 0 {
             live[at + pts.state[bb]] = true
         }
-        let next = coro.mono.dp.bc.mir.calls[c].next
+        var next = coro.mono.dp.bc.mir.calls[c].next
         if coro_verify_pre_dest(&coro, &b, c) < 0 || next < 0 || pts.resume[bb] < 0 {
             continue
         }
         live[at + pts.resume[bb]] = true
+        // The return edge writes the state past the drive before the move-out
+        // (`coro_lower_drive`), so the child stays live across that write.
+        let state_at = coro_child_offset(&coro, &fv, CoroValueKind.State, -1)
+        let through = coro_past_target(&coro, b.body, next, frame, state_at)
+        if through >= 0 {
+            live[at + pts.first[next]] = true
+            live[at + pts.term[next]] = true
+            next = through
+        }
         let out = coro.mono.dp.bc.mir.blocks[info.block_first + next]
         p = pts.first[next]
         s = out.first

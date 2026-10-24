@@ -1,0 +1,48 @@
+// probe: panics
+// about: a task on a `TaskGroup(threads: 2)` worker that detached a task it spawned and then deadlocks in a join dumps only its live frames, its own at the line of the drive that returned, never that drive's released slot (SL-863)
+// stage 0: runs it on its own std's executor, whose task dump this does not pin (SL-863)
+// speeds: -O0 -O2
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 ready
+// prints:     at running_task_dump_deadlock_detach_pool.saw:0 in long_work
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_deadlock_detach_pool.saw:38 in p
+// panics: deadlock: every task is waiting
+import std.task.*
+import std.channel.{Channel}
+
+static LONG_ROUNDS: Int = 50
+
+// Runs about 100 ms unless cancelled.
+func long_work(i: Int) -> Int {
+    var n = 0
+    while n < LONG_ROUNDS && not cancelled() {
+        sleep(Duration.ms(2))
+        n = n + 1
+    }
+    i
+}
+
+func fate_detach(i: Int) -> Int {
+    yield_now()
+    let h = Task.spawn(long_work(i))
+    h.detach()
+    i
+}
+
+func recv_one(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func p(i: Int) -> Int {
+    let v = fate_detach(i)
+    dump_tasks()
+    let ch = try! Channel<Int>()
+    let h = Task.spawn(recv_one(ch.copy()))
+    h.join()
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    print("P {}", group.spawn(p(1)).join())
+}

@@ -29,37 +29,43 @@ fn pack_tree.root() -> Int {
 
     bb0: {
         (*_18).[200: Int] = const 1: Int;
-        call pack_tree.w2(k: Int) [] -> [return: bb7] suspends;
+        (*_18).[0: Int] = const 1: Int;
+        call pack_tree.w2(k: Int) [] -> [return: bb8] suspends;
     }
 
     bb1: {
         (*_18).[264: Int] = move _2;
         (*_18).[200: Int] = const 2: Int;
-        call pack_tree.w4(k: Int) [] -> [return: bb8] suspends;
+        (*_18).[0: Int] = const 2: Int;
+        call pack_tree.w4(k: Int) [] -> [return: bb10] suspends;
     }
 
     bb2: {
         (*_18).[272: Int] = move _4;
         (*_18).[200: Int] = const 3: Int;
-        call pack_tree.w8(k: Int) [] -> [return: bb9] suspends;
+        (*_18).[0: Int] = const 3: Int;
+        call pack_tree.w8(k: Int) [] -> [return: bb12] suspends;
     }
 
     bb3: {
         (*_18).[280: Int] = move _6;
         (*_18).[200: Int] = const 4: Int;
-        call pack_tree.t3(k: Int) [] -> [return: bb10] suspends;
+        (*_18).[0: Int] = const 4: Int;
+        call pack_tree.t3(k: Int) [] -> [return: bb14] suspends;
     }
 
     bb4: {
         (*_18).[288: Int] = move _8;
         (*_18).[224: Int] = const 5: Int;
-        call pack_tree.t2(k: Int) [] -> [return: bb11] suspends;
+        (*_18).[0: Int] = const 5: Int;
+        call pack_tree.t2(k: Int) [] -> [return: bb16] suspends;
     }
 
     bb5: {
         (*_18).[296: Int] = move _10;
         (*_18).[248: Int] = const 6: Int;
-        call pack_tree.t1(k: Int) [] -> [return: bb12] suspends;
+        (*_18).[0: Int] = const 6: Int;
+        call pack_tree.t1(k: Int) [] -> [return: bb18] suspends;
     }
 
     bb6: {
@@ -79,28 +85,58 @@ fn pack_tree.root() -> Int {
     }
 
     bb8: {
+        (*_18).[0: Int] = const -3: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _4 = move (*_18).[16: Int];
         goto -> bb2;
     }
 
-    bb9: {
+    bb10: {
+        (*_18).[0: Int] = const -4: Int;
+        goto -> bb9;
+    }
+
+    bb11: {
         _6 = move (*_18).[16: Int];
         goto -> bb3;
     }
 
-    bb10: {
+    bb12: {
+        (*_18).[0: Int] = const -5: Int;
+        goto -> bb11;
+    }
+
+    bb13: {
         _8 = move (*_18).[16: Int];
         goto -> bb4;
     }
 
-    bb11: {
+    bb14: {
+        (*_18).[0: Int] = const -6: Int;
+        goto -> bb13;
+    }
+
+    bb15: {
         _10 = move (*_18).[16: Int];
         goto -> bb5;
     }
 
-    bb12: {
+    bb16: {
+        (*_18).[0: Int] = const -7: Int;
+        goto -> bb15;
+    }
+
+    bb17: {
         _12 = move (*_18).[16: Int];
         goto -> bb6;
+    }
+
+    bb18: {
+        (*_18).[0: Int] = const -8: Int;
+        goto -> bb17;
     }
 }
 resume #12: pack_tree.w2(k: Int)  (frame size 208 align 8, pointer _7)
@@ -119,13 +155,15 @@ fn pack_tree.w2(k: Int) -> Int {
 
     bb0: {
         (*_7).[184: Int] = copy (*_7).[192: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb3] suspends;
+        (*_7).[0: Int] = const 1: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
         (*_7).[200: Int] = move _3;
         (*_7).[184: Int] = copy (*_7).[200: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb4] suspends;
+        (*_7).[0: Int] = const 2: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -141,8 +179,18 @@ fn pack_tree.w2(k: Int) -> Int {
     }
 
     bb4: {
+        (*_7).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _5 = move (*_7).[176: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_7).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #13: pack_tree.w4(k: Int)  (frame size 224 align 8, pointer _13)
@@ -169,25 +217,29 @@ fn pack_tree.w4(k: Int) -> Int {
 
     bb0: {
         (*_13).[184: Int] = copy (*_13).[192: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb5] suspends;
+        (*_13).[0: Int] = const 1: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb1: {
         (*_13).[200: Int] = move _3;
         (*_13).[184: Int] = copy (*_13).[200: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb6] suspends;
+        (*_13).[0: Int] = const 2: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb8] suspends;
     }
 
     bb2: {
         (*_13).[208: Int] = move _5;
         (*_13).[184: Int] = copy (*_13).[208: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb7] suspends;
+        (*_13).[0: Int] = const 3: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb10] suspends;
     }
 
     bb3: {
         (*_13).[216: Int] = move _7;
         (*_13).[184: Int] = copy (*_13).[216: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb8] suspends;
+        (*_13).[0: Int] = const 4: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb12] suspends;
     }
 
     bb4: {
@@ -205,18 +257,38 @@ fn pack_tree.w4(k: Int) -> Int {
     }
 
     bb6: {
+        (*_13).[0: Int] = const -3: Int;
+        goto -> bb5;
+    }
+
+    bb7: {
         _5 = move (*_13).[176: Int];
         goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
+        (*_13).[0: Int] = const -4: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _7 = move (*_13).[176: Int];
         goto -> bb3;
     }
 
-    bb8: {
+    bb10: {
+        (*_13).[0: Int] = const -5: Int;
+        goto -> bb9;
+    }
+
+    bb11: {
         _9 = move (*_13).[176: Int];
         goto -> bb4;
+    }
+
+    bb12: {
+        (*_13).[0: Int] = const -6: Int;
+        goto -> bb11;
     }
 }
 resume #14: pack_tree.w8(k: Int)  (frame size 256 align 8, pointer _25)
@@ -259,49 +331,57 @@ fn pack_tree.w8(k: Int) -> Int {
 
     bb0: {
         (*_25).[184: Int] = copy (*_25).[192: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb9] suspends;
+        (*_25).[0: Int] = const 1: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb10] suspends;
     }
 
     bb1: {
         (*_25).[200: Int] = move _3;
         (*_25).[184: Int] = copy (*_25).[200: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb10] suspends;
+        (*_25).[0: Int] = const 2: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb12] suspends;
     }
 
     bb2: {
         (*_25).[208: Int] = move _5;
         (*_25).[184: Int] = copy (*_25).[208: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb11] suspends;
+        (*_25).[0: Int] = const 3: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb14] suspends;
     }
 
     bb3: {
         (*_25).[216: Int] = move _7;
         (*_25).[184: Int] = copy (*_25).[216: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb12] suspends;
+        (*_25).[0: Int] = const 4: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb16] suspends;
     }
 
     bb4: {
         (*_25).[224: Int] = move _9;
         (*_25).[184: Int] = copy (*_25).[224: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb13] suspends;
+        (*_25).[0: Int] = const 5: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb18] suspends;
     }
 
     bb5: {
         (*_25).[232: Int] = move _11;
         (*_25).[184: Int] = copy (*_25).[232: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb14] suspends;
+        (*_25).[0: Int] = const 6: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb20] suspends;
     }
 
     bb6: {
         (*_25).[240: Int] = move _13;
         (*_25).[184: Int] = copy (*_25).[240: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb15] suspends;
+        (*_25).[0: Int] = const 7: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb22] suspends;
     }
 
     bb7: {
         (*_25).[248: Int] = move _15;
         (*_25).[184: Int] = copy (*_25).[248: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb16] suspends;
+        (*_25).[0: Int] = const 8: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb24] suspends;
     }
 
     bb8: {
@@ -323,38 +403,78 @@ fn pack_tree.w8(k: Int) -> Int {
     }
 
     bb10: {
+        (*_25).[0: Int] = const -3: Int;
+        goto -> bb9;
+    }
+
+    bb11: {
         _5 = move (*_25).[176: Int];
         goto -> bb2;
     }
 
-    bb11: {
+    bb12: {
+        (*_25).[0: Int] = const -4: Int;
+        goto -> bb11;
+    }
+
+    bb13: {
         _7 = move (*_25).[176: Int];
         goto -> bb3;
     }
 
-    bb12: {
+    bb14: {
+        (*_25).[0: Int] = const -5: Int;
+        goto -> bb13;
+    }
+
+    bb15: {
         _9 = move (*_25).[176: Int];
         goto -> bb4;
     }
 
-    bb13: {
+    bb16: {
+        (*_25).[0: Int] = const -6: Int;
+        goto -> bb15;
+    }
+
+    bb17: {
         _11 = move (*_25).[176: Int];
         goto -> bb5;
     }
 
-    bb14: {
+    bb18: {
+        (*_25).[0: Int] = const -7: Int;
+        goto -> bb17;
+    }
+
+    bb19: {
         _13 = move (*_25).[176: Int];
         goto -> bb6;
     }
 
-    bb15: {
+    bb20: {
+        (*_25).[0: Int] = const -8: Int;
+        goto -> bb19;
+    }
+
+    bb21: {
         _15 = move (*_25).[176: Int];
         goto -> bb7;
     }
 
-    bb16: {
+    bb22: {
+        (*_25).[0: Int] = const -9: Int;
+        goto -> bb21;
+    }
+
+    bb23: {
         _17 = move (*_25).[176: Int];
         goto -> bb8;
+    }
+
+    bb24: {
+        (*_25).[0: Int] = const -10: Int;
+        goto -> bb23;
     }
 }
 resume #15: pack_tree.t3(k: Int)  (frame size 208 align 8, pointer _8)
@@ -374,14 +494,16 @@ fn pack_tree.t3(k: Int) -> Int {
 
     bb0: {
         (*_8).[184: Int] = copy (*_8).[192: Int];
-        call pack_tree.leaf(k: Int) [] -> [return: bb3] suspends;
+        (*_8).[0: Int] = const 1: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
         (*_8).[200: Int] = move _3;
         _5 = Add(copy (*_8).[192: Int], const 1: Int);
         (*_8).[184: Int] = move _5;
-        call pack_tree.leaf(k: Int) [] -> [return: bb4] suspends;
+        (*_8).[0: Int] = const 2: Int;
+        call pack_tree.leaf(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -397,8 +519,18 @@ fn pack_tree.t3(k: Int) -> Int {
     }
 
     bb4: {
+        (*_8).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _6 = move (*_8).[176: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_8).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #16: pack_tree.t2(k: Int)  (frame size 232 align 8, pointer _8)
@@ -418,14 +550,16 @@ fn pack_tree.t2(k: Int) -> Int {
 
     bb0: {
         (*_8).[200: Int] = copy (*_8).[216: Int];
-        call pack_tree.t3(k: Int) [] -> [return: bb3] suspends;
+        (*_8).[0: Int] = const 1: Int;
+        call pack_tree.t3(k: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
         (*_8).[224: Int] = move _3;
         _5 = Add(copy (*_8).[216: Int], const 1: Int);
         (*_8).[200: Int] = move _5;
-        call pack_tree.t3(k: Int) [] -> [return: bb4] suspends;
+        (*_8).[0: Int] = const 2: Int;
+        call pack_tree.t3(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -441,8 +575,18 @@ fn pack_tree.t2(k: Int) -> Int {
     }
 
     bb4: {
+        (*_8).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _6 = move (*_8).[16: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_8).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #17: pack_tree.t1(k: Int)  (frame size 256 align 8, pointer _8)
@@ -462,14 +606,16 @@ fn pack_tree.t1(k: Int) -> Int {
 
     bb0: {
         (*_8).[224: Int] = copy (*_8).[240: Int];
-        call pack_tree.t2(k: Int) [] -> [return: bb3] suspends;
+        (*_8).[0: Int] = const 1: Int;
+        call pack_tree.t2(k: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
         (*_8).[248: Int] = move _3;
         _5 = Add(copy (*_8).[240: Int], const 1: Int);
         (*_8).[224: Int] = move _5;
-        call pack_tree.t2(k: Int) [] -> [return: bb4] suspends;
+        (*_8).[0: Int] = const 2: Int;
+        call pack_tree.t2(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -485,8 +631,18 @@ fn pack_tree.t1(k: Int) -> Int {
     }
 
     bb4: {
+        (*_8).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _6 = move (*_8).[16: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_8).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #22: pack_tree.leaf(k: Int)  (frame size 184 align 8, pointer _6, context _7)

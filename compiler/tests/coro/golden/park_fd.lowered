@@ -9,18 +9,30 @@ fn park_fd.main() -> Void {
     bb0: {
         (*_1).[16: Int] = const 0: Int;
         (*_1).[24: Int] = const 0: Int;
-        call std.task.fd_wait(fd: Int, write: Int) [] -> [return: bb1] suspends;
+        (*_1).[0: Int] = const 1: Int;
+        call std.task.fd_wait(fd: Int, write: Int) [] -> [return: bb3] suspends;
     }
 
     bb1: {
         (*_1).[16: Int] = const 1: Int;
         (*_1).[24: Int] = const 1: Int;
         (*_1).[32: UInt64] = const 5000000: UInt64;
-        call std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) [] -> [return: bb2] suspends;
+        (*_1).[0: Int] = const 2: Int;
+        call std.task.fd_wait_until(fd: Int, write: Int, deadline: UInt64) [] -> [return: bb4] suspends;
     }
 
     bb2: {
         return;
+    }
+
+    bb3: {
+        (*_1).[0: Int] = const -3: Int;
+        goto -> bb1;
+    }
+
+    bb4: {
+        (*_1).[0: Int] = const -4: Int;
+        goto -> bb2;
     }
 }
 resume #5: std.task.fd_wait(fd: Int, write: Int)  (frame size 24 align 8, pointer _3, context _4)

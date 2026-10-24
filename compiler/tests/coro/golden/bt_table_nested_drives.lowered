@@ -10,7 +10,8 @@ fn bt_table_nested_drives.worker(seed: Int) -> Int {
 
     bb0: {
         (*_4).[48: Int] = copy (*_4).[56: Int];
-        call bt_table_nested_drives.middle(n: Int) [] -> [return: bb2] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call bt_table_nested_drives.middle(n: Int) [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -22,6 +23,11 @@ fn bt_table_nested_drives.worker(seed: Int) -> Int {
     bb2: {
         _3 = move (*_4).[16: Int];
         goto -> bb1;
+    }
+
+    bb3: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #11: bt_table_nested_drives.watcher() task root  (frame size 24 align 8, pointer _2)
@@ -38,12 +44,18 @@ fn bt_table_nested_drives.watcher() -> Int {
 
     bb1: {
         (*_2).[16: std.duration.Duration] = move _1;
-        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb2] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb3] suspends;
     }
 
     bb2: {
         (*_2).[8: Int] = const 0: Int;
         return;
+    }
+
+    bb3: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #23: bt_table_nested_drives.middle(n: Int)  (frame size 48 align 8, pointer _5)
@@ -59,7 +71,8 @@ fn bt_table_nested_drives.middle(n: Int) -> Int {
 
     bb0: {
         (*_5).[32: Int] = copy (*_5).[40: Int];
-        call bt_table_nested_drives.leaf(n: Int) [] -> [return: bb2] suspends;
+        (*_5).[0: Int] = const 1: Int;
+        call bt_table_nested_drives.leaf(n: Int) [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -72,6 +85,11 @@ fn bt_table_nested_drives.middle(n: Int) -> Int {
     bb2: {
         _3 = move (*_5).[16: Int];
         goto -> bb1;
+    }
+
+    bb3: {
+        (*_5).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #35: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)
@@ -121,13 +139,19 @@ fn bt_table_nested_drives.leaf(n: Int) -> Int {
 
     bb1: {
         (*_4).[16: std.duration.Duration] = move _2;
-        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb2] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb3] suspends;
     }
 
     bb2: {
         _3 = Mul(copy (*_4).[24: Int], const 2: Int);
         (*_4).[8: Int] = move _3;
         return;
+    }
+
+    bb3: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 spawner #0: bt_table_nested_drives.main()

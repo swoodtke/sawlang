@@ -21,25 +21,29 @@ fn pack_p2_layout.caller() -> Int {
 
     bb0: {
         (*_12).[48: Int] = const 1: Int;
-        call pack_p2_layout.child(k: Int) [] -> [return: bb5] suspends;
+        (*_12).[0: Int] = const 1: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb1: {
         (*_12).[56: Int] = move _2;
         (*_12).[48: Int] = const 2: Int;
-        call pack_p2_layout.child(k: Int) [] -> [return: bb6] suspends;
+        (*_12).[0: Int] = const 2: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb8] suspends;
     }
 
     bb2: {
         (*_12).[64: Int] = move _4;
         (*_12).[48: Int] = const 3: Int;
-        call pack_p2_layout.child(k: Int) [] -> [return: bb7] suspends;
+        (*_12).[0: Int] = const 3: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb10] suspends;
     }
 
     bb3: {
         (*_12).[72: Int] = move _6;
         (*_12).[48: Int] = const 4: Int;
-        call pack_p2_layout.child(k: Int) [] -> [return: bb8] suspends;
+        (*_12).[0: Int] = const 4: Int;
+        call pack_p2_layout.child(k: Int) [] -> [return: bb12] suspends;
     }
 
     bb4: {
@@ -57,18 +61,38 @@ fn pack_p2_layout.caller() -> Int {
     }
 
     bb6: {
+        (*_12).[0: Int] = const -3: Int;
+        goto -> bb5;
+    }
+
+    bb7: {
         _4 = move (*_12).[40: Int];
         goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
+        (*_12).[0: Int] = const -4: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _6 = move (*_12).[40: Int];
         goto -> bb3;
     }
 
-    bb8: {
+    bb10: {
+        (*_12).[0: Int] = const -5: Int;
+        goto -> bb9;
+    }
+
+    bb11: {
         _8 = move (*_12).[40: Int];
         goto -> bb4;
+    }
+
+    bb12: {
+        (*_12).[0: Int] = const -6: Int;
+        goto -> bb11;
     }
 }
 resume #12: pack_p2_layout.child(k: Int)  (frame size 48 align 8, pointer _9, context _10)

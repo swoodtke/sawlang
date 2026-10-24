@@ -1,0 +1,38 @@
+// probe: panics
+// about: a task on a cooperative group that drove a call to its end and waits in a join of a task that panics dumps only its live frames, never the returned drive's released slot (SL-863)
+// stage 0: runs it on its own std's executor, whose task dump this does not pin (SL-863)
+// speeds: -O0 -O2
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at running_task_dump_joined_panics_coop.saw:21 in panicker
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_joined_panics_coop.saw:30 in p
+// panics: the joined task panics
+import std.task.*
+
+// A suspending call the task drives as a sub-frame of its own.
+func child(i: Int) -> Int {
+    yield_now()
+    i + 1
+}
+
+// Panics while the task that spawned it waits in its join.
+func panicker(i: Int) -> Int {
+    yield_now()
+    dump_tasks()
+    if i >= 0 {
+        panic("the joined task panics {}", i)
+    }
+    i
+}
+
+func p(i: Int) -> Int {
+    let v = child(i)
+    let h = Task.spawn(panicker(v))
+    h.join()
+}
+
+func main() {
+    var group = TaskGroup()
+    print("P {}", group.spawn(p(1)).join())
+}

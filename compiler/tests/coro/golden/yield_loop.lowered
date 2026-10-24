@@ -8,7 +8,8 @@ fn yield_loop.main() -> Void {
 
     bb0: {
         (*_2).[32: Int] = const 3: Int;
-        call yield_loop.tally(rounds: Int) [] -> [return: bb3] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call yield_loop.tally(rounds: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
@@ -22,6 +23,11 @@ fn yield_loop.main() -> Void {
     bb3: {
         _1 = move (*_2).[24: Int];
         goto -> bb1;
+    }
+
+    bb4: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb3;
     }
 }
 resume #5: yield_loop.tally(rounds: Int)  (frame size 64 align 8, pointer _13, context _14)
@@ -72,7 +78,8 @@ fn yield_loop.tally(rounds: Int) -> Int {
     }
 
     bb4: {
-        call std.task.yield_now() [] -> [return: bb5] suspends;
+        (*_13).[0: Int] = const 2: Int;
+        call std.task.yield_now() [] -> [return: bb8] suspends;
     }
 
     bb5: {
@@ -95,6 +102,11 @@ fn yield_loop.tally(rounds: Int) -> Int {
         (*_13).[8: Int] = const 128: Int;
         (*(*_14).park) = const 0: Int;
         call std.task.__saw_park_ready() [] -> [return: bb4] suspends;
+    }
+
+    bb8: {
+        (*_13).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #12: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)

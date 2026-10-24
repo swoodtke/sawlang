@@ -15,11 +15,13 @@ fn drive_and_park.main() -> Int {
         _2 = drive_and_park.Pair { left: const 3: Int, right: const "kept": String };
         (*_6).[48: drive_and_park.Pair] = move _2;
         (*_6).[64: String] = const "a string across": String;
-        call drive_and_park.outer() [] -> [return: bb1] suspends;
+        (*_6).[0: Int] = const 1: Int;
+        call drive_and_park.outer() [] -> [return: bb4] suspends;
     }
 
     bb1: {
-        call std.task.yield_now() [] -> [return: bb2] suspends;
+        (*_6).[0: Int] = const 2: Int;
+        call std.task.yield_now() [] -> [return: bb5] suspends;
     }
 
     bb2: {
@@ -33,6 +35,16 @@ fn drive_and_park.main() -> Int {
         drop((*_6).[64: String]);
         drop((*_6).[48: drive_and_park.Pair]);
         return;
+    }
+
+    bb4: {
+        (*_6).[0: Int] = const -3: Int;
+        goto -> bb1;
+    }
+
+    bb5: {
+        (*_6).[0: Int] = const -4: Int;
+        goto -> bb2;
     }
 }
 resume #5: drive_and_park.outer()  (frame size 40 align 8, pointer _4)
@@ -48,13 +60,15 @@ fn drive_and_park.outer() -> Void {
 
     bb0: {
         (*_4).[32: Int] = const 40: Int;
-        call drive_and_park.inner() [] -> [return: bb1] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call drive_and_park.inner() [] -> [return: bb4] suspends;
     }
 
     bb1: {
         _2 = Add(copy (*_4).[32: Int], const 1: Int);
         (*_4).[32: Int] = move _2;
-        call std.task.yield_now() [] -> [return: bb2] suspends;
+        (*_4).[0: Int] = const 2: Int;
+        call std.task.yield_now() [] -> [return: bb5] suspends;
     }
 
     bb2: {
@@ -64,6 +78,16 @@ fn drive_and_park.outer() -> Void {
 
     bb3: {
         return;
+    }
+
+    bb4: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb1;
+    }
+
+    bb5: {
+        (*_4).[0: Int] = const -4: Int;
+        goto -> bb2;
     }
 }
 resume #6: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
@@ -102,7 +126,8 @@ fn drive_and_park.inner() -> Void {
     }
 
     bb1: {
-        call std.task.yield_now() [] -> [return: bb2] suspends;
+        (*_5).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -111,7 +136,8 @@ fn drive_and_park.inner() -> Void {
     }
 
     bb3: {
-        call std.task.yield_now() [] -> [return: bb4] suspends;
+        (*_5).[0: Int] = const 2: Int;
+        call std.task.yield_now() [] -> [return: bb7] suspends;
     }
 
     bb4: {
@@ -122,5 +148,15 @@ fn drive_and_park.inner() -> Void {
     bb5: {
         drop((*_5).[8: String]);
         return;
+    }
+
+    bb6: {
+        (*_5).[0: Int] = const -3: Int;
+        goto -> bb2;
+    }
+
+    bb7: {
+        (*_5).[0: Int] = const -4: Int;
+        goto -> bb4;
     }
 }

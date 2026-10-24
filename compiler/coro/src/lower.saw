@@ -824,7 +824,8 @@ func coro_lower_frame(coro: &var CoroProgram, context: &CoroContext, f: Int) {
             slot_at = coro_next_value(&coro, &frame, slot_at, CoroValueKind.Child)
             let slot = coro.values[frame.value_first + slot_at].offset
             slot_at = slot_at + 1
-            let drive = coro_lower_drive(&var coro, frame.body, frame_local, block, child, slot)
+            let state_at = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
+            let drive = coro_lower_drive(&var coro, frame.body, frame_local, block, child, slot, s, state_at)
             try! coro.points.push(CoroPoint(kind: CoroPointKind.Drive, state: s, block: block, call: point.call,
                                             child: child, slot: slot, dest: drive.dest,
                                             result_block: drive.result_block))
@@ -1348,7 +1349,15 @@ struct CoroDrive {
 // goto where the call returned; a conditional open's result is moved out as
 // `coro_lower_conditional_result` says. Each argument moves or copies as the
 // call passed it, so the rewrite adds no ownership operation.
-func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, child: Int, slot: Int) -> CoroDrive {
+//
+// The frame's state word, at `state_at`, names the drive while the child
+// runs and nothing it drove once the child returns: the block writes
+// `state` last, before the child's first resume, and the return edge passes
+// through a block writing `coro_state_past(state)` before anything else, the
+// release of the child's slot included. So a task backtrace read while the
+// frame runs (std.taskgroup's dump) follows only a live child (SL-863).
+func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, child: Int, slot: Int, state: Int,
+                      state_at: Int) -> CoroDrive {
     let block = coro.mono.dp.bc.mir.blocks[coro.mono.dp.bc.mir.funcs[f].block_first + b]
     let c = block.call
     var call = coro.mono.dp.bc.mir.calls[c]
@@ -1370,6 +1379,7 @@ func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, 
         let rv = coro_use_rvalue(&var coro, arg_ty, first)
         coro_append_stmt(&var coro, f, b, place, rv, call.node)
     }
+    coro_write_state(&var coro, f, b, frame_local, state_at, state, call.node)
     var out = CoroDrive(dest: call.dest, result_block: -1)
     if call.dest >= 0 && call.next >= 0 {
         let off = coro_child_offset(&coro, &cf, CoroValueKind.Result, 0)
@@ -1390,6 +1400,11 @@ func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, 
         }
         call.next = moved
         out.result_block = moved
+    }
+    if call.next >= 0 {
+        let past = coro_add_goto_block(&var coro, f, call.next, call.node)
+        coro_write_state(&var coro, f, past, frame_local, state_at, coro_state_past(state), call.node)
+        call.next = past
     }
     call.arg_count = 0
     call.dest = -1
@@ -1723,6 +1738,41 @@ public func coro_child_offset(coro: &CoroProgram, cf: &CoroFrame, kind: CoroValu
     return -1
 }
 
+// Appends `(*_F).[state_at: Int] = const state` to block `b` of function `f`,
+// the frame's state word written through local `frame_local`.
+func coro_write_state(coro: &var CoroProgram, f: Int, b: Int, frame_local: Int, state_at: Int, state: Int,
+                      node: Int) {
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    let place = coro_frame_place(&var coro, frame_local, state_at, word)
+    let value = coro_int_operand(&var coro, word, state)
+    let rv = coro_operand_rvalue(&var coro, word, value)
+    coro_append_stmt(&var coro, f, b, place, rv, node)
+}
+
+// The block a drive's return edge reaches past its state word's write
+// (`coro_lower_drive`): the target of block `b` of function `f` when that
+// block is one write of the state word, at `state_at` through local
+// `frame_local`, and a goto; else -1.
+public func coro_past_target(coro: &CoroProgram, f: Int, b: Int, frame_local: Int, state_at: Int) -> Int {
+    let info = coro.mono.dp.bc.mir.funcs[f]
+    if b < 0 || b >= info.block_count {
+        return -1
+    }
+    let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
+    if block.term != MirTermKind.Goto || block.first < 0 || block.first != block.last {
+        return -1
+    }
+    let stmt = coro.mono.dp.bc.mir.stmts[block.first]
+    if stmt.kind != MirStmtKind.Assign || stmt.place < 0 {
+        return -1
+    }
+    let ty = coro.mono.dp.bc.mir.places[stmt.place].ty
+    if not coro_is_frame_slot(&coro, stmt.place, frame_local, state_at, ty) {
+        return -1
+    }
+    block.target
+}
+
 // A new place, the frame slot `(*_F).[offset: T]` through local
 // `frame_local`.
 public func coro_frame_place(coro: &var CoroProgram, frame_local: Int, offset: Int, ty: Int) -> Int {
@@ -1795,8 +1845,10 @@ public func coro_add_block(coro: &var CoroProgram, f: Int, block: MirBlock) -> I
 
 // The structural invariant of every lowered drive: its call carries no
 // arguments and no destination; its block writes each of the child's
-// parameters exactly once into its slot, `(*_F).[slot + P: T] = ...`; and
-// when the call had a destination, the block it returns to is the move-out,
+// parameters exactly once into its slot, `(*_F).[slot + P: T] = ...`, and
+// ends writing the drive's state into the state word; its return edge first
+// writes the state past the drive (`coro_state_past`); and when the call had
+// a destination, the block that edge goes on to is the move-out,
 // `dest = move (*_F).[slot + R: T]` then a goto, or a conditional open's
 // switch on its presence local. The slots are read from the
 // child's frame, not from the lowering. A broken one is an `INVARIANT` line.
@@ -1806,18 +1858,20 @@ public func coro_check_drives(coro: &var CoroProgram) {
         let resume = coro.resumes[r]
         r = r + 1
         let frame = coro.frames[resume.frame]
+        let state_at = coro_child_offset(&coro, &frame, CoroValueKind.State, -1)
         var j = 0
         while j < resume.point_count {
             let point = coro.points[resume.point_first + j]
             j = j + 1
             if point.kind == CoroPointKind.Drive {
-                coro_check_drive(&var coro, frame.item, frame.body, resume.frame_local, &point)
+                coro_check_drive(&var coro, frame.item, frame.body, resume.frame_local, state_at, &point)
             }
         }
     }
 }
 
-func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: Int, point: &CoroPoint) {
+func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: Int, state_at: Int,
+                      point: &CoroPoint) {
     let info = coro.mono.dp.bc.mir.funcs[f]
     let block = coro.mono.dp.bc.mir.blocks[info.block_first + point.block]
     let call = coro.mono.dp.bc.mir.calls[point.call]
@@ -1844,13 +1898,24 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
         }
         l = l + 1
     }
+    if not coro_writes_state(&var coro, block.last, frame_local, state_at, point.state) {
+        coro_drive_problem(&var coro, item, &point, "its block does not end writing the drive's state into the state word")
+    }
+    var returns = -1
+    if call.next >= 0 {
+        returns = coro_past_target(&coro, f, call.next, frame_local, state_at)
+        let past = coro.mono.dp.bc.mir.blocks[info.block_first + call.next].first
+        if returns < 0 || not coro_writes_state(&var coro, past, frame_local, state_at, coro_state_past(point.state)) {
+            coro_drive_problem(&var coro, item, &point, "its return edge does not write the state past the drive first")
+        }
+    }
     if point.dest < 0 {
         return
     }
     let off = point.slot + coro_child_offset(&coro, &cf, CoroValueKind.Result, 0)
     let result_ty = coro.mono.dp.bc.mir.locals[child_info.local_first].ty
     var moves = false
-    if point.result_block >= 0 && call.next == point.result_block {
+    if point.result_block >= 0 && returns == point.result_block {
         let after = coro.mono.dp.bc.mir.blocks[info.block_first + point.result_block]
         let m = coro_single_move(&coro, &after)
         let from_slot = m.from >= 0 && coro_is_frame_slot(&coro, m.from, frame_local, off, result_ty)
@@ -1863,6 +1928,30 @@ func coro_check_drive(coro: &var CoroProgram, item: Int, f: Int, frame_local: In
     if not moves {
         coro_drive_problem(&var coro, item, &point, "the block its call returns to does not move the child's result out into the call's destination")
     }
+}
+
+// Whether statement `s` writes the constant `state` into the state word, at
+// `state_at` through local `frame_local`.
+func coro_writes_state(coro: &var CoroProgram, s: Int, frame_local: Int, state_at: Int, state: Int) -> Bool {
+    if s < 0 {
+        return false
+    }
+    let stmt = coro.mono.dp.bc.mir.stmts[s]
+    let word = coro.mono.dp.bc.mir.tc.int_type()
+    if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+        return false
+    }
+    if not coro_is_frame_slot(&coro, stmt.place, frame_local, state_at, word) {
+        return false
+    }
+    let rv = coro.mono.dp.bc.mir.rvalues[stmt.rvalue]
+    if rv.kind != MirRvalueKind.Use || rv.count != 1 {
+        return false
+    }
+    let o = coro.mono.dp.bc.mir.operands[coro.mono.dp.bc.mir.lists[rv.first]]
+    var spelled = StringBuilder()
+    try! spelled.append(state)
+    o.kind == MirOperandKind.Const && o.text == coro.mono.dp.bc.mir.tc.res.intern(spelled.build())
 }
 
 // The two places of `block`'s one statement when it is `into = move from`,
@@ -2045,4 +2134,12 @@ public func coro_add_local(coro: &var CoroProgram, f: Int, ty: Int) -> Int {
     info.local_count = info.local_count + 1
     coro.mono.dp.bc.mir.funcs[f] = info
     made
+}
+
+// The state word of a frame running on past drive state `state`, whose child
+// has returned and whose slot is released: below CORO_STATE_DONE, so no
+// resume enters it, and it keeps the drive's line for the task backtrace,
+// which descends from no such state (std.taskgroup's `bt_state_record`).
+public func coro_state_past(state: Int) -> Int {
+    CORO_STATE_DONE - 1 - state
 }

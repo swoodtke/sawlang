@@ -241,9 +241,10 @@ public func yield_now() {
 ///
 /// The last word of a task's line is `running`, `ready`, `sleeping`,
 /// `io-parked`, `channel-parked` or `joining` (a thread's exit). A task
-/// running on the calling thread shows its frames as of its last suspension,
-/// not where it is executing; one another thread is running has no frame
-/// lines.
+/// running on the calling thread shows its live frames, down to the
+/// suspending call it is inside; a frame that has moved on past its last
+/// suspending call shows that call's line. One another thread is running has
+/// no frame lines.
 ///
 /// The panic path calls it for you: a program that dies with tasks in flight
 /// writes this dump after its panic line, on standard error.

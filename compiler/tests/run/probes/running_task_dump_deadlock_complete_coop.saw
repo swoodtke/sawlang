@@ -1,0 +1,33 @@
+// probe: panics
+// about: a task on a cooperative group that drove a suspending call to its end and then deadlocks in a join dumps only its live frames, its own at the line of the drive that returned, never that drive's released slot (SL-863)
+// stage 0: runs it on its own std's executor, whose task dump this does not pin (SL-863)
+// speeds: -O0 -O2
+// prints: saw tasks: 1 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at running_task_dump_deadlock_complete_coop.saw:23 in p
+// panics: deadlock: every task is waiting
+import std.task.*
+import std.channel.{Channel}
+
+// A suspending call the task drives as a sub-frame of its own.
+func child(i: Int) -> Int {
+    yield_now()
+    i + 1
+}
+
+func recv_one(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func p(i: Int) -> Int {
+    let v = child(i)
+    dump_tasks()
+    let ch = try! Channel<Int>()
+    let h = Task.spawn(recv_one(ch.copy()))
+    h.join()
+}
+
+func main() {
+    var group = TaskGroup()
+    print("P {}", group.spawn(p(1)).join())
+}

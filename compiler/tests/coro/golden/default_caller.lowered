@@ -9,7 +9,8 @@ fn default_caller.main() -> Void {
     let _4: &var Int;
 
     bb0: {
-        call default_caller.fills() [] -> [return: bb4] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call default_caller.fills() [] -> [return: bb5] suspends;
     }
 
     bb1: {
@@ -29,6 +30,11 @@ fn default_caller.main() -> Void {
         _1 = move (*_4).[16: Int];
         goto -> bb1;
     }
+
+    bb5: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb4;
+    }
 }
 resume #5: default_caller.fills()  (frame size 32 align 8, pointer _3)
     state 0: bb0
@@ -40,7 +46,8 @@ fn default_caller.fills() -> Int {
     let _3: &var Int;
 
     bb0: {
-        call default default_caller.f(n: Int).n [] -> [return: bb3] suspends;
+        (*_3).[0: Int] = const 1: Int;
+        call default default_caller.f(n: Int).n [] -> [return: bb4] suspends;
     }
 
     bb1: {
@@ -56,6 +63,11 @@ fn default_caller.fills() -> Int {
         _1 = move (*_3).[16: Int];
         goto -> bb1;
     }
+
+    bb4: {
+        (*_3).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
 }
 resume #12: default default_caller.f(n: Int).n  (frame size 24 align 8, pointer _2)
     state 0: bb0
@@ -66,7 +78,8 @@ fn default default_caller.f(n: Int).n -> Int {
     let _2: &var Int;
 
     bb0: {
-        call default_caller.slow() [] -> [return: bb2] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call default_caller.slow() [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -78,6 +91,11 @@ fn default default_caller.f(n: Int).n -> Int {
         _1 = move (*_2).[16: Int];
         goto -> bb1;
     }
+
+    bb3: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb2;
+    }
 }
 resume #16: default_caller.slow()  (frame size 16 align 8, pointer _1)
     state 0: bb0
@@ -87,12 +105,18 @@ fn default_caller.slow() -> Int {
     let _1: &var Int;
 
     bb0: {
-        call std.task.yield_now() [] -> [return: bb1] suspends;
+        (*_1).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb2] suspends;
     }
 
     bb1: {
         (*_1).[8: Int] = const 4: Int;
         return;
+    }
+
+    bb2: {
+        (*_1).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 resume #18: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)

@@ -12,11 +12,17 @@ fn park_timer.main() -> Void {
 
     bb1: {
         (*_2).[32: std.duration.Duration] = move _1;
-        call park_timer.nap(span: std.duration.Duration) [] -> [return: bb2] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call park_timer.nap(span: std.duration.Duration) [] -> [return: bb3] suspends;
     }
 
     bb2: {
         return;
+    }
+
+    bb3: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #6: park_timer.nap(span: std.duration.Duration)  (frame size 32 align 8, pointer _2)
@@ -33,7 +39,8 @@ fn park_timer.nap(span: std.duration.Duration) -> Void {
 
     bb1: {
         (*_2).[16: std.duration.Duration] = copy (*_2).[24: std.duration.Duration];
-        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb2] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call std.task.sleep(duration: std.duration.Duration) [] -> [return: bb4] suspends;
     }
 
     bb2: {
@@ -42,6 +49,11 @@ fn park_timer.nap(span: std.duration.Duration) -> Void {
 
     bb3: {
         return;
+    }
+
+    bb4: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #12: std.task.sleep(duration: std.duration.Duration)  (frame size 16 align 8, pointer _4, context _5)

@@ -1,0 +1,54 @@
+// probe: panics
+// about: a task inside the drive of a `Thread.join` in thread context (`waits_drive`) that drove a suspending call to its end and then deadlocks in a join dumps only its live frames, its own at the line of the drive that returned, never that drive's released slot (SL-863)
+// stage 0: runs it on its own std's executor, whose task dump this does not pin (SL-863)
+// speeds: -O0 -O2
+// prints: saw tasks: 1 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at running_task_dump_deadlock_complete_drive.saw:42 in p
+// panics: deadlock: every task is waiting
+import std.task.*
+import std.channel.{Channel}
+
+extern "C" {
+    func __saw_rt_sleep_ns(ns: UInt64)
+}
+
+static HOLD_NANOS: UInt64 = 300_000_000
+
+// A suspending call the task drives as a sub-frame of its own.
+func child(i: Int) -> Int {
+    yield_now()
+    i + 1
+}
+
+func recv_one(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func hold() -> Int {
+    __saw_rt_sleep_ns(HOLD_NANOS)
+    7
+}
+
+// A blocking wait for a thread, in thread context: the join drives the
+// group, so `p` runs inside that drive while the thread sleeps, and `main`
+// never suspends.
+func wait_for_thread() blocking -> Int {
+    var t = try! Thread.spawn { hold() }
+    t.join()
+}
+
+func p(i: Int) -> Int {
+    let v = child(i)
+    dump_tasks()
+    let ch = try! Channel<Int>()
+    let h = Task.spawn(recv_one(ch.copy()))
+    h.join()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(p(1))
+    print("T {}", wait_for_thread())
+    print("P {}", h.join())
+}

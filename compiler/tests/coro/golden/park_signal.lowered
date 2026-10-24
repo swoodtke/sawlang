@@ -16,11 +16,17 @@ fn park_signal.main() -> Void {
         (*_4).[24: std.task.SignalWatch] = move _2;
         _3 = ref(shared, (*_4).[24: std.task.SignalWatch]);
         (*_4).[16: &std.task.SignalWatch] = move _3;
-        call std.task.SignalWatch.next() (owner std.task.SignalWatch) [] -> [return: bb2] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call std.task.SignalWatch.next() (owner std.task.SignalWatch) [] -> [return: bb3] suspends;
     }
 
     bb2: {
         return;
+    }
+
+    bb3: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #6: std.task.SignalWatch.next()  (frame size 16 align 8, pointer _2, context _3)

@@ -45,13 +45,15 @@ fn drive_site.twice(n: Int) -> Int {
     bb0: {
         (*_5).[24: Int] = copy (*_5).[40: Int];
         (*_5).[32: String] = const "a": String;
-        call drive_site.work(n: Int, label: String) [] -> [return: bb3] suspends;
+        (*_5).[0: Int] = const 1: Int;
+        call drive_site.work(n: Int, label: String) [] -> [return: bb4] suspends;
     }
 
     bb1: {
         (*_5).[24: Int] = copy (*_5).[40: Int];
         (*_5).[32: String] = const "bc": String;
-        call drive_site.work(n: Int, label: String) [] -> [return: bb4] suspends;
+        (*_5).[0: Int] = const 2: Int;
+        call drive_site.work(n: Int, label: String) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -66,8 +68,18 @@ fn drive_site.twice(n: Int) -> Int {
     }
 
     bb4: {
+        (*_5).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _3 = move (*_5).[16: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_5).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #8: drive_site.plain(n: Int) task root  (frame size 24 align 8, pointer _3)

@@ -18,26 +18,31 @@ fn lifetimes.main() -> Void {
     let _9: &var Int;
 
     bb0: {
-        call lifetimes.across_one() [] -> [return: bb7] suspends;
+        (*_9).[0: Int] = const 1: Int;
+        call lifetimes.across_one() [] -> [return: bb8] suspends;
     }
 
     bb1: {
         (*_9).[56: Int] = move _2;
-        call lifetimes.child_result() [] -> [return: bb8] suspends;
+        (*_9).[0: Int] = const 2: Int;
+        call lifetimes.child_result() [] -> [return: bb10] suspends;
     }
 
     bb2: {
         (*_9).[64: Int] = move _4;
-        call lifetimes.window_record() [] -> [return: bb9] suspends;
+        (*_9).[0: Int] = const 3: Int;
+        call lifetimes.window_record() [] -> [return: bb12] suspends;
     }
 
     bb3: {
         (*_9).[48: Int] = move _6;
-        call lifetimes.offload_storage() [] -> [return: bb4] suspends;
+        (*_9).[0: Int] = const 4: Int;
+        call lifetimes.offload_storage() [] -> [return: bb13] suspends;
     }
 
     bb4: {
-        call lifetimes.sequential() [] -> [return: bb10] suspends;
+        (*_9).[0: Int] = const 5: Int;
+        call lifetimes.sequential() [] -> [return: bb15] suspends;
     }
 
     bb5: {
@@ -55,18 +60,43 @@ fn lifetimes.main() -> Void {
     }
 
     bb8: {
+        (*_9).[0: Int] = const -3: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _4 = move (*_9).[16: Int];
         goto -> bb2;
     }
 
-    bb9: {
+    bb10: {
+        (*_9).[0: Int] = const -4: Int;
+        goto -> bb9;
+    }
+
+    bb11: {
         _6 = move (*_9).[32: Int];
         goto -> bb3;
     }
 
-    bb10: {
+    bb12: {
+        (*_9).[0: Int] = const -5: Int;
+        goto -> bb11;
+    }
+
+    bb13: {
+        (*_9).[0: Int] = const -6: Int;
+        goto -> bb4;
+    }
+
+    bb14: {
         _8 = move (*_9).[16: Int];
         goto -> bb5;
+    }
+
+    bb15: {
+        (*_9).[0: Int] = const -7: Int;
+        goto -> bb14;
     }
 }
 resume #5: lifetimes.across_one()  (frame size 24 align 8, pointer _4, context _5)
@@ -114,7 +144,8 @@ fn lifetimes.child_result() -> Int {
 
     bb0: {
         (*_4).[24: Int] = const 3: Int;
-        call lifetimes.child(k: Int) [] -> [return: bb2] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call lifetimes.child(k: Int) [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -127,6 +158,11 @@ fn lifetimes.child_result() -> Int {
     bb2: {
         _2 = move (*_4).[16: Int];
         goto -> bb1;
+    }
+
+    bb3: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #7: lifetimes.window_record()  (frame size 48 align 8, pointer _10, context _11)
@@ -241,13 +277,15 @@ fn lifetimes.sequential() -> Int {
 
     bb0: {
         (*_4).[24: Int] = const 1: Int;
-        call lifetimes.step_a(k: Int) [] -> [return: bb3] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call lifetimes.step_a(k: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
         (*_4).[32: Int] = move _2;
         (*_4).[24: Int] = copy (*_4).[32: Int];
-        call lifetimes.step_b(k: Int) [] -> [return: bb4] suspends;
+        (*_4).[0: Int] = const 2: Int;
+        call lifetimes.step_b(k: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -261,8 +299,18 @@ fn lifetimes.sequential() -> Int {
     }
 
     bb4: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _3 = move (*_4).[16: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_4).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #16: lifetimes.child(k: Int)  (frame size 24 align 8, pointer _3, context _4)

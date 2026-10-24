@@ -19,7 +19,8 @@ fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
     bb0: {
         (*_9).[48: Int] = copy (*_9).[40: Int];
         (*_9).[24: Int] = const 10: Int;
-        call index_reads.slow(v: Int) [] -> [return: bb3] suspends;
+        (*_9).[0: Int] = const 1: Int;
+        call index_reads.slow(v: Int) [] -> [return: bb4] suspends;
     }
 
     bb1: {
@@ -29,7 +30,8 @@ fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
         _11 = copy (*_9).[56: Int];
         (*_9).[64: Int] = copy (*_9).[32: UnsafePointer<Int>][_11];
         (*_9).[24: Int] = const 1: Int;
-        call index_reads.slow(v: Int) [] -> [return: bb4] suspends;
+        (*_9).[0: Int] = const 2: Int;
+        call index_reads.slow(v: Int) [] -> [return: bb6] suspends;
     }
 
     bb2: {
@@ -44,8 +46,18 @@ fn index_reads.store(p: UnsafePointer<Int>, i: Int) -> Int {
     }
 
     bb4: {
+        (*_9).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _7 = move (*_9).[16: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_9).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #15: index_reads.slow(v: Int)  (frame size 24 align 8, pointer _2)
@@ -57,12 +69,18 @@ fn index_reads.slow(v: Int) -> Int {
     let _2: &var Int;
 
     bb0: {
-        call std.task.yield_now() [] -> [return: bb1] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb2] suspends;
     }
 
     bb1: {
         (*_2).[8: Int] = copy (*_2).[16: Int];
         return;
+    }
+
+    bb2: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 resume #19: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)

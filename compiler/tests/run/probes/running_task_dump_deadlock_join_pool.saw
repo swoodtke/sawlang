@@ -1,0 +1,38 @@
+// probe: panics
+// about: a task on a `TaskGroup(threads: 2)` worker that joined a task it spawned and then deadlocks in a join dumps only its live frames, its own at the line of the drive that returned, never that drive's released slot (SL-863)
+// stage 0: runs it on its own std's executor, whose task dump this does not pin (SL-863)
+// speeds: -O0 -O2
+// prints: saw tasks: 1 live (unsynchronized snapshot)
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_deadlock_join_pool.saw:28 in p
+// panics: deadlock: every task is waiting
+import std.task.*
+import std.channel.{Channel}
+
+func work(i: Int) -> Int {
+    yield_now()
+    i * 10
+}
+
+func fate_join(i: Int) -> Int {
+    yield_now()
+    let h = Task.spawn(work(i))
+    h.join()
+}
+
+func recv_one(ch: Channel<Int>) -> Int {
+    try! ch.receive()
+}
+
+func p(i: Int) -> Int {
+    let v = fate_join(i)
+    dump_tasks()
+    let ch = try! Channel<Int>()
+    let h = Task.spawn(recv_one(ch.copy()))
+    h.join()
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    print("P {}", group.spawn(p(1)).join())
+}

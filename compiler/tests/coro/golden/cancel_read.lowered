@@ -21,7 +21,8 @@ fn cancel_read.watch(n: Int) -> Int {
 
     bb1: {
         (*_9).[24: Bool] = move _3;
-        call std.task.yield_now() [] -> [return: bb2] suspends;
+        (*_9).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb14] suspends;
     }
 
     bb2: {
@@ -78,6 +79,11 @@ fn cancel_read.watch(n: Int) -> Int {
 
     bb13: {
         goto -> bb10;
+    }
+
+    bb14: {
+        (*_9).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #13: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)

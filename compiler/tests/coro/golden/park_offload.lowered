@@ -7,11 +7,17 @@ fn park_offload.main() -> Void {
 
     bb0: {
         (*_1).[16: Int] = const 7: Int;
-        call std.task.offload_wait(job: Int) [] -> [return: bb1] suspends;
+        (*_1).[0: Int] = const 1: Int;
+        call std.task.offload_wait(job: Int) [] -> [return: bb2] suspends;
     }
 
     bb1: {
         return;
+    }
+
+    bb2: {
+        (*_1).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 resume #5: std.task.offload_wait(job: Int)  (frame size 16 align 8, pointer _2, context _3)

@@ -33,7 +33,8 @@ fn chains.main() -> Void {
     bb2: {
         _6 = ref(shared, (*_12).[104: chains.Bed]);
         (*_12).[72: &chains.Bed] = move _6;
-        call chains.rest(bed: &chains.Bed) [] -> [return: bb7] suspends;
+        (*_12).[0: Int] = const 1: Int;
+        call chains.rest(bed: &chains.Bed) [] -> [return: bb8] suspends;
     }
 
     bb3: {
@@ -43,7 +44,8 @@ fn chains.main() -> Void {
     bb4: {
         _9 = ref(exclusive, (*_12).[104: chains.Bed]);
         (*_12).[32: &var chains.Bed] = move _9;
-        window_open w0 prologue chains.Bed.slot() (owner chains.Bed) [] -> [present: bb8] suspends;
+        (*_12).[0: Int] = const 2: Int;
+        window_open w0 prologue chains.Bed.slot() (owner chains.Bed) [] -> [present: bb10] suspends;
     }
 
     bb5: {
@@ -64,8 +66,18 @@ fn chains.main() -> Void {
     }
 
     bb8: {
+        (*_12).[0: Int] = const -3: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _8 = move (*_12).[16: &var Int];
         goto -> bb5;
+    }
+
+    bb10: {
+        (*_12).[0: Int] = const -4: Int;
+        goto -> bb9;
     }
 }
 resume #7: chains.rest(bed: &chains.Bed)  (frame size 72 align 8, pointer _4)
@@ -81,7 +93,8 @@ fn chains.rest(bed: &chains.Bed) -> Int {
     bb0: {
         _2 = ref(shared, (*(*_4).[64: &chains.Bed]));
         (*_4).[48: &chains.Bed] = move _2;
-        call chains.Napper.twice() (owner chains.Bed) [] -> [return: bb2] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call chains.Napper.twice() (owner chains.Bed) [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -92,6 +105,11 @@ fn chains.rest(bed: &chains.Bed) -> Int {
     bb2: {
         _3 = move (*_4).[16: Int];
         goto -> bb1;
+    }
+
+    bb3: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb2;
     }
 }
 resume #8: prologue chains.Bed.slot() receiver exclusive  (frame size 32 align 8, pointer _4, context _5)
@@ -171,13 +189,15 @@ fn chains.Napper.twice() -> Int {
     bb0: {
         _2 = ref(shared, (*(*_7).[40: &chains.Bed]));
         (*_7).[32: &chains.Bed] = move _2;
-        call chains.Napper.nap() (owner chains.Bed) [] -> [return: bb3] suspends when Self.Napper.nap;
+        (*_7).[0: Int] = const 1: Int;
+        call chains.Napper.nap() (owner chains.Bed) [] -> [return: bb4] suspends when Self.Napper.nap;
     }
 
     bb1: {
         _4 = ref(shared, (*(*_7).[40: &chains.Bed]));
         (*_7).[32: &chains.Bed] = move _4;
-        call chains.Napper.nap() (owner chains.Bed) [] -> [return: bb4] suspends when Self.Napper.nap;
+        (*_7).[0: Int] = const 2: Int;
+        call chains.Napper.nap() (owner chains.Bed) [] -> [return: bb6] suspends when Self.Napper.nap;
     }
 
     bb2: {
@@ -192,8 +212,18 @@ fn chains.Napper.twice() -> Int {
     }
 
     bb4: {
+        (*_7).[0: Int] = const -3: Int;
+        goto -> bb3;
+    }
+
+    bb5: {
         _5 = move (*_7).[16: Int];
         goto -> bb2;
+    }
+
+    bb6: {
+        (*_7).[0: Int] = const -4: Int;
+        goto -> bb5;
     }
 }
 resume #25: chains.Bed.nap()  (frame size 32 align 8, pointer _5, context _6)

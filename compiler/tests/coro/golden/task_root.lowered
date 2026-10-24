@@ -22,7 +22,8 @@ fn task_root.hello(name: String) -> Void {
     let _3: &var Int;
 
     bb0: {
-        call std.task.yield_now() [] -> [return: bb1] suspends;
+        (*_3).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -34,6 +35,11 @@ fn task_root.hello(name: String) -> Void {
         drop((*_3).[8: String]);
         return;
     }
+
+    bb3: {
+        (*_3).[0: Int] = const -3: Int;
+        goto -> bb1;
+    }
 }
 resume #14: task_root.twice() task root  (frame size 32 align 8, pointer _1)
     state 0: bb0
@@ -44,11 +50,17 @@ fn task_root.twice() -> Void {
 
     bb0: {
         (*_1).[16: String] = const "embedded": String;
-        call task_root.hello(name: String) [] -> [return: bb1] suspends;
+        (*_1).[0: Int] = const 1: Int;
+        call task_root.hello(name: String) [] -> [return: bb2] suspends;
     }
 
     bb1: {
         return;
+    }
+
+    bb2: {
+        (*_1).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 resume #45: std.task.yield_now()  (frame size 8 align 8, pointer _1, context _2)
@@ -78,7 +90,8 @@ fn task_root.hello(name: String) -> Void {
     let _3: &var Int;
 
     bb0: {
-        call std.task.yield_now() [] -> [return: bb1] suspends;
+        (*_3).[0: Int] = const 1: Int;
+        call std.task.yield_now() [] -> [return: bb3] suspends;
     }
 
     bb1: {
@@ -89,6 +102,11 @@ fn task_root.hello(name: String) -> Void {
     bb2: {
         drop((*_3).[8: String]);
         return;
+    }
+
+    bb3: {
+        (*_3).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 spawner #0: task_root.main()

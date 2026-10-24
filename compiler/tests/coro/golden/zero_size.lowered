@@ -137,7 +137,8 @@ fn zero_size.children() -> Int {
         _2 = [];
         (*_13).[24: Int] = const 1: Int;
         (*_13).[32: [Int; 0]] = move _2;
-        call zero_size.last_param(n: Int, z: [Int; 0]) [] -> [return: bb5] suspends;
+        (*_13).[0: Int] = const 1: Int;
+        call zero_size.last_param(n: Int, z: [Int; 0]) [] -> [return: bb6] suspends;
     }
 
     bb1: {
@@ -147,12 +148,14 @@ fn zero_size.children() -> Int {
         (*_13).[32: [Int; 0]] = move _5;
         (*_13).[32: [Int; 0]] = move _6;
         (*_13).[24: Int] = const 2: Int;
-        call zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb6] suspends;
+        (*_13).[0: Int] = const 2: Int;
+        call zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) [] -> [return: bb8] suspends;
     }
 
     bb2: {
         (*_13).[16: Int] = move _7;
-        call zero_size.result() [] -> [return: bb7] suspends;
+        (*_13).[0: Int] = const 3: Int;
+        call zero_size.result() [] -> [return: bb10] suspends;
     }
 
     bb3: {
@@ -173,13 +176,28 @@ fn zero_size.children() -> Int {
     }
 
     bb6: {
+        (*_13).[0: Int] = const -3: Int;
+        goto -> bb5;
+    }
+
+    bb7: {
         _7 = move (*_13).[16: Int];
         goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
+        (*_13).[0: Int] = const -4: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _9 = move (*_13).[16: [Int; 0]];
         goto -> bb3;
+    }
+
+    bb10: {
+        (*_13).[0: Int] = const -5: Int;
+        goto -> bb9;
     }
 }
 resume #10: zero_size.first_params(y: [Int; 0], z: [Int; 0], n: Int) task root  (frame size 24 align 8, pointer _9, context _10)

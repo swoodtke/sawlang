@@ -10621,7 +10621,10 @@ The dump lists every thread's groups. It reads each one under that group's
 lock into a buffer and writes nothing until it holds no lock, so a blocked
 standard output never stalls another thread's spawn, and the header's count is
 the number of task lines that follow. A task running on the thread that dumps
-shows its frames as of its last suspension; one another thread is running is
+shows its live frames, down to the suspending call it is inside: each frame's
+state word names the call it is driving while that call runs, and once the
+call returns, the word still gives that call's line but names no frame, so the
+walk never reads a frame that has finished. One another thread is running is
 listed as `running` with no frame lines, since its frames change as the dump
 would read them. Each group is read at its own moment, which is why the header
 calls the snapshot unsynchronized; a single-threaded group is exact, since

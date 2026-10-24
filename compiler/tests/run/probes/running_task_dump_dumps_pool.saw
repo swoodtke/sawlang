@@ -1,0 +1,99 @@
+// probe: stated
+// about: `dump_tasks()` from a running task on a `TaskGroup(threads: 2)` worker that drove a call to its end, joined, cancelled and detached a task, and waits in a join, names only its live frames, each at its drive's line (SL-863)
+// stage 0: runs it on its own std's executor, whose task dump this does not pin (SL-863)
+// speeds: -O0 -O2
+// prints: saw tasks: 1 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 1 running
+// prints:     at running_task_dump_dumps_pool.saw:84 in p
+// prints: saw tasks: 1 live (unsynchronized snapshot)
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_dumps_pool.saw:86 in p
+// prints: saw tasks: 2 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 2 ready
+// prints:     at running_task_dump_dumps_pool.saw:0 in long_work
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_dumps_pool.saw:88 in p
+// prints: saw tasks: 3 live (unsynchronized snapshot)
+// prints:   task group 1 slot 0 gen 2 ready
+// prints:     at running_task_dump_dumps_pool.saw:0 in long_work
+// prints:   task group 1 slot 1 gen 1 ready
+// prints:     at running_task_dump_dumps_pool.saw:0 in long_work
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_dumps_pool.saw:90 in p
+// prints: saw tasks: 3 live (unsynchronized snapshot)
+// prints:   task group 1 slot 1 gen 1 sleeping
+// prints:     at running_task_dump_dumps_pool.saw:50 in long_work
+// prints:   task group 1 slot 2 gen 1 running
+// prints:     at running_task_dump_dumps_pool.saw:78 in dumper
+// prints:   task group 2 slot 0 gen 1 running
+// prints:     at running_task_dump_dumps_pool.saw:90 in p
+// prints: P 88
+import std.task.*
+
+static LONG_ROUNDS: Int = 50
+
+// A suspending call the task drives as a sub-frame of its own.
+func child(i: Int) -> Int {
+    yield_now()
+    i + 1
+}
+
+func work(i: Int) -> Int {
+    yield_now()
+    i * 10
+}
+
+// Runs about 100 ms unless cancelled.
+func long_work(i: Int) -> Int {
+    var n = 0
+    while n < LONG_ROUNDS && not cancelled() {
+        sleep(Duration.ms(2))
+        n = n + 1
+    }
+    i
+}
+
+func fate_join(i: Int) -> Int {
+    yield_now()
+    let h = Task.spawn(work(i))
+    h.join()
+}
+
+func fate_cancel(i: Int) -> Int {
+    yield_now()
+    let h = Task.spawn(long_work(i))
+    h.cancel()
+    i
+}
+
+func fate_detach(i: Int) -> Int {
+    yield_now()
+    let h = Task.spawn(long_work(i))
+    h.detach()
+    i
+}
+
+// Dumps while the task that spawned it waits in its join.
+func dumper(i: Int) -> Int {
+    yield_now()
+    dump_tasks()
+    i
+}
+
+func p(i: Int) -> Int {
+    var v = child(i)
+    dump_tasks()
+    v = v + fate_join(v)
+    dump_tasks()
+    v = v + fate_cancel(v)
+    dump_tasks()
+    v = v + fate_detach(v)
+    dump_tasks()
+    let h = Task.spawn(dumper(v))
+    h.join()
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    print("P {}", group.spawn(p(1)).join())
+}

@@ -16,7 +16,8 @@ fn drive_arguments.main() -> Void {
 
     bb0: {
         (*_8).[24: Int] = const 3: Int;
-        call drive_arguments.inner(a: Int) [] -> [return: bb5] suspends;
+        (*_8).[0: Int] = const 1: Int;
+        call drive_arguments.inner(a: Int) [] -> [return: bb6] suspends;
     }
 
     bb1: {
@@ -24,7 +25,8 @@ fn drive_arguments.main() -> Void {
         _4 = drive_arguments.Point { x: copy (*_8).[48: Int], y: const 1: Int };
         (*_8).[40: String] = const "tag": String;
         (*_8).[16: drive_arguments.Point] = move _4;
-        call drive_arguments.label(prefix: String, p: drive_arguments.Point) [] -> [return: bb6] suspends;
+        (*_8).[0: Int] = const 2: Int;
+        call drive_arguments.label(prefix: String, p: drive_arguments.Point) [] -> [return: bb8] suspends;
     }
 
     bb2: {
@@ -35,7 +37,8 @@ fn drive_arguments.main() -> Void {
 
     bb3: {
         (*_8).[24: Int] = copy (*_8).[48: Int];
-        call drive_arguments.effect_only(n: Int) [] -> [return: bb7] suspends;
+        (*_8).[0: Int] = const 3: Int;
+        call drive_arguments.effect_only(n: Int) [] -> [return: bb10] suspends;
     }
 
     bb4: {
@@ -49,13 +52,28 @@ fn drive_arguments.main() -> Void {
     }
 
     bb6: {
+        (*_8).[0: Int] = const -3: Int;
+        goto -> bb5;
+    }
+
+    bb7: {
         _5 = move (*_8).[32: String];
         goto -> bb2;
     }
 
-    bb7: {
+    bb8: {
+        (*_8).[0: Int] = const -4: Int;
+        goto -> bb7;
+    }
+
+    bb9: {
         _7 = move (*_8).[16: Int];
         goto -> bb4;
+    }
+
+    bb10: {
+        (*_8).[0: Int] = const -5: Int;
+        goto -> bb9;
     }
 }
 resume #5: drive_arguments.inner(a: Int)  (frame size 32 align 8, pointer _5, context _6)

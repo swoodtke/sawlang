@@ -19,13 +19,15 @@ fn pack_arms.by_if(flag: Bool) -> Int {
 
     bb2: {
         (*_4).[24: Int] = const 1: Int;
-        call pack_arms.small(k: Int) [] -> [return: bb6] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call pack_arms.small(k: Int) [] -> [return: bb7] suspends;
     }
 
     bb3: {
         (*_4).[24: Int] = const 2: Int;
         (*_4).[32: String] = const "two": String;
-        call pack_arms.large(k: Int, label: String) [] -> [return: bb7] suspends;
+        (*_4).[0: Int] = const 2: Int;
+        call pack_arms.large(k: Int, label: String) [] -> [return: bb9] suspends;
     }
 
     bb4: {
@@ -44,8 +46,18 @@ fn pack_arms.by_if(flag: Bool) -> Int {
     }
 
     bb7: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb6;
+    }
+
+    bb8: {
         _3 = move (*_4).[16: Int];
         goto -> bb5;
+    }
+
+    bb9: {
+        (*_4).[0: Int] = const -4: Int;
+        goto -> bb8;
     }
 }
 resume #7: pack_arms.by_match(pick: pack_arms.Pick) task root  (frame size 64 align 8, pointer _4)
@@ -81,13 +93,15 @@ fn pack_arms.by_match(pick: pack_arms.Pick) -> Int {
 
     bb5: {
         (*_4).[24: Int] = const 3: Int;
-        call pack_arms.small(k: Int) [] -> [return: bb10] suspends;
+        (*_4).[0: Int] = const 1: Int;
+        call pack_arms.small(k: Int) [] -> [return: bb11] suspends;
     }
 
     bb6: {
         (*_4).[24: Int] = const 4: Int;
         (*_4).[32: String] = const "four": String;
-        call pack_arms.large(k: Int, label: String) [] -> [return: bb11] suspends;
+        (*_4).[0: Int] = const 2: Int;
+        call pack_arms.large(k: Int, label: String) [] -> [return: bb13] suspends;
     }
 
     bb7: {
@@ -111,8 +125,18 @@ fn pack_arms.by_match(pick: pack_arms.Pick) -> Int {
     }
 
     bb11: {
+        (*_4).[0: Int] = const -3: Int;
+        goto -> bb10;
+    }
+
+    bb12: {
         _3 = move (*_4).[16: Int];
         goto -> bb9;
+    }
+
+    bb13: {
+        (*_4).[0: Int] = const -4: Int;
+        goto -> bb12;
     }
 }
 resume #13: pack_arms.small(k: Int)  (frame size 24 align 8, pointer _3, context _4)

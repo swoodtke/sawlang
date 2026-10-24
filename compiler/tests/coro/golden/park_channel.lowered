@@ -9,11 +9,17 @@ fn park_channel.main() -> Void {
     bb0: {
         _1 = Neg(const 4096: Int);
         (*_2).[16: Int] = move _1;
-        call std.task.channel_wait(word: Int) [] -> [return: bb1] suspends;
+        (*_2).[0: Int] = const 1: Int;
+        call std.task.channel_wait(word: Int) [] -> [return: bb2] suspends;
     }
 
     bb1: {
         return;
+    }
+
+    bb2: {
+        (*_2).[0: Int] = const -3: Int;
+        goto -> bb1;
     }
 }
 resume #5: std.task.channel_wait(word: Int)  (frame size 16 align 8, pointer _2, context _3)
