@@ -422,6 +422,7 @@ extension LlEmitter {
         } else if result_class == TargetCClass.NullablePointer {
             out.ret_type = "ptr"
         } else if result_class == TargetCClass.Refused {
+            // Unreachable from source: typecheck refuses the declaration first (`extern.c-abi`).
             self.refuse_aggregate(&var mono, node, "an extern result", s.result)
             return move out
         }
@@ -432,6 +433,7 @@ extension LlEmitter {
             let pt = mono.dp.bc.mir.tc.params[s.param_first + k].ty
             let passing = target.c_class(&var mono.dp.bc.mir.tc, pt, false)
             if passing == TargetCClass.Refused {
+                // Unreachable from source: typecheck refuses the declaration first (`extern.c-abi`).
                 self.refuse_aggregate(&var mono, node, "an extern parameter", pt)
                 return move out
             }

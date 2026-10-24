@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:22
+// flags: --std-root std
+// an extern taking a double optional pointer
+
+extern "C" {
+    func take_double(p: UnsafePointer<Int8>??) -> Int32
+}
+
+func main() {}

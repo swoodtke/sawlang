@@ -1,0 +1,14 @@
+// refuses: extern.c-abi at 11:10
+// flags: --std-root std
+// an extern returning a struct by value
+
+struct Pair {
+    a: Int32
+    b: Int32
+}
+
+extern "C" {
+    func make_pair() -> Pair
+}
+
+func main() {}

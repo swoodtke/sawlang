@@ -1,0 +1,22 @@
+// flags: --std-root std
+// the types that cross an extern's C convention by value: integers, Bool,
+// Float, a raw-backed enum, raw pointers and their optionals, and Void or
+// Never as a result
+
+enum Mode: UInt8 {
+    case Off = 0
+    case On = 1
+}
+
+extern "C" {
+    func take_integers(a: Int, b: UInt, c: Int64, d: UInt64, e: Int32, f: UInt32, g: Int16, h: UInt16, i: Int8, j: UInt8) -> Int32
+    func take_scalars(flag: Bool, x: Float, mode: Mode) -> Bool
+    func take_pointers(p: UnsafePointer<Int8>, q: UnsafeConstPointer<Int8>) -> UnsafePointer<Int8>
+    func take_nullable(p: UnsafePointer<Int8>?, q: UnsafeConstPointer<Int8>?) -> UnsafePointer<Int8>?
+    func take_nothing()
+    func never_returns() -> Never
+    func make_mode() -> Mode
+    func make_float() -> Float
+}
+
+func main() {}

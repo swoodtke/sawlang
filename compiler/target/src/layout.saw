@@ -652,7 +652,8 @@ extension Target {
     // result. An optional raw pointer is C's nullable pointer either way,
     // which holds only while its payload is one machine pointer: a pointer
     // to `any Trait` is two words, and is refused with every other
-    // aggregate.
+    // aggregate. Typecheck refuses the same set at the declaration
+    // (`extern_crosses`, compiler/typecheck/src/effects.saw); the two change together.
     // ENTRY POINTS:
     //     extern_signature
     //     extern_call

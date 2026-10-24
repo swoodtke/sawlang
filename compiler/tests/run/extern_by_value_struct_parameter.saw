@@ -1,5 +1,5 @@
 // due: a struct crosses the C convention by pointer, never by value (SL-848)
-// refuses: backend.not-yet at 14:11
+// refuses: extern.c-abi at 10:25
 
 struct Pair {
     a: Int32

@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:21
+// flags: --std-root std
+// an extern taking an optional of a non-pointer; only a raw pointer is nullable in C
+
+extern "C" {
+    func take_maybe(x: Int32?) -> Int32
+}
+
+func main() {}

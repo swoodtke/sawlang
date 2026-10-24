@@ -1,5 +1,5 @@
 // due: only an optional raw pointer has C's null to stand for `None`; an optional integer is a flag and a payload (SL-848)
-// refuses: backend.not-yet at 9:11
+// refuses: extern.c-abi at 5:22
 
 extern "C" {
     func probe_maybe(v: Int32?) -> Int32

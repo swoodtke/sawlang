@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:10
+// flags: --std-root std
+// an extern returning an optional of a non-pointer
+
+extern "C" {
+    func make_maybe() -> Int32?
+}
+
+func main() {}

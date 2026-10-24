@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:21
+// flags: --std-root std
+// an extern taking a tuple by value
+
+extern "C" {
+    func take_tuple(t: (Int32, Int32)) -> Int32
+}
+
+func main() {}

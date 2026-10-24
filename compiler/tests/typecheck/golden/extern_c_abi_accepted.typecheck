@@ -1,0 +1,30 @@
+(Module extern_c_abi_accepted
+  (declarations
+    (enum Mode 6:6 private (raw UInt8))
+    (case Mode.Off 7:10)
+    (case Mode.On 8:10)
+    (extern take_integers 12:10 private (signature (params (a Int owned) (b UInt owned) (c Int64 owned) (d UInt64 owned) (e Int32 owned) (f UInt32 owned) (g Int16 owned) (h UInt16 owned) (i Int8 owned) (j UInt8 owned)) -> Int32) (summary declared (suspends no) (sync-callable yes)))
+    (extern take_scalars 13:10 private (signature (params (flag Bool owned) (x Float owned) (mode extern_c_abi_accepted.Mode owned)) -> Bool) (summary declared (suspends no) (sync-callable yes)))
+    (extern take_pointers 14:10 private (signature (params (p UnsafePointer<Int8> owned) (q UnsafeConstPointer<Int8> owned)) -> UnsafePointer<Int8>) (summary declared (suspends no) (sync-callable yes)))
+    (extern take_nullable 15:10 private (signature (params (p UnsafePointer<Int8>? owned) (q UnsafeConstPointer<Int8>? owned)) -> UnsafePointer<Int8>?) (summary declared (suspends no) (sync-callable yes)))
+    (extern take_nothing 16:10 private (signature (params) -> Void) (summary declared (suspends no) (sync-callable yes)))
+    (extern never_returns 17:10 private (signature (params) -> Never) (summary declared (suspends no) (sync-callable yes)))
+    (extern make_mode 18:10 private (signature (params) -> extern_c_abi_accepted.Mode) (summary declared (suspends no) (sync-callable yes)))
+    (extern make_float 19:10 private (signature (params) -> Float) (summary declared (suspends no) (sync-callable yes)))
+    (func main 22:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (extern_c_abi_accepted.Mode
+      (case Off private declared)
+      (case On private declared)
+      (static from public (synthesized raw))))
+  (views
+    (extern_c_abi_accepted.Mode Off On from))
+  (conformances)
+  (copy-tier
+    (extern_c_abi_accepted.Mode Copy))
+  (bodies
+    (Mode.Off 7:10
+      (7:16-7:17 IntLit Int (adopt UInt8) value temp))
+    (Mode.On 8:10
+      (8:15-8:16 IntLit Int (adopt UInt8) value temp))
+    (main 22:6)))

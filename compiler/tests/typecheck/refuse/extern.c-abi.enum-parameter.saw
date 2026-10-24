@@ -1,0 +1,14 @@
+// refuses: extern.c-abi at 11:21
+// flags: --std-root std
+// an extern taking a tagged enum by value; only a raw-backed enum crosses
+
+enum Shape {
+    case Dot,
+    case Line(length: Int32)
+}
+
+extern "C" {
+    func take_shape(s: Shape) -> Int32
+}
+
+func main() {}

@@ -14115,7 +14115,10 @@ An optional pointer, `UnsafePointer<T>?` or `UnsafeConstPointer<T>?`, crosses an
 `fflush(None)` passes NULL. No other optional has a C spelling, and neither does
 a pointer to `any Trait`, which is two words. An integer narrower than 32 bits
 crosses extended by its signedness wherever the target's C convention extends
-one, so C reads the value Saw passed.
+one, so C reads the value Saw passed. A parameter or result that is a by-value
+aggregate (a struct, tuple, tagged enum or `String`) or one of those other
+optionals is refused at the `extern` declaration (`extern.c-abi`); pass an
+`UnsafePointer<S>` instead.
 
 A handful of C symbols the compiler declares for its own lowering — `printf`,
 `snprintf`, `strcpy`, `strcat`, `abort` — may be declared here too, and the two

@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:10
+// flags: --std-root std
+// an extern returning a double optional pointer
+
+extern "C" {
+    func make_double() -> UnsafePointer<Int8>??
+}
+
+func main() {}

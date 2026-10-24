@@ -1,5 +1,5 @@
 // due: a pointer to `any Trait` is two words, no C pointer, so its optional is no nullable pointer (SL-848)
-// refuses: backend.not-yet at 13:16
+// refuses: extern.c-abi at 9:10
 
 trait Shape {
     func area(&self) -> Int

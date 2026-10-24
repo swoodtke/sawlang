@@ -883,7 +883,7 @@ extension TcProgram {
                 let name = self.res.decls[d].name
                 let symbol = self.name_text(name)
                 let reference = references[tc_symbol_index(&symbols, symbol)]
-                if self.check_extern_profile(d) && self.check_offload_signature(d) && reference != d {
+                if self.check_extern_profile(d) && self.check_offload_signature(d) && self.check_extern_c_abi(d) && reference != d {
                     self.check_extern_agreement(d, reference)
                 }
             }
@@ -967,6 +967,92 @@ extension TcProgram {
             ok = false
         }
         ok
+    }
+
+    // Whether each parameter and the result of extern `d` is a type the C
+    // convention carries (`extern_crosses`); every parameter out of that set
+    // is refused, then the result. This is not `export_class`'s set: an extern
+    // also takes `Bool`, a raw-backed enum and an optional raw pointer, which
+    // an `@export` does not, so the two answer different questions and
+    // `Target.c_class` is the one this mirrors, the backend's classifier.
+    func check_extern_c_abi(&var self, d: Int) -> Bool {
+        let s = self.sigs[d]
+        let info = self.res.decls[d]
+        let name = self.name_text(info.name)
+        var ok = true
+        var k = 0
+        while k < s.param_count {
+            let prm = self.params[s.param_first + k]
+            k = k + 1
+            if self.extern_crosses(prm.ty, false) {
+                continue
+            }
+            var msg = StringBuilder()
+            try! msg.append("`extern func ")
+            try! msg.append(name)
+            try! msg.append("`: parameter ")
+            try! msg.append(k)
+            try! msg.append(" `")
+            try! msg.append(self.name_text(prm.name))
+            try! msg.append("` has type `")
+            try! msg.append(self.type_text(prm.ty))
+            try! msg.append("`, which does not cross the C convention by value: an extern takes integers, `Bool`, `Float`, a raw-backed enum and `UnsafePointer<T>`; pass an aggregate by `UnsafePointer<S>`, and an optional pointer as `UnsafePointer<T>?`")
+            let at = if prm.leaf >= 0 { prm.leaf } else { self.decl_site(d) }
+            self.refuse_in(info.module, at, "extern.c-abi", msg.build())
+            ok = false
+        }
+        if not self.extern_crosses(s.result, true) {
+            var msg = StringBuilder()
+            try! msg.append("`extern func ")
+            try! msg.append(name)
+            try! msg.append("`: the result `")
+            try! msg.append(self.type_text(s.result))
+            try! msg.append("` does not cross the C convention by value: an extern returns an integer, `Bool`, `Float`, a raw-backed enum, `UnsafePointer<T>`, `Void` or `Never`; return an aggregate through an `UnsafePointer<S>` parameter the caller owns")
+            self.refuse_blocking_decl(d, "extern.c-abi", msg.build())
+            ok = false
+        }
+        ok
+    }
+
+    // Whether type `t` crosses an extern's C convention in one register, the
+    // accepted set of `Target.c_class` (an erased pointer is two words, and
+    // is refused there too). `result` admits `Void` and `Never`. It is not
+    // `export_class`, which answers for `@export` and refuses `Bool`, a
+    // raw-backed enum and an optional pointer that an extern accepts; a change
+    // to the set here changes `Target.c_class` (compiler/target/src/layout.saw)
+    // with it.
+    func extern_crosses(&self, t: Int, result: Bool) -> Bool {
+        let shape = self.types.ty(t)
+        if shape.kind == TcKind.Ref {
+            return self.kind_of(shape.b) != TcKind.Any
+        }
+        let d = self.nominal_decl(t)
+        if d < 0 {
+            return false
+        }
+        let k = self.known
+        if d == k.int || d == k.uint || d == k.int64 || d == k.uint64 || d == k.int32 || d == k.uint32 || d == k.int16 || d == k.uint16 || d == k.int8 || d == k.uint8 || d == k.bool_type || d == k.float {
+            return true
+        }
+        if d == k.void_type || d == k.never {
+            return result
+        }
+        if d == k.unsafe_pointer || d == k.unsafe_const_pointer || d == k.func_pointer {
+            return self.is_thin_pointer(t)
+        }
+        if d == k.optional {
+            let payload = self.types.arg(t, 0)
+            let p = self.nominal_decl(payload)
+            return p >= 0 && (p == k.unsafe_pointer || p == k.unsafe_const_pointer) && self.is_thin_pointer(payload)
+        }
+        self.res.decls[d].kind == ResDeclKind.Enum && self.sigs[d].result >= 0
+    }
+
+    // Whether raw pointer type `t` is one machine word: a pointer to an
+    // `any Trait` is a data and a vtable address.
+    func is_thin_pointer(&self, t: Int) -> Bool {
+        let shape = self.types.ty(t)
+        shape.count == 0 || self.kind_of(self.types.arg(t, 0)) != TcKind.Any
     }
 
     // Type `t` as a C-ABI refusal names it: an optional by its kind, since

@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:20
+// flags: --std-root std
+// an extern taking an optional Bool
+
+extern "C" {
+    func take_flag(x: Bool?) -> Int32
+}
+
+func main() {}

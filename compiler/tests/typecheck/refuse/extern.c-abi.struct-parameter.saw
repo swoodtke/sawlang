@@ -1,0 +1,14 @@
+// refuses: extern.c-abi at 11:20
+// flags: --std-root std
+// an extern taking a struct by value: pass an `UnsafePointer<Pair>` instead
+
+struct Pair {
+    a: Int32
+    b: Int32
+}
+
+extern "C" {
+    func take_pair(p: Pair) -> Int32
+}
+
+func main() {}

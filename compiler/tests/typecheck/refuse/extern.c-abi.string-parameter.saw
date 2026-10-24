@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:22
+// flags: --std-root std
+// an extern taking a String by value
+
+extern "C" {
+    func take_string(s: String) -> Int32
+}
+
+func main() {}

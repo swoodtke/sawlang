@@ -1,0 +1,13 @@
+// refuses: extern.c-abi at 10:22
+// flags: --std-root std
+// an extern taking a pointer to an `any Trait`, which is a data and a vtable address
+
+trait Shape {
+    func area(&self) -> Int
+}
+
+extern "C" {
+    func take_erased(p: UnsafePointer<any Shape>) -> Int32
+}
+
+func main() {}

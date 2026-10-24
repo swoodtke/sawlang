@@ -1,0 +1,9 @@
+// refuses: extern.c-abi at 6:10
+// flags: --std-root std
+// an extern returning a tuple
+
+extern "C" {
+    func make_tuple() -> (Int32, Int32)
+}
+
+func main() {}
