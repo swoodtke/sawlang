@@ -1,0 +1,65 @@
+// flags: --std-root std --no-hidden-alloc
+// Every legal cell of `--no-hidden-alloc`'s matrix (spec, No hidden
+// allocations): format arguments to `print`, `panic` and `assert`; a capturing
+// closure passed straight to the call that runs it; an escaping closure that
+// captures nothing; a user Printable through the format-argument spelling; and
+// the allocations the source names (`Vector.push`, a collection literal, a
+// spawn, a written `Box<any Error>`). The program checks clean.
+
+struct Point { x: Int, y: Int }
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.x)
+        try! into.append(self.y)
+    }
+}
+
+struct Missing { name: String }
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.name)
+    }
+}
+
+extension Missing: Error {}
+
+func load(ok: Bool) -> Result<Int, Box<any Error>> {
+    if not ok {
+        return Missing(name: "cfg")
+    }
+    return 1
+}
+
+func run_now(f: () sync -> Int) -> Int {
+    f()
+}
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    let n = 7
+    print("n = {}", n)
+    assert(n > 0, "n was {}", n)
+    if n < 0 {
+        panic("out of {}", n)
+    }
+    let base = 10
+    print("{}", run_now({ base + 5 }))
+    let double = { m: Int in m * 2 }
+    print("{}", double(21))
+    let p = Point(x: 3, y: 4)
+    print("{}", p)
+    var v: Vector<Int> = [1, 2, 3]
+    try! v.push(4)
+    print("{}", v.len())
+    var group = TaskGroup()
+    print("{}", group.spawn(work(3)).join())
+    match load(ok: true) {
+        case Ok(found) -> print("{}", found),
+        case Err(e) -> print("{}", e)
+    }
+}

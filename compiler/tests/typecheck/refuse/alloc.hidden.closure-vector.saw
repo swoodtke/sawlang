@@ -1,0 +1,12 @@
+// refuses: alloc.hidden at 9:17
+// flags: --std-root std --no-hidden-alloc
+// message: an escaping closure heap-allocates its captured environment
+// A capturing closure pushed into a Vector, which stores it (SL-269).
+
+func main() {
+    let base = 10
+    var v = Vector<() sync -> Int>()
+    try! v.push({ base + 5 })
+    let g = v[0]
+    print("{}", g())
+}

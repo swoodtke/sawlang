@@ -29,7 +29,7 @@ implementation wins and this document is the bug.
 1. **Safety without sacrifice** - Memory safety and thread safety by default, with explicit opt-out for low-level control
 2. **Zero-cost abstractions** - High-level constructs compile to efficient machine code
 3. **Expressiveness** - Clean, readable syntax that reduces boilerplate
-4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `--no-hidden-alloc` (not yet in `sawc`, SL-865): every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
+4. **Predictability** - Allocation is visible in the type, no garbage collection pauses, deterministic destruction. **No hidden allocations**, enforced by `--no-hidden-alloc`: every allocation is named by the expression or by a type the author wrote, and the compiler allocating on its own authority is a compile error. Without the flag, three constructs allocate without saying so — an escaping closure's captured environment, a string interpolation's result buffer, and single-argument `print` of a user `Printable`. See [No hidden allocations](#no-hidden-allocations---no-hidden-alloc) for the site-by-site classification.
 5. **Progressive disclosure** - Simple things are simple, complex things are possible
 
 ### Non-Goals
@@ -15765,8 +15765,8 @@ state, and it no longer exists.
 
 ### No hidden allocations (`--no-hidden-alloc`)
 
-**Status: implemented (design 135) in v0.18.0's compiler; not yet in `sawc`
-(SL-865).** `Vector.push` allocates, and it says so:
+**Status: implemented (design 135; in `sawc` by SL-865).** `Vector.push`
+allocates, and it says so:
 a method with a contract, an allocator in the type. The guarantee is about the
 other case — the compiler allocating on its own authority, where nothing in the
 source says a heap block is involved. `--no-hidden-alloc` rejects every
@@ -15990,7 +15990,7 @@ sawc --version
   needed. `sawc --help` lists every form and flag.
 
 **Not yet in `sawc`.** The spec documents several flags of v0.18.0's compiler,
-`sawc0`, that `sawc` does not take yet: `--no-hidden-alloc` (SL-865); the
+`sawc0`, that `sawc` does not take yet: the
 `-W` warning categories (SL-879); and `--emit-docs` (SL-880). Code that needs them, and the
 sources frozen in v0.18.0's language (Blade, `libs/`), build with `sawc0`,
 which `bin/sawc0` runs from a v0.18.0 checkout (`SAWLANG_V0_ROOT`, else the tag

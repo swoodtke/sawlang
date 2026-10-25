@@ -27,6 +27,9 @@ public struct BuildOptions {
     runtime: Bool
     freestanding: Bool
     provider: Bool
+    // `--no-hidden-alloc`: typecheck refuses the allocations the compiler
+    // inserts that no source construct names.
+    no_hidden_alloc: Bool
     // `--sanitize address`: every function instrumented by AddressSanitizer,
     // and each lowered frame's values poisoned outside their lifetimes.
     sanitize_address: Bool
@@ -58,7 +61,8 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
                                names: &names, dirs: &dirs, runtime: options.runtime,
-                               freestanding: options.freestanding, provider: options.provider)
+                               freestanding: options.freestanding, provider: options.provider,
+                               no_hidden_alloc: options.no_hidden_alloc)
     let head = front.build()
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
         try! out.append(head)

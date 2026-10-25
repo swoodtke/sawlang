@@ -1,0 +1,14 @@
+// refuses: alloc.hidden at 12:32
+// flags: --std-root std --no-hidden-alloc
+// message: an escaping closure heap-allocates its captured environment
+// A capturing closure stored in a field.
+
+struct Handler {
+    run: (Int) sync -> Int
+}
+
+func main() {
+    let base = 10
+    let handler = Handler(run: { n: Int in n + base })
+    print("{}", handler.run(5))
+}

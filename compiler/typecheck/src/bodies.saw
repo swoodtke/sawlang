@@ -3331,6 +3331,7 @@ extension TcProgram {
     // Printable or a primitive, and is borrowed.
     func interpolation(&var self, e: Int) -> Int {
         let n = self.child_count(e)
+        var segments = 0
         var k = 0
         while k < n {
             let c = self.child(e, k)
@@ -3338,8 +3339,12 @@ extension TcProgram {
                 let _ = self.expr(c, TC_WANT_NONE)
                 self.check_formattable(c)
                 self.set_use(c, TcUse.Borrow)
+                segments = segments + 1
             }
             k = k + 1
+        }
+        if segments > 0 {
+            self.refuse_hidden_allocation(e, TcHiddenAlloc.Interpolation, -1)
         }
         self.string_position(e, TcStringPosition.Interpolation)
         let t = self.string_type()
@@ -11218,6 +11223,9 @@ extension TcProgram {
                     self.string_position(fmt, TcStringPosition.Argument)
                 } else if self.renders_through_to_string(ft) {
                     self.string_position(fmt, TcStringPosition.Rendered)
+                    if name.equals("print") {
+                        self.refuse_hidden_allocation(fmt, TcHiddenAlloc.Rendered, ft)
+                    }
                 }
                 if self.is_string(ft) || self.has_error(ft) {
                     self.consume(fmt)
@@ -12901,6 +12909,67 @@ extension TcProgram {
     }
 }
 
+// The three allocations the compiler inserts that no source construct names
+// (spec, No hidden allocations).
+public enum TcHiddenAlloc {
+    // An interpolated string's buffer, wherever it is written.
+    case Interpolation,
+    // An escaping closure's captured environment.
+    case Environment,
+    // The `to_string()` a one-argument `print` of a Printable renders through.
+    case Rendered
+}
+
+extension TcProgram {
+    // THE HIDDEN-ALLOCATION FUNNEL: under `--no-hidden-alloc`, refuses node
+    // `e`, a site of the allocation `kind` (`t`, for `Rendered`, the type the
+    // `print` renders), naming the allocation and the spelling that makes
+    // none. The program's own source is judged: std is written on the
+    // allocation-free path already, so a site in a std module is not.
+    // ENTRY POINTS:
+    //     interpolation
+    //     builtin_call
+    //     settle_captures
+    public func refuse_hidden_allocation(&var self, e: Int, kind: TcHiddenAlloc, t: Int) {
+        if not self.no_hidden_alloc {
+            return
+        }
+        let m = self.node_module(e)
+        if m == self.res.builtin || self.res.module(m).kind == ResModuleKind.Std {
+            return
+        }
+        // A body typed twice reports its site once.
+        let start = self.res.nodes[e].start
+        var k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            if d.module == m && d.start == start && d.id.equals("alloc.hidden") {
+                return
+            }
+            k = k + 1
+        }
+        var msg = StringBuilder()
+        if kind == TcHiddenAlloc.Interpolation {
+            try! msg.append("string interpolation allocates a String")
+        } else if kind == TcHiddenAlloc.Environment {
+            try! msg.append("an escaping closure heap-allocates its captured environment")
+        } else {
+            try! msg.append("`print` renders `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` through `to_string()`, which allocates a String")
+        }
+        try! msg.append(" — `--no-hidden-alloc` forbids allocations the source does not name; ")
+        if kind == TcHiddenAlloc.Interpolation {
+            try! msg.append("pass the values as format arguments instead — `print(\"x = \{\}\", x)`, `panic(\"out of \{\}\", what)` — or assemble the text in a fixed-capacity `StringBuilder`; a message with nothing interpolated into it is an interned literal and costs nothing")
+        } else if kind == TcHiddenAlloc.Environment {
+            try! msg.append("pass the closure straight to the call that runs it (a non-escaping closure keeps its environment on the stack), drop the captures and take the values as parameters, or hold the shared state in an explicit `Box` or `Arc` so the allocation is written down")
+        } else {
+            try! msg.append("write `print(\"\{\}\", value)` — the format-argument spelling streams the value through its own `format` into stack scratch")
+        }
+        self.refuse_in(m, e, "alloc.hidden", msg.build())
+    }
+}
+
 // Each closure's captures (spec, Capturing `self` and reference parameters).
 extension TcProgram {
     // Records every closure's captures once every body is checked: the
@@ -12945,6 +13014,11 @@ extension TcProgram {
             self.collect_captures(e, d, escapes)
             let count = self.captures.len() - first
             try! self.capture_count.push(count)
+            // A `Thread.spawn` brace's environment is the spawn's own
+            // allocation, which the source names by starting the thread.
+            if escapes && count > 0 && not tc_contains(&self.thread_braces, e) {
+                self.refuse_hidden_allocation(e, TcHiddenAlloc.Environment, -1)
+            }
             k = k + 1
         }
     }

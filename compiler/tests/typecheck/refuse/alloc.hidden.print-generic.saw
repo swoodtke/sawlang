@@ -1,0 +1,13 @@
+// refuses: alloc.hidden at 8:11
+// flags: --std-root std --no-hidden-alloc
+// message: through `to_string()`, which allocates a String
+// Inside a generic, `print(v)` on a `T: Printable` is judged at the template,
+// where `T` could be anything; the format-argument spelling covers them all.
+
+func show<T: Printable>(v: T) {
+    print(v)
+}
+
+func main() {
+    show(v: 3)
+}

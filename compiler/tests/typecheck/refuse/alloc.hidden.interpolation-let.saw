@@ -1,0 +1,10 @@
+// refuses: alloc.hidden at 8:17
+// flags: --std-root std --no-hidden-alloc
+// message: string interpolation allocates a String
+// message: `--no-hidden-alloc` forbids allocations the source does not name
+// An interpolation bound to a `let` builds a String the source never names.
+
+func main() {
+    let label = "count: {3}"
+    print("{}", label)
+}

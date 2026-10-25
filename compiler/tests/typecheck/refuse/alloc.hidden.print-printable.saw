@@ -1,0 +1,20 @@
+// refuses: alloc.hidden at 19:11
+// flags: --std-root std --no-hidden-alloc
+// message: `print` renders `alloc.hidden.print-printable.Point` through `to_string()`, which allocates a String
+// message: write `print("{}", value)`
+// One-argument `print` of a user Printable renders through the `to_string()`
+// the compiler synthesizes.
+
+struct Point { x: Int, y: Int }
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.x)
+        try! into.append(self.y)
+    }
+}
+
+func main() {
+    let p = Point(x: 1, y: 2)
+    print(p)
+}

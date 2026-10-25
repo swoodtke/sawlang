@@ -924,8 +924,7 @@ func boot() {
 Cross-compiling to a bare-metal target takes a triple and, where the part has
 optional extensions, a feature list. `sawc build --freestanding --target
 aarch64-unknown-none-elf` writes a freestanding object today; `sawc` does not
-yet target riscv32 or take `--no-hidden-alloc` (SL-865). With those, the build
-reads:
+yet target riscv32 (SL-865). With it, the build reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
@@ -995,8 +994,8 @@ string to check an installed compiler against.
 
 A consumer that builds Stage 0's language through this repository (sawos, or
 any `SAWLANG_ROOT` user that needs `sawc0`'s command line) builds through a
-pin at or before v0.18.0 until `sawc` builds that command line, riscv32 and
-`--no-hidden-alloc` included (SL-865).
+pin at or before v0.18.0 until `sawc` builds that command line, riscv32
+included (SL-865).
 sawos's copy of the toolchain resolver follows this one when its work resumes.
 
 ### Linux
@@ -1047,10 +1046,9 @@ own runtime: it may export the `__saw_rt_*` seams, each checked against
 every seam it reaches. `sawc runtime` builds the hosted runtime from
 `runtime/`.
 
-The spec documents some compiler flags that `sawc` does not take yet:
-`--no-hidden-alloc` (SL-865), the `-W`
-warning categories other than `borrow-prefix` (SL-879), and `--emit-docs`
-(SL-880).
+The spec documents some compiler flags that `sawc` does not take yet: the
+`-W` warning categories other than `borrow-prefix` (SL-879) and
+`--emit-docs` (SL-880).
 
 ## Running tests
 
@@ -1181,8 +1179,7 @@ Saw is in active development. Implemented so far:
   and earned shadowing.
 - **Systems work** — pluggable allocators, memory-mapped I/O, `static_assert`,
   C-ABI exports, `SpinLock<T>` and `unsafe static var` for global state,
-  allocation-free formatting, and `--no-hidden-alloc` (in v0.18.0's compiler;
-  not yet in `sawc`, SL-865).
+  allocation-free formatting, and `--no-hidden-alloc`.
 - **Tooling** — source-location literals, checked doc comments,
   reachability-scoped code generation with a dead-stripped link, and the Blade
   package manager, which is self-hosting. `--emit-docs` extraction and opt-in

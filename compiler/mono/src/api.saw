@@ -41,10 +41,11 @@ public struct MonoOptions {
 // once, and the program's `lowerings` says so.
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
                             names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false,
-                            freestanding: Bool = false, provider: Bool = false) -> MonoProgram {
+                            freestanding: Bool = false, provider: Bool = false,
+                            no_hidden_alloc: Bool = false) -> MonoProgram {
     var lowerings = 0
     var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, runtime: runtime,
-                                 freestanding: freestanding, provider: provider)
+                                 freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc)
     var head = StringBuilder()
     var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
     // The constants are evaluated over the program as lowered, before the

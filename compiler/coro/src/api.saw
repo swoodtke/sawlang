@@ -42,9 +42,11 @@ public struct CoroOptions {
 // profile record every later stage reads.
 public func coro_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
                             names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false,
-                            freestanding: Bool = false, provider: Bool = false) -> CoroProgram {
+                            freestanding: Bool = false, provider: Bool = false,
+                            no_hidden_alloc: Bool = false) -> CoroProgram {
     var mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
-                               dirs: &dirs, runtime: runtime, freestanding: freestanding, provider: provider)
+                               dirs: &dirs, runtime: runtime, freestanding: freestanding, provider: provider,
+                               no_hidden_alloc: no_hidden_alloc)
     var coro = coro_program(move mono)
     if not coro.blocked {
         coro_solve_suspension(&var coro)

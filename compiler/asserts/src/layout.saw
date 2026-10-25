@@ -24,9 +24,10 @@ import sawtypecheck.typeops.{TcClient}
 //     mir_lower_file
 public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
                                       dirs: &Vector<String>, runtime: Bool = false,
-                                      freestanding: Bool = false, provider: Bool = false) -> TcProgram {
+                                      freestanding: Bool = false, provider: Bool = false,
+                                      no_hidden_alloc: Bool = false) -> TcProgram {
     var p = typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding,
-                              provider: provider)
+                              provider: provider, no_hidden_alloc: no_hidden_alloc)
     asserts_check_concrete(&var p)
     move p
 }

@@ -73,8 +73,8 @@ HALs, runtime, root server and their tests live in the sawos repo
 (`../sawos` locally), flattened to its root, building against a sawlang
 checkout through the resolver (`SAWLANG_ROOT` is the everyday spelling).
 sawlang references sawos nowhere. sawos builds through a pin at or before
-v0.18.0 until `sawc` builds its kernel command line, riscv32 and
-`--no-hidden-alloc` included (SL-865).
+v0.18.0 until `sawc` builds its kernel command line, riscv32 included
+(SL-865).
 
 ## Python environment
 The tools use the standard library alone; `.venv/` (Python 3.14) pins the
@@ -121,9 +121,8 @@ run the stage binaries directly (`build.SAWC`; `SAWC_STAGE=1` selects Stage
 `SAWC2_*` spelling is refused, naming its new name.
 
 `--module-path` maps a package name to a module dir (Blade uses this per
-dependency). Not in `sawc` yet, though the spec documents them:
-`--no-hidden-alloc` (SL-865), the `-W` warnings (SL-879), and `--emit-docs`
-(SL-880).
+dependency). Not in `sawc` yet, though the spec documents them: the `-W`
+warnings (SL-879) and `--emit-docs` (SL-880).
 
 `sawc0` is v0.18.0's compiler, the frozen Python Stage 0. This tree does not
 hold it: `bin/sawc0` forwards to the v0 checkout `tools/toolchain.py v0-root`
@@ -659,8 +658,7 @@ Doc comments (121):
 errors, `--emit-docs` JSON of the typechecked surface (design-80 gate on
 members; not in `sawc` yet, SL-880); std.task + std.time docstringed; the saw-docs skill is the
 style guide for all user-facing doc text.
-The Aug-6 batch (135-161): `--no-hidden-alloc` (not in `sawc` yet, SL-865)
-rejects the THREE allocations
+The Aug-6 batch (135-161): `--no-hidden-alloc` rejects the THREE allocations
 the compiler inserts that no source construct names — interpolation anywhere
 (no panic/assert carve-out), an escaping closure's captured env, and
 single-arg `print` of a user Printable (135); `{}` FORMAT ARGUMENTS on

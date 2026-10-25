@@ -90,7 +90,7 @@ func driver_usage() -> Int {
     print("       sawc resolve (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
     print("                    [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
-    print("                      [--freestanding] [--lowerings] [-W borrow-prefix] [--std-root DIR]")
+    print("                      [--freestanding] [--no-hidden-alloc] [--lowerings] [-W borrow-prefix] [--std-root DIR]")
     print("                      [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
@@ -106,7 +106,7 @@ func driver_usage() -> Int {
     print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
     print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
-    print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]")
+    print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
     print("                  [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
@@ -143,7 +143,9 @@ func driver_speed_level(flag: String) -> String {
 // provider: it may export the frozen seams, each checked against
 // runtime/ABI.md, and a hosted one links with none of sawc's runtime objects,
 // so it must define every seam it reaches (`ll_check_provider_seams`);
-// `--runtime-build` is refused, naming `sawc runtime`. The program carries DWARF line tables unless
+// `--runtime-build` is refused, naming `sawc runtime`. `--no-hidden-alloc`
+// has typecheck refuse the allocations no source construct names
+// (`refuse_hidden_allocation`). The program carries DWARF line tables unless
 // `-g0` turns them off; `-g` spells the default (spec, Debug info). Its
 // arguments start at `args[first]`: 2 after `build`, and 1 for the implicit
 // form `sawc [FLAG]... FILE.saw`, the command line a Stage 0 consumer already
@@ -160,6 +162,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var sanitize = false
     var freestanding = false
     var provider = false
+    var hidden = false
     var debug = true
     var warn = false
     var object = false
@@ -190,6 +193,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             freestanding = true
         } else if arg.equals("--runtime") || arg.equals("--runtime-provider") {
             provider = true
+        } else if arg.equals("--no-hidden-alloc") {
+            hidden = true
         } else if arg.equals("--runtime-build") {
             print("sawc build: takes no --runtime-build, v0.18.0's build of its own runtime: `sawc runtime` builds runtime/, each seam checked against runtime/ABI.md, and `--runtime` builds a program that is its own runtime")
             return DRIVER_EXIT_USAGE
@@ -272,8 +277,11 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     features = target_effective_features(triple, features, freestanding)
     if emit {
-        return driver_emit(path, std_root, triple, speed, sanitize, debug, features, object, freestanding, provider,
-                           &names, &dirs)
+        let emitting = BuildOptions(std_root: std_root, target: triple, speed: speed,
+                                    module_triple: target_clang_triple(triple), runtime: false,
+                                    freestanding: freestanding, provider: provider, no_hidden_alloc: hidden,
+                                    sanitize_address: sanitize, debug_info: debug, features: features, object: object)
+        return driver_emit(path, &emitting, &names, &dirs)
     }
     // Another target links against its own runtime, which a manifest of its
     // own names once build.py's clang check has passed for it; the host's
@@ -310,7 +318,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     let clang_triple = target_clang_triple(triple)
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple,
                                runtime: false, freestanding: freestanding, provider: provider,
-                               sanitize_address: sanitize, debug_info: debug, features: features, object: object)
+                               no_hidden_alloc: hidden, sanitize_address: sanitize, debug_info: debug,
+                               features: features, object: object)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -345,12 +354,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
 
 // `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
-func driver_emit(path: String, std_root: String, triple: String, speed: String, sanitize: Bool, debug: Bool,
-                 features: String, object: Bool, freestanding: Bool, provider: Bool, names: &Vector<String>,
-                 dirs: &Vector<String>) -> Int {
-    let options = BuildOptions(std_root: std_root, target: triple, speed: speed,
-                               module_triple: target_clang_triple(triple), runtime: false, freestanding: freestanding,
-                               provider: provider, sanitize_address: sanitize, debug_info: debug, features: features, object: object)
+func driver_emit(path: String, options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -1125,7 +1129,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     // whose absolute path every program's debug map would then name.
     let options = BuildOptions(std_root: std_root, target: host, speed: speed,
                                module_triple: target_clang_triple(host), runtime: true, freestanding: false,
-                               provider: false,
+                               provider: false, no_hidden_alloc: false,
                                sanitize_address: false, debug_info: false, features: "", object: false)
     let names = Vector<String>()
     let dirs = Vector<String>()
@@ -1607,6 +1611,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var summaries = false
     var provider = false
     var freestanding = false
+    var hidden = false
     var counted = false
     var warn = false
     var std_root = ""
@@ -1638,6 +1643,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             provider = true
         } else if arg.equals("--freestanding") && typecheck {
             freestanding = true
+        } else if arg.equals("--no-hidden-alloc") && typecheck {
+            hidden = true
         } else if arg.equals("--spans") && stage == DRIVER_STAGE_MIR {
             spans = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") {
@@ -1706,7 +1713,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                                     dirs: &dirs, lowerings: &var lowerings)
             } else if typecheck {
                 let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
-                                                        freestanding: freestanding, provider: provider)
+                                                        freestanding: freestanding, provider: provider,
+                                                        no_hidden_alloc: hidden)
                 result = typecheck_record(out: &var out, p: &checked, options: &checking)
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,

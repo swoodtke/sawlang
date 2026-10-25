@@ -37,7 +37,8 @@ under the freestanding profile (`spawn.freestanding`,
 `extern.freestanding-blocking`, `import.hosted-only`), where a `main` is an
 ordinary function. The flags make the program's profile record,
 `TcProgram.profile` (`tc_profile`, one of five kinds), which every rule that
-knows a profile reads. Each entry gets one record, starting
+knows a profile reads. `--no-hidden-alloc` refuses the allocations no source
+construct names (`alloc.hidden`), under any profile. Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
 
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal:
@@ -1734,6 +1735,7 @@ its fixit.
 | `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`), the two test drivers (`.drive`, `.drive-steps`) and the `Thread.spawn` brace (`.thread`, conformance row D11) |
 | `spawn.freestanding` | a `Task.spawn` under `--freestanding`: the background group it spawns into closes at `main`'s return, which a freestanding image lacks; `group.spawn` stands (SL-580) |
 | `import.hosted-only` | an import of a hosted-only std module (`std.file`, `std.process`, `std.env`, `std.directory`, `std.time`, `std.net`, `std.signal`) by a module of the program under `--freestanding`, at the import; std's own imports are not judged (SL-865) |
+| `alloc.hidden` | THE HIDDEN-ALLOCATION FUNNEL (`refuse_hidden_allocation`): under `--no-hidden-alloc`, an allocation the compiler inserts that no source construct names, in a module of the program: an interpolation with an expression segment, wherever it is written, `panic` and `assert` messages included; a capturing closure that escapes, a `Thread.spawn` brace excepted; and one-argument `print` of a value that renders through `to_string()`. The format-argument spellings, a closure passed straight to its call, and a capture-free escaping closure are legal (`golden/no_hidden_alloc_legal`) (SL-865) |
 | `extern.freestanding-blocking` | THE EXTERN FUNNEL (`check_extern_declarations`): a program's own `blocking` extern under `--freestanding`, which has no offload thread pool; std's hosted modules are read whatever a program imports and are not judged (SL-580) |
 | `extern.offload-c-abi` | the extern funnel: a `blocking` extern's parameter (`extern.offload-c-abi`) or result (`.result`) outside the C-ABI set an `@export` admits, at the declaration, called or not (SL-580) |
 | `extern.signature-disagree` | the extern funnel: a declaration of a C symbol whose parameter types (`.parameter`, an `Int` where std's takes a pointer), arity (`.arity`), variadic-ness or result (`extern.signature-disagree`) differ from the symbol's reference declaration, std's when std declares it and else the first; refused where the other is written. Two pointer types agree whatever they point at (the run probe `extern_agreement_accepts_the_same_declaration` redeclares std.file's `access` with an `UnsafePointer<UInt8>`) (SL-580) |

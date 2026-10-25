@@ -1,0 +1,12 @@
+// refuses: alloc.hidden at 7:19
+// flags: --std-root std --no-hidden-alloc
+// message: string interpolation allocates a String
+// An `assert` message is no exception either.
+
+func check(n: Int) {
+    assert(n > 0, "n was {n}")
+}
+
+func main() {
+    check(n: 1)
+}

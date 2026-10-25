@@ -499,6 +499,11 @@ public struct TcProgram {
     // The profile the program is compiled under, the one place it is known
     // (`tc_profile`); every later stage reads it here.
     profile: TcProfile
+    // `--no-hidden-alloc`: refuse the allocations the compiler inserts that
+    // no source construct names (`refuse_hidden_allocation`). It is not a
+    // profile: any of the five kinds may ask for it or not, so it stays an
+    // option beside the record rather than a sixth kind.
+    no_hidden_alloc: Bool
     // By declaration: the C symbol an `@export` gives it, or "" for none, and
     // the attribute that says so, or -1 (`check_exports`).
     export_symbols: Vector<String>
@@ -603,7 +608,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
-                      profile: tc_profile(false, false, false),
+                      profile: tc_profile(false, false, false), no_hidden_alloc: false,
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>(), blocking_twins: move twins, pair_defaults: move defaults)
     let empty = Vector<Int>()

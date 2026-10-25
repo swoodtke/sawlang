@@ -131,7 +131,7 @@ byte_type_flow.saw	pass	-	-
 capture_exclusivity_disjoint.saw	pass	-	-
 capture_write_allowed_forms.saw	pass	judged by its own directives (edited since its oracle)	-
 cast170_checked_as.saw	refused	resolve name.reserved	`Byte` is a prelude name, so it is reserved and cannot be declared again
-cast170_from_family.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+cast170_from_family.saw	pass	-	-
 cast170_narrowing_panics.saw	pass	-	-
 cast170_sign_change_panics.saw	pass	-	-
 cast_distinct_chained_and_partial.saw	pass	-	-
@@ -503,7 +503,7 @@ conformance/V112_destructuring_let_retains_a_projection.saw	wrong	stdout differs
 conformance/V113_chain_assign_retains_a_projection.saw	pass	-	-
 conformance/V114_struct_field_retains_a_projection.saw	pass	-	-
 conformance/V115_stored_closure_owns_its_captures.saw	refused	typecheck type.mismatch	expected `Result<() sync -> Int, V115_stored_closure_owns_its_captures.Res>`, the type of the function's result, which the body's last expression is, and found `() sendable -> Int`
-conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+conformance/V116_non_escaping_closure_keeps_its_stack_env.saw	pass	-	-
 conformance/V11_copy_on_nocopy.saw	refused	typecheck member.unknown	`Result<std.box.Box<Int, std.alloc.GlobalAllocator>, std.alloc.AllocError>` is NoCopy, so it has no `copy()`; move it instead
 conformance/V12_move_capture_out_of_closure.saw	pass	-	transfer.implicit-copy: the closure captures `v` by value, and `std.vector.Vector<Int, std.alloc.GlobalAllocator>` is ExplicitCopy, which does not copy silently: capture it with `[move v]`, or copy it
 conformance/V18_discard_nocopy_without_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `std.box.Box<Int, std.alloc.GlobalAllocator>`, which is NoCopy, by value: only a Copy type copies silently; write `move b` to take it, or borrow it
@@ -1205,7 +1205,7 @@ errors/named_lend_root_in_block.saw	pass	judged by its own directives (no oracle
 errors/never_emitted_instance_reports.saw	wrong	accepts a refusal test	cannot `move` `old`: `Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated.
 errors/no_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f1` to take it, or borrow it
 errors/no_copy_containment.saw	pass	-	copy.undeclared-policy: `Connection` holds `Connection.handle` of type `no_copy_containment.FileHandle`, which is NoCopy, so it declares its own policy: `extension Connection: NoCopy {}`, or `@synthes
-errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+errors/no_hidden_alloc_closure_pushed_into_a_vector.saw	pass	-	alloc.hidden: an escaping closure heap-allocates its captured environment — `--no-hidden-alloc` forbids allocations the source does not name; pass the closure straight to the call that runs it (a non-
 errors/nocopy_override_implicit_tier_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_override_implicit_tier_copy.Ticket`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
 errors/nomove_bound_value_into_argument.saw	pass	judged by its own directives (edited since its oracle)	transfer.no-move: cannot `move` `a`: `nomove_bound_value_into_argument.Anchor` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to lend it, or build the va
 errors/nomove_containment_cascade.saw	pass	-	nomove.undeclared: `Server` contains NoMove member `group` of type `std.taskgroup.TaskGroup` but does not declare `NoMove`: declare `extension Server: NoMove {}` beside its `NoCopy`, or hold the membe
@@ -1570,8 +1570,8 @@ fixed_width_let_negate_panic.saw	pass	-	-
 fixed_width_param_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_return_out_of_range_error.saw	pass	-	type.mismatch: integer literal 999 does not fit in `Int8` (range -128..=127)
 fixed_width_value_positions.saw	pass	-	-
-fixedbuf_get_out_of_range_none.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
-fixedbuf_set_oob_panic.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+fixedbuf_get_out_of_range_none.saw	crash	INVARIANT	20:22 an expression has no type
+fixedbuf_set_oob_panic.saw	crash	INVARIANT	21:22 an expression has no type
 flag_enum_const.saw	refused	typecheck slice.not-yet	`syntax.expr.bitand` is not in the bootstrap slice yet
 flat_and_nested_module_paths_are_distinct.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
 flat_and_nested_modules_declare_distinct_types.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
@@ -1607,7 +1607,7 @@ funcpointer226_call.saw	refused	resolve name.undefined	cannot find `FuncPointer`
 funcpointer226_coercion_positions.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 funcpointer226_composites.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 funcpointer226_ffi_qsort.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer226_no_hidden_alloc.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+funcpointer226_no_hidden_alloc.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 funcpointer226_type.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 funcpointer_call_in_a_driven_body.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
 generic_body_honors_copy_tier.saw	pass	-	copy.requirement: `twice` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/generic_body_honors_copy_tier.saw:32:18 and 33:18, with nothing written, and `generic_body_h
@@ -1999,12 +1999,12 @@ newline_wrapped_generics.saw	pass	-	-
 newline_wrapped_literals.saw	pass	-	-
 newline_wrapped_params.saw	pass	-	-
 no_copy_return_error.saw	pass	-	transfer.implicit-copy: this reads a place of type `no_copy_return_error.Resource`, which is NoCopy, by value: only a Copy type copies silently; write `move r` to take it, or borrow it
-no_hidden_alloc_escaping_closure.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
-no_hidden_alloc_interpolation.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
-no_hidden_alloc_named_allocations.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+no_hidden_alloc_escaping_closure.saw	pass	-	alloc.hidden: an escaping closure heap-allocates its captured environment — `--no-hidden-alloc` forbids allocations the source does not name; pass the closure straight to the call that runs it (a non-
+no_hidden_alloc_interpolation.saw	pass	-	alloc.hidden: string interpolation allocates a String — `--no-hidden-alloc` forbids allocations the source does not name; pass the values as format arguments instead — `print("x = {}", x)`, `panic("ou
+no_hidden_alloc_named_allocations.saw	pass	-	-
 no_hidden_alloc_off_by_default.saw	pass	-	-
-no_hidden_alloc_panic_interpolation.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
-no_hidden_alloc_print_printable.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+no_hidden_alloc_panic_interpolation.saw	pass	-	alloc.hidden: string interpolation allocates a String — `--no-hidden-alloc` forbids allocations the source does not name; pass the values as format arguments instead — `print("x = {}", x)`, `panic("ou
+no_hidden_alloc_print_printable.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 nocopy_array_elem_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_array_elem_requires_move.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f` to take it, or borrow it
 nocopy_call_arg_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `nocopy_call_arg_requires_move.FileHandle`, which is NoCopy, by value: only a Copy type copies silently; write `move f` to take it, or borrow it
 nocopy_call_arg_with_move.saw	pass	-	-
@@ -2340,7 +2340,7 @@ spawned_task_runs_before_reactor_park.saw	stage0-wrong	annotated SL-768	sawc mee
 spinlock_basic.saw	refused	typecheck call.arity	too many arguments: SpinLock.lock() [std.spinlock] takes 0
 spinlock_contention_mt.saw	pass	-	-
 spinlock_import_gate.saw	pass	-	name.not-in-prelude: `SpinLock` is not in the prelude and must be imported: `import std.spinlock.{SpinLock}` selects it
-spinlock_no_hidden_alloc.saw	refused	driver driver.usage	sawc build takes no --no-hidden-alloc
+spinlock_no_hidden_alloc.saw	pass	-	-
 static236_declared_static.saw	pass	-	-
 static236_module_level_funcs_untouched.saw	pass	-	-
 static_and_instance_method_share_a_name.saw	pass	-	-

@@ -1,0 +1,13 @@
+// refuses: alloc.hidden at 11:24
+// flags: --std-root std --no-hidden-alloc
+// message: string interpolation allocates a String
+// An interpolation passed as an argument allocates as surely as one bound.
+
+func length(of: String) -> Int {
+    of.len()
+}
+
+func main() {
+    let n = length(of: "count: {3}")
+    print("{}", n)
+}

@@ -1,0 +1,15 @@
+// refuses: alloc.hidden at 9:15
+// flags: --std-root std --no-hidden-alloc
+// message: string interpolation allocates a String
+// message: `panic("out of {}", what)`
+// A `panic` message is no exception: the allocator may be what ran out.
+
+func drain(remaining: Int) {
+    if remaining <= 0 {
+        panic("out of frames: {remaining} left")
+    }
+}
+
+func main() {
+    drain(remaining: 1)
+}

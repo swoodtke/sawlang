@@ -1,0 +1,12 @@
+// refuses: alloc.hidden at 10:17
+// flags: --std-root std --no-hidden-alloc
+// message: an escaping closure heap-allocates its captured environment
+// message: a non-escaping closure keeps its environment on the stack
+// A capturing closure bound to a `let` outlives its frame, so its captures
+// move to a heap block the literal never names.
+
+func main() {
+    let base = 10
+    let shift = { n: Int in n + base }
+    print("{}", shift(5))
+}
