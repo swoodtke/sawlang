@@ -2,13 +2,17 @@
 &Int: size 8 align 8 pointer
 &String: size 8 align 8 pointer
 &UnsafeMutableInterior<Int>: size 8 align 8 pointer
+&std.alloc.AllocError: size 8 align 8 pointer
 &std.alloc.GlobalAllocator: size 8 align 8 pointer
+&std.stringbuilder.StringBuilder: size 8 align 8 pointer
 &std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 8 align 8 pointer
 &var Result<Int, Int>: size 8 align 8 pointer
 &var Result<Int32, Int8>: size 8 align 8 pointer
 &var Result<Void, std.alloc.AllocError>: size 8 align 8 pointer
+&var String: size 8 align 8 pointer
 &var layouts.Shape: size 8 align 8 pointer
 &var layouts.Shape?: size 8 align 8 pointer
+&var std.stringbuilder.StringBuilder: size 8 align 8 pointer
 &var std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 8 align 8 pointer
 (Int, Bool): size 16 align 8 record offsets 0 8
 (UnsafePointer<Int8>, Int) unsafe sync -> Void: size 24 align 8 closure
@@ -25,6 +29,7 @@ Result<Void, std.alloc.AllocError>: size 24 align 8 enum tag 4, Ok=0 @8, Err=1 @
 String: size 8 align 8 record offsets 0
 UInt16: size 2 align 2 int
 UInt64: size 8 align 8 int
+UInt8: size 1 align 1 int
 UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>: size 8 align 8 pointer
 UnsafePointer<Int8>: size 8 align 8 pointer
 UnsafePointer<Int8>?: size 16 align 8 optional tag 1, Some=1 @8, None=0
@@ -42,4 +47,5 @@ layouts.Shape?: size 32 align 8 optional tag 1, Some=1 @8, None=0
 layouts.Tagged: size 4 align 2 record offsets 0 2
 std.alloc.AllocError: size 16 align 8 record offsets 0 8
 std.alloc.GlobalAllocator: size 0 align 1 record offsets
+std.stringbuilder.StringBuilder: size 40 align 8 record offsets 0 16 24 32 33
 std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 32 align 8 record offsets 0 16 24

@@ -1,0 +1,28 @@
+// probe: panics
+// about: `try!` on a function call that fails with `AllocError`, in a suspending body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: allocation of 64 bytes (align 8) failed
+// ll defines: saw try failure std.alloc.AllocError
+
+import std.task.{yield_now}
+
+func make(fail: Bool) -> Result<Int, AllocError> {
+    yield_now()
+    if fail {
+        return AllocError(size: 64, align: 8)
+    }
+    return 1
+}
+
+func run() {
+    yield_now()
+    print("start")
+    let v = try! make(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

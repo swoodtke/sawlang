@@ -1,0 +1,38 @@
+// probe: panics
+// about: `try!` on a function call that fails with a user enum conforming to `Printable`, in a sync body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: bad code
+// ll defines: saw try failure try_failure_call_enum_sync.Code
+
+enum Code {
+    case Bad,
+    case Worse
+}
+
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Bad -> try! into.append("bad code"),
+            case Worse -> try! into.append("worse code")
+        }
+    }
+}
+
+func make(fail: Bool) -> Result<Int, Code> {
+    if fail {
+        return Code.Bad
+    }
+    return 1
+}
+
+func run() {
+    print("start")
+    let v = try! make(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

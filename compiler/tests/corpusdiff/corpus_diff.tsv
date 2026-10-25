@@ -7,13 +7,13 @@ alloc_channel_send_reports_oom.saw	stage0-wrong	annotated SL-777	sawc meets its 
 alloc_channel_taskgroup_reports_oom.saw	pass	-	-
 alloc_collection_literal_panics_named.saw	pass	-	-
 alloc_custom_allocator.saw	pass	-	-
-alloc_data_push_forced_panics_named.saw	wrong	stderr differs	line 1: sawc "panic at alloc_data_push_forced_panics_named.saw:28: try! failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 32 bytes (align 1) failed"
+alloc_data_push_forced_panics_named.saw	wrong	stderr differs	line 1: sawc "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: allocation of 48 bytes (align 16) failed", Stage 0 "panic at alloc_data_push_forced_panics_named.saw:28: try! failed: al
 alloc_data_reports_oom.saw	stage0-wrong	annotated SL-735	sawc meets its directives
 alloc_default_equals_global.saw	pass	-	-
 alloc_deny_after_seam.saw	pass	-	-
 alloc_hosted_no_degradation.saw	pass	judged by its own directives (edited since its oracle)	-
 alloc_map_copy_panics.saw	pass	-	-
-alloc_map_insert_forced_panics_named.saw	wrong	stderr differs	line 1: sawc "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed", Stage 0 "panic at alloc_map_insert_forced_panics_named.saw:37: try! failed: allocation of 384 bytes (align 8) failed"
+alloc_map_insert_forced_panics_named.saw	pass	-	-
 alloc_map_set_reports_oom.saw	pass	-	-
 alloc_panic_under_full_denial.saw	pass	-	-
 alloc_set_copy_panics.saw	wrong	stderr differs	line 1: sawc "panic at <std>: Map.copy: allocation of 192 bytes (align 8) failed", Stage 0 "panic at <std>: Map.copy: allocation of 128 bytes (align 8) failed"
@@ -21,7 +21,7 @@ alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.path.Path`
 alloc_string_oom_panic.saw	wrong	stderr differs	line 1: sawc "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
-alloc_taskgroup_threads_forced_panics_named.saw	wrong	stderr differs	line 1: sawc "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed", Stage 0 "panic at alloc_taskgroup_threads_forced_panics_named.saw:25: try! failed: allocation of 128 bytes (ali
+alloc_taskgroup_threads_forced_panics_named.saw	pass	-	-
 alloc_vector_copy_panics.saw	wrong	stderr differs	line 1: sawc "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	pass	-	-
@@ -2505,7 +2505,7 @@ try_catch_void_result.saw	pass	-	-
 try_catch_void_result_spawned.saw	pass	-	-
 try_force.saw	pass	-	-
 try_force_panic.saw	pass	-	-
-try_force_panic_names_the_error.saw	wrong	stderr differs	line 1: sawc "panic at try_force_panic_names_the_error.saw:39: try! failed", Stage 0 "panic at try_force_panic_names_the_error.saw:39: try! failed: allocation of 64 bytes (align 8) failed"
+try_force_panic_names_the_error.saw	pass	-	-
 try_force_result_layout_disambig.saw	pass	-	-
 try_inline_catch_diverging_arm.saw	pass	-	-
 try_optional.saw	pass	-	-

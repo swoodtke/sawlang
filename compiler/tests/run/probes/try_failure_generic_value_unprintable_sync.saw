@@ -1,0 +1,28 @@
+// probe: panics
+// about: `try!` on a call generic over its value type that fails with a struct with no `Printable` conformance, which keeps the bare reason, in a sync body, panics `try! failed` and calls no rendering helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed
+// ll omits: saw try failure try_failure_generic_value_unprintable_sync.Plain
+
+struct Plain {
+    n: Int
+}
+
+func failing<T>(value: T, fail: Bool) -> Result<T, Plain> {
+    if fail {
+        return Plain(n: 3)
+    }
+    return value
+}
+
+func run() {
+    print("start")
+    let v = try! failing(5, true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

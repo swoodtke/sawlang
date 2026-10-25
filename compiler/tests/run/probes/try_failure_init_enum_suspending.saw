@@ -1,0 +1,48 @@
+// probe: panics
+// about: `try!` on a fallible `init` that fails with a user enum conforming to `Printable`, in a suspending body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: bad code
+// ll defines: saw try failure try_failure_init_enum_suspending.Code
+
+import std.task.{yield_now}
+
+enum Code {
+    case Bad,
+    case Worse
+}
+
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Bad -> try! into.append("bad code"),
+            case Worse -> try! into.append("worse code")
+        }
+    }
+}
+
+struct Thing {
+    v: Int
+}
+
+extension Thing {
+    init(fail: Bool) -> Result<Thing, Code> {
+        yield_now()
+        if fail {
+            return Code.Bad
+        }
+        return Thing(v: 1)
+    }
+}
+
+func run() {
+    yield_now()
+    print("start")
+    let v = try! Thing(fail: true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

@@ -1,0 +1,16 @@
+// The line-table pin's `try!` program (README.md, "Line tables"): a failing
+// `try!` calls its error type's helper, and that call must symbolize to the
+// `try!`'s own line, the panic's. The error's rendering is std's, so no other
+// call into the funnel lands in this file.
+func reserve(n: Int) -> Result<Int, AllocError> {
+    if n > 2 { return AllocError(size: 64, align: 8) }
+    return n
+}
+
+func claim(n: Int) -> Int {
+    try! reserve(n)
+}
+
+func main() {
+    print("{}", claim(3))
+}

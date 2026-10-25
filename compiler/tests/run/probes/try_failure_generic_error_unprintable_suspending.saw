@@ -1,0 +1,29 @@
+// probe: panics
+// about: `try!` on a call generic over its error type that fails with a struct with no `Printable` conformance, which keeps the bare reason, in a suspending body, panics `try! failed` and calls no rendering helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed
+// ll omits: saw try failure try_failure_generic_error_unprintable_suspending.Plain
+
+import std.task.{yield_now}
+
+struct Plain {
+    n: Int
+}
+
+func failing<F>(error: F) -> Result<Int, F> {
+    yield_now()
+    return Result<Int, F>.Err(error: error)
+}
+
+func run() {
+    yield_now()
+    print("start")
+    let v = try! failing(Plain(n: 3))
+    print("unreached")
+}
+
+func main() {
+    run()
+}

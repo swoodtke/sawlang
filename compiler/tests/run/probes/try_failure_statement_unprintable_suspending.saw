@@ -1,0 +1,32 @@
+// probe: panics
+// about: `try!` on a `Void` call as a statement that fails with a struct with no `Printable` conformance, which keeps the bare reason, in a suspending body, panics `try! failed` and calls no rendering helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed
+// ll omits: saw try failure try_failure_statement_unprintable_suspending.Plain
+
+import std.task.{yield_now}
+
+struct Plain {
+    n: Int
+}
+
+func touch(fail: Bool) -> Result<Void, Plain> {
+    yield_now()
+    if fail {
+        return Plain(n: 3)
+    }
+    return
+}
+
+func run() {
+    yield_now()
+    print("start")
+    try! touch(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

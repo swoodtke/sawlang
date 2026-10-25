@@ -558,9 +558,13 @@ by the programs of `debug/`:
   when it moves `crash` itself.
 - **Their symbolization.** Each program is built at -O0 and -O2, must print
   nothing and is run: it panics, and its `panic at FILE:LINE` names the line.
-  Every call into `__saw_fail_parts` in the binary whose innermost frame is
-  in FILE must then symbolize to that line, in the function that panics, and
-  there must be one. The call's own address is looked up, not the return
+  Every call into `__saw_fail_parts` or into a `try!`'s helper (`saw try
+  failure E`, which a failing `try!` calls) in the binary whose innermost
+  frame is in FILE must then symbolize to that line, in the function that
+  panics, and there must be one. A call made from inside the failure funnel's
+  own helpers is not a site: they are artificial, at line 0 of the entry
+  file, so the `try!` helper's own call into `__saw_fail_parts` is skipped.
+  The call's own address is looked up, not the return
   address after it, since the helpers never return. On Mach-O the binary's
   `.dSYM` must be beside it with no object left, `dwarfdump --verify` must
   pass, and `atos -i` reads it; on Linux `llvm-symbolizer`, the one beside the
@@ -569,7 +573,8 @@ by the programs of `debug/`:
   descriptor's thunk: the pin then reads the inlined frame, which keeps
   `step`'s line only because the thunk carries an artificial subprogram
   (`debug_artificial`): code inlined into a function with none loses its
-  lines.
+  lines. `try_lines.saw`'s `claim` panics through a `try!`, so its site is
+  the call into the `AllocError` helper.
 
 The pins launch no process under a debugger, which a sandboxed session may be
 refused; the binary runs alone and every lookup is static.

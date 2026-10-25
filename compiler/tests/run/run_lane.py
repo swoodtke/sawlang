@@ -617,16 +617,23 @@ def check_noalias(failures, counts, write):
 DEBUG = os.path.join(HERE, "debug")
 DEBUG_PANIC = os.path.join(DEBUG, "panic_lines.saw")
 DEBUG_CORO = os.path.join(DEBUG, "coro_lines.saw")
+DEBUG_TRY = os.path.join(DEBUG, "try_lines.saw")
 DEBUG_PINNED = os.path.join(DEBUG, "debug_info.ll")
-# The function whose `!dbg` shape debug_info.ll pins, and the funnel helper
-# whose call sites the symbolization pins look up.
+# The function whose `!dbg` shape debug_info.ll pins, and the funnel helpers
+# whose call sites the symbolization pins look up: the parts helper, and each
+# error type's `try!` helper, which calls it.
 DEBUG_FUNCTION = '@"saw panic_lines.crash(n: Int)"'
 DEBUG_FAIL = "__saw_fail_parts"
+DEBUG_TRY_FAIL = "saw try failure "
+# The failure funnel's own helpers, written by the compiler with an artificial
+# subprogram at line 0: a call from inside one is no source site.
+_FUNNEL_HELPER = re.compile(r"^_*(?:saw_fail|" + DEBUG_TRY_FAIL + r")")
 _METADATA_NODE = re.compile(r"^!(\d+) = (.*)$")
 _METADATA_REFERENCE = re.compile(r"!(\d+)\b")
 _PANIC_SITE = re.compile(r"^panic at ([^:\n]+):(\d+): ", re.M)
 _DISASSEMBLED_FUNCTION = re.compile(r"^[0-9a-f]+ <(.+)>:$")
-_DISASSEMBLED_CALL = re.compile(r"^\s*([0-9a-f]+):\s+(?:bl|call|callq)\s.*<_*" + DEBUG_FAIL + r">")
+_DISASSEMBLED_CALL = re.compile(r"^\s*([0-9a-f]+):\s+(?:bl|call|callq)\s.*<_*(?:" + DEBUG_FAIL + "|"
+                                + DEBUG_TRY_FAIL + r"[^>]*)>")
 _ATOS_SITE = re.compile(r"\(([^()]+):(\d+)\)$")
 _SYMBOLIZER_SITE = re.compile(r"^(.+):(\d+):\d+$")
 
@@ -719,8 +726,8 @@ def clang_tool(clang, name):
 
 
 def fail_calls(disassembler, binary):
-    """The address of each call into DEBUG_FAIL, as `disassembler` reads
-    `binary`."""
+    """The address of each call into DEBUG_FAIL or a `try!` helper, as
+    `disassembler` reads `binary`, outside the funnel's own helpers."""
     r = subprocess.run([disassembler, "--disassemble", "--no-show-raw-insn", binary], capture_output=True,
                        text=True, timeout=BUILD_TIMEOUT)
     calls = []
@@ -731,7 +738,7 @@ def fail_calls(disassembler, binary):
             current = m.group(1)
             continue
         m = _DISASSEMBLED_CALL.match(line)
-        if m and DEBUG_FAIL not in current:
+        if m and not _FUNNEL_HELPER.match(current):
             calls.append(int(m.group(1), 16))
     return calls
 
@@ -768,12 +775,14 @@ def check_symbolization(failures, counts):
     that panics, and there is one: through `atos` and the `.dSYM` on Mach-O,
     whose DWARF must verify, and through `llvm-symbolizer` on the executable
     elsewhere. coro_lines.saw's `step` is written as a resume function, whose
-    lines are its source function's."""
+    lines are its source function's, and try_lines.saw's `claim` panics
+    through its error type's `try!` helper."""
     triple = TARGET or build.host_triple()
     clang = manifest_clang(triple)
     mach_o = "-apple-" in build.clang_triple(triple)
     disassembler = "objdump" if mach_o else clang_tool(clang, "llvm-objdump")
-    for src, function in ((DEBUG_PANIC, "panic_lines.crash(n: Int)"), (DEBUG_CORO, "coro_lines.step(n: Int)")):
+    for src, function in ((DEBUG_PANIC, "panic_lines.crash(n: Int)"), (DEBUG_CORO, "coro_lines.step(n: Int)"),
+                          (DEBUG_TRY, "try_lines.claim(n: Int)")):
         name = os.path.splitext(os.path.basename(src))[0]
         for speed in ("-O0", "-O2"):
             where = "run line tables %s %s" % (name, speed)
@@ -813,7 +822,8 @@ def check_symbolization(failures, counts):
                     failures.append("%s: the call at %s symbolizes to %s at %s:%d, the panic is in %s at %s:%d"
                                     % (where, hex(address), got_function, got_file, got_line, function, file, line))
             if found == 0:
-                failures.append("%s: no call into %s symbolizes to %s" % (where, DEBUG_FAIL, file))
+                failures.append("%s: no call into %s or a `try!` helper symbolizes to %s"
+                                % (where, DEBUG_FAIL, file))
             counts["run line-table symbolizations"] = counts.get("run line-table symbolizations", 0) + found
 
 

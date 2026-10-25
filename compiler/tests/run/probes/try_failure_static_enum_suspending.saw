@@ -1,0 +1,48 @@
+// probe: panics
+// about: `try!` on a static method call that fails with a user enum conforming to `Printable`, in a suspending body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: bad code
+// ll defines: saw try failure try_failure_static_enum_suspending.Code
+
+import std.task.{yield_now}
+
+enum Code {
+    case Bad,
+    case Worse
+}
+
+extension Code: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Bad -> try! into.append("bad code"),
+            case Worse -> try! into.append("worse code")
+        }
+    }
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker {
+    static func build(fail: Bool) -> Result<Int, Code> {
+        yield_now()
+        if fail {
+            return Code.Bad
+        }
+        return 1
+    }
+}
+
+func run() {
+    yield_now()
+    print("start")
+    let v = try! Maker.build(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

@@ -1,0 +1,44 @@
+// probe: panics
+// about: `try!` on a static method call that fails with `SystemError`, in a suspending body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: open failed (not found)
+// ll defines: saw try failure std.systemerror.SystemError
+
+import std.task.{yield_now}
+import std.file
+import std.path.{Path}
+import std.systemerror.{SystemError}
+
+func opening_error() -> SystemError {
+    match file.File.open(Path(s: "/nonexistent/sl882")) {
+        case Ok(_) -> panic("opened"),
+        case Err(e) -> e
+    }
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker {
+    static func build(fail: Bool) -> Result<Int, SystemError> {
+        yield_now()
+        if fail {
+            return opening_error()
+        }
+        return 1
+    }
+}
+
+func run() {
+    yield_now()
+    print("start")
+    let v = try! Maker.build(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

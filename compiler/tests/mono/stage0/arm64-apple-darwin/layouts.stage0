@@ -1,6 +1,6 @@
 program	compiler/tests/mono/golden/layouts.saw
 triple	arm64-apple-darwin
-source	21c70c68fcbf25c1
+source	3b962df14cfb38d3
 build	ok
 exit	0
 stdout	"(Int, Bool)\t16\t8"
@@ -16,6 +16,7 @@ stdout	"Result<Void, AllocError>\t24\t8"
 stdout	"String\t8\t8"
 stdout	"UInt16\t2\t2"
 stdout	"UInt64\t8\t8"
+stdout	"UInt8\t1\t1"
 stdout	"UnsafePointer<Int8>\t8\t8"
 stdout	"UnsafePointer<Int8>?\t16\t8"
 stdout	"UnsafePointer<Int>\t8\t8"
@@ -31,5 +32,6 @@ stdout	"Shape?\t32\t8"
 stdout	"Tagged\t4\t2"
 stdout	"AllocError\t16\t8"
 stdout	"GlobalAllocator\t0\t1"
+stdout	"StringBuilder\t40\t8"
 stdout	"Vector<Int, GlobalAllocator>\t32\t8"
 stdout	""

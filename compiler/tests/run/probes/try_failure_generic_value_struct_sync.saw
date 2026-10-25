@@ -1,0 +1,34 @@
+// probe: panics
+// about: `try!` on a call generic over its value type that fails with a struct conforming to `Error`, in a sync body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: no such widget
+// ll defines: saw try failure try_failure_generic_value_struct_sync.Failure
+
+struct Failure {
+    why: String
+}
+
+extension Failure: Error {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.why)
+    }
+}
+
+func failing<T>(value: T, fail: Bool) -> Result<T, Failure> {
+    if fail {
+        return Failure(why: "no such widget")
+    }
+    return value
+}
+
+func run() {
+    print("start")
+    let v = try! failing(5, true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

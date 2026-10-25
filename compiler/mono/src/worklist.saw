@@ -8,8 +8,8 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc, MirFuncKind,
-                         MirLocal, MirOperand, MirOperandKind, MirPlace, MirProj, MirRvalue, MirRvalueKind, MirStmt,
-                         MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
+                         MirLocal, MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue,
+                         MirRvalueKind, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
 import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
@@ -17,7 +17,8 @@ import sawmono.glue.{mono_copies_bitwise}
 import sawtarget.layout.{target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
                             MONO_KEY_EXTERN, MONO_KEY_FUNCTION, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
-                            MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_VTABLE, MonoItem,
+                            MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
+                            MONO_KEY_VTABLE, MonoItem,
                             MonoItemKind, MonoProgram, MonoThreadSpawn, MonoVtable}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
@@ -413,6 +414,7 @@ extension MonoProgram {
 
     func instantiate(&var self, k: Int) {
         let it = self.items[k]
+        let places_first = self.dp.bc.mir.places.len()
         match it.kind {
             case Function -> {
                 if not self.dp.elaborated[it.source] {
@@ -454,7 +456,60 @@ extension MonoProgram {
         }
         let body = self.items[k].body
         if body >= 0 {
+            self.judge_forced_errors(k, body, places_first)
             self.resolve_function(k, body)
+        }
+    }
+
+    // THE FORCED-ERROR FUNNEL: each `Result` forced in item `k`'s body, whose
+    // places are `places_first` onward, has its error type judged once: it
+    // renders when typecheck finds it formattable, and its rendering into a
+    // fixed builder is then made; otherwise the panic keeps the bare reason
+    // (spec, Runtime Semantics). The judgement never refuses, since `try!`
+    // does not bound its error `Printable`. The backend's `check_case` reads
+    // the verdict, and a forced error it finds unjudged is refused.
+    // ENTRY POINTS:
+    //     instantiate
+    func judge_forced_errors(&var self, k: Int, body: Int, places_first: Int) {
+        let f = self.dp.bc.mir.funcs[body]
+        var p = places_first
+        while p < self.dp.bc.mir.places.len() {
+            let pl = self.dp.bc.mir.places[p]
+            p = p + 1
+            var current = -1
+            if pl.local >= 0 {
+                current = self.dp.bc.mir.locals[f.local_first + pl.local].ty
+            } else if pl.static_decl >= 0 {
+                current = self.dp.bc.mir.tc.sigs[pl.static_decl].result
+            }
+            var j = 0
+            while j < pl.count {
+                let step = self.dp.bc.mir.projs[pl.first + j]
+                j = j + 1
+                if step.kind == MirProjKind.Force && current >= 0 && self.dp.bc.mir.tc.is_result(current) {
+                    let error = self.dp.bc.mir.tc.types.arg(current, 1)
+                    self.judge_forced_error(k, f.decl, f.module, error)
+                }
+                current = step.ty
+            }
+        }
+    }
+
+    // Error type `error`, forced in item `k`, whose function is declaration
+    // `d` in module `viewer`, judged once.
+    func judge_forced_error(&var self, k: Int, d: Int, viewer: Int, error: Int) {
+        if self.try_error_verdict(error) >= 0 {
+            return
+        }
+        let in_test = d >= 0 && self.dp.bc.mir.tc.res.decls[d].test_only
+        let renders = self.dp.bc.mir.tc.formattable(error, -1, -1, viewer, in_test)
+        self.by_key.add(error, MONO_KEY_TRY_ERROR, if renders { 1 } else { 0 })
+        if renders {
+            var node = self.items[k].origin_node
+            if d >= 0 {
+                node = self.dp.bc.mir.tc.res.decls[d].node
+            }
+            let _ = self.need_fixed_render(k, error, node)
         }
     }
 

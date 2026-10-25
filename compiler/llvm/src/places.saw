@@ -8,6 +8,7 @@ import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT, LL_PART_RUN
                          ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.text.{ll_double_constant, ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
+import sawmir.build.{mir_func_local}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_COPY, MonoProgram}
@@ -207,7 +208,9 @@ extension LlEmitter {
     }
 
     // A forced payload's check: the value at `addr` holds case `decl`, or
-    // the program panics as Stage 0's `!` and `try!` do.
+    // the program panics as Stage 0's `!` and `try!` do. A `try!` panics
+    // with the error it was handed when mono judged that error to render
+    // (`judge_forced_errors`), else with the bare reason.
     func check_case(&var self, mono: &var MonoProgram, target: &var Target, addr: String, t: Int, decl: Int,
                     node: Int) {
         let c = target.case_of(&var mono.dp.bc.mir.tc, t, decl)
@@ -224,8 +227,20 @@ extension LlEmitter {
         self.put_label(fail)
         if mono.dp.bc.mir.tc.is_optional(t) {
             self.fail_check(&var mono, node, LL_FAIL_UNWRAP)
-        } else {
+            self.put_label(pass)
+            return
+        }
+        let error = mono.dp.bc.mir.tc.types.arg(t, 1)
+        let verdict = mono.try_error_verdict(error)
+        if verdict < 0 {
+            self.refuse_here(&var mono, node, "a forced `Result` whose error mono did not judge")
+        } else if verdict == 0 {
             self.fail_check(&var mono, node, LL_FAIL_TRY)
+        } else {
+            let err_decl = mono.dp.bc.mir.result_case("Err")
+            let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, err_decl, 0)
+            let payload = self.offset_addr(addr, off)
+            self.fail_try(&var mono, node, error, payload)
         }
         self.put_label(pass)
     }

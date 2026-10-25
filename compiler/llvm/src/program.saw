@@ -141,6 +141,16 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         let defined = e.entry_point(&var mono, &var target)
         entry = e.debug_artificial(&mono, defined)
     }
+    // Once every function is written, the error types its failing `try!`s
+    // render are known, and each gets its helper.
+    var h = 0
+    while h < e.try_errors.len() {
+        let t = e.try_errors[h]
+        let helper = e.try_failure_helper(&var mono, &var target, t)
+        let defined = e.debug_artificial(&mono, helper)
+        try! e.defs.append(defined)
+        h = h + 1
+    }
     if mono.diags.len() > 0 || mono.problems.len() > 0 {
         return ""
     }

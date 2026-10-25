@@ -1,0 +1,38 @@
+// probe: panics
+// about: `try!` on a function call that fails with a struct erased as `Box<any Error>`, in a suspending body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: boxed widget
+// ll defines: saw try failure std.box.Box<any Error, std.alloc.GlobalAllocator>
+
+import std.task.{yield_now}
+
+struct Failure {
+    why: String
+}
+
+extension Failure: Error {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.why)
+    }
+}
+
+func make(fail: Bool) -> Result<Int, Box<any Error>> {
+    yield_now()
+    if fail {
+        return Failure(why: "boxed widget")
+    }
+    return 1
+}
+
+func run() {
+    yield_now()
+    print("start")
+    let v = try! make(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

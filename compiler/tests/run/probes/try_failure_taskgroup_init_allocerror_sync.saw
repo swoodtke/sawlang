@@ -1,0 +1,23 @@
+// probe: panics
+// about: `try! TaskGroup(threads:)` refused its first allocation, in a sync body, panics with the `AllocError` rendered, at a denied allocator (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: allocation of
+// ll defines: saw try failure std.alloc.AllocError
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+
+func run() {
+    print("start")
+    __saw_rt_alloc_deny_after(0)
+    var pool = try! TaskGroup(threads: 2)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

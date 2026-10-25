@@ -6,6 +6,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.text.{ll_quoted}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoProgram}
@@ -273,6 +274,7 @@ extension LlEmitter {
 //
 // ENTRY POINTS:
 //   fail_check
+//   fail_try
 //   fail_message
 //   fail_value
 //   fail_parts
@@ -306,6 +308,33 @@ extension LlEmitter {
         try! call.append(ll_fail_symbol(kind))
         try! call.append("(")
         try! call.append(site)
+        try! call.append(")")
+        self.fail_call(&var mono, node, call.build())
+    }
+
+    // A `try!` that failed on error type `t`, the error at `error`: its
+    // helper, defined once per error type (`try_failure_helper`), renders
+    // the error after the reason.
+    public func fail_try(&var self, mono: &var MonoProgram, node: Int, t: Int, error: String) {
+        var known = false
+        var k = 0
+        while k < self.try_errors.len() {
+            if self.try_errors[k] == t {
+                known = true
+            }
+            k = k + 1
+        }
+        if not known {
+            try! self.try_errors.push(t)
+        }
+        let site = self.fail_site(&mono, node)
+        var call = StringBuilder()
+        try! call.append("call void ")
+        try! call.append(ll_try_failure_symbol(&mono, t))
+        try! call.append("(")
+        try! call.append(site)
+        try! call.append(", ptr ")
+        try! call.append(error)
         try! call.append(")")
         self.fail_call(&var mono, node, call.build())
     }
@@ -349,6 +378,14 @@ extension LlEmitter {
     // then a run's address and length, an integer, or a Bool's byte.
     public func fail_parts(&var self, mono: &var MonoProgram, node: Int, lead: String, parts: &LlParts) {
         let site = self.fail_site(&mono, node)
+        let call = self.parts_call(site, lead, &parts)
+        self.fail_call(&var mono, node, call)
+    }
+
+    // The `__saw_fail_parts` call that panics at `site`, spelled as the
+    // helpers' leading arguments, with `lead` then `parts`, its table written
+    // into this frame.
+    public func parts_call(&var self, site: String, lead: String, parts: &LlParts) -> String {
         let lead_bytes = self.text_bytes(lead)
         let text = self.fail_bytes(&lead_bytes)
         let count = parts.kinds.len()
@@ -384,7 +421,7 @@ extension LlEmitter {
         try! call.append(", i64 ")
         try! call.append(count)
         try! call.append(")")
-        self.fail_call(&var mono, node, call.build())
+        call.build()
     }
 
     // The helpers end in the panic sink, so a program with none bound has no
@@ -484,6 +521,18 @@ public func ll_fail_symbol(kind: Int) -> String {
         return "__saw_fail_unwrap"
     }
     "__saw_fail_try"
+}
+
+// The helper `fail_try` calls for error type `t`.
+public func ll_try_failure_symbol(mono: &MonoProgram, t: Int) -> String {
+    var name = StringBuilder()
+    try! name.append("saw try failure ")
+    try! name.append(mono.dp.bc.mir.tc.type_text(t))
+    var out = StringBuilder()
+    try! out.append("@\"")
+    try! out.append(ll_quoted(name.build()))
+    try! out.append("\"")
+    out.build()
 }
 
 // The reason check kind `kind` panics with, in Stage 0's wording.

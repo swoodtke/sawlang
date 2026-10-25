@@ -226,6 +226,9 @@ public static MONO_KEY_DEALLOC: Int = 10
 public static MONO_KEY_RENDER_SLOT: Int = 11
 // (source function, 12) -> its thread-context items (`is_thread_item`).
 public static MONO_KEY_THREAD: Int = 12
+// (error type, 13) -> whether a `try!` that fails on it renders the error:
+// 1, or 0 for the bare reason (`judge_forced_errors`).
+public static MONO_KEY_TRY_ERROR: Int = 13
 
 // How deeply a concrete argument may nest before mono refuses it: unbounded
 // instantiation has no identity cycle to detect (SL-507).
@@ -309,6 +312,17 @@ extension MonoProgram {
     // box) renders through, its `Printable.format`'s, or -1.
     public func render_slot(&self, t: Int) -> Int {
         let at = self.by_key.first(t, MONO_KEY_RENDER_SLOT)
+        if at < 0 {
+            return -1
+        }
+        self.by_key.value(at)
+    }
+
+    // Whether a `try!` failing on error type `t` panics with the error
+    // rendered: 1, or 0 when `t` does not render; -1 when no forced `Result`
+    // of mono's ever carried `t`.
+    public func try_error_verdict(&self, t: Int) -> Int {
+        let at = self.by_key.first(t, MONO_KEY_TRY_ERROR)
         if at < 0 {
             return -1
         }

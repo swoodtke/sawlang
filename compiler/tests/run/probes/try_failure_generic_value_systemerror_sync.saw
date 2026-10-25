@@ -1,0 +1,35 @@
+// probe: panics
+// about: `try!` on a call generic over its value type that fails with `SystemError`, in a sync body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: open failed (not found)
+// ll defines: saw try failure std.systemerror.SystemError
+
+import std.file
+import std.path.{Path}
+import std.systemerror.{SystemError}
+
+func opening_error() -> SystemError {
+    match file.File.open(Path(s: "/nonexistent/sl882")) {
+        case Ok(_) -> panic("opened"),
+        case Err(e) -> e
+    }
+}
+
+func failing<T>(value: T, fail: Bool) -> Result<T, SystemError> {
+    if fail {
+        return opening_error()
+    }
+    return value
+}
+
+func run() {
+    print("start")
+    let v = try! failing(5, true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

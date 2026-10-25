@@ -1,0 +1,40 @@
+// probe: panics
+// about: `try!` on a static method call that fails with a struct erased as `Box<any Error>`, in a sync body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: boxed widget
+// ll defines: saw try failure std.box.Box<any Error, std.alloc.GlobalAllocator>
+
+struct Failure {
+    why: String
+}
+
+extension Failure: Error {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.why)
+    }
+}
+
+struct Maker {
+    n: Int
+}
+
+extension Maker {
+    static func build(fail: Bool) -> Result<Int, Box<any Error>> {
+        if fail {
+            return Failure(why: "boxed widget")
+        }
+        return 1
+    }
+}
+
+func run() {
+    print("start")
+    let v = try! Maker.build(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

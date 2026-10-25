@@ -28,6 +28,9 @@ public struct LlEmitter {
     pool_blocks: Vector<Bool>
     // The statics given a global.
     statics: Vector<Int>
+    // The error types a failing `try!` renders, each owed its helper
+    // (`fail_try`), in first-use order.
+    try_errors: Vector<Int>
     // The function being written: its MIR function, its blocks' text and
     // entry allocas, the counters its SSA names and labels take, whether it
     // returns through `sret`, and whether the backend refused it. Refusals
@@ -142,7 +145,8 @@ public func ll_lowering(coro: &CoroProgram) -> LlLowering {
 extension LlEmitter {
     public init(lowering: LlLowering) -> LlEmitter {
         LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
-                  pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(), current: -1,
+                  pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(),
+                  try_errors: Vector<Int>(), current: -1,
                   body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
                   lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0,
                   word: "", word_bits: 0, debug: false, dbg_optimized: false, dbg_meta: StringBuilder(),

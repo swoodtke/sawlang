@@ -1,0 +1,30 @@
+// probe: panics
+// about: `try!` on a static method call that fails with `AllocError`, in a sync body, panics with the error rendered after `try! failed: ` through its error type's helper (SL-882)
+// stage 0: not run; the probe holds sawc to the spec's `try!` message cell by cell
+// speeds: -O0 -O2
+// prints: start
+// panics: try! failed: allocation of 64 bytes (align 8) failed
+// ll defines: saw try failure std.alloc.AllocError
+
+struct Maker {
+    n: Int
+}
+
+extension Maker {
+    static func build(fail: Bool) -> Result<Int, AllocError> {
+        if fail {
+            return AllocError(size: 64, align: 8)
+        }
+        return 1
+    }
+}
+
+func run() {
+    print("start")
+    let v = try! Maker.build(true)
+    print("unreached")
+}
+
+func main() {
+    run()
+}

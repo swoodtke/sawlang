@@ -7,7 +7,9 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.places.{ll_local_slot}
-import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts, ll_parts_push}
+import sawllvm.attributes.{ll_function_attributes}
+import sawllvm.prims.{LL_FAIL_TRY, LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts, ll_fail_reason,
+                          ll_parts_push, ll_try_failure_symbol}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirOperandKind, MirRvalue}
 import sawmir.program.{MirProgram}
@@ -202,6 +204,44 @@ extension LlEmitter {
         try! lead.append(": ")
         self.fail_parts(&var mono, node, lead.build(), &parts)
         self.put_label(pass)
+    }
+
+    // The helper a failing `try!` on error type `t` calls (`fail_try`),
+    // handed the site and the error's address: the reason, then the error
+    // rendered as a format argument is. Rendering in a never-inlined helper
+    // keeps the scratch out of every frame holding a `try!`, as the failure
+    // funnel keeps its message buffers (prims.saw).
+    public func try_failure_helper(&var self, mono: &var MonoProgram, target: &var Target, t: Int) -> String {
+        self.current = -1
+        self.body = StringBuilder()
+        self.allocas = StringBuilder()
+        self.temps = 0
+        self.labels = 0
+        self.sret = false
+        self.refused = false
+        self.resume = -1
+        self.dbg_suffix = ""
+        var parts = LlParts()
+        self.render_fixed(&var mono, &var target, "%error", t, -1, &var parts)
+        var lead = StringBuilder()
+        try! lead.append(ll_fail_reason(LL_FAIL_TRY))
+        try! lead.append(": ")
+        let call = self.parts_call("ptr %file, i64 %file_len, i64 %line", lead.build(), &parts)
+        self.put(call)
+        self.put("unreachable")
+        if self.refused {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append("define internal void ")
+        try! out.append(ll_try_failure_symbol(&mono, t))
+        try! out.append("(ptr %file, i64 %file_len, i64 %line, ptr %error)")
+        try! out.append(ll_function_attributes("noinline noreturn"))
+        try! out.append(" \{\nentry:\n")
+        try! out.append(self.allocas.build())
+        try! out.append(self.body.build())
+        try! out.append("\}\n\n")
+        out.build()
     }
 
     // THE ONE PLACE a `Result` from `main` becomes the C entry's `i32`
