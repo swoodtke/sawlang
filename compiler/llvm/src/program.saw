@@ -30,9 +30,14 @@ import sawtypecheck.typeops.{TcClient}
 // refusals in `mono.diags` say. `speed` is the optimisation flag the link
 // manifest carries to clang; `module_triple`, when not empty, is the triple
 // the module names, which the driver passes clang as `-target`. With
-// `debug`, the module carries line tables (debug.saw).
+// `debug`, the module carries line tables (debug.saw). `features` is the
+// `--target-features` string the attribute group carries. With `object`, the
+// module is a `-c` object's: it has the executable's linkage, and when the
+// program declares no `main` it owes none and gets no C entry and no argument
+// accessors, which only an entry point defines.
 public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lowering: LlLowering, speed: String,
-                              module_triple: String, debug: Bool) -> String {
+                              module_triple: String, debug: Bool, features: String = "",
+                              object: Bool = false) -> String {
     var e = LlEmitter(lowering: move lowering)
     e.debug = debug
     e.dbg_optimized = not speed.equals("-O0")
@@ -52,9 +57,11 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     // executor boundary"). When std's task dump is reached, the backtrace
     // table's accessor is defined beside the table (`bt_table_global`). A
     // runtime has no entry point: those belong to the program it is linked
-    // into.
+    // into. Neither has a `-c` object of a program with no `main`, which
+    // leaves the accessors to whatever it is linked with.
     let bt_accessor = not mono.runtime && ll_reaches_extern(&mono, ll_bt_table_address())
-    if not mono.runtime {
+    let entry_point = not mono.runtime && (not object || mono.main_item >= 0)
+    if entry_point {
         e.defines("__saw_rt_get_argc")
         e.defines("__saw_rt_get_argv")
         if bt_accessor {
@@ -137,7 +144,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     }
     mono.current = -1
     var entry = ""
-    if not mono.runtime {
+    if entry_point {
         let defined = e.entry_point(&var mono, &var target)
         entry = e.debug_artificial(&mono, defined)
     }
@@ -192,7 +199,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         }
     }
     try! out.append("\n\n")
-    try! out.append(ll_function_attribute_group(&target, e.lowering.sanitize))
+    try! out.append(ll_function_attribute_group(&target, e.lowering.sanitize, speed, features))
     let metadata = e.debug_metadata(&mono)
     try! out.append(metadata)
     out.build()

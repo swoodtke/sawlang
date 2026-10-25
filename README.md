@@ -922,9 +922,9 @@ func boot() {
 ```
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
-optional extensions, a feature list. `sawc` does not yet write a freestanding
-object or take `--no-hidden-alloc` or `--target-features` (SL-865); with them,
-the build reads:
+optional extensions, a feature list. `sawc` takes `--target-features`, but does
+not yet write a freestanding object, target a bare-metal triple or take
+`--no-hidden-alloc` (SL-865); with those, the build reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
@@ -934,7 +934,8 @@ sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
 Base rv32i has no divide instruction, so `+m` is what keeps integer
 formatting from calling a library routine the freestanding profile has no
 library to provide. On aarch64 the freestanding profile defaults to
-`-neon,-fp-armv8`: a core traps Advanced SIMD at EL1 out of reset, and LLVM
+`-neon,-fp-armv8` (v0.18.0's compiler applies it; `sawc` will with its
+freestanding build): a core traps Advanced SIMD at EL1 out of reset, and LLVM
 reaches for `q` registers to move a struct, so a kernel would fault on its
 first block copy — before the exception vectors that would report it were
 installed. Pass
@@ -1022,25 +1023,28 @@ one per compiler stage (`lex`, `parse`, `resolve`, `typecheck`, `mir`, `eval`,
 `borrowck`, `drops`, `mono`, `coro`), each with `--dump` or `--check`.
 
 ```bash
-sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [--std-root DIR] [--target TRIPLE]
-           [--sanitize address] [--freestanding | --runtime] [-W borrow-prefix]
-           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]
+           [--target-features FEATURES] [--sanitize address] [--freestanding | --runtime]
+           [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)
 sawc --version
 ```
 
-The `-O` level is handed to clang, and is `-O0` when none is given. `--target`
-cross-compiles for a triple (the
-host by default), and `--module-path` maps a package name to its source
+The `-O` level is handed to clang, and is `-O0` when none is given; `-Os` and
+`-Oz` also mark every function `optsize`, and `-Oz` `minsize`. `-c` writes an
+object (`.o` appended to the `-o` name when it lacks one) and links nothing.
+`--target` cross-compiles for a triple (the host by default),
+`--target-features` names the LLVM subtarget features the code may use (such
+as `+m,+a,+c`), and `--module-path` maps a package name to its source
 directory. `--freestanding` and `--runtime` check a program against the
 freestanding profile or the runtime package's rules (each exported `__saw_rt_*`
 seam against `runtime/ABI.md`) but do not build it yet (SL-865). `sawc runtime`
 builds the hosted runtime from `runtime/`.
 
-The spec documents some compiler flags that `sawc` does not take yet: object
-output (`-c`), `--no-hidden-alloc` and `--target-features` (SL-865), the `-W`
+The spec documents some compiler flags that `sawc` does not take yet:
+`--no-hidden-alloc` (SL-865), the `-W`
 warning categories other than `borrow-prefix` (SL-879), and `--emit-docs`
 (SL-880).
 

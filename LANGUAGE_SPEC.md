@@ -14464,9 +14464,11 @@ were installed. A freestanding target is by definition one where no OS has
 enabled FP, so the profile says so instead of each kernel author rediscovering
 it. The general-registers-only lowering is complete: the backend has an
 instruction for everything, and the cost is a few extra `ldp`/`stp` pairs on a
-large struct move.
+large struct move. **Status:** v0.18.0's compiler applies this default; `sawc`
+builds no freestanding object yet, so it has none to apply (SL-865).
 
-`--target-features` (not yet in `sawc`, SL-865) OVERRIDES it completely. A
+`--target-features` OVERRIDES it completely. `sawc` takes the flag on any
+build and compiles every function for the features it names. A
 kernel whose boot code *does* enable `CPACR_EL1.FPEN` before any compiled code
 runs, and that wants the vectorized block moves back, asks for them by name:
 
@@ -14834,9 +14836,13 @@ keep their written names as well.
 
 Three consequences worth stating:
 
-- A hosted `-c` object is somebody else's to link, so it keeps external linkage
-  on everything. Internalization applies where a compile owns the whole program:
-  an executable, `--freestanding`, and `--runtime-build`.
+- A hosted `-c` object keeps an executable's linkage: everything is internal
+  but the `@export`ed symbols and, when the program declares one, the C entry
+  `main`. The object is the module an executable links, minus the link, so
+  `@export` is the only way a symbol reaches whatever the object is linked
+  with. A program with no `main` owes none under `-c`, and its object carries
+  no C entry and no argument accessors. Internalization applies alike to an
+  executable, a `-c` object, `--freestanding` and a runtime build.
 - An internal definition nothing reaches is deleted by the `-O1` pipeline. That
   is intended, and it is why `@export` carries a DCE keep-root with it.
 - Nothing in the language exposes a symbol name. To pin one, write `@export`.
@@ -15867,9 +15873,9 @@ which `compiler/tools/build.py` builds from its own source, and which `bin/sawc`
 builds on first use.
 
 ```
-sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [--std-root DIR] [--target TRIPLE]
-           [--sanitize address] [--freestanding | --runtime] [--module-path NAME=DIR]...
-           (FILE [-o OUT] | --emit-ll FILE)
+sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-c] [--std-root DIR] [--target TRIPLE]
+           [--target-features FEATURES] [--sanitize address] [--freestanding | --runtime]
+           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)
@@ -15882,7 +15888,13 @@ sawc --version
   a change to user-visible behaviour bumps it.
 - `-o` names the executable (default: `.build/<source>`); `--emit-ll` writes the
   program's LLVM IR instead and links nothing.
+- `-c` compiles to an object and links nothing. `.o` is appended to an `-o`
+  name that lacks it, and the object keeps an executable's linkage (see [Link
+  symbols and linkage](#link-symbols-and-linkage)).
 - `--target` cross-compiles for a triple (default: the host).
+- `--target-features FEATURES` names the LLVM subtarget features every
+  function is compiled for, a comma-separated list such as `+m,+a,+c` (see
+  Profiles).
 - `--module-path NAME=DIR` maps package NAME to source directory DIR
   (`import NAME` -> `DIR/lib.saw`, `import NAME.sub` -> `DIR/sub.saw`).
   Repeatable; this is how the package manager wires dependencies, and how a
@@ -15897,9 +15909,8 @@ sawc --version
   needed. `sawc --help` lists every form and flag.
 
 **Not yet in `sawc`.** The spec documents several flags of v0.18.0's compiler,
-`sawc0`, that `sawc` does not take yet: object output (`-c`),
-`--no-hidden-alloc` and `--target-features` (SL-865); the `-W` warning
-categories (SL-879); and `--emit-docs` (SL-880). Code that needs them, and the
+`sawc0`, that `sawc` does not take yet: `--no-hidden-alloc` (SL-865); the
+`-W` warning categories (SL-879); and `--emit-docs` (SL-880). Code that needs them, and the
 sources frozen in v0.18.0's language (Blade, `libs/`), build with `sawc0`,
 which `bin/sawc0` runs from a v0.18.0 checkout (`SAWLANG_V0_ROOT`, else the tag
 fetched and cached). Its full option list is that release's Appendix 0.
@@ -15928,8 +15939,8 @@ Two things to know before reaching for a level:
 
 Size levels are also available to a riscv target through
 `--target-features +save-restore`, which replaces prologue and epilogue
-register saves with calls to `__riscv_save_N` / `__riscv_restore_N` (once
-`sawc` takes `--target-features`, SL-865). The compiler does not enable it for
+register saves with calls to `__riscv_save_N` / `__riscv_restore_N`. The
+compiler does not enable it for
 you at any level: those routines live in the compiler
 runtime library, and the freestanding profile links none, so enabling it by
 default would turn `-Os` into an unresolved symbol on exactly the targets that

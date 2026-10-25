@@ -1,0 +1,15 @@
+// probe: custom
+// about: `sawc build -c` writes an object with the executable's linkage and no C entry when there is no `main` (SL-865)
+// Built with `-c` at -O0 and -O2 and read with `nm`: no `main` and no
+// argument accessors, the export defined and external, `helper` internal,
+// and the panic seam its overflow check reaches left undefined. `-o` names
+// no `.o`, so the object must be written with `.o` appended.
+
+@export("probe_object_answer")
+func answer(n: Int32) -> Int32 {
+    helper(n) + 1
+}
+
+func helper(n: Int32) -> Int32 {
+    n * 2
+}

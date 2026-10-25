@@ -28,6 +28,11 @@ public struct BuildOptions {
     // Whether the module carries DWARF line tables: on unless `-g0` asks
     // otherwise, and never for a runtime source.
     debug_info: Bool
+    // `--target-features`: the LLVM subtarget feature string every function
+    // is compiled for, or "".
+    features: String
+    // `-c`: the module is an object's, which owes no `main`.
+    object: Bool
 }
 
 // The `.ll` of the program whose entry file is `path` into `ir`, returning
@@ -64,7 +69,8 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
     }
     let lowering = ll_lowering(&coro)
     let text = llvm_emit_program(&var coro.mono, &var target, move lowering, options.speed, options.module_triple,
-                                 options.debug_info && not options.runtime)
+                                 options.debug_info && not options.runtime, features: options.features,
+                                 object: options.object)
     if text.len() == 0 {
         try! out.append(head)
         coro_append_findings(out: &var out, coro: &coro)

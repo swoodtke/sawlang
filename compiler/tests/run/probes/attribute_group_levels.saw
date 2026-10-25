@@ -1,0 +1,13 @@
+// probe: custom
+// about: `-Os`, `-Oz` and `--target-features` reach the one attribute group every define names (SL-865)
+// Written with `--emit-ll` for the pinned target at each level and with a
+// feature string; the lane holds the `attributes #0` line of each, and
+// every define names the group.
+
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    print("{}", twice(21))
+}

@@ -65,14 +65,19 @@ public func ll_function_attributes(extra: String) -> String {
     out.build()
 }
 
-// The attribute group every define names, the module's last line: under
-// `--sanitize address` (`sanitize`) it also carries `sanitize_address`, the
+// The attribute group every define names, the module's last line. It carries
+// `features`, the `--target-features` string, as `"target-features"`, since
+// clang compiles an IR function for the subtarget its attributes name and
+// takes no feature flag for IR input. The speed flag `speed` adds `optsize`
+// for `-Os` and `optsize minsize` for `-Oz`: clang adds neither to a module
+// it is handed as IR, and `minsize` is what turns on the machine outliner.
+// Under `--sanitize address` (`sanitize`) it carries `sanitize_address`, the
 // attribute clang's AddressSanitizer instruments a function by, so every
 // function the module defines is instrumented.
 //
 // ENTRY POINTS:
 //   llvm_emit_program
-public func ll_function_attribute_group(target: &Target, sanitize: Bool) -> String {
+public func ll_function_attribute_group(target: &Target, sanitize: Bool, speed: String, features: String) -> String {
     let policy = match target.frame_pointer() {
         case Omitted -> "none",
         case NonLeaf -> "non-leaf",
@@ -84,6 +89,17 @@ public func ll_function_attribute_group(target: &Target, sanitize: Bool) -> Stri
     try! out.append(" = \{ \"frame-pointer\"=\"")
     try! out.append(policy)
     try! out.append("\"")
+    if features.len() > 0 {
+        try! out.append(" \"target-features\"=\"")
+        try! out.append(features)
+        try! out.append("\"")
+    }
+    if speed.equals("-Os") || speed.equals("-Oz") {
+        try! out.append(" optsize")
+    }
+    if speed.equals("-Oz") {
+        try! out.append(" minsize")
+    }
     if sanitize {
         try! out.append(" sanitize_address")
     }

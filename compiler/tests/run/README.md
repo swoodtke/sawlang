@@ -26,7 +26,9 @@ run/
 
 ```sh
 .build/sawc-stage1 build [-O0|-O1|-O2|-Os|-Oz] [-g | -g0] [--std-root DIR] [--target TRIPLE]
-                   [--sanitize address] [--module-path NAME=DIR]... FILE [-o OUT]
+                   [--target-features FEATURES] [--sanitize address] [--module-path NAME=DIR]...
+                   FILE [-o OUT]
+.build/sawc-stage1 build [...] -c FILE [-o OUT]
 .build/sawc-stage1 build [...] --emit-ll FILE
 .build/sawc-stage1 build [...] (--freestanding | --runtime) FILE
 ```
@@ -51,6 +53,22 @@ is clang's. The `.ll` is written unbuffered and closed explicitly, and clang
 is waited for explicitly, so no step's result rests on a `deinit` (SL:hazards
 S28, whose workaround markers name the canonical buffered form). With
 `--emit-ll` the `.ll` goes to standard output instead and nothing is linked.
+
+With `-c`, OUT gets `.o` appended when it lacks it, the `.ll` is written to
+`OUT.ll`, and clang compiles it to the object OUT, `clang -c -target TRIPLE
+SPEED [-fsanitize=address] -x ir OUT.ll -o OUT`, and links nothing. That
+argument list has one builder, `driver_object_arguments`, which `sawc
+runtime` and the Mach-O link's compile step use too. The object keeps the
+executable's linkage: every function internal but the exports and, when the
+program declares one, the C entry `main`. A program with no `main` owes none
+under `-c`, and its module then has no C entry and no argument accessors.
+
+`--target-features F` puts `"target-features"="F"` in the module's one
+attribute group, which every define names, since clang reads a function's
+subtarget from its attributes when it compiles IR. `-Os` adds `optsize` to the
+group and `-Oz` adds `optsize minsize`: clang adds neither to IR it is handed,
+and `minsize` is what runs the machine outliner. A feature list holding
+anything but letters, digits and `+-,._` is a usage error.
 
 The module carries DWARF line tables unless `-g0` is given (`-g` is the
 default spelled; `compiler/llvm/src/debug.saw`). An ELF executable keeps them
@@ -701,7 +719,16 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are seven.
+says why the check cannot be header lines. There are nine.
+`object_output_linkage.saw` is built with `-c` at -O0 and -O2 under an `-o`
+naming no `.o`, and `nm` must read its export defined and external, `helper`
+internal (or inlined away at -O2), the panic seam undefined, and no `main` or
+argument accessor, which no header can state about an object.
+`attribute_group_levels.saw`'s `.ll` is written for the pinned target with no
+flags, `-O2`, `-Os`, `-Oz`, `--target-features +foo,-bar` and the last two
+together, and each must end with its own one `attributes #0` line, every
+define naming it; a feature list holding a quote must be refused with exit
+status 2.
 `leaks_check_sees_a_leak.saw` drops its only pointer to a block it got from
 C's `malloc`, and the leak check must report exactly that one block: a
 checker that sees nothing would pass every `// leaks: none` probe, and the

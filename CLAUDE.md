@@ -120,9 +120,9 @@ run the stage binaries directly (`build.SAWC`; `SAWC_STAGE=1` selects Stage
 `SAWC2_*` spelling is refused, naming its new name.
 
 `--module-path` maps a package name to a module dir (Blade uses this per
-dependency). Not in `sawc` yet, though the spec documents them: object output
-(`-c`), `--no-hidden-alloc` and `--target-features` (SL-865), the `-W`
-warnings (SL-879), and `--emit-docs` (SL-880).
+dependency). Not in `sawc` yet, though the spec documents them:
+`--no-hidden-alloc` (SL-865), the `-W` warnings (SL-879), and `--emit-docs`
+(SL-880).
 
 `sawc0` is v0.18.0's compiler, the frozen Python Stage 0. This tree does not
 hold it: `bin/sawc0` forwards to the v0 checkout `tools/toolchain.py v0-root`

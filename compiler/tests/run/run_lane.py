@@ -1513,13 +1513,152 @@ def check_leak_detection(failures, counts):
     counts["run leak checks reporting a planted leak"] = 1
 
 
+# What `sawc build -c` writes for `probes/object_output_linkage.saw`: the
+# export's C symbol defined and external, the seam its overflow check reaches
+# undefined, and nothing of a C entry, since the source has no `main`.
+OBJECT_PROBE = "object_output_linkage.saw"
+OBJECT_EXPORT = "probe_object_answer"
+OBJECT_UNDEFINED = "__saw_rt_panic"
+OBJECT_ABSENT = ("main", "__saw_rt_get_argc", "__saw_rt_get_argv")
+# The function only Saw calls, which must stay internal: a local symbol, or
+# none once -O2 inlines it.
+OBJECT_INTERNAL = "helper"
+
+
+def object_symbols(obj, mach_o):
+    """`obj`'s symbols as `nm` lists them, {name: type letter}, a Mach-O
+    name's leading underscore removed; (None, why) when `nm` cannot read it.
+    A symbol sawc decorates may hold spaces, so a name is the rest of its
+    line."""
+    r = subprocess.run(["nm", obj], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        return None, (r.stdout + r.stderr).strip()[:300]
+    symbols = {}
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 1)
+        if len(parts) == 2 and re.match(r"^[0-9a-fA-F]{8,}$", parts[0]):
+            parts = parts[1].split(None, 1)
+        if len(parts) != 2:
+            continue
+        kind, name = parts
+        if mach_o and name.startswith("_"):
+            name = name[1:]
+        symbols[name] = kind
+    return symbols, ""
+
+
+def check_object_output(failures, counts):
+    """`sawc build -c` at -O0 and -O2, with an `-o` naming no `.o`: the object
+    is written with `.o` appended and nothing at the name itself, sawc prints
+    nothing, and `nm` reads the executable's linkage with no C entry
+    (`OBJECT_*` above)."""
+    probe = os.path.join(PROBES, OBJECT_PROBE)
+    mach_o = "-apple-" in build.clang_triple(TARGET or build.host_triple())
+    for speed in ("-O0", "-O2"):
+        where = "run %s %s" % (rel(probe), speed)
+        stem = os.path.join(OUT, "object_output" + speed[1:])
+        for stale in (stem, stem + ".o"):
+            if os.path.exists(stale):
+                os.remove(stale)
+        r = subprocess.run([build.SAWC, "build", "-c", speed, "--std-root", "std"] + target_flags()
+                           + [rel(probe), "-o", stem], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said:
+            failures.append("%s: sawc build -c %s: %s" % (where, "exits %d" % r.returncode if r.returncode
+                                                          else "prints", said[:300]))
+            continue
+        if os.path.exists(stem) or not os.path.exists(stem + ".o"):
+            failures.append("%s: `-o %s` names no `.o`, so the object is %s.o and nothing is written at %s"
+                            % (where, rel(stem), rel(stem), rel(stem)))
+            continue
+        symbols, why = object_symbols(stem + ".o", mach_o)
+        if symbols is None:
+            failures.append("%s: nm cannot read the object: %s" % (where, why))
+            continue
+        problems = []
+        if symbols.get(OBJECT_EXPORT) != "T":
+            problems.append("`%s` is %s, not defined and external (T)"
+                            % (OBJECT_EXPORT, symbols.get(OBJECT_EXPORT, "absent")))
+        if symbols.get(OBJECT_UNDEFINED) != "U":
+            problems.append("`%s` is %s, not undefined (U)"
+                            % (OBJECT_UNDEFINED, symbols.get(OBJECT_UNDEFINED, "absent")))
+        for name in OBJECT_ABSENT:
+            if name in symbols:
+                problems.append("`%s` is in the object (%s), which has no `main`" % (name, symbols[name]))
+        internal = {name: kind for name, kind in symbols.items() if OBJECT_INTERNAL in name}
+        for name, kind in internal.items():
+            if not kind.islower():
+                problems.append("`%s` is external (%s); only an export leaves the object" % (name, kind))
+        if speed == "-O0" and not internal:
+            problems.append("no `%s` symbol at -O0, where nothing inlines it" % OBJECT_INTERNAL)
+        for problem in problems:
+            failures.append("%s: %s" % (where, problem))
+        if not problems:
+            counts["run objects holding their linkage"] = counts.get("run objects holding their linkage", 0) + 1
+
+
+# The attribute group `probes/attribute_group_levels.saw`'s `.ll` ends with,
+# for each set of flags: the frame pointer policy always, then the feature
+# string, then the size level's attributes.
+ATTRIBUTE_PROBE = "attribute_group_levels.saw"
+ATTRIBUTE_GROUPS = (
+    ([], 'attributes #0 = { "frame-pointer"="non-leaf" }'),
+    (["-O2"], 'attributes #0 = { "frame-pointer"="non-leaf" }'),
+    (["-Os"], 'attributes #0 = { "frame-pointer"="non-leaf" optsize }'),
+    (["-Oz"], 'attributes #0 = { "frame-pointer"="non-leaf" optsize minsize }'),
+    (["--target-features", "+foo,-bar"],
+     'attributes #0 = { "frame-pointer"="non-leaf" "target-features"="+foo,-bar" }'),
+    (["-Oz", "--target-features", "+foo,-bar"],
+     'attributes #0 = { "frame-pointer"="non-leaf" "target-features"="+foo,-bar" optsize minsize }'),
+)
+# A feature string the IR cannot carry as written, refused as a usage error.
+ATTRIBUTE_REFUSED = '+a"b'
+
+
+def check_attribute_groups(failures, counts):
+    """`probes/attribute_group_levels.saw`'s `.ll` for the pinned target, at
+    each `ATTRIBUTE_GROUPS` row: its one `attributes #0` line is the row's,
+    and every define names a group carrying the frame pointer. A feature
+    string holding a quote is refused with exit status 2."""
+    probe = os.path.join(PROBES, ATTRIBUTE_PROBE)
+    for flags, want in ATTRIBUTE_GROUPS:
+        where = "run %s %s" % (rel(probe), " ".join(flags) or "(no flags)")
+        r = subprocess.run([build.SAWC, "build", "-g0", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std"]
+                           + flags + [rel(probe)], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s: sawc wrote no .ll: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        groups = [line for line in r.stdout.split("\n") if line.startswith("attributes #")]
+        if groups != [want]:
+            failures.append("%s: the attribute groups are %r, not [%r]" % (where, groups, want))
+            continue
+        problems = define_problems(where[len("run "):], r.stdout)
+        failures.extend(problems)
+        if not problems:
+            counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
+    where = "run %s --target-features %s" % (rel(probe), ATTRIBUTE_REFUSED)
+    r = subprocess.run([build.SAWC, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                        "--target-features", ATTRIBUTE_REFUSED, rel(probe)], cwd=REPO, capture_output=True,
+                       text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 2 or "attributes #" in r.stdout:
+        failures.append("%s: exits %d, not 2 with nothing written: %s"
+                        % (where, r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    else:
+        counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
+
+
 # The custom probes, each checked by its own function. `executable_path.saw`
 # is run through a renamed link on `PATH` from another directory, and what it
 # must print is its binary's real path, which no header line can state. The
 # two `print` probes' output is interleaved by the operating system, and the
 # three dump-churn probes' dumps catch whatever the scheduler has left live.
-# The leak probe's lost block is sized by the allocator.
+# The leak probe's lost block is sized by the allocator. The object probe is
+# read with `nm`, and the attribute probe's `.ll` is written at several flag
+# sets, neither of which is a build and a run.
 CUSTOM_PROBES = {
+    OBJECT_PROBE: check_object_output,
+    ATTRIBUTE_PROBE: check_attribute_groups,
     "executable_path.saw": check_executable_path,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,
