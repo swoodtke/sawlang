@@ -1,0 +1,21 @@
+// refuses: mutability.immutable at 11:15
+// a `match` arm's `var` payload over a `&self` receiver's field is a write
+// through the shared receiver (SL-906)
+
+struct Cell { n: Int }
+enum Slot { case Full(c: Cell), case Empty }
+struct H { s: Slot }
+
+extension H {
+    func poke(&self) {
+        match self.s {
+            case Full(var c) -> { c.n = 9 },
+            case Empty -> {}
+        }
+    }
+}
+
+func main() {
+    let h = H(s: Slot.Full(c: Cell(n: 1)))
+    h.poke()
+}

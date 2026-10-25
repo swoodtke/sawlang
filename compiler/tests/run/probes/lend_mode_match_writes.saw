@@ -1,0 +1,264 @@
+// probe: stated
+// about: a `match` arm's `var` payload over a lent place writes it in place through the exclusive accessor, direct, nested, beside a `let` arm, guarded, over an unconditional lend and a forced one, a subscript and a `&var` root, with each half of a hand-written pair saying which ran (SL-906)
+// stage 0: cannot parse `var` in a payload
+// speeds: -O0 -O2
+// leaks: none
+// prints: synthesized 5 6 7 8 9 10
+// prints: find exclusive
+// prints: sfind exclusive
+// prints: find exclusive
+// prints: find exclusive
+// prints: sat exclusive
+// prints: sfind exclusive
+// prints: pair 5 6 7 8 9 10
+// prints: vector 5 6 7 2
+// prints: subscript 9
+// prints: parameter 4 self 3
+
+struct E { n: Int, items: Vector<Int> }
+extension E: NoCopy {}
+enum Sl { case Full(e: E), case Empty }
+extension Sl: NoCopy {}
+
+func fresh(n: Int) -> E {
+    var items = Vector<Int>()
+    try! items.push(n)
+    E(n: n, items: move items)
+}
+
+func grow(v: &var Vector<Int>) {
+    var k = 0
+    while k < 64 {
+        try! v.push(k)
+        k += 1
+    }
+}
+
+func sl_n(s: &Sl) -> Int {
+    match s {
+        case Full(e) -> e.n,
+        case Empty -> -1
+    }
+}
+
+struct CS { slot: E, sl: Sl }
+extension CS: NoCopy {}
+extension CS {
+    @synthesize(shared)
+    func find(&var self, i: Int) borrows -> &var E? {
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+    @synthesize(shared)
+    func sfind(&var self, i: Int) borrows -> &var Sl? {
+        if i != 0 {
+            return None
+        }
+        lend self.sl
+    }
+    @synthesize(shared)
+    func sat(&var self, i: Int) borrows -> &var Sl {
+        lend self.sl
+    }
+}
+
+struct CP { slot: E, sl: Sl }
+extension CP: NoCopy {}
+extension CP {
+    func find(&self, i: Int) borrows -> &E? {
+        print("find shared")
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+    func find(&var self, i: Int) borrows -> &var E? {
+        print("find exclusive")
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+    func sfind(&self, i: Int) borrows -> &Sl? {
+        print("sfind shared")
+        if i != 0 {
+            return None
+        }
+        lend self.sl
+    }
+    func sfind(&var self, i: Int) borrows -> &var Sl? {
+        print("sfind exclusive")
+        if i != 0 {
+            return None
+        }
+        lend self.sl
+    }
+    func sat(&self, i: Int) borrows -> &Sl {
+        print("sat shared")
+        lend self.sl
+    }
+    func sat(&var self, i: Int) borrows -> &var Sl {
+        print("sat exclusive")
+        lend self.sl
+    }
+}
+
+func synthesized() {
+    var c = CS(slot: fresh(1), sl: Sl.Full(e: fresh(1)))
+    match c.find(0) {
+        case Some(var e) -> {
+            e.n = 5
+            grow(&var e.items)
+        },
+        case None -> {}
+    }
+    let a = c.slot.n
+    match c.sfind(0) {
+        case Some(Full(var e)) -> { e.n = 6 },
+        case _ -> {}
+    }
+    let b = sl_n(&c.sl)
+    match c.find(0) {
+        case Some(e) if e.n > 100 -> { print(e.n) },
+        case Some(var e) -> { e.n = 7 },
+        case None -> {}
+    }
+    let d = c.slot.n
+    match c.find(0) {
+        case Some(var e) if e.n == 7 -> { e.n = 8 },
+        case _ -> {}
+    }
+    let f = c.slot.n
+    match c.sat(0) {
+        case Full(var e) -> { e.n = 9 },
+        case Empty -> {}
+    }
+    let g = sl_n(&c.sl)
+    match c.sfind(0)! {
+        case Full(var e) -> { e.n = 10 },
+        case Empty -> {}
+    }
+    print("synthesized {} {} {} {} {} {}", a, b, d, f, g, sl_n(&c.sl))
+}
+
+func pair() {
+    var c = CP(slot: fresh(1), sl: Sl.Full(e: fresh(1)))
+    match c.find(0) {
+        case Some(var e) -> {
+            e.n = 5
+            grow(&var e.items)
+        },
+        case None -> {}
+    }
+    let a = c.slot.n
+    match c.sfind(0) {
+        case Some(Full(var e)) -> { e.n = 6 },
+        case _ -> {}
+    }
+    let b = sl_n(&c.sl)
+    match c.find(0) {
+        case Some(e) if e.n > 100 -> { print(e.n) },
+        case Some(var e) -> { e.n = 7 },
+        case None -> {}
+    }
+    let d = c.slot.n
+    match c.find(0) {
+        case Some(var e) if e.n == 7 -> { e.n = 8 },
+        case _ -> {}
+    }
+    let f = c.slot.n
+    match c.sat(0) {
+        case Full(var e) -> { e.n = 9 },
+        case Empty -> {}
+    }
+    let g = sl_n(&c.sl)
+    match c.sfind(0)! {
+        case Full(var e) -> { e.n = 10 },
+        case Empty -> {}
+    }
+    print("pair {} {} {} {} {} {}", a, b, d, f, g, sl_n(&c.sl))
+}
+
+func vector() {
+    var v = Vector<E>()
+    try! v.push(fresh(1))
+    try! v.push(fresh(2))
+    match v.find(0) {
+        case Some(var e) -> {
+            e.n = 5
+            grow(&var e.items)
+        },
+        case None -> {}
+    }
+    let a = v[0].n
+    match v.find(0) {
+        case Some(e) if e.n > 100 -> { print(e.n) },
+        case Some(var e) -> { e.n = 6 },
+        case None -> {}
+    }
+    let b = v[0].n
+    match v.find(0) {
+        case Some(var e) if e.n == 6 -> { e.n = 7 },
+        case _ -> {}
+    }
+    match v.find(5) {
+        case Some(var e) -> { e.n = 0 },
+        case None -> {}
+    }
+    print("vector {} {} {} {}", a, b, v[0].n, v[1].n)
+}
+
+struct Cell { n: Int }
+enum Slot { case Full(c: Cell), case Empty }
+struct H { s: Slot }
+
+extension H {
+    func poke(&var self) {
+        match self.s {
+            case Full(var c) -> { c.n = 3 },
+            case Empty -> {}
+        }
+    }
+}
+
+func poke(s: &var Slot) {
+    match s {
+        case Full(var c) -> { c.n = 4 },
+        case Empty -> {}
+    }
+}
+
+func slot_n(s: &Slot) -> Int {
+    match s {
+        case Full(c) -> c.n,
+        case Empty -> -1
+    }
+}
+
+func subscript() {
+    var v = Vector<Slot>()
+    try! v.push(Slot.Full(c: Cell(n: 1)))
+    match v[0] {
+        case Full(var c) -> { c.n = 9 },
+        case Empty -> {}
+    }
+    print("subscript {}", slot_n(&v[0]))
+}
+
+func roots() {
+    var s = Slot.Full(c: Cell(n: 1))
+    poke(&var s)
+    var h = H(s: Slot.Full(c: Cell(n: 1)))
+    h.poke()
+    print("parameter {} self {}", slot_n(&s), slot_n(&h.s))
+}
+
+func main() {
+    synthesized()
+    pair()
+    vector()
+    subscript()
+    roots()
+}

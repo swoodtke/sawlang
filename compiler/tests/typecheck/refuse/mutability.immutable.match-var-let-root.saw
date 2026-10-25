@@ -1,0 +1,23 @@
+// refuses: mutability.immutable at 19:11
+// a `match` arm's `var` payload over an accessor with a `@synthesize(shared)`
+// form writes, so it takes the exclusive form, which a `let` root cannot
+// lend (SL-906)
+
+struct Cell { n: Int }
+enum Slot { case Full(c: Cell), case Empty }
+struct H { s: Slot }
+
+extension H {
+    @synthesize(shared)
+    func at(&var self) borrows -> &var Slot {
+        lend self.s
+    }
+}
+
+func main() {
+    let h = H(s: Slot.Full(c: Cell(n: 1)))
+    match h.at() {
+        case Full(var c) -> { c.n = 9 },
+        case Empty -> {}
+    }
+}

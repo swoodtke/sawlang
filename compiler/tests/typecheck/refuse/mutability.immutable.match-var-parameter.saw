@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 9:11
+// a `match` arm's `var` payload over a shared `&Slot` parameter is a write
+// through the shared reference (SL-906)
+
+struct Cell { n: Int }
+enum Slot { case Full(c: Cell), case Empty }
+
+func poke(s: &Slot) {
+    match s {
+        case Full(var c) -> { c.n = 9 },
+        case Empty -> {}
+    }
+}
+
+func main() {
+    let s = Slot.Full(c: Cell(n: 1))
+    poke(&s)
+}

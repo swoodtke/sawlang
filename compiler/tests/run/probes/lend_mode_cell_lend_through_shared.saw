@@ -1,0 +1,34 @@
+// probe: stated
+// about: a `borrow var` over a cell-carrying lend reached through a `&self` accessor of a shared reference, in a function and in an escaping closure's capture, builds and writes, the MIR verifier admitting the exclusive receiver that spells the window's root charge (SL-906)
+// stage 0: cannot parse a `borrow` block
+// speeds: -O0 -O2
+// leaks: none
+// prints: 1
+// prints: 6
+// prints: 3
+
+import std.mutex.*
+
+func bump(a: &Arc<Mutex<Int>>) -> Int {
+    borrow var c = a.value().lock() {
+        c = c + 1
+        c
+    }
+}
+
+func direct(m: &Mutex<Int>) -> Int {
+    borrow var c = m.lock() {
+        c = c + 1
+        c
+    }
+}
+
+func main() {
+    let cell = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    print(bump(&cell))
+    let m = Mutex<Int>(value: 5)
+    print(direct(&m))
+    let inc = { borrow var v = cell.value().lock() { v = v + 1; v } }
+    let _ = inc()
+    print(inc())
+}

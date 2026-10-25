@@ -52,7 +52,8 @@ PROBE_KINDS = ("stated", "panics")
 # across a lend, an exclusive borrowing struct's `&var` field written through
 # until the struct is destroyed, a `Result` the C entry reads out of `main`'s
 # frame after the executor returns, a state record field one `lend` site's
-# path left unwritten).
+# path left unwritten, a payload written through a `match` arm's binding
+# while the window that lends it is open).
 PROBE_PATTERNS = (
     "thread_*.saw",
     "coro_*.saw",
@@ -72,6 +73,7 @@ PROBE_PATTERNS = (
     "copy_hook_suspends_*.saw",
     "lend_record_*.saw",
     "lend_window_*.saw",
+    "lend_mode_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

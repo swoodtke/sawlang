@@ -1,0 +1,45 @@
+// refuses: mutability.immutable at 40:15
+// a `match` arm's `var` payload over a `borrow let` binding of an accessor
+// with a `@synthesize(shared)` form writes through a binding that lends its
+// place shared (SL-906)
+
+struct E { n: Int, items: Vector<Int> }
+extension E: NoCopy {}
+enum Sl { case Full(e: E), case Empty }
+extension Sl: NoCopy {}
+
+func grow(v: &var Vector<Int>) {
+    var k = 0
+    while k < 256 {
+        try! v.push(k)
+        k += 1
+    }
+}
+
+func fresh() -> E {
+    var items = Vector<Int>()
+    try! items.push(41)
+    E(n: 1, items: move items)
+}
+
+struct C { slot: E, sl: Sl }
+extension C: NoCopy {}
+extension C {
+    @synthesize(shared)
+    func find(&var self, i: Int) borrows -> &var E? {
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+func main() {
+    var c = C(slot: fresh(), sl: Sl.Full(e: fresh()))
+    borrow let o = c.find(0) {
+        match o {
+            case Some(var e) -> { e.n = 5 },
+            case None -> {}
+        }
+    }
+}

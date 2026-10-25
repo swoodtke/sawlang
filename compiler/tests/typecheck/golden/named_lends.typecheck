@@ -62,7 +62,7 @@
       (20:25-20:26 Name Int place copy))
     (Table.value 29:10
       (30:9-33:10 Match Void value temp)
-      (30:15-30:28 Subscript.single named_lends.Slot place test (op []))
+      (30:15-30:28 Subscript.single named_lends.Slot place borrow-var (op []))
       (30:15-30:25 Member [named_lends.Slot; 1] place project)
       (30:15-30:19 SelfExpr named_lends.Table place project)
       (30:26-30:27 IntLit Int value temp)

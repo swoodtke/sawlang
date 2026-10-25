@@ -1,0 +1,42 @@
+// refuses: loan.window-root at 33:13
+// a `var` arm beside a `let` arm through std `Vector.find`, whose shared form
+// `@synthesize(shared)` derives takes the exclusive form, so a second lend of
+// the root inside the arm conflicts with its window, and growing the payload
+// through the binding cannot free what that lend points into (SL-906)
+
+struct E { n: Int, items: Vector<Int> }
+extension E: NoCopy {}
+enum Sl { case Full(e: E), case Empty }
+extension Sl: NoCopy {}
+
+func grow(v: &var Vector<Int>) {
+    var k = 0
+    while k < 256 {
+        try! v.push(k)
+        k += 1
+    }
+}
+
+func fresh() -> E {
+    var items = Vector<Int>()
+    try! items.push(41)
+    E(n: 1, items: move items)
+}
+
+
+func main() {
+    var c = Vector<E>()
+    try! c.push(fresh())
+    match c.find(0) {
+        case Some(e) if e.n > 100 -> { print(e.n) },
+        case Some(var e) -> {
+            if let x = c.find(0) {
+                borrow let r = x.items[0] {
+                    grow(&var e.items)
+                    print(r)
+                }
+            }
+        },
+        case None -> {}
+    }
+}

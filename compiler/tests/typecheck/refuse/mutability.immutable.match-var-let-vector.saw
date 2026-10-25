@@ -1,0 +1,15 @@
+// refuses: mutability.immutable at 11:11
+// a `match` arm's `var` payload over std `Vector.find` on a `let` vector
+// takes the exclusive form, which a `let` root cannot lend (SL-906)
+
+struct Cell { n: Int }
+
+func main() {
+    var w = Vector<Cell>()
+    try! w.push(Cell(n: 1))
+    let v = move w
+    match v.find(0) {
+        case Some(var c) -> { c.n = 9 },
+        case None -> {}
+    }
+}

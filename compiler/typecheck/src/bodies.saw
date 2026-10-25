@@ -73,6 +73,14 @@ static TC_HEAD_VALUE: Int = 0
 static TC_HEAD_CONDITIONAL: Int = 1
 static TC_HEAD_UNCONDITIONAL: Int = 2
 
+// What a `match`'s arm patterns bind (`arm_bindings`): no name, only names
+// that read, or at least one `var` or `borrow var` that may write.
+enum TcArmBinds {
+    case Nothing,
+    case Reads,
+    case Writes
+}
+
 // The positions the expected-type funnel serves, which its refusals name.
 public enum TcPosition {
     case Let,
@@ -1486,11 +1494,7 @@ extension TcProgram {
         if inner >= 0 {
             wanted = inner
         }
-        if sig.lending_exclusive {
-            self.set_use(e, TcUse.BorrowVar)
-        } else {
-            self.set_use(e, TcUse.Borrow)
-        }
+        self.lend_mode(e, sig.lending_exclusive)
         // A conditional lend lends a present place of the payload, or passes
         // on another conditional lend whole.
         var also = -1
@@ -6180,11 +6184,7 @@ extension TcProgram {
         }
         if place && named && not self.has_error(t) && self.is_optional(t) {
             self.lend_heads[head] = true
-            if writable {
-                self.set_use(subject, TcUse.BorrowVar)
-            } else {
-                self.set_use(subject, TcUse.Borrow)
-            }
+            self.lend_mode(subject, writable)
             self.bind_borrow(target, self.arg_of(t, 0), writable)
             return
         }
@@ -6319,11 +6319,7 @@ extension TcProgram {
         self.lend_head = subject
         let _ = self.expr(subject, TC_WANT_NONE)
         self.lend_head = outer
-        if exclusive {
-            self.set_use(subject, TcUse.BorrowVar)
-        } else {
-            self.set_use(subject, TcUse.Borrow)
-        }
+        self.lend_mode(subject, exclusive)
         let t = self.through_refs(subject)
         var payload = self.error_type
         if not self.has_error(t) {
@@ -6363,6 +6359,12 @@ extension TcProgram {
         self.set_use(scrutinee, TcUse.Test)
         let t = self.through_refs(scrutinee)
         let from = self.scrutinee_origin(scrutinee, t)
+        // Over a place the match borrows, a `var` payload is the place's
+        // writable lend, so the scrutinee is a write position; over an owned
+        // one it is a mutable copy of the part.
+        if (from == TcOrigin.Borrowed || from == TcOrigin.Lent) && self.arm_bindings(e) == TcArmBinds.Writes {
+            self.lend_mode(scrutinee, true)
+        }
         let stmt = want == TC_WANT_STMT
         var slot = -1
         if want >= 0 {
@@ -6581,7 +6583,9 @@ extension TcProgram {
             k = k + 1
         }
         let _ = self.expr(seq, TC_WANT_NONE)
-        self.set_use(seq, TcUse.Borrow)
+        // A plain `for` only reads its head; `for var` over a lending
+        // iterator writes it (SL-871).
+        self.lend_mode(seq, false)
         let t = self.through_refs(seq)
         let item = self.iterator_item(e, seq, t)
         self.bind_target(target, item, TcOrigin.Temporary)
@@ -6654,11 +6658,7 @@ extension TcProgram {
                     let poisoned = self.error_type
                     return self.set_type(e, poisoned, false)
                 }
-                if exclusive {
-                    self.set_use(place, TcUse.BorrowVar)
-                } else {
-                    self.set_use(place, TcUse.Borrow)
-                }
+                self.lend_mode(place, exclusive)
                 let pt = self.through_refs(place)
                 if not self.has_error(pt) && not self.expr_place[place] {
                     self.refuse_not_a_place(place)
@@ -11777,6 +11777,29 @@ extension TcProgram {
         }
     }
 
+    // THE LEND-MODE FUNNEL: the use a named lend's subject takes from the
+    // modes of the bindings that name it, exclusive when any of them may
+    // write the place and shared otherwise (SL:borrowing §3). It is the one
+    // fact the twin pick (`settle_call`), MIR's window kind and the borrow
+    // check's root charge all read, so the three agree; a read-only subject a
+    // writing binding names is refused by the mutability walk, as any
+    // exclusive borrow of it is. Pinned by the X59 conformance row's fixtures.
+    //
+    // ENTRY POINTS:
+    //     check_optional_binding
+    //     check_borrow_unwrap
+    //     borrow_block
+    //     check_lend
+    //     match_expr
+    //     for_expr
+    func lend_mode(&var self, subject: Int, writes: Bool) {
+        if writes {
+            self.set_use(subject, TcUse.BorrowVar)
+        } else {
+            self.set_use(subject, TcUse.Borrow)
+        }
+    }
+
     // Whether call `at` lends a place: a `borrows` call, or a subscript in
     // its place role. A call that lends a borrowing struct is left to
     // `borrowing.containment`, which decides every position one may stand in.
@@ -12127,6 +12150,12 @@ extension TcProgram {
         if m < 0 || not self.has_alt(m, Alt.Expr_Match) || self.res.first_node_child(m) != e {
             return false
         }
+        self.arm_bindings(m) != TcArmBinds.Nothing
+    }
+
+    // What match `m`'s arm patterns bind, at any depth.
+    func arm_bindings(&self, m: Int) -> TcArmBinds {
+        var found = TcArmBinds.Nothing
         var stack = Vector<Int>()
         var k = 0
         while k < self.child_count(m) {
@@ -12152,13 +12181,16 @@ extension TcProgram {
             if p < 0 || self.is_leaf(p) {
                 continue
             }
-            if self.has_alt(p, Alt.Pat_BorrowBinding_Let) || self.has_alt(p, Alt.Pat_BorrowBinding_Var) || self.has_alt(p, Alt.Pat_VarBinding) {
-                return true
+            if self.has_alt(p, Alt.Pat_BorrowBinding_Var) || self.has_alt(p, Alt.Pat_VarBinding) {
+                return TcArmBinds.Writes
+            }
+            if self.has_alt(p, Alt.Pat_BorrowBinding_Let) {
+                found = TcArmBinds.Reads
             }
             if self.has_alt(p, Alt.Pat_Name) {
                 let leaf = self.res.first_leaf(p)
                 if self.binding_at(leaf).kind != ResBindKind.Cases {
-                    return true
+                    found = TcArmBinds.Reads
                 }
             }
             var j = 0
@@ -12173,7 +12205,7 @@ extension TcProgram {
                 j = j + 1
             }
         }
-        false
+        found
     }
 
     // The outermost node of the projection `e` heads: each step a member, a

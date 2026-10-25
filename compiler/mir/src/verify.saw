@@ -34,6 +34,9 @@
 //     which would give a NoCopy or ExplicitCopy value a second owner;
 //   - no builtin binary operator's operand moves an owning value, which the
 //     operator would read and nothing would drop;
+//   - no exclusive reference is taken through a shared reference, but into
+//     a raw pointer's pointee or a cell-carrying referent, or as the
+//     receiver of a window whose accessor takes `&self`;
 //   - every proven payload `(P as CASE)` is used only where every path has
 //     switched `P` to CASE with nothing writing `P` since, which is what lets
 //     a construct drop its leftovers when its body completes.
@@ -55,12 +58,15 @@ import sawresolve.program.{ResProgram}
 // For the extension writing `casts_backing`.
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TcLend, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.summaries.{TcAcc}
+// For the extension writing `is_cell_carrying`.
+import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
@@ -95,6 +101,7 @@ extension MirProgram {
         self.verify_moves(f, &var out)
         self.verify_payloads(f, &var out)
         self.verify_default_result(f, &var out)
+        self.verify_exclusive_refs(f, &var out)
     }
 
     // A default value's function returns its parameter's declared type, so
@@ -122,6 +129,121 @@ extension MirProgram {
             try! text.append("`")
             self.problem(f, &var out, text.build())
         }
+    }
+
+    // No exclusive reference is taken through a shared one. A shared borrow
+    // promises its storage is not written while it lasts, and typecheck
+    // refuses every source spelling of such a write, so one here is a
+    // lowering defect, never a program's. A raw pointer's pointee is storage
+    // of its own, a cell-carrying referent's interior is the one place a
+    // shared borrow writes (spec, Interior mutability), and a `&self`
+    // window's receiver only reads (`shared_receivers`). Pinned by
+    // compiler/mir/tests/verify_exclusive_refs.saw.
+    func verify_exclusive_refs(&var self, f: Int, out: &var Vector<String>) {
+        let info = self.funcs[f]
+        let reading = self.shared_receivers(f)
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            b = b + 1
+            var s = block.first
+            while s >= 0 {
+                let stmt = self.stmts[s]
+                s = stmt.next
+                if stmt.kind != MirStmtKind.Assign || stmt.rvalue < 0 {
+                    continue
+                }
+                let rv = self.rvalues[stmt.rvalue]
+                if rv.kind != MirRvalueKind.Ref || not rv.exclusive {
+                    continue
+                }
+                let dest = self.places[stmt.place]
+                if dest.count == 0 && dest.local >= 0 && tc_contains(&reading, dest.local) {
+                    continue
+                }
+                if self.through_shared_reference(rv.place) {
+                    var text = StringBuilder()
+                    try! text.append("block ")
+                    try! text.append(b - 1)
+                    try! text.append(" takes an exclusive reference through a shared one, to storage a `&` borrow promised not to write")
+                    self.problem(f, &var out, text.build())
+                }
+            }
+        }
+    }
+
+    // The locals function `f` passes as the receiver of a window whose
+    // accessor takes `&self`. Such a receiver only reads; an exclusive
+    // reference there spells the window's exclusive root charge, a chain
+    // hop under an exclusive one, as the receiver's reference kind, and the
+    // charge is conservative. This goes once MIR spells that receiver
+    // `ref(shared, …)` (SL-903).
+    func shared_receivers(&self, f: Int) -> Vector<Int> {
+        let info = self.funcs[f]
+        var found = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            let block = self.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call || block.call < 0 {
+                continue
+            }
+            let c = self.calls[block.call]
+            if c.kind != MirCallKind.WindowOpen || c.window < 0 || c.window >= info.window_count {
+                continue
+            }
+            let w = self.windows[info.window_first + c.window]
+            if w.accessor < 0 || self.tc.sigs[w.accessor].receiver != TcReceiver.Shared {
+                continue
+            }
+            let at = if w.record >= 0 { 1 } else { 0 }
+            if at >= c.arg_count {
+                continue
+            }
+            let o = self.operands[self.lists[c.arg_first + at]]
+            if o.kind == MirOperandKind.Const || o.place < 0 {
+                continue
+            }
+            let p = self.places[o.place]
+            if p.count == 0 && p.local >= 0 {
+                try! found.push(p.local)
+            }
+        }
+        move found
+    }
+
+    // Whether place `p` reads through a shared reference or slice, past the
+    // last raw pointer it dereferences, into storage that carries no cell.
+    func through_shared_reference(&var self, p: Int) -> Bool {
+        if p < 0 || p >= self.places.len() {
+            return false
+        }
+        let place = self.places[p]
+        var before = -1
+        if place.local >= 0 {
+            before = self.local_type(place.local)
+        } else if place.static_decl >= 0 {
+            before = self.tc.sigs[place.static_decl].result
+        }
+        var shared = false
+        var k = 0
+        while k < place.count {
+            let step = self.projs[place.first + k]
+            k = k + 1
+            let through = step.kind == MirProjKind.Deref || step.kind == MirProjKind.Index
+            if through && before >= 0 {
+                let kind = self.tc.kind_of(before)
+                if self.raw_pointer(before) {
+                    shared = false
+                } else if (kind == TcKind.Ref || kind == TcKind.Slice) && not self.tc.is_exclusive_ref(before) {
+                    if not self.tc.is_cell_carrying(self.tc.types.ty(before).b) {
+                        shared = true
+                    }
+                }
+            }
+            before = step.ty
+        }
+        shared
     }
 
     // No operand moves an owning value out through a reference, and none

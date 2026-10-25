@@ -1,0 +1,67 @@
+// refuses: loan.window-root at 53:13
+// a `var` payload over an unconditional lend through an accessor with a
+// hand-written `&self` half takes the exclusive form, so a second lend of the
+// root inside the arm conflicts with its window, and growing the payload
+// through the binding cannot free what that lend points into (SL-906)
+
+struct E { n: Int, items: Vector<Int> }
+extension E: NoCopy {}
+enum Sl { case Full(e: E), case Empty }
+extension Sl: NoCopy {}
+
+func grow(v: &var Vector<Int>) {
+    var k = 0
+    while k < 256 {
+        try! v.push(k)
+        k += 1
+    }
+}
+
+func fresh() -> E {
+    var items = Vector<Int>()
+    try! items.push(41)
+    E(n: 1, items: move items)
+}
+
+struct C { slot: E, sl: Sl }
+extension C: NoCopy {}
+extension C {
+    func sat(&self, i: Int) borrows -> &Sl {
+        lend self.sl
+    }
+    func sat(&var self, i: Int) borrows -> &var Sl {
+        lend self.sl
+    }
+    func sfind(&self, i: Int) borrows -> &Sl? {
+        if i != 0 {
+            return None
+        }
+        lend self.sl
+    }
+    func sfind(&var self, i: Int) borrows -> &var Sl? {
+        if i != 0 {
+            return None
+        }
+        lend self.sl
+    }
+}
+
+func main() {
+    var c = C(slot: fresh(), sl: Sl.Full(e: fresh()))
+    match c.sat(0) {
+        case Full(var e) -> {
+            if let xs = c.sfind(0) {
+                match xs {
+                    case Full(x) -> {
+                        borrow let r = x.items[0] {
+                            grow(&var e.items)
+                            print(r)
+                        }
+                    },
+                    case Empty -> {}
+                }
+            }
+        },
+        case Empty -> {}
+    }
+}

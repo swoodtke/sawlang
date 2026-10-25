@@ -1,0 +1,118 @@
+// probe: stated
+// about: a forwarding accessor whose `match` arm lends its `var` payload onward reaches the inner accessor's exclusive form, lending `&var` or `&`, through an accessor with a `@synthesize(shared)` form and through a hand-written pair saying which half ran (SL-906)
+// stage 0: cannot parse `var` in a payload
+// speeds: -O0 -O2
+// leaks: none
+// prints: read 5
+// prints: synthesized 4 5
+// prints: sat exclusive
+// prints: sat exclusive
+// prints: read 5
+// prints: pair 4 5
+
+struct E { n: Int, items: Vector<Int> }
+extension E: NoCopy {}
+enum Sl { case Full(e: E), case Empty }
+extension Sl: NoCopy {}
+
+func fresh(n: Int) -> E {
+    var items = Vector<Int>()
+    try! items.push(n)
+    E(n: n, items: move items)
+}
+
+func sl_n(s: &Sl) -> Int {
+    match s {
+        case Full(e) -> e.n,
+        case Empty -> -1
+    }
+}
+
+struct CS { sl: Sl }
+extension CS: NoCopy {}
+extension CS {
+    @synthesize(shared)
+    func sat(&var self) borrows -> &var Sl {
+        lend self.sl
+    }
+}
+
+struct CP { sl: Sl }
+extension CP: NoCopy {}
+extension CP {
+    func sat(&self) borrows -> &Sl {
+        print("sat shared")
+        lend self.sl
+    }
+    func sat(&var self) borrows -> &var Sl {
+        print("sat exclusive")
+        lend self.sl
+    }
+}
+
+struct OS { inner: CS }
+extension OS: NoCopy {}
+extension OS {
+    func get(&var self) borrows -> &var E {
+        match self.inner.sat() {
+            case Full(var e) -> {
+                e.n = e.n + 1
+                lend e
+            },
+            case Empty -> { panic("empty") }
+        }
+    }
+    func peek(&var self) borrows -> &E {
+        match self.inner.sat() {
+            case Full(var e) -> {
+                e.n = e.n + 1
+                lend e
+            },
+            case Empty -> { panic("empty") }
+        }
+    }
+}
+
+struct OP { inner: CP }
+extension OP: NoCopy {}
+extension OP {
+    func get(&var self) borrows -> &var E {
+        match self.inner.sat() {
+            case Full(var e) -> {
+                e.n = e.n + 1
+                lend e
+            },
+            case Empty -> { panic("empty") }
+        }
+    }
+    func peek(&var self) borrows -> &E {
+        match self.inner.sat() {
+            case Full(var e) -> {
+                e.n = e.n + 1
+                lend e
+            },
+            case Empty -> { panic("empty") }
+        }
+    }
+}
+
+func main() {
+    var s = OS(inner: CS(sl: Sl.Full(e: fresh(1))))
+    borrow var g = s.get() {
+        g.n = g.n + 2
+    }
+    let a = sl_n(&s.inner.sl)
+    borrow let p = s.peek() {
+        print("read {}", p.n)
+    }
+    print("synthesized {} {}", a, sl_n(&s.inner.sl))
+    var q = OP(inner: CP(sl: Sl.Full(e: fresh(1))))
+    borrow var g = q.get() {
+        g.n = g.n + 2
+    }
+    let b = sl_n(&q.inner.sl)
+    borrow let p = q.peek() {
+        print("read {}", p.n)
+    }
+    print("pair {} {}", b, sl_n(&q.inner.sl))
+}

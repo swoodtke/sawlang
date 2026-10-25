@@ -1,0 +1,93 @@
+// probe: stated
+// about: a `match` whose arms bind only `let` payloads keeps the shared form, so a second shared lend of the root inside an arm stands, through an accessor with a `@synthesize(shared)` form, std `Vector.find` and a hand-written pair saying which half ran; and a `var` payload of an owned scrutinee is a mutable copy (SL-906)
+// stage 0: cannot parse `var` in a payload
+// speeds: -O0 -O2
+// leaks: none
+// prints: synthesized 1 1
+// prints: vector 2 2
+// prints: find shared
+// prints: find shared
+// prints: pair 3 3
+// prints: copy 11 owned 1
+
+struct E { n: Int, items: Vector<Int> }
+extension E: NoCopy {}
+
+func fresh(n: Int) -> E {
+    var items = Vector<Int>()
+    try! items.push(n)
+    E(n: n, items: move items)
+}
+
+struct CS { slot: E }
+extension CS: NoCopy {}
+extension CS {
+    @synthesize(shared)
+    func find(&var self, i: Int) borrows -> &var E? {
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+struct CP { slot: E }
+extension CP: NoCopy {}
+extension CP {
+    func find(&self, i: Int) borrows -> &E? {
+        print("find shared")
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+    func find(&var self, i: Int) borrows -> &var E? {
+        print("find exclusive")
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+struct Pt { x: Int }
+
+func main() {
+    let c = CS(slot: fresh(1))
+    match c.find(0) {
+        case Some(e) -> {
+            if let x = c.find(0) {
+                print("synthesized {} {}", e.n, x.items[0])
+            }
+        },
+        case None -> {}
+    }
+    var w = Vector<E>()
+    try! w.push(fresh(2))
+    let v = move w
+    match v.find(0) {
+        case Some(e) -> {
+            if let x = v.find(0) {
+                print("vector {} {}", e.n, x.items[0])
+            }
+        },
+        case None -> {}
+    }
+    let p = CP(slot: fresh(3))
+    match p.find(0) {
+        case Some(e) -> {
+            if let x = p.find(0) {
+                print("pair {} {}", e.n, x.items[0])
+            }
+        },
+        case None -> {}
+    }
+    let o: Pt? = Pt(x: 1)
+    match o {
+        case Some(var q) -> {
+            q.x = q.x + 10
+            print("copy {} owned {}", q.x, o!.x)
+        },
+        case None -> {}
+    }
+}

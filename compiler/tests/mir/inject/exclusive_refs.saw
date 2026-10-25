@@ -1,0 +1,90 @@
+// The program compiler/mir/tests/verify_exclusive_refs.saw lowers, then edits:
+// `peek` borrows a payload through a shared `&Slot` parameter, which the edit
+// turns into the exclusive reference the MIR verifier must refuse. `poke`
+// takes one through a `&var Slot` and `store` one into a raw pointer's
+// pointee reached through `&self`, and both stay clean; `bump`'s shared
+// borrow of its cell, edited to an exclusive one, stays clean too, since a
+// cell-carrying referent's interior is written through `&self`. In `both`,
+// the receiver `h.get()`'s `&self` window takes, edited to an exclusive
+// reference, stays clean, since that receiver only reads; the receiver
+// `g.at()`'s `&var self` window takes, edited to reach through `h`, is
+// refused.
+
+struct Cell {
+    n: Int
+}
+
+enum Slot {
+    case Full(c: Cell),
+    case Empty
+}
+
+func peek(s: &Slot) -> Int {
+    match s {
+        case Full(c) -> c.n,
+        case Empty -> 0
+    }
+}
+
+func poke(s: &var Slot) {
+    match s {
+        case Full(var c) -> { c.n = 9 },
+        case Empty -> {}
+    }
+}
+
+struct Counter {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Counter: NoCopy {}
+
+extension Counter {
+    func bump(&self) unsafe {
+        let p = self.cell.ptr()
+        p[0] = p[0] + 1
+    }
+}
+
+struct Buffer {
+    data: UnsafePointer<Cell>
+}
+
+func set(c: &var Cell, n: Int) {
+    c.n = n
+}
+
+extension Buffer {
+    func store(&self, n: Int) unsafe {
+        set(&var self.data[0], n)
+    }
+}
+
+struct Holder {
+    a: Int,
+    b: Int
+}
+
+extension Holder {
+    func get(&self) borrows -> &Int {
+        lend self.a
+    }
+
+    func at(&var self) borrows -> &var Int {
+        lend self.b
+    }
+}
+
+func both(h: &Holder, g: &var Holder) {
+    g.at() = h.get()
+}
+
+func main() {
+    var s = Slot.Full(c: Cell(n: 1))
+    poke(&var s)
+    print(peek(&s))
+    let h = Holder(a: 1, b: 2)
+    var g = Holder(a: 3, b: 4)
+    both(&h, &var g)
+    print(g.b)
+}
