@@ -1,0 +1,18 @@
+// probe: custom
+// about: `sawc build --freestanding` writes an ELF object rooted at its exports, with `main` an ordinary function (SL-865)
+// Built with `--freestanding --target aarch64-unknown-none-elf` at -O0 and
+// -O2: no C entry and no argument accessors, the export defined in a
+// section of its own, the panic seam its overflow check reaches undefined,
+// and this file's `main`, which takes a parameter and returns an `Int`, an
+// ordinary internal function the export calls. Its `.ll` names the aarch64
+// default `-neon,-fp-armv8`, which `--target-features` replaces, and a
+// Mach-O triple is refused.
+
+func main(x: Int) -> Int {
+    x * 3
+}
+
+@export("probe_freestanding_entry")
+func entry(n: Int) -> Int {
+    main(n) + 1
+}

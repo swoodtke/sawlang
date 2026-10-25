@@ -38,6 +38,58 @@ public func tc_check_effects(p: &var TcProgram) {
     p.check_effects()
 }
 
+public func tc_check_hosted_imports(p: &var TcProgram) {
+    p.check_hosted_imports()
+}
+
+// The std modules that rest on an operating system, which the freestanding
+// profile has none of (spec, Profiles; `std.signal`'s section).
+func tc_hosted_modules() -> Vector<String> {
+    var out = Vector<String>()
+    try! out.push("std.file")
+    try! out.push("std.process")
+    try! out.push("std.env")
+    try! out.push("std.directory")
+    try! out.push("std.time")
+    try! out.push("std.net")
+    try! out.push("std.signal")
+    move out
+}
+
+extension TcProgram {
+    // Refuses, at the import, every hosted-only std module a module of the
+    // program imports when the profile has no operating system under it.
+    // Every std module is read whatever the program imports, so the import
+    // is the one place the program asks for one; std's own imports are
+    // std's business.
+    func check_hosted_imports(&var self) {
+        if self.profile.hosted {
+            return
+        }
+        let hosted = tc_hosted_modules()
+        var k = 0
+        while k < self.res.imports.len() {
+            let imp = self.res.imports[k]
+            k = k + 1
+            if imp.target < 0 || self.res.module(imp.module).kind == ResModuleKind.Std {
+                continue
+            }
+            let name = self.res.module_name(imp.target)
+            var j = 0
+            while j < hosted.len() {
+                if name.equals(hosted.get(j) ?? "") {
+                    var msg = StringBuilder()
+                    try! msg.append("`")
+                    try! msg.append(name)
+                    try! msg.append("` is hosted-only, and the freestanding profile has no operating system under it to provide it; keep this import out of the freestanding build")
+                    self.refuse_in(imp.module, imp.node, "import.hosted-only", msg.build())
+                }
+                j = j + 1
+            }
+        }
+    }
+}
+
 // Why a `Printable.format` that suspends is refused, the sentence both halves
 // of the check end with: typecheck's, at every instantiation, and coroutine
 // lowering's, at one.
@@ -1033,7 +1085,7 @@ extension TcProgram {
     // a std module's extern says nothing about the program, and only the
     // program's own declarations are judged.
     func check_extern_profile(&var self, d: Int) -> Bool {
-        if not self.freestanding || (self.sigs[d].flags & TC_FLAG_BLOCKING) == 0 || self.is_std_decl(d) {
+        if self.profile.hosted || (self.sigs[d].flags & TC_FLAG_BLOCKING) == 0 || self.is_std_decl(d) {
             return true
         }
         var msg = StringBuilder()

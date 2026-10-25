@@ -30,16 +30,30 @@ run/
                    FILE [-o OUT]
 .build/sawc-stage1 build [...] -c FILE [-o OUT]
 .build/sawc-stage1 build [...] --emit-ll FILE
-.build/sawc-stage1 build [...] (--freestanding | --runtime) FILE
+.build/sawc-stage1 build [...] --freestanding FILE [-o OUT]
+.build/sawc-stage1 build [...] --runtime FILE
 ```
 
-`--freestanding` and `--runtime` name a profile sawc checks and does not
-build: the program goes through typecheck under it, as `sawc typecheck
---freestanding` or `--runtime` takes it, and its refusals print as a record
-does. With none, the record's one refusal is `driver.not-yet`, at the entry
-file's first line, and the exit status is 1: sawc links only a hosted
-program, and `sawc runtime` builds a runtime, so neither profile ever emits
-a hosted image in its place. Nothing is written.
+`--freestanding` builds an object as `-c` does, under the freestanding
+profile. Typecheck makes the program's profile record (`TcProfile`, from the
+driver's `--freestanding` and `--runtime`), and every later stage reads it:
+the exports are the roots, a `main` is an ordinary function, there is no C
+entry and no argument accessor, the seams are declarations the environment
+defines, the backtrace table sits in no named section, and a hosted-only std
+import is refused (`import.hosted-only`). The object is compiled with
+`-ffunction-sections -fdata-sections -fno-pic` (`driver_object_arguments`).
+The target's default features apply when `--target-features` names none
+(`target_effective_features`: `-neon,-fp-armv8` on aarch64). A Mach-O target
+is refused by a `driver.freestanding-mach-o` record naming the bare-metal ELF
+triples sawc describes, exit status 1, and nothing is written. A bare-metal
+target's clang is its record's (below); another hosted target with no
+manifest of its own takes the host's clang, since no runtime is linked.
+
+`--runtime` names a profile sawc checks and does not build: the program goes
+through typecheck as a runtime's source, as `sawc typecheck --runtime` takes
+it, and its refusals print as a record does. With none, the record's one
+refusal is `driver.not-yet`, at the entry file's first line, and the exit
+status is 1: `sawc runtime` builds a runtime. Nothing is written.
 
 `sawc build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs
@@ -137,9 +151,12 @@ AArch64's) has no runtime and no C library, so sawc never links for it. A
 build for one without `-c`, `--emit-ll`, `--freestanding` or `--runtime` is
 refused with exit status 2 before anything is written, naming `-c`. With
 `-c` the object is compiled by the clang its record names:
-`sawc-runtime-TRIPLE.txt` beside the binary, which `build.py --runtime
-TRIPLE` writes for a bare-metal target as a `target` and a `clang` line and
-no object. With no record, `-c` is refused, naming that command. The speed flag passes through the driver's one
+`sawc-runtime-TRIPLE.txt` beside the binary, a `target` and a `clang` line
+and no object, which every stage build writes for each of build.py's
+`BARE_METAL_TARGETS` (`configure_bare_metal_targets`, which probes clang
+again only when the record or what `pick_clang` looks at changes) and
+`build.py --runtime TRIPLE` rewrites. Where no capable clang exists, the
+build writes no record and says nothing, and `-c` is refused, saying so. The speed flag passes through the driver's one
 `driver_speed_level` funnel (design 265); `-O0` is the default.
 
 ## `sawc runtime`
@@ -195,8 +212,9 @@ than a version read, since Apple's clang numbers its versions apart from
 LLVM's, and per target, since a clang need not have every backend: Apple's has
 no RISC-V. The lane checks the choice for `aarch64-unknown-none-elf` with no
 override, with `SAWC_CLANG` naming that clang, and with it naming no
-executable, which is refused by name, and the bare-metal record
-`configure_target` writes. A clang that fails it
+executable, which is refused by name, and the bare-metal record, which
+must already be there from the stage build before `configure_target`
+rewrites it. A clang that fails it
 is refused by name with the requirement, and none at all stops the build
 before `sawc runtime` runs. The chosen clang's absolute path goes into the
 manifest's `clang` line, and its `--version` into the runtime's and Stage 2's
@@ -734,10 +752,20 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are ten.
+says why the check cannot be header lines. There are eleven.
+`freestanding_object.saw` is built with `--freestanding --target
+aarch64-unknown-none-elf` at -O0 and -O2: an ELF64 AArch64 relocatable object
+whose export `nm` reads defined and external in a `.text.` section of its
+own, with an empty `.text`, the panic seam undefined, no C `main` and no
+argument accessor, and the file's `main`, which takes a parameter and returns
+an `Int`, local (or inlined away at -O2). Its `.ll` names the aarch64 default
+`-neon,-fp-armv8` in the attribute group, and an explicit `--target-features`
+replaces it; for `arm64-apple-darwin` the build is refused by a
+`driver.freestanding-mach-o` record naming `aarch64-unknown-none-elf`, writing
+nothing.
 `bare_metal_object.saw` is built with `-c --target aarch64-unknown-none-elf`
-at -O0 and -O2, once `build.configure_target` has recorded the target's
-clang: the object must be an ELF64 AArch64 relocatable file whose export
+at -O0 and -O2, with the target's clang record the stage build wrote, whose
+absence fails the probe: the object must be an ELF64 AArch64 relocatable file whose export
 `nm` reads defined and external, and the same build without `-c` must be
 refused with exit status 2, naming `-c`, writing nothing.
 `object_output_linkage.saw` is built with `-c` at -O0 and -O2 under an `-o`

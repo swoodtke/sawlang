@@ -19,7 +19,7 @@ import sawtypecheck.conform.{tc_check_copy_policies, tc_check_test_only_copies,
                                  tc_settle_conformances}
 import sawtypecheck.declarations.{tc_build_signatures}
 import sawtypecheck.dump.{tc_dump_module}
-import sawtypecheck.effects.{tc_check_effects}
+import sawtypecheck.effects.{tc_check_effects, tc_check_hosted_imports}
 import sawtypecheck.erasure.{tc_check_object_safety}
 import sawtypecheck.exhaust.{tc_check_exhaustive}
 import sawtypecheck.exports.{tc_check_exports}
@@ -29,7 +29,7 @@ import sawtypecheck.mutability.{tc_check_mutability}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.model.{TcDiag}
 import sawtypecheck.paths.{tc_settle_path_uses}
-import sawtypecheck.program.{TcKnown, TcProgram, tc_program}
+import sawtypecheck.program.{TcKnown, TcProgram, tc_profile, tc_program}
 import sawtypecheck.refpositions.{tc_check_reference_positions}
 import sawtypecheck.signatures.{tc_index_generics}
 import sawtypecheck.summaries.{tc_solve_summaries, tc_verify_all_summaries}
@@ -62,9 +62,9 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
                               freestanding: Bool = false) -> TcProgram {
     let res = resolve_program(path, std_root, &names, &dirs)
     var p = tc_program(move res)
-    p.runtime_build = runtime
-    p.freestanding = freestanding
+    p.profile = tc_profile(runtime, freestanding)
     p.find_known()
+    tc_check_hosted_imports(&var p)
     tc_index_generics(&var p)
     tc_build_signatures(&var p)
     tc_collect_conformances(&var p)

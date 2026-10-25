@@ -433,6 +433,39 @@ def configure_target(triple):
     return ""
 
 
+def configure_bare_metal_targets():
+    """Writes each `BARE_METAL_TARGETS` target's record (`configure_target`)
+    beside the stages, so any stage build leaves `.build` able to compile for
+    them and no lane depends on another having run. The probe is cached: it
+    runs again only when the record is missing or edited, or when what
+    `pick_clang` would look at changes (`SAWC_CLANG`, the candidates `PATH`
+    finds). A target no capable clang serves gets no record, and nothing is
+    said here: the driver's refusal names why when a build asks for it."""
+    for triple in BARE_METAL_TARGETS:
+        record = runtime_manifest(triple)
+        key_path = record + ".key"
+        looked_at = [os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in CLANG_CANDIDATES]
+        current = None
+        if os.path.exists(record):
+            with open(record) as fh:
+                current = fh.read()
+        key = "\0".join(looked_at + [current or ""])
+        if current is not None and os.path.exists(key_path):
+            with open(key_path) as fh:
+                if fh.read() == key:
+                    continue
+        if configure_target(triple):
+            for stale in (record, key_path):
+                if os.path.exists(stale):
+                    os.remove(stale)
+            continue
+        with open(record) as fh:
+            written = fh.read()
+        with open(key_path + ".tmp", "w") as fh:
+            fh.write("\0".join(looked_at + [written]))
+        os.replace(key_path + ".tmp", key_path)
+
+
 def build_runtime(triple=None):
     """Stage 1's `sawc runtime` builds the runtime objects for `triple`, the
     host when None, into `.build/rt2/<key>/` with the clang `choose_clang`
@@ -766,13 +799,15 @@ def bootstrap_stage1():
 def build_stage1():
     """Stage 1 from the bootstrap (`bootstrap_stage1`); then Stage 1 builds
     the runtime every later link takes, and its manifest is written beside the
-    stages. Returns (ok, output)."""
+    stages, as is each bare-metal target's clang record
+    (`configure_bare_metal_targets`). Returns (ok, output)."""
     ok, output = bootstrap_stage1()
     if not ok:
         return ok, output
     why = build_runtime()
     if why:
         return False, "build: " + why
+    configure_bare_metal_targets()
     return True, output
 
 

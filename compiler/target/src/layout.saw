@@ -138,6 +138,30 @@ public func target_bare_metal(triple: String) -> Bool {
     triple.equals("aarch64-unknown-none-elf")
 }
 
+// Whether `triple`'s objects are Mach-O, whose section names carry a segment.
+public func target_mach_o(triple: String) -> Bool {
+    triple.contains("-apple-")
+}
+
+// THE FEATURE FUNNEL: the subtarget feature list a compile for `triple`
+// runs with. `explicit`, the `--target-features` operand, wins outright when
+// given; else a `freestanding` aarch64 build gets the profile's default,
+// Advanced SIMD and the FP unit off, since an AArch64 core traps both at EL1
+// until its boot code enables them and LLVM moves a struct through `q`
+// registers (spec, Profiles); else none, since which extensions a part has
+// is a fact about the part.
+// ENTRY POINTS:
+//     driver_build
+public func target_effective_features(triple: String, explicit: String, freestanding: Bool) -> String {
+    if explicit.len() > 0 {
+        return explicit
+    }
+    if freestanding && triple.starts_with("aarch64") {
+        return "-neon,-fp-armv8"
+    }
+    ""
+}
+
 // Whether `triple` is one this module describes.
 public func target_known(triple: String) -> Bool {
     let known = target_triples()

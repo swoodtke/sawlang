@@ -1624,16 +1624,26 @@ def elf_header_problem(path):
     return ""
 
 
+def bare_metal_record_problem(what):
+    """Why the bare-metal target's clang record is not beside the stages, or
+    "": the stage build writes it (`build.configure_bare_metal_targets`), so
+    no check here may be what makes it exist."""
+    if os.path.exists(build.runtime_manifest(BARE_METAL_TARGET)):
+        return ""
+    return ("run %s: no %s beside the stages; the stage build writes it"
+            % (what, rel(build.runtime_manifest(BARE_METAL_TARGET))))
+
+
 def check_bare_metal_object(failures, counts):
-    """The bare-metal target end to end: `build.configure_target` records its
+    """The bare-metal target end to end: the stage build has recorded its
     clang; `sawc build -c --target aarch64-unknown-none-elf` at -O0 and -O2
     prints nothing and writes an ELF64 AArch64 relocatable object whose
     export `nm` reads defined and external; the same build without `-c` is
     refused with exit status 2, naming `-c`, before any file is written."""
     probe = os.path.join(PROBES, BARE_METAL_PROBE)
-    why = build.configure_target(BARE_METAL_TARGET)
-    if why:
-        failures.append("run %s: build.py configures no clang for %s: %s" % (rel(probe), BARE_METAL_TARGET, why))
+    problem = bare_metal_record_problem(rel(probe))
+    if problem:
+        failures.append(problem)
         return
     for speed in ("-O0", "-O2"):
         where = "run %s %s" % (rel(probe), speed)
@@ -1676,6 +1686,130 @@ def check_bare_metal_object(failures, counts):
         counts["run bare-metal links refused"] = 1
 
 
+# What `sawc build --freestanding` writes for `probes/freestanding_object.saw`
+# on the bare-metal target: the export defined in a section of its own, the
+# panic seam undefined, no C entry or argument accessors, and the file's
+# `main` an ordinary internal function (the user's Q7 ruling).
+FREESTANDING_PROBE = "freestanding_object.saw"
+FREESTANDING_EXPORT = "probe_freestanding_entry"
+FREESTANDING_DEFAULT_FEATURES = '"target-features"="-neon,-fp-armv8"'
+FREESTANDING_EXPLICIT_FEATURES = "+neon,+fp-armv8"
+FREESTANDING_MACH_O_RULE = "driver.freestanding-mach-o"
+
+
+def elf_sections(path):
+    """{name: size} of the ELF64 little-endian object at `path`'s sections."""
+    with open(path, "rb") as fh:
+        data = fh.read()
+    shoff = int.from_bytes(data[0x28:0x30], "little")
+    shentsize = int.from_bytes(data[0x3A:0x3C], "little")
+    shnum = int.from_bytes(data[0x3C:0x3E], "little")
+    shstrndx = int.from_bytes(data[0x3E:0x40], "little")
+
+    def header(k):
+        at = shoff + k * shentsize
+        return (int.from_bytes(data[at:at + 4], "little"), int.from_bytes(data[at + 24:at + 32], "little"),
+                int.from_bytes(data[at + 32:at + 40], "little"))
+    _, names_at, _ = header(shstrndx)
+    sections = {}
+    for k in range(shnum):
+        name, _, size = header(k)
+        end = data.index(b"\0", names_at + name)
+        sections[data[names_at + name:end].decode("utf-8", "replace")] = size
+    return sections
+
+
+def check_freestanding_object(failures, counts):
+    """`sawc build --freestanding --target aarch64-unknown-none-elf` at -O0
+    and -O2: an ELF64 AArch64 relocatable object, sawc printing nothing,
+    with no C `main` and no argument accessors, the export `T` in its own
+    `.text.` section and an empty `.text`, `__saw_rt_panic` undefined, and
+    the file's `main` local (or inlined away at -O2). Then the attribute
+    group's aarch64 default and an explicit list replacing it, and a Mach-O
+    triple refused by an `ERROR` record, writing nothing."""
+    probe = os.path.join(PROBES, FREESTANDING_PROBE)
+    problem = bare_metal_record_problem(rel(probe))
+    if problem:
+        failures.append(problem)
+        return
+    for speed in ("-O0", "-O2"):
+        where = "run %s %s" % (rel(probe), speed)
+        obj = os.path.join(OUT, "freestanding" + speed[1:] + ".o")
+        if os.path.exists(obj):
+            os.remove(obj)
+        r = subprocess.run([build.SAWC, "build", "--freestanding", speed, "--std-root", "std", "--target",
+                            BARE_METAL_TARGET, rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said or not os.path.exists(obj):
+            failures.append("%s: sawc build --freestanding exits %d: %s" % (where, r.returncode, said[:300]))
+            continue
+        problem = elf_header_problem(obj)
+        if problem:
+            failures.append("%s: the object %s" % (where, problem))
+            continue
+        symbols, why = object_symbols(obj, False)
+        if symbols is None:
+            failures.append("%s: nm cannot read the object: %s" % (where, why))
+            continue
+        problems = []
+        if symbols.get(FREESTANDING_EXPORT) != "T":
+            problems.append("`%s` is %s, not defined and external (T)"
+                            % (FREESTANDING_EXPORT, symbols.get(FREESTANDING_EXPORT, "absent")))
+        if symbols.get(OBJECT_UNDEFINED) != "U":
+            problems.append("`%s` is %s, not undefined (U)"
+                            % (OBJECT_UNDEFINED, symbols.get(OBJECT_UNDEFINED, "absent")))
+        for name in OBJECT_ABSENT:
+            if name in symbols:
+                problems.append("`%s` is in a freestanding object (%s)" % (name, symbols[name]))
+        mains = {name: kind for name, kind in symbols.items() if "main(" in name}
+        for name, kind in mains.items():
+            if not kind.islower():
+                problems.append("`%s` is external (%s); a freestanding `main` is an ordinary function" % (name, kind))
+        if speed == "-O0" and not mains:
+            problems.append("no symbol for the file's `main` at -O0, where nothing inlines it")
+        sections = elf_sections(obj)
+        if ".text." + FREESTANDING_EXPORT not in sections:
+            problems.append("no section `.text.%s`: the export is not in a section of its own" % FREESTANDING_EXPORT)
+        if sections.get(".text", 0) != 0:
+            problems.append("`.text` holds %d bytes; every function belongs in its own `.text.` section"
+                            % sections[".text"])
+        for problem in problems:
+            failures.append("%s: %s" % (where, problem))
+        if not problems:
+            counts["run freestanding objects"] = counts.get("run freestanding objects", 0) + 1
+    for flags, want, unwanted in (([], FREESTANDING_DEFAULT_FEATURES, None),
+                                  (["--target-features", FREESTANDING_EXPLICIT_FEATURES],
+                                   '"target-features"="%s"' % FREESTANDING_EXPLICIT_FEATURES,
+                                   FREESTANDING_DEFAULT_FEATURES)):
+        where = "run %s --emit-ll %s" % (rel(probe), " ".join(flags) or "(the default features)")
+        r = subprocess.run([build.SAWC, "build", "--freestanding", "-g0", "--emit-ll", "--std-root", "std",
+                            "--target", BARE_METAL_TARGET] + flags + [rel(probe)], cwd=REPO, capture_output=True,
+                           text=True, timeout=BUILD_TIMEOUT)
+        groups = [line for line in r.stdout.split("\n") if line.startswith("attributes #")]
+        if r.returncode != 0 or len(groups) != 1 or want not in groups[0] or (unwanted and unwanted in groups[0]):
+            failures.append("%s: exit %d, attribute groups %r, not one holding %s%s"
+                            % (where, r.returncode, groups, want, " alone" if unwanted else ""))
+        else:
+            counts["run freestanding feature groups"] = counts.get("run freestanding feature groups", 0) + 1
+    where = "run %s --target arm64-apple-darwin" % rel(probe)
+    out = os.path.join(OUT, "freestanding_mach_o.o")
+    for stale in (out, out + ".ll"):
+        if os.path.exists(stale):
+            os.remove(stale)
+    r = subprocess.run([build.SAWC, "build", "--freestanding", "--std-root", "std", "--target", "arm64-apple-darwin",
+                        rel(probe), "-o", out], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    records = [line.split("\t") for line in r.stdout.split("\n") if line.startswith("ERROR\t")]
+    refused = [fields for fields in records if len(fields) == 4 and fields[1] == FREESTANDING_MACH_O_RULE]
+    if (r.returncode != 1 or not refused or "cannot target the Mach-O triple" not in refused[0][3]
+            or BARE_METAL_TARGET not in refused[0][3] or os.path.exists(out) or os.path.exists(out + ".ll")):
+        failures.append("%s: not refused by a %s record naming %s, with nothing written: exit %d: %s"
+                        % (where, FREESTANDING_MACH_O_RULE, BARE_METAL_TARGET, r.returncode,
+                           (r.stdout + r.stderr).strip()[:300]))
+    else:
+        counts["run freestanding Mach-O refusals"] = 1
+
+
 # A clang path `SAWC_CLANG` can name that no file is at.
 MISSING_CLANG = "/nonexistent/saw-lane/clang"
 
@@ -1685,9 +1819,14 @@ def check_clang_choice(failures, counts):
     `choose_clang` caches): with no override it picks a clang that compiles IR
     for that triple, an override naming that clang is taken as named, and an
     override naming no executable is refused by name, with no fallback to the
-    candidates. Then `configure_target` writes the target's record: its
-    `target` and `clang` lines and no object, since it has no runtime."""
+    candidates. The stage build has written the target's record before any
+    of this runs; `configure_target` then rewrites it: its `target` and
+    `clang` lines and no object, since it has no runtime."""
     where = "run clang choice for %s" % BARE_METAL_TARGET
+    problem = bare_metal_record_problem("clang choice for %s" % BARE_METAL_TARGET)
+    if problem:
+        failures.append(problem)
+        return
     chosen, why = build.pick_clang(BARE_METAL_TARGET, None)
     if chosen is None or not build.clang_capable(chosen, BARE_METAL_TARGET):
         failures.append("%s: no capable clang is picked: %s" % (where, why))
@@ -1775,6 +1914,7 @@ CUSTOM_PROBES = {
     OBJECT_PROBE: check_object_output,
     ATTRIBUTE_PROBE: check_attribute_groups,
     BARE_METAL_PROBE: check_bare_metal_object,
+    FREESTANDING_PROBE: check_freestanding_object,
     "executable_path.saw": check_executable_path,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,

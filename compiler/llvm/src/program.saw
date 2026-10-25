@@ -23,7 +23,7 @@ import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.program.{TcProgram, TcSeams}
 import sawtypecheck.typeops.{TcClient}
 
 // The program's `.ll`, or "" when the backend refused something, which the
@@ -56,17 +56,19 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     // the executor resumes a frame through (runtime/ABI.md, "The compiler →
     // executor boundary"). When std's task dump is reached, the backtrace
     // table's accessor is defined beside the table (`bt_table_global`). A
-    // runtime has no entry point: those belong to the program it is linked
-    // into. Neither has a `-c` object of a program with no `main`, which
-    // leaves the accessors to whatever it is linked with.
-    let bt_accessor = not mono.runtime && ll_reaches_extern(&mono, ll_bt_table_address())
-    let entry_point = not mono.runtime && (not object || mono.main_item >= 0)
+    // profile whose exports are the roots has no entry point (a runtime's
+    // source and a freestanding object: those belong to whatever they are
+    // linked into), and neither has a `-c` object of a program with no
+    // `main`, which leaves the accessors to whatever it is linked with.
+    let profile = mono.dp.bc.mir.tc.profile
+    let bt_accessor = profile.backtrace_table() && ll_reaches_extern(&mono, ll_bt_table_address())
+    let entry_point = profile.main_entry && (not object || mono.main_item >= 0)
+    if bt_accessor {
+        e.defines(ll_bt_table_address())
+    }
     if entry_point {
         e.defines("__saw_rt_get_argc")
         e.defines("__saw_rt_get_argv")
-        if bt_accessor {
-            e.defines(ll_bt_table_address())
-        }
         if mono.exec_item >= 0 {
             e.defines("__saw_frame_resume")
         }
@@ -138,8 +140,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         }
         k = k + 1
     }
-    if not mono.runtime {
-        let table = e.bt_table_global(target.triple, bt_accessor)
+    if profile.backtrace_table() {
+        let table = e.bt_table_global(target.triple, bt_accessor, profile.backtrace_section())
         try! e.globals.append(table)
     }
     mono.current = -1
@@ -167,10 +169,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     try! out.append(target.triple)
     try! out.append("\n; speed ")
     try! out.append(speed)
-    if mono.runtime {
-        try! out.append("\n; runtime none\n\n")
-    } else {
+    if profile.seams == TcSeams.Linked {
         try! out.append("\n; runtime hosted\n\n")
+    } else {
+        try! out.append("\n; runtime none\n\n")
     }
     try! out.append("target triple = \"")
     if module_triple.len() > 0 {

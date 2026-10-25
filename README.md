@@ -922,10 +922,10 @@ func boot() {
 ```
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
-optional extensions, a feature list. `sawc` takes `--target-features`, and
-`sawc build -c --target aarch64-unknown-none-elf` writes a bare-metal object.
-It does not yet write a freestanding object, target riscv32 or take
-`--no-hidden-alloc` (SL-865); with those, the build reads:
+optional extensions, a feature list. `sawc build --freestanding --target
+aarch64-unknown-none-elf` writes a freestanding object today; `sawc` does not
+yet target riscv32 or take `--no-hidden-alloc` (SL-865). With those, the build
+reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
@@ -935,8 +935,7 @@ sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
 Base rv32i has no divide instruction, so `+m` is what keeps integer
 formatting from calling a library routine the freestanding profile has no
 library to provide. On aarch64 the freestanding profile defaults to
-`-neon,-fp-armv8` (v0.18.0's compiler applies it; `sawc` will with its
-freestanding build): a core traps Advanced SIMD at EL1 out of reset, and LLVM
+`-neon,-fp-armv8`: a core traps Advanced SIMD at EL1 out of reset, and LLVM
 reaches for `q` registers to move a struct, so a kernel would fault on its
 first block copy — before the exception vectors that would report it were
 installed. Pass
@@ -996,7 +995,8 @@ string to check an installed compiler against.
 
 A consumer that builds Stage 0's language through this repository (sawos, or
 any `SAWLANG_ROOT` user that needs `sawc0`'s command line) builds through a
-pin at or before v0.18.0 until `sawc` builds freestanding objects (SL-865).
+pin at or before v0.18.0 until `sawc` builds that command line, the runtime
+provider and riscv32 included (SL-865).
 sawos's copy of the toolchain resolver follows this one when its work resumes.
 
 ### Linux
@@ -1037,13 +1037,14 @@ The `-O` level is handed to clang, and is `-O0` when none is given; `-Os` and
 `-Oz` also mark every function `optsize`, and `-Oz` `minsize`. `-c` writes an
 object (`.o` appended to the `-o` name when it lacks one) and links nothing.
 `--target` cross-compiles for a triple (the host by default; the bare-metal
-`aarch64-unknown-none-elf` builds only with `-c`),
+`aarch64-unknown-none-elf` builds only with `-c` or `--freestanding`),
 `--target-features` names the LLVM subtarget features the code may use (such
 as `+m,+a,+c`), and `--module-path` maps a package name to its source
-directory. `--freestanding` and `--runtime` check a program against the
-freestanding profile or the runtime package's rules (each exported `__saw_rt_*`
-seam against `runtime/ABI.md`) but do not build it yet (SL-865). `sawc runtime`
-builds the hosted runtime from `runtime/`.
+directory. `--freestanding` writes an ELF object under the freestanding
+profile, rooted at its `@export`s. `--runtime` checks a program against the
+runtime package's rules (each exported `__saw_rt_*` seam against
+`runtime/ABI.md`) but does not build it yet (SL-865). `sawc runtime` builds
+the hosted runtime from `runtime/`.
 
 The spec documents some compiler flags that `sawc` does not take yet:
 `--no-hidden-alloc` (SL-865), the `-W`

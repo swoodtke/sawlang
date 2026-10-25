@@ -146,7 +146,9 @@ extension MonoProgram {
     }
 
     // The roots, in order: the entry module's `main`, never a test-only one
-    // (`top_decl`), which a runtime has none of; each exported function, in
+    // (`top_decl`), when the profile makes it the entry (a runtime's source
+    // and a freestanding program root their exports alone, and a `main`
+    // there is an ordinary function); each exported function, in
     // declaration order; then the lang functions the backend's own lowering
     // calls: the panic sink, which every
     // check ends in, and the String roles a literal and a written-out String
@@ -154,7 +156,7 @@ extension MonoProgram {
     func add_roots(&var self) {
         let entry = self.entry_module()
         let none = Vector<Int>()
-        if not self.runtime {
+        if self.dp.bc.mir.tc.profile.main_entry {
             let main_decl = self.dp.bc.mir.tc.top_decl(entry, "main")
             if main_decl >= 0 {
                 self.main_item = self.root_item(main_decl, &none)

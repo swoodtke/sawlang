@@ -32,8 +32,10 @@ with every module it imports. The flags are resolve's (see
 builtin modules, whose signatures are checked as interfaces; `--runtime` checks
 each program as a runtime source, whose exports may be the frozen seams, as
 `sawc runtime` does (the `export.*` rules); `--freestanding` checks it under
-the freestanding profile, `TcProgram.freestanding` (`spawn.freestanding`,
-`extern.freestanding-blocking`). Each entry gets one record, starting
+the freestanding profile (`spawn.freestanding`, `extern.freestanding-blocking`,
+`import.hosted-only`), where a `main` is an ordinary function. The two flags
+make the program's profile record, `TcProgram.profile` (`tc_profile`), which
+every rule that knows a profile reads. Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
 
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal:
@@ -1729,6 +1731,7 @@ its fixit.
 | `spawn.borrow` | a borrow a `Task.spawn` root takes of its spawner, at both spellings: a `&` or `&var` argument of the root call, and a borrow capture written in a closure anywhere inside it (`.capture`); and the borrow no spelling shows, judged once the captures are settled: a capturing non-escaping closure argument, a reference to its environment in the spawner (`.closure`, in a `Thread.spawn` body `.closure-thread`), and a non-escaping function value forwarded as an argument, whose environment a caller holds (`.forwarded-closure`), a capture-less closure having none (SL-805); a reference a call nested in the arguments makes ends at the spawn and is none (golden `task_spawn`; spec, "BORROWS ARE REFUSED AT THE FORM") |
 | `spawn.never-body` | a task root of type `Never`, whose handle's `join` could never return, or which a test driver would drive for ever (design 228; conformance row D12); the funnel `refuse_never_task_body` names its entry points, the `Task.spawn` form, `group.spawn` (`.group`), the two test drivers (`.drive`, `.drive-steps`) and the `Thread.spawn` brace (`.thread`, conformance row D11) |
 | `spawn.freestanding` | a `Task.spawn` under `--freestanding`: the background group it spawns into closes at `main`'s return, which a freestanding image lacks; `group.spawn` stands (SL-580) |
+| `import.hosted-only` | an import of a hosted-only std module (`std.file`, `std.process`, `std.env`, `std.directory`, `std.time`, `std.net`, `std.signal`) by a module of the program under `--freestanding`, at the import; std's own imports are not judged (SL-865) |
 | `extern.freestanding-blocking` | THE EXTERN FUNNEL (`check_extern_declarations`): a program's own `blocking` extern under `--freestanding`, which has no offload thread pool; std's hosted modules are read whatever a program imports and are not judged (SL-580) |
 | `extern.offload-c-abi` | the extern funnel: a `blocking` extern's parameter (`extern.offload-c-abi`) or result (`.result`) outside the C-ABI set an `@export` admits, at the declaration, called or not (SL-580) |
 | `extern.signature-disagree` | the extern funnel: a declaration of a C symbol whose parameter types (`.parameter`, an `Int` where std's takes a pointer), arity (`.arity`), variadic-ness or result (`extern.signature-disagree`) differ from the symbol's reference declaration, std's when std declares it and else the first; refused where the other is written. Two pointer types agree whatever they point at (the run probe `extern_agreement_accepts_the_same_declaration` redeclares std.file's `access` with an `UnsafePointer<UInt8>`) (SL-580) |

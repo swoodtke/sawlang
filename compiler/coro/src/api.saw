@@ -38,10 +38,13 @@ public struct CoroOptions {
 // mono report is appended to `out`, as `mono_lower_file` appends it; mono's
 // own findings and this stage's are `coro_append_findings`'. When mono's
 // program comes refused or with a broken invariant, nothing is decided.
+// `runtime` and `freestanding` reach typecheck, which builds the profile
+// record every later stage reads.
 public func coro_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
-                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false) -> CoroProgram {
+                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false,
+                            freestanding: Bool = false) -> CoroProgram {
     var mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
-                               dirs: &dirs, runtime: runtime)
+                               dirs: &dirs, runtime: runtime, freestanding: freestanding)
     var coro = coro_program(move mono)
     if not coro.blocked {
         coro_solve_suspension(&var coro)

@@ -35,13 +35,16 @@ public struct MonoOptions {
 // before mono, then monomorphized. Everything the stages before it report
 // (as `sawc drops --check` prints it) is appended to `out`; when any of it
 // is a refusal or a broken invariant, the program comes back blocked and
-// nothing is instantiated. A `runtime` program is checked and rooted as a
-// runtime: its roots are its exports, and it has no `main`. The file is
-// lowered once, and the program's `lowerings` says so.
+// nothing is instantiated. `runtime` and `freestanding` are the driver's
+// flags, from which typecheck builds the program's profile record
+// (`TcProfile`); every stage after it reads the record. The file is lowered
+// once, and the program's `lowerings` says so.
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
-                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false) -> MonoProgram {
+                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false,
+                            freestanding: Bool = false) -> MonoProgram {
     var lowerings = 0
-    var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, runtime: runtime)
+    var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, runtime: runtime,
+                                 freestanding: freestanding)
     var head = StringBuilder()
     var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
     // The constants are evaluated over the program as lowered, before the
@@ -93,7 +96,6 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
         }
     }
     var mono = mono_program(move p, blocked)
-    mono.runtime = runtime
     mono.lowerings = lowerings
     if not blocked {
         mono_take_statics(&var mono, &ev)

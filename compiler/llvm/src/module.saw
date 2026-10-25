@@ -105,7 +105,7 @@ public func ll_lowering(coro: &CoroProgram) -> LlLowering {
     var out = LlLowering(resume_of: Vector<Int>(), resumes: Vector<CoroResume>(), points: Vector<CoroPoint>(),
                          resident: Vector<Bool>(), drives: Vector<CoroDriveSite>(), sanitize: coro.sanitize,
                          poisons: Vector<CoroPoison>(), bt_table: Vector<Int>(), bt_index: Vector<Int>())
-    if not coro.mono.runtime {
+    if coro.mono.dp.bc.mir.tc.profile.backtrace_table() {
         out.bt_table = coro_bt_table(&coro, 0)
         out.bt_index = coro_bt_frame_index(&coro)
     }
@@ -215,10 +215,12 @@ extension LlEmitter {
     // target's word width in its header, or "" for a runtime. It is external
     // and kept by `@llvm.used`, since nothing in the program names it and a
     // debugger finds it by its symbol; it is 8-aligned, so a walker reads its
-    // words in place; and it sits in a section of its own, Mach-O's needing
-    // a segment, as Stage 0 places it. With `accessor`, the function std
+    // words in place; and with `section` it sits in a section of its own,
+    // Mach-O's needing a segment, as Stage 0 places it, where a freestanding
+    // object leaves it to the read-only data a kernel's linker script places
+    // (`TcProfile.backtrace_section`). With `accessor`, the function std
     // declares to read the table is defined beside it.
-    public func bt_table_global(&self, triple: String, accessor: Bool) -> String {
+    public func bt_table_global(&self, triple: String, accessor: Bool, section: Bool) -> String {
         if self.lowering.bt_table.len() == 0 {
             return ""
         }
@@ -229,9 +231,9 @@ extension LlEmitter {
         try! out.append(bytes.len())
         try! out.append(" x i8] ")
         try! out.append(ll_c_string(&bytes))
-        if ll_mach_o(triple) {
+        if section && ll_mach_o(triple) {
             try! out.append(", section \"__TEXT,__sawbt\"")
-        } else {
+        } else if section {
             try! out.append(", section \".saw_bt\"")
         }
         try! out.append(", align 8\n")

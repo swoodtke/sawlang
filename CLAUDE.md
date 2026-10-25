@@ -73,7 +73,8 @@ HALs, runtime, root server and their tests live in the sawos repo
 (`../sawos` locally), flattened to its root, building against a sawlang
 checkout through the resolver (`SAWLANG_ROOT` is the everyday spelling).
 sawlang references sawos nowhere. sawos builds through a pin at or before
-v0.18.0 until `sawc` builds freestanding objects (SL-865).
+v0.18.0 until `sawc` builds its kernel command line, the runtime provider and
+riscv32 included (SL-865).
 
 ## Python environment
 The tools use the standard library alone; `.venv/` (Python 3.14) pins the

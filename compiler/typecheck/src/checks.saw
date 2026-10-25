@@ -997,13 +997,14 @@ extension TcProgram {
     // `main`, which takes nothing and returns one of the four types an exit
     // status carries, an `Err`'s error type renderable (spec, The entry
     // point). A test-only `main` and a dependency's `main` are ordinary
-    // functions. A module with no `main` at all checks clean here, since a
-    // checked file need not be a program; the build refuses it
-    // (`entry.missing`).
+    // functions, and so is every `main` under a profile whose exports are
+    // the roots (`TcProfile.main_entry`). A module with no `main` at all
+    // checks clean here, since a checked file need not be a program; the
+    // build refuses it (`entry.missing`).
     // ENTRY POINTS:
     //     tc_check_entry_point
     public func check_main_signature(&var self) {
-        if self.runtime_build {
+        if not self.profile.main_entry {
             return
         }
         let m = self.entry_module_index()

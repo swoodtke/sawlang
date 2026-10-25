@@ -14461,9 +14461,10 @@ the frame's deinit, and the deinit is a no-op afterwards.
 
 ### Profiles (hosted and freestanding)
 
-**Status: freestanding stage 1 implemented in v0.18.0's compiler; `sawc`
-checks a program against the profile but does not build an object yet
-(SL-865).** Saw compiles under two profiles.
+**Status: implemented.** `sawc build --freestanding` writes an ELF object for
+the host's ELF triple or for `aarch64-unknown-none-elf`; the runtime provider
+and the riscv32 triple are not in `sawc` yet (SL-865). Saw compiles under two
+profiles.
 The default **hosted** profile links libc and provides everything above. The
 **freestanding** profile (`--freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
@@ -14476,8 +14477,16 @@ profile satisfies by linking a runtime built from `runtime/`. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
 hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
-`net`) and `Float`
-printing are unavailable. See `designs/19-freestanding-profile.md` for the full design.
+`net`, `signal`) and `Float`
+printing are unavailable: importing one is refused at the import
+(`import.hosted-only`). See `designs/19-freestanding-profile.md` for the full design.
+
+A freestanding object's roots are its `@export`ed functions. It has no C entry
+point and no program-argument accessors, and a `main` it declares is an
+ordinary function, held to no entry-point rule. Each function and global sits
+in a section of its own, so a kernel's `--gc-sections` link drops what nothing
+reaches, and the code is not position-independent. The object is ELF, since
+Mach-O cannot spell those section names, so a Mach-O triple is refused.
 
 **A package may BE the runtime.** `[package] runtime = true` in `Saw.toml`
 declares a package a runtime provider (`sawc build --runtime`; blade passes
@@ -14500,8 +14509,7 @@ were installed. A freestanding target is by definition one where no OS has
 enabled FP, so the profile says so instead of each kernel author rediscovering
 it. The general-registers-only lowering is complete: the backend has an
 instruction for everything, and the cost is a few extra `ldp`/`stp` pairs on a
-large struct move. **Status:** v0.18.0's compiler applies this default; `sawc`
-builds no freestanding object yet, so it has none to apply (SL-865).
+large struct move.
 
 `--target-features` OVERRIDES it completely. `sawc` takes the flag on any
 build and compiles every function for the features it names. A
@@ -15930,7 +15938,8 @@ sawc --version
 - `--target` cross-compiles for a triple (default: the host): `arm64-apple-darwin`,
   `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, or the bare-metal
   `aarch64-unknown-none-elf`. A bare-metal triple has no C library or runtime
-  to link against, so it builds only with `-c`; a link for it is refused.
+  to link against, so it builds only with `-c` or `--freestanding`; a link for
+  it is refused.
 - `--target-features FEATURES` names the LLVM subtarget features every
   function is compiled for, a comma-separated list such as `+m,+a,+c` (see
   Profiles).
@@ -15939,8 +15948,10 @@ sawc --version
   Repeatable; this is how the package manager wires dependencies, and how a
   package names itself (DIR is the package's `src/`; see Package Structure).
 - `--sanitize address` builds under AddressSanitizer.
-- `--freestanding` and `--runtime` check a program against the freestanding
-  profile or the runtime-package rules (see Profiles); neither builds yet.
+- `--freestanding` compiles under the freestanding profile to an ELF object,
+  as `-c` does, `.o` appended to an `-o` name that lacks it (see Profiles).
+  `--runtime` checks a program against the runtime-package rules and does not
+  build it yet.
 - `sawc runtime` builds the hosted runtime from `runtime/`.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`

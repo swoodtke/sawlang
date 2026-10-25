@@ -6,7 +6,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.conform.{TcSubst}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.program.{TcProgram, TcSeams}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
@@ -292,10 +292,11 @@ extension TcProgram {
         }
         let row = tc_abi_row_of(&table, symbol)
         let owner = table.owners.get(row) ?? ""
-        if self.runtime_build && owner.equals("runtime") {
+        let defines_seams = self.profile.seams == TcSeams.Exported
+        if defines_seams && owner.equals("runtime") {
             return self.export_seam_ok(d, attr, symbol, &table, row)
         }
-        if self.runtime_build && row < 0 && symbol.starts_with("__saw_rt_") {
+        if defines_seams && row < 0 && symbol.starts_with("__saw_rt_") {
             var msg = StringBuilder()
             try! msg.append("`@export` symbol `")
             try! msg.append(symbol)
@@ -306,7 +307,7 @@ extension TcProgram {
         var msg = StringBuilder()
         try! msg.append("`@export` symbol `")
         try! msg.append(symbol)
-        if self.runtime_build && row >= 0 {
+        if defines_seams && row >= 0 {
             try! msg.append("` is the program's, not the runtime's: the compiler defines it in every program (runtime/ABI.md, \"Program arguments\")")
         } else if symbol.starts_with("__saw_rt_") {
             try! msg.append("` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc runtime` defines")

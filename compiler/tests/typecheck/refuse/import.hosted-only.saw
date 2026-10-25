@@ -1,0 +1,12 @@
+// refuses: import.hosted-only at 7:1
+// flags: --std-root std --freestanding
+// message: `std.file` is hosted-only
+// A hosted-only std module imported under the freestanding profile: it
+// rests on an operating system's files, which a freestanding image has none of
+
+import std.file.{File}
+
+@export("entry")
+func entry(n: Int) -> Int {
+    n + 1
+}
