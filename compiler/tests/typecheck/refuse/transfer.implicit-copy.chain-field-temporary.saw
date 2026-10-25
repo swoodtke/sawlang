@@ -1,0 +1,24 @@
+// refuses: transfer.implicit-copy at 23:13
+// message: a `?.` chain's final field is copied out as the chain's value
+// a chain over a temporary whose final field is NoCopy: refused whatever the
+// base, though `make()!.f` moves the part out of the temporary (conformance O06, O19)
+
+struct F {
+    h: Int
+}
+
+extension F: NoCopy {}
+
+struct W {
+    f: F
+}
+
+extension W: NoCopy {}
+
+func make() -> W? {
+    W(f: F(h: 1))
+}
+
+func main() {
+    let x = make()?.f
+}

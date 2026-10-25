@@ -1,0 +1,76 @@
+// probe: stated
+// about: a propagating `try` inside a `?.` hop's argument: an absent hop never runs it, and a present one's error edge leaves the chain mid-way, the statement's temporaries destroyed on the way out (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: after 9 7
+// prints: drop 7
+// prints: ok 9
+// prints: after 5 7
+// prints: drop 7
+// prints: ok 5
+// prints: drop 7
+// prints: err 1
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Bad {
+    code: Int
+}
+
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("bad")
+    }
+}
+
+struct T {
+    k: Int
+}
+
+extension T {
+    func apply(&self, n: Int) -> Int {
+        self.k + n
+    }
+}
+
+func fails(fail: Bool) -> Result<Int, Bad> {
+    if fail {
+        return Bad(code: 1)
+    }
+    return 2
+}
+
+func held(present: Bool) -> T? {
+    if present {
+        return T(k: 3)
+    }
+    None
+}
+
+func run(present: Bool, fail: Bool) -> Result<Int, Bad> {
+    let r = Res(id: 7)
+    let n = held(present: present)?.apply(try fails(fail)) ?? 9
+    print("after {} {}", n, r.id)
+    n
+}
+
+func report(r: Result<Int, Bad>) {
+    match r {
+        case Ok(n) -> print("ok {}", n),
+        case Err(e) -> print("err {}", e.code)
+    }
+}
+
+func main() {
+    report(run(present: false, fail: true))
+    report(run(present: true, fail: false))
+    report(run(present: true, fail: true))
+}

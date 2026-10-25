@@ -1,0 +1,72 @@
+// probe: stated
+// about: an optional chain's temporaries: a call head drops once at its statement's end on either path, a method result made past a hop only where the hop is present, and a consuming method takes a temporary's payload (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// leaks: none
+// prints: drop 1
+// prints: a 10
+// prints: b -1
+// prints: drop 130
+// prints: drop 3
+// prints: c 130
+// prints: d -1
+// prints: drop 5
+// prints: e 50
+// prints: f -1
+// prints: end
+// The spec's Temporaries rule: a temporary dies at the end of its statement,
+// and a skipped hop makes nothing (conformance O18).
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Holder {
+    res: Res
+    n: Int
+}
+
+extension Holder: NoCopy {}
+
+extension Holder {
+    func value(&self) -> Int {
+        self.n
+    }
+
+    func token(&self) -> Res {
+        Res(id: self.n + 100)
+    }
+
+    func into_n(&var self) consumes -> Int {
+        self.n
+    }
+}
+
+func make(present: Bool, id: Int) -> Holder? {
+    if present {
+        return Holder(res: Res(id: id), n: id * 10)
+    }
+    None
+}
+
+func main() {
+    let a: Int? = make(present: true, id: 1)?.value()
+    print("a {}", a ?? -1)
+    let b: Int? = make(present: false, id: 2)?.n
+    print("b {}", b ?? -1)
+    let c: Int? = make(present: true, id: 3)?.token().id
+    print("c {}", c ?? -1)
+    let d: Int? = make(present: false, id: 4)?.token().id
+    print("d {}", d ?? -1)
+    let e: Int? = make(present: true, id: 5)?.into_n()
+    print("e {}", e ?? -1)
+    let f: Int? = make(present: false, id: 6)?.into_n()
+    print("f {}", f ?? -1)
+    print("end")
+}

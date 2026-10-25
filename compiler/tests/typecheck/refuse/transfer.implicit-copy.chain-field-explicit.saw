@@ -1,0 +1,30 @@
+// refuses: transfer.implicit-copy at 29:13
+// message: which is ExplicitCopy, by value: a `?.` chain's final field is copied out as the chain's value
+// message: as `a?.m.copy()`
+// a chain whose final field is ExplicitCopy: the refusal names the spelled
+// copy beside ending the chain in a method (conformance O19)
+
+struct M {
+    cents: Int
+}
+
+extension M: ExplicitCopy {
+    func copy(&self) -> M {
+        M(cents: self.cents)
+    }
+}
+
+struct A {
+    m: M
+}
+
+extension A: ExplicitCopy {
+    func copy(&self) -> A {
+        A(m: self.m.copy())
+    }
+}
+
+func main() {
+    let a: A? = A(m: M(cents: 5))
+    let m = a?.m
+}

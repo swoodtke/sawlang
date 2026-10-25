@@ -1,0 +1,58 @@
+// probe: stated
+// about: a short-circuit skips the rest of the chain, a skipped call's arguments included, and a present hop runs each argument once, after the hop's test; a chain as an argument (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: head true
+// prints: show 5
+// prints: head false
+// prints: show -1
+// prints: head true
+// prints: ran present
+// prints: show 105
+// prints: head true
+// prints: ran x
+// prints: ran y
+// prints: show 8
+// prints: show -1
+// The one exception to left-to-right argument order (spec, Argument
+// Evaluation Order; conformance O07).
+
+struct Box2 {
+    n: Int
+}
+
+extension Box2 {
+    func plus(&self, x: Int) -> Int {
+        self.n + x
+    }
+
+    func both(&self, x: Int, y: Int) -> Int {
+        self.n + x + y
+    }
+}
+
+func loud(tag: String, n: Int) -> Int {
+    print("ran {}", tag)
+    n
+}
+
+func make(present: Bool) -> Box2? {
+    print("head {}", present)
+    if present {
+        return Box2(n: 5)
+    }
+    None
+}
+
+func show(v: Int?) {
+    print("show {}", v ?? -1)
+}
+
+func main() {
+    show(make(present: true)?.n)
+    show(make(present: false)?.plus(loud("skipped", 100)))
+    show(make(present: true)?.plus(loud("present", 100)))
+    show(make(present: true)?.both(loud("x", 1), loud("y", 2)))
+    let none: Box2? = None
+    show(none?.both(loud("x2", 1), loud("y2", 2)))
+}

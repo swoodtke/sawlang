@@ -1,0 +1,29 @@
+// refuses: result.discarded at 28:5
+// message: the result of `save` is `Result<Void, result.discarded.optional-chain.Bad>?`
+// a `?.` chain whose method returns a Result, in statement position: the
+// chain's `Result?` discards the Result its call made (design 151)
+
+struct Bad {
+    n: Int
+}
+
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("bad")
+    }
+}
+
+struct S {
+    n: Int
+}
+
+extension S {
+    func save(&self) -> Result<Void, Bad> {
+        return
+    }
+}
+
+func main() {
+    let o: S? = S(n: 1)
+    o?.save()
+}

@@ -46,6 +46,16 @@ public struct MirCatch {
     reached: Bool
 }
 
+// An optional chain being lowered: the block its absent hops reach, the
+// scope depth outside it, the first scope entry made inside it, and whether
+// a hop reaches the block.
+public struct MirChain {
+    exit: Int
+    depth: Int
+    mark: Int
+    reached: Bool
+}
+
 public struct MirProgram {
     tc: TcProgram
     funcs: Vector<MirFunc>
@@ -84,6 +94,8 @@ public struct MirProgram {
     loops: Vector<MirLoop>
     // The `try` blocks open around the position, innermost last.
     catches: Vector<MirCatch>
+    // The optional chains open around the position, innermost last.
+    chains: Vector<MirChain>
     // By leaf: the local a binding lowers to, or -1; the leaves set, so they
     // are cleared when the function is done.
     leaf_local: Vector<Int>
@@ -206,7 +218,7 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                func_of: ResIndex(), cur: -1, local_base: 0,
                block_base: 0, current: -1, scope: Vector<MirScopeEntry>(),
                scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), catches: Vector<MirCatch>(),
-               leaf_local: move leaf_local,
+               chains: Vector<MirChain>(), leaf_local: move leaf_local,
                touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
                pending_parents: Vector<Int>(), closure_counts: ResIndex(),
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),

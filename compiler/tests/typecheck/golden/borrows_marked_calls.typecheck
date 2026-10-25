@@ -274,7 +274,7 @@
       (115:13-115:14 IntLit Int value temp)
       (115:20-115:21 IntLit Int value temp)
       (116:5-116:18 OptionalMember Int place write)
-      (116:5-116:15 Call.paren borrows_marked_calls.Entry? place project (call borrows_marked_calls.Store.find(i: Int) (owner borrows_marked_calls.Store)))
+      (116:5-116:15 Call.paren borrows_marked_calls.Entry? (payload-var borrows_marked_calls.Entry) place project (call borrows_marked_calls.Store.find(i: Int) (owner borrows_marked_calls.Store)))
       (116:5-116:7 Name borrows_marked_calls.Store (borrow-var &var borrows_marked_calls.Store) place borrow-var)
       (116:13-116:14 IntLit Int value temp)
       (116:21-116:22 IntLit Int value temp)

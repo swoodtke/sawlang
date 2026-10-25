@@ -1,0 +1,17 @@
+// refuses: member.unknown at 16:20
+// message: whose run ends before this member
+// parentheses end an optional chain's run, so the member after them meets
+// the chain's Optional value (GRAMMAR.md §1, "Nodes")
+
+struct Inner {
+    v: Int
+}
+
+struct Outer {
+    j: Inner
+}
+
+func main() {
+    let o: Outer? = Outer(j: Inner(v: 1))
+    let x = (o?.j).v
+}

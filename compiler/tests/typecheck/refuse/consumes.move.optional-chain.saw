@@ -1,0 +1,20 @@
+// refuses: consumes.move at 19:13
+// message: a `?.` hop reads `p`'s payload in place, never moving it out
+// message: p.take()?.into_n
+// a `consumes` method called through a `?.` hop over a place: the hop never
+// moves the payload out, where `p!` would demand `move` (spec, Optionals)
+
+struct S {
+    n: Int
+}
+
+extension S {
+    func into_n(&var self) consumes -> Int {
+        self.n
+    }
+}
+
+func main() {
+    var p: S? = S(n: 7)
+    let n = p?.into_n()
+}

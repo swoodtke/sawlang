@@ -1,0 +1,73 @@
+// probe: stated
+// about: an optional chain over a place: a field of a `&self` receiver, a `&` parameter, a `&var self` method hop through a `&var` parameter that writes the payload where it sits, a Copy final field retained, and a final method's NoCopy result (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: self 1
+// prints: ref 1
+// prints: bumped 3
+// prints: name Ada
+// prints: absent -1
+// prints: tok 9
+// prints: drop tok 9
+// Intermediate payloads are borrowed in place, never copied or consumed
+// (spec, Optionals).
+
+struct Tok {
+    id: Int
+}
+
+extension Tok: NoCopy {
+    func deinit(&var self) {
+        print("drop tok {}", self.id)
+    }
+}
+
+struct C {
+    n: Int
+    name: String
+}
+
+extension C {
+    func bump(&var self) {
+        self.n += 1
+    }
+
+    func token(&self) -> Tok {
+        Tok(id: self.n)
+    }
+}
+
+struct H {
+    c: C?
+}
+
+extension H {
+    func read(&self) -> Int {
+        self.c?.n ?? -1
+    }
+}
+
+func through(r: &C?) -> Int {
+    r?.n ?? -1
+}
+
+func mutate(r: &var C?) {
+    r?.bump()
+}
+
+func main() {
+    var h = H(c: C(n: 1, name: "Ada"))
+    print("self {}", h.read())
+    print("ref {}", through(&h.c))
+    mutate(&var h.c)
+    mutate(&var h.c)
+    print("bumped {}", h.c?.n ?? -1)
+    let name = h.c?.name
+    h.c = None
+    print("name {}", name ?? "none")
+    mutate(&var h.c)
+    print("absent {}", h.c?.n ?? -1)
+    let o: C? = C(n: 9, name: "x")
+    let t: Tok? = o?.token()
+    print("tok {}", t?.id ?? -1)
+}

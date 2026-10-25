@@ -3,6 +3,7 @@
 // whether it is a place and how it is used, and what it calls.
 
 import sawparse.grammar.{Alt, alt_kind}
+import sawparse.tree.{NodeShape}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
@@ -45,7 +46,9 @@ public func tc_adjust_text(k: TcAdjustKind) -> String {
         case Shared -> "shared",
         case Erase -> "erase",
         case Widen -> "widen",
-        case ForgetSendable -> "forget-sendable"
+        case ForgetSendable -> "forget-sendable",
+        case Payload -> "payload",
+        case PayloadVar -> "payload-var"
     }
 }
 
@@ -141,6 +144,8 @@ extension TcProgram {
         try! out.append(" ")
         if let alt = self.node_alt(id) {
             try! out.append(alt_kind(alt))
+        } else if node.shape == NodeShape.OptionalChain {
+            try! out.append("OptionalChain")
         } else {
             try! out.append("?")
         }

@@ -1,0 +1,14 @@
+// refuses: subscript.role at 13:13
+// message: is an optional chain, whose run ends before this subscript
+// message: if let x = o?.xs
+// a subscript closes an optional chain's run, so it meets the chain's
+// Optional value (GRAMMAR.md, syntax.rule.optional-chain-run)
+
+struct S {
+    xs: [Int; 2]
+}
+
+func main() {
+    let o: S? = S(xs: [4, 5])
+    let x = o?.xs[0]
+}

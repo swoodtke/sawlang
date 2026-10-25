@@ -155,7 +155,7 @@
       (47:24-47:26 Name &var unnamed_lends.Store (deref unnamed_lends.Store) (borrow-var &var unnamed_lends.Store) place borrow-var)
       (47:32-47:33 IntLit Int value temp)
       (48:5-48:18 OptionalMember Int place write)
-      (48:5-48:15 Call.paren unnamed_lends.Entry? place project (call unnamed_lends.Store.find(i: Int) (owner unnamed_lends.Store)))
+      (48:5-48:15 Call.paren unnamed_lends.Entry? (payload-var unnamed_lends.Entry) place project (call unnamed_lends.Store.find(i: Int) (owner unnamed_lends.Store)))
       (48:5-48:7 Name &var unnamed_lends.Store (deref unnamed_lends.Store) (borrow-var &var unnamed_lends.Store) place borrow-var)
       (48:13-48:14 IntLit Int value temp)
       (48:21-48:22 IntLit Int value temp)

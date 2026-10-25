@@ -15,7 +15,7 @@ import sawmir.model.{MirAggregate, MirArm, MirBlock, MirCall, MirCallKind, MirCo
                          MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace,
                          MirProj, MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind,
                          MirSuspend, MirTermKind, MirWindow, mir_mint_obligation}
-import sawmir.program.{MirCatch, MirLoop, MirProgram, MirScopeEntry}
+import sawmir.program.{MirCatch, MirChain, MirLoop, MirProgram, MirScopeEntry}
 import sawmir.split.{MirHalf}
 import sawparse.grammar.{Alt, alt_name}
 import sawparse.tree.{AstNode, NodeShape}
@@ -257,6 +257,7 @@ extension MirProgram {
         self.scope_marks = Vector<Int>()
         self.loops = Vector<MirLoop>()
         self.catches = Vector<MirCatch>()
+        self.chains = Vector<MirChain>()
         self.refused = false
         let _ = self.source_at(root)
         let _ = self.new_local(result, MirLocalKind.Return, -1, -1)
@@ -486,7 +487,7 @@ extension MirProgram {
             if self.tc.has_alt(at, Alt.Expr_Self) {
                 return true
             }
-            let projected = self.tc.has_alt(at, Alt.Expr_Member) || self.tc.has_alt(at, Alt.Expr_TupleIndex) || self.tc.has_alt(at, Alt.Expr_Force)
+            let projected = self.tc.has_alt(at, Alt.Expr_Member) || self.tc.has_alt(at, Alt.Expr_TupleIndex) || self.tc.payload_step(at)
             if not projected {
                 return false
             }
@@ -1281,7 +1282,7 @@ extension MirProgram {
             let c = self.tc.calls[self.tc.call_at[head]]
             args = self.call_arguments(head, &c, true)
         } else {
-            self.prepare_target(head, &var steps)
+            let _ = self.prepare_base_before_hop(head, &var steps)
         }
         let o = self.operand(value)
         let held = self.rv_use(o)
@@ -1303,8 +1304,6 @@ extension MirProgram {
             let inner = self.lent_type(&opened)
             p = self.project(lent, MirProjKind.Deref, -1, -1, inner)
         }
-        let some = self.optional_case("Some")
-        let none = self.optional_case("None")
         var k = hops.len() - 1
         while k >= 0 {
             let hop = hops[k]
@@ -1317,17 +1316,7 @@ extension MirProgram {
             k = k - 1
             // A conditional lend's `?` is its window's absent edge.
             if self.tc.has_alt(hop, Alt.Expr_OptionalMember) && not (lending && innermost) {
-                let present = self.new_block()
-                var cases = Vector<Int>()
-                try! cases.push(some)
-                try! cases.push(none)
-                var targets = Vector<Int>()
-                try! targets.push(present)
-                try! targets.push(skip)
-                self.switch_cases(p, &cases, &targets, -1)
-                self.enter(present)
-                let payload = self.place_arg(p, 0)
-                p = self.payload_place(p, some, 0, payload)
+                p = self.chain_hop_payload(p, skip, -1)
             }
             let holder = self.place_type(p)
             let member = self.member_step(hop, holder)
@@ -1738,8 +1727,30 @@ extension MirProgram {
                 let l = self.temp_of(rv)
                 let p = self.place_local(l)
                 MirVal(operand: self.op_move(p))
-            }
+            },
+            case Payload -> self.payload_val(v, u, e, adj.to),
+            case PayloadVar -> self.payload_val(v, u, e, adj.to)
         }
+    }
+
+    // A `?.` hop's base `e`, lowered to `v`, read as its payload of type `t`
+    // where it is present. A payload a consuming position takes out of a
+    // temporary moves out whole, and the temporary is dissolved around it,
+    // as `try` takes its `Ok` payload (spec, Optionals).
+    func payload_val(&var self, v: MirVal, u: TcUse, e: Int, t: Int) -> MirVal {
+        let p = self.as_place(v, e)
+        let l = self.bare_local(p)
+        let temporary = l >= 0 && self.local(l).kind == MirLocalKind.Temp
+        let consumes = (u == TcUse.Temp || u == TcUse.Move) && self.owns(t) && temporary
+        if consumes {
+            self.forget_temp(p)
+        }
+        let taken = if consumes { e } else { -1 }
+        let q = self.chain_hop_payload(p, -1, taken)
+        if not consumes {
+            return MirVal(place: self.held_payload(e, q), fresh: false)
+        }
+        MirVal(operand: self.take_payload(p, q, e))
     }
 
     // A new value built from operand `o` by an rvalue of kind `kind`, held in
@@ -1977,6 +1988,11 @@ extension MirProgram {
 
     func lower_val_at(&var self, e: Int) -> MirVal {
         let t = self.tc.expr_types[e]
+        // A chain may be an unnamed lend's chain top; it closes the windows
+        // it opened itself, once its value is read.
+        if self.tc.res.nodes[e].shape == NodeShape.OptionalChain {
+            return self.optional_chain_val(e)
+        }
         guard let alt = self.tc.node_alt(e) else {
             self.not_yet(e, "this expression")
             return MirVal(operand: self.dead_operand(t))
@@ -2011,6 +2027,7 @@ extension MirProgram {
             case Expr_Self -> self.prepared_val(e),
             case Expr_ImplicitMember -> MirVal(operand: self.case_value(e)),
             case Expr_Member -> self.member_val(e),
+            case Expr_OptionalMember -> self.prepared_val(e),
             case Expr_TupleIndex -> self.prepared_val(e),
             case Expr_Force -> self.prepared_val(e),
             case Expr_Deref -> self.prepared_val(e),
@@ -2447,6 +2464,7 @@ extension MirProgram {
                 self.prepare_local(b.node, e, &var steps)
             },
             case Expr_Member -> self.prepare_member(e, &var steps),
+            case Expr_OptionalMember -> self.prepare_member(e, &var steps),
             case Expr_TupleIndex -> {
                 let base = self.tc.res.first_node_child(e)
                 self.prepare_base(base, &var steps)
@@ -2496,16 +2514,199 @@ extension MirProgram {
     // `prepare` for the base of a projection or a receiver, with the
     // reference reads its own adjustment chain begins with.
     public func prepare_base(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let hop = self.prepare_base_before_hop(e, &var steps)
+        if hop {
+            self.hop_steps(e, &var steps)
+        }
+    }
+
+    // `prepare_base` up to a `?.` hop's `payload` step, which it leaves for
+    // its caller; whether there is one. An optional assignment tests its hops
+    // after its right side, so it takes them here (`lower_chain_write`).
+    func prepare_base_before_hop(&var self, e: Int, steps: &var Vector<MirStep>) -> Bool {
         self.prepare(e, &var steps)
         var a = self.tc.adj_head[e]
         while a >= 0 {
             let adj = self.tc.adjusts[a]
+            if adj.kind == TcAdjustKind.Payload || adj.kind == TcAdjustKind.PayloadVar {
+                return true
+            }
             if adj.kind != TcAdjustKind.Deref {
-                return
+                return false
             }
             self.push_step(&var steps, MIR_STEP_DEREF, e, -1, -1, adj.to)
             a = adj.next
         }
+        false
+    }
+
+    // The payload place `q` a `?.` hop over base `e` reaches, held from the
+    // test to the hop's use: a payload of a temporary of the statement's,
+    // which nothing else names, as it is; any other through a reference
+    // taken now, exclusive where the use writes, so a write of the root in
+    // between, by an argument of the hop's call, is a loan conflict.
+    func held_payload(&var self, e: Int, q: Int) -> Int {
+        // A conditional lend's payload is held by its window already.
+        let info = self.places[q]
+        if info.local >= 0 {
+            let l = self.local(info.local)
+            if (l.kind == MirLocalKind.Temp && l.owned) || self.lent_optional(self.local_type(info.local)) {
+                return q
+            }
+        }
+        let a = self.tc.payload_adjust(e)
+        let exclusive = a >= 0 && self.tc.adjusts[a].kind == TcAdjustKind.PayloadVar
+        let rv = self.rv_ref(exclusive, q)
+        let l = self.temp_of(rv)
+        let r = self.place_local(l)
+        let t = self.place_type(q)
+        self.project(r, MirProjKind.Deref, -1, -1, t)
+    }
+
+    // The plan of `?.` hop base `e`, `steps`, taken through the hop now, so
+    // the test runs before anything later in the chain, the hop's call
+    // arguments included: the plan becomes the payload, on the present path.
+    func hop_steps(&var self, e: Int, steps: &var Vector<MirStep>) {
+        let n = steps.len()
+        var p = -1
+        if n > 0 && steps[n - 1].kind == MIR_STEP_WINDOW && self.conditional_lend(steps[n - 1].node) {
+            // A conditional lend's `?` is its window's presence: an absent
+            // one opened nothing, so the close tests it (`close_window`).
+            let last = steps[n - 1]
+            let base = self.realize(&steps, n - 1)
+            let opened = self.window_open(last.node, base, last.index == 1, last.first, last.count, false)
+            self.set_window_presence(opened.window, opened.dest)
+            self.scope_window(opened.window)
+            p = self.place_local(opened.dest)
+        } else {
+            p = self.realize_optional(&steps)
+        }
+        let payload = self.chain_hop_payload(p, -1, -1)
+        let q = self.held_payload(e, payload)
+        steps = Vector<MirStep>()
+        self.push_root(&var steps, e, q, false)
+    }
+
+    // THE OPTIONAL-HOP FUNNEL: Optional place `p`, the base of a `?.` hop,
+    // switched on its tag. The present path is entered and given the
+    // payload's place; the absent path goes to `absent`, or, at -1, leaves
+    // the innermost chain being lowered (`leave_chain`). A temporary the
+    // present path takes its payload out of, consumed at node `taken`, is
+    // dissolved on the absent path too, where it holds nothing.
+    //
+    // ENTRY POINTS (chain_hop_payload):
+    //     hop_steps
+    //     payload_val (adjust)
+    //     lower_chain_write
+    func chain_hop_payload(&var self, p: Int, absent: Int, taken: Int) -> Int {
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let present = self.new_block()
+        var target = absent
+        if absent < 0 {
+            target = self.new_block()
+        }
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(none)
+        var targets = Vector<Int>()
+        try! targets.push(present)
+        try! targets.push(target)
+        self.switch_cases(p, &cases, &targets, -1)
+        if absent < 0 {
+            self.enter(target)
+            if taken >= 0 {
+                let nothing = Vector<Int>()
+                self.dissolve(p, &nothing, taken)
+            }
+            self.leave_chain()
+        }
+        self.enter(present)
+        let payload = self.place_arg(p, 0)
+        self.payload_place(p, some, 0, payload)
+    }
+
+    // A hop's absent path, which no later part of the innermost chain runs
+    // on: the scopes opened inside the chain are left, the windows it opened
+    // so far close, and it goes to the chain's end. What the statement made
+    // before the hop is the statement's to drop, as on the present path.
+    func leave_chain(&var self) {
+        let n = self.chains.len()
+        if n == 0 {
+            let at = self.at
+            self.missing(at, "a `?.` hop is tested outside any optional chain")
+            let nowhere = self.new_block()
+            self.goto(nowhere)
+            return
+        }
+        var c = self.chains[n - 1]
+        self.unwind_to(c.depth)
+        var below = self.scope.len()
+        if c.depth < self.scope_marks.len() {
+            below = self.scope_marks[c.depth]
+        }
+        var k = below - 1
+        while k >= c.mark {
+            let entry = self.scope[k]
+            if entry.window {
+                self.close_window(entry.index)
+            }
+            k = k - 1
+        }
+        self.goto(c.exit)
+        c.reached = true
+        self.chains[n - 1] = c
+    }
+
+    // THE OPTIONAL-CHAIN FUNNEL: run `e` of an optional chain as a value of
+    // its type, `U?`: the top on the path where every hop is present, wrapped
+    // in `Some` unless its type is already the chain's, and `None` where a
+    // hop leaves the chain. The windows the chain opened close once its value
+    // is read; its temporaries are its statement's (spec, Temporaries).
+    //
+    // ENTRY POINTS (optional_chain_val):
+    //     lower_val_at
+    func optional_chain_val(&var self, e: Int) -> MirVal {
+        let t = self.tc.expr_types[e]
+        let top = self.tc.res.first_node_child(e)
+        let result = self.new_temp(t)
+        let exit = self.new_block()
+        let join = self.new_block()
+        let mark = self.scope.len()
+        try! self.chains.push(MirChain(exit: exit, depth: self.scope_marks.len(), mark: mark, reached: false))
+        let o = self.operand(top)
+        let n = self.chains.len()
+        let c = self.chains[n - 1]
+        var kept = Vector<MirChain>()
+        var k = 0
+        while k + 1 < n {
+            try! kept.push(self.chains[k])
+            k = k + 1
+        }
+        self.chains = move kept
+        if self.live() {
+            if self.tc.final_type(top) == t {
+                let rv = self.rv_use(o)
+                self.assign_local(result, rv)
+            } else {
+                var ops = Vector<Int>()
+                try! ops.push(o)
+                let some = self.optional_case("Some")
+                let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
+                self.assign_local(result, rv)
+            }
+            self.close_windows_since(mark)
+            self.goto(join)
+        }
+        if c.reached {
+            self.enter(exit)
+            let none = self.none_value(t)
+            let rv = self.rv_use(none)
+            self.assign_local(result, rv)
+            self.goto(join)
+        }
+        self.enter(join)
+        MirVal(place: self.place_local(result), fresh: true)
     }
 
     // The statement form `borrow PLACE…`: its chain prepared, a part the
@@ -2653,7 +2854,7 @@ extension MirProgram {
             let along = (self.tc.has_alt(node, Alt.Expr_Member) || self.tc.is_call_alt(node)
                          || self.tc.has_alt(node, Alt.Expr_Subscript_Single)
                          || self.tc.has_alt(node, Alt.Expr_Subscript_Multi)
-                         || self.tc.has_alt(node, Alt.Expr_TupleIndex) || self.tc.has_alt(node, Alt.Expr_Force)
+                         || self.tc.has_alt(node, Alt.Expr_TupleIndex) || self.tc.payload_step(node)
                          || self.tc.has_alt(node, Alt.Expr_Paren))
             if not along {
                 return false
@@ -2847,7 +3048,7 @@ extension MirProgram {
     func prepare_lend(&var self, e: Int, steps: &var Vector<MirStep>) {
         let c = self.tc.calls[self.tc.call_at[e]]
         let callee = self.tc.res.first_node_child(e)
-        if not self.tc.has_alt(callee, Alt.Expr_Member) {
+        if not self.tc.member_callee(callee) {
             self.not_yet(e, "a `borrows` function called with no receiver")
             return
         }

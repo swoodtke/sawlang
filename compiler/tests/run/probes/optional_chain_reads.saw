@@ -1,0 +1,66 @@
+// probe: stated
+// about: an optional chain read through fields: one hop, a plain member past a hop, two hops, a final segment that is itself optional, and a subscript as the head, each present and absent at every hop (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: 21
+// prints: -1
+// prints: 5
+// prints: no slot
+// prints: here
+// prints: none
+// prints: none
+// prints: 3
+// prints: -1
+// The chain's value is `U?`, and a final segment already optional stays as
+// it is, never `U??` (spec, Optionals).
+
+struct Inner {
+    v: Int
+}
+
+struct Outer {
+    inner: Inner
+    slot: Int?
+}
+
+struct Profile {
+    bio: String
+}
+
+struct User {
+    profile: Profile?
+}
+
+func outer(present: Bool, slot: Int?) -> Outer? {
+    if present {
+        return Outer(inner: Inner(v: 21), slot: slot)
+    }
+    None
+}
+
+func main() {
+    let o: Outer? = outer(present: true, slot: 5)
+    let none: Outer? = None
+    print("{}", o?.inner.v ?? -1)
+    print("{}", none?.inner.v ?? -1)
+    let slot: Int? = o?.slot
+    print("{}", slot ?? -1)
+    let empty: Outer? = outer(present: true, slot: None)
+    if let s = empty?.slot {
+        print("slot {}", s)
+    } else {
+        print("no slot")
+    }
+    let u: User? = User(profile: Profile(bio: "here"))
+    let bio: String? = u?.profile?.bio
+    print("{}", bio ?? "none")
+    let bare: User? = User(profile: None)
+    print("{}", bare?.profile?.bio ?? "none")
+    let nobody: User? = None
+    print("{}", nobody?.profile?.bio ?? "none")
+    var cells = Vector<Inner?>()
+    try! cells.push(Inner(v: 3))
+    try! cells.push(None)
+    print("{}", cells[0]?.v ?? -1)
+    print("{}", cells[1]?.v ?? -1)
+}

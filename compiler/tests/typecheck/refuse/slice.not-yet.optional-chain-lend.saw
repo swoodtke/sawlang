@@ -1,0 +1,26 @@
+// refuses: slice.not-yet at 25:13
+// message: a `?.` chain that ends in a `borrows` accessor
+// message: (SL-917)
+// a chain whose final hop is a `borrows` accessor ends in a lent place, which
+// the chain would copy out as its value; a chain that only passes through one
+// is in the slice
+
+struct Cell {
+    n: Int
+}
+
+struct Holder {
+    c: Cell
+}
+
+extension Holder {
+    func at(&self) borrows -> &Cell {
+        lend self.c
+    }
+}
+
+func main() {
+    let h: Holder? = Holder(c: Cell(n: 1))
+    let n = h?.at().n
+    let x = h?.at()
+}

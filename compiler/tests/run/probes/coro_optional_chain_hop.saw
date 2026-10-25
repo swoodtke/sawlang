@@ -1,0 +1,67 @@
+// probe: stated
+// about: a suspending hop in an optional chain, at the last hop and at an earlier one, driven and in group tasks: it runs only where every earlier hop is present, and a skipped hop's side effects do not run (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: 6
+// prints: -1
+// prints: -1
+// prints: calls 1
+// prints: 9
+// prints: -1
+// prints: -1
+// prints: calls 3
+// prints: 42
+// prints: -1
+
+import std.task.*
+
+static CALLS: Atomic<Int> = Atomic(0)
+
+struct Inner {
+    v: Int
+}
+
+extension Inner {
+    func susp(&self) -> Int {
+        CALLS.fetch_add(1)
+        yield_now()
+        self.v + 1
+    }
+}
+
+struct Outer {
+    i: Inner?
+}
+
+extension Outer {
+    func susp_inner(&self) -> Inner? {
+        CALLS.fetch_add(1)
+        yield_now()
+        self.i
+    }
+}
+
+func last(o: Outer?) -> Int {
+    o?.i?.susp() ?? -1
+}
+
+func early(o: Outer?) -> Int {
+    let r: Int? = o?.susp_inner()?.v
+    r ?? -1
+}
+
+func main() {
+    print("{}", __saw_drive(last(Outer(i: Inner(v: 5)))))
+    print("{}", __saw_drive(last(Outer(i: None))))
+    print("{}", __saw_drive(last(None)))
+    print("calls {}", CALLS.load())
+    print("{}", __saw_drive(early(Outer(i: Inner(v: 9)))))
+    print("{}", __saw_drive(early(Outer(i: None))))
+    print("{}", __saw_drive(early(None)))
+    print("calls {}", CALLS.load())
+    var g = TaskGroup()
+    let some = g.spawn(last(Outer(i: Inner(v: 41))))
+    let none = g.spawn(last(None))
+    print("{}", some.join())
+    print("{}", none.join())
+}

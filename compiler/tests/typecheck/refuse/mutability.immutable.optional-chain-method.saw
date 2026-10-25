@@ -1,0 +1,18 @@
+// refuses: mutability.immutable at 17:5
+// a `&var self` method called through a `?.` hop writes the payload where it
+// sits, so the chain's root must be writable (spec, Optionals)
+
+struct C {
+    n: Int
+}
+
+extension C {
+    func bump(&var self) {
+        self.n += 1
+    }
+}
+
+func main() {
+    let o: C? = C(n: 1)
+    o?.bump()
+}

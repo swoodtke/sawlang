@@ -1,0 +1,245 @@
+module optional_chain_moves
+
+fn optional_chain_moves.Counter.absorb(r: optional_chain_moves.Res) -> Void {
+    let _0: Void;  // return
+    let _1: &var optional_chain_moves.Counter;  // self
+    let _2: optional_chain_moves.Res;  // param r
+    let _3: Int;
+
+    bb0: {
+        _3 = Add(copy (*_1).n, copy _2.id);
+        (*_1).n = move _3;
+        drop(_2);
+        return;
+    }
+
+    glue optional_chain_moves.Res: structural
+}
+
+fn prologue optional_chain_moves.Ledger.at(i: Int) -> (&var optional_chain_moves.Counter)? {
+    let _0: (&var optional_chain_moves.Counter)?;  // return
+    let _1: &var optional_chain_moves.Ledger;  // self
+    let _2: Int;  // param i
+    let _3: Bool;
+    let _4: &var optional_chain_moves.Counter;
+    let _5: (&var optional_chain_moves.Counter)?;
+
+    bb0: {
+        _3 = Ne(copy _2, const 0: Int);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _4 = ref(exclusive, (*_1).c);
+        _5 = (&var optional_chain_moves.Counter)?::Some(move _4);
+        _0 = move _5;
+        return;
+    }
+
+    bb2: {
+        _0 = (&var optional_chain_moves.Counter)?::None;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+fn epilogue optional_chain_moves.Ledger.at(i: Int) -> Void {
+    let _0: Void;  // return
+
+    bb0: {
+        goto -> bb1;
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+fn optional_chain_moves.lend_row(i: Int) -> Int {
+    let _0: Int;  // return
+    let _1: Int;  // param i
+    let _2: optional_chain_moves.Ledger;  // led
+    let _3: optional_chain_moves.Counter;
+    let _4: optional_chain_moves.Ledger;
+    let _5: optional_chain_moves.Res;  // g
+    let _6: optional_chain_moves.Res;
+    let _7: Void?;
+    let _8: Int;
+    let _9: (&var optional_chain_moves.Counter)?;
+    let _10: &var optional_chain_moves.Ledger;
+    let _11: optional_chain_moves.Res;
+    let _12: &var optional_chain_moves.Counter;
+    let _13: Void?;
+    let _14: Int;
+    let _15: Int?;
+    let _16: (&var optional_chain_moves.Counter)?;
+    let _17: &var optional_chain_moves.Ledger;
+    let _18: Int?;
+    let _19: Int;
+    let _20: Bool;  // flag _5
+    window w0: optional_chain_moves.Ledger.at(i: Int) exclusive conditional presence _9;
+    window w1: optional_chain_moves.Ledger.at(i: Int) exclusive conditional presence _16;
+
+    bb0: {
+        _20 = const false: Bool;
+        _3 = optional_chain_moves.Counter { n: const 0: Int };
+        _4 = optional_chain_moves.Ledger { c: move _3 };
+        _2 = move _4;
+        _6 = optional_chain_moves.Res { id: const 8: Int };
+        _5 = move _6;
+        _20 = const true: Bool;
+        _8 = copy _1;
+        _10 = ref(exclusive, _2);
+        _9 = window_open w0 prologue optional_chain_moves.Ledger.at(i: Int) (owner optional_chain_moves.Ledger) [move _10, move _8] -> [present: bb3];
+    }
+
+    bb1: {
+        _13 = Void?::None;
+        _7 = move _13;
+        goto -> bb2;
+    }
+
+    bb2: {
+        _17 = ref(exclusive, _2);
+        _16 = window_open w1 prologue optional_chain_moves.Ledger.at(i: Int) (owner optional_chain_moves.Ledger) [move _17, const 0: Int] -> [present: bb16];
+    }
+
+    bb3: {
+        switch discriminant(_9) -> [Some: bb4, None: bb5];
+    }
+
+    bb4: {
+        _11 = move _5;
+        _20 = const false: Bool;
+        _12 = ref(exclusive, (*(_9 as Some).0));
+        call optional_chain_moves.Counter.absorb(r: optional_chain_moves.Res) (owner optional_chain_moves.Counter) [move _12, move _11] -> [return: bb9];
+    }
+
+    bb5: {
+        switch discriminant(_9) -> [Some: bb6, None: bb7];
+    }
+
+    bb6: {
+        window_close w0 epilogue optional_chain_moves.Ledger.at(i: Int) (owner optional_chain_moves.Ledger) -> [return: bb8];
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        goto -> bb7;
+    }
+
+    bb9: {
+        _7 = Void?::Some(const (): Void);
+        switch discriminant(_9) -> [Some: bb10, None: bb11];
+    }
+
+    bb10: {
+        window_close w0 epilogue optional_chain_moves.Ledger.at(i: Int) (owner optional_chain_moves.Ledger) -> [return: bb12];
+    }
+
+    bb11: {
+        goto -> bb2;
+    }
+
+    bb12: {
+        goto -> bb11;
+    }
+
+    bb13: {
+        _0 = move _14;
+        switch copy _20 -> [true: bb27, false: bb28];
+    }
+
+    bb14: {
+        _18 = Int?::None;
+        _15 = move _18;
+        goto -> bb15;
+    }
+
+    bb15: {
+        switch discriminant(_15) -> [Some: bb25, None: bb26];
+    }
+
+    bb16: {
+        switch discriminant(_16) -> [Some: bb17, None: bb18];
+    }
+
+    bb17: {
+        _15 = Int?::Some(copy (*(_16 as Some).0).n);
+        switch discriminant(_16) -> [Some: bb22, None: bb23];
+    }
+
+    bb18: {
+        switch discriminant(_16) -> [Some: bb19, None: bb20];
+    }
+
+    bb19: {
+        window_close w1 epilogue optional_chain_moves.Ledger.at(i: Int) (owner optional_chain_moves.Ledger) -> [return: bb21];
+    }
+
+    bb20: {
+        goto -> bb14;
+    }
+
+    bb21: {
+        goto -> bb20;
+    }
+
+    bb22: {
+        window_close w1 epilogue optional_chain_moves.Ledger.at(i: Int) (owner optional_chain_moves.Ledger) -> [return: bb24];
+    }
+
+    bb23: {
+        goto -> bb15;
+    }
+
+    bb24: {
+        goto -> bb23;
+    }
+
+    bb25: {
+        _14 = copy (_15 as Some).0;
+        goto -> bb13;
+    }
+
+    bb26: {
+        _19 = Neg(const 1: Int);
+        _14 = move _19;
+        goto -> bb13;
+    }
+
+    bb27: {
+        drop(_5);
+        _20 = const false: Bool;
+        goto -> bb28;
+    }
+
+    bb28: {
+        return;
+    }
+
+    glue optional_chain_moves.Res: structural
+}
+
+fn optional_chain_moves.main() -> Void {
+    let _0: Void;  // return
+    let _1: Int;
+
+    bb0: {
+        _1 = call optional_chain_moves.lend_row(i: Int) [const 9: Int] -> [return: bb1];
+    }
+
+    bb1: {
+        call builtin print [format "{}", copy _1] -> [return: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+}

@@ -1,0 +1,21 @@
+// refuses: transfer.implicit-copy at 20:13
+// message: a `?.` chain's final field is copied out as the chain's value
+// a chain over a place whose final field is NoCopy: the chain's value would
+// be a copy of it (spec, Optionals; conformance O19)
+
+struct F {
+    h: Int
+}
+
+extension F: NoCopy {}
+
+struct W {
+    f: F
+}
+
+extension W: NoCopy {}
+
+func main() {
+    let w: W? = W(f: F(h: 1))
+    let x = w?.f
+}

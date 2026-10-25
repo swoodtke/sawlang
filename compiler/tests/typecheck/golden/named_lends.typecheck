@@ -134,7 +134,7 @@
       (53:13-53:14 Name named_lends.Entry place project)
       (53:20-53:21 IntLit Int value temp)
       (56:5-56:17 OptionalMember Int place update)
-      (56:5-56:14 Call.paren named_lends.Entry? place project (call named_lends.Table.value() (owner named_lends.Table)))
+      (56:5-56:14 Call.paren named_lends.Entry? (payload-var named_lends.Entry) place project (call named_lends.Table.value() (owner named_lends.Table)))
       (56:5-56:6 Name &var named_lends.Table (deref named_lends.Table) (borrow-var &var named_lends.Table) place borrow-var)
       (56:21-56:22 IntLit Int value temp)
       (57:5-57:6 Name Int place copy))

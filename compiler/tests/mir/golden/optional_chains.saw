@@ -1,0 +1,75 @@
+// The optional-chain read (SL-883): a field hop, a member past a hop, two
+// hops whose final segment is already optional, a method hop with an
+// argument, a call head, a consuming method on a temporary's payload, a
+// `&var self` method through a `&var` parameter, a conditional lend as the
+// head, and the chain in a condition and under `??`. Each hop's base carries
+// a `payload` step, `payload-var` where its use writes, and each chain is
+// `U?`, never `U??`.
+
+struct Inner {
+    v: Int
+    tag: Int?
+}
+
+extension Inner {
+    func plus(&self, x: Int) -> Int {
+        self.v + x
+    }
+
+    func bump(&var self) {
+        self.v += 1
+    }
+
+    func into_v(&var self) consumes -> Int {
+        self.v
+    }
+}
+
+struct Outer {
+    inner: Inner
+    next: Inner?
+}
+
+struct Shelf {
+    slot: Inner
+}
+
+extension Shelf {
+    func find(&var self, i: Int) borrows -> &var Inner? {
+        if i != 0 {
+            return None
+        }
+        lend self.slot
+    }
+}
+
+func make() -> Inner? {
+    Inner(v: 3, tag: None)
+}
+
+func reads(o: Outer?) -> Int {
+    let a = o?.inner.v
+    let b: Int? = o?.next?.tag
+    let c = o?.inner.plus(2)
+    let d = make()?.v
+    let e = make()?.into_v()
+    if (o?.next?.v ?? 0) > 1 {
+        return 1
+    }
+    (a ?? 0) + (b ?? 0) + (c ?? 0) + (d ?? 0) + (e ?? 0)
+}
+
+func writes(o: &var Inner?) {
+    o?.bump()
+}
+
+func lends(s: &var Shelf) -> Int {
+    s.find(0)?.v ?? -1
+}
+
+func main() {
+    var i: Inner? = Inner(v: 1, tag: 2)
+    writes(&var i)
+    var s = Shelf(slot: Inner(v: 5, tag: None))
+    print("{} {}", reads(Outer(inner: Inner(v: 1, tag: None), next: None)), lends(&var s))
+}

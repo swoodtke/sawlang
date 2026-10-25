@@ -1,0 +1,13 @@
+// refuses: member.unknown at 12:21
+// message: whose run ends before this tuple index
+// a tuple index closes an optional chain's run, so it meets the chain's
+// Optional value (GRAMMAR.md, syntax.rule.optional-chain-run)
+
+struct S {
+    pair: (Int, Int)
+}
+
+func main() {
+    let o: S? = S(pair: (1, 2))
+    let x = o?.pair.0
+}

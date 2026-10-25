@@ -300,7 +300,13 @@ public enum TcAdjustKind {
     case Widen,
     // A `sendable` function value taken at the same function type without
     // the word. The representation is one, so nothing is built.
-    case ForgetSendable
+    case ForgetSendable,
+    // The base of a `?.` hop read as its Optional's payload, on the path
+    // where it is present; the absent path leaves the chain (spec, Optionals).
+    // The hop holds the payload from its test to its use, exclusively where
+    // that use writes (`settle_hops`).
+    case Payload,
+    case PayloadVar
 }
 
 // What a funnel position lets a conversion build beyond the exact and

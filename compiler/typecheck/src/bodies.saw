@@ -818,7 +818,7 @@ extension TcProgram {
                 }
                 return -1
             }
-            let along = self.has_alt(node, Alt.Expr_Member) || self.is_call_alt(node) || self.has_alt(node, Alt.Expr_Subscript_Single) || self.has_alt(node, Alt.Expr_Subscript_Multi) || self.has_alt(node, Alt.Expr_TupleIndex) || self.has_alt(node, Alt.Expr_Force) || self.has_alt(node, Alt.Expr_Paren)
+            let along = self.has_alt(node, Alt.Expr_Member) || self.is_call_alt(node) || self.has_alt(node, Alt.Expr_Subscript_Single) || self.has_alt(node, Alt.Expr_Subscript_Multi) || self.has_alt(node, Alt.Expr_TupleIndex) || self.payload_step(node) || self.has_alt(node, Alt.Expr_Paren)
             if not along {
                 return -1
             }
@@ -1287,6 +1287,8 @@ extension TcProgram {
         }
         if not self.expr_place[top] {
             self.refuse_not_a_place(top)
+        } else {
+            self.check_head_hops(top)
         }
         if compound {
             self.check_compound_operands(s, value, t)
@@ -1302,7 +1304,7 @@ extension TcProgram {
     // down to the chain's head: an optional hop names a field of its base's
     // payload, and a member hop above one a field of its base. The head, and
     // the part of the chain below its first `?.`, are ordinary expressions;
-    // a call through a `?.` is an optional chain's read, outside the slice.
+    // a call through a `?.` gives a value, which is no place to write.
     // Returns the type of the place `e` names.
     func chain_hop(&var self, e: Int) -> Int {
         if not self.above_optional_hop(e) {
@@ -1313,22 +1315,13 @@ extension TcProgram {
         let leaf = self.res.first_leaf(e)
         let bt = self.chain_hop(base)
         self.set_use(base, TcUse.Project)
-        let t = self.through_refs(base)
         let place = self.expr_place[base] || self.referent(bt) >= 0
+        let t = if optional { self.optional_hop(e, base) } else { self.through_refs(base) }
         if self.has_error(t) {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, place)
         }
-        if not optional {
-            return self.member_place(e, leaf, t, place)
-        }
-        if not self.is_optional(t) {
-            self.refuse_operand(e, "`?.` reads through an Optional", t)
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, place)
-        }
-        let payload = self.arg_of(t, 0)
-        self.member_place(e, leaf, payload, place)
+        self.member_place(e, leaf, t, place)
     }
 
     // An optional assignment's target whose top hop is `top`: when its head
@@ -1349,6 +1342,27 @@ extension TcProgram {
         let past = hops[hops.len() - 2]
         self.refuse(past, "borrowing.lend-chain",
                     "a `?.` hop past a conditional lend's own `?` is not supported: bind the lend first, as `if borrow var p = m.find(&k) \{ p.a?.b = v \}`")
+    }
+
+    // An optional assignment's target whose top hop is `top`: a `?.` hop
+    // read inside its head, below the hops the assignment writes through, as
+    // `o?.m.find(&k)?.v = x`, would be tested as the head is evaluated,
+    // before the right side runs.
+    func check_head_hops(&var self, top: Int) {
+        var at = top
+        while at >= 0 && self.above_optional_hop(at) {
+            at = self.res.first_node_child(at)
+        }
+        // The head's own `payload` step is the innermost hop written through.
+        var steps = 0
+        while at >= 0 && steps < 10000 && self.chain_step(at) {
+            at = self.res.first_node_child(at)
+            if at >= 0 && self.reads_payload(at) {
+                self.not_yet(at, "an optional assignment whose head reads through a `?.` hop of its own, which would be tested before the right side runs (SL-919),")
+                return
+            }
+            steps = steps + 1
+        }
     }
 
     // Whether `e` calls or subscripts a `borrows` accessor that may lend
@@ -2755,14 +2769,14 @@ extension TcProgram {
     }
 
     // The type a copy of place `e` duplicates: its own, read through each
-    // leading `deref`. A wrap or an erasure after that builds a new value
-    // from the copy.
+    // leading `deref` and a `?.` hop's `payload`. A wrap or an erasure after
+    // that builds a new value from the copy.
     func read_type(&self, e: Int) -> Int {
         var t = self.expr_types[e]
         var a = self.adj_head[e]
         while a >= 0 {
             let adj = self.adjusts[a]
-            if adj.kind != TcAdjustKind.Deref {
+            if adj.kind != TcAdjustKind.Deref && adj.kind != TcAdjustKind.Payload && adj.kind != TcAdjustKind.PayloadVar {
                 return t
             }
             t = adj.to
@@ -2986,6 +3000,9 @@ extension TcProgram {
             return self.error_type
         }
         guard let alt = self.node_alt(e) else {
+            if self.res.nodes[e].shape == NodeShape.OptionalChain {
+                return self.optional_chain(e)
+            }
             self.not_in_slice(e, Alt.Expr_OptionalMember)
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
@@ -3039,6 +3056,7 @@ extension TcProgram {
             case Expr_Self -> self.self_expr(e),
             case Expr_ImplicitMember -> self.implicit_member(e, want),
             case Expr_Member -> self.member_expr(e, want),
+            case Expr_OptionalMember -> self.optional_member_expr(e),
             case Expr_TupleIndex -> self.tuple_index(e),
             case Expr_Call_Paren -> self.call_expr(e, want),
             case Expr_Call_ParenTrailing -> self.call_expr(e, want),
@@ -3558,7 +3576,124 @@ extension TcProgram {
             return self.set_type(e, poisoned, true)
         }
         let place = self.expr_place[base] || self.referent(bt) >= 0
+        if self.refuse_after_chain(leaf, base, t, "member.unknown", "member") {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, place)
+        }
         self.member_place(e, leaf, t, place)
+    }
+
+    // `base?.name` read as a field: the member of the base's payload, a
+    // place where the base is one.
+    func optional_member_expr(&var self, e: Int) -> Int {
+        let base = self.res.first_node_child(e)
+        let leaf = self.res.first_leaf(e)
+        let bt = self.expr(base, TC_WANT_NONE)
+        self.set_use(base, TcUse.Project)
+        let place = self.expr_place[base] || self.referent(bt) >= 0
+        let payload = self.optional_hop(e, base)
+        if self.has_error(payload) {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, place)
+        }
+        self.member_place(e, leaf, payload, place)
+    }
+
+    // THE OPTIONAL-HOP FUNNEL: the base of `?.` hop `hop`, read through its
+    // references, must be an Optional, and the hop reads its payload in place
+    // on the path where it is present, which the base's `payload` step
+    // records for MIR (spec, Optionals). Returns the payload type, or the
+    // error type once refused.
+    //
+    // ENTRY POINTS (optional_hop):
+    //     optional_member_expr
+    //     method_call
+    //     chain_hop
+    func optional_hop(&var self, hop: Int, base: Int) -> Int {
+        let t = self.through_refs(base)
+        if self.has_error(t) {
+            return t
+        }
+        if not self.is_optional(t) {
+            self.refuse_operand(hop, "`?.` reads through an Optional", t)
+            return self.error_type
+        }
+        let payload = self.arg_of(t, 0)
+        self.add_adjust(base, TcAdjustKind.Payload, payload)
+        payload
+    }
+
+    // THE OPTIONAL-CHAIN FUNNEL: run `e` of an optional chain, its top the
+    // last hop before the run closes. Its value is the top's, read by value
+    // on the path where every hop is present, and `None` where one is absent:
+    // `U?`, or the top's own type when that is already an Optional, never
+    // `U??`. A final field is copied out, so it must copy silently whatever
+    // the base (spec, Optionals, "a final FIELD projection copies its value").
+    //
+    // ENTRY POINTS (optional_chain):
+    //     expr
+    func optional_chain(&var self, e: Int) -> Int {
+        let top = self.res.first_node_child(e)
+        let _ = self.expr(top, TC_WANT_NONE)
+        let ft = self.final_type(top)
+        if self.has_error(ft) {
+            let u = self.by_value_use(top)
+            self.set_use(top, u)
+            return self.set_type(e, ft, false)
+        }
+        if self.ends_in_lend(top) {
+            let u = self.by_value_use(top)
+            self.set_use(top, u)
+            self.not_yet(top, "a `?.` chain that ends in a `borrows` accessor, whose lent place the chain would copy out as its value (SL-917),")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let field = self.has_alt(top, Alt.Expr_Member) || self.has_alt(top, Alt.Expr_OptionalMember)
+        if field && not self.copies_silently(ft) {
+            let u = self.by_value_use(top)
+            self.set_use(top, u)
+            self.refuse_chain_field(top, ft)
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        self.consume(top)
+        let t = if self.is_optional(ft) { ft } else { self.mk_optional(ft) }
+        self.set_type(e, t, false)
+    }
+
+    // Whether chain top `top` is a call of a `borrows` accessor, whose result
+    // is a lent place rather than a value.
+    func ends_in_lend(&self, top: Int) -> Bool {
+        let at = self.call_at[top]
+        if at < 0 || self.calls[at].target < 0 || self.calls[at].role != TcRole.Call {
+            return false
+        }
+        (self.sigs[self.calls[at].target].effects & TC_EFFECT_BORROWS) != 0
+    }
+
+    // An optional chain whose final field, of type `t`, does not copy
+    // silently: the chain's value would be a copy of it.
+    func refuse_chain_field(&var self, top: Int, t: Int) {
+        let m = self.node_module(top)
+        var msg = StringBuilder()
+        try! msg.append("this reads a place of type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`")
+        let tier = self.established_tier(t)
+        if tier.len() > 0 {
+            try! msg.append(", which is ")
+            try! msg.append(tier)
+        } else {
+            try! msg.append(", which no bound in scope makes `Copy`")
+        }
+        try! msg.append(", by value: a `?.` chain's final field is copied out as the chain's value, and only a Copy type copies silently; end the chain in a method instead")
+        if tier.equals("ExplicitCopy") {
+            try! msg.append(", as `")
+            try! msg.append(self.text(m, top))
+            try! msg.append(".copy()`")
+        }
+        try! msg.append(", or bind the payload with `if let`")
+        self.refuse(top, "transfer.implicit-copy", msg.build())
     }
 
     // Member `leaf` of a value of type `t`, at `e`: a named tuple's element
@@ -3767,6 +3902,10 @@ extension TcProgram {
         if info.kind == TcKind.Tuple && index < info.count {
             let et = self.types.arg(t, index)
             return self.set_type(e, et, place)
+        }
+        if self.refuse_after_chain(leaf, base, t, "member.unknown", "tuple index") {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, place)
         }
         self.refuse_unknown_member(leaf, t)
         let poisoned = self.error_type
@@ -4790,7 +4929,7 @@ extension TcProgram {
             if self.has_alt(at, Alt.Expr_Self) {
                 return true
             }
-            let projected = self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force)
+            let projected = self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.payload_step(at)
             if not projected {
                 return false
             }
@@ -6825,7 +6964,7 @@ extension TcProgram {
         // The types its head writes are the body's whichever way the call is
         // resolved or refused, so every one is built here, once.
         let _ = self.explicit_type_args(callee)
-        if self.has_alt(callee, Alt.Expr_Member) {
+        if self.member_callee(callee) {
             let head_base = self.res.first_node_child(callee)
             let _ = self.explicit_type_args(head_base)
         }
@@ -6916,10 +7055,10 @@ extension TcProgram {
         if callee < 0 {
             return move out
         }
-        if not self.has_alt(callee, Alt.Expr_Name) && not self.has_alt(callee, Alt.Expr_Member) {
+        if not self.has_alt(callee, Alt.Expr_Name) && not self.member_callee(callee) {
             return move out
         }
-        let base = if self.has_alt(callee, Alt.Expr_Member) { self.res.first_node_child(callee) } else { -1 }
+        let base = if self.member_callee(callee) { self.res.first_node_child(callee) } else { -1 }
         let n = self.child_count(callee)
         var k = 0
         while k < n {
@@ -6979,7 +7118,10 @@ extension TcProgram {
         let text = self.text(m, leaf)
         let name = self.res.intern(text)
         let bt = self.expr(base, TC_WANT_NONE)
-        let rt = self.final_type(base)
+        var rt = self.final_type(base)
+        if self.has_alt(callee, Alt.Expr_OptionalMember) {
+            rt = self.optional_hop(callee, base)
+        }
         let inner = self.referent(rt)
         let t = if inner >= 0 { inner } else { rt }
         if self.has_error(t) {
@@ -7034,7 +7176,7 @@ extension TcProgram {
         if cands.len() == 0 {
             self.set_use(base, TcUse.Borrow)
             self.type_args_alone(&args)
-            if self.refuse_through_pointer(leaf, base, t, name) {
+            if self.refuse_through_pointer(leaf, base, t, name) || self.refuse_after_chain(leaf, base, t, "member.unknown", "method call") {
                 let poisoned = self.error_type
                 return self.set_type(e, poisoned, false)
             }
@@ -7281,10 +7423,16 @@ extension TcProgram {
             return self.res.first_node_child(e)
         }
         let callee = self.res.first_node_child(e)
-        if callee < 0 || not self.has_alt(callee, Alt.Expr_Member) {
+        if callee < 0 || not self.member_callee(callee) {
             return -1
         }
         self.res.first_node_child(callee)
+    }
+
+    // Whether call head `callee` selects a member of a value or a type: a
+    // `.name`, or a `?.name` hop, whose receiver is its base's payload.
+    public func member_callee(&self, callee: Int) -> Bool {
+        self.has_alt(callee, Alt.Expr_Member) || self.has_alt(callee, Alt.Expr_OptionalMember)
     }
 
     // The field named `name` of type `t` this module sees whose type is a
@@ -10030,7 +10178,7 @@ extension TcProgram {
             if node == e {
                 return true
             }
-            let along = self.has_alt(node, Alt.Expr_Member) || self.is_call_alt(node) || self.has_alt(node, Alt.Expr_Subscript_Single) || self.has_alt(node, Alt.Expr_Subscript_Multi) || self.has_alt(node, Alt.Expr_TupleIndex) || self.has_alt(node, Alt.Expr_Force) || self.has_alt(node, Alt.Expr_Paren)
+            let along = self.has_alt(node, Alt.Expr_Member) || self.is_call_alt(node) || self.has_alt(node, Alt.Expr_Subscript_Single) || self.has_alt(node, Alt.Expr_Subscript_Multi) || self.has_alt(node, Alt.Expr_TupleIndex) || self.payload_step(node) || self.has_alt(node, Alt.Expr_Paren)
             if not along {
                 return false
             }
@@ -10923,6 +11071,13 @@ extension TcProgram {
     // borrow waits for its use site (`settle_places`).
     func receive(&var self, receiver: Int, c: TcCand, sig: TcSig) {
         if (sig.effects & TC_EFFECT_CONSUMES) != 0 {
+            // A `?.` hop reads its payload in place, so only a temporary's
+            // payload is the hop's to give (spec, Optionals).
+            if self.reads_payload(receiver) && self.expr_place[receiver] {
+                self.set_use(receiver, TcUse.Copy)
+                self.refuse_chain_consume(receiver, c.decl)
+                return
+            }
             let spelled = self.has_alt(receiver, Alt.Expr_Move_Place)
             if self.expr_place[receiver] && not spelled && self.expr_use[receiver] == TcUse.Unused {
                 // Both ends of a consuming call are marked: at every Copy
@@ -11296,7 +11451,7 @@ extension TcProgram {
         if cands.len() == 0 {
             self.set_use(base, TcUse.Project)
             self.type_args_alone(&args)
-            if self.refuse_unmet_member(e) {
+            if self.refuse_unmet_member(e) || self.refuse_after_chain(e, base, t, "subscript.role", "subscript") {
                 let poisoned = self.error_type
                 return self.set_type(e, poisoned, true)
             }
@@ -11673,10 +11828,29 @@ extension TcProgram {
             self.settle_call(order[k], &parents)
             k = k + 1
         }
+        self.settle_hops(&parents)
         self.check_plain_subscript_reads(&parents)
         self.lend_window(&parents)
         self.check_whole_optional_places(&parents)
         self.check_old_prefixes(&parents)
+    }
+
+    // A `?.` hop holds its base's payload from its test to the hop's use, so
+    // nothing evaluated in between, an argument of the hop's call among
+    // them, changes what it reads; the hold is exclusive where that use
+    // writes, which turns the base's `payload` step into `payload-var`.
+    func settle_hops(&var self, parents: &Vector<Int>) {
+        let n = self.res.nodes.len()
+        var k = 0
+        while k < n {
+            let a = self.payload_adjust(k)
+            if a >= 0 && self.use_writes(k, &parents) {
+                var adj = self.adjusts[a]
+                adj.kind = TcAdjustKind.PayloadVar
+                self.adjusts[a] = adj
+            }
+            k = k + 1
+        }
     }
 
     // THE WHOLE-OPTIONAL-PLACE FUNNEL: a conditional lend's optional place
@@ -12061,13 +12235,40 @@ extension TcProgram {
     }
 
     func chain_step(&self, p: Int) -> Bool {
-        if self.res.nodes[p].shape == NodeShape.OptionalChain {
+        if self.payload_step(p) {
             return true
         }
         guard let alt = self.node_alt(p) else {
             return false
         }
-        alt == Alt.Expr_Member || alt == Alt.Expr_Call_Paren || alt == Alt.Expr_Call_ParenTrailing || alt == Alt.Expr_TrailingCall || alt == Alt.Expr_Subscript_Single || alt == Alt.Expr_Subscript_Multi || alt == Alt.Expr_TupleIndex || alt == Alt.Expr_Force || alt == Alt.Expr_Paren || alt == Alt.Expr_OptionalMember || alt == Alt.Stmt_OptionalChainTarget || alt == Alt.Stmt_ChainHop_Member || alt == Alt.Stmt_ChainHop_Optional || alt == Alt.Stmt_ChainHop_Call || alt == Alt.Stmt_ChainHop_Trailing || alt == Alt.Stmt_ProjectionTarget || alt == Alt.Stmt_PlaceHop_Member || alt == Alt.Stmt_PlaceHop_TupleIndex || alt == Alt.Stmt_PlaceHop_Subscript || alt == Alt.Stmt_PlaceHop_Force
+        alt == Alt.Expr_Member || alt == Alt.Expr_Call_Paren || alt == Alt.Expr_Call_ParenTrailing || alt == Alt.Expr_TrailingCall || alt == Alt.Expr_Subscript_Single || alt == Alt.Expr_Subscript_Multi || alt == Alt.Expr_TupleIndex || alt == Alt.Expr_Paren || alt == Alt.Stmt_OptionalChainTarget || alt == Alt.Stmt_ChainHop_Member || alt == Alt.Stmt_ChainHop_Optional || alt == Alt.Stmt_ChainHop_Call || alt == Alt.Stmt_ChainHop_Trailing || alt == Alt.Stmt_ProjectionTarget || alt == Alt.Stmt_PlaceHop_Member || alt == Alt.Stmt_PlaceHop_TupleIndex || alt == Alt.Stmt_PlaceHop_Subscript || alt == Alt.Stmt_PlaceHop_Force
+    }
+
+    // THE PAYLOAD-STEP PREDICATE: whether node `p` reads an Optional's payload
+    // along a place chain's first operand: a `!`, a `?.` hop, or the
+    // `OptionalChain` node a run of hops closes into. A walker that steps
+    // through one steps through all three, since a `?.` hop is the `!` that
+    // leaves the chain where the payload is absent (spec, Optionals).
+    //
+    // ENTRY POINTS (payload_step):
+    //     lend_in_chain
+    //     rooted_in_self
+    //     on_spine
+    //     chain_step
+    //     projection_top
+    //     hint_root
+    //     is_place_alt (mutability.saw)
+    //     place_verdict (mutability.saw)
+    //     MIR's rooted_in_self
+    //     MIR's on_borrow_spine
+    public func payload_step(&self, p: Int) -> Bool {
+        if p < 0 {
+            return false
+        }
+        if self.res.nodes[p].shape == NodeShape.OptionalChain {
+            return true
+        }
+        self.has_alt(p, Alt.Expr_Force) || self.has_alt(p, Alt.Expr_OptionalMember)
     }
 
     // Whether chain `top` is held by a construct that lowers its window
@@ -12442,7 +12643,7 @@ extension TcProgram {
             if up < 0 || self.res.first_node_child(up) != node {
                 return node
             }
-            let step = self.has_alt(up, Alt.Expr_Member) || self.has_alt(up, Alt.Expr_Call_Paren) || self.has_alt(up, Alt.Expr_Subscript_Single) || self.has_alt(up, Alt.Expr_Subscript_Multi) || self.has_alt(up, Alt.Expr_TupleIndex) || self.has_alt(up, Alt.Expr_Force) || self.has_alt(up, Alt.Expr_Paren)
+            let step = self.has_alt(up, Alt.Expr_Member) || self.has_alt(up, Alt.Expr_Call_Paren) || self.has_alt(up, Alt.Expr_Subscript_Single) || self.has_alt(up, Alt.Expr_Subscript_Multi) || self.has_alt(up, Alt.Expr_TupleIndex) || self.payload_step(up) || self.has_alt(up, Alt.Expr_Paren)
             if not step {
                 return node
             }
@@ -13356,12 +13557,20 @@ extension TcProgram {
             return
         }
         let t = self.final_type(e)
-        if t < 0 || self.has_error(t) || not self.is_result(t) {
+        if t < 0 || self.has_error(t) {
+            return
+        }
+        // An optional chain's `Result?` discards the Result its top made on
+        // every path where the chain ran.
+        var producer = e
+        if self.res.nodes[e].shape == NodeShape.OptionalChain && self.is_optional(t) && self.is_result(self.arg_of(t, 0)) {
+            producer = self.res.first_node_child(e)
+        } else if not self.is_result(t) {
             return
         }
         var msg = StringBuilder()
         try! msg.append("the result of ")
-        let at = self.call_at[e]
+        let at = self.call_at[producer]
         if at >= 0 && self.calls[at].target >= 0 {
             let target = self.calls[at].target
             let name = self.res.decls[target].name
@@ -13671,7 +13880,7 @@ extension TcProgram {
         let none = TcHintRoot(node: -1, writable: false, binder: TcBinder.Unknown)
         var at = e
         var steps = 0
-        while steps < 64 && (self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.has_alt(at, Alt.Expr_Force) || self.has_alt(at, Alt.Expr_Paren)) {
+        while steps < 64 && (self.has_alt(at, Alt.Expr_Member) || self.has_alt(at, Alt.Expr_TupleIndex) || self.payload_step(at) || self.has_alt(at, Alt.Expr_Paren)) {
             at = self.res.first_node_child(at)
             if at < 0 {
                 return none
@@ -13857,6 +14066,48 @@ extension TcProgram {
         self.refuse(receiver, "consumes.move", msg.build())
     }
 
+    // A `consumes` method called through a `?.` hop whose base is a place,
+    // `base`: the hop never moves the payload out of it.
+    func refuse_chain_consume(&var self, base: Int, d: Int) {
+        let m = self.current
+        let name = self.name_text(self.res.decls[d].name)
+        let written = self.text(m, base)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(name)
+        try! msg.append("` consumes its receiver, and a `?.` hop reads `")
+        try! msg.append(written)
+        try! msg.append("`'s payload in place, never moving it out: take it first, as `")
+        try! msg.append(written)
+        try! msg.append(".take()?.")
+        try! msg.append(name)
+        try! msg.append("(...)`, or bind a moved optional, as `if let x = move ")
+        try! msg.append(written)
+        try! msg.append(" \{ x.")
+        try! msg.append(name)
+        try! msg.append("(...) \}`")
+        self.refuse(base, "consumes.move", msg.build())
+    }
+
+    // Whether expression `e` is the base of a `?.` hop, which reads its
+    // payload: its adjustment chain holds a `payload` step.
+    public func reads_payload(&self, e: Int) -> Bool {
+        self.payload_adjust(e) >= 0
+    }
+
+    // The index of base `e`'s `payload` or `payload-var` step, or -1.
+    public func payload_adjust(&self, e: Int) -> Int {
+        var a = self.adj_head[e]
+        while a >= 0 {
+            let kind = self.adjusts[a].kind
+            if kind == TcAdjustKind.Payload || kind == TcAdjustKind.PayloadVar {
+                return a
+            }
+            a = self.adjusts[a].next
+        }
+        -1
+    }
+
     func refuse_implicit_without_type(&var self, e: Int, name: Int) {
         let text = self.name_text(name)
         var msg = StringBuilder()
@@ -13914,6 +14165,33 @@ extension TcProgram {
     func refuse_not_a_place(&var self, e: Int) {
         self.refuse(e, "type.not-a-place",
                     "this is a value, not a place: it cannot be assigned, moved from or borrowed exclusively")
+    }
+
+    // A subscript, tuple index, member or method, `what`, written at `at`
+    // after optional chain `base`, whose run it closes, so it meets the
+    // chain's Optional value `t` rather than its payload (GRAMMAR.md,
+    // syntax.rule.optional-chain-run). Whether it refused.
+    func refuse_after_chain(&var self, at: Int, base: Int, t: Int, rule: String, what: String) -> Bool {
+        let chain = self.unparenthesized(base)
+        if chain < 0 || self.res.nodes[chain].shape != NodeShape.OptionalChain || not self.is_optional(t) {
+            return false
+        }
+        let m = self.node_module(chain)
+        let written = self.text(m, chain)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(written)
+        try! msg.append("` is an optional chain, whose run ends before this ")
+        try! msg.append(what)
+        try! msg.append(", so the ")
+        try! msg.append(what)
+        try! msg.append(" meets the chain's `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, not its payload: bind the payload first, as `if let x = ")
+        try! msg.append(written)
+        try! msg.append(" \{ … \}`")
+        self.refuse(at, rule, msg.build())
+        true
     }
 
     func refuse_unknown_member(&var self, leaf: Int, t: Int) {

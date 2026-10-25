@@ -1,0 +1,23 @@
+// refuses: loan.write-while-shared at 22:25
+// a `?.` hop's call whose argument writes the chain's root through a
+// closure's borrow capture, while the hop holds the payload it tested
+// (conformance O17)
+
+struct B {
+    n: Int
+}
+
+extension B {
+    func plus(&self, x: Int) -> Int {
+        self.n + x
+    }
+}
+
+func run(body: () -> Int) -> Int {
+    body()
+}
+
+func main() {
+    var o: B? = B(n: 5)
+    let n = o?.plus(run({ [&var o] in o = None; 1 }))
+}

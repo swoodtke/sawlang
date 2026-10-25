@@ -175,7 +175,7 @@ closure_deinit_vector.saw	pass	-	-
 closure_escaping_move_capture_consumed_once.saw	pass	-	capture.escaping-consume: this `move` takes `h` out of an escaping closure's environment, which every copy of the closure shares and which outlives each call, so the body reads what it captured and ne
 closure_leaves_enclosing_void_local_visible.saw	pass	-	-
 closure_module_struct_field_infer.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
-closure_move_capture_transfers_when_body_runs.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+closure_move_capture_transfers_when_body_runs.saw	pass	judged by its own directives (edited since its oracle)	-
 closure_nested_ref_param_capture.saw	stage0-wrong	XFAIL DF-248b	sawc meets its directives
 closure_propagates_to_its_own_result_not_the_enclosing_catch.saw	pass	-	-
 closure_pushed_into_a_vector_keeps_its_captures.saw	pass	-	-
@@ -814,7 +814,7 @@ coro_try_catch_early_exit.saw	pass	-	-
 coro_try_catch_suspending.saw	pass	-	-
 coro_try_in_borrowed_place_index.saw	pass	judged by its own directives (edited since its oracle)	-
 coro_try_landing_relinquishes_by_position.saw	stage0-wrong	annotated SL-731	sawc meets its directives
-coro_try_landing_within_guards.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+coro_try_landing_within_guards.saw	pass	-	-
 coro_try_propagate_suspending.saw	pass	-	-
 coro_tuple_across_suspend.saw	pass	-	-
 coro_unconsumed_result.saw	pass	-	-
@@ -880,7 +880,7 @@ df137d_literal_width_riscv32.saw	refused	driver driver.unknown-target	sawc: unkn
 df137d_literal_width_riscv32_ok.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
 df139a_copy_then_overwrite.saw	pass	-	-
 df140b_import_wrap.saw	pass	-	-
-df140c_qualified_type_position.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+df140c_qualified_type_position.saw	pass	-	-
 df140d_result_optional_autowrap.saw	pass	-	-
 df140f_private_static_collision.saw	pass	-	-
 df140h_std_private_static.saw	pass	-	-
@@ -1219,10 +1219,10 @@ errors/offload_signature_reject.saw	pass	-	extern.offload-c-abi: `extern blockin
 errors/optional_chain_assign_exclusivity.saw	wrong	accepts a refusal test	exclusive access violation: `oh` is written by this optional-chain assignment while also being accessed in the right-hand side
 errors/optional_chain_assign_explicit_copy.saw	pass	-	transfer.implicit-copy: this reads a place of type `optional_chain_assign_explicit_copy.Money`, which is ExplicitCopy, by value: only a Copy type copies silently; write `move m` to take it, `m.copy()`
 errors/optional_chain_assign_immutable_head.saw	pass	-	mutability.immutable: this assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
-errors/optional_chain_assign_method_target.saw	refused	typecheck member.unknown	`optional_chain_assign_method_target.P?` has no method `setX` this module can see
+errors/optional_chain_assign_method_target.saw	pass	-	type.not-a-place: this is a value, not a place: it cannot be assigned, moved from or borrowed exclusively
 errors/optional_chain_compound_assign_immutable_head.saw	pass	-	mutability.immutable: this compound assignment writes `p?.x`, and `p` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
-errors/optional_chain_nocopy_field.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-errors/optional_chain_non_optional.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+errors/optional_chain_nocopy_field.saw	pass	-	transfer.implicit-copy: this reads a place of type `optional_chain_nocopy_field.F`, which is NoCopy, by value: a `?.` chain's final field is copied out as the chain's value, and only a Copy type copie
+errors/optional_chain_non_optional.saw	pass	-	operator.undefined: `?.` reads through an Optional, and this is `optional_chain_non_optional.P`
 errors/optional_coalesce_default_too_deep.saw	pass	-	format.argument: `Int?` is formatted here, and it is neither `Printable` nor a primitive
 errors/optional_move_unwrap_field.saw	pass	-	transfer.partial-move: cannot move out of field `r` of `h`: a `move` takes a whole binding, and taking a part would leave its owner half-owned; `take()` moves an optional part's payload out and leaves
 errors/optional_move_unwrap_retires.saw	pass	-	move.use-after: `o` is used after it may have been moved (moved at 15:13); a moved value is gone until it is assigned again
@@ -1508,8 +1508,8 @@ expr_suspend_nested_blocking.saw	pass	-	-
 expr_suspend_nested_shortcircuit.saw	pass	-	-
 expr_suspend_optchain_assign.saw	stage0-wrong	annotated SL-438	sawc meets its directives
 expr_suspend_optchain_compound_assign.saw	stage0-wrong	annotated SL-438	sawc meets its directives
-expr_suspend_optchain_hop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-expr_suspend_optchain_multihop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+expr_suspend_optchain_hop.saw	pass	-	-
+expr_suspend_optchain_multihop.saw	pass	-	-
 expr_suspend_return.saw	pass	-	-
 expr_suspend_struct_field.saw	pass	-	-
 expr_suspend_sync_reject.saw	pass	-	effect.sync: `pure` is declared `sync`, and it calls `s`, which may suspend
@@ -1692,7 +1692,7 @@ import150_qualifier_collision_alias.saw	pass	-	-
 import150_qualifier_collision_error.saw	pass	-	import.duplicate-qualifier: two imports bind the qualifier `data`: `std.data` and `data`
 import150_shadowed_qualifier_error.saw	refused	typecheck member.unknown	`Int` has no method `Data` this module can see
 import150_std_forms.saw	pass	-	-
-import150_std_qualified_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+import150_std_qualified_positions.saw	pass	-	-
 import150_warn_shadowed_qualifier.saw	refused	driver driver.usage	sawc build takes no such arguments
 import150_weak_qualifier.saw	pass	-	-
 import225e_bare_std_leaf_not_found.saw	refused	resolve import.unknown-module	no module `data` (looked for `tests/corpus/data.saw`)
@@ -2037,13 +2037,13 @@ optional_binding_underscore.saw	pass	-	-
 optional_chain_assign.saw	wrong	stdout differs	line 3: sawc "1", Stage 0 "0"
 optional_chain_assign_deinit.saw	wrong	stdout differs	line 3: sawc "2", Stage 0 "1"
 optional_chain_assign_move.saw	pass	-	-
-optional_chain_compose.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+optional_chain_compose.saw	pass	-	-
 optional_chain_compound_assign.saw	pass	judged by its own directives (edited since its oracle)	-
-optional_chain_deinit_once.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optional_chain_methods.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optional_chain_multihop.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optional_chain_sideeffect_skip.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optional_chain_suspend_method.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+optional_chain_deinit_once.saw	pass	-	-
+optional_chain_methods.saw	pass	-	-
+optional_chain_multihop.saw	pass	-	-
+optional_chain_sideeffect_skip.saw	pass	-	-
+optional_chain_suspend_method.saw	pass	-	-
 optional_coalesce_ownership.saw	pass	-	-
 optional_coalesce_peel_depth.saw	pass	-	-
 optional_explicit_copy_deep.saw	pass	-	-
@@ -2083,8 +2083,8 @@ optional_slot_literal_adopts_payload_width.saw	pass	-	-
 optional_take.saw	pass	-	-
 optional_type_name.saw	pass	-	-
 optionals.saw	pass	-	-
-optionals_advanced.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
-optionals_chain_debug.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+optionals_advanced.saw	pass	-	-
+optionals_chain_debug.saw	pass	-	-
 optionals_debug.saw	pass	-	-
 optionals_struct_simple.saw	pass	-	-
 overflow_add_panics.saw	pass	-	-
@@ -2137,7 +2137,7 @@ place_cross_module_same_name_type.saw	pass	judged by its own directives (edited 
 place_enum_payload_lend.saw	pass	judged by its own directives (edited since its oracle)	-
 place_match_arm_move_in_literal.saw	pass	-	transfer.move-from-borrow: cannot move out of `r`: it names a place it only borrows, a `borrow` binding or a part of a scrutinee a match borrows, so the place's owner still ends it; read or borrow it
 place_nocopy_arg_in_window.saw	pass	judged by its own directives (edited since its oracle)	-
-place_paired_literal_fields.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+place_paired_literal_fields.saw	pass	judged by its own directives (edited since its oracle)	-
 place_presence_test_borrows.saw	pass	judged by its own directives (edited since its oracle)	-
 place_read_retains_owning.saw	pass	judged by its own directives (edited since its oracle)	-
 place_reentry_idempotent.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -2180,7 +2180,7 @@ process_signal_death.saw	pass	judged by its own directives (edited since its ora
 process_simple.saw	stage0-wrong	annotated SL-596	sawc meets its directives
 qualified_call_literal_adopts_parameter_width.saw	pass	-	type.mismatch: integer literal 300 does not fit in `UInt8` (range 0..=255)
 qualified_call_threads_the_callee_signature.saw	pass	-	-
-qualified_type_declaration_slots.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+qualified_type_declaration_slots.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are Tag.init(of: Int) [qslot]; Tag(n: Int) [qslot]
 qualified_type_in_declaration_slot.saw	pass	-	-
 range_inclusive_basics.saw	refused	typecheck slice.not-yet	`syntax.stmt.break` is not in the bootstrap slice yet
 range_inclusive_intmax.saw	pass	-	-
@@ -2270,10 +2270,10 @@ scalar_type.saw	pass	-	-
 section_compose.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
 self_receiver_pointer_reaches_caller.saw	wrong	stdout differs	line 5: sawc "primitive receiver stays by value: true", Stage 0 "primitive receiver stays by value: false"
 self_type.saw	pass	-	-
-self_type_generic_extension_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+self_type_generic_extension_positions.saw	pass	-	-
 self_type_in_extension_parameter.saw	pass	-	-
 self_type_in_generic_extension.saw	pass	-	-
-self_type_signature_positions.saw	refused	typecheck slice.not-yet	`syntax.expr.optional-member` is not in the bootstrap slice yet
+self_type_signature_positions.saw	pass	-	-
 semicolon_joins_statements_on_one_line.saw	pass	judged by its own directives (edited since its oracle)	-
 send_sync_bounds.saw	pass	-	-
 serde169_derived.saw	refused	resolve name.undefined	cannot find `Serialize` in scope

@@ -1,0 +1,44 @@
+// A value moved into the argument of a call past a `?.` hop over a
+// conditional lend (SL-883; conformance V48's shape): the move happens only
+// on the path where the lend is present, so the frame's drop of the moved
+// local is flagged, and the absent path leaves it to drop at its scope end.
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+struct Counter {
+    n: Int
+}
+
+extension Counter {
+    func absorb(&var self, r: Res) {
+        self.n = self.n + r.id
+    }
+}
+
+struct Ledger {
+    c: Counter
+}
+
+extension Ledger {
+    func at(&var self, i: Int) borrows -> &var Counter? {
+        if i != 0 {
+            return None
+        }
+        lend self.c
+    }
+}
+
+func lend_row(i: Int) -> Int {
+    var led = Ledger(c: Counter(n: 0))
+    let g = Res(id: 8)
+    led.at(i)?.absorb(r: move g)
+    led.at(0)?.n ?? -1
+}
+
+func main() {
+    print("{}", lend_row(9))
+}

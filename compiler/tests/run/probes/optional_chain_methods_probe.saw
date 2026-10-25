@@ -1,0 +1,77 @@
+// probe: stated
+// about: method hops in an optional chain: an extension method, a trait default reached through the payload, a plain method past a field hop, a method returning an optional, a generic method and a trailing closure, present and absent (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: 42
+// prints: -1
+// prints: area 25
+// prints: 8
+// prints: 2
+// prints: -1
+// prints: pos
+// prints: 22
+// prints: -1
+
+struct Point {
+    x: Int
+}
+
+extension Point {
+    func doubled(&self) -> Int {
+        self.x * 2
+    }
+
+    func half(&self) -> Int? {
+        if self.x % 2 == 0 {
+            return self.x / 2
+        }
+        None
+    }
+
+    func pick<T>(&self, a: T, b: T) -> T {
+        if self.x > 0 { a } else { b }
+    }
+
+    func apply(&self, f: (Int) -> Int) -> Int {
+        f(self.x)
+    }
+}
+
+trait Shape {
+    func area(&self) -> Int
+
+    func describe(&self) -> String {
+        "area {self.area()}"
+    }
+}
+
+struct Square {
+    side: Int
+}
+
+extension Square: Shape {
+    func area(&self) -> Int {
+        self.side * self.side
+    }
+}
+
+struct Cell {
+    p: Point
+}
+
+func main() {
+    let p: Point? = Point(x: 21)
+    let none: Point? = None
+    print("{}", p?.doubled() ?? -1)
+    print("{}", none?.doubled() ?? -1)
+    let s: Square? = Square(side: 5)
+    print("{}", s?.describe() ?? "none")
+    let c: Cell? = Cell(p: Point(x: 4))
+    print("{}", c?.p.doubled() ?? -1)
+    let h: Int? = c?.p.half()
+    print("{}", h ?? -1)
+    print("{}", p?.half() ?? -1)
+    print("{}", p?.pick<String>("pos", "neg") ?? "none")
+    print("{}", p?.apply { x in x + 1 } ?? -1)
+    print("{}", none?.apply { x in x + 1 } ?? -1)
+}

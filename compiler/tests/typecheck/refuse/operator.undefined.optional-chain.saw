@@ -1,0 +1,12 @@
+// refuses: operator.undefined at 11:13
+// message: `?.` reads through an Optional
+// `?.` read over a value that is no Optional (spec, Optionals)
+
+struct P {
+    x: Int
+}
+
+func main() {
+    let p = P(x: 1)
+    let y = p?.x
+}

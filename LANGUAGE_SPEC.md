@@ -2423,7 +2423,27 @@ Once a `?` short-circuits, **ALL later evaluation in the chain is skipped,
 including the argument expressions of a skipped method call** — a deliberate,
 observable carve-out of the left-to-right rule under "Argument Evaluation
 Order" below. The right side of a chained assignment is not part of the chain:
-it is evaluated first (below).
+it is evaluated first (below). A hop is tested before the arguments of its own
+call run, and its payload is held in place until the call, so an argument
+that writes the chain's root (`o?.plus(clear(&var o))`) is refused under the
+Law of Exclusivity. What the chain makes past a hop is a temporary of its
+statement like any other: it is made only where the hop is present and dies
+at the end of the statement (see [The Deinit trait](#the-deinit-trait)), and a
+skipped hop makes nothing.
+
+A run of hops ends at a `!`, a subscript, a tuple index, parentheses, or the
+end of the postfix expression (GRAMMAR.md, `syntax.rule.optional-chain-run`).
+So `o?.xs[0]` subscripts the chain's `[Int; 2]?` rather than its payload, and
+is refused, as `o?.pair.0` and `(o?.j).v` are; bind the payload first, as
+`if let xs = o?.xs { xs[0] }`.
+
+A `consumes` method called through a hop takes the payload of a temporary
+(`make()?.finish()`), but never moves one out of a place: `p?.finish()` on a
+binding is refused, where `p!` would need `move`. Take it first, as
+`p.take()?.finish()`, or bind it with `if let x = move p { x.finish() }`. A
+chain whose final method returns a `Result`, written as a statement, discards
+a `Result?`, and is refused as a discarded `Result` is (see
+[Discarding a Result](#discarding-a-result)).
 
 **Chained assignment** `x?.y = v` (and longer chains, `x?.a.b?.c = v`) writes the
 RHS through the chain into the payload FIELD **in place** iff every optional hop

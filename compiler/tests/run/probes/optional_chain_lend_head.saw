@@ -1,0 +1,68 @@
+// probe: stated
+// about: a conditional lend as an optional chain's head: a field read present and absent, a second hop past the lend, and a method hop whose moved argument the absent path never takes (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// leaks: none
+// prints: t
+// prints: absent
+// prints: 4
+// prints: skipped
+// prints: deinit 2
+// prints: n 2
+// prints: end
+// prints: deinit 8
+// The `?` is the lend's own presence: an absent lend opens no window and
+// runs nothing later in the chain (spec, Lends and their windows).
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("deinit {}", self.id)
+    }
+}
+
+struct Inner {
+    v: Int
+}
+
+struct Counter {
+    n: Int
+    tag: String
+    inner: Inner?
+}
+
+extension Counter {
+    func absorb(&var self, r: Res) {
+        self.n = self.n + r.id
+    }
+}
+
+struct Ledger {
+    c: Counter
+}
+
+extension Ledger {
+    func at(&var self, i: Int) borrows -> &var Counter? {
+        if i != 0 {
+            return None
+        }
+        lend self.c
+    }
+}
+
+func main() {
+    var led = Ledger(c: Counter(n: 0, tag: "t", inner: Inner(v: 4)))
+    print("{}", led.at(0)?.tag ?? "absent")
+    print("{}", led.at(9)?.tag ?? "absent")
+    print("{}", led.at(0)?.inner?.v ?? -1)
+    let g = Res(id: 8)
+    led.at(9)?.absorb(r: move g)
+    print("skipped")
+    let h = Res(id: 2)
+    led.at(0)?.absorb(r: move h)
+    print("n {}", led.at(0)?.n ?? -1)
+    print("end")
+}

@@ -1714,6 +1714,18 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `n += s.read()` it lowers through. Still rejected: a chained assignment
   through MORE THAN ONE hop whose RHS suspends (`a?.b?.c = s.read()` — `if let`
   the inner optional first). `?.` indexing is unsupported.
+  **A SUBSCRIPT OR TUPLE INDEX ENDS THE RUN** (GRAMMAR's
+  `syntax.rule.optional-chain-run`, as `!` and parentheses do): `o?.xs[0]`
+  subscripts the chain's `T?` and is refused, naming `if let xs = o?.xs { xs[0] }`.
+  A hop is tested BEFORE its call's arguments run and holds its payload until
+  the call, so `o?.plus(clear(&var o))` is a loan error. A `consumes` method
+  through a hop takes a TEMPORARY's payload (`make()?.finish()`) but never a
+  place's (`p?.finish()` is refused; write `p.take()?.finish()`). A statement
+  `o?.save()` whose method returns a `Result` is the discarded-Result error
+  (`let _ =` it). What a chain makes past a hop dies at the end of its
+  statement, like any temporary. In sawc (SL-883) a chain whose LAST hop is a
+  `borrows` accessor (`o?.at()`) is still `slice.not-yet` (SL-917); passing
+  through one (`o?.at().n`) works.
 - **PAYLOAD READS ARE PLACES (design 131).** `o!`, the `??` left operand, and an
   `if let`/`guard let` binding all name storage the optional still owns, so the
   payload's copy tier decides the read — same table as everywhere else. BORROW

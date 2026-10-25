@@ -1,0 +1,77 @@
+// probe: stated
+// about: an optional chain in each value position: a condition, `if let`, `guard let`, `while let`, a `match` scrutinee, either side of `??`, a `let` inferred and annotated, a return and a tail, interpolation, a closure body, and a statement whose value is discarded (SL-883)
+// stage 0: not run; the probe holds sawc to the spec's optional chaining, row by row (SL-883)
+// speeds: -O0 -O2
+// prints: condition
+// prints: bound 2
+// prints: guard 2 -1
+// prints: loop 1
+// prints: match 2
+// prints: right 2
+// prints: chained 9
+// prints: let 2 -1
+// prints: return 2 tail -1
+// prints: interpolated 2
+// prints: closure 2
+// prints: touched 2
+
+struct S {
+    ok: Bool
+    n: Int
+    m: Int?
+}
+
+extension S {
+    func touch(&self) -> Int {
+        print("touched {}", self.n)
+        self.n
+    }
+}
+
+func n_of(o: S?) -> Int? {
+    return o?.n
+}
+
+func tail_of(o: S?) -> Int? {
+    o?.m
+}
+
+func guarded(o: S?) -> Int {
+    guard let n = o?.n else {
+        return -1
+    }
+    n
+}
+
+func main() {
+    let o: S? = S(ok: true, n: 2, m: None)
+    let none: S? = None
+    if o?.ok ?? false {
+        print("condition")
+    }
+    if let n = o?.n {
+        print("bound {}", n)
+    }
+    print("guard {} {}", guarded(o), guarded(none))
+    var left: S? = S(ok: false, n: 1, m: 7)
+    while let n = left?.n {
+        print("loop {}", n)
+        left = None
+    }
+    match o?.n {
+        case Some(n) -> print("match {}", n),
+        case None -> print("match none")
+    }
+    let fallback: Int? = none?.n ?? o?.n
+    print("right {}", fallback ?? -2)
+    print("chained {}", o?.m ?? none?.n ?? 9)
+    let inferred = o?.n
+    let annotated: Int? = none?.n
+    print("let {} {}", inferred ?? -1, annotated ?? -1)
+    print("return {} tail {}", n_of(o) ?? -1, tail_of(o) ?? -1)
+    print("interpolated {o?.n ?? 0}")
+    let f = { [o] in o?.n ?? -1 }
+    print("closure {}", f())
+    o?.touch()
+    none?.touch()
+}

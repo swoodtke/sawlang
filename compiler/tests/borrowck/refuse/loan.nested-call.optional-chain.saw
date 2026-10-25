@@ -1,0 +1,24 @@
+// refuses: loan.nested-call at 23:27
+// a `?.` hop's call whose argument writes the chain's root: the hop tested
+// `o` before the argument runs, and holds its payload until the call
+// (conformance O17)
+
+struct B {
+    n: Int
+}
+
+extension B {
+    func plus(&self, x: Int) -> Int {
+        self.n + x
+    }
+}
+
+func clear(o: &var B?) -> Int {
+    o = None
+    1
+}
+
+func main() {
+    var o: B? = B(n: 5)
+    let n = o?.plus(clear(&var o))
+}

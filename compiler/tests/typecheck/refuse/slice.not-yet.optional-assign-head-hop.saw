@@ -1,0 +1,31 @@
+// refuses: slice.not-yet at 30:5
+// message: an optional assignment whose head reads through a `?.` hop of its own
+// message: (SL-919)
+// an optional assignment whose head reads through a `?.` hop below the hops
+// it writes through: the hop would be tested before the right side runs
+
+struct Leaf {
+    n: Int
+}
+
+struct Shelf {
+    leaf: Leaf?
+}
+
+extension Shelf {
+    func find(&var self, i: Int) borrows -> &var Leaf? {
+        if i != 0 {
+            return None
+        }
+        lend self.leaf!
+    }
+}
+
+struct Room {
+    shelf: Shelf
+}
+
+func main() {
+    var r: Room? = Room(shelf: Shelf(leaf: Leaf(n: 1)))
+    r?.shelf.find(0)?.n = 4
+}
