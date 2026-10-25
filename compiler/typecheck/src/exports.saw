@@ -292,7 +292,7 @@ extension TcProgram {
         }
         let row = tc_abi_row_of(&table, symbol)
         let owner = table.owners.get(row) ?? ""
-        let defines_seams = self.profile.seams == TcSeams.Exported
+        let defines_seams = self.profile.seams() == TcSeams.Exported
         if defines_seams && owner.equals("runtime") {
             return self.export_seam_ok(d, attr, symbol, &table, row)
         }

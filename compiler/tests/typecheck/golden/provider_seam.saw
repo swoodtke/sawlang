@@ -1,0 +1,18 @@
+// flags: --std-root std --runtime
+// A runtime provider (`--runtime`): its `@export`s may be the frozen seams,
+// each held to runtime/ABI.md, and it keeps its `main` as any program does.
+// Both seams carry the table's signature, so the program checks clean.
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
+    size as UnsafePointer<Int8>
+}
+
+@export("__saw_rt_last_raw_code")
+func provided_last_raw_code() -> Int {
+    0
+}
+
+func main() {
+    print("a provider")
+}

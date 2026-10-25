@@ -995,8 +995,8 @@ string to check an installed compiler against.
 
 A consumer that builds Stage 0's language through this repository (sawos, or
 any `SAWLANG_ROOT` user that needs `sawc0`'s command line) builds through a
-pin at or before v0.18.0 until `sawc` builds that command line, the runtime
-provider and riscv32 included (SL-865).
+pin at or before v0.18.0 until `sawc` builds that command line, riscv32 and
+`--no-hidden-alloc` included (SL-865).
 sawos's copy of the toolchain resolver follows this one when its work resumes.
 
 ### Linux
@@ -1025,7 +1025,7 @@ one per compiler stage (`lex`, `parse`, `resolve`, `typecheck`, `mir`, `eval`,
 
 ```bash
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]
-           [--target-features FEATURES] [--sanitize address] [--freestanding | --runtime]
+           [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
            [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
@@ -1041,10 +1041,11 @@ object (`.o` appended to the `-o` name when it lacks one) and links nothing.
 `--target-features` names the LLVM subtarget features the code may use (such
 as `+m,+a,+c`), and `--module-path` maps a package name to its source
 directory. `--freestanding` writes an ELF object under the freestanding
-profile, rooted at its `@export`s. `--runtime` checks a program against the
-runtime package's rules (each exported `__saw_rt_*` seam against
-`runtime/ABI.md`) but does not build it yet (SL-865). `sawc runtime` builds
-the hosted runtime from `runtime/`.
+profile, rooted at its `@export`s. `--runtime` builds a program that is its
+own runtime: it may export the `__saw_rt_*` seams, each checked against
+`runtime/ABI.md`, and links with none of sawc's runtime objects, so it defines
+every seam it reaches. `sawc runtime` builds the hosted runtime from
+`runtime/`.
 
 The spec documents some compiler flags that `sawc` does not take yet:
 `--no-hidden-alloc` (SL-865), the `-W`

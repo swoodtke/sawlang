@@ -22,6 +22,9 @@ public struct LlEmitter {
     decls: StringBuilder
     defs: StringBuilder
     declared: Vector<String>
+    // Each symbol the module declares and does not define, in first-use
+    // order: what its link must supply.
+    externs: Vector<String>
     // The byte constants made so far, by their `c"..."` text, and whether
     // each is a String literal block.
     pool_texts: Vector<String>
@@ -145,7 +148,7 @@ public func ll_lowering(coro: &CoroProgram) -> LlLowering {
 extension LlEmitter {
     public init(lowering: LlLowering) -> LlEmitter {
         LlEmitter(globals: StringBuilder(), decls: StringBuilder(), defs: StringBuilder(), declared: Vector<String>(),
-                  pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(),
+                  externs: Vector<String>(), pool_texts: Vector<String>(), pool_blocks: Vector<Bool>(), statics: Vector<Int>(),
                   try_errors: Vector<Int>(), current: -1,
                   body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
                   lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0,
@@ -376,6 +379,7 @@ extension LlEmitter {
             k = k + 1
         }
         try! self.declared.push(name)
+        try! self.externs.push(name)
         try! self.decls.append(line)
         try! self.decls.append("\n")
     }

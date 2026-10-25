@@ -97,14 +97,93 @@ public enum TcSeams {
     // Whatever the freestanding object is linked into: a kernel or a board's
     // runtime package. The program declares them and defines none.
     case Environment,
-    // This compile: a runtime's source exports them, each held to
-    // runtime/ABI.md.
+    // This compile, which may export them, each held to runtime/ABI.md: a
+    // runtime provider, or a source of sawc's own runtime.
     case Exported
 }
 
+// The five profiles a compile can be under (spec, Profiles).
+public enum TcProfileKind {
+    // An ordinary program, linked with the runtime sawc builds.
+    case HostedProgram,
+    // `--freestanding`: an object rooted at its exports, for a kernel or a
+    // board to link.
+    case FreestandingProgram,
+    // `--runtime`: a program that is its own runtime, linked with none of
+    // sawc's, so it defines every seam it reaches.
+    case HostedProvider,
+    // `--freestanding --runtime`: the kernel shape, exporting the seams it
+    // defines and leaving the rest to its link.
+    case FreestandingProvider,
+    // One source of sawc's runtime, as `sawc runtime` builds it: its exports
+    // are its roots, and it has no frames of its own.
+    case RuntimeSource
+}
+
 // THE PROFILE RECORD: what the profile a program is compiled under decides
-// for the stages after the driver. Whether the output is an object or an
-// executable is not its concern: the driver decides that from its own flags.
+// for the stages after the driver, each question a method on its kind, so no
+// combination the five profiles do not have can be represented
+// (`tc_profile` makes it). Whether the output is an object or an executable
+// is not its concern: the driver decides that from its own flags.
+public struct TcProfile {
+    kind: TcProfileKind
+}
+
+extension TcProfile {
+    // Whether the entry module's `main` is the program's entry. When it is
+    // not, the exports are the roots and a `main` is an ordinary function.
+    public func main_entry(&self) -> Bool {
+        self.kind == TcProfileKind.HostedProgram || self.kind == TcProfileKind.HostedProvider
+    }
+
+    // Who defines the seams the program calls.
+    public func seams(&self) -> TcSeams {
+        if self.kind == TcProfileKind.HostedProgram {
+            return TcSeams.Linked
+        }
+        if self.kind == TcProfileKind.FreestandingProgram {
+            return TcSeams.Environment
+        }
+        TcSeams.Exported
+    }
+
+    // Whether an operating system and sawc's hosted facilities sit under the
+    // program: its hosted-only std modules, the background task group a
+    // `Task.spawn` joins at `main`'s return, and the thread pool a blocking
+    // call is offloaded to.
+    public func hosted(&self) -> Bool {
+        not (self.kind == TcProfileKind.FreestandingProgram || self.kind == TcProfileKind.FreestandingProvider)
+    }
+
+    // Whether the compile is a source of sawc's own runtime.
+    public func runtime_source(&self) -> Bool {
+        self.kind == TcProfileKind.RuntimeSource
+    }
+
+    // Whether a hosted link takes this program with none of sawc's runtime
+    // objects, so it must define every seam it reaches itself.
+    public func defines_every_seam(&self) -> Bool {
+        self.kind == TcProfileKind.HostedProvider
+    }
+
+    // Whether the program carries a backtrace table: a runtime's source has
+    // no frames of its own to report.
+    public func backtrace_table(&self) -> Bool {
+        not self.runtime_source()
+    }
+
+    // Whether the backtrace table sits in a section of its own, which a hosted
+    // linker keeps. A kernel's linker script names the sections it places, so
+    // a freestanding table stays in the read-only data it would land in.
+    public func backtrace_section(&self) -> Bool {
+        self.hosted() && not self.runtime_source()
+    }
+}
+
+// THE PROFILE CONSTRUCTOR: the record for a compile that is a source of sawc's
+// runtime (`runtime`, set by `sawc runtime` alone), a runtime provider
+// (`provider`, `--runtime`) and built under the freestanding profile
+// (`freestanding`); the one place a profile record is made.
 // ENTRY POINTS:
 //     check_main_signature
 //     export_name_ok
@@ -115,45 +194,19 @@ public enum TcSeams {
 //     llvm_build_exporting
 //     ll_lowering
 //     llvm_emit_program
-public struct TcProfile {
-    // Whether the entry module's `main` is the program's entry. When it is
-    // not, the exports are the roots and a `main` is an ordinary function.
-    main_entry: Bool
-    seams: TcSeams
-    // Whether an operating system and sawc's hosted runtime sit under the
-    // program: its hosted-only std modules, the background task group a
-    // `Task.spawn` joins at `main`'s return, and the thread pool a blocking
-    // call is offloaded to.
-    hosted: Bool
-}
-
-extension TcProfile {
-    // Whether the program carries a backtrace table: a runtime's source has
-    // no frames of its own to report.
-    public func backtrace_table(&self) -> Bool {
-        self.seams != TcSeams.Exported
-    }
-
-    // Whether the backtrace table sits in a section of its own, which a hosted
-    // linker keeps. A kernel's linker script names the sections it places, so
-    // a freestanding table stays in the read-only data it would land in.
-    public func backtrace_section(&self) -> Bool {
-        self.seams == TcSeams.Linked
-    }
-}
-
-// THE PROFILE CONSTRUCTOR: the record for a compile that is a runtime's source
-// (`runtime`, `sawc runtime` and `--runtime`) and is built under the
-// freestanding profile (`freestanding`), the driver's two flags; the one place
-// a profile record is made.
-public func tc_profile(runtime: Bool, freestanding: Bool) -> TcProfile {
-    var seams = TcSeams.Linked
+//     ll_check_provider_seams
+public func tc_profile(runtime: Bool, provider: Bool, freestanding: Bool) -> TcProfile {
+    var kind = TcProfileKind.HostedProgram
     if runtime {
-        seams = TcSeams.Exported
+        kind = TcProfileKind.RuntimeSource
+    } else if provider && freestanding {
+        kind = TcProfileKind.FreestandingProvider
+    } else if provider {
+        kind = TcProfileKind.HostedProvider
     } else if freestanding {
-        seams = TcSeams.Environment
+        kind = TcProfileKind.FreestandingProgram
     }
-    TcProfile(main_entry: not runtime && not freestanding, seams: seams, hosted: not freestanding)
+    TcProfile(kind: kind)
 }
 
 public struct TcProgram {
@@ -550,7 +603,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
-                      profile: tc_profile(false, false),
+                      profile: tc_profile(false, false, false),
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>(), blocking_twins: move twins, pair_defaults: move defaults)
     let empty = Vector<Int>()

@@ -9,7 +9,6 @@ import sawllvm.module.{LlLowering, ll_export_symbol, ll_lowering}
 import sawllvm.program.{llvm_emit_program}
 import sawmono.program.{MonoProgram}
 import sawtarget.layout.{Target}
-import sawtypecheck.program.{TcSeams}
 
 // How `sawc build` treats its entry file.
 public struct BuildOptions {
@@ -20,12 +19,14 @@ public struct BuildOptions {
     // The triple the module names, the one the driver passes clang as
     // `-target`; "" names the target as sawc does.
     module_triple: String
-    // The driver's two profile flags: whether the file is a runtime source,
-    // and whether it is built under the freestanding profile. Typecheck makes
-    // the profile record from them (`tc_profile`), and the stages after it
-    // read the record, never these.
+    // The driver's three profile flags: whether the file is a source of
+    // sawc's runtime (`sawc runtime` alone), whether it is built under the
+    // freestanding profile, and whether it is a runtime provider (`--runtime`).
+    // Typecheck makes the profile record from them (`tc_profile`), and the
+    // stages after it read the record, never these.
     runtime: Bool
     freestanding: Bool
+    provider: Bool
     // `--sanitize address`: every function instrumented by AddressSanitizer,
     // and each lowered frame's values poisoned outside their lifetimes.
     sanitize_address: Bool
@@ -57,7 +58,7 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
                                names: &names, dirs: &dirs, runtime: options.runtime,
-                               freestanding: options.freestanding)
+                               freestanding: options.freestanding, provider: options.provider)
     let head = front.build()
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
         try! out.append(head)
@@ -74,7 +75,7 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
     }
     let lowering = ll_lowering(&coro)
     // A runtime's source carries no line tables, whatever the flag says.
-    let lines = options.debug_info && coro.mono.dp.bc.mir.tc.profile.seams != TcSeams.Exported
+    let lines = options.debug_info && not coro.mono.dp.bc.mir.tc.profile.runtime_source()
     let text = llvm_emit_program(&var coro.mono, &var target, move lowering, options.speed, options.module_triple,
                                  lines, features: options.features, object: options.object)
     if text.len() == 0 {

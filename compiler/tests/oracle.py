@@ -496,9 +496,11 @@ def read_tsv(path, columns):
 
 # --- sawc -------------------------------------------------------------------
 
-# A `COMPILE-FLAGS` flag Stage 0 spells one way and `sawc build` another:
-# Stage 0's runtime build is `sawc build --runtime`, which checks a runtime's
-# source (`sawc runtime` builds one).
+# A `COMPILE-FLAGS` flag Stage 0 spells one way and `sawc build` another.
+# Stage 0's runtime build has no `sawc build` form (`sawc runtime` builds
+# runtime/, and `sawc build` refuses the flag), so it is measured as
+# `sawc build --runtime`, the runtime provider: the export permission and
+# the ABI check the programs that pass it exercise are the provider's too.
 SAWC_SPELLINGS = {"--runtime-build": "--runtime"}
 
 

@@ -32,7 +32,7 @@
 //   sawc build -c FILE [-o OUT]    the entry file's program compiled by clang to an object, and not linked
 //   sawc build --emit-ll FILE      the entry file's program as one `.ll` on standard output
 //   sawc build --freestanding FILE the entry file's program compiled under the freestanding profile to an ELF object
-//   sawc build --runtime FILE      the entry file checked as a runtime's source, and not built
+//   sawc build --runtime FILE      the entry file built as its own runtime, linked with none of sawc's
 //   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
 //   sawc runtime --emit-ll FILE    one runtime source as one `.ll` on standard output
 //   sawc [FLAG]... FILE.saw        `sawc build` with the subcommand left out, Stage 0's command line
@@ -106,7 +106,7 @@ func driver_usage() -> Int {
     print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
     print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
-    print("                  [--target-features FEATURES] [--sanitize address] [--freestanding | --runtime]")
+    print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]")
     print("                  [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
@@ -139,8 +139,11 @@ func driver_speed_level(flag: String) -> String {
 // object under the freestanding profile: the exports are its roots, a Mach-O
 // triple is refused (`driver_refuse_mach_o`), and the target's default
 // features apply when none are named (`target_effective_features`).
-// `--runtime` checks a runtime's source and builds nothing
-// (`driver_check_runtime`). The program carries DWARF line tables unless
+// `--runtime` (and v0.18.0's spelling, `--runtime-provider`) builds a runtime
+// provider: it may export the frozen seams, each checked against
+// runtime/ABI.md, and a hosted one links with none of sawc's runtime objects,
+// so it must define every seam it reaches (`ll_check_provider_seams`);
+// `--runtime-build` is refused, naming `sawc runtime`. The program carries DWARF line tables unless
 // `-g0` turns them off; `-g` spells the default (spec, Debug info). Its
 // arguments start at `args[first]`: 2 after `build`, and 1 for the implicit
 // form `sawc [FLAG]... FILE.saw`, the command line a Stage 0 consumer already
@@ -156,7 +159,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var emit = false
     var sanitize = false
     var freestanding = false
-    var runtime = false
+    var provider = false
     var debug = true
     var warn = false
     var object = false
@@ -185,8 +188,11 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             emit = true
         } else if arg.equals("--freestanding") {
             freestanding = true
-        } else if arg.equals("--runtime") {
-            runtime = true
+        } else if arg.equals("--runtime") || arg.equals("--runtime-provider") {
+            provider = true
+        } else if arg.equals("--runtime-build") {
+            print("sawc build: takes no --runtime-build, v0.18.0's build of its own runtime: `sawc runtime` builds runtime/, each seam checked against runtime/ABI.md, and `--runtime` builds a program that is its own runtime")
+            return DRIVER_EXIT_USAGE
         } else if valued || arg.equals("-o") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -220,14 +226,14 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         }
         i = i + 1
     }
-    if path.len() == 0 || (emit && out.len() > 0) || (freestanding && runtime) {
+    if path.len() == 0 || (emit && out.len() > 0) {
         return driver_usage()
     }
     if triple.len() > 0 && not target_known(triple) {
         print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
-    if target_bare_metal(triple) && not (object || emit || freestanding || runtime) {
+    if target_bare_metal(triple) && not (object || emit || freestanding) {
         print("sawc build: {} is a bare-metal target, with no C library or runtime for sawc to link a program against: `-c` writes an object to link yourself, and `--freestanding` checks a program against the profile a kernel builds under", triple)
         return DRIVER_EXIT_USAGE
     }
@@ -237,9 +243,6 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     if warn {
         driver_print_warnings(path, std_root, &names, &dirs)
-    }
-    if runtime {
-        return driver_check_runtime(path, std_root, &names, &dirs)
     }
     // A freestanding build writes an object and links nothing.
     if freestanding {
@@ -269,16 +272,16 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     features = target_effective_features(triple, features, freestanding)
     if emit {
-        return driver_emit(path, std_root, triple, speed, sanitize, debug, features, object, freestanding, &names,
-                           &dirs)
+        return driver_emit(path, std_root, triple, speed, sanitize, debug, features, object, freestanding, provider,
+                           &names, &dirs)
     }
     // Another target links against its own runtime, which a manifest of its
     // own names once build.py's clang check has passed for it; the host's
     // objects never reach that link (compiler/tests/run/README.md). A
     // bare-metal target's record names its clang and no object, since only
-    // an object build reaches here for it. A freestanding object for another
-    // hosted target needs no runtime, so the host's clang compiles it when
-    // that target has no manifest of its own.
+    // an object build reaches here for it. A freestanding object and a
+    // provider for another hosted target need no runtime, so the host's clang
+    // compiles them when that target has no manifest of its own.
     let cross = not triple.equals(host)
     var foreign = Vector<String>()
     var foreign_clang = StringBuilder()
@@ -288,7 +291,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             print("sawc build: --target {} has no clang configured to compile for it: compiler/tools/build.py records one on every build, the one SAWC_CLANG names or else the first of clang-19 ... clang on PATH that compiles IR for that target, and found none (`compiler/tools/build.py --runtime {}` says why)", triple, triple)
             return 1
         }
-        if not configured.equals(triple) && freestanding {
+        if not configured.equals(triple) && (freestanding || provider) {
             try! foreign_clang.append(clang.build())
         } else if not configured.equals(triple) {
             print("sawc build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
@@ -306,8 +309,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     let clang_triple = target_clang_triple(triple)
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed, module_triple: clang_triple,
-                               runtime: false, freestanding: freestanding, sanitize_address: sanitize,
-                               debug_info: debug, features: features, object: object)
+                               runtime: false, freestanding: freestanding, provider: provider,
+                               sanitize_address: sanitize, debug_info: debug, features: features, object: object)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -329,6 +332,11 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     let link = DriverLink(clang: compiler, ll: ll_path, out: out, speed: speed, sanitize: sanitize,
                           triple: clang_triple, debug: debug)
+    // A provider is its own runtime: none of sawc's objects join its link.
+    if provider {
+        let none = Vector<String>()
+        return driver_link(&link, &none)
+    }
     if cross {
         return driver_link(&link, &foreign)
     }
@@ -338,11 +346,11 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
 // `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
 func driver_emit(path: String, std_root: String, triple: String, speed: String, sanitize: Bool, debug: Bool,
-                 features: String, object: Bool, freestanding: Bool, names: &Vector<String>,
+                 features: String, object: Bool, freestanding: Bool, provider: Bool, names: &Vector<String>,
                  dirs: &Vector<String>) -> Int {
     let options = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                module_triple: target_clang_triple(triple), runtime: false, freestanding: freestanding,
-                               sanitize_address: sanitize, debug_info: debug, features: features, object: object)
+                               provider: provider, sanitize_address: sanitize, debug_info: debug, features: features, object: object)
     var record = StringBuilder()
     var ir = StringBuilder()
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
@@ -352,28 +360,6 @@ func driver_emit(path: String, std_root: String, triple: String, speed: String, 
     }
     print(ir.build())
     0
-}
-
-// `sawc build --runtime`: the program checked through typecheck as a
-// runtime's source, then refused with `driver.not-yet` when nothing else
-// refuses it, since `sawc runtime` is what builds a runtime.
-func driver_check_runtime(path: String, std_root: String, names: &Vector<String>, dirs: &Vector<String>) -> Int {
-    let p = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: true)
-    let options = TypecheckOptions(std_root: std_root, dump: false, notes: false, interfaces: false, summaries: false,
-                                   warn_borrow_prefix: false)
-    var record = StringBuilder()
-    try! record.append("FILE\t")
-    try! record.append(path)
-    try! record.append("\n")
-    var status = typecheck_record(out: &var record, p: &p, options: &options)
-    if status == 0 {
-        try! record.append("ERROR\tdriver.not-yet\t")
-        try! record.append(path)
-        try! record.append(":1:1\ta runtime's source is checked through typecheck here, and `sawc runtime` is what builds a runtime: it compiles the runtime's own sources against runtime/ABI.md\n")
-        status = 1
-    }
-    print(record.build())
-    status
 }
 
 // Refuses a freestanding build for the Mach-O triple `triple`, printing the
@@ -1139,6 +1125,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
     // whose absolute path every program's debug map would then name.
     let options = BuildOptions(std_root: std_root, target: host, speed: speed,
                                module_triple: target_clang_triple(host), runtime: true, freestanding: false,
+                               provider: false,
                                sanitize_address: false, debug_info: false, features: "", object: false)
     let names = Vector<String>()
     let dirs = Vector<String>()
@@ -1618,7 +1605,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var spans = false
     var interfaces = false
     var summaries = false
-    var runtime = false
+    var provider = false
     var freestanding = false
     var counted = false
     var warn = false
@@ -1647,8 +1634,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             interfaces = true
         } else if arg.equals("--summaries") && typecheck {
             summaries = true
-        } else if arg.equals("--runtime") && typecheck {
-            runtime = true
+        } else if (arg.equals("--runtime") || arg.equals("--runtime-provider")) && typecheck {
+            provider = true
         } else if arg.equals("--freestanding") && typecheck {
             freestanding = true
         } else if arg.equals("--spans") && stage == DRIVER_STAGE_MIR {
@@ -1719,7 +1706,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                                     dirs: &dirs, lowerings: &var lowerings)
             } else if typecheck {
                 let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
-                                                        runtime: runtime, freestanding: freestanding)
+                                                        freestanding: freestanding, provider: provider)
                 result = typecheck_record(out: &var out, p: &checked, options: &checking)
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,

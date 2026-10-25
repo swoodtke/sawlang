@@ -14497,8 +14497,17 @@ at compile time. A mismatch — the wrong arity, or a `word` return where the AB
 says `Int64` — is a compile error naming the document, rather than a clean link
 and a wrong answer at run time. `sawc runtime`, which is how `runtime/` itself
 is compiled, is the same permission plus a std-free build; a kernel wants the
-package form. **Status:** `sawc build --runtime` checks the package but does
-not build it yet (SL-865).
+package form.
+
+A hosted provider keeps its `main` and is linked with none of sawc's runtime
+objects, so it defines every seam it reaches: one it reaches and does not
+define is refused before the link, naming the seam
+(`provider.undefined-seam`). Written in Saw, it defines even the seams the
+hosted runtime writes in C, and `sawc build` links no C of its own. A
+freestanding provider (`--freestanding --runtime`, the kernel shape) exports
+the seams it defines and leaves the rest undefined in its object, for its
+link to supply. `sawc build --runtime-build`, v0.18.0's build of its own
+runtime, is refused, naming `sawc runtime`.
 
 **On aarch64 the freestanding profile turns Advanced SIMD OFF**
 (`-neon,-fp-armv8`, design 172). An AArch64 core traps every SIMD instruction at
@@ -15918,7 +15927,7 @@ builds on first use.
 
 ```
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-c] [--std-root DIR] [--target TRIPLE]
-           [--target-features FEATURES] [--sanitize address] [--freestanding | --runtime]
+           [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
            [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
@@ -15950,8 +15959,10 @@ sawc --version
 - `--sanitize address` builds under AddressSanitizer.
 - `--freestanding` compiles under the freestanding profile to an ELF object,
   as `-c` does, `.o` appended to an `-o` name that lacks it (see Profiles).
-  `--runtime` checks a program against the runtime-package rules and does not
-  build it yet.
+- `--runtime` (v0.18.0's `--runtime-provider` is accepted for it) builds a
+  runtime provider: its `@export`s may be the frozen seams, each checked
+  against `runtime/ABI.md`, and a hosted one links with none of sawc's runtime
+  objects (see Profiles). It combines with `--freestanding` and `-c`.
 - `sawc runtime` builds the hosted runtime from `runtime/`.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`

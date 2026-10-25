@@ -63,7 +63,7 @@ extension TcProgram {
     // is the one place the program asks for one; std's own imports are
     // std's business.
     func check_hosted_imports(&var self) {
-        if self.profile.hosted {
+        if self.profile.hosted() {
             return
         }
         let hosted = tc_hosted_modules()
@@ -1085,7 +1085,7 @@ extension TcProgram {
     // a std module's extern says nothing about the program, and only the
     // program's own declarations are judged.
     func check_extern_profile(&var self, d: Int) -> Bool {
-        if self.profile.hosted || (self.sigs[d].flags & TC_FLAG_BLOCKING) == 0 || self.is_std_decl(d) {
+        if self.profile.hosted() || (self.sigs[d].flags & TC_FLAG_BLOCKING) == 0 || self.is_std_decl(d) {
             return true
         }
         var msg = StringBuilder()

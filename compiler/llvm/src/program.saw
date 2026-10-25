@@ -62,7 +62,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     // `main`, which leaves the accessors to whatever it is linked with.
     let profile = mono.dp.bc.mir.tc.profile
     let bt_accessor = profile.backtrace_table() && ll_reaches_extern(&mono, ll_bt_table_address())
-    let entry_point = profile.main_entry && (not object || mono.main_item >= 0)
+    let entry_point = profile.main_entry() && (not object || mono.main_item >= 0)
     if bt_accessor {
         e.defines(ll_bt_table_address())
     }
@@ -160,6 +160,9 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         try! e.defs.append(defined)
         h = h + 1
     }
+    if profile.defines_every_seam() && not object {
+        ll_check_provider_seams(&var mono, &e)
+    }
     if mono.diags.len() > 0 || mono.problems.len() > 0 {
         return ""
     }
@@ -169,7 +172,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     try! out.append(target.triple)
     try! out.append("\n; speed ")
     try! out.append(speed)
-    if profile.seams == TcSeams.Linked {
+    if profile.seams() == TcSeams.Linked {
         try! out.append("\n; runtime hosted\n\n")
     } else {
         try! out.append("\n; runtime none\n\n")
@@ -477,6 +480,29 @@ extension LlEmitter {
         try! out.append(self.bt_index_of(k))
         try! out.append(" \}\n\n")
         out.build()
+    }
+}
+
+// Refuses, once per seam, every `__saw_rt_*` symbol module `e` declares and
+// does not define, for a program linked with none of sawc's runtime objects
+// (`TcProfile.defines_every_seam`): the module's declarations are the one
+// complete list of what the link must supply, the backend's own lowerings
+// included, so a missing seam is named here rather than by the linker.
+func ll_check_provider_seams(mono: &var MonoProgram, e: &LlEmitter) {
+    let entry = mono.dp.bc.mir.tc.entry_module_index()
+    let root = mono.dp.bc.mir.tc.res.module(entry).root
+    var k = 0
+    while k < e.externs.len() {
+        let symbol = e.externs.get(k) ?? ""
+        k = k + 1
+        if not symbol.starts_with("__saw_rt_") {
+            continue
+        }
+        var msg = StringBuilder()
+        try! msg.append("the program reaches the runtime seam `")
+        try! msg.append(symbol)
+        try! msg.append("` and no `@export` defines it: a runtime provider (`--runtime`) is linked with none of sawc's runtime objects, so it defines every seam it reaches; export it with the signature runtime/ABI.md gives, or build with `-c` or `--freestanding` to leave it to what the object is linked with")
+        mono.refuse(root, "provider.undefined-seam", msg.build())
     }
 }
 

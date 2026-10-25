@@ -1,0 +1,48 @@
+// probe: custom
+// about: a hosted runtime provider that reaches a seam it does not define is refused before the link, naming the seam (SL-865)
+// The same provider as `runtime_provider.saw` without `__saw_rt_last_raw_code`,
+// which `print` reaches for its failure's cause: built with `--runtime`, it
+// must be refused by `provider.undefined-seam` naming that seam, with nothing
+// written, rather than reach the linker. With `-c` the object leaves the
+// seam to its link, so that build succeeds.
+
+extern "C" {
+    func write(fd: Int32, bytes: UnsafePointer<Int8>, count: UInt) -> Int
+    func malloc(size: UInt) -> UnsafePointer<Int8>
+    func free(block: UnsafePointer<Int8>)
+    func abort() -> Never
+}
+
+static STANDARD_OUTPUT: Int32 = 1
+static STANDARD_ERROR: Int32 = 2
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
+    malloc(size)
+}
+
+@export("__saw_rt_dealloc")
+func provided_dealloc(block: UnsafePointer<Int8>, size: UInt, align: UInt) unsafe {
+    free(block)
+}
+
+@export("__saw_rt_write_line")
+func provided_write_line(parts: UnsafePointer<UInt>, count: Int) unsafe -> Int {
+    var i = 0
+    while i < count {
+        let bytes = parts[2 * i] as UnsafePointer<Int8>
+        let _ = write(STANDARD_OUTPUT, bytes, parts[2 * i + 1])
+        i = i + 1
+    }
+    0
+}
+
+@export("__saw_rt_panic")
+func provided_panic(message: UnsafePointer<Int8>, length: UInt) unsafe -> Never {
+    let _ = write(STANDARD_ERROR, message, length)
+    abort()
+}
+
+func main() {
+    print("never linked")
+}

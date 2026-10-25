@@ -31,12 +31,13 @@ run/
 .build/sawc-stage1 build [...] -c FILE [-o OUT]
 .build/sawc-stage1 build [...] --emit-ll FILE
 .build/sawc-stage1 build [...] --freestanding FILE [-o OUT]
-.build/sawc-stage1 build [...] --runtime FILE
+.build/sawc-stage1 build [...] --runtime FILE [-o OUT]
 ```
 
 `--freestanding` builds an object as `-c` does, under the freestanding
-profile. Typecheck makes the program's profile record (`TcProfile`, from the
-driver's `--freestanding` and `--runtime`), and every later stage reads it:
+profile. Typecheck makes the program's profile record (`TcProfile`, one of
+five kinds, from the driver's `--freestanding` and `--runtime` and `sawc
+runtime`'s runtime source), and every later stage reads it:
 the exports are the roots, a `main` is an ordinary function, there is no C
 entry and no argument accessor, the seams are declarations the environment
 defines, the backtrace table sits in no named section, and a hosted-only std
@@ -49,11 +50,18 @@ triples sawc describes, exit status 1, and nothing is written. A bare-metal
 target's clang is its record's (below); another hosted target with no
 manifest of its own takes the host's clang, since no runtime is linked.
 
-`--runtime` names a profile sawc checks and does not build: the program goes
-through typecheck as a runtime's source, as `sawc typecheck --runtime` takes
-it, and its refusals print as a record does. With none, the record's one
-refusal is `driver.not-yet`, at the entry file's first line, and the exit
-status is 1: `sawc runtime` builds a runtime. Nothing is written.
+`--runtime`, and v0.18.0's spelling `--runtime-provider`, build a runtime
+provider: a program whose `@export`s may be the frozen seams, each checked
+against runtime/ABI.md. A hosted provider keeps its `main` and links as any
+program does but with none of the manifest's runtime objects, so it defines
+every seam it reaches: before the link, every `__saw_rt_*` symbol its module
+declares and does not define is refused by a `provider.undefined-seam`
+record naming it, at the entry file's first line, exit status 1, and nothing
+is written (`ll_check_provider_seams`). With `-c` the object leaves such seams
+to its link, and with `--freestanding` the provider is the kernel shape, its
+seams exported and the rest undefined. `--runtime-build` is refused with exit
+status 2, naming `sawc runtime`, which is the one build of a runtime's own
+sources.
 
 `sawc build FILE` compiles the program, writes its whole `.ll` to `OUT.ll`
 (`-o` defaults to `.build/NAME`), and runs
@@ -182,7 +190,7 @@ unbuffered and closed explicitly, and by `CLANG -c -target TRIPLE -O2 -x ir`
 to `DIR/NAME.o`; then `CLANG -c shim.c -O2 -fno-strict-aliasing -target
 TRIPLE` writes `DIR/shim.o`. TRIPLE is the module's (`target_clang_triple`),
 so the objects and the programs they link into name one target. A runtime
-source is checked with `runtime_build` set: its exports may be the frozen
+source is checked under the runtime-source profile (`TcProfileKind.RuntimeSource`): its exports may be the frozen
 seams it owns, each held to the table's arity and widths (the typecheck
 lane's `export.*` rules), it needs no `main`, and mono roots its exports. The
 backend defines each export under its C symbol with external linkage, every
@@ -752,7 +760,16 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are eleven.
+says why the check cannot be header lines. There are thirteen.
+`runtime_provider.saw` defines every seam a printing `main` reaches over
+libc: built with `--runtime` and with `--runtime-provider`, at -O0 and -O2,
+the binary defines those seams itself and prints its line; built
+`--freestanding --runtime` for `aarch64-unknown-none-elf`, the object exports
+them and leaves libc's `write` undefined; a bare-metal `--runtime` link and
+`--runtime-build` are each refused with exit status 2.
+`runtime_provider_missing_seam.saw` leaves out `__saw_rt_last_raw_code`: with
+`--runtime` it is refused by one `provider.undefined-seam` record naming it,
+nothing written, and with `--runtime -c` its object leaves the seam undefined.
 `freestanding_object.saw` is built with `--freestanding --target
 aarch64-unknown-none-elf` at -O0 and -O2: an ELF64 AArch64 relocatable object
 whose export `nm` reads defined and external in a `.text.` section of its

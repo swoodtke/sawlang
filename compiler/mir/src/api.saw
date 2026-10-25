@@ -31,8 +31,9 @@ public struct MirOptions {
 // path's count, which `--lowerings` prints, is 1 (SL-523).
 public func mir_lower_file(path: String, std_root: String, names: &Vector<String>,
                            dirs: &Vector<String>, lowerings: &var Int, runtime: Bool = false,
-                           freestanding: Bool = false) -> MirProgram {
-    let tc = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding)
+                           freestanding: Bool = false, provider: Bool = false) -> MirProgram {
+    let tc = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding,
+                                       provider: provider)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
     lowerings = lowerings + 1

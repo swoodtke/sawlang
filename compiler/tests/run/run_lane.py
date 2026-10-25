@@ -1810,6 +1810,130 @@ def check_freestanding_object(failures, counts):
         counts["run freestanding Mach-O refusals"] = 1
 
 
+# The runtime provider probes: the seams `probes/runtime_provider.saw` defines
+# itself, the line it prints through them, the libc symbol a freestanding
+# build of it leaves to its link, and the seam its twin
+# `runtime_provider_missing_seam.saw` leaves out.
+PROVIDER_PROBE = "runtime_provider.saw"
+PROVIDER_MISSING_PROBE = "runtime_provider_missing_seam.saw"
+PROVIDER_SEAMS = ("__saw_rt_alloc", "__saw_rt_dealloc", "__saw_rt_write_line", "__saw_rt_panic",
+                  "__saw_rt_last_raw_code")
+PROVIDER_LINE = b"provided by the program\n"
+PROVIDER_LIBC = "write"
+PROVIDER_MISSING_SEAM = "__saw_rt_last_raw_code"
+PROVIDER_RULE = "provider.undefined-seam"
+
+
+def check_runtime_provider(failures, counts):
+    """`probes/runtime_provider.saw` built with `--runtime`, and again with
+    v0.18.0's `--runtime-provider`, at -O0 and -O2: sawc prints nothing, the
+    binary defines each of `PROVIDER_SEAMS` itself and prints its line. Then
+    `--freestanding --runtime` for the bare-metal target: an object exporting
+    those seams with libc's `write` undefined. A bare-metal `--runtime` build
+    with neither `-c` nor `--freestanding` is refused like any link for it,
+    and `--runtime-build` is refused with exit status 2, naming `sawc
+    runtime`."""
+    probe = os.path.join(PROBES, PROVIDER_PROBE)
+    mach_o = "-apple-" in build.clang_triple(TARGET or build.host_triple())
+    for spelling in ("--runtime", "--runtime-provider"):
+        for speed in ("-O0", "-O2"):
+            where = "run %s %s %s" % (rel(probe), spelling, speed)
+            binary = os.path.join(OUT, "provider" + spelling.replace("-", "_") + speed[1:])
+            r = subprocess.run([build.SAWC, "build", spelling, speed, "--std-root", "std"] + target_flags()
+                               + [rel(probe), "-o", binary], cwd=REPO, capture_output=True, text=True,
+                               timeout=BUILD_TIMEOUT)
+            said = (r.stdout + r.stderr).strip()
+            if r.returncode != 0 or said:
+                failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:300]))
+                continue
+            symbols, why = object_symbols(binary, mach_o)
+            if symbols is None:
+                failures.append("%s: nm cannot read the binary: %s" % (where, why))
+                continue
+            missing = [seam for seam in PROVIDER_SEAMS if symbols.get(seam) != "T"]
+            if missing:
+                failures.append("%s: the binary does not define %s itself" % (where, ", ".join(missing)))
+                continue
+            code, out, _ = execute(binary)
+            if code != 0 or out != PROVIDER_LINE:
+                failures.append("%s: the binary prints %r and exits %s, not %r and 0"
+                                % (where, out[:200], code, PROVIDER_LINE))
+                continue
+            counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
+    problem = bare_metal_record_problem(rel(probe))
+    if problem:
+        failures.append(problem)
+        return
+    where = "run %s --freestanding --runtime" % rel(probe)
+    obj = os.path.join(OUT, "provider_freestanding.o")
+    r = subprocess.run([build.SAWC, "build", "--freestanding", "--runtime", "--std-root", "std", "--target",
+                        BARE_METAL_TARGET, rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True,
+                       timeout=BUILD_TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or said or not os.path.exists(obj):
+        failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:300]))
+    else:
+        symbols, why = object_symbols(obj, False)
+        if symbols is None:
+            failures.append("%s: nm cannot read the object: %s" % (where, why))
+        elif [seam for seam in PROVIDER_SEAMS if symbols.get(seam) != "T"] or symbols.get(PROVIDER_LIBC) != "U":
+            failures.append("%s: the seams are %r and `%s` is %s, not each T and U"
+                            % (where, {seam: symbols.get(seam) for seam in PROVIDER_SEAMS}, PROVIDER_LIBC,
+                               symbols.get(PROVIDER_LIBC, "absent")))
+        else:
+            counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
+    for flags, needle, what in ((["--runtime", "--target", BARE_METAL_TARGET], "`-c`", "a bare-metal link"),
+                                (["--runtime-build"], "`sawc runtime`", "--runtime-build")):
+        where = "run %s (%s)" % (rel(probe), what)
+        out = os.path.join(OUT, "provider_refused")
+        for stale in (out, out + ".ll"):
+            if os.path.exists(stale):
+                os.remove(stale)
+        r = subprocess.run([build.SAWC, "build", "--std-root", "std"] + flags + [rel(probe), "-o", out], cwd=REPO,
+                           capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 2 or needle not in said or os.path.exists(out) or os.path.exists(out + ".ll"):
+            failures.append("%s: not refused with exit status 2 naming %s, nothing written: exit %d: %s"
+                            % (where, needle, r.returncode, said[:300]))
+        else:
+            counts["run runtime provider refusals"] = counts.get("run runtime provider refusals", 0) + 1
+
+
+def check_provider_missing_seam(failures, counts):
+    """`probes/runtime_provider_missing_seam.saw`, a hosted provider that
+    reaches `__saw_rt_last_raw_code` and defines it nowhere: `--runtime` is
+    refused by a `provider.undefined-seam` record naming the seam, exit status
+    1, with nothing written; `--runtime -c` writes the object, the seam left
+    undefined for its link."""
+    probe = os.path.join(PROBES, PROVIDER_MISSING_PROBE)
+    where = "run %s --runtime" % rel(probe)
+    out = os.path.join(OUT, "provider_missing")
+    for stale in (out, out + ".ll", out + ".o"):
+        if os.path.exists(stale):
+            os.remove(stale)
+    r = subprocess.run([build.SAWC, "build", "--runtime", "--std-root", "std"] + target_flags() + [rel(probe), "-o",
+                        out], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    records = [line.split("\t") for line in r.stdout.split("\n") if line.startswith("ERROR\t")]
+    named = [fields for fields in records if len(fields) == 4 and fields[1] == PROVIDER_RULE
+             and ("`%s`" % PROVIDER_MISSING_SEAM) in fields[3]]
+    if r.returncode != 1 or len(records) != 1 or not named or os.path.exists(out) or os.path.exists(out + ".ll"):
+        failures.append("%s: not refused by one %s record naming %s, nothing written: exit %d: %s"
+                        % (where, PROVIDER_RULE, PROVIDER_MISSING_SEAM, r.returncode,
+                           (r.stdout + r.stderr).strip()[:300]))
+        return
+    where = "run %s --runtime -c" % rel(probe)
+    r = subprocess.run([build.SAWC, "build", "--runtime", "-c", "--std-root", "std"] + target_flags()
+                       + [rel(probe), "-o", out], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    mach_o = "-apple-" in build.clang_triple(TARGET or build.host_triple())
+    symbols = object_symbols(out + ".o", mach_o)[0] if r.returncode == 0 and os.path.exists(out + ".o") else None
+    if r.returncode != 0 or said or symbols is None or symbols.get(PROVIDER_MISSING_SEAM) != "U":
+        failures.append("%s: not an object leaving %s undefined: exit %d: %s"
+                        % (where, PROVIDER_MISSING_SEAM, r.returncode, said[:300]))
+        return
+    counts["run runtime provider refusals"] = counts.get("run runtime provider refusals", 0) + 1
+
+
 # A clang path `SAWC_CLANG` can name that no file is at.
 MISSING_CLANG = "/nonexistent/saw-lane/clang"
 
@@ -1915,6 +2039,8 @@ CUSTOM_PROBES = {
     ATTRIBUTE_PROBE: check_attribute_groups,
     BARE_METAL_PROBE: check_bare_metal_object,
     FREESTANDING_PROBE: check_freestanding_object,
+    PROVIDER_PROBE: check_runtime_provider,
+    PROVIDER_MISSING_PROBE: check_provider_missing_seam,
     "executable_path.saw": check_executable_path,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,

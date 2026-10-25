@@ -1279,7 +1279,7 @@ errors/ref_type_arg_generic_struct.saw	pass	-	result.discarded: the result of `p
 errors/resolve_seam_must_be_blocking.saw	pass	-	extern.blocking-disagree: `__saw_rt_resolve_ipv4` is declared without `blocking` here, but another declaration of the same symbol, in `std.net`, says `blocking`: `blocking` is part of an extern's cont
 errors/result_none_tail_needs_an_optional_ok.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 errors/retired_task_handle_names.saw	pass	-	name.retired: undefined type `TaskHandle`: `TaskHandle<T>` is `Task<T>` (design 242); the cooperative engine owns the `Task` vocabulary, and `Thread<T>` is what `Thread.spawn` hands back
-errors/runtime_provider_bad_signature.saw	refused	driver driver.usage	sawc build takes no --runtime-provider
+errors/runtime_provider_bad_signature.saw	pass	-	export.seam-signature: `@export` seam `__saw_rt_clock_monotonic_nanos` does not match the runtime ABI: it is `() -> word`, and runtime/ABI.md freezes it as `() -> i64`; a runtime is a link-time swap,
 errors/section_macho_specifier_error.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
 errors/semicolon_at_end_of_file.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_end_of_file.saw` (syntax.rule.declaration-separator), so its declarations are not available
 errors/semicolon_at_line_start.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_line_start.saw` (syntax.rule.statement-separator), so its declarations are not available
@@ -2264,7 +2264,7 @@ return_struct_from_branches.saw	pass	-	-
 runtime_build_bad_abi_name_error.saw	pass	-	export.unknown-seam: `@export` symbol `__saw_rt_allocate` is not part of the frozen `__saw_rt_*` runtime ABI (runtime/ABI.md): a runtime defines only the seams it lists
 runtime_build_reserved_without_mode_error.saw	pass	-	export.reserved: `@export` symbol `__saw_rt_alloc` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`): `__saw_rt_*` names are the runtime ABI, which only a runtime built by `sawc run
 runtime_build_suspending_body_error.saw	pass	-	export.suspends: `@export` function `rt_sleep` may suspend: C calls an export directly, with no executor to resume it, so an exported body is sync
-runtime_provider_seams.saw	refused	driver driver.usage	sawc build takes no --runtime-provider
+runtime_provider_seams.saw	pass	-	built
 scalar_removed_char_surface.saw	refused	typecheck member.unknown	`String` has no method `chars` this module can see
 scalar_type.saw	pass	-	-
 section_compose.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped

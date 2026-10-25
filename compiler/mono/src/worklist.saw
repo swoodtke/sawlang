@@ -156,7 +156,7 @@ extension MonoProgram {
     func add_roots(&var self) {
         let entry = self.entry_module()
         let none = Vector<Int>()
-        if self.dp.bc.mir.tc.profile.main_entry {
+        if self.dp.bc.mir.tc.profile.main_entry() {
             let main_decl = self.dp.bc.mir.tc.top_decl(entry, "main")
             if main_decl >= 0 {
                 self.main_item = self.root_item(main_decl, &none)

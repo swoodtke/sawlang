@@ -1004,7 +1004,7 @@ extension TcProgram {
     // ENTRY POINTS:
     //     tc_check_entry_point
     public func check_main_signature(&var self) {
-        if not self.profile.main_entry {
+        if not self.profile.main_entry() {
             return
         }
         let m = self.entry_module_index()

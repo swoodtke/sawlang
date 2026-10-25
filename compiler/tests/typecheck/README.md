@@ -29,13 +29,15 @@ typecheck/
 Each FILE is the entry of its own program, which is resolved, then checked,
 with every module it imports. The flags are resolve's (see
 `compiler/tests/resolve/README.md`); `--interfaces` also dumps the std and
-builtin modules, whose signatures are checked as interfaces; `--runtime` checks
-each program as a runtime source, whose exports may be the frozen seams, as
-`sawc runtime` does (the `export.*` rules); `--freestanding` checks it under
-the freestanding profile (`spawn.freestanding`, `extern.freestanding-blocking`,
-`import.hosted-only`), where a `main` is an ordinary function. The two flags
-make the program's profile record, `TcProgram.profile` (`tc_profile`), which
-every rule that knows a profile reads. Each entry gets one record, starting
+builtin modules, whose signatures are checked as interfaces; `--runtime` (or
+v0.18.0's `--runtime-provider`) checks each program as a runtime provider,
+whose exports may be the frozen seams (the `export.*` rules), the permission
+`sawc runtime` gives a runtime's own sources too; `--freestanding` checks it
+under the freestanding profile (`spawn.freestanding`,
+`extern.freestanding-blocking`, `import.hosted-only`), where a `main` is an
+ordinary function. The flags make the program's profile record,
+`TcProgram.profile` (`tc_profile`, one of five kinds), which every rule that
+knows a profile reads. Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
 
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal:
@@ -1669,7 +1671,7 @@ its fixit.
 | `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
 | `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
 | `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |
-| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime (`--runtime`, `sawc runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (runtime/ABI.md, "Program arguments") |
+| `export.reserved` | an export named `main`, `saw_*` or `__saw_*`; in a runtime provider (`--runtime`) or a runtime's source (`sawc runtime`) the frozen seams the runtime owns are the exception, and a seam the program owns, an argument accessor, is still refused (runtime/ABI.md, "Program arguments") |
 | `export.unknown-seam` | in a runtime, a `__saw_rt_*` export the ABI table (`typecheck/src/runtimeabi.saw`, from runtime/ABI.md) does not list |
 | `export.seam-signature` | in a runtime, a seam whose arity or a parameter's or the result's width class differs from the ABI table's, pointers and words sharing the class `word` (design 149) |
 | `export.suspends` | an `@export`ed function that may suspend, read from its summary: C calls it with no executor to resume it |

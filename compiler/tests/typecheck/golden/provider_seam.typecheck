@@ -1,0 +1,20 @@
+(Module provider_seam
+  (declarations
+    (func provided_alloc 7:6 private (signature (params (size UInt owned) (align UInt owned)) (effects unsafe) -> UnsafePointer<Int8>) (summary body (suspends no) (sync-callable yes)))
+    (func provided_last_raw_code 12:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 16:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (provided_alloc 7:6
+      (8:5-8:32 Cast UnsafePointer<Int8> value temp)
+      (8:5-8:9 Name UInt place copy))
+    (provided_last_raw_code 12:6
+      (13:5-13:6 IntLit Int value temp))
+    (main 16:6
+      (17:5-17:24 Call.paren Void value temp (builtin print))
+      (17:11-17:23 StringLit String value temp)))
+  (string-positions
+    (17:11 message std.string.string_literal)))

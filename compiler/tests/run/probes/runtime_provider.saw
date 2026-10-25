@@ -1,0 +1,57 @@
+// probe: custom
+// about: `sawc build --runtime` builds a program that is its own runtime, linked with none of sawc's runtime objects (SL-865)
+// Defines every seam a printing `main` reaches over libc, each signature the
+// one runtime/ABI.md gives. Built with `--runtime` (and v0.18.0's
+// `--runtime-provider`), it links and prints its line through its own
+// `__saw_rt_write_line`; built `--freestanding --runtime` for the bare-metal
+// target, the seams are the object's exports and libc's `write` is left to
+// its link.
+
+extern "C" {
+    func write(fd: Int32, bytes: UnsafePointer<Int8>, count: UInt) -> Int
+    func malloc(size: UInt) -> UnsafePointer<Int8>
+    func free(block: UnsafePointer<Int8>)
+    func abort() -> Never
+}
+
+static STANDARD_OUTPUT: Int32 = 1
+static STANDARD_ERROR: Int32 = 2
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
+    malloc(size)
+}
+
+@export("__saw_rt_dealloc")
+func provided_dealloc(block: UnsafePointer<Int8>, size: UInt, align: UInt) unsafe {
+    free(block)
+}
+
+// Each part record is two words, `{ pointer, length }` (runtime/ABI.md).
+@export("__saw_rt_write_line")
+func provided_write_line(parts: UnsafePointer<UInt>, count: Int) unsafe -> Int {
+    var i = 0
+    while i < count {
+        let bytes = parts[2 * i] as UnsafePointer<Int8>
+        let _ = write(STANDARD_OUTPUT, bytes, parts[2 * i + 1])
+        i = i + 1
+    }
+    let newline = "\n"
+    let _ = write(STANDARD_OUTPUT, newline.c_string()!, 1)
+    0
+}
+
+@export("__saw_rt_panic")
+func provided_panic(message: UnsafePointer<Int8>, length: UInt) unsafe -> Never {
+    let _ = write(STANDARD_ERROR, message, length)
+    abort()
+}
+
+@export("__saw_rt_last_raw_code")
+func provided_last_raw_code() -> Int {
+    0
+}
+
+func main() {
+    print("provided by the program")
+}
