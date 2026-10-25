@@ -52,7 +52,7 @@ TIMEOUT = 300
 
 _HEADER = re.compile(r"^// refuses: (\S+)(?: at ((?:[\w.-]+\.saw:)?\d+:\d+))?$")
 _FLAGS = re.compile(r"^// flags: (.*)$")
-_RULE_ID = re.compile(r'"((?:name|import|visibility|conformance|test|slice|resolve)\.[a-z-]+)"')
+_RULE_ID = re.compile(r'"((?:name|import|visibility|conformance|test|slice|resolve|synthesize)\.[a-z-]+)"')
 
 # Rules no tracked fixture can reach, each with the reason. A rule the lane
 # checks with a case it builds itself (`check_built_cases`) is named here too.

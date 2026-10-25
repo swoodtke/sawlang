@@ -273,6 +273,7 @@ is resolved with.
 | `import.unreadable` | an entry file or std module that cannot be read |
 | `resolve.parse-refused` | an imported module the parser refuses; in an interface module, a note for each declaration the interface parse dropped, or for the whole file |
 | `test.only-reference` | ordinary code naming a test-only declaration or a test-only import's name |
+| `synthesize.shared-position` | `@synthesize(shared)` on a member that is not a `(&var self) borrows` accessor: a `&self` one, one that lends nothing (`.not-borrows`), a static method (`.static`); it derives no twin (`derive_shared_twins`; SL:borrowing §4; SL-908) |
 | `conformance.orphan` | a conformance in neither its type's module nor its trait's (design 142) |
 | `conformance.duplicate` | a second conformance of one type to one trait (design 142) |
 | `slice.not-yet` | a construct outside the bootstrap slice |

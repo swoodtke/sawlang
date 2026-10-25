@@ -12,6 +12,8 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResModule, ResModuleKind, ResVis}
 import sawresolve.prelude.{res_declare_synthetic_builtins}
 import sawresolve.program.{ResPackage, ResProgram}
+// For the extension writing `derive_shared_twins`.
+import sawresolve.twins.{res_in_twin}
 import std.file.{File}
 import std.path.{Path}
 
@@ -466,6 +468,7 @@ extension ResProgram {
         updated.node_count = self.nodes.len() - node_base
         updated.root = root
         self.modules[m] = updated
+        self.derive_shared_twins(m)
         self.collect_module(m)
         self.current = saved
     }

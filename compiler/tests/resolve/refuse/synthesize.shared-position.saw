@@ -1,0 +1,14 @@
+// refuses: synthesize.shared-position at 10:6
+// `@synthesize(shared)` on a `&self` accessor, which has no exclusive form to
+// derive a shared twin from
+
+struct H {
+    n: Int
+}
+
+extension H {
+    @synthesize(shared)
+    func at(&self) borrows -> &Int {
+        lend self.n
+    }
+}

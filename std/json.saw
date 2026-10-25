@@ -865,9 +865,19 @@ extension JsonValue {
 
     /// Lends the array where it sits, or nothing when `self` is not one.
     ///
-    /// `borrow v.as_array()!.len()` reads it, and
+    /// `borrow v.as_array()!.len()` reads it, on a `let` value or a
+    /// `&JsonValue` parameter too.
+    public func as_array(&self) borrows -> &Vector<JsonValue>? {
+        match self {
+            case Array(borrow let items) -> { lend items },
+            case _ -> { return None }
+        }
+    }
+
+    /// Lends the array where it sits, for a write, or nothing when `self` is
+    /// not one.
+    ///
     /// `borrow var v.as_array()!.push(x)` grows it in place.
-    @synthesize(shared)
     public func as_array(&var self) borrows -> &var Vector<JsonValue>? {
         match self {
             case Array(borrow var items) -> { lend items },
@@ -877,9 +887,19 @@ extension JsonValue {
 
     /// Lends the object where it sits, or nothing when `self` is not one.
     ///
-    /// `borrow v.as_object()!["key"]` reads a member, and
+    /// `borrow v.as_object()!["key"]` reads a member, on a `let` value or a
+    /// `&JsonValue` parameter too.
+    public func as_object(&self) borrows -> &Map<String, JsonValue>? {
+        match self {
+            case Object(borrow let fields) -> { lend fields },
+            case _ -> { return None }
+        }
+    }
+
+    /// Lends the object where it sits, for a write, or nothing when `self` is
+    /// not one.
+    ///
     /// `borrow var v.as_object()!.insert(k, x)` adds one in place.
-    @synthesize(shared)
     public func as_object(&var self) borrows -> &var Map<String, JsonValue>? {
         match self {
             case Object(borrow var fields) -> { lend fields },

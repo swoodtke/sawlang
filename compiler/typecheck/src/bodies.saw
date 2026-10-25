@@ -36,7 +36,7 @@ import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
+import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
                                TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
@@ -12378,17 +12378,17 @@ extension TcProgram {
 
     // Whether `borrows` accessor `d` borrows its receiver exclusively at
     // every use, a read included, so its root must be writable: it takes
-    // `&var self` and declares no shared twin with `@synthesize(shared)`.
-    // The receiver decides, not the lend: a cell-carrying `&self` accessor
-    // lending `&var` serves a `let` root (SL:borrowing §3). A hand-written
-    // `&self` twin is chosen for a read by the overload filter, so it never
-    // reaches here.
+    // `&var self`. The receiver decides, not the lend: a cell-carrying
+    // `&self` accessor lending `&var` serves a `let` root (SL:borrowing §3).
+    // A `&self` twin, hand-written or derived by `@synthesize(shared)`, is
+    // chosen for a read by the overload filter, so a read never reaches its
+    // `&var self` half here.
     public func accessor_exclusive_only(&self, d: Int) -> Bool {
         if d < 0 {
             return false
         }
         let s = self.sigs[d]
-        if (s.effects & TC_EFFECT_BORROWS) == 0 || (s.flags & TC_FLAG_SYNTHESIZE_SHARED) != 0 {
+        if (s.effects & TC_EFFECT_BORROWS) == 0 {
             return false
         }
         s.receiver == TcReceiver.Exclusive

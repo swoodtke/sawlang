@@ -1,0 +1,13 @@
+// refuses: synthesize.shared-position at 9:6
+// `@synthesize(shared)` on a static method, which has no receiver
+
+struct H {
+    n: Int
+}
+
+extension H {
+    @synthesize(shared)
+    static func make() -> H {
+        H(n: 0)
+    }
+}

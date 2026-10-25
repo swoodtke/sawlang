@@ -2,9 +2,12 @@
 // K14). `get` is a value method: its present path copies the element out of
 // the buffer into `Some`, and it opens no window. `find` is the conditional
 // lend: a prologue that returns `None` out of range or lends the element, and
-// an epilogue.
+// an epilogue. Its `&self` twin, which `@synthesize(shared)` derives from the
+// same body, is the prologue lending `&T` through a shared `self`; the two
+// epilogues are one text, pinned once.
 // function: fn std.vector.Vector.get(index: Int)
-// function: fn prologue std.vector.Vector.find(index: Int)
+// function: fn prologue std.vector.Vector.find(index: Int) -> (&var T)?
+// function: fn prologue std.vector.Vector.find(index: Int) -> (&T)?
 // function: fn epilogue std.vector.Vector.find(index: Int)
 fn std.vector.Vector.get(index: Int) -> T? {
     let _0: T?;  // return
@@ -124,6 +127,66 @@ fn prologue std.vector.Vector.find(index: Int) -> (&var T)? {
 
     bb8: {
         _0 = (&var T)?::None;
+        return;
+    }
+}
+
+fn prologue std.vector.Vector.find(index: Int) -> (&T)? {
+    let _0: (&T)?;  // return
+    let _1: &std.vector.Vector<T, A>;  // self
+    let _2: Int;  // param index
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+    let _6: UnsafePointer<T>;  // buf
+    let _7: Int;
+    let _8: &T;
+    let _9: (&T)?;
+
+    bb0: {
+        _4 = Lt(copy _2, const 0: Int);
+        switch move _4 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb7, None: bb8];
+    }
+
+    bb2: {
+        switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        _5 = Ge(copy _2, copy (*_1).length);
+        _3 = move _5;
+        goto -> bb2;
+    }
+
+    bb4: {
+        _3 = const true: Bool;
+        goto -> bb2;
+    }
+
+    bb5: {
+        _0 = (&T)?::None;
+        return;
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+
+    bb7: {
+        _6 = copy ((*_1).buffer as Some).0;
+        _7 = copy _2;
+        _8 = ref(shared, _6[_7]);
+        _9 = (&T)?::Some(move _8);
+        _0 = move _9;
+        return;
+    }
+
+    bb8: {
+        _0 = (&T)?::None;
         return;
     }
 }

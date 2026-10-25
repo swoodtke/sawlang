@@ -1,0 +1,191 @@
+// The `&self` twins `@synthesize(shared)` derives (SL:borrowing §4), copied
+// into the arena before a module is collected.
+
+import sawparse.grammar.{Alt}
+import sawparse.tree.{AstNode}
+// For the extension writing `last_node_child` and `first_node_child`.
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResTwin}
+import sawresolve.program.{ResProgram}
+
+// Whether node `id` is one of a derived twin's copied nodes.
+public func res_in_twin(p: &ResProgram, id: Int) -> Bool {
+    p.twin_at(id) >= 0
+}
+
+extension ResProgram {
+    // THE TWIN-DERIVATION FUNNEL: each `@synthesize(shared)` member of module
+    // `m` gains a copy at the arena's end spelled as the hand-written twin
+    // (`&self`, an outermost `&var` result read as `&`, no doc, no attribute),
+    // which every later stage meets as an ordinary member: typechecked under
+    // the shared signature, lowered as its own instance. It is made in
+    // resolve, before the walk, since every later table is keyed by node: one
+    // body checked twice over the same nodes would overwrite its first check.
+    // A member that is not a `(&var self) borrows` method is refused.
+    //
+    // ENTRY POINTS:
+    //     parse_module
+    public func derive_shared_twins(&var self, m: Int) {
+        let root = self.modules[m].root
+        let n = self.child_count(root)
+        var k = 0
+        while k < n {
+            self.derive_in_item(m, self.child(root, k))
+            k = k + 1
+        }
+    }
+
+    // A top-level item, a test-only item or a test group's.
+    func derive_in_item(&var self, m: Int, item: Int) {
+        if self.is_leaf(item) {
+            return
+        }
+        guard let alt = self.alt_of(item) else {
+            return
+        }
+        if alt == Alt.Test_Group {
+            let n = self.child_count(item)
+            var k = 0
+            while k < n {
+                self.derive_in_item(m, self.child(item, k))
+                k = k + 1
+            }
+            return
+        }
+        let outer = if alt == Alt.Test_Declaration_Item { self.last_node_child(item) } else { item }
+        if outer < 0 {
+            return
+        }
+        let inner = self.last_node_child(outer)
+        if inner < 0 || not self.is_alt(inner, Alt.Decl_Extension) {
+            return
+        }
+        let n = self.child_count(inner)
+        var k = 0
+        while k < n {
+            let member = self.child(inner, k)
+            if self.is_alt(member, Alt.Decl_ExtensionMember_SynthesizedMethod) {
+                self.derive_twin(m, member)
+            }
+            k = k + 1
+        }
+    }
+
+    // The twin of `@synthesize(shared)` member `member`, or its refusal.
+    func derive_twin(&var self, m: Int, member: Int) {
+        let method = self.last_node_child(member)
+        if method < 0 {
+            return
+        }
+        if not self.exclusive_lender(m, method) {
+            let word = self.first_leaf(member)
+            let at = if word >= 0 { word } else { member }
+            self.refuse_in(m, at, "synthesize.shared-position",
+                           "`@synthesize(shared)` derives the `(&self) borrows` twin of a `(&var self) borrows` accessor, and this declaration is not one: write the attribute on such an accessor, or remove it")
+            return
+        }
+        let first = self.nodes.len()
+        var kids = Vector<Int>()
+        let n = self.child_count(member)
+        var k = 0
+        while k < n {
+            let c = self.child(member, k)
+            if self.is_alt(c, Alt.Decl_Visibility_Public) || self.is_alt(c, Alt.Decl_Visibility_Package) || self.is_alt(c, Alt.Decl_Visibility_Parent) {
+                try! kids.push(self.copy_subtree(c))
+            }
+            k = k + 1
+        }
+        let copied = self.copy_subtree(method)
+        self.share_signature(copied)
+        try! kids.push(copied)
+        let source = self.nodes[member]
+        let clone = self.push_copy(source, Alt.Decl_ExtensionMember_Method, &kids)
+        var info = self.modules[m]
+        info.node_count = self.nodes.len() - info.node_base
+        self.modules[m] = info
+        try! self.twins.push(ResTwin(module: m, member: member, clone: clone, first: first,
+                                     last: clone, decl: -1, twin: -1))
+    }
+
+    // Whether method node `method` takes `&var self` and is `borrows`.
+    func exclusive_lender(&self, m: Int, method: Int) -> Bool {
+        var exclusive = false
+        var lends = false
+        let n = self.child_count(method)
+        var k = 0
+        while k < n {
+            let c = self.child(method, k)
+            if self.is_alt(c, Alt.Decl_Param_Receiver) {
+                let r = self.first_node_child(c)
+                exclusive = r >= 0 && self.is_alt(r, Alt.Decl_Receiver_Exclusive)
+            } else if self.is_leaf(c) && self.text_of(m, c).equals("borrows") {
+                lends = true
+            }
+            k = k + 1
+        }
+        exclusive && lends
+    }
+
+    // Rewrites copied method `method` to the shared signature: its receiver
+    // `&self`, and a result written `&var T` read as `&T`.
+    func share_signature(&var self, method: Int) {
+        let n = self.child_count(method)
+        var k = 0
+        while k < n {
+            let c = self.child(method, k)
+            if self.is_alt(c, Alt.Decl_Param_Receiver) {
+                let r = self.first_node_child(c)
+                if r >= 0 {
+                    self.set_alt(r, Alt.Decl_Receiver_Shared)
+                }
+            } else if not self.is_leaf(c) && res_is_type_alt(self.alt_of(c)) && self.is_alt(c, Alt.Type_Ref_Exclusive) {
+                self.set_alt(c, Alt.Type_Ref_Shared)
+            }
+            k = k + 1
+        }
+    }
+
+    func set_alt(&var self, id: Int, alt: Alt) {
+        var node = self.nodes[id]
+        node.alt = alt
+        self.nodes[id] = node
+    }
+
+    // Copies the subtree at `id` to the end of the arena, children before
+    // their parent so every edge still points backward; returns the copy.
+    // Every node is copied, leaves included, so no node has two parents.
+    func copy_subtree(&var self, id: Int) -> Int {
+        let source = self.nodes[id]
+        var kids = Vector<Int>()
+        var k = 0
+        while k < source.count {
+            let c = self.children[source.first + k]
+            try! kids.push(self.copy_subtree(c))
+            k = k + 1
+        }
+        if let alt = source.alt {
+            return self.push_copy(source, alt, &kids)
+        }
+        let at = self.nodes.len()
+        try! self.nodes.push(AstNode(shape: source.shape, alt: None, start: source.start, end: source.end,
+                                     first: self.children.len(), count: 0))
+        try! self.record_of.push(-1)
+        at
+    }
+
+    // A node of `source`'s shape and span, alternative `alt`, over `kids`.
+    func push_copy(&var self, source: AstNode, alt: Alt, kids: &Vector<Int>) -> Int {
+        let first = self.children.len()
+        var k = 0
+        while k < kids.len() {
+            try! self.children.push(kids[k])
+            k = k + 1
+        }
+        let at = self.nodes.len()
+        try! self.nodes.push(AstNode(shape: source.shape, alt: alt, start: source.start, end: source.end,
+                                     first: first, count: kids.len()))
+        try! self.record_of.push(-1)
+        at
+    }
+}

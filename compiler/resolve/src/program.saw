@@ -6,7 +6,7 @@ import sawparse.grammar.{Alt}
 import sawparse.tree.{AstNode, AstTree, NodeShape, is_leaf_shape}
 import sawresolve.model.{ResBinding, ResBindKind, ResCall, ResConformance, ResDecl,
                              ResDeclKind, ResDiag, ResExport, ResImport, ResLocal, ResModule,
-                             ResModuleKind, ResName, ResPending, ResSymbol, ResVis}
+                             ResModuleKind, ResName, ResPending, ResSymbol, ResTwin, ResVis}
 import sawresolve.names.{ResIndex, ResNames}
 
 static RES_NEWLINE: Int = 10
@@ -89,6 +89,8 @@ public struct ResProgram {
     param_nodes: ResIndex
     // For each node of the arena, the index of its name record, or -1.
     record_of: Vector<Int>
+    // The `&self` twins `@synthesize(shared)` derives, in arena order.
+    twins: Vector<ResTwin>
     // The names `settle_pending` decides after every module is walked, and
     // the type parameter leaves their bare entries list.
     pending: Vector<ResPending>
@@ -138,7 +140,7 @@ public func res_program(std_root: String) -> ResProgram {
                        qualifiers: ResIndex(), prelude: ResIndex(), by_name: ResIndex(),
                        by_file: ResIndex(), std_dir_real: "", mapping_refusals: Vector<String>(),
                        param_nodes: ResIndex(),
-                       record_of: Vector<Int>(), pending: Vector<ResPending>(),
+                       record_of: Vector<Int>(), twins: Vector<ResTwin>(), pending: Vector<ResPending>(),
                        pending_params: Vector<Int>(), locals: Vector<ResLocal>(), local_top: 0,
                        scope_marks: Vector<Int>(), scope_top: 0, current: -1,
                        current_decl: -1, receiver: ResBinding.unbound(), self_type: ResBinding.unbound(),
@@ -148,6 +150,16 @@ public func res_program(std_root: String) -> ResProgram {
     p.name_error = p.names.intern("error")
     p.name_std = p.names.intern("std")
     move p
+}
+
+// A refusal's message as made in a twin `@synthesize(shared)` derived, which
+// the reader did not write: it says which body the refusal judged. Every
+// stage's refusal funnel reports a twin's refusal through it.
+public func res_twin_message(message: String) -> String {
+    var out = StringBuilder()
+    try! out.append(message)
+    try! out.append(" (from the derived twin: `@synthesize(shared)` checks this body again as the `(&self) borrows` accessor, and it must hold there too; write the shared accessor apart when the two bodies differ)")
+    out.build()
 }
 
 // Whether byte `b` continues a UTF-8 sequence rather than starting a scalar.
@@ -336,8 +348,61 @@ extension ResProgram {
     public func refuse_in(&var self, m: Int, id: Int, rule: String, message: String) {
         let n = self.nodes[id]
         let info = self.modules[m]
+        var text = message
+        if self.twin_at(id) >= 0 {
+            var k = 0
+            while k < self.diags.len() {
+                let d = self.diags[k]
+                if d.module == m && d.start == n.start && d.end == n.end && d.id.equals(rule) {
+                    return
+                }
+                k = k + 1
+            }
+            text = res_twin_message(message)
+        }
         try! self.diags.push(ResDiag(module: m, start: n.start, end: n.end, id: rule,
-                                     message: message, note: info.interface_only))
+                                     message: text, note: info.interface_only))
+    }
+
+    // The derived twin whose copied nodes hold node `id`, or -1. A refusal
+    // there that its accessor's own body already made at the same span is
+    // the same refusal, reported once (`res_twin_message`).
+    public func twin_at(&self, id: Int) -> Int {
+        var k = 0
+        while k < self.twins.len() {
+            let t = self.twins[k]
+            if id >= t.first && id <= t.last {
+                return k
+            }
+            k = k + 1
+        }
+        -1
+    }
+
+    // The twin `derive_shared_twins` copied for member node `member`, or -1.
+    public func twin_of_member(&self, member: Int) -> Int {
+        var k = 0
+        while k < self.twins.len() {
+            if self.twins[k].member == member {
+                return k
+            }
+            k = k + 1
+        }
+        -1
+    }
+
+    // The `@synthesize(shared)` accessor whose derived twin declaration `d`
+    // is, or -1.
+    public func twin_accessor(&self, d: Int) -> Int {
+        var k = 0
+        while k < self.twins.len() {
+            let t = self.twins[k]
+            if d >= 0 && t.twin == d {
+                return t.decl
+            }
+            k = k + 1
+        }
+        -1
     }
 
     // A refusal with no node: an unreadable file, a missing module.

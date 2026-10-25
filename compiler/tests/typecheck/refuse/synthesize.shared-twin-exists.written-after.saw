@@ -1,0 +1,20 @@
+// refuses: synthesize.shared-twin-exists at 11:10
+// the same, with the written `&self` twin after the `@synthesize(shared)`
+// accessor, in another extension of the type
+
+struct H {
+    n: Int
+}
+
+extension H {
+    @synthesize(shared)
+    func at(&var self) borrows -> &var Int {
+        lend self.n
+    }
+}
+
+extension H {
+    func at(&self) borrows -> &Int {
+        lend self.n
+    }
+}

@@ -1,0 +1,51 @@
+// probe: stated
+// about: a `@synthesize(shared)` body that forwards its `lend` to a written pair runs its own shared instance at a shared position, whose forwarded lend reads as `borrow let` and picks the pair's `&self` half, so two shared windows on a `let` root never run the exclusive half that grows the vector (SL-908)
+// stage 0: derives no twin, so the exclusive body runs and reallocates under the first window
+// speeds: -O0 -O2
+// leaks: none
+// prints: 7 8
+// prints: grows 0
+// ll defines: saw prologue synthesized_twin_forward_pair.W.[](i: Int) receiver shared
+// ll omits: saw prologue synthesized_twin_forward_pair.W.[](i: Int) receiver exclusive
+// ll omits: saw prologue synthesized_twin_forward_pair.Inner.[](i: Int) receiver exclusive
+
+struct Inner { v: Vector<Int>, grows: Int }
+extension Inner: NoCopy {}
+
+extension Inner {
+    func [](&self, i: Int) borrows -> &Int {
+        lend self.v[i]
+    }
+    func [](&var self, i: Int) borrows -> &var Int {
+        var k = 0
+        while k < 64 {
+            try! self.v.push(k)
+            k += 1
+        }
+        self.grows = self.grows + 1
+        lend self.v[i]
+    }
+}
+
+struct W { inner: Inner }
+extension W: NoCopy {}
+
+extension W {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.inner[i]
+    }
+}
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(7)
+    try! v.push(8)
+    let w = W(inner: Inner(v: move v, grows: 0))
+    borrow let a = w[0] {
+        borrow let b = w[1] {
+            print("{} {}", a, b)
+        }
+    }
+    print("grows {}", w.inner.grows)
+}

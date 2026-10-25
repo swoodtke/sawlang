@@ -4,25 +4,31 @@
     (field Row.cells 7:5 private [Int; 2])
     (extension 10:1 (target chain_settle.Row))
     (method Row.[] 12:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var Int synthesize-shared) (summary body (suspends no) (sync-callable yes)))
+    (method Row.[] 12:10 private (signature (receiver shared) (params (i Int owned)) (effects borrows) (lend place shared) -> &Int derived-twin) (summary body (suspends no) (sync-callable yes)))
     (struct Table 17:8 private)
     (field Table.rows 18:5 private [chain_settle.Row; 2])
     (extension 21:1 (target chain_settle.Table))
     (method Table.[] 23:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var chain_settle.Row synthesize-shared) (summary body (suspends no) (sync-callable yes)))
+    (method Table.[] 23:10 private (signature (receiver shared) (params (i Int owned)) (effects borrows) (lend place shared) -> &chain_settle.Row derived-twin) (summary body (suspends no) (sync-callable yes)))
     (method Table.row 28:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var chain_settle.Row synthesize-shared) (summary body (suspends no) (sync-callable yes)))
+    (method Table.row 28:10 private (signature (receiver shared) (params (i Int owned)) (effects borrows) (lend place shared) -> &chain_settle.Row derived-twin) (summary body (suspends no) (sync-callable yes)))
     (func write 33:6 private (signature (params (t &var chain_settle.Table exclusive)) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func read 38:6 private (signature (params (t &chain_settle.Table shared)) -> Int) (summary body (suspends no) (sync-callable yes)))
     (func main 42:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (chain_settle.Row
       (field cells [Int; 2] private declared)
+      (method [] private (extension chain_settle))
       (method [] private (extension chain_settle)))
     (chain_settle.Table
       (field rows [chain_settle.Row; 2] private declared)
       (method [] private (extension chain_settle))
+      (method [] private (extension chain_settle))
+      (method row private (extension chain_settle))
       (method row private (extension chain_settle))))
   (views
-    (chain_settle.Row cells [])
-    (chain_settle.Table rows [] row))
+    (chain_settle.Row cells [] [])
+    (chain_settle.Table rows [] [] row row))
   (conformances)
   (copy-tier
     (chain_settle.Row Copy)
@@ -33,13 +39,28 @@
       (13:14-13:24 Member [Int; 2] place project)
       (13:14-13:18 SelfExpr chain_settle.Row place project)
       (13:25-13:26 Name Int place copy))
+    (Row.[] 12:10
+      (13:14-13:27 Subscript.single Int place borrow (op []))
+      (13:14-13:24 Member [Int; 2] place project)
+      (13:14-13:18 SelfExpr chain_settle.Row place project)
+      (13:25-13:26 Name Int place copy))
     (Table.[] 23:10
       (24:14-24:26 Subscript.single chain_settle.Row place borrow-var (op []))
       (24:14-24:23 Member [chain_settle.Row; 2] place project)
       (24:14-24:18 SelfExpr chain_settle.Table place project)
       (24:24-24:25 Name Int place copy))
+    (Table.[] 23:10
+      (24:14-24:26 Subscript.single chain_settle.Row place borrow (op []))
+      (24:14-24:23 Member [chain_settle.Row; 2] place project)
+      (24:14-24:18 SelfExpr chain_settle.Table place project)
+      (24:24-24:25 Name Int place copy))
     (Table.row 28:10
       (29:14-29:26 Subscript.single chain_settle.Row place borrow-var (op []))
+      (29:14-29:23 Member [chain_settle.Row; 2] place project)
+      (29:14-29:18 SelfExpr chain_settle.Table place project)
+      (29:24-29:25 Name Int place copy))
+    (Table.row 28:10
+      (29:14-29:26 Subscript.single chain_settle.Row place borrow (op []))
       (29:14-29:23 Member [chain_settle.Row; 2] place project)
       (29:14-29:18 SelfExpr chain_settle.Table place project)
       (29:24-29:25 Name Int place copy))

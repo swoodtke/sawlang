@@ -370,6 +370,23 @@ extension ResProgram {
         }
     }
 
+    // The `&self` twin `derive_shared_twins` copied for `member`, collected as
+    // a member of its own just after accessor `d`.
+    func collect_twin(&var self, member: Int, d: Int, parent: Int, test_only: Bool, name: Int) {
+        let at = self.twin_of_member(member)
+        if at < 0 {
+            return
+        }
+        var twin = self.twins[at]
+        let inner = self.last_node_child(twin.clone)
+        let leaf = self.method_name_leaf(inner)
+        let vis = self.visibility_of(twin.clone)
+        twin.decl = d
+        twin.twin = self.add_member(ResDeclKind.Method, leaf, inner, twin.clone, vis, parent,
+                                    test_only, false, name)
+        self.twins[at] = twin
+    }
+
     func collect_extension_members(&var self, x: Int, parent: Int, test_only: Bool) {
         let n = self.child_count(x)
         var k = 0
@@ -381,8 +398,9 @@ extension ResProgram {
                 let leaf = self.method_name_leaf(inner)
                 let name = self.method_name(inner)
                 let is_static = self.has_leading_word(inner, "static")
-                let _ = self.add_member(ResDeclKind.Method, leaf, inner, member, vis, parent,
+                let d = self.add_member(ResDeclKind.Method, leaf, inner, member, vis, parent,
                                         test_only, is_static, name)
+                self.collect_twin(member, d, parent, test_only, name)
             } else if self.is_alt(member, Alt.Decl_ExtensionMember_Init) {
                 let inner = self.last_node_child(member)
                 let vis = self.visibility_of(member)

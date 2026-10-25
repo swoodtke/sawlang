@@ -10,6 +10,7 @@
     (field Plain.cells 23:5 private [Int; 4])
     (extension 26:1 (target exclusive_only.Plain))
     (method Plain.[] 28:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var Int synthesize-shared) (summary body (suspends no) (sync-callable yes)))
+    (method Plain.[] 28:10 private (signature (receiver shared) (params (i Int owned)) (effects borrows) (lend place shared) -> &Int derived-twin) (summary body (suspends no) (sync-callable yes)))
     (method Plain.at 32:10 private (signature (receiver shared) (params (i Int owned)) (effects borrows) (lend place shared) -> &Int) (summary body (suspends no) (sync-callable yes)))
     (method Plain.at 36:10 private (signature (receiver exclusive) (params (i Int owned)) (effects borrows) (lend place exclusive) -> &var Int) (summary body (suspends no) (sync-callable yes)))
     (func through 41:6 private (signature (params (b &var exclusive_only.Bag exclusive)) -> Int) (summary body (suspends no) (sync-callable yes)))
@@ -23,11 +24,12 @@
     (exclusive_only.Plain
       (field cells [Int; 4] private declared)
       (method [] private (extension exclusive_only))
+      (method [] private (extension exclusive_only))
       (method at private (extension exclusive_only))
       (method at private (extension exclusive_only))))
   (views
     (exclusive_only.Bag cells reads [] tally)
-    (exclusive_only.Plain cells [] at at))
+    (exclusive_only.Plain cells [] [] at at))
   (conformances)
   (copy-tier
     (exclusive_only.Bag Copy)
@@ -46,6 +48,11 @@
       (18:14-18:18 SelfExpr exclusive_only.Bag place project))
     (Plain.[] 28:10
       (29:14-29:27 Subscript.single Int place borrow-var (op []))
+      (29:14-29:24 Member [Int; 4] place project)
+      (29:14-29:18 SelfExpr exclusive_only.Plain place project)
+      (29:25-29:26 Name Int place copy))
+    (Plain.[] 28:10
+      (29:14-29:27 Subscript.single Int place borrow (op []))
       (29:14-29:24 Member [Int; 4] place project)
       (29:14-29:18 SelfExpr exclusive_only.Plain place project)
       (29:25-29:26 Name Int place copy))

@@ -1,0 +1,22 @@
+// refuses: mutability.immutable at 17:15
+// a `@synthesize(shared)` accessor lending a `match self` arm's `borrow var`
+// payload: under the derived twin's `&self` the arm binds through a shared
+// receiver, so the two bodies differ and are written apart (std's
+// `JsonValue.as_array` is the pair; conformance row X60)
+
+enum V {
+    case Arr(items: Vector<Int>),
+    case Num(n: Int)
+}
+
+extension V: NoCopy {}
+
+extension V {
+    @synthesize(shared)
+    func as_arr(&var self) borrows -> &var Vector<Int>? {
+        match self {
+            case Arr(borrow var items) -> { lend items },
+            case _ -> { return None }
+        }
+    }
+}

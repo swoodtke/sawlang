@@ -88,7 +88,9 @@ A module's dump is one S-expression, one entry per line, in this layout:
 - A **signature** is `(signature [GENERICS] [(receiver shared|exclusive)]
   (params (NAME TYPE PASSING [default])...) [(effects WORD...)] [(lend
   CLASS shared|exclusive)] -> RESULT [static] [default-body] [variadic]
-  [blocking] [synthesize-shared])`. PASSING is `owned`, `shared` for a `&T`
+  [blocking] [synthesize-shared] [derived-twin])`, `derived-twin` marking
+  the `&self` twin `@synthesize(shared)` derives, a method declaration of its
+  own just after its accessor's. PASSING is `owned`, `shared` for a `&T`
   or `&[T]` parameter, or `exclusive` for a `&var` one. The effects are the
   slot's words in its order (`consumes unsafe constexpr sync escaping borrows`,
   `borrows(sync)` for the lend that may not span a suspension). An `init`
@@ -1048,6 +1050,7 @@ whose every reference field is `lends self`, and nothing else constructs one.
 | `lends self` from a `&self` receiver, on every path | allowed | declarations; run `lends_for`, `lends_for_suspends` |
 | `lends self` from a `&var self` receiver, into a `&var` field or a `&` one; the window charges the root exclusively (SL-871) | allowed | run probes `exclusive_borrowing_struct_for`, `exclusive_borrowing_struct_suspends`; borrowck `loan.window-root.exclusive-carrier` |
 | `lends self` from a `&self` receiver into a `&var` field (SL-871) | refused | lends.origin.shared-receiver |
+| the same in the twin `@synthesize(shared)` derives from a `&var self` accessor lending such a struct (SL-908) | refused | lends.origin.synthesized-twin-borrowing-struct |
 | `lends self.items`, a projection | refused | lends.origin |
 | `lends other`, a reference parameter | refused | lends.origin.parameter |
 | `lends spare`, a local | refused | lends.origin.local |
@@ -1192,6 +1195,7 @@ shared twin, SL-470), and a `[&var x]` capture. Under
 | `&self` calling a `&var self` method on `self` or a field, projecting `&var self.f` | refused | mutability.immutable.shared-receiver-call, mutability.immutable.shared-receiver-field-call, mutability.immutable.shared-receiver-projection |
 | `&self` writing through a window on inline storage | refused | mutability.immutable.shared-receiver-window |
 | a `&self` `borrows` body writing a field in its epilogue | refused | mutability.immutable.shared-receiver-epilogue |
+| a `@synthesize(shared)` body writing `self` in its prologue, in its epilogue, through a nested `borrow var` of another accessor, or binding a `match self` arm's `borrow var` payload: the twin it derives checks the same body under `&self`, and the refusal says it came from the derived twin (SL:borrowing §4; SL-908) | refused | mutability.immutable.synthesized-twin-prologue, -epilogue, -nested-borrow-var, -match-var-arm |
 | a `[&self]` capture's write in a `&var self` method | refused | mutability.immutable.shared-capture-self |
 | a `for` loop's, an `if let`'s, a `guard let`'s, a `match` arm's binding | refused | mutability.immutable.for-binding, mutability.immutable.if-let, mutability.immutable.guard-let, mutability.immutable.match-binding |
 | a `let` destructuring's binding, a closure's parameter | refused | mutability.immutable.destructure, mutability.immutable.closure-parameter |
@@ -1586,6 +1590,7 @@ its fixit.
 | `trait.generic-requirement` | a trait requirement declaring generic parameters of its own, which the grammar parses and type checking refuses for now (GRAMMAR §3.4), once, at the requirement: with a default body (`.default-body`), met by a generic method in a conformance (`.conformance`), called through a bound (`.bound`), and its trait erased (bare), none adds a second refusal; golden `generic_methods` holds the accepted control, a generic method in an ordinary extension |
 | `synthesize.required` | a declared conformance to a derivable trait whose method is neither written nor asked for with `@synthesize` (design 128); a copy policy's `copy()` counts as written only inside the conformance (`-copy-outside-policy`) |
 | `synthesize.inert` | `@synthesize` on a conformance that derives nothing |
+| `synthesize.shared-twin-exists` | a `@synthesize(shared)` accessor beside a written `&self` twin of its name and parameters in the same module, written before it or after it in another extension (`.written-after`): refused at the accessor, which would have two shared forms that no call tells apart (SL:borrowing §4; SL-908) |
 | `nomove.undeclared` | a struct or enum holding a `NoMove` value inline, a field, a payload, through an optional, a tuple, an array or a generic instance, that does not declare `NoMove` itself (design 188) |
 | `nomove.bound` | `NoMove` written as a generic parameter's bound |
 | `nomove.requires-nocopy` | a `NoMove` conformance on a type whose policy is not a declared `NoCopy` |

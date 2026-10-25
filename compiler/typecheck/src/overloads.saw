@@ -409,6 +409,8 @@ extension TcProgram {
                 if not self.placed_elsewhere(earlier) && self.indistinguishable(earlier, later) {
                     if self.pairs_with(earlier, later) {
                         self.match_blocking_twin(earlier, later)
+                    } else if self.res.twin_accessor(later) >= 0 || self.res.twin_accessor(earlier) >= 0 {
+                        self.refuse_twin_exists(earlier, later)
                     } else {
                         self.refuse_redeclaration(later, earlier)
                     }
@@ -821,6 +823,27 @@ extension TcProgram {
         try! msg.append("`, and no call could tell the two apart: overloads must differ in a parameter's label or type, or in how many arguments they take, reading aliases as their targets and every type parameter as one, with a defaulted parameter's shorter calls counted; the result, effects, receiver and staticness never tell two apart")
         let leaf = self.decl_site(later)
         self.refuse_in(info.module, leaf, "overload.indistinguishable", msg.build())
+    }
+
+    // A `@synthesize(shared)` accessor beside a hand-written `&self` twin of
+    // its name and parameters, one of `a` and `b` being the twin it derived:
+    // refused at the attribute's accessor, since the accessor would have two
+    // shared forms and no call could tell them apart.
+    func refuse_twin_exists(&var self, a: Int, b: Int) {
+        let derived = if self.res.twin_accessor(a) >= 0 { a } else { b }
+        let written = if derived == a { b } else { a }
+        let accessor = self.res.twin_accessor(derived)
+        let info = self.res.decls[accessor]
+        let other = self.res.decls[written]
+        let site = self.decl_site(written)
+        let position = self.res.position_text(other.module, self.res.nodes[site].start)
+        var msg = StringBuilder()
+        try! msg.append("`@synthesize(shared)` derives the `&self` twin of `")
+        try! msg.append(self.overload_text(accessor))
+        try! msg.append("`, and one is already written at ")
+        try! msg.append(position)
+        try! msg.append(": keep the written twin and remove the attribute, or delete the written twin")
+        self.refuse_in(info.module, self.decl_site(accessor), "synthesize.shared-twin-exists", msg.build())
     }
 
     // Declaration `d` as a call would name it: its path and its labeled

@@ -6,7 +6,7 @@ import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule, ResModuleKind}
 import sawresolve.names.{ResIndex}
-import sawresolve.program.{ResProgram}
+import sawresolve.program.{ResProgram, res_twin_message}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
                                TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig, TcStatus,
                                TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
@@ -619,11 +619,26 @@ extension TcProgram {
     }
 
     // Records a refusal at node `id` of module `m`.
+    // A refusal in a derived twin's body that its accessor's own body made at
+    // the same span is that refusal, reported once; one only the twin makes
+    // says so (`res_twin_message`).
     public func refuse_in(&var self, m: Int, id: Int, rule: String, message: String) {
         let n = self.res.nodes[id]
         let note = self.is_interface(m)
+        var text = message
+        if self.res.twin_at(id) >= 0 {
+            var k = 0
+            while k < self.diags.len() {
+                let d = self.diags[k]
+                if d.module == m && d.start == n.start && d.end == n.end && d.id.equals(rule) {
+                    return
+                }
+                k = k + 1
+            }
+            text = res_twin_message(message)
+        }
         try! self.diags.push(TcDiag(module: m, start: n.start, end: n.end, id: rule,
-                                    message: message, note: note))
+                                    message: text, note: note))
     }
 
     // A refusal at node `id` of the module being built.

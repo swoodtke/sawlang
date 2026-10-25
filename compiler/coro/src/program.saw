@@ -5,7 +5,7 @@
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawmir.model.{MirCall, MirDiag, MirPlace}
-import sawmir.program.{MirProgram}
+import sawmir.program.{MirProgram, mir_diag_message}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
@@ -446,7 +446,11 @@ extension CoroProgram {
         }
         let am = self.mono.dp.bc.mir.tc.node_module(at)
         let span = self.mono.dp.bc.mir.tc.res.node(at)
-        try! self.diags.push(MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text))
+        var d = MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text)
+        if let kept = mir_diag_message(&self.mono.dp.bc.mir.tc.res, &self.diags, node, &d) {
+            d.message = kept
+            try! self.diags.push(d)
+        }
     }
 
     // The node of the nearest program-written call on the chain of items

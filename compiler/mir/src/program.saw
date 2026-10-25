@@ -5,6 +5,7 @@
 import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand,
                          MirPlace, MirProj, MirRvalue, MirStmt, MirWindow}
 import sawresolve.names.{ResIndex}
+import sawresolve.program.{ResProgram, res_twin_message}
 import sawtypecheck.program.{TcProgram}
 
 // One entry of the builder's scope stack: an owned local a scope exit drops,
@@ -149,6 +150,35 @@ extension MirProgram {
         let a = self.accessor_of[decl]
         a >= 0 && self.accessors[a].epilogue < 0
     }
+}
+
+// THE MIR-FAMILY TWIN FILTER: the message refusal `d`, made at node `node`,
+// is reported with, or None. A refusal in a derived twin's body that its
+// accessor's own body already made at the same span is that refusal,
+// reported once; one only the twin makes says so (`res_twin_message`).
+//
+// ENTRY POINTS:
+//     MirProgram.not_yet
+//     BorrowckProgram.report
+//     BorrowckProgram.report_conflict
+//     BorrowckProgram.report_loan
+//     DropsProgram.refuse_fate
+//     EvalProgram.report_bare
+//     MonoProgram.refuse
+//     CoroProgram.refuse
+public func mir_diag_message(res: &ResProgram, diags: &Vector<MirDiag>, node: Int, d: &MirDiag) -> String? {
+    if node < 0 || res.twin_at(node) < 0 {
+        return d.message
+    }
+    var k = 0
+    while k < diags.len() {
+        let seen = diags[k]
+        if seen.module == d.module && seen.start == d.start && seen.end == d.end && seen.id.equals(d.id) {
+            return None
+        }
+        k = k + 1
+    }
+    res_twin_message(d.message)
 }
 
 public func mir_program(tc: TcProgram) -> MirProgram {

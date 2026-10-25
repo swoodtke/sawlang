@@ -9,7 +9,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import saweval.program.{EvalKind, EvalValue}
 import sawmir.build.{mir_func_local}
-import sawmir.program.{MirProgram}
+import sawmir.program.{MirProgram, mir_diag_message}
 import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
 import sawmir.model.{MirDiag, MirSuspend}
@@ -550,7 +550,11 @@ extension MonoProgram {
         }
         let am = self.dp.bc.mir.tc.node_module(at)
         let span = self.dp.bc.mir.tc.res.node(at)
-        try! self.diags.push(MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text))
+        var d = MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text)
+        if let kept = mir_diag_message(&self.dp.bc.mir.tc.res, &self.diags, node, &d) {
+            d.message = kept
+            try! self.diags.push(d)
+        }
     }
 
     // Whether module `m` is std's or the builtin module's.

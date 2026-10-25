@@ -8,7 +8,7 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
-                               TC_FLAG_DEFAULT_BODY, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
+                               TC_FLAG_DEFAULT_BODY, TC_FLAG_DERIVED_TWIN, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
                                TC_FLAG_SYNTHESIZE_SHARED, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_UNSAFE_VAR,
                                TC_FLAG_VARIADIC, TC_FLAG_WRITTEN_RETURN, TcHeadKind, TcLend,
                                TcParam, TcReceiver, TcSig}
@@ -285,6 +285,9 @@ extension TcProgram {
         }
         if self.has_alt(info.outer, Alt.Decl_ExtensionMember_SynthesizedMethod) {
             flags = flags | TC_FLAG_SYNTHESIZE_SHARED
+        }
+        if self.res.twin_accessor(d) >= 0 {
+            flags = flags | TC_FLAG_DERIVED_TWIN
         }
         if info.kind == ResDeclKind.Requirement && self.sigs[d].generic_count > 0 {
             self.refuse_generic_requirement(d)

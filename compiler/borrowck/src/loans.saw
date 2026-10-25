@@ -41,7 +41,7 @@ import sawmir.model.{MirAggregate, MirCallKind, MirConstKind, MirFuncKind, MirLo
                          MirRvalue, MirRvalueKind, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind,
                          mir_spawn_leading}
 import sawmir.program.{MirProgram}
-import sawtypecheck.model.{TC_EFFECT_ESCAPING, TC_FLAG_SYNTHESIZE_SHARED, TcReceiver}
+import sawtypecheck.model.{TC_EFFECT_ESCAPING, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
@@ -807,8 +807,9 @@ extension BorrowckProgram {
     // THE window-charge funnel: whether window `w` of function `f` charges
     // its root exclusively (SL:borrowing §3), a place window's and a
     // borrowing struct's alike: the use site borrowed exclusively, or the
-    // accessor takes `&var self` or lends `&var` and declares no shared
-    // twin. A borrowing struct's `&var` field is filled only from a
+    // accessor takes `&var self` or lends `&var`. A read reaches an
+    // accessor's `&self` twin instead, written or derived, so it never
+    // charges through the `&var self` half. A borrowing struct's `&var` field is filled only from a
     // `&var self` receiver, so its window is always exclusive. Stage 0's std
     // predates declared modes: each of its accessors serves both from one
     // declaration, the use site choosing (design 141).
@@ -825,9 +826,6 @@ extension BorrowckProgram {
             return false
         }
         let s = self.mir.tc.sigs[window.accessor]
-        if (s.flags & TC_FLAG_SYNTHESIZE_SHARED) != 0 {
-            return false
-        }
         let m = self.mir.tc.res.decls[window.accessor].module
         if m >= 0 && borrowck_holds_text(self.mir.tc.res.module_file(m), "sawc/std/") {
             return false

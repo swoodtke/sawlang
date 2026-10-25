@@ -15,7 +15,7 @@ import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_MOVED, MIR_INIT_PARTIAL, MirAccess, MirAccessKind, MirDropLabel, MirInit,
                                   mir_drop_label}
 import sawmir.model.{MirDiag, MirLocalKind, MirProjKind}
-import sawmir.program.{MirProgram}
+import sawmir.program.{MirProgram, mir_diag_message}
 import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.program.{TcProgram}
 
@@ -422,7 +422,11 @@ extension BorrowckProgram {
         }
         let m = self.mir.tc.node_module(at)
         let n = self.mir.tc.res.nodes[at]
-        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: id, message: message))
+        var d = MirDiag(module: m, start: n.start, end: n.end, id: id, message: message)
+        if let text = mir_diag_message(&self.mir.tc.res, &self.diags, at, &d) {
+            d.message = text
+            try! self.diags.push(d)
+        }
     }
 }
 

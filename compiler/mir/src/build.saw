@@ -8,7 +8,7 @@ import sawmir.model.{MirAccessor, MirAggregate, MirArm, MirBlock, MirCall, MirCa
                          MirDriveForm, MirFuncKind, MirLocal, MirLocalKind, MirOperand, MirOperandKind, MirPlace, MirProj,
                          MirProjKind, MirRvalue, MirRvalueKind, MirSpawnForm, MirStmt, MirStmtKind, MirSuspend,
                          MirSwitchKind, MirTermKind, MirWindow}
-import sawmir.program.{MirLoop, MirProgram, MirScopeEntry}
+import sawmir.program.{MirLoop, MirProgram, MirScopeEntry, mir_diag_message}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
@@ -1576,8 +1576,11 @@ extension MirProgram {
         var msg = StringBuilder()
         try! msg.append(what)
         try! msg.append(" is not lowered to MIR in the bootstrap slice yet")
-        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: "slice.not-yet",
-                                     message: msg.build()))
+        var d = MirDiag(module: m, start: n.start, end: n.end, id: "slice.not-yet", message: msg.build())
+        if let text = mir_diag_message(&self.tc.res, &self.diags, node, &d) {
+            d.message = text
+            try! self.diags.push(d)
+        }
         self.refused = true
     }
 

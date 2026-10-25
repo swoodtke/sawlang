@@ -28,7 +28,7 @@ import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAc
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind, MirTermKind,
                          mir_owes_fate}
-import sawmir.program.{MirProgram}
+import sawmir.program.{MirProgram, mir_diag_message}
 import sawmir.split.{MirHalf}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
@@ -1075,8 +1075,12 @@ extension DropsProgram {
         }
         let m = self.bc.mir.tc.node_module(node)
         let span = self.bc.mir.tc.res.nodes[node]
-        try! self.diags.push(MirDiag(module: m, start: span.start, end: span.end, id: "drop.must-consume",
-                                     message: msg.build()))
+        var d = MirDiag(module: m, start: span.start, end: span.end, id: "drop.must-consume",
+                        message: msg.build())
+        if let kept = mir_diag_message(&self.bc.mir.tc.res, &self.diags, node, &d) {
+            d.message = kept
+            try! self.diags.push(d)
+        }
     }
 
     // The name of the binding of `f` a site's destination `dest` is moved

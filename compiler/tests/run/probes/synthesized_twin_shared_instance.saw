@@ -1,0 +1,57 @@
+// probe: stated
+// about: every shared position of a `@synthesize(shared)` accessor calls its `receiver shared` instance, the twin derived from the same body: two shared windows of std `Vector.[]` on a `let` root, a read through a `&T` parameter and a `&self` receiver, while a write position calls the `receiver exclusive` one (SL-908)
+// stage 0: derives no twin, so every position calls the one exclusive instance
+// speeds: -O0 -O2
+// leaks: none
+// prints: 7 8
+// prints: slot 5
+// prints: sum 12
+// prints: slot 6
+// ll defines: saw prologue std.vector.Vector.[](index: Int) receiver shared args Int std.alloc.GlobalAllocator
+// ll defines: saw prologue synthesized_twin_shared_instance.Slots.at(i: Int) receiver shared
+// ll defines: saw prologue synthesized_twin_shared_instance.Slots.at(i: Int) receiver exclusive
+
+struct Slots { cells: [Int; 2] }
+
+extension Slots {
+    @synthesize(shared)
+    func at(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 2 {
+            panic("Slots.at: index out of range")
+        }
+        lend self.cells[i]
+    }
+
+    func sum(&self) -> Int {
+        borrow let a = self.at(0) {
+            borrow let b = self.at(1) {
+                return a + b
+            }
+        }
+    }
+}
+
+func show(s: &Slots) {
+    borrow let x = s.at(0) {
+        print("slot {}", x)
+    }
+}
+
+func main() {
+    var w = Vector<Int>()
+    try! w.push(7)
+    try! w.push(8)
+    let v = move w
+    borrow let a = v[0] {
+        borrow let b = v[1] {
+            print("{} {}", a, b)
+        }
+    }
+    var s = Slots(cells: [5, 7])
+    show(&s)
+    print("sum {}", s.sum())
+    borrow var c = s.at(0) {
+        c = c + 1
+    }
+    show(&s)
+}

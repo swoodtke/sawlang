@@ -17,6 +17,7 @@ resolve/
     loader.saw      module identity to file to arena; the std module table
     prelude.saw     the builtin module's synthetic declarations; the prelude
     lang.saw        the lang-item table and its funnel
+    twins.saw       the `&self` twins `@synthesize(shared)` derives, before phase 1
     collect.saw     phase 1
     imports.saw     phase 2
     lookup.saw      the lookup funnel and the scopes it reads
@@ -98,6 +99,19 @@ arena that holds every module's tree, declarations one table. A binding into
 another module prints as that module's identity and the declaration's path.
 
 ## Phases
+
+Before a module is collected, `derive_shared_twins` (`twins.saw`) copies each
+`@synthesize(shared)` accessor's member to the end of the arena as the
+hand-written `(&self) borrows -> &T` twin SL:borrowing §4 derives: its
+receiver `&self`, an outermost `&var` result `&`, no doc comment and no
+attribute. Collect makes it a member of its own, just after its accessor, and
+the walk resolves it in the same scope after its accessor, so every later
+stage meets an ordinary `&self` accessor whose nodes are its own: typecheck
+checks the same body under the shared signature, and mono emits it as its
+`receiver shared` instance. A refusal both bodies make is reported once, from
+the accessor's; one only the twin makes says it came from the derived twin
+(`res_twin_message`). A `@synthesize(shared)` on anything but a `(&var self)
+borrows` accessor derives nothing and is refused (`synthesize.shared-position`).
 
 1. **Collect** (`collect.saw`). Each module's top-level declarations go into
    `top`, keyed by (module, name): types, functions as overload sets, statics,

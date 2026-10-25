@@ -495,6 +495,15 @@ extension ResProgram {
                 self.current_decl = self.decl_of_node(inner)
                 self.walk_function(inner, interface)
                 self.current_decl = -1
+                // A derived twin is walked after its accessor, so a refusal
+                // both bodies make is reported from the accessor's own.
+                let twin = self.twin_of_member(c)
+                if twin >= 0 {
+                    let copied = self.last_node_child(self.twins[twin].clone)
+                    self.current_decl = self.decl_of_node(copied)
+                    self.walk_function(copied, interface)
+                    self.current_decl = -1
+                }
             }
             k = k + 1
         }

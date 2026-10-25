@@ -1,0 +1,17 @@
+// refuses: mutability.immutable at 15:9
+// a `@synthesize(shared)` accessor whose epilogue writes `self`: the derived
+// twin's epilogue runs under `&self`, where the write is refused (conformance
+// row X60)
+
+struct H {
+    n: Int
+    reads: Int
+}
+
+extension H {
+    @synthesize(shared)
+    func at(&var self) borrows -> &var Int {
+        lend self.n
+        self.reads = self.reads + 1
+    }
+}

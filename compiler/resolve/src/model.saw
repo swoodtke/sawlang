@@ -304,6 +304,21 @@ public struct ResDiag {
     note: Bool
 }
 
+// The `&self` twin `@synthesize(shared)` derives for an accessor: a copy of
+// the accessor's member under the shared signature, its nodes the run
+// `first ..= last` of its module's arena (`derive_shared_twins`).
+public struct ResTwin {
+    module: Int
+    // The `@synthesize(shared)` member as written, and its copy.
+    member: Int
+    clone: Int
+    first: Int
+    last: Int
+    // The accessor's declaration and the twin's, once collected; -1 before.
+    decl: Int
+    twin: Int
+}
+
 // A conformance an extension declares: which type, which trait, where.
 public struct ResConformance {
     module: Int

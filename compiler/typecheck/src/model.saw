@@ -36,6 +36,9 @@ public static TC_FLAG_UNSAFE_VAR: Int = 256
 public static TC_FLAG_WRITTEN_RETURN: Int = 512
 // Set while an alias or type assignment is being resolved, to find a cycle.
 public static TC_FLAG_ALIAS_BUILDING: Int = 1024
+// The `&self` twin `@synthesize(shared)` derives, whose body is its
+// accessor's checked again under the shared signature.
+public static TC_FLAG_DERIVED_TWIN: Int = 2048
 
 // The three Copy tiers (design 219), strongest last: a composite takes the
 // strongest of its parts.

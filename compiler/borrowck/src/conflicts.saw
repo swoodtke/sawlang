@@ -16,7 +16,7 @@ import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
 import sawmir.model.{MirCallKind, MirDiag, MirFuncKind, MirLocalKind, MirProjKind, MirRvalueKind, MirStmtKind,
                          MirTermKind}
-import sawmir.program.{MirProgram}
+import sawmir.program.{MirProgram, mir_diag_message}
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResCallClass}
@@ -677,8 +677,12 @@ extension BorrowckProgram {
             if a.closing && at.end > at.start {
                 start = at.end - 1
             }
-            try! self.diags.push(MirDiag(module: m, start: start, end: at.end, id: "loan.handle-outlives-group",
-                                         message: msg.build()))
+            var d = MirDiag(module: m, start: start, end: at.end, id: "loan.handle-outlives-group",
+                            message: msg.build())
+            if let text = mir_diag_message(&self.mir.tc.res, &self.diags, a.node, &d) {
+                d.message = text
+                try! self.diags.push(d)
+            }
             return
         }
         if a.kind == BorrowckAccessKind.Move {
@@ -1550,7 +1554,11 @@ extension BorrowckProgram {
         }
         let m = self.mir.tc.node_module(at)
         let n = self.mir.tc.res.nodes[at]
-        try! self.diags.push(MirDiag(module: m, start: n.start, end: n.end, id: id, message: message))
+        var d = MirDiag(module: m, start: n.start, end: n.end, id: id, message: message)
+        if let text = mir_diag_message(&self.mir.tc.res, &self.diags, at, &d) {
+            d.message = text
+            try! self.diags.push(d)
+        }
     }
 }
 

@@ -5,7 +5,7 @@
 
 import sawmir.dump.{mir_operator_name}
 import sawmir.model.{MirDiag, MirFuncKind}
-import sawmir.program.{MirProgram}
+import sawmir.program.{MirProgram, mir_diag_message}
 import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue}
 import sawtypecheck.arith.{TcFault, tc_arith_max, tc_arith_min, tc_arith_text}
 import sawtypecheck.program.{TcProgram}
@@ -193,7 +193,11 @@ extension EvalProgram {
     func report_bare(&var self, mir: &MirProgram, f: Int, rule: String, message: String) {
         let info = mir.funcs[f]
         let n = mir.tc.res.nodes[info.root]
-        try! self.diags.push(MirDiag(module: info.module, start: n.start, end: n.end, id: rule, message: message))
+        var d = MirDiag(module: info.module, start: n.start, end: n.end, id: rule, message: message)
+        if let kept = mir_diag_message(&mir.tc.res, &self.diags, info.root, &d) {
+            d.message = kept
+            try! self.diags.push(d)
+        }
         self.ends[f] = EvalEnd.Refused
     }
 }

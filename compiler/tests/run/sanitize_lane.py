@@ -53,7 +53,8 @@ PROBE_KINDS = ("stated", "panics")
 # until the struct is destroyed, a `Result` the C entry reads out of `main`'s
 # frame after the executor returns, a state record field one `lend` site's
 # path left unwritten, a payload written through a `match` arm's binding
-# while the window that lends it is open).
+# while the window that lends it is open, a shared window running an
+# accessor's exclusive body).
 PROBE_PATTERNS = (
     "thread_*.saw",
     "coro_*.saw",
@@ -74,6 +75,7 @@ PROBE_PATTERNS = (
     "lend_record_*.saw",
     "lend_window_*.saw",
     "lend_mode_*.saw",
+    "synthesized_twin_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

@@ -1,0 +1,27 @@
+// refuses: lends.origin at 25:19
+// a `@synthesize(shared)` accessor lending a borrowing struct whose field is
+// `&var`: the derived twin fills that field from `&self`, as a written `&self`
+// twin is refused for (conformance row X60)
+
+struct C {
+    n: Int
+}
+
+borrows struct Cursor {
+    c: &var C
+    i: Int
+}
+
+extension Cursor: Iterator {
+    type Item = Int
+    func next(&var self) -> Int? {
+        None
+    }
+}
+
+extension C {
+    @synthesize(shared)
+    func cursor(&var self) borrows -> Cursor {
+        Cursor(c: lends self, i: 0)
+    }
+}
