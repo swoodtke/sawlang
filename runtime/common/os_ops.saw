@@ -14,7 +14,6 @@ extern "C" {
     func socketpair(domain: Int32, ty: Int32, protocol: Int32, fds: UnsafePointer<Int32>) -> Int32
     func bind(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
     func listen(fd: Int32, backlog: Int32) -> Int32
-    func accept(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
     func connect(fd: Int32, addr: UnsafePointer<Int8>, len: Int32) -> Int32
     func getsockname(fd: Int32, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int32
     func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
@@ -55,6 +54,12 @@ extern "C" {
     func __saw_sockopt_name(option: Int) -> Int
     func __saw_socket_suppress_sigpipe(fd: Int)
     func __saw_socket_send_flags() -> Int
+    // Close-on-exec (shim.c, SL-910): the type bit that makes a socket so at
+    // creation, 0 on a host without one; the mark for such a host; and an
+    // accept whose connection is made so.
+    func __saw_socket_cloexec_type() -> Int
+    func __saw_mark_cloexec(fd: Int) -> Int
+    func __saw_accept_cloexec(fd: Int, addr: UnsafePointer<Int8>, len: UnsafePointer<Int32>) -> Int
     func setsockopt(fd: Int32, level: Int32, name: Int32,
                     value: UnsafePointer<Int8>, len: Int32) -> Int32
     func send(fd: Int32, buf: UnsafePointer<Int8>, len: Int, flags: Int32) -> Int
@@ -89,7 +94,9 @@ enum SysError: UInt8 {
     case NetDown = 21,
     // Descriptor and device failures, appended for the same reason (SL-785).
     case InvalidDescriptor = 22,
-    case InputOutputFailed = 23
+    case InputOutputFailed = 23,
+    // A file that is not a program the system can execute (SL-898).
+    case NotExecutable = 24
 }
 
 static AF_INET: Int32 = 2
@@ -181,7 +188,7 @@ func rt_tcp_listen_on(addr_be: Int, port: Int) unsafe -> Int {
 @export("__saw_rt_tcp_listen_with")
 func rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int,
                         backlog: Int) unsafe -> Int {
-    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
+    let fd = socket(AF_INET, stream_type(), PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
@@ -232,17 +239,26 @@ func rt_socket_set_option(fd: Int, option: Int, value: Int) unsafe -> Int {
     0
 }
 
-// Make the socket `fd` nonblocking: 0, or the negated tag with `fd` closed.
-// Every caller passes a descriptor `socket` or `accept` has just returned, so
-// the two `fcntl` calls cannot be refused by construction. The status is still
-// checked: a socket left blocking would block the executor's thread in its
-// first `accept` or `read`.
+// Make the socket `fd` nonblocking, and close-on-exec on a host that could not
+// make it so at creation: 0, or the negated tag with `fd` closed. Every caller
+// passes a descriptor `socket` or `accept` has just returned, so the `fcntl`
+// calls cannot be refused by construction. The status is still checked: a
+// socket left blocking would block the executor's thread in its first `accept`
+// or `read`.
 func make_nonblocking(fd: Int32) unsafe -> Int {
-    let status = __saw_rt_set_nonblocking(fd as Int)
+    var status = __saw_rt_set_nonblocking(fd as Int)
+    if status == 0 && __saw_socket_cloexec_type() == 0 {
+        status = __saw_mark_cloexec(fd as Int)
+    }
     if status < 0 {
         let _ = close(fd)
     }
     status
+}
+
+// The stream socket type, with the close-on-exec bit where the host has one.
+func stream_type() unsafe -> Int32 {
+    SOCK_STREAM | (__saw_socket_cloexec_type() as Int32)
 }
 
 // The actual local port a (possibly ephemeral) listen fd is bound to, or the
@@ -267,7 +283,7 @@ func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
     let ap = (&sa) as UnsafePointer<Int8>
     var len: Int32 = SOCKADDR_IN_LEN
     let lp = (&len) as UnsafePointer<Int32>
-    let c = accept(listen_fd as Int32, ap, lp)
+    let c = __saw_accept_cloexec(listen_fd, ap, lp) as Int32
     if c >= (0 as Int32) {
         let nb = make_nonblocking(c)
         if nb < 0 {
@@ -287,7 +303,7 @@ func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
 // failure.
 @export("__saw_rt_tcp_connect_start")
 func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
-    let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
+    let fd = socket(AF_INET, stream_type(), PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
@@ -371,12 +387,18 @@ struct SocketPairFds {
 @export("__saw_rt_tcp_socketpair")
 func rt_tcp_socketpair(fds_out: UnsafePointer<Int>) unsafe -> Int {
     var fds = SocketPairFds(a: 0, b: 0)
-    if socketpair(AF_UNIX, SOCK_STREAM, PROTO_DEFAULT, (&fds) as UnsafePointer<Int32>) != (0 as Int32) {
+    if socketpair(AF_UNIX, stream_type(), PROTO_DEFAULT, (&fds) as UnsafePointer<Int32>) != (0 as Int32) {
         return 0 - __saw_rt_last_syserror()
     }
     var status = __saw_rt_set_nonblocking(fds.a as Int)
     if status == 0 {
         status = __saw_rt_set_nonblocking(fds.b as Int)
+    }
+    if status == 0 && __saw_socket_cloexec_type() == 0 {
+        status = __saw_mark_cloexec(fds.a as Int)
+        if status == 0 {
+            status = __saw_mark_cloexec(fds.b as Int)
+        }
     }
     if status < 0 {
         let _ = close(fds.a)

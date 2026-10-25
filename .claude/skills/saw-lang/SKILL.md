@@ -1867,7 +1867,13 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `Env.set/unset/set_cwd` → `Result<Void, SystemError>` (`import
   std.systemerror.{SystemError}`; `e.kind()` is the branchable
   `SystemErrorKind`); net read/write/accept → `Result<_, IoError>` (see the net
-  section). `Result<Void, E>`: a bare `return` in such a function is `Ok(())`;
+  section). **An error NAMES WHAT ITS OP WAS GIVEN** (SL-898): a path, program,
+  variable name, host or signal is the error's subject, `e.subject() -> String?`,
+  quoted in the text — `open "saw.toml" failed (not found)`,
+  `rename "a.txt" failed (…)` (the source only); an op given none renders as
+  before (`read failed (…)`). A NUL in a subject renders `\0`. Naming it
+  allocates nothing (the caller's string, retained), so don't add the name
+  yourself. `Result<Void, E>`: a bare `return` in such a function is `Ok(())`;
   `match r { case Ok(_) -> …, case Err(e) -> … }`. The whole opening and
   reading surface of std.file/std.directory carries its cause:
   `File.open`/`create`/`open_append` → `Result<File, SystemError>`, `File.read()`
@@ -2833,9 +2839,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   both suspend and both are drivable from a spawned worker (design 95 keys the two
   overloads' driven frames by resolved signature, so a worker may call BOTH back
   to back). `IoError: Error` — interpolate it (`"{e}"`) for the whole story:
-  `io error: connect failed (host unreachable)`. **It carries the failing op's
-  name, a PORTABLE KIND and the platform's RAW CODE (design 234 §2), and the two
-  halves answer different questions.** `e.kind()` is an `IoErrorKind` (`import
+  `io error: connect "10.0.0.7" failed (host unreachable)`. **It carries the
+  failing op's name, its SUBJECT (the host, or the signal, `e.subject()`), a
+  PORTABLE KIND and the platform's RAW CODE (design 234 §2), and the kind and
+  the code answer different questions.** `e.kind()` is an `IoErrorKind` (`import
   std.net.{IoErrorKind}`) — a curated portable set (`NotFound`,
   `PermissionDenied`, `ConnectionRefused`, `TimedOut`, `Interrupted`, …) ending
   in `Unknown` — and it is the branchable half:
@@ -4982,9 +4989,21 @@ construct in the owner and lend `&driver` down.
   ```
   `wait() -> Result<Int32, SystemError>` BLOCKS the calling thread until the
   child exits and never suspends, so a `sync` function may call it: Ok(code) =
-  launched + exited (signal death = 128+signum, never a bogus 0); Err = could
-  not launch — the spawn's cause, `LaunchFailed` when the child could not exec
-  (exit 127), `InvalidArgument` for a NUL byte in the program or an argument.
+  launched + exited (signal death = 128+signum, never a bogus 0; a child's own
+  127 is `Ok(127)`); Err = could not run, and EVERY error names the program
+  (SL-898). A program it cannot execute is a `launch` failure carrying exec's
+  own cause: `launch "tool" failed (not found)`, `PermissionDenied` for a file
+  without execute permission or a directory, `NotExecutable` for a file the
+  system does not run (NEVER handed to `/bin/sh`: design 122's no-shell rule
+  holds even there). A name without `/` is found on the PATH of the child's
+  environment (an `env("PATH", ...)` override included) by `execvp`'s rules.
+  A spawn that never made a child is a `spawn` failure: `InvalidArgument` for a
+  NUL byte in the program or an argument, `ResourcesExhausted` at the process
+  limit. The child inherits stdin/stdout/stderr and NO other descriptor of
+  yours (SL-910). SUSPECT an older build: every exec failure read
+  `exec failed (the program could not be launched)`, a child's own 127 read as
+  that too, a file without a `#!` line ran under `/bin/sh`, and children
+  inherited every open file, listener and other launch's pipe.
   `output() -> Result<CommandOutput, SystemError>` captures stdout (stderr is
   inherited) and is COOPERATIVE: the drain parks on the child's pipe and the
   wait on its exit, both through the reactor, so siblings run for the child's

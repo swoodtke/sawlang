@@ -93,6 +93,9 @@ static EPOLL_CTL_MOD: Int32 = 3
 // EFD_NONBLOCK (0o4000): a wake post must never block the poster, and a
 // consumer that loses the read race must get EAGAIN rather than hang.
 static EFD_NONBLOCK: Int32 = 0x800
+// EPOLL_CLOEXEC and EFD_CLOEXEC, both O_CLOEXEC (0o2000000): a spawned child
+// keeps neither descriptor (SL-910).
+static CLOEXEC: Int32 = 0x8_0000
 static POLL_EVENTS: Int = 64
 
 // Create an instance and store it through `r_out`: 0, or the negated tag of
@@ -102,11 +105,11 @@ static POLL_EVENTS: Int = 64
 // would spin.
 @export("__saw_rt_reactor_create")
 func rt_reactor_create(r_out: UnsafePointer<Int>) unsafe -> Int {
-    let epfd = epoll_create1(0 as Int32)
+    let epfd = epoll_create1(CLOEXEC)
     if epfd < (0 as Int32) {
         return 0 - __saw_rt_last_syserror()
     }
-    let efd = eventfd(0 as UInt32, EFD_NONBLOCK)
+    let efd = eventfd(0 as UInt32, EFD_NONBLOCK | CLOEXEC)
     if efd < (0 as Int32) {
         let e = __saw_rt_last_syserror()
         let _ = close(epfd)

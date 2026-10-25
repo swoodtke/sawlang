@@ -47,7 +47,9 @@ enum SysError: UInt8 {
     case NetDown = 21,
     // Descriptor and device failures, appended for the same reason (SL-785).
     case InvalidDescriptor = 22,
-    case InputOutputFailed = 23
+    case InputOutputFailed = 23,
+    // A file that is not a program the system can execute (SL-898).
+    case NotExecutable = 24
 }
 
 // Linux errno numbers.
@@ -58,6 +60,7 @@ static ENOMEM: Int = 12
 static EACCES: Int = 13
 static EEXIST: Int = 17
 static EIO: Int = 5
+static ENOEXEC: Int = 8
 static EBADF: Int = 9
 static EINVAL: Int = 22
 static ENFILE: Int = 23
@@ -191,6 +194,8 @@ func rt_last_syserror() -> Int {
         SysError.InvalidDescriptor
     } else if e == EIO {
         SysError.InputOutputFailed
+    } else if e == ENOEXEC {
+        SysError.NotExecutable
     } else {
         SysError.Other
     }

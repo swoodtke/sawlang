@@ -1,0 +1,130 @@
+// probe: stated
+// about: a program a Command cannot execute is a `launch` failure naming the program and the exec's own cause, found on PATH by execvp's rules with no shell fallback, while a child's own exit 127 is Ok(127) (SL-898)
+// stage 0: its frozen std's `Command.wait` reads every exec failure, and a child's own 127, as `LaunchFailed` from the exit status
+// speeds: -O0 -O2
+// prints: not found on PATH: launch "saw_probe_no_such_program" failed (not found)
+// prints: not found by path: launch "./missing" failed (not found)
+// prints: subject: ./missing
+// prints: not executable: launch "./plain" failed (permission denied)
+// prints: a directory: launch "./adir" failed (permission denied)
+// prints: no #! line: launch "./script" failed (not an executable)
+// prints: not a program: launch "./object" failed (not an executable)
+// prints: kind NotExecutable: true
+// prints: exits 127: Ok(127)
+// prints: NUL in the program: spawn "./pl\0ain" failed (invalid argument)
+// prints: NUL in an argument: spawn "/bin/echo" failed (invalid argument)
+// prints: a bad env name: spawn "/bin/echo" failed (invalid argument)
+// prints: output: launch "./missing" failed (not found)
+// prints: output_bytes: launch "./missing" failed (not found)
+// prints: PATH passes a refusal by: Ok(7)
+// prints: PATH holding only a refusal: launch "tool" failed (permission denied)
+// prints: an empty PATH entry is the working directory: Ok(5)
+// The fixtures live in a scratch directory of the program's own, which it
+// makes its working directory, so every subject is a short relative name.
+import std.data.{Data}
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+import std.process.{Command}
+import std.systemerror.{SystemErrorKind}
+
+extern "C" {
+    func getpid() -> Int32
+}
+
+func put(name: String, text: String) {
+    var f = try! File.create(Path(s: name))
+    let _ = try! f.write(try! text.to_data())
+    try! f.close()
+}
+
+func run_shell(script: String) {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg(script)
+    let _ = try! c.wait()
+}
+
+func waited(c: Command) -> String {
+    match c.wait() {
+        case Ok(code) -> "Ok({code})",
+        case Err(e) -> "{e}"
+    }
+}
+
+func main() {
+    let root = Path(s: (try! Env.get("TMPDIR")) ?? "/tmp")
+    let dir = root.join("saw_probe_launch_{getpid()}")
+    try! Directory.create(dir)
+    try! Env.set_cwd(dir)
+    put("plain", "#!/bin/sh\nexit 0\n")
+    try! Directory.create(Path(s: "adir"))
+    put("script", "exit 3\n")
+    var object = try! File.create(Path(s: "object"))
+    var junk = Data()
+    var b = 1
+    while b < 17 {
+        try! junk.push(b as UInt8)
+        b = b + 1
+    }
+    let _ = try! object.write(junk)
+    try! object.close()
+    try! Directory.create(Path(s: "d1"))
+    try! Directory.create(Path(s: "d2"))
+    put("d1/tool", "#!/bin/sh\nexit 1\n")
+    put("d2/tool", "#!/bin/sh\nexit 7\n")
+    put("five", "#!/bin/sh\nexit 5\n")
+    run_shell("chmod +x script object d2/tool five")
+
+    print("not found on PATH: {}", waited(Command(program: "saw_probe_no_such_program")))
+    match Command(program: "./missing").wait() {
+        case Ok(_) -> print("not found by path UNEXPECTED ok"),
+        case Err(e) -> {
+            print("not found by path: {}", e)
+            print("subject: {}", e.subject() ?? "none")
+        }
+    }
+    print("not executable: {}", waited(Command(program: "./plain")))
+    print("a directory: {}", waited(Command(program: "./adir")))
+    print("no #! line: {}", waited(Command(program: "./script")))
+    match Command(program: "./object").wait() {
+        case Ok(code) -> print("not a program UNEXPECTED Ok({})", code),
+        case Err(e) -> {
+            print("not a program: {}", e)
+            print("kind NotExecutable: {}", e.kind() == SystemErrorKind.NotExecutable)
+        }
+    }
+    var exits = Command(program: "/bin/sh")
+    try! exits.arg("-c")
+    try! exits.arg("exit 127")
+    print("exits 127: {}", waited(move exits))
+    print("NUL in the program: {}", waited(Command(program: "./pl\0ain")))
+    var nul_arg = Command(program: "/bin/echo")
+    try! nul_arg.arg("a\0b")
+    print("NUL in an argument: {}", waited(move nul_arg))
+    var bad_env = Command(program: "/bin/echo")
+    try! bad_env.env("A=B", "1")
+    print("a bad env name: {}", waited(move bad_env))
+    match Command(program: "./missing").output() {
+        case Ok(_) -> print("output UNEXPECTED ok"),
+        case Err(e) -> print("output: {}", e)
+    }
+    match Command(program: "./missing").output_bytes() {
+        case Ok(_) -> print("output_bytes UNEXPECTED ok"),
+        case Err(e) -> print("output_bytes: {}", e)
+    }
+
+    var passes = Command(program: "tool")
+    try! passes.env("PATH", "./d1:./d2")
+    print("PATH passes a refusal by: {}", waited(move passes))
+    var refused = Command(program: "tool")
+    try! refused.env("PATH", "./d1")
+    print("PATH holding only a refusal: {}", waited(move refused))
+    var here = Command(program: "five")
+    try! here.env("PATH", "./d1:")
+    print("an empty PATH entry is the working directory: {}", waited(move here))
+
+    try! Env.set_cwd(root)
+    run_shell("rm -rf '{dir.as_string()}'")
+}

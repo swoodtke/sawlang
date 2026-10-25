@@ -1,0 +1,111 @@
+// probe: stated
+// about: every std operation given a path, a program, a name, a host or a signal names it in its error, the subject `subject()` reads back, and one given none renders without it (SL-898)
+// stage 0: its frozen std's errors name no subject, and its `listen` refusals carry their reason in the operation's name
+// speeds: -O0 -O2
+// prints: open "/nonexistent_saw_probe/a.toml" failed (not found)
+// prints: open "/nonexistent_saw_probe/b.txt" failed (not found)
+// prints: open "/nonexistent_saw_probe/c.log" failed (not found)
+// prints: unlink "/nonexistent_saw_probe/gone" failed (not found)
+// prints: rename "/nonexistent_saw_probe/from" failed (not found)
+// prints: opendir "/nonexistent_saw_probe" failed (not found)
+// prints: mkdir "/nonexistent_saw_probe/sub" failed (not found)
+// prints: rmdir "/nonexistent_saw_probe/sub" failed (not found)
+// prints: chdir "/nonexistent_saw_probe" failed (not found)
+// prints: setenv "A=B" failed (invalid argument)
+// prints: unsetenv "A=B" failed (invalid argument)
+// prints: realpath "/nonexistent_saw_probe/x" failed (not found)
+// prints: subject: /nonexistent_saw_probe/x
+// prints: io error: connect "127.0.0.1" failed (connection refused)
+// prints: io error: resolve "no-such-host.invalid" failed (not found)
+// prints: io error: resolve "a\0b" failed (invalid argument)
+// prints: io error: listen "port must be 0..65535" failed (invalid argument)
+// prints: io error: listen "backlog must be at least 1" failed (invalid argument)
+// prints: io error: listen "localhost" failed (invalid argument)
+// prints: io error: watch "SIGUSR2" failed (already exists)
+// prints: io subject: SIGUSR2
+// prints: read failed (invalid descriptor)
+// prints: no subject: true
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.net.{TcpListener, TcpStream}
+import std.path.{Path}
+import std.signal.{Signal, SignalWatch}
+import std.systemerror.{SystemError}
+
+func show<T>(answer: Result<T, SystemError>) {
+    match answer {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+}
+
+func main() {
+    show(File.open(Path(s: "/nonexistent_saw_probe/a.toml")))
+    show(File.create(Path(s: "/nonexistent_saw_probe/b.txt")))
+    show(File.open_append(Path(s: "/nonexistent_saw_probe/c.log")))
+    show(File.remove(Path(s: "/nonexistent_saw_probe/gone")))
+    show(File.rename(Path(s: "/nonexistent_saw_probe/from"), Path(s: "/nonexistent_saw_probe/to")))
+    show(Directory.list(Path(s: "/nonexistent_saw_probe")))
+    show(Directory.create(Path(s: "/nonexistent_saw_probe/sub")))
+    show(Directory.remove(Path(s: "/nonexistent_saw_probe/sub")))
+    show(Env.set_cwd(Path(s: "/nonexistent_saw_probe")))
+    show(Env.set("A=B", "1"))
+    show(Env.unset("A=B"))
+    match Path(s: "/nonexistent_saw_probe/x").canonical() {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> {
+            print("{}", e)
+            print("subject: {}", e.subject() ?? "none")
+        }
+    }
+
+    // Port 1 on loopback has no listener on a test host.
+    match TcpStream.connect("127.0.0.1", 1) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    match TcpStream.connect("no-such-host.invalid", 80) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    match TcpStream.connect("a\0b", 80) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    match TcpListener.listen(70000) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    match TcpListener.listen(0, backlog: 0) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    match TcpListener.listen(0, host: "localhost") {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    let held = try! SignalWatch.watch(Signal.User2)
+    match SignalWatch.watch(Signal.User2) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> {
+            print("{}", e)
+            print("io subject: {}", e.subject() ?? "none")
+        }
+    }
+    let _ = move held
+
+    // A read of a file opened only for writing is refused by the descriptor
+    // itself, and the file's path is not the read's to name.
+    let scratch = Path(s: (try! Env.get("TMPDIR")) ?? "/tmp").join("saw_probe_subject_read")
+    var writer = try! File.create(scratch)
+    match writer.read(size: 8) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> {
+            print("{}", e)
+            print("no subject: {}", e.subject().is_none())
+        }
+    }
+    try! writer.close()
+    let _ = File.remove(scratch)
+}

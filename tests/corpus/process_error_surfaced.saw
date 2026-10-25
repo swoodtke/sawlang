@@ -1,12 +1,15 @@
 // Command.wait() surfaces a LAUNCH failure as Err(SystemError), rather than
 // folding it into a bogus exit code (design 92 item 1, re-landed under design
 // 94 once the enum/Result payload codegen bug was fixed). A nonexistent program
-// cannot be executed, which wait() reports as an Err of kind `LaunchFailed`.
-// (Any "command not found" message goes to stderr, ignored.)
+// cannot be executed, and the error names it and says why: the program is its
+// subject, the kind is `NotFound`, and it renders as a `launch` failure, so a
+// caller running several commands can tell which one failed (SL-898).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // launched: false
-// error is a launch failure: true
+// error names program: true
+// kind is not found: true
+// rendered: launch "this_command_does_not_exist_zzq" failed (not found)
 
 import std.process.{Command}
 import std.systemerror.{SystemErrorKind}
@@ -17,15 +20,17 @@ func main() {
             // A real launch would print the exit code here; the not-found
             // program must NOT reach this arm.
             print("launched: true (code {code})")
-            print("error is a launch failure: false")
         },
         case Err(e) -> {
             print("launched: false")
-            let launch = match e.kind() {
-                case LaunchFailed -> true,
+            let named = (e.subject() ?? "").equals("this_command_does_not_exist_zzq")
+            print("error names program: {named}")
+            let not_found = match e.kind() {
+                case NotFound -> true,
                 case _ -> false
             }
-            print("error is a launch failure: {launch}")
+            print("kind is not found: {not_found}")
+            print("rendered: {e}")
         }
     }
 }

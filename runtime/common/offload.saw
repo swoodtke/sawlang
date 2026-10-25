@@ -19,7 +19,8 @@
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
     func free(ptr: UnsafePointer<Int8>)
-    func pipe(fds: UnsafePointer<Int8>) -> Int32
+    // `pipe` with both ends close-on-exec: 0 or the negated tag (shim.c).
+    func __saw_pipe_cloexec(fds: UnsafePointer<Int8>) -> Int
     func close(fd: Int32) -> Int32
     func abort()
     // Join is Saw (rt/common/pthread.saw); spawn is C (rt/shim.c).
@@ -102,11 +103,11 @@ func rt_offload_start(fn: Int, argp: Int, argc: Int, job_out: UnsafePointer<Int>
         return 0 - e
     }
     var fds = PipeFds(r: 0, w: 0)
-    if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
-        let e = __saw_rt_last_syserror()
+    let piped = __saw_pipe_cloexec((&fds) as UnsafePointer<Int8>)
+    if piped != 0 {
         free_arg_slots(args)
         free(raw)
-        return 0 - e
+        return piped
     }
     let p = raw as UnsafePointer<Job>
     p[0].fn = fn

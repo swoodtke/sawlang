@@ -1,0 +1,43 @@
+// probe: stated
+// about: a child a Command launches holds only its standard three descriptors and what it opens itself, whatever the parent has open: a file, a listener and a socket pair leave the child's count where it was (SL-910)
+// stage 0: its frozen runtime makes no descriptor close-on-exec, so the child inherits all three
+// speeds: -O0 -O2
+// prints: the child's count is unchanged by a file, a listener and a socket pair: true
+// The child is this program again, run with `count`: it lists its own open
+// descriptors and prints how many. The count is compared, not stated, since
+// what a process holds at start differs by host.
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.net.{TcpListener, TcpStream}
+import std.path.{Path}
+import std.process.{Command}
+
+func own_count() -> Int {
+    (try! Directory.list(Path(s: "/dev/fd"))).len()
+}
+
+func child_count(program: String) -> Int {
+    var c = Command(program: program)
+    try! c.arg("count")
+    let out = try! c.output()
+    out.stdout.trim().to_int() ?? -1
+}
+
+func main() {
+    if ((try! Env.argument(1)) ?? "").equals("count") {
+        print(own_count())
+        return
+    }
+    let program = try! Env.executable_path()
+    let quiet = child_count(program)
+    let file = try! File.open(Path(s: program))
+    let listener = try! TcpListener.listen(0)
+    let (a, b) = try! TcpStream.pair()
+    let busy = child_count(program)
+    print("the child's count is unchanged by a file, a listener and a socket pair: {}", quiet == busy && quiet > 0)
+    let _ = move file
+    let _ = move listener
+    let _ = move a
+    let _ = move b
+}

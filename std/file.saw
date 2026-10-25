@@ -56,8 +56,9 @@ public struct File {
 extension File {
     /// Opens the file at `path` for reading.
     ///
-    /// Returns `Err(SystemError)` with the reason open(2) refused. A path
-    /// holding a NUL byte, which no system path can, is `InvalidArgument`.
+    /// Returns `Err(SystemError)` naming `path`, with the reason open(2)
+    /// refused. A path holding a NUL byte, which no system path can, is
+    /// `InvalidArgument`.
     public static func open(path: Path) unsafe -> Result<File, SystemError> {
         File.opened(path, OpenMode.Read, NO_PERMISSION)
     }
@@ -85,11 +86,11 @@ extension File {
         if borrow let name = text.c_string() {
             let fd = __saw_rt_fs_open(name, (mode as UInt8) as Int, permission)
             if fd < 0 {
-                return SystemError.of("open", 0 - fd)
+                return SystemError.of("open", 0 - fd, text)
             }
             return File(descriptor: fd)
         } else {
-            return SystemError.raised("open", SystemErrorKind.InvalidArgument)
+            return SystemError.raised("open", SystemErrorKind.InvalidArgument, text)
         }
     }
 
@@ -260,11 +261,11 @@ extension File {
         if borrow let name = text.c_string() {
             let status = __saw_rt_fs_unlink(name)
             if status != 0 {
-                return SystemError.of("unlink", 0 - status)
+                return SystemError.of("unlink", 0 - status, text)
             }
             return
         } else {
-            return SystemError.raised("unlink", SystemErrorKind.InvalidArgument)
+            return SystemError.raised("unlink", SystemErrorKind.InvalidArgument, text)
         }
     }
 
@@ -272,7 +273,8 @@ extension File {
     /// already there.
     ///
     /// Returns `Err(SystemError)` with the cause of a failing rename(2), or
-    /// `InvalidArgument` for a path holding a NUL byte.
+    /// `InvalidArgument` for a path holding a NUL byte. Either names
+    /// `from_path`, the file the rename was asked to move.
     public static func rename(from_path: Path, to_path: Path) unsafe -> Result<Void, SystemError> {
         let old = from_path.as_string()
         let new = to_path.as_string()
@@ -280,12 +282,12 @@ extension File {
             if borrow let to = new.c_string() {
                 let status = __saw_rt_fs_rename(from, to)
                 if status != 0 {
-                    return SystemError.of("rename", 0 - status)
+                    return SystemError.of("rename", 0 - status, old)
                 }
                 return
             }
         }
-        return SystemError.raised("rename", SystemErrorKind.InvalidArgument)
+        return SystemError.raised("rename", SystemErrorKind.InvalidArgument, old)
     }
 
     /// Closes the file now, and reports what close(2) found.

@@ -1,0 +1,83 @@
+// probe: stated
+// about: launches from several threads at once hand no child another launch's pipe, so each child's descriptor count stays at a lone launch's, and every concurrent launch of a missing program is reported NotFound, its exec errno never lost to another launch's descriptors (SL-910)
+// stage 0: its frozen runtime makes no descriptor close-on-exec, so a child launched beside others holds their pipes
+// speeds: -O0 -O2
+// prints: a lone child's count is the most any concurrent child held: true
+// prints: every concurrent launch of a missing program was NotFound: true
+// The child is this program again, run with `count`: it exits with the number
+// of descriptors it holds. The counts are compared, not stated, since what a
+// process holds at start differs by host.
+import std.directory.{Directory}
+import std.env.{Env}
+import std.path.{Path}
+import std.process.{Command}
+import std.systemerror.{SystemErrorKind}
+import std.task.{Thread}
+
+static THREADS: Int = 4
+static LAUNCHES: Int = 20
+
+func own_count() -> Int {
+    (try! Directory.list(Path(s: "/dev/fd"))).len()
+}
+
+func child_count(program: String) -> Int {
+    var c = Command(program: program)
+    try! c.arg("count")
+    (try! c.wait()) as Int
+}
+
+// Launches the counting child and the missing program `rounds` times each, and
+// returns the most descriptors a child held, or -1 once a missing program was
+// reported as anything but NotFound.
+func launch_many(program: String, rounds: Int) -> Int {
+    var most = 0
+    var i = 0
+    while i < rounds {
+        let n = child_count(program)
+        if n > most {
+            most = n
+        }
+        let missing = Command(program: "saw_probe_concurrent_missing")
+        match missing.wait() {
+            case Ok(_) -> {
+                return -1
+            },
+            case Err(e) -> {
+                if e.kind() != SystemErrorKind.NotFound {
+                    return -1
+                }
+            }
+        }
+        i = i + 1
+    }
+    most
+}
+
+func main() -> Int {
+    if ((try! Env.argument(1)) ?? "").equals("count") {
+        return own_count()
+    }
+    let program = try! Env.executable_path()
+    let quiet = child_count(program)
+    var threads = Vector<Thread<Int>>()
+    var t = 0
+    while t < THREADS {
+        try! threads.push(try! Thread.spawn { [program] in launch_many(program, LAUNCHES) })
+        t = t + 1
+    }
+    var most = 0
+    var all_not_found = true
+    while threads.len() > 0 {
+        var th = threads.pop()!
+        let m = th.join()
+        if m < 0 {
+            all_not_found = false
+        } else if m > most {
+            most = m
+        }
+    }
+    print("a lone child's count is the most any concurrent child held: {}", quiet > 0 && most == quiet)
+    print("every concurrent launch of a missing program was NotFound: {}", all_not_found)
+    0
+}

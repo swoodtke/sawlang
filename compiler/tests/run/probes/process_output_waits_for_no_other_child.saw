@@ -1,0 +1,77 @@
+// probe: stated
+// about: an output() reads end of file when its own child exits, never later: a long-lived child launched beside it on another thread holds no write end of its pipe (SL-910)
+// stage 0: its frozen runtime makes no pipe close-on-exec, so a sleeper launched beside a capture can hold the capture's write end until it exits
+// speeds: -O0 -O2
+// prints: no output() waited for another child: true
+// Four pool tasks run quick captures for as long as two threads launch
+// children that sleep a second each. A capture whose pipe a sleeper inherited
+// would take most of a second; one that did not takes milliseconds, so the
+// bound below is far from both.
+import std.process.{Command}
+import std.task.{Thread}
+import std.time
+
+static TASKS: Int = 4
+static SLEEPER_THREADS: Int = 2
+static SLEEPS: Int = 3
+static STALL_MS: UInt64 = 500
+// How many sleeper threads have finished.
+static SLEEPERS_DONE: Atomic<Int> = Atomic(0)
+
+// The longest quick capture, in milliseconds, of those run until every
+// sleeper thread has finished.
+func slowest_capture() -> UInt64 {
+    var slowest: UInt64 = 0
+    while SLEEPERS_DONE.load() < SLEEPER_THREADS {
+        var c = Command(program: "/bin/echo")
+        try! c.arg("x")
+        let start = time.Instant.now()
+        let _ = try! c.output()
+        let took = start.elapsed().as_millis()
+        if took > slowest {
+            slowest = took
+        }
+    }
+    slowest
+}
+
+func sleep_children() -> Int {
+    var i = 0
+    while i < SLEEPS {
+        var c = Command(program: "/bin/sleep")
+        try! c.arg("1")
+        let _ = try! c.wait()
+        i = i + 1
+    }
+    let _ = SLEEPERS_DONE.fetch_add(1)
+    i
+}
+
+func main() {
+    var sleepers = Vector<Thread<Int>>()
+    var s = 0
+    while s < SLEEPER_THREADS {
+        try! sleepers.push(try! Thread.spawn { sleep_children() })
+        s = s + 1
+    }
+    var group = try! TaskGroup(threads: TASKS)
+    var handles = Vector<Task<UInt64>>()
+    var t = 0
+    while t < TASKS {
+        try! handles.push(group.spawn(slowest_capture()))
+        t = t + 1
+    }
+    var slowest: UInt64 = 0
+    while handles.len() > 0 {
+        let h = handles.pop()!
+        let took = h.join()
+        if took > slowest {
+            slowest = took
+        }
+    }
+    while sleepers.len() > 0 {
+        var th = sleepers.pop()!
+        let _ = th.join()
+    }
+    print("no output() waited for another child: {}", slowest < STALL_MS)
+}

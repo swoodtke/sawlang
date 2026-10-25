@@ -276,6 +276,7 @@ error vocabulary.
 | 21  | NetDown             | ENETDOWN                                   |
 | 22  | InvalidDescriptor   | EBADF                                      |
 | 23  | InputOutputFailed   | EIO                                        |
+| 24  | NotExecutable       | ENOEXEC                                    |
 
 `IsConnected` (3) and `InProgress` (2) exist so a re-issued nonblocking
 `connect()` can be classified (done / still connecting / failed) without an
@@ -313,7 +314,8 @@ into `IoError` (`IoError.of(syscall:tag:)`), whose text names the kind
 (`"io error: mkdir failed (not found)"`).
 
 **Adding tags.** Tags 17-21 are the failures that can only happen off loopback
-(DF-215a); 22-23 name a bad descriptor and a failed device (SL-785). Widening this table is additive, not an ABI change: no existing tag
+(DF-215a); 22-23 name a bad descriptor and a failed device (SL-785); 24 names a
+file that is not a program the system can execute (SL-898). Widening this table is additive, not an ABI change: no existing tag
 is renumbered (`Other` keeps 16, which is why 17-21 sit after it rather than
 beside their neighbours), and no seam signature moves, so the arity/width
 check and `make abidoc`'s symbol-set check are unaffected. A
@@ -724,10 +726,34 @@ whatever bytes it holds.
 A **job** is an opaque heap record owning the child's pid and, when capturing,
 the read end of its stdout pipe. Single-owner discipline, as in the offload
 family: `spawn` creates the job, the reap destroys it. The hosted bodies are
-`fork` + `execvp` (`rt/common/proc.saw`, OS-independent); between fork and exec
-the child touches only async-signal-safe calls (`close`/`dup2`/`execvp`/`_exit`).
-The parent holds the environment lock across the `fork` (see the environment
-ops above).
+`fork` + `execve` (`rt/common/proc.saw`, OS-independent); between fork and exec
+the child touches only async-signal-safe calls (`close`/`dup2`/`execve`/
+`access`/`write`/`_exit`). The parent holds the environment lock across the
+`fork` (see the environment ops above), and makes the spawn's pipes under it,
+close-on-exec. The child closes every descriptor but its standard three before
+it executes anything (SL-910), so it inherits nothing the program had open,
+whichever thread opened it.
+
+**The PATH search is the runtime's, by `execvp`'s rules.** A name holding `/`
+(or an empty one) is executed as it is; otherwise each entry of the PATH in the
+environment the child gets, or `_PATH_DEFPATH` when that sets none, is tried in
+order, an empty entry naming the current directory. A failure on a file that is
+not there moves the search on; a permission refusal moves it on too and is
+reported only if no later entry runs; any other failure on an existing file
+stops it. There is no `/bin/sh` fallback: a file the kernel refuses with
+`ENOEXEC` is reported as `NotExecutable` (tag 24), since a shell running it
+would break "no shell is involved at any point".
+
+**A program that cannot be executed is the spawn's failure, never an exit
+status (SL-898).** The hosted body passes the child a close-on-exec pipe; a
+child whose search executes nothing writes the errno there and exits, and the parent,
+which reads the pipe before it returns, reaps that child and answers
+`-(256 + tag)`: the tag of exec's errno, biased so std can tell "could not
+execute the program" from a spawn that never forked, with the raw code stamped
+for `__saw_rt_last_raw_code`. End of file on the pipe means the exec happened,
+so every exit status a job reports is the program's own, 127 included. A
+runtime that never answers the biased form is still correct; std then reports
+a launch failure as a spawn failure.
 
 **The child wait uses no thread (design 182).** `try_wait` reaps with `WNOHANG`
 and answers `-WouldBlock` while the child lives, and a caller that has to wait
@@ -744,9 +770,9 @@ not part of this contract (see the change table).
 
 ### `__saw_rt_proc_spawn(path: i8*, argv: i8**, flags: word) -> word`
 Spawn `path` with the NULL-terminated `argv` array (`argv[0]` is the program
-name, as `execvp` expects). Returns the job handle (`> 0`) or `-tag`. A child
-that cannot exec exits **127** (the POSIX "command not found" convention), which
-std maps back to a launch failure.
+name, as `execvp` expects). Returns the job handle (`> 0`), `-tag` when the
+spawn failed, or `-(256 + tag)` when the child could not execute the program
+(above).
 
 `flags` is a redirection bit set, one bit per stream (`0` and `1` mean what
 they meant before bit 1 existed):
@@ -768,8 +794,8 @@ reach the process environment. `envp` is a NULL-terminated `NAME=VALUE` array;
 the child gets the spawning process's environment **with each of those names
 set to the given value and everything else inherited**, not a replacement
 environment. Names are unique (std replaces rather than appends), so no
-precedence question reaches the seam. Returns the job handle (`> 0`) or
-`-tag`, and `-Exhausted` when the merged array cannot be allocated.
+precedence question reaches the seam. Returns what `__saw_rt_proc_spawn`
+returns, and `-Exhausted` when the merged array cannot be allocated.
 
 The merge runs in the parent, before the fork, under the environment lock
 (above), and copies every parent entry it keeps, so no later `setenv` on
@@ -1313,6 +1339,8 @@ a flag bit.
 | SL-793 | `__saw_rt_thread_executor` and `__saw_rt_set_thread_executor`: two new symbols, the per-thread word std's executor keeps its record's address in, so a cooperative group's tasks run only on the thread that drives it. No existing signature moved. A freestanding runtime supplies both when a program links the executor; a single-threaded one keeps a static word |
 | SL-826 | `__saw_rt_fs_realpath`: one new symbol, status-carrying like `__saw_rt_fs_getcwd`, so `Path.canonical` reports the cause realpath gave. No existing signature moved |
 | SL-896 | `__saw_rt_proc_take_stdout`: one new symbol, handing the capture pipe's read end from the job to the caller, so std drains it on the reactor and a cancel ends the drain. No existing signature moved; `read_stdout` stays |
+| SL-898 | `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract with the same signatures: a program that cannot be executed is the spawn's answer `-(256 + tag)`, carrying exec's errno, where it was a child exiting 127; the child is found on PATH by `execvp`'s rules and executed with `execve`, with no `/bin/sh` fallback; and the child closes every descriptor it inherited but its standard three. SysError tag 24 (`NotExecutable`, `ENOEXEC`). A runtime that keeps the old answer is still correct, as the spawn section says. No symbol, no signature, no renumbering |
+| SL-910 | every descriptor the hosted runtime makes is close-on-exec (files, sockets, accepted connections, pipes, the reactor's own). No symbol, no signature |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1487,8 +1515,14 @@ and moves to Saw when its gap closes:
   macros and struct layouts, an extern global, a signal handler's function
   pointer): `__saw_open_flags`, the `getaddrinfo` projections
   (`__saw_ai_next`, `__saw_ai_ipv4`, `__saw_gai_tag`),
-  `__saw_environ_get`/`_set`, the socket-option and SIGPIPE helpers, the
+  `__saw_environ_get` (and `_set`, which only the bootstrap seed's pinned
+  runtime still calls), the socket-option and SIGPIPE helpers, the
   signal family, `__saw_classify_code` (an error number a call returned,
   stored into the per-host errno macro and classified by
-  `__saw_rt_last_syserror`), and on Linux
+  `__saw_rt_last_syserror`), the spawn's child-side helpers (`__saw_errno`,
+  the raw errno, which a forked child may not classify; `__saw_exec_next`,
+  the PATH search's per-errno rule; `__saw_default_path`;
+  `__saw_close_inherited`, with `__saw_fd_limit` read in the parent), the
+  close-on-exec family (`__saw_pipe_cloexec`, `__saw_accept_cloexec`,
+  `__saw_socket_cloexec_type`, `__saw_mark_cloexec`), and on Linux
   `__saw_epoll_event_size`/`_data_offset`.

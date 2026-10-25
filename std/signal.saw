@@ -110,17 +110,31 @@ func signal_tag(which: Signal) -> Int {
     }
 }
 
-// The error for a refusal `__saw_signal_watch` or `__saw_signal_number` gave.
-func watch_error(reason: Int) -> IoError {
+// The name an error gives the signal, the POSIX one.
+func signal_name(which: Signal) -> String {
+    match which {
+        case Terminate -> "SIGTERM",
+        case Interrupt -> "SIGINT",
+        case Hangup -> "SIGHUP",
+        case Quit -> "SIGQUIT",
+        case User1 -> "SIGUSR1",
+        case User2 -> "SIGUSR2",
+        case WindowChanged -> "SIGWINCH"
+    }
+}
+
+// The error for a refusal `__saw_signal_watch` or `__saw_signal_number` gave
+// `operation` on `which`: the signal already watched, a signal this host
+// lacks, or a handler or pipe that could not be installed.
+func watch_error(operation: String, which: Signal, reason: Int) -> IoError {
+    let name = signal_name(which)
     if reason == -2 {
-        return IoError.of(syscall: "watch: that signal is already being watched",
-                          kind: IoErrorKind.AlreadyExists)
+        return IoError.of(syscall: operation, subject: name, kind: IoErrorKind.AlreadyExists)
     }
     if reason == -1 {
-        return IoError.of(syscall: "watch: this host has no such signal",
-                          kind: IoErrorKind.InvalidArgument)
+        return IoError.of(syscall: operation, subject: name, kind: IoErrorKind.InvalidArgument)
     }
-    IoError.of(syscall: "watch", kind: IoErrorKind.ResourcesExhausted)
+    IoError.of(syscall: operation, subject: name, kind: IoErrorKind.ResourcesExhausted)
 }
 
 /// A live watch on one signal.
@@ -133,6 +147,7 @@ func watch_error(reason: Int) -> IoError {
 /// `NoCopy`: a signal's disposition is process-global state, and this handle is
 /// the single owner of it.
 public struct SignalWatch {
+    private which: Signal
     private signo: Int
     private fd: Int
 }
@@ -151,13 +166,13 @@ extension SignalWatch {
     public static func watch(which: Signal) -> Result<SignalWatch, IoError> {
         let signo = __saw_signal_number(signal_tag(which))
         if signo < 0 {
-            return watch_error(-1)
+            return watch_error("watch", which, -1)
         }
         let fd = __saw_signal_watch(signo)
         if fd < 0 {
-            return watch_error(fd)
+            return watch_error("watch", which, fd)
         }
-        SignalWatch(signo: signo, fd: fd)
+        SignalWatch(which: which, signo: signo, fd: fd)
     }
 
     /// Suspends until the watched signal is delivered.
@@ -172,7 +187,7 @@ extension SignalWatch {
     public func next(&self) -> Result<Void, IoError> {
         while true {
             if cancelled() {
-                return IoError.of(syscall: "next", kind: IoErrorKind.Interrupted)
+                return IoError.of(syscall: "next", subject: signal_name(self.which), kind: IoErrorKind.Interrupted)
             }
             if __saw_signal_drain(self.signo) > 0 {
                 break
@@ -181,7 +196,7 @@ extension SignalWatch {
             // closed, so the pipe has no end-of-stream case to handle.
             match io_wait(self.fd, READ_READY, NO_TIMEOUT) {
                 case Cancelled -> {
-                    return IoError.of(syscall: "next", kind: IoErrorKind.Interrupted)
+                    return IoError.of(syscall: "next", subject: signal_name(self.which), kind: IoErrorKind.Interrupted)
                 },
                 case _ -> {
                     // A park ceded to the scheduler, so the run of operations
@@ -224,10 +239,10 @@ extension Signal {
     public func send_to_self(&self) -> Result<Void, IoError> {
         let signo = __saw_signal_number(signal_tag(self))
         if signo < 0 {
-            return watch_error(-1)
+            return watch_error("send_to_self", self, -1)
         }
         if __saw_signal_raise(signo) != 0 {
-            return IoError.of(syscall: "send_to_self", kind: IoErrorKind.InvalidArgument)
+            return IoError.of(syscall: "send_to_self", subject: signal_name(self), kind: IoErrorKind.InvalidArgument)
         }
         return
     }

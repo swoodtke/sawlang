@@ -53,10 +53,10 @@ extension Directory {
         if borrow let name = text.c_string() {
             opened = __saw_rt_fs_opendir(name, (&status) as UnsafePointer<Int>)
         } else {
-            return SystemError.raised("opendir", SystemErrorKind.InvalidArgument)
+            return SystemError.raised("opendir", SystemErrorKind.InvalidArgument, text)
         }
         guard let stream = opened else {
-            return SystemError.of("opendir", status)
+            return SystemError.of("opendir", status, text)
         }
         var result = Vector<Path>()
         while true {
@@ -69,7 +69,7 @@ extension Directory {
             }
             // readdir reuses the entry's buffer, so the name is copied out
             // before the next call.
-            let entry_name = match system_text("readdir", name, c_string_length(name)) {
+            let entry_name = match system_text("readdir", text, name, c_string_length(name)) {
                 case Ok(decoded) -> decoded,
                 case Err(failure) -> {
                     closedir(stream)
@@ -81,7 +81,7 @@ extension Directory {
                 case Ok(_) -> {},
                 case Err(_) -> {
                     closedir(stream)
-                    return SystemError.raised("readdir", SystemErrorKind.ResourcesExhausted)
+                    return SystemError.raised("readdir", SystemErrorKind.ResourcesExhausted, text)
                 }
             }
         }
@@ -99,11 +99,11 @@ extension Directory {
         if borrow let name = text.c_string() {
             let status = __saw_rt_fs_mkdir(name, DIRECTORY_MODE)
             if status != 0 {
-                return SystemError.of("mkdir", 0 - status)
+                return SystemError.of("mkdir", 0 - status, text)
             }
             return
         } else {
-            return SystemError.raised("mkdir", SystemErrorKind.InvalidArgument)
+            return SystemError.raised("mkdir", SystemErrorKind.InvalidArgument, text)
         }
     }
 
@@ -118,11 +118,11 @@ extension Directory {
         if borrow let name = text.c_string() {
             let status = __saw_rt_fs_rmdir(name)
             if status != 0 {
-                return SystemError.of("rmdir", 0 - status)
+                return SystemError.of("rmdir", 0 - status, text)
             }
             return
         } else {
-            return SystemError.raised("rmdir", SystemErrorKind.InvalidArgument)
+            return SystemError.raised("rmdir", SystemErrorKind.InvalidArgument, text)
         }
     }
 

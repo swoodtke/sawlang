@@ -2,10 +2,11 @@
 //!
 //! A runtime seam reports a failure as the negated portable tag of
 //! `runtime/ABI.md`'s error table, and this module reads that tag as a
-//! `SystemErrorKind`. The error carries the operation's name, the kind, and
-//! the platform's own error number behind it. It renders the same on every
-//! host except where the kind is `Unknown`: there the number is the only
-//! account of the cause, so the text names it.
+//! `SystemErrorKind`. The error carries the operation's name, the path,
+//! program or name the operation was given when it had one, the kind, and the
+//! platform's own error number behind it. It renders the same on every host
+//! except where the kind is `Unknown`: there the number is the only account of
+//! the cause, so the text names it.
 
 extern "C" {
     // The raw platform code behind the tag the last failing seam call on this
@@ -15,9 +16,8 @@ extern "C" {
 
 /// What kind of failure an operating-system operation reported.
 ///
-/// The kinds are the runtime's portable tags, plus `UnexpectedEnd`,
-/// `LaunchFailed` and `InvalidUtf8`, which the standard library raises
-/// itself. Several platform codes share one kind (`EACCES` and `EPERM` are
+/// The kinds are the runtime's portable tags, plus `UnexpectedEnd` and
+/// `InvalidUtf8`, which the standard library raises itself. Several platform codes share one kind (`EACCES` and `EPERM` are
 /// both `PermissionDenied`), and `Unknown` is a failure the portable set has
 /// no word for.
 public enum SystemErrorKind {
@@ -70,9 +70,9 @@ public enum SystemErrorKind {
     /// The data ended before the length the operation was promised, as when a
     /// file shrinks while it is read.
     case UnexpectedEnd,
-    /// A child process could not run its program: it exited 127, the code
-    /// the spawn's child reports when the program cannot be executed.
-    case LaunchFailed,
+    /// The file is not a program this system can execute: neither a binary
+    /// it runs nor a script naming its interpreter on a `#!` line.
+    case NotExecutable,
     /// The operating system gave text that is not valid UTF-8, such as a
     /// file name or an environment variable's value, which no `String` may
     /// hold.
@@ -103,6 +103,7 @@ static TAG_HOST_DOWN: Int = 20
 static TAG_NETWORK_DOWN: Int = 21
 static TAG_INVALID_DESCRIPTOR: Int = 22
 static TAG_INPUT_OUTPUT_FAILED: Int = 23
+static TAG_NOT_EXECUTABLE: Int = 24
 
 /// Returns the kind a portable tag names: `Unknown` for the catch-all tag,
 /// and for a tag a newer runtime reports that this table does not know.
@@ -151,6 +152,8 @@ public(package) func system_error_kind(tag: Int) -> SystemErrorKind {
         SystemErrorKind.InvalidDescriptor
     } else if tag == TAG_INPUT_OUTPUT_FAILED {
         SystemErrorKind.InputOutputFailed
+    } else if tag == TAG_NOT_EXECUTABLE {
+        SystemErrorKind.NotExecutable
     } else {
         SystemErrorKind.Unknown
     }
@@ -184,20 +187,25 @@ extension SystemErrorKind {
             case InvalidDescriptor -> "invalid descriptor",
             case InputOutputFailed -> "input/output failed",
             case UnexpectedEnd -> "unexpected end of data",
-            case LaunchFailed -> "the program could not be launched",
+            case NotExecutable -> "not an executable",
             case InvalidUtf8 -> "not valid UTF-8"
         }
     }
 }
 
-/// An operating-system operation that failed: which one, and its kind.
+/// An operating-system operation that failed: which one, what it was given,
+/// and its kind.
 ///
-/// It renders as `open failed (not found)`: the operation, then the kind's
-/// description. A failure of kind `Unknown` also names the platform's error
-/// number, `rename failed (other error, errno 18)`, since no portable word says
-/// what happened.
+/// It renders as `open "saw.toml" failed (not found)`: the operation, the
+/// path, program or name it was given in quotes, then the kind's description.
+/// An operation with no such subject, such as a read of a file already open,
+/// leaves the quotes out: `read failed (input/output failed)`. A NUL byte in
+/// a subject renders as `\0`. A failure of kind `Unknown` also names the
+/// platform's error number, `rename "a" failed (other error, errno 18)`, since
+/// no portable word says what happened.
 public struct SystemError {
     private operation: String
+    private subject: String?
     private kind: SystemErrorKind
     private code: Int
 }
@@ -208,6 +216,9 @@ extension SystemError {
     // stamp is per thread and any later classifying seam call replaces it, so
     // every caller builds the error immediately after the failing call, as a
     // local, before any cleanup, and returns or uses that local afterwards.
+    // An operation that was given a path, a program or a name passes it as
+    // the subject (SL-898): a retain of a string the caller already holds,
+    // so the error path allocates nothing.
     // ENTRY POINTS:
     //     Channel.open_gate
     //     Directory.list
@@ -225,23 +236,46 @@ extension SystemError {
     //     File.sought
     //     File.remove
     //     File.rename
+    //     Path.canonical
     //     Command.wait
+    //     Command.spawn_seam
+    //     std.process.process_spawn_failure
     //     std.process.process_outcome
     //     std.process.process_drain_pipe
     //     Thread.__saw_started
     //     std.panic.print_failure
+    //     std.taskgroup.dump_tasks
     public(package) static func of(operation: String, tag: Int) -> SystemError {
-        SystemError(operation: operation, kind: system_error_kind(tag), code: __saw_rt_last_raw_code())
+        SystemError(operation: operation, subject: None, kind: system_error_kind(tag),
+                    code: __saw_rt_last_raw_code())
+    }
+
+    // The funnel for an operation given `subject`.
+    public(package) static func of(operation: String, tag: Int, subject: String) -> SystemError {
+        SystemError(operation: operation, subject: subject, kind: system_error_kind(tag),
+                    code: __saw_rt_last_raw_code())
     }
 
     // An error the standard library raises itself, with no tag behind it.
     public(package) static func raised(operation: String, kind: SystemErrorKind) -> SystemError {
-        SystemError(operation: operation, kind: kind, code: 0)
+        SystemError(operation: operation, subject: None, kind: kind, code: 0)
+    }
+
+    // The same for an operation given `subject`.
+    public(package) static func raised(operation: String, kind: SystemErrorKind, subject: String) -> SystemError {
+        SystemError(operation: operation, subject: subject, kind: kind, code: 0)
     }
 
     /// Returns the kind of the failure.
     public func kind(&self) -> SystemErrorKind {
         self.kind
+    }
+
+    /// Returns the path, program or name the failed operation was given, or
+    /// `None` for an operation given none, such as a read of a file already
+    /// open.
+    public func subject(&self) -> String? {
+        self.subject
     }
 
     /// Returns the platform's error number behind the failure, for a log:
@@ -253,10 +287,16 @@ extension SystemError {
 }
 
 extension SystemError: Error {
-    /// Writes the operation and the kind's description, and for an `Unknown`
-    /// failure the platform's error number when there is one.
+    /// Writes the operation, the quoted subject when there is one, and the
+    /// kind's description, and for an `Unknown` failure the platform's error
+    /// number when there is one.
     public func format(&self, into: &var StringBuilder) {
         try! into.append(self.operation)
+        if let subject = self.subject {
+            try! into.append(" \"")
+            append_subject(&var into, subject)
+            try! into.append("\"")
+        }
         try! into.append(" failed (")
         try! into.append(self.kind.describe())
         let unnamed = match self.kind {
@@ -268,5 +308,34 @@ extension SystemError: Error {
             try! into.append(self.code)
         }
         try! into.append(")")
+    }
+}
+
+// Writes an error's `subject` as it is, but each NUL byte as `\0`, which a
+// reader of the text can see and a C reader of it would take as the end. The
+// common subject holds no NUL and goes in one append; neither path allocates
+// past the builder's own buffer.
+public(package) func append_subject(into: &var StringBuilder, subject: String) {
+    var clean = true
+    var i = 0
+    while i < subject.len() {
+        if subject.byte_at(i) == 0 {
+            clean = false
+        }
+        i = i + 1
+    }
+    if clean {
+        try! into.append(subject)
+        return
+    }
+    var k = 0
+    while k < subject.len() {
+        let b = subject.byte_at(k)
+        if b == 0 {
+            try! into.append("\\0")
+        } else {
+            try! into.append(b)
+        }
+        k = k + 1
     }
 }

@@ -22,8 +22,10 @@ target triple = "arm64-apple-macosx11.0.0"
 @.bytes.10 = private unnamed_addr constant { i64, i64, [9 x i8] } { i64 -1, i64 8, [9 x i8] c") failed\00" }, align 16
 @.bytes.11 = private unnamed_addr constant [15 x i8] c"systemerror.saw"
 @.bytes.12 = private unnamed_addr constant { i64, i64, [10 x i8] } { i64 -1, i64 9, [10 x i8] c" failed (\00" }, align 16
-@.bytes.13 = private unnamed_addr constant { i64, i64, [2 x i8] } { i64 -1, i64 1, [2 x i8] c")\00" }, align 16
-@.bytes.14 = private unnamed_addr constant { i64, i64, [9 x i8] } { i64 -1, i64 8, [9 x i8] c", errno \00" }, align 16
+@.bytes.13 = private unnamed_addr constant { i64, i64, [3 x i8] } { i64 -1, i64 2, [3 x i8] c" \22\00" }, align 16
+@.bytes.14 = private unnamed_addr constant { i64, i64, [2 x i8] } { i64 -1, i64 1, [2 x i8] c"\22\00" }, align 16
+@.bytes.15 = private unnamed_addr constant { i64, i64, [2 x i8] } { i64 -1, i64 1, [2 x i8] c")\00" }, align 16
+@.bytes.16 = private unnamed_addr constant { i64, i64, [9 x i8] } { i64 -1, i64 8, [9 x i8] c", errno \00" }, align 16
 @"static std.string.REFCOUNT_SLOT" = internal global i64 -2
 @"static std.string.IMMORTAL" = internal global i64 -1
 @"static std.systemerror.TAG_WOULD_BLOCK" = internal global i64 1
@@ -48,45 +50,47 @@ target triple = "arm64-apple-macosx11.0.0"
 @"static std.systemerror.TAG_NETWORK_DOWN" = internal global i64 21
 @"static std.systemerror.TAG_INVALID_DESCRIPTOR" = internal global i64 22
 @"static std.systemerror.TAG_INPUT_OUTPUT_FAILED" = internal global i64 23
-@.bytes.15 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"would block\00" }, align 16
-@.bytes.16 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"in progress\00" }, align 16
-@.bytes.17 = private unnamed_addr constant { i64, i64, [18 x i8] } { i64 -1, i64 17, [18 x i8] c"already connected\00" }, align 16
-@.bytes.18 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"interrupted\00" }, align 16
-@.bytes.19 = private unnamed_addr constant { i64, i64, [17 x i8] } { i64 -1, i64 16, [17 x i8] c"connection reset\00" }, align 16
-@.bytes.20 = private unnamed_addr constant { i64, i64, [19 x i8] } { i64 -1, i64 18, [19 x i8] c"connection refused\00" }, align 16
-@.bytes.21 = private unnamed_addr constant { i64, i64, [19 x i8] } { i64 -1, i64 18, [19 x i8] c"connection aborted\00" }, align 16
-@.bytes.22 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"broken pipe\00" }, align 16
-@.bytes.23 = private unnamed_addr constant { i64, i64, [14 x i8] } { i64 -1, i64 13, [14 x i8] c"not connected\00" }, align 16
-@.bytes.24 = private unnamed_addr constant { i64, i64, [10 x i8] } { i64 -1, i64 9, [10 x i8] c"not found\00" }, align 16
-@.bytes.25 = private unnamed_addr constant { i64, i64, [18 x i8] } { i64 -1, i64 17, [18 x i8] c"permission denied\00" }, align 16
-@.bytes.26 = private unnamed_addr constant { i64, i64, [15 x i8] } { i64 -1, i64 14, [15 x i8] c"already exists\00" }, align 16
-@.bytes.27 = private unnamed_addr constant { i64, i64, [15 x i8] } { i64 -1, i64 14, [15 x i8] c"address in use\00" }, align 16
-@.bytes.28 = private unnamed_addr constant { i64, i64, [17 x i8] } { i64 -1, i64 16, [17 x i8] c"invalid argument\00" }, align 16
-@.bytes.29 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"resources exhausted\00" }, align 16
-@.bytes.30 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"other error\00" }, align 16
-@.bytes.31 = private unnamed_addr constant { i64, i64, [17 x i8] } { i64 -1, i64 16, [17 x i8] c"host unreachable\00" }, align 16
-@.bytes.32 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"network unreachable\00" }, align 16
-@.bytes.33 = private unnamed_addr constant { i64, i64, [10 x i8] } { i64 -1, i64 9, [10 x i8] c"timed out\00" }, align 16
-@.bytes.34 = private unnamed_addr constant { i64, i64, [13 x i8] } { i64 -1, i64 12, [13 x i8] c"host is down\00" }, align 16
-@.bytes.35 = private unnamed_addr constant { i64, i64, [16 x i8] } { i64 -1, i64 15, [16 x i8] c"network is down\00" }, align 16
-@.bytes.36 = private unnamed_addr constant { i64, i64, [19 x i8] } { i64 -1, i64 18, [19 x i8] c"invalid descriptor\00" }, align 16
-@.bytes.37 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"input/output failed\00" }, align 16
-@.bytes.38 = private unnamed_addr constant { i64, i64, [23 x i8] } { i64 -1, i64 22, [23 x i8] c"unexpected end of data\00" }, align 16
-@.bytes.39 = private unnamed_addr constant { i64, i64, [34 x i8] } { i64 -1, i64 33, [34 x i8] c"the program could not be launched\00" }, align 16
-@.bytes.40 = private unnamed_addr constant { i64, i64, [16 x i8] } { i64 -1, i64 15, [16 x i8] c"not valid UTF-8\00" }, align 16
+@"static std.systemerror.TAG_NOT_EXECUTABLE" = internal global i64 24
+@.bytes.17 = private unnamed_addr constant { i64, i64, [3 x i8] } { i64 -1, i64 2, [3 x i8] c"\5C0\00" }, align 16
+@.bytes.18 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"would block\00" }, align 16
+@.bytes.19 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"in progress\00" }, align 16
+@.bytes.20 = private unnamed_addr constant { i64, i64, [18 x i8] } { i64 -1, i64 17, [18 x i8] c"already connected\00" }, align 16
+@.bytes.21 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"interrupted\00" }, align 16
+@.bytes.22 = private unnamed_addr constant { i64, i64, [17 x i8] } { i64 -1, i64 16, [17 x i8] c"connection reset\00" }, align 16
+@.bytes.23 = private unnamed_addr constant { i64, i64, [19 x i8] } { i64 -1, i64 18, [19 x i8] c"connection refused\00" }, align 16
+@.bytes.24 = private unnamed_addr constant { i64, i64, [19 x i8] } { i64 -1, i64 18, [19 x i8] c"connection aborted\00" }, align 16
+@.bytes.25 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"broken pipe\00" }, align 16
+@.bytes.26 = private unnamed_addr constant { i64, i64, [14 x i8] } { i64 -1, i64 13, [14 x i8] c"not connected\00" }, align 16
+@.bytes.27 = private unnamed_addr constant { i64, i64, [10 x i8] } { i64 -1, i64 9, [10 x i8] c"not found\00" }, align 16
+@.bytes.28 = private unnamed_addr constant { i64, i64, [18 x i8] } { i64 -1, i64 17, [18 x i8] c"permission denied\00" }, align 16
+@.bytes.29 = private unnamed_addr constant { i64, i64, [15 x i8] } { i64 -1, i64 14, [15 x i8] c"already exists\00" }, align 16
+@.bytes.30 = private unnamed_addr constant { i64, i64, [15 x i8] } { i64 -1, i64 14, [15 x i8] c"address in use\00" }, align 16
+@.bytes.31 = private unnamed_addr constant { i64, i64, [17 x i8] } { i64 -1, i64 16, [17 x i8] c"invalid argument\00" }, align 16
+@.bytes.32 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"resources exhausted\00" }, align 16
+@.bytes.33 = private unnamed_addr constant { i64, i64, [12 x i8] } { i64 -1, i64 11, [12 x i8] c"other error\00" }, align 16
+@.bytes.34 = private unnamed_addr constant { i64, i64, [17 x i8] } { i64 -1, i64 16, [17 x i8] c"host unreachable\00" }, align 16
+@.bytes.35 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"network unreachable\00" }, align 16
+@.bytes.36 = private unnamed_addr constant { i64, i64, [10 x i8] } { i64 -1, i64 9, [10 x i8] c"timed out\00" }, align 16
+@.bytes.37 = private unnamed_addr constant { i64, i64, [13 x i8] } { i64 -1, i64 12, [13 x i8] c"host is down\00" }, align 16
+@.bytes.38 = private unnamed_addr constant { i64, i64, [16 x i8] } { i64 -1, i64 15, [16 x i8] c"network is down\00" }, align 16
+@.bytes.39 = private unnamed_addr constant { i64, i64, [19 x i8] } { i64 -1, i64 18, [19 x i8] c"invalid descriptor\00" }, align 16
+@.bytes.40 = private unnamed_addr constant { i64, i64, [20 x i8] } { i64 -1, i64 19, [20 x i8] c"input/output failed\00" }, align 16
+@.bytes.41 = private unnamed_addr constant { i64, i64, [23 x i8] } { i64 -1, i64 22, [23 x i8] c"unexpected end of data\00" }, align 16
+@.bytes.42 = private unnamed_addr constant { i64, i64, [18 x i8] } { i64 -1, i64 17, [18 x i8] c"not an executable\00" }, align 16
+@.bytes.43 = private unnamed_addr constant { i64, i64, [16 x i8] } { i64 -1, i64 15, [16 x i8] c"not valid UTF-8\00" }, align 16
 @"static std.stringbuilder.MINUS_SIGN" = internal global i64 45
 @"static std.stringbuilder.ASCII_ZERO" = internal global i64 48
-@.bytes.41 = private unnamed_addr constant [10 x i8] c"string.saw"
-@.bytes.42 = private unnamed_addr constant [63 x i8] c"String: over-release of a String reference (refcount underflow)"
+@.bytes.44 = private unnamed_addr constant [10 x i8] c"string.saw"
+@.bytes.45 = private unnamed_addr constant [63 x i8] c"String: over-release of a String reference (refcount underflow)"
 @"static std.string.HEADER_WORDS" = internal global i64 2
 @"static std.string.BLOCK_ALIGN" = internal global i64 16
 @"static std.stringbuilder.MARKER_LEN" = internal global i64 3
 @"static std.stringbuilder.FIRST_CAPACITY" = internal global i64 16
-@.bytes.43 = private unnamed_addr constant [36 x i8] c"String.byte_at: index out of range: "
-@.bytes.44 = private unnamed_addr constant [6 x i8] c" (len "
-@.bytes.45 = private unnamed_addr constant [1 x i8] c")"
-@.bytes.46 = private unnamed_addr constant [0 x i8] c""
-@.bytes.47 = private unnamed_addr constant [7 x i8] c"mem.saw"
+@.bytes.46 = private unnamed_addr constant [36 x i8] c"String.byte_at: index out of range: "
+@.bytes.47 = private unnamed_addr constant [6 x i8] c" (len "
+@.bytes.48 = private unnamed_addr constant [1 x i8] c")"
+@.bytes.49 = private unnamed_addr constant [0 x i8] c""
+@.bytes.50 = private unnamed_addr constant [7 x i8] c"mem.saw"
 @"static std.stringbuilder.MARKER_BYTE_0" = internal global i64 226
 @"static std.stringbuilder.MARKER_BYTE_1" = internal global i64 128
 @"static std.stringbuilder.MARKER_BYTE_2" = internal global i64 166
@@ -94,7 +98,7 @@ target triple = "arm64-apple-macosx11.0.0"
 @"static std.stringbuilder.CONTINUATION_END" = internal global i64 192
 @__saw_bt_table = constant [33 x i8] c"SAWB\01\00@\00\00\00\00\00 \00\00\00 \00\00\00 \00\00\00\01\00\00\00\00\00\00\00\00", section "__TEXT,__sawbt", align 8
 @llvm.used = appending global [1 x ptr] [ptr @__saw_bt_table], section "llvm.metadata"
-@.bytes.48 = private unnamed_addr constant [13 x i8] c"try! failed: "
+@.bytes.51 = private unnamed_addr constant [13 x i8] c"try! failed: "
 
 declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)
 declare i64 @__saw_rt_write_line(ptr, i64)
@@ -448,9 +452,9 @@ entry:
   %l1 = alloca i64, align 8
   %l2 = alloca ptr, align 8
   %l3 = alloca i64, align 8
-  %l4 = alloca [24 x i8], align 8
+  %l4 = alloca [40 x i8], align 8
   %l5 = alloca i64, align 8
-  %l6 = alloca [24 x i8], align 8
+  %l6 = alloca [40 x i8], align 8
   %l7 = alloca [40 x i8], align 8
   %l8 = alloca [40 x i8], align 8
   %l9 = alloca ptr, align 8
@@ -483,7 +487,7 @@ checked.1:
   call void @"saw std.systemerror.SystemError.of(operation: String, tag: Int)"(ptr %l6, ptr %t4, i64 %t6)
   br label %bb1
 bb1:
-  call void @llvm.memcpy.p0.p0.i64(ptr %l4, ptr %l6, i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %l4, ptr %l6, i64 40, i1 false)
   %t7 = load ptr, ptr %l2
   %t8 = load i64, ptr %l3
   call void @"saw std.stringbuilder.StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int)"(ptr %l8, ptr %t7, i64 %t8)
@@ -748,14 +752,15 @@ forced.8:
 
 define internal void @"saw std.systemerror.SystemError.of(operation: String, tag: Int)"(ptr %ret, ptr %p1, i64 %p2) #0 {
 entry:
-  %l0 = alloca [24 x i8], align 8
+  %l0 = alloca [40 x i8], align 8
   %l1 = alloca [8 x i8], align 8
   %l2 = alloca i64, align 8
   %l3 = alloca ptr, align 8
   %l4 = alloca [8 x i8], align 8
-  %l5 = alloca [4 x i8], align 4
-  %l6 = alloca i64, align 8
-  %l7 = alloca [24 x i8], align 8
+  %l5 = alloca [16 x i8], align 8
+  %l6 = alloca [4 x i8], align 4
+  %l7 = alloca i64, align 8
+  %l8 = alloca [40 x i8], align 8
   call void @llvm.memcpy.p0.p0.i64(ptr %l1, ptr %p1, i64 8, i1 false)
   store i64 %p2, ptr %l2
   br label %bb0
@@ -765,23 +770,26 @@ bb0:
   call void @"saw std.string.String.copy()"(ptr %l4, ptr %t0)
   br label %bb1
 bb1:
+  store i8 0, ptr %l5
   %t1 = load i64, ptr %l2
-  call void @"saw std.systemerror.system_error_kind(tag: Int)"(ptr %l5, i64 %t1)
+  call void @"saw std.systemerror.system_error_kind(tag: Int)"(ptr %l6, i64 %t1)
   br label %bb2
 bb2:
   %t2 = call i64 @__saw_rt_last_raw_code()
-  store i64 %t2, ptr %l6
+  store i64 %t2, ptr %l7
   br label %bb3
 bb3:
-  call void @llvm.memcpy.p0.p0.i64(ptr %l7, ptr %l4, i64 8, i1 false)
-  %t3 = getelementptr i8, ptr %l7, i64 8
-  call void @llvm.memcpy.p0.p0.i64(ptr %t3, ptr %l5, i64 4, i1 false)
-  %t4 = getelementptr i8, ptr %l7, i64 16
-  %t5 = load i64, ptr %l6
-  store i64 %t5, ptr %t4
-  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l7, i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %l8, ptr %l4, i64 8, i1 false)
+  %t3 = getelementptr i8, ptr %l8, i64 8
+  call void @llvm.memcpy.p0.p0.i64(ptr %t3, ptr %l5, i64 16, i1 false)
+  %t4 = getelementptr i8, ptr %l8, i64 24
+  call void @llvm.memcpy.p0.p0.i64(ptr %t4, ptr %l6, i64 4, i1 false)
+  %t5 = getelementptr i8, ptr %l8, i64 32
+  %t6 = load i64, ptr %l7
+  store i64 %t6, ptr %t5
+  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l8, i64 40, i1 false)
   call void @"saw drop glue String"(ptr %l1)
-  call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 40, i1 false)
   ret void
 }
 
@@ -842,30 +850,44 @@ entry:
   %l5 = alloca ptr, align 8
   %l6 = alloca [24 x i8], align 8
   %l7 = alloca [0 x i8], align 1
-  %l8 = alloca ptr, align 8
-  %l9 = alloca [24 x i8], align 8
-  %l10 = alloca [0 x i8], align 1
+  %l8 = alloca [8 x i8], align 8
+  %l9 = alloca ptr, align 8
+  %l10 = alloca [8 x i8], align 8
   %l11 = alloca ptr, align 8
-  %l12 = alloca [8 x i8], align 8
-  %l13 = alloca ptr, align 8
-  %l14 = alloca [24 x i8], align 8
-  %l15 = alloca [0 x i8], align 1
-  %l16 = alloca i8, align 1
-  %l17 = alloca i8, align 1
-  %l18 = alloca i8, align 1
-  %l19 = alloca ptr, align 8
-  %l20 = alloca [24 x i8], align 8
-  %l21 = alloca [0 x i8], align 1
-  %l22 = alloca i64, align 8
+  %l12 = alloca [24 x i8], align 8
+  %l13 = alloca [0 x i8], align 1
+  %l14 = alloca ptr, align 8
+  %l15 = alloca ptr, align 8
+  %l16 = alloca [8 x i8], align 8
+  %l17 = alloca ptr, align 8
+  %l18 = alloca [24 x i8], align 8
+  %l19 = alloca [0 x i8], align 1
+  %l20 = alloca ptr, align 8
+  %l21 = alloca [24 x i8], align 8
+  %l22 = alloca [0 x i8], align 1
   %l23 = alloca ptr, align 8
-  %l24 = alloca [24 x i8], align 8
-  %l25 = alloca [0 x i8], align 1
-  %l26 = alloca ptr, align 8
-  %l27 = alloca [24 x i8], align 8
-  %l28 = alloca [0 x i8], align 1
-  %t11 = alloca [8 x i8], align 8
-  %t36 = alloca [8 x i8], align 8
-  %t48 = alloca [8 x i8], align 8
+  %l24 = alloca [8 x i8], align 8
+  %l25 = alloca ptr, align 8
+  %l26 = alloca [24 x i8], align 8
+  %l27 = alloca [0 x i8], align 1
+  %l28 = alloca i8, align 1
+  %l29 = alloca i8, align 1
+  %l30 = alloca i8, align 1
+  %l31 = alloca ptr, align 8
+  %l32 = alloca [24 x i8], align 8
+  %l33 = alloca [0 x i8], align 1
+  %l34 = alloca i64, align 8
+  %l35 = alloca ptr, align 8
+  %l36 = alloca [24 x i8], align 8
+  %l37 = alloca [0 x i8], align 1
+  %l38 = alloca ptr, align 8
+  %l39 = alloca [24 x i8], align 8
+  %l40 = alloca [0 x i8], align 1
+  %t15 = alloca [8 x i8], align 8
+  %t23 = alloca [8 x i8], align 8
+  %t35 = alloca [8 x i8], align 8
+  %t65 = alloca [8 x i8], align 8
+  %t77 = alloca [8 x i8], align 8
   store ptr %p1, ptr %l1
   store ptr %p2, ptr %l2
   br label %bb0
@@ -888,155 +910,226 @@ bb2:
   br i1 %t6, label %forced.0, label %unforced.1
 unforced.1:
   %t7 = getelementptr i8, ptr %l6, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 259, ptr %t7)
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 294, ptr %t7)
   unreachable
 forced.0:
   %t8 = getelementptr i8, ptr %l6, i64 8
   call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l6)
-  %t9 = load ptr, ptr %l2
-  store ptr %t9, ptr %l8
-  %t10 = load ptr, ptr %l8
-  %t12 = getelementptr i8, ptr @.bytes.12, i64 16
-  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t11, ptr %t12)
-  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l9, ptr %t10, ptr %t11)
-  br label %bb3
+  %t9 = load ptr, ptr %l1
+  %t10 = getelementptr i8, ptr %t9, i64 8
+  %t11 = load i8, ptr %t10
+  %t12 = zext i8 %t11 to i64
+  switch i64 %t12, label %nocase.2 [ i64 1, label %bb4 i64 0, label %bb5 ]
+nocase.2:
+  unreachable
 bb3:
-  %t13 = load i32, ptr %l9
-  %t14 = zext i32 %t13 to i64
-  %t15 = icmp eq i64 %t14, 0
-  br i1 %t15, label %forced.2, label %unforced.3
-unforced.3:
-  %t16 = getelementptr i8, ptr %l9, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 260, ptr %t16)
-  unreachable
-forced.2:
-  %t17 = getelementptr i8, ptr %l9, i64 8
-  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l9)
-  %t18 = load ptr, ptr %l1
-  %t19 = getelementptr i8, ptr %t18, i64 8
-  store ptr %t19, ptr %l11
-  %t20 = load ptr, ptr %l11
-  call void @"saw std.systemerror.SystemErrorKind.describe()"(ptr %l12, ptr %t20)
-  br label %bb4
+  %t13 = load ptr, ptr %l2
+  store ptr %t13, ptr %l20
+  %t14 = load ptr, ptr %l20
+  %t16 = getelementptr i8, ptr @.bytes.12, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t15, ptr %t16)
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l21, ptr %t14, ptr %t15)
+  br label %bb11
 bb4:
-  %t21 = load ptr, ptr %l2
-  store ptr %t21, ptr %l13
-  %t22 = load ptr, ptr %l13
-  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l14, ptr %t22, ptr %l12)
-  br label %bb5
+  %t17 = load ptr, ptr %l1
+  %t18 = getelementptr i8, ptr %t17, i64 8
+  %t19 = getelementptr i8, ptr %t18, i64 8
+  store ptr %t19, ptr %l9
+  %t20 = load ptr, ptr %l9
+  call void @"saw std.string.String.copy()"(ptr %l10, ptr %t20)
+  br label %bb6
 bb5:
-  %t23 = load i32, ptr %l14
-  %t24 = zext i32 %t23 to i64
-  %t25 = icmp eq i64 %t24, 0
-  br i1 %t25, label %forced.4, label %unforced.5
-unforced.5:
-  %t26 = getelementptr i8, ptr %l14, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 261, ptr %t26)
-  unreachable
-forced.4:
-  %t27 = getelementptr i8, ptr %l14, i64 8
-  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l14)
-  %t28 = load ptr, ptr %l1
-  %t29 = getelementptr i8, ptr %t28, i64 8
-  %t30 = load i32, ptr %t29
-  %t31 = zext i32 %t30 to i64
-  switch i64 %t31, label %bb8 [ i64 15, label %bb7 ]
+  br label %bb3
 bb6:
-  %t32 = load i8, ptr %l16
-  %t33 = icmp ne i8 %t32, 0
-  br i1 %t33, label %bb13, label %bb14
+  call void @llvm.memcpy.p0.p0.i64(ptr %l8, ptr %l10, i64 8, i1 false)
+  %t21 = load ptr, ptr %l2
+  store ptr %t21, ptr %l11
+  %t22 = load ptr, ptr %l11
+  %t24 = getelementptr i8, ptr @.bytes.13, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t23, ptr %t24)
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l12, ptr %t22, ptr %t23)
+  br label %bb7
 bb7:
-  br label %bb9
+  %t25 = load i32, ptr %l12
+  %t26 = zext i32 %t25 to i64
+  %t27 = icmp eq i64 %t26, 0
+  br i1 %t27, label %forced.3, label %unforced.4
+unforced.4:
+  %t28 = getelementptr i8, ptr %l12, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 296, ptr %t28)
+  unreachable
+forced.3:
+  %t29 = getelementptr i8, ptr %l12, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l12)
+  %t30 = load ptr, ptr %l2
+  store ptr %t30, ptr %l14
+  store ptr %l8, ptr %l15
+  %t31 = load ptr, ptr %l15
+  call void @"saw std.string.String.copy()"(ptr %l16, ptr %t31)
+  br label %bb8
 bb8:
-  br label %bb10
+  %t32 = load ptr, ptr %l14
+  call void @"saw std.systemerror.append_subject(into: &var std.stringbuilder.StringBuilder, subject: String)"(ptr %t32, ptr %l16)
+  br label %bb9
 bb9:
-  store i8 1, ptr %l16
-  br label %bb6
+  %t33 = load ptr, ptr %l2
+  store ptr %t33, ptr %l17
+  %t34 = load ptr, ptr %l17
+  %t36 = getelementptr i8, ptr @.bytes.14, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t35, ptr %t36)
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l18, ptr %t34, ptr %t35)
+  br label %bb10
 bb10:
-  store i8 0, ptr %l16
-  br label %bb6
+  %t37 = load i32, ptr %l18
+  %t38 = zext i32 %t37 to i64
+  %t39 = icmp eq i64 %t38, 0
+  br i1 %t39, label %forced.5, label %unforced.6
+unforced.6:
+  %t40 = getelementptr i8, ptr %l18, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 298, ptr %t40)
+  unreachable
+forced.5:
+  %t41 = getelementptr i8, ptr %l18, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l18)
+  call void @"saw drop glue String"(ptr %l8)
+  br label %bb3
 bb11:
-  %t34 = load ptr, ptr %l2
-  store ptr %t34, ptr %l26
-  %t35 = load ptr, ptr %l26
-  %t37 = getelementptr i8, ptr @.bytes.13, i64 16
-  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t36, ptr %t37)
-  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l27, ptr %t35, ptr %t36)
-  br label %bb19
+  %t42 = load i32, ptr %l21
+  %t43 = zext i32 %t42 to i64
+  %t44 = icmp eq i64 %t43, 0
+  br i1 %t44, label %forced.7, label %unforced.8
+unforced.8:
+  %t45 = getelementptr i8, ptr %l21, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 300, ptr %t45)
+  unreachable
+forced.7:
+  %t46 = getelementptr i8, ptr %l21, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l21)
+  %t47 = load ptr, ptr %l1
+  %t48 = getelementptr i8, ptr %t47, i64 24
+  store ptr %t48, ptr %l23
+  %t49 = load ptr, ptr %l23
+  call void @"saw std.systemerror.SystemErrorKind.describe()"(ptr %l24, ptr %t49)
+  br label %bb12
 bb12:
-  %t38 = load i8, ptr %l17
-  %t39 = icmp ne i8 %t38, 0
-  br i1 %t39, label %bb15, label %bb16
+  %t50 = load ptr, ptr %l2
+  store ptr %t50, ptr %l25
+  %t51 = load ptr, ptr %l25
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l26, ptr %t51, ptr %l24)
+  br label %bb13
 bb13:
-  %t40 = load ptr, ptr %l1
-  %t41 = getelementptr i8, ptr %t40, i64 16
-  %t42 = load i64, ptr %t41
-  %t43 = icmp ne i64 %t42, 0
-  %t44 = zext i1 %t43 to i8
-  store i8 %t44, ptr %l18
-  %t45 = load i8, ptr %l18
-  store i8 %t45, ptr %l17
-  br label %bb12
+  %t52 = load i32, ptr %l26
+  %t53 = zext i32 %t52 to i64
+  %t54 = icmp eq i64 %t53, 0
+  br i1 %t54, label %forced.9, label %unforced.10
+unforced.10:
+  %t55 = getelementptr i8, ptr %l26, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 301, ptr %t55)
+  unreachable
+forced.9:
+  %t56 = getelementptr i8, ptr %l26, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l26)
+  %t57 = load ptr, ptr %l1
+  %t58 = getelementptr i8, ptr %t57, i64 24
+  %t59 = load i32, ptr %t58
+  %t60 = zext i32 %t59 to i64
+  switch i64 %t60, label %bb16 [ i64 15, label %bb15 ]
 bb14:
-  store i8 0, ptr %l17
-  br label %bb12
+  %t61 = load i8, ptr %l28
+  %t62 = icmp ne i8 %t61, 0
+  br i1 %t62, label %bb21, label %bb22
 bb15:
-  %t46 = load ptr, ptr %l2
-  store ptr %t46, ptr %l19
-  %t47 = load ptr, ptr %l19
-  %t49 = getelementptr i8, ptr @.bytes.14, i64 16
-  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t48, ptr %t49)
-  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l20, ptr %t47, ptr %t48)
   br label %bb17
 bb16:
-  br label %bb11
-bb17:
-  %t50 = load i32, ptr %l20
-  %t51 = zext i32 %t50 to i64
-  %t52 = icmp eq i64 %t51, 0
-  br i1 %t52, label %forced.6, label %unforced.7
-unforced.7:
-  %t53 = getelementptr i8, ptr %l20, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 267, ptr %t53)
-  unreachable
-forced.6:
-  %t54 = getelementptr i8, ptr %l20, i64 8
-  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l20)
-  %t55 = load ptr, ptr %l1
-  %t56 = getelementptr i8, ptr %t55, i64 16
-  %t57 = load i64, ptr %t56
-  store i64 %t57, ptr %l22
-  %t58 = load ptr, ptr %l2
-  store ptr %t58, ptr %l23
-  %t59 = load ptr, ptr %l23
-  %t60 = load i64, ptr %l22
-  call void @"saw std.stringbuilder.StringBuilder.append(value: Int)"(ptr %l24, ptr %t59, i64 %t60)
   br label %bb18
+bb17:
+  store i8 1, ptr %l28
+  br label %bb14
 bb18:
-  %t61 = load i32, ptr %l24
-  %t62 = zext i32 %t61 to i64
-  %t63 = icmp eq i64 %t62, 0
-  br i1 %t63, label %forced.8, label %unforced.9
-unforced.9:
-  %t64 = getelementptr i8, ptr %l24, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 268, ptr %t64)
-  unreachable
-forced.8:
-  %t65 = getelementptr i8, ptr %l24, i64 8
-  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l24)
-  br label %bb11
+  store i8 0, ptr %l28
+  br label %bb14
 bb19:
-  %t66 = load i32, ptr %l27
-  %t67 = zext i32 %t66 to i64
-  %t68 = icmp eq i64 %t67, 0
-  br i1 %t68, label %forced.10, label %unforced.11
-unforced.11:
-  %t69 = getelementptr i8, ptr %l27, i64 8
-  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 270, ptr %t69)
+  %t63 = load ptr, ptr %l2
+  store ptr %t63, ptr %l38
+  %t64 = load ptr, ptr %l38
+  %t66 = getelementptr i8, ptr @.bytes.15, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t65, ptr %t66)
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l39, ptr %t64, ptr %t65)
+  br label %bb27
+bb20:
+  %t67 = load i8, ptr %l29
+  %t68 = icmp ne i8 %t67, 0
+  br i1 %t68, label %bb23, label %bb24
+bb21:
+  %t69 = load ptr, ptr %l1
+  %t70 = getelementptr i8, ptr %t69, i64 32
+  %t71 = load i64, ptr %t70
+  %t72 = icmp ne i64 %t71, 0
+  %t73 = zext i1 %t72 to i8
+  store i8 %t73, ptr %l30
+  %t74 = load i8, ptr %l30
+  store i8 %t74, ptr %l29
+  br label %bb20
+bb22:
+  store i8 0, ptr %l29
+  br label %bb20
+bb23:
+  %t75 = load ptr, ptr %l2
+  store ptr %t75, ptr %l31
+  %t76 = load ptr, ptr %l31
+  %t78 = getelementptr i8, ptr @.bytes.16, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t77, ptr %t78)
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l32, ptr %t76, ptr %t77)
+  br label %bb25
+bb24:
+  br label %bb19
+bb25:
+  %t79 = load i32, ptr %l32
+  %t80 = zext i32 %t79 to i64
+  %t81 = icmp eq i64 %t80, 0
+  br i1 %t81, label %forced.11, label %unforced.12
+unforced.12:
+  %t82 = getelementptr i8, ptr %l32, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 307, ptr %t82)
   unreachable
-forced.10:
-  %t70 = getelementptr i8, ptr %l27, i64 8
-  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l27)
+forced.11:
+  %t83 = getelementptr i8, ptr %l32, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l32)
+  %t84 = load ptr, ptr %l1
+  %t85 = getelementptr i8, ptr %t84, i64 32
+  %t86 = load i64, ptr %t85
+  store i64 %t86, ptr %l34
+  %t87 = load ptr, ptr %l2
+  store ptr %t87, ptr %l35
+  %t88 = load ptr, ptr %l35
+  %t89 = load i64, ptr %l34
+  call void @"saw std.stringbuilder.StringBuilder.append(value: Int)"(ptr %l36, ptr %t88, i64 %t89)
+  br label %bb26
+bb26:
+  %t90 = load i32, ptr %l36
+  %t91 = zext i32 %t90 to i64
+  %t92 = icmp eq i64 %t91, 0
+  br i1 %t92, label %forced.13, label %unforced.14
+unforced.14:
+  %t93 = getelementptr i8, ptr %l36, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 308, ptr %t93)
+  unreachable
+forced.13:
+  %t94 = getelementptr i8, ptr %l36, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l36)
+  br label %bb19
+bb27:
+  %t95 = load i32, ptr %l39
+  %t96 = zext i32 %t95 to i64
+  %t97 = icmp eq i64 %t96, 0
+  br i1 %t97, label %forced.15, label %unforced.16
+unforced.16:
+  %t98 = getelementptr i8, ptr %l39, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 310, ptr %t98)
+  unreachable
+forced.15:
+  %t99 = getelementptr i8, ptr %l39, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l39)
   ret void
 }
 
@@ -1048,7 +1141,10 @@ entry:
   br label %bb0
 bb0:
   %t0 = load ptr, ptr %l1
-  call void @"saw drop glue String"(ptr %t0)
+  %t1 = getelementptr i8, ptr %t0, i64 8
+  call void @"saw drop glue String?"(ptr %t1)
+  %t2 = load ptr, ptr %l1
+  call void @"saw drop glue String"(ptr %t2)
   ret void
 }
 
@@ -1243,7 +1339,9 @@ entry:
   %l43 = alloca [4 x i8], align 4
   %l44 = alloca i8, align 1
   %l45 = alloca [4 x i8], align 4
-  %l46 = alloca [4 x i8], align 4
+  %l46 = alloca i8, align 1
+  %l47 = alloca [4 x i8], align 4
+  %l48 = alloca [4 x i8], align 4
   store i64 %p1, ptr %l1
   br label %bb0
 bb0:
@@ -1536,8 +1634,21 @@ bb44:
   call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l45, i64 4, i1 false)
   br label %bb1
 bb45:
-  store i32 15, ptr %l46
-  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l46, i64 4, i1 false)
+  %t132 = load i64, ptr %l1
+  %t133 = load i64, ptr @"static std.systemerror.TAG_NOT_EXECUTABLE"
+  %t134 = icmp eq i64 %t132, %t133
+  %t135 = zext i1 %t134 to i8
+  store i8 %t135, ptr %l46
+  %t136 = load i8, ptr %l46
+  %t137 = icmp ne i8 %t136, 0
+  br i1 %t137, label %bb46, label %bb47
+bb46:
+  store i32 24, ptr %l47
+  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l47, i64 4, i1 false)
+  br label %bb1
+bb47:
+  store i32 15, ptr %l48
+  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l48, i64 4, i1 false)
   br label %bb1
 }
 
@@ -1817,6 +1928,242 @@ checked.10:
   br label %bb17
 }
 
+define internal void @"saw std.systemerror.append_subject(into: &var std.stringbuilder.StringBuilder, subject: String)"(ptr noalias %p1, ptr %p2) #0 {
+entry:
+  %l0 = alloca [0 x i8], align 1
+  %l1 = alloca ptr, align 8
+  %l2 = alloca [8 x i8], align 8
+  %l3 = alloca i8, align 1
+  %l4 = alloca i64, align 8
+  %l5 = alloca i64, align 8
+  %l6 = alloca ptr, align 8
+  %l7 = alloca i64, align 8
+  %l8 = alloca i8, align 1
+  %l9 = alloca i64, align 8
+  %l10 = alloca ptr, align 8
+  %l11 = alloca i8, align 1
+  %l12 = alloca i8, align 1
+  %l13 = alloca i64, align 8
+  %l14 = alloca ptr, align 8
+  %l15 = alloca [8 x i8], align 8
+  %l16 = alloca ptr, align 8
+  %l17 = alloca [24 x i8], align 8
+  %l18 = alloca [0 x i8], align 1
+  %l19 = alloca i64, align 8
+  %l20 = alloca i64, align 8
+  %l21 = alloca ptr, align 8
+  %l22 = alloca i64, align 8
+  %l23 = alloca i8, align 1
+  %l24 = alloca i8, align 1
+  %l25 = alloca i64, align 8
+  %l26 = alloca ptr, align 8
+  %l27 = alloca i8, align 1
+  %l28 = alloca i8, align 1
+  %l29 = alloca ptr, align 8
+  %l30 = alloca [24 x i8], align 8
+  %l31 = alloca [0 x i8], align 1
+  %l32 = alloca i8, align 1
+  %l33 = alloca ptr, align 8
+  %l34 = alloca [24 x i8], align 8
+  %l35 = alloca [0 x i8], align 1
+  %l36 = alloca i64, align 8
+  %t59 = alloca [8 x i8], align 8
+  store ptr %p1, ptr %l1
+  call void @llvm.memcpy.p0.p0.i64(ptr %l2, ptr %p2, i64 8, i1 false)
+  br label %bb0
+bb0:
+  store i8 1, ptr %l3
+  store i64 0, ptr %l4
+  br label %bb1
+bb1:
+  %t0 = load i64, ptr %l4
+  store i64 %t0, ptr %l5
+  store ptr %l2, ptr %l6
+  %t1 = load ptr, ptr %l6
+  %t2 = call i64 @"saw std.string.String.len()"(ptr %t1)
+  store i64 %t2, ptr %l7
+  br label %bb3
+bb2:
+  %t3 = load i8, ptr %l3
+  %t4 = icmp ne i8 %t3, 0
+  br i1 %t4, label %bb11, label %bb12
+bb3:
+  %t5 = load i64, ptr %l5
+  %t6 = load i64, ptr %l7
+  %t7 = icmp slt i64 %t5, %t6
+  %t8 = zext i1 %t7 to i8
+  store i8 %t8, ptr %l8
+  %t9 = load i8, ptr %l8
+  %t10 = icmp ne i8 %t9, 0
+  br i1 %t10, label %bb4, label %bb2
+bb4:
+  br label %bb5
+bb5:
+  %t11 = load i64, ptr %l4
+  store i64 %t11, ptr %l9
+  store ptr %l2, ptr %l10
+  %t12 = load ptr, ptr %l10
+  %t13 = load i64, ptr %l9
+  %t14 = call i8 @"saw std.string.String.byte_at(index: Int)"(ptr %t12, i64 %t13)
+  store i8 %t14, ptr %l11
+  br label %bb7
+bb6:
+  %t15 = load i64, ptr %l4
+  %t16 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %t15, i64 1)
+  %t17 = extractvalue { i64, i1 } %t16, 0
+  %t18 = extractvalue { i64, i1 } %t16, 1
+  br i1 %t18, label %check.0, label %checked.1
+check.0:
+  call void @__saw_fail_overflow(ptr @.bytes.11, i64 15, i64 325)
+  unreachable
+checked.1:
+  store i64 %t17, ptr %l13
+  %t19 = load i64, ptr %l13
+  store i64 %t19, ptr %l4
+  br label %bb1
+bb7:
+  %t20 = load i8, ptr %l11
+  %t21 = icmp eq i8 %t20, 0
+  %t22 = zext i1 %t21 to i8
+  store i8 %t22, ptr %l12
+  %t23 = load i8, ptr %l12
+  %t24 = icmp ne i8 %t23, 0
+  br i1 %t24, label %bb8, label %bb9
+bb8:
+  store i8 0, ptr %l3
+  br label %bb6
+bb9:
+  br label %bb6
+bb10:
+  store i64 0, ptr %l19
+  br label %bb15
+bb11:
+  store ptr %l2, ptr %l14
+  %t25 = load ptr, ptr %l14
+  call void @"saw std.string.String.copy()"(ptr %l15, ptr %t25)
+  br label %bb13
+bb12:
+  br label %bb10
+bb13:
+  %t26 = load ptr, ptr %l1
+  store ptr %t26, ptr %l16
+  %t27 = load ptr, ptr %l16
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l17, ptr %t27, ptr %l15)
+  br label %bb14
+bb14:
+  %t28 = load i32, ptr %l17
+  %t29 = zext i32 %t28 to i64
+  %t30 = icmp eq i64 %t29, 0
+  br i1 %t30, label %forced.2, label %unforced.3
+unforced.3:
+  %t31 = getelementptr i8, ptr %l17, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 328, ptr %t31)
+  unreachable
+forced.2:
+  %t32 = getelementptr i8, ptr %l17, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l17)
+  call void @"saw drop glue String"(ptr %l2)
+  ret void
+bb15:
+  %t33 = load i64, ptr %l19
+  store i64 %t33, ptr %l20
+  store ptr %l2, ptr %l21
+  %t34 = load ptr, ptr %l21
+  %t35 = call i64 @"saw std.string.String.len()"(ptr %t34)
+  store i64 %t35, ptr %l22
+  br label %bb17
+bb16:
+  call void @"saw drop glue String"(ptr %l2)
+  ret void
+bb17:
+  %t36 = load i64, ptr %l20
+  %t37 = load i64, ptr %l22
+  %t38 = icmp slt i64 %t36, %t37
+  %t39 = zext i1 %t38 to i8
+  store i8 %t39, ptr %l23
+  %t40 = load i8, ptr %l23
+  %t41 = icmp ne i8 %t40, 0
+  br i1 %t41, label %bb18, label %bb16
+bb18:
+  br label %bb19
+bb19:
+  %t42 = load i64, ptr %l19
+  store i64 %t42, ptr %l25
+  store ptr %l2, ptr %l26
+  %t43 = load ptr, ptr %l26
+  %t44 = load i64, ptr %l25
+  %t45 = call i8 @"saw std.string.String.byte_at(index: Int)"(ptr %t43, i64 %t44)
+  store i8 %t45, ptr %l27
+  br label %bb20
+bb20:
+  %t46 = load i8, ptr %l27
+  store i8 %t46, ptr %l24
+  %t47 = load i8, ptr %l24
+  %t48 = icmp eq i8 %t47, 0
+  %t49 = zext i1 %t48 to i8
+  store i8 %t49, ptr %l28
+  %t50 = load i8, ptr %l28
+  %t51 = icmp ne i8 %t50, 0
+  br i1 %t51, label %bb22, label %bb23
+bb21:
+  %t52 = load i64, ptr %l19
+  %t53 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %t52, i64 1)
+  %t54 = extractvalue { i64, i1 } %t53, 0
+  %t55 = extractvalue { i64, i1 } %t53, 1
+  br i1 %t55, label %check.4, label %checked.5
+check.4:
+  call void @__saw_fail_overflow(ptr @.bytes.11, i64 15, i64 339)
+  unreachable
+checked.5:
+  store i64 %t54, ptr %l36
+  %t56 = load i64, ptr %l36
+  store i64 %t56, ptr %l19
+  br label %bb15
+bb22:
+  %t57 = load ptr, ptr %l1
+  store ptr %t57, ptr %l29
+  %t58 = load ptr, ptr %l29
+  %t60 = getelementptr i8, ptr @.bytes.17, i64 16
+  call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %t59, ptr %t60)
+  call void @"saw std.stringbuilder.StringBuilder.append(s: String)"(ptr %l30, ptr %t58, ptr %t59)
+  br label %bb24
+bb23:
+  %t61 = load i8, ptr %l24
+  store i8 %t61, ptr %l32
+  %t62 = load ptr, ptr %l1
+  store ptr %t62, ptr %l33
+  %t63 = load ptr, ptr %l33
+  %t64 = load i8, ptr %l32
+  call void @"saw std.stringbuilder.StringBuilder.append(b: UInt8)"(ptr %l34, ptr %t63, i8 %t64)
+  br label %bb25
+bb24:
+  %t65 = load i32, ptr %l30
+  %t66 = zext i32 %t65 to i64
+  %t67 = icmp eq i64 %t66, 0
+  br i1 %t67, label %forced.6, label %unforced.7
+unforced.7:
+  %t68 = getelementptr i8, ptr %l30, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 335, ptr %t68)
+  unreachable
+forced.6:
+  %t69 = getelementptr i8, ptr %l30, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l30)
+  br label %bb21
+bb25:
+  %t70 = load i32, ptr %l34
+  %t71 = zext i32 %t70 to i64
+  %t72 = icmp eq i64 %t71, 0
+  br i1 %t72, label %forced.8, label %unforced.9
+unforced.9:
+  %t73 = getelementptr i8, ptr %l34, i64 8
+  call void @"saw try failure std.alloc.AllocError"(ptr @.bytes.11, i64 15, i64 337, ptr %t73)
+  unreachable
+forced.8:
+  %t74 = getelementptr i8, ptr %l34, i64 8
+  call void @"saw drop glue Result<Void, std.alloc.AllocError>"(ptr %l34)
+  br label %bb21
+}
+
 define internal void @"saw std.systemerror.SystemErrorKind.describe()"(ptr %ret, ptr noalias %p1) #0 {
 entry:
   %l0 = alloca [8 x i8], align 8
@@ -1886,108 +2233,132 @@ bb26:
 bb27:
   br label %bb53
 bb28:
-  %t3 = getelementptr i8, ptr @.bytes.15, i64 16
+  %t3 = getelementptr i8, ptr @.bytes.18, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t3)
   br label %bb1
 bb29:
-  %t4 = getelementptr i8, ptr @.bytes.16, i64 16
+  %t4 = getelementptr i8, ptr @.bytes.19, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t4)
   br label %bb1
 bb30:
-  %t5 = getelementptr i8, ptr @.bytes.17, i64 16
+  %t5 = getelementptr i8, ptr @.bytes.20, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t5)
   br label %bb1
 bb31:
-  %t6 = getelementptr i8, ptr @.bytes.18, i64 16
+  %t6 = getelementptr i8, ptr @.bytes.21, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t6)
   br label %bb1
 bb32:
-  %t7 = getelementptr i8, ptr @.bytes.19, i64 16
+  %t7 = getelementptr i8, ptr @.bytes.22, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t7)
   br label %bb1
 bb33:
-  %t8 = getelementptr i8, ptr @.bytes.20, i64 16
+  %t8 = getelementptr i8, ptr @.bytes.23, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t8)
   br label %bb1
 bb34:
-  %t9 = getelementptr i8, ptr @.bytes.21, i64 16
+  %t9 = getelementptr i8, ptr @.bytes.24, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t9)
   br label %bb1
 bb35:
-  %t10 = getelementptr i8, ptr @.bytes.22, i64 16
+  %t10 = getelementptr i8, ptr @.bytes.25, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t10)
   br label %bb1
 bb36:
-  %t11 = getelementptr i8, ptr @.bytes.23, i64 16
+  %t11 = getelementptr i8, ptr @.bytes.26, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t11)
   br label %bb1
 bb37:
-  %t12 = getelementptr i8, ptr @.bytes.24, i64 16
+  %t12 = getelementptr i8, ptr @.bytes.27, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t12)
   br label %bb1
 bb38:
-  %t13 = getelementptr i8, ptr @.bytes.25, i64 16
+  %t13 = getelementptr i8, ptr @.bytes.28, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t13)
   br label %bb1
 bb39:
-  %t14 = getelementptr i8, ptr @.bytes.26, i64 16
+  %t14 = getelementptr i8, ptr @.bytes.29, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t14)
   br label %bb1
 bb40:
-  %t15 = getelementptr i8, ptr @.bytes.27, i64 16
+  %t15 = getelementptr i8, ptr @.bytes.30, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t15)
   br label %bb1
 bb41:
-  %t16 = getelementptr i8, ptr @.bytes.28, i64 16
+  %t16 = getelementptr i8, ptr @.bytes.31, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t16)
   br label %bb1
 bb42:
-  %t17 = getelementptr i8, ptr @.bytes.29, i64 16
+  %t17 = getelementptr i8, ptr @.bytes.32, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t17)
   br label %bb1
 bb43:
-  %t18 = getelementptr i8, ptr @.bytes.30, i64 16
+  %t18 = getelementptr i8, ptr @.bytes.33, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t18)
   br label %bb1
 bb44:
-  %t19 = getelementptr i8, ptr @.bytes.31, i64 16
+  %t19 = getelementptr i8, ptr @.bytes.34, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t19)
   br label %bb1
 bb45:
-  %t20 = getelementptr i8, ptr @.bytes.32, i64 16
+  %t20 = getelementptr i8, ptr @.bytes.35, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t20)
   br label %bb1
 bb46:
-  %t21 = getelementptr i8, ptr @.bytes.33, i64 16
+  %t21 = getelementptr i8, ptr @.bytes.36, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t21)
   br label %bb1
 bb47:
-  %t22 = getelementptr i8, ptr @.bytes.34, i64 16
+  %t22 = getelementptr i8, ptr @.bytes.37, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t22)
   br label %bb1
 bb48:
-  %t23 = getelementptr i8, ptr @.bytes.35, i64 16
+  %t23 = getelementptr i8, ptr @.bytes.38, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t23)
   br label %bb1
 bb49:
-  %t24 = getelementptr i8, ptr @.bytes.36, i64 16
+  %t24 = getelementptr i8, ptr @.bytes.39, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t24)
   br label %bb1
 bb50:
-  %t25 = getelementptr i8, ptr @.bytes.37, i64 16
+  %t25 = getelementptr i8, ptr @.bytes.40, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t25)
   br label %bb1
 bb51:
-  %t26 = getelementptr i8, ptr @.bytes.38, i64 16
+  %t26 = getelementptr i8, ptr @.bytes.41, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t26)
   br label %bb1
 bb52:
-  %t27 = getelementptr i8, ptr @.bytes.39, i64 16
+  %t27 = getelementptr i8, ptr @.bytes.42, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t27)
   br label %bb1
 bb53:
-  %t28 = getelementptr i8, ptr @.bytes.40, i64 16
+  %t28 = getelementptr i8, ptr @.bytes.43, i64 16
   call void @"saw std.string.string_literal(bytes: UnsafePointer<Int8>)"(ptr %l0, ptr %t28)
+  br label %bb1
+}
+
+define internal void @"saw drop glue String?"(ptr noalias %p1) #0 {
+entry:
+  %l0 = alloca [0 x i8], align 1
+  %l1 = alloca ptr, align 8
+  store ptr %p1, ptr %l1
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  %t1 = load i8, ptr %t0
+  %t2 = zext i8 %t1 to i64
+  switch i64 %t2, label %nocase.0 [ i64 1, label %bb2 i64 0, label %bb3 ]
+nocase.0:
+  unreachable
+bb1:
+  ret void
+bb2:
+  %t3 = load ptr, ptr %l1
+  %t4 = getelementptr i8, ptr %t3, i64 8
+  call void @"saw drop glue String"(ptr %t4)
+  br label %bb1
+bb3:
   br label %bb1
 }
 
@@ -2468,7 +2839,7 @@ bb6:
   %t30 = icmp ne i8 %t29, 0
   br i1 %t30, label %bb10, label %bb11
 bb7:
-  call void @__saw_fail(ptr @.bytes.41, i64 10, i64 787, ptr @.bytes.42, i64 63)
+  call void @__saw_fail(ptr @.bytes.44, i64 10, i64 787, ptr @.bytes.45, i64 63)
   unreachable
   unreachable
 bb8:
@@ -2493,7 +2864,7 @@ bb13:
   %t36 = extractvalue { i64, i1 } %t34, 1
   br i1 %t36, label %check.0, label %checked.1
 check.0:
-  call void @__saw_fail_overflow(ptr @.bytes.41, i64 10, i64 791)
+  call void @__saw_fail_overflow(ptr @.bytes.44, i64 10, i64 791)
   unreachable
 checked.1:
   store i64 %t35, ptr %l17
@@ -2520,7 +2891,7 @@ checked.1:
   %t51 = extractvalue { i64, i1 } %t49, 1
   br i1 %t51, label %check.2, label %checked.3
 check.2:
-  call void @__saw_fail_overflow(ptr @.bytes.41, i64 10, i64 793)
+  call void @__saw_fail_overflow(ptr @.bytes.44, i64 10, i64 793)
   unreachable
 checked.3:
   store i64 %t50, ptr %l23
@@ -2530,7 +2901,7 @@ checked.3:
   %t55 = extractvalue { i64, i1 } %t53, 1
   br i1 %t55, label %check.4, label %checked.5
 check.4:
-  call void @__saw_fail_overflow(ptr @.bytes.41, i64 10, i64 793)
+  call void @__saw_fail_overflow(ptr @.bytes.44, i64 10, i64 793)
   unreachable
 checked.5:
   store i64 %t54, ptr %l24
@@ -3124,7 +3495,7 @@ bb8:
   %t31 = load i64, ptr %l11
   store i64 0, ptr %t32
   %t33 = getelementptr i8, ptr %t32, i64 8
-  store ptr @.bytes.43, ptr %t33
+  store ptr @.bytes.46, ptr %t33
   %t34 = getelementptr i8, ptr %t32, i64 16
   store i64 36, ptr %t34
   %t35 = getelementptr i8, ptr %t32, i64 24
@@ -3134,7 +3505,7 @@ bb8:
   %t37 = getelementptr i8, ptr %t32, i64 48
   store i64 0, ptr %t37
   %t38 = getelementptr i8, ptr %t32, i64 56
-  store ptr @.bytes.44, ptr %t38
+  store ptr @.bytes.47, ptr %t38
   %t39 = getelementptr i8, ptr %t32, i64 64
   store i64 6, ptr %t39
   %t40 = getelementptr i8, ptr %t32, i64 72
@@ -3144,12 +3515,44 @@ bb8:
   %t42 = getelementptr i8, ptr %t32, i64 96
   store i64 0, ptr %t42
   %t43 = getelementptr i8, ptr %t32, i64 104
-  store ptr @.bytes.45, ptr %t43
+  store ptr @.bytes.48, ptr %t43
   %t44 = getelementptr i8, ptr %t32, i64 112
   store i64 1, ptr %t44
-  call void @__saw_fail_parts(ptr @.bytes.41, i64 10, i64 234, ptr @.bytes.46, i64 0, ptr %t32, i64 5)
+  call void @__saw_fail_parts(ptr @.bytes.44, i64 10, i64 234, ptr @.bytes.49, i64 0, ptr %t32, i64 5)
   unreachable
   unreachable
+}
+
+define internal void @"saw std.stringbuilder.StringBuilder.append(b: UInt8)"(ptr %ret, ptr noalias %p1, i8 %p2) #0 {
+entry:
+  %l0 = alloca [24 x i8], align 8
+  %l1 = alloca ptr, align 8
+  %l2 = alloca i8, align 1
+  %l3 = alloca i64, align 8
+  %l4 = alloca ptr, align 8
+  %l5 = alloca [24 x i8], align 8
+  store ptr %p1, ptr %l1
+  store i8 %p2, ptr %l2
+  br label %bb0
+bb0:
+  %t0 = load i8, ptr %l2
+  %t1 = zext i8 %t0 to i64
+  %t2 = trunc i64 %t1 to i8
+  %t3 = icmp eq i8 %t2, %t0
+  %t4 = icmp sge i64 %t1, 0
+  %t5 = and i1 %t3, %t4
+  %t6 = zext i8 %t0 to i64
+  store i64 %t6, ptr %l3
+  %t7 = load ptr, ptr %l1
+  store ptr %t7, ptr %l4
+  %t8 = load ptr, ptr %l4
+  %t9 = load i64, ptr %l3
+  call void @"saw std.stringbuilder.StringBuilder.append_byte(b: Int)"(ptr %l5, ptr %t8, i64 %t9)
+  br label %bb1
+bb1:
+  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l5, i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 24, i1 false)
+  ret void
 }
 
 define internal void @"saw std.stringbuilder.StringBuilder.place_byte(b: Int)"(ptr noalias %p1, i64 %p2) #0 {
@@ -3363,7 +3766,7 @@ bb4:
   %t20 = extractvalue { i64, i1 } %t18, 1
   br i1 %t20, label %check.0, label %checked.1
 check.0:
-  call void @__saw_fail_overflow(ptr @.bytes.47, i64 7, i64 18)
+  call void @__saw_fail_overflow(ptr @.bytes.50, i64 7, i64 18)
   unreachable
 checked.1:
   store i64 %t19, ptr %l8
@@ -3539,6 +3942,117 @@ bb3:
   br label %bb1
 }
 
+define internal void @"saw std.stringbuilder.StringBuilder.append_byte(b: Int)"(ptr %ret, ptr noalias %p1, i64 %p2) #0 {
+entry:
+  %l0 = alloca [24 x i8], align 8
+  %l1 = alloca ptr, align 8
+  %l2 = alloca i64, align 8
+  %l3 = alloca i64, align 8
+  %l4 = alloca i64, align 8
+  %l5 = alloca i64, align 8
+  %l6 = alloca ptr, align 8
+  %l7 = alloca i8, align 1
+  %l8 = alloca i8, align 1
+  %l9 = alloca ptr, align 8
+  %l10 = alloca i64, align 8
+  %l11 = alloca ptr, align 8
+  %l12 = alloca i64, align 8
+  %l13 = alloca [16 x i8], align 8
+  %l14 = alloca [24 x i8], align 8
+  %l15 = alloca i64, align 8
+  %l16 = alloca ptr, align 8
+  store ptr %p1, ptr %l1
+  store i64 %p2, ptr %l2
+  br label %bb0
+bb0:
+  %t0 = load ptr, ptr %l1
+  %t1 = getelementptr i8, ptr %t0, i64 16
+  %t2 = load i64, ptr %t1
+  %t3 = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %t2, i64 2)
+  %t4 = extractvalue { i64, i1 } %t3, 0
+  %t5 = extractvalue { i64, i1 } %t3, 1
+  br i1 %t5, label %check.0, label %checked.1
+check.0:
+  call void @__saw_fail_overflow(ptr @.bytes.5, i64 17, i64 204)
+  unreachable
+checked.1:
+  store i64 %t4, ptr %l4
+  %t6 = load i64, ptr %l4
+  store i64 %t6, ptr %l3
+  %t7 = load i64, ptr %l3
+  store i64 %t7, ptr %l5
+  %t8 = load ptr, ptr %l1
+  store ptr %t8, ptr %l6
+  %t9 = load ptr, ptr %l6
+  %t10 = load i64, ptr %l5
+  %t11 = call i8 @"saw std.stringbuilder.StringBuilder.reserve_bytes(wanted: Int)"(ptr %t9, i64 %t10)
+  store i8 %t11, ptr %l7
+  br label %bb2
+bb1:
+  %t12 = load i64, ptr %l2
+  store i64 %t12, ptr %l15
+  %t13 = load ptr, ptr %l1
+  store ptr %t13, ptr %l16
+  %t14 = load ptr, ptr %l16
+  %t15 = load i64, ptr %l15
+  call void @"saw std.stringbuilder.StringBuilder.place_byte(b: Int)"(ptr %t14, i64 %t15)
+  br label %bb10
+bb2:
+  %t16 = load i8, ptr %l7
+  %t17 = xor i8 %t16, 1
+  store i8 %t17, ptr %l8
+  %t18 = load i8, ptr %l8
+  %t19 = icmp ne i8 %t18, 0
+  br i1 %t19, label %bb3, label %bb4
+bb3:
+  %t20 = load ptr, ptr %l1
+  %t21 = getelementptr i8, ptr %t20, i64 32
+  %t22 = load i8, ptr %t21
+  %t23 = icmp ne i8 %t22, 0
+  br i1 %t23, label %bb6, label %bb7
+bb4:
+  br label %bb1
+bb5:
+  %t24 = load i64, ptr %l3
+  store i64 %t24, ptr %l10
+  %t25 = load ptr, ptr %l1
+  store ptr %t25, ptr %l11
+  %t26 = load ptr, ptr %l11
+  %t27 = load i64, ptr %l10
+  %t28 = call i64 @"saw std.stringbuilder.StringBuilder.grow_target(wanted: Int)"(ptr %t26, i64 %t27)
+  store i64 %t28, ptr %l12
+  br label %bb9
+bb6:
+  %t29 = load ptr, ptr %l1
+  store ptr %t29, ptr %l9
+  %t30 = load ptr, ptr %l9
+  call void @"saw std.stringbuilder.StringBuilder.mark_truncated()"(ptr %t30)
+  br label %bb8
+bb7:
+  br label %bb5
+bb8:
+  store i32 0, ptr %l0
+  %t31 = getelementptr i8, ptr %l0, i64 8
+  call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 24, i1 false)
+  ret void
+bb9:
+  %t32 = load i64, ptr %l12
+  store i64 %t32, ptr %l13
+  %t33 = getelementptr i8, ptr %l13, i64 8
+  store i64 1, ptr %t33
+  store i32 1, ptr %l14
+  %t34 = getelementptr i8, ptr %l14, i64 8
+  call void @llvm.memcpy.p0.p0.i64(ptr %t34, ptr %l13, i64 16, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %l0, ptr %l14, i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 24, i1 false)
+  ret void
+bb10:
+  store i32 0, ptr %l0
+  %t35 = getelementptr i8, ptr %l0, i64 8
+  call void @llvm.memcpy.p0.p0.i64(ptr %ret, ptr %l0, i64 24, i1 false)
+  ret void
+}
+
 define internal void @"saw try failure std.alloc.AllocError"(ptr %file, i64 %file_len, i64 %line, ptr %error) noinline noreturn #0 {
 entry:
   %t0 = alloca [512 x i8], align 1
@@ -3553,7 +4067,7 @@ entry:
   store ptr %t0, ptr %t4
   %t5 = getelementptr i8, ptr %t3, i64 16
   store i64 %t2, ptr %t5
-  call void @__saw_fail_parts(ptr %file, i64 %file_len, i64 %line, ptr @.bytes.48, i64 13, ptr %t3, i64 1)
+  call void @__saw_fail_parts(ptr %file, i64 %file_len, i64 %line, ptr @.bytes.51, i64 13, ptr %t3, i64 1)
   unreachable
 }
 

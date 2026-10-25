@@ -19,7 +19,7 @@
 //! the platform's own code.
 
 import std.data.{Data}
-import std.systemerror.{system_error_kind}
+import std.systemerror.{append_subject, system_error_kind}
 import std.task.{IoWaitOutcome, io_wait, yield_now}
 
 extern "C" {
@@ -182,7 +182,7 @@ extension IoErrorKind {
             case InvalidDescriptor -> IoErrorKind.InvalidDescriptor,
             case InputOutputFailed -> IoErrorKind.InputOutputFailed,
             case UnexpectedEnd -> IoErrorKind.Unknown,
-            case LaunchFailed -> IoErrorKind.Unknown,
+            case NotExecutable -> IoErrorKind.Unknown,
             case InvalidUtf8 -> IoErrorKind.Unknown
         }
     }
@@ -224,15 +224,19 @@ extension IoErrorKind: Printable {
     }
 }
 
-/// A failed operating-system operation: which operation, the portable kind of
-/// the failure, and the platform's own code for it.
+/// A failed operating-system operation: which operation, the host or other
+/// subject it was given, the portable kind of the failure, and the platform's
+/// own code for it.
 ///
-/// It renders as `io error: connect failed (connection refused)`, the kind
-/// only, so the text reads the same on every host. A failure of kind
-/// `Unknown` also names the platform's code, `(other error, errno 18)`, since
-/// no portable word says what happened.
+/// It renders as `io error: connect "db.internal" failed (connection
+/// refused)`, the kind only, so the text reads the same on every host; an
+/// operation given no subject, such as a read of a connected stream, leaves
+/// the quotes out. A failure of kind `Unknown` also names the platform's
+/// code, `(other error, errno 18)`, since no portable word says what
+/// happened.
 public struct IoError {
     private syscall: String
+    private subject: String?
     private kind: IoErrorKind
     private code: Int32
 }
@@ -241,6 +245,12 @@ extension IoError {
     /// Returns the portable kind of the failure.
     public func kind(&self) -> IoErrorKind {
         self.kind
+    }
+
+    /// Returns what the failed operation was given, such as the host a
+    /// `connect` dialled, or `None` for an operation given nothing.
+    public func subject(&self) -> String? {
+        self.subject
     }
 
     /// Returns the platform's own code for the failure, or 0 where there is
@@ -260,7 +270,14 @@ extension IoError {
     /// between may replace it. A failure no operation reported takes
     /// `of(syscall:kind:)`.
     public static func of(syscall: String, tag: Int) -> IoError {
-        IoError(syscall: syscall, kind: IoErrorKind.of(tag), code: raw_code_now())
+        IoError(syscall: syscall, subject: None, kind: IoErrorKind.of(tag), code: raw_code_now())
+    }
+
+    /// Returns the error for `syscall`, given `subject`, from the portable
+    /// tag a failing runtime operation just returned, on the terms of
+    /// `of(syscall:tag:)`.
+    public static func of(syscall: String, subject: String, tag: Int) -> IoError {
+        IoError(syscall: syscall, subject: subject, kind: IoErrorKind.of(tag), code: raw_code_now())
     }
 
     /// Returns an error for `syscall` of the given `kind`, for a failure the
@@ -272,16 +289,34 @@ extension IoError {
     /// // "{refused}" renders as: io error: connect failed (connection refused)
     /// ```
     public static func of(syscall: String, kind: IoErrorKind) -> IoError {
-        IoError(syscall: syscall, kind: kind, code: 0)
+        IoError(syscall: syscall, subject: None, kind: kind, code: 0)
+    }
+
+    /// Returns an error for `syscall`, given `subject`, of the given `kind`,
+    /// on the terms of `of(syscall:kind:)`.
+    ///
+    /// ```saw-fragment
+    /// let refused = IoError.of(syscall: "connect", subject: "db.internal",
+    ///                          kind: IoErrorKind.ConnectionRefused)
+    /// // "{refused}" renders as: io error: connect "db.internal" failed (connection refused)
+    /// ```
+    public static func of(syscall: String, subject: String, kind: IoErrorKind) -> IoError {
+        IoError(syscall: syscall, subject: subject, kind: kind, code: 0)
     }
 }
 
 extension IoError: Error {
-    /// Writes `io error: `, the operation and the kind's description, and for
-    /// an `Unknown` failure the platform's code when there is one.
+    /// Writes `io error: `, the operation, the quoted subject when there is
+    /// one, and the kind's description, and for an `Unknown` failure the
+    /// platform's code when there is one.
     public func format(&self, into: &var StringBuilder) {
         try! into.append("io error: ")
         try! into.append(self.syscall)
+        if let subject = self.subject {
+            try! into.append(" \"")
+            append_subject(&var into, subject)
+            try! into.append("\"")
+        }
         try! into.append(" failed (")
         try! into.append(self.kind.describe())
         let unnamed = match self.kind {
@@ -306,6 +341,11 @@ func raw_code_now() -> Int32 {
 // the error carries no platform code.
 func io_cancelled(syscall: String) -> IoError {
     IoError.of(syscall: syscall, kind: IoErrorKind.Interrupted)
+}
+
+// The same for an operation given `subject`.
+func io_cancelled(syscall: String, subject: String) -> IoError {
+    IoError.of(syscall: syscall, subject: subject, kind: IoErrorKind.Interrupted)
 }
 
 // Whether a seam's answer is the would-block refusal.
@@ -499,18 +539,11 @@ func resolve_first(host: String) unsafe -> Result<Int, IoError> {
     found as Int
 }
 
-// A failed resolution, naming the host, since an error that does not say which
-// name failed cannot be acted on: `io error: resolve "db.internal" failed (not
-// found)`. Its `code()` is 0, because the resolver classified the failure on
-// the worker's thread, not this one.
+// A failed resolution, naming the host: `io error: resolve "db.internal"
+// failed (not found)`. Its `code()` is 0, because the resolver classified the
+// failure on the worker's thread, not this one.
 func resolve_error(host: String, kind: IoErrorKind) -> IoError {
-    // The appends force rather than report: this builds the error itself, and
-    // there is no error channel behind it.
-    var what = StringBuilder()
-    try! what.append("resolve \"")
-    try! what.append(host)
-    try! what.append("\"")
-    IoError.of(syscall: what.build(), kind: kind)
+    IoError.of(syscall: "resolve", subject: host, kind: kind)
 }
 
 /// The outcome of a network operation given a deadline.
@@ -560,25 +593,28 @@ extension TcpListener {
     /// depth of the queue of arrived connections not yet accepted.
     ///
     /// Returns `Err(IoError)` of kind `InvalidArgument` for a port outside
-    /// 0..65535, a backlog below 1 or a host that is not an IPv4 literal, and
-    /// the platform's refusal otherwise.
+    /// 0..65535 or a backlog below 1, whose subject says which, and for a
+    /// host that is not an IPv4 literal, naming the host; and the platform's
+    /// refusal otherwise, naming the host.
     public static func listen(port: Int,
                               host: String = "127.0.0.1",
                               reuse_address: Bool = true,
                               backlog: Int = 16) -> Result<TcpListener, IoError> {
         if port < 0 || port > PORT_MAX {
-            return IoError.of(syscall: "listen: port must be 0..65535", kind: IoErrorKind.InvalidArgument)
+            return IoError.of(syscall: "listen", subject: "port must be 0..65535",
+                              kind: IoErrorKind.InvalidArgument)
         }
         if backlog < 1 {
-            return IoError.of(syscall: "listen: backlog must be at least 1", kind: IoErrorKind.InvalidArgument)
+            return IoError.of(syscall: "listen", subject: "backlog must be at least 1",
+                              kind: IoErrorKind.InvalidArgument)
         }
         guard let address = parse_ipv4_literal(host) else {
-            return IoError.of(syscall: "listen: expected an IPv4 address", kind: IoErrorKind.InvalidArgument)
+            return IoError.of(syscall: "listen", subject: host, kind: IoErrorKind.InvalidArgument)
         }
         let reuse = if reuse_address { 1 } else { 0 }
         let fd = __saw_rt_tcp_listen_with(address as Int, port, reuse, backlog)
         if fd < 0 {
-            return IoError.of(syscall: "listen", tag: 0 - fd)
+            return IoError.of(syscall: "listen", subject: host, tag: 0 - fd)
         }
         TcpListener(fd: fd)
     }
@@ -679,34 +715,35 @@ extension TcpStream {
     ///
     /// `host` is a dotted IPv4 literal or a name to resolve. A name is looked
     /// up on a worker thread while sibling tasks run, and its first IPv4
-    /// address is dialled. Returns `Err(IoError)` naming the host when the name
-    /// does not resolve, `Err(IoError)` when the connection is refused or
-    /// fails, and one of kind `Interrupted` when the task is cancelled while it
-    /// waits.
+    /// address is dialled. Every `Err(IoError)` names the host: `resolve`
+    /// when the name does not resolve, `connect` when the connection is
+    /// refused or fails, and `connect` of kind `Interrupted` when the task is
+    /// cancelled while it waits.
     public static func connect(host: String, port: Int) -> Result<TcpStream, IoError> {
         if let address = parse_ipv4_literal(host) {
-            return TcpStream.dial(address as Int, port)
+            return TcpStream.dial(host, address as Int, port)
         }
         let address = try resolve_first(host)
-        TcpStream.dial(address, port)
+        TcpStream.dial(host, address, port)
     }
 
-    // Dials `address`:`port` and parks until the socket is writable, checking
-    // the connection again after every wake, since a wake is no proof of it.
-    static func dial(address: Int, port: Int) -> Result<TcpStream, IoError> {
+    // Dials `address`:`port`, which `host` named, and parks until the socket
+    // is writable, checking the connection again after every wake, since a
+    // wake is no proof of it.
+    static func dial(host: String, address: Int, port: Int) -> Result<TcpStream, IoError> {
         let fd = __saw_rt_tcp_connect_start(address, port)
         if fd < 0 {
-            return IoError.of(syscall: "connect", tag: 0 - fd)
+            return IoError.of(syscall: "connect", subject: host, tag: 0 - fd)
         }
         while not cancelled() {
             let check = __saw_rt_tcp_connect_check(fd, address, port)
             if in_progress(check) {
                 if park(fd, Interest.Write, NO_DEADLINE) {
                     close_fd(fd)
-                    return io_cancelled("connect")
+                    return io_cancelled("connect", host)
                 }
             } else if check < 0 {
-                let failure = IoError.of(syscall: "connect", tag: 0 - check)
+                let failure = IoError.of(syscall: "connect", subject: host, tag: 0 - check)
                 close_fd(fd)
                 return failure
             } else {
@@ -715,7 +752,7 @@ extension TcpStream {
             }
         }
         close_fd(fd)
-        io_cancelled("connect")
+        io_cancelled("connect", host)
     }
 
     /// Connects to `host`:`port`, giving up after `timeout`.
@@ -732,7 +769,7 @@ extension TcpStream {
                                timeout: Duration) -> Result<Timed<TcpStream>, IoError> {
         let deadline = deadline_after(timeout)
         if let address = parse_ipv4_literal(host) {
-            return TcpStream.dial_until(address as Int, port, deadline)
+            return TcpStream.dial_until(host, address as Int, port, deadline)
         }
         let address = try resolve_first(host)
         // The lookup may have used the whole span, and dialling against a
@@ -740,16 +777,16 @@ extension TcpStream {
         if deadline_passed(deadline) {
             return Timed<TcpStream>.TimedOut
         }
-        TcpStream.dial_until(address, port, deadline)
+        TcpStream.dial_until(host, address, port, deadline)
     }
 
     // `dial` with its park bounded by `deadline`: the half-open socket is
     // closed on a timeout, as it is on a cancel.
-    static func dial_until(address: Int, port: Int,
+    static func dial_until(host: String, address: Int, port: Int,
                            deadline: UInt64) -> Result<Timed<TcpStream>, IoError> {
         let fd = __saw_rt_tcp_connect_start(address, port)
         if fd < 0 {
-            return IoError.of(syscall: "connect", tag: 0 - fd)
+            return IoError.of(syscall: "connect", subject: host, tag: 0 - fd)
         }
         while not cancelled() {
             let check = __saw_rt_tcp_connect_check(fd, address, port)
@@ -760,10 +797,10 @@ extension TcpStream {
                 }
                 if park(fd, Interest.Write, deadline) {
                     close_fd(fd)
-                    return io_cancelled("connect")
+                    return io_cancelled("connect", host)
                 }
             } else if check < 0 {
-                let failure = IoError.of(syscall: "connect", tag: 0 - check)
+                let failure = IoError.of(syscall: "connect", subject: host, tag: 0 - check)
                 close_fd(fd)
                 return failure
             } else {
@@ -772,7 +809,7 @@ extension TcpStream {
             }
         }
         close_fd(fd)
-        io_cancelled("connect")
+        io_cancelled("connect", host)
     }
 
     /// Sets whether small writes are sent at once rather than coalesced.

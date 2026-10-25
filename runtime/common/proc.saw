@@ -1,14 +1,20 @@
 // Process spawn seams (design 122), authored in Saw.
 //
 // A real argv spawn: the caller passes a NULL-terminated `char**` and the child
-// is `execvp`'d directly. No shell is involved, so one array element is exactly
-// one argument whatever bytes it holds.
+// `execve`s the program directly, found on PATH by `execvp`'s rules but
+// without its `/bin/sh` fallback. No shell is involved, so one array element
+// is exactly one argument whatever bytes it holds.
 //
 // `spawn` returns an opaque job handle (a heap record owning the child's pid
 // and, when capturing, the read end of its stdout pipe); `read_stdout` drains
 // that pipe; `try_wait` reaps the child, releases the record and returns the
 // raw POSIX wait status, which std decodes so a signal death never reads as
 // exit 0. Spawn creates the job; the reap or `release` destroys it.
+//
+// A program that cannot be executed is the spawn's own failure, not an exit
+// status: the child writes exec's errno on a close-on-exec pipe, and the
+// parent, reading end of file there, knows the exec succeeded. So a child's
+// own exit status, 127 included, is only ever its own.
 //
 // The wait uses no thread (design 182). `try_wait` is `waitpid(WNOHANG)` and
 // answers `-WouldBlock` while the child is alive; a caller that must wait asks
@@ -39,24 +45,35 @@ extern "C" {
     // The one-word lock (host_macos/lock.saw, or shim.c on Linux).
     func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
     func __saw_rt_lock_release(state: UnsafePointer<Int>)
-    func pipe(fds: UnsafePointer<Int8>) -> Int32
     func close(fd: Int32) -> Int32
     func read(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
+    func write(fd: Int32, buf: UnsafePointer<Int8>, count: Int) -> Int
     func dup2(oldfd: Int32, newfd: Int32) -> Int32
     func fork() -> Int32
-    func execvp(file: UnsafePointer<Int8>, argv: UnsafePointer<Int8>) -> Int32
+    func execve(file: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<UnsafePointer<Int8>>) -> Int32
     func _exit(code: Int32)
     func waitpid(pid: Int32, status: UnsafePointer<Int32>, options: Int32) -> Int32
     func __saw_rt_last_syserror() -> Int
+    // The raw errno, and a number classified as `__saw_rt_last_syserror`
+    // classifies errno, its raw code stamped (shim.c).
+    func __saw_errno() -> Int
+    func __saw_classify_code(code: Int) -> Int
     // The host-divergent child-exit descriptor (host_macos/host_linux
     // proc_wait.saw).
     func __saw_rt_proc_exit_fd(pid: Int) -> Int
+    // The spawn's per-host facts (shim.c): a close-on-exec pipe (0 or -tag);
+    // the PATH search's rule for an `execve` errno and its default PATH; and
+    // the child's close of every descriptor it inherited, bounded by the
+    // limit read in the parent.
+    func __saw_pipe_cloexec(fds: UnsafePointer<Int8>) -> Int
+    func __saw_exec_next(code: Int, candidate: UnsafePointer<Int8>) -> Int
+    func __saw_default_path() -> UnsafePointer<Int8>
+    func __saw_fd_limit() -> Int
+    func __saw_close_inherited(keep: Int, limit: Int)
 
-    // The process environment. Saw cannot name a C global, so the two
-    // accessors live in shim.c (DF-113a); see the comment there for why the
-    // child sets `environ` rather than calling `execve`.
+    // The process environment. Saw cannot name a C global, so the accessor
+    // lives in shim.c (DF-113a).
     func __saw_environ_get() -> UnsafePointer<UnsafePointer<Int8>>
-    func __saw_environ_set(env: UnsafePointer<UnsafePointer<Int8>>)
 }
 
 // The portable SysError tag space (ABI.md). A failing op returns the negated
@@ -88,7 +105,9 @@ enum SysError: UInt8 {
     case NetDown = 21,
     // Descriptor and device failures, appended for the same reason (SL-785).
     case InvalidDescriptor = 22,
-    case InputOutputFailed = 23
+    case InputOutputFailed = 23,
+    // A file that is not a program the system can execute (SL-898).
+    case NotExecutable = 24
 }
 
 // waitpid(2)'s "do not block" option — 1 on both hosts.
@@ -103,10 +122,30 @@ static NULL_ENVP: Int = 0
 
 static STDOUT_FILENO: Int32 = 1
 static STDERR_FILENO: Int32 = 2
-// POSIX shell convention for "command not found / could not exec": the child
-// that fails to exec exits 127, which std maps back to a launch failure.
+// The status a child whose exec failed exits with, after it has reported the
+// errno; the spawn reaps it, so no caller sees this status.
 static EXEC_FAILED_STATUS: Int32 = 127
 static NO_FD: Int32 = -1
+// `/` and `:`: a program name holding a slash is a path and is not searched
+// for, and a colon separates PATH's entries.
+static SLASH_BYTE: Int8 = 47
+static COLON_BYTE: Int8 = 58
+// `PATH`, the name of the variable a search reads.
+static PATH_NAME: [Int8; 4] = [80, 65, 84, 72]
+
+// What `__saw_exec_next` answers for an `execve` errno (shim.c).
+enum ExecNext: UInt8 {
+    // Stop the search and report this errno.
+    case Stops = 0,
+    // Try the next candidate.
+    case TriesOn = 1,
+    // Try the next candidate, and report this errno if none of them runs.
+    case TriesOnRefused = 2
+}
+// What a spawn adds to the tag of an exec failure before negating it, so std
+// can tell a program that could not be executed from a spawn that never
+// forked (ABI.md, "Process spawn").
+static EXEC_FAILED_BIAS: Int = 256
 
 // The spawn `flags` word, one bit per redirection (ABI.md). The enum is the
 // single source of the bit values; `flags` stays the plain integer set,
@@ -144,6 +183,164 @@ func env_lock_give() unsafe sync {
 struct PipeFds {
     r: Int32
     w: Int32
+}
+
+// The value of the `PATH=` entry in the NULL-terminated environment `env`, as
+// an address, or 0 when it sets none.
+func path_value(env: UnsafePointer<UnsafePointer<Int8>>) unsafe sync -> Int {
+    var i = 0
+    while (env[i] as Int) != 0 {
+        let e = env[i]
+        if e[0] == PATH_NAME[0] && e[1] == PATH_NAME[1] && e[2] == PATH_NAME[2] &&
+           e[3] == PATH_NAME[3] && e[4] == EQUALS_BYTE {
+            return (e + 5) as Int
+        }
+        i = i + 1
+    }
+    0
+}
+
+// Whether the C string `text` holds `byte`.
+func holds_byte(text: UnsafePointer<Int8>, byte: Int8) unsafe sync -> Bool {
+    var i = 0
+    while text[i] != (0 as Int8) {
+        if text[i] == byte {
+            return true
+        }
+        i = i + 1
+    }
+    false
+}
+
+// The files a spawn's child tries to execute, in order, as one malloc'd block
+// (a NULL-terminated array of C strings, then their bytes) for the caller to
+// free, or 0 when it cannot be allocated. By `execvp`'s rules: an empty name
+// or one holding `/` is its own only candidate; otherwise each entry of the
+// PATH that `env` sets, or the default one, joined with the name, an empty
+// entry naming the current directory. Built in the parent, since it
+// allocates.
+func exec_candidates(name: UnsafePointer<Int8>, env: UnsafePointer<UnsafePointer<Int8>>) unsafe -> Int {
+    let slot = sizeof<UnsafePointer<Int8>>()
+    let name_len = strlen(name)
+    if name_len == 0 || holds_byte(name, SLASH_BYTE) {
+        let raw = malloc(2 * slot)
+        if (raw as Int) == 0 {
+            return 0
+        }
+        let out = raw as UnsafePointer<UnsafePointer<Int8>>
+        out[0] = name
+        out[1] = 0 as UnsafePointer<Int8>
+        return raw as Int
+    }
+    var search = __saw_default_path()
+    let set = path_value(env)
+    if set != 0 {
+        search = set as UnsafePointer<Int8>
+    }
+    let search_len = strlen(search)
+    var entries = 1
+    var k = 0
+    while k < search_len {
+        if search[k] == COLON_BYTE {
+            entries = entries + 1
+        }
+        k = k + 1
+    }
+    // Each candidate is its entry, a slash, the name and a NUL.
+    let table_bytes = (entries + 1) * slot
+    let raw = malloc(table_bytes + search_len + entries * (name_len + 2))
+    if (raw as Int) == 0 {
+        return 0
+    }
+    let out = raw as UnsafePointer<UnsafePointer<Int8>>
+    let text = raw + table_bytes
+    var used = 0
+    var start = 0
+    var n = 0
+    while n < entries {
+        var end = start
+        while end < search_len && search[end] != COLON_BYTE {
+            end = end + 1
+        }
+        let candidate = text + used
+        if end > start {
+            let _ = memcpy(candidate, search + start, end - start)
+            used = used + (end - start)
+            text[used] = SLASH_BYTE
+            used = used + 1
+        }
+        let _ = memcpy(text + used, name, name_len + 1)
+        used = used + name_len + 1
+        out[n] = candidate
+        n = n + 1
+        start = end + 1
+    }
+    out[entries] = 0 as UnsafePointer<Int8>
+    raw as Int
+}
+
+// In the child: executes the first candidate that runs, by `execvp`'s rules,
+// and returns the errno to report when none did. A permission refusal is
+// reported only once the rest of PATH has been tried.
+func exec_search(candidates: UnsafePointer<UnsafePointer<Int8>>, argv: UnsafePointer<Int8>,
+                 env: UnsafePointer<UnsafePointer<Int8>>) unsafe sync -> Int {
+    var refused = 0
+    var last = 0
+    var i = 0
+    var going = true
+    while going && (candidates[i] as Int) != 0 {
+        let _ = execve(candidates[i], argv, env)
+        last = __saw_errno()
+        let next = __saw_exec_next(last, candidates[i])
+        if next == ((ExecNext.Stops as UInt8) as Int) {
+            going = false
+        } else {
+            if next == ((ExecNext.TriesOnRefused as UInt8) as Int) {
+                refused = last
+            }
+            i = i + 1
+        }
+    }
+    if going && refused != 0 {
+        return refused
+    }
+    last
+}
+
+// The errno a child whose exec failed wrote on the launch pipe `fd`, or 0 when
+// the pipe reached end of file with nothing on it: the exec succeeded, or the
+// child died before it, which its wait status reports. A write this small to a
+// pipe is atomic, so the errno arrives whole or not at all. A read that fails
+// for any reason but a signal is taken as end of file too, leaving the verdict
+// to the child's wait status.
+func exec_errno(fd: Int32) unsafe sync -> Int {
+    var code: Int32 = 0
+    let buf = (&code) as UnsafePointer<Int8>
+    let want = sizeof<Int32>()
+    var got = 0
+    while got < want {
+        let n = read(fd, buf + got, want - got)
+        if n > 0 {
+            got = got + n
+        } else if n == 0 {
+            return 0
+        } else if __saw_rt_last_syserror() != ((SysError.Interrupted as UInt8) as Int) {
+            return 0
+        }
+    }
+    code as Int
+}
+
+// Reaps the child `pid`, which has exited or is about to, blocking until it
+// has. Only an exec-failed child is reaped this way.
+func reap_exited(pid: Int32) unsafe sync {
+    var status: Int32 = 0
+    let sp = (&status) as UnsafePointer<Int32>
+    while waitpid(pid, sp, 0 as Int32) < (0 as Int32) {
+        if __saw_rt_last_syserror() != ((SysError.Interrupted as UInt8) as Int) {
+            return
+        }
+    }
 }
 
 // The opaque job record handed back to std as a word.
@@ -278,9 +475,8 @@ func merge_environ(overrides: UnsafePointer<UnsafePointer<Int8>>) unsafe -> Int 
 }
 
 // The spawn body both seams share. `envp` is NULL_ENVP to inherit the parent
-// environment, or a merged `char**` as a word — the child points `environ` at
-// it just before `execvp`, which is what a portable `execvpe` does and the only
-// way to choose the environment without giving up the PATH search.
+// environment, or a merged `char**` as a word, which the child is executed
+// with and whose PATH it is searched for on.
 func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: Int, flags: Int) unsafe -> Int {
     let capture = flags & ((RedirectFlag.CaptureStdout as UInt8) as Int)
     let merge_stderr = flags & ((RedirectFlag.MergeStderr as UInt8) as Int)
@@ -293,19 +489,49 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
     }
     let p = raw as UnsafePointer<ProcJob>
 
-    var fds = PipeFds(r: NO_FD, w: NO_FD)
-    if capture != 0 {
-        if pipe((&fds) as UnsafePointer<Int8>) != (0 as Int32) {
-            let e = __saw_rt_last_syserror()
-            free(raw)
-            return 0 - e
-        }
-    }
-
     // The parent holds the environment lock across `fork`, so the child's
     // copy of `environ` is never one another thread's setenv left half made;
-    // the parent alone releases it.
+    // the parent alone releases it. Every spawn's pipes are made under it too,
+    // and the parent's write ends are closed before it is released, so no
+    // other spawn's child can inherit one: a write end held elsewhere would
+    // keep its pipe from ever reading end of file.
     env_lock_take()
+    var env = __saw_environ_get()
+    if envp != NULL_ENVP {
+        env = envp as UnsafePointer<UnsafePointer<Int8>>
+    }
+    let candidates = exec_candidates(path, env)
+    if candidates == 0 {
+        env_lock_give()
+        free(raw)
+        return 0 - ((SysError.Exhausted as UInt8) as Int)
+    }
+    var fds = PipeFds(r: NO_FD, w: NO_FD)
+    if capture != 0 {
+        let e = __saw_pipe_cloexec((&fds) as UnsafePointer<Int8>)
+        if e != 0 {
+            env_lock_give()
+            free(candidates as UnsafePointer<Int8>)
+            free(raw)
+            return e
+        }
+    }
+    // The launch pipe: a child whose exec fails writes the errno on it, and
+    // one whose exec succeeds closes it by exec, so the parent learns which.
+    var launch = PipeFds(r: NO_FD, w: NO_FD)
+    let launch_failed = __saw_pipe_cloexec((&launch) as UnsafePointer<Int8>)
+    if launch_failed != 0 {
+        env_lock_give()
+        if capture != 0 {
+            let _ = close(fds.r)
+            let _ = close(fds.w)
+        }
+        free(candidates as UnsafePointer<Int8>)
+        free(raw)
+        return launch_failed
+    }
+    let fd_limit = __saw_fd_limit()
+
     let pid = fork()
     if pid < (0 as Int32) {
         // EAGAIN from fork means the process limit: an exhausted resource a
@@ -320,16 +546,20 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
             let _ = close(fds.r)
             let _ = close(fds.w)
         }
+        let _ = close(launch.r)
+        let _ = close(launch.w)
+        free(candidates as UnsafePointer<Int8>)
         free(raw)
         return 0 - e
     }
 
     if pid == (0 as Int32) {
-        // Child. Everything here is async-signal-safe (dup2/close/execvp/_exit
-        // and a pointer store), as the window between fork and exec requires.
-        // The child inherits the environment lock HELD and never takes or
+        // Child. Everything here is async-signal-safe (dup2/close/execve/
+        // write/_exit), as the window between fork and exec requires. The
+        // child inherits the environment lock HELD and never takes or
         // releases it, so nothing between `fork` and `exec` may reach an env
         // seam.
+        let _ = close(launch.r)
         if capture != 0 {
             let _ = close(fds.r)
             let _ = dup2(fds.w, STDOUT_FILENO)
@@ -342,19 +572,39 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
             // child's stderr goes wherever its inherited stdout goes.
             let _ = dup2(STDOUT_FILENO, STDERR_FILENO)
         }
-        if envp != NULL_ENVP {
-            __saw_environ_set(envp as UnsafePointer<UnsafePointer<Int8>>)
-        }
-        let _ = execvp(path, argv)
-        // Only reachable when exec failed (bad path, not executable, ENOENT).
+        // Whatever any thread opened, close-on-exec or not, stays with the
+        // parent (SL-910).
+        __saw_close_inherited(launch.w as Int, fd_limit)
+        let failed = exec_search(candidates as UnsafePointer<UnsafePointer<Int8>>, argv, env)
+        // Reached only when nothing could be executed. The errno is read raw:
+        // classifying it here would stamp thread-specific data, which is not
+        // async-signal-safe.
+        var code = failed as Int32
+        let _ = write(launch.w, (&code) as UnsafePointer<Int8>, sizeof<Int32>())
         _exit(EXEC_FAILED_STATUS)
         return 0
     }
 
-    env_lock_give()
-    // Parent: the write end belongs to the child now.
+    // Parent: the write ends belong to the child now.
     if capture != 0 {
         let _ = close(fds.w)
+    }
+    let _ = close(launch.w)
+    env_lock_give()
+    // The child has its own copy of the candidates (fork copies the address
+    // space).
+    free(candidates as UnsafePointer<Int8>)
+    let errno_of_exec = exec_errno(launch.r)
+    let _ = close(launch.r)
+    if errno_of_exec != 0 {
+        // The child exits as soon as it has written, so this wait is short.
+        reap_exited(pid)
+        if capture != 0 {
+            let _ = close(fds.r)
+        }
+        free(raw)
+        // Classified last, so the raw code stamped is the exec's errno.
+        return 0 - (EXEC_FAILED_BIAS + __saw_classify_code(errno_of_exec))
     }
     p[0].pid = pid
     p[0].stdout_fd = fds.r
@@ -366,7 +616,8 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
 // program name, exactly as execvp wants), inheriting this process's
 // environment. `flags` is the redirection bit set (ABI.md): bit 0 sends the
 // child's stdout into a pipe this job owns, bit 1 sends its stderr wherever its
-// stdout goes. Returns the job handle (> 0) or -tag.
+// stdout goes. Returns the job handle (> 0), -tag, or -(EXEC_FAILED_BIAS +
+// tag) when the child could not execute the program.
 @export("__saw_rt_proc_spawn")
 func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, flags: Int) unsafe -> Int {
     proc_spawn_impl(path, argv, NULL_ENVP, flags)

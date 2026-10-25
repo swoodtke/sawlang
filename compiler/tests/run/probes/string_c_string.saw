@@ -8,8 +8,8 @@
 // prints: 2
 // prints: true
 // prints: opened
-// prints: open failed (not found)
-// prints: open failed (invalid argument)
+// prints: open "/dev/no-such-sawlang-probe-file" failed (not found)
+// prints: open "/dev/null\0x" failed (invalid argument)
 
 import std.file.{File}
 import std.path.{Path}

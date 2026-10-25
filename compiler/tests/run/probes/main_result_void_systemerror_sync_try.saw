@@ -5,7 +5,7 @@
 // prints: start
 // prints: middle
 // exits: 1
-// stderr: error: open failed (not found)
+// stderr: error: open "/nonexistent/sl874" failed (not found)
 // leaks: none
 
 import std.file

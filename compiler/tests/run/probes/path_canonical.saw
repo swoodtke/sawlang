@@ -6,8 +6,8 @@
 // prints: ends with the file's name: true
 // prints: link resolves to its target: true
 // prints: `..` collapses: true
-// prints: realpath failed (not found)
-// prints: realpath failed (invalid argument)
+// prints: realpath "path_canonical_missing.txt" failed (not found)
+// prints: realpath "path_canonical\0.txt" failed (invalid argument)
 //
 // The probe makes its own files in the directory it runs in, so the paths it
 // compares are relative and the lines it prints hold on every host.

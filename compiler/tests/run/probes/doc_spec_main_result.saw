@@ -3,7 +3,7 @@
 // stage 0: writes the error on standard output, where sawc writes standard error
 // speeds: -O0 -O2
 // exits: 1
-// stderr: error: open failed (not found)
+// stderr: error: open "saw.toml" failed (not found)
 // leaks: none
 
 import std.file

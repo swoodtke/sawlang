@@ -1982,7 +1982,7 @@ net_socketpair_echo.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_threads_io.saw	pass	judged by its own directives (edited since its oracle)	-
 net_three_park_sequence.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_two_concurrent_parked_reads.saw	stage0-wrong	annotated SL-768	sawc meets its directives
-net_unroutable_connect_names_the_cause.saw	pass	-	-
+net_unroutable_connect_names_the_cause.saw	stage0-wrong	annotated SL-898	sawc meets its directives
 net_write_overloads.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 net_write_to_closed_peer_is_an_error.saw	stage0-wrong	annotated SL-768	sawc meets its directives
 never_extern_module_abi.saw	pass	-	-

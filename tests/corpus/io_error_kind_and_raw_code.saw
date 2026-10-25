@@ -16,7 +16,7 @@
 // raised on its own behalf.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// rendered: io error: open failed (not found)
+// rendered: open "/definitely/not/here/design234.txt" failed (not found)
 // kind: not found
 // kind is NotFound: true
 // os refusal carries a raw code: true

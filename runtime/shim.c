@@ -225,14 +225,14 @@ void __saw_rt_panic(const char *msg, size_t len) {
 /* ---- DF-113a: no C macro -----------------------------------------------
  * `open(2)` flag bits differ per host, so `__saw_rt_fs_open` takes a portable
  * mode and this translates it. Keep the mode numbers in step with `OpenMode`
- * in std/file.saw. */
+ * in std/file.saw. Every mode is close-on-exec (SL-910). */
 #include <fcntl.h>
 
 long __saw_open_flags(long mode) {
     switch (mode) {
-    case 0: return O_RDONLY;
-    case 1: return O_WRONLY | O_CREAT | O_TRUNC;
-    case 2: return O_WRONLY | O_CREAT | O_APPEND;
+    case 0: return O_RDONLY | O_CLOEXEC;
+    case 1: return O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
+    case 2: return O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC;
     default: return -1;
     }
 }
@@ -280,11 +280,9 @@ long __saw_gai_tag(long code) {
 }
 
 /* ---- DF-113a: no extern C global ---------------------------------------
- * `__saw_rt_proc_spawn_env` sets the child's environment by pointing
- * `environ` at the merged array between fork and exec, which keeps
- * `execvp`'s PATH search. Get and set are a pointer load and store, so the
- * set is async-signal-safe in that window; the merge itself runs in the
- * parent (rt/common/proc.saw). macOS spells the variable `_NSGetEnviron()`. */
+ * The environment a spawn hands its child when it sets no override, and the
+ * one an override merges into (rt/common/proc.saw). macOS spells the variable
+ * `_NSGetEnviron()`. */
 #ifdef __APPLE__
 #include <crt_externs.h>
 #define SAW_ENVIRON (*_NSGetEnviron())
@@ -297,6 +295,9 @@ char **__saw_environ_get(void) {
     return SAW_ENVIRON;
 }
 
+/* The tree's runtime never sets `environ`, but the bootstrap seed's pinned
+ * runtime IR does, and the seed links against this file, so the setter stays
+ * until a seed bump retires it. */
 void __saw_environ_set(char **env) {
     SAW_ENVIRON = env;
 }
@@ -310,6 +311,163 @@ void __saw_environ_set(char **env) {
 long __saw_classify_code(long code) {
     errno = (int)code;
     return __saw_rt_last_syserror();
+}
+
+/* ---- DF-113a: errno is a per-host macro --------------------------------
+ * The raw errno, unclassified, for a forked child whose exec failed: the
+ * child reports the number to its parent and must not classify it, since
+ * the classifier stamps thread-specific data and the window between fork
+ * and exec allows only async-signal-safe calls. */
+long __saw_errno(void) {
+    return errno;
+}
+
+/* ---- DF-113a: no C macro (SL-910) --------------------------------------
+ * Every descriptor the runtime makes is close-on-exec, so a child keeps only
+ * what a spawn hands it. Linux makes each one so atomically (`pipe2`,
+ * `accept4`, `SOCK_CLOEXEC`); macOS has none of those, so each is marked
+ * right after it is made, and a spawn's child closes whatever it inherited
+ * anyway (`__saw_close_inherited`), which is the guarantee these are the
+ * defense in depth for. */
+#include <sys/resource.h>
+#ifdef __linux__
+#include <sys/syscall.h>
+#endif
+
+/* Marks `fd` close-on-exec: 0, or the negated tag. */
+long __saw_mark_cloexec(long fd) {
+    int flags = fcntl((int)fd, F_GETFD, 0);
+    if (flags < 0) return -__saw_rt_last_syserror();
+    if (fcntl((int)fd, F_SETFD, flags | FD_CLOEXEC) < 0) return -__saw_rt_last_syserror();
+    return 0;
+}
+
+/* `pipe` with both ends close-on-exec: 0, or the negated tag with no
+ * descriptor left open. */
+long __saw_pipe_cloexec(int *fds) {
+#ifdef __linux__
+    if (pipe2(fds, O_CLOEXEC) != 0) return -__saw_rt_last_syserror();
+    return 0;
+#else
+    if (pipe(fds) != 0) return -__saw_rt_last_syserror();
+    long marked = __saw_mark_cloexec(fds[0]);
+    if (marked == 0) marked = __saw_mark_cloexec(fds[1]);
+    if (marked != 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return marked;
+    }
+    return 0;
+#endif
+}
+
+/* The bit a `socket`/`socketpair` type carries to be made close-on-exec, or 0
+ * on a host without one, which marks the descriptor afterwards. */
+long __saw_socket_cloexec_type(void) {
+#ifdef SOCK_CLOEXEC
+    return SOCK_CLOEXEC;
+#else
+    return 0;
+#endif
+}
+
+/* `accept` whose connection is close-on-exec: the descriptor, or -1 with
+ * errno set by whichever call failed. */
+long __saw_accept_cloexec(long fd, void *addr, void *len) {
+#ifdef __linux__
+    return accept4((int)fd, (struct sockaddr *)addr, (socklen_t *)len, SOCK_CLOEXEC);
+#else
+    int c = accept((int)fd, (struct sockaddr *)addr, (socklen_t *)len);
+    if (c < 0) return -1;
+    int flags = fcntl(c, F_GETFD, 0);
+    if (flags < 0 || fcntl(c, F_SETFD, flags | FD_CLOEXEC) < 0) {
+        int saved = errno;
+        close(c);
+        errno = saved;
+        return -1;
+    }
+    return c;
+#endif
+}
+
+/* The PATH a spawn searches when the child's environment sets none: the
+ * host's `_PATH_DEFPATH`, the one execvp uses. */
+#include <paths.h>
+
+const char *__saw_default_path(void) {
+    return _PATH_DEFPATH;
+}
+
+/* How a spawn's PATH search goes on after `execve(candidate)` failed with
+ * `code`, by execvp's rules (macOS libc's, which glibc's agree with on every
+ * file that exists): 0 stops there and reports `code`; 1 tries the next
+ * entry; 2 tries the next entry and reports `code` if no later one runs,
+ * which is how a permission refusal waits for the rest of PATH. A failure on
+ * a file that is not there, whatever its errno (a restricted directory
+ * answers EPERM), only moves the search on. Runs in a forked child, so only
+ * async-signal-safe calls: `access` is one. */
+long __saw_exec_next(long code, const char *candidate) {
+    switch (code) {
+    case ENOENT:
+    case ENOTDIR:
+    case ELOOP:
+    case ENAMETOOLONG:
+        return 1;
+    case E2BIG:
+    case ENOMEM:
+        return 0;
+    default:
+        if (access(candidate, F_OK) != 0) return 1;
+        return code == EACCES ? 2 : 0;
+    }
+}
+
+/* The number of descriptors this process may have open, which bounds the
+ * close loop below. Read in the parent: getrlimit is not on the list of calls
+ * a forked child may make. macOS caps descriptor numbers at
+ * `kern.maxfilesperproc`, which `getdtablesize` folds in. */
+long __saw_fd_limit(void) {
+    return getdtablesize();
+}
+
+/* How many open descriptors the macOS child lists at once before it falls
+ * back to the close loop. */
+#define SAW_LISTED_FDS 512
+
+/* In a forked child, before exec: closes every descriptor from 3 up but
+ * `keep`. Linux has `close_range`. macOS has nothing like it, and a close of
+ * every number below `limit` costs tens of milliseconds a spawn when the
+ * descriptor limit is raised (it is often 245760), so the child lists the
+ * descriptors it actually has with `proc_pidinfo`, a bare system call that
+ * takes no lock and allocates nothing, and closes those; a table too big for
+ * the list falls back to the loop. */
+#ifdef __APPLE__
+#include <libproc.h>
+#include <sys/proc_info.h>
+#endif
+
+void __saw_close_inherited(long keep, long limit) {
+#if defined(__linux__) && defined(SYS_close_range)
+    long first_done = keep <= 3 ? 0 : syscall(SYS_close_range, 3u, (unsigned)(keep - 1), 0u);
+    if (first_done == 0 && syscall(SYS_close_range, (unsigned)(keep < 3 ? 3 : keep + 1), ~0u, 0u) == 0) {
+        return;
+    }
+#endif
+#ifdef __APPLE__
+    struct proc_fdinfo listed[SAW_LISTED_FDS];
+    int bytes = proc_pidinfo(getpid(), PROC_PIDLISTFDS, 0, listed, (int)sizeof listed);
+    if (bytes > 0 && bytes < (int)sizeof listed) {
+        int count = bytes / (int)PROC_PIDLISTFD_SIZE;
+        for (int i = 0; i < count; i++) {
+            int fd = listed[i].proc_fd;
+            if (fd >= 3 && fd != keep) close(fd);
+        }
+        return;
+    }
+#endif
+    for (long fd = 3; fd < limit; fd++) {
+        if (fd != keep) close((int)fd);
+    }
 }
 
 /* `Exhausted` in the portable tag table (rt/ABI.md). */
@@ -578,7 +736,7 @@ long __saw_signal_watch(long signo) {
          * non-blocking, so the handler never blocks a signalled thread and a
          * drain that loses a race gets EAGAIN instead of hanging. */
         int fds[2];
-        if (pipe(fds) != 0) {
+        if (__saw_pipe_cloexec(fds) != 0) {
             pthread_mutex_unlock(&__saw_sig_m);
             return -3;
         }

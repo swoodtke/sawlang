@@ -264,8 +264,8 @@ func main() -> Result<Void, SystemError> {
     print("read {text.len()} bytes")
     return
 }
-// With no saw.toml: writes `error: open failed (not found)` on standard error,
-// exits 1.
+// With no saw.toml: writes `error: open "saw.toml" failed (not found)` on
+// standard error, exits 1.
 ```
 
 A command-line program reports failure by returning it, with no `exit()` call

@@ -4,7 +4,7 @@
 // speeds: -O0 -O2
 // leaks: none
 // prints: bad value InvalidUtf8 true
-// prints: bad value renders getenv failed (not valid UTF-8)
+// prints: bad value renders getenv "SAW_PROBE_NOT_UTF8" failed (not valid UTF-8)
 // prints: good value ab
 // prints: unset is None true
 // The value is stored through C's setenv, since no `String` can carry the

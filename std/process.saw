@@ -2,6 +2,9 @@
 //!
 //! The child is spawned with a real argument vector, never a shell command
 //! line, so each argument reaches it as one element, whatever bytes it holds.
+//! It inherits this process's standard input, output and error and no other
+//! descriptor. Every failure names the program, and a program that cannot be
+//! executed is a failure of its own, so an exit status is always the child's.
 //! `wait` blocks the calling thread until the child exits and never suspends.
 //! `output` and `output_bytes` are cooperative: each parks the task on the
 //! child's pipe and on its exit, so siblings run for the child's whole life.
@@ -59,8 +62,10 @@ static NO_REDIRECTION: Int = 0
 static CAPTURE_STDOUT: Int = 1
 // The child's standard error goes wherever its standard output goes.
 static MERGE_STDERR: Int = 2
-// The exit code the spawn's child reports when it cannot execute the program.
-static EXEC_FAILED: Int32 = 127
+// What the spawn seam adds to the tag of a program it could not execute,
+// before negating it, against a spawn that failed before its child existed
+// (runtime/ABI.md, "Process spawn").
+static EXEC_FAILED_BIAS: Int = 256
 // The poll interval of `wait`, in nanoseconds: short at first, since most
 // children are quick, doubling to a ceiling that bounds how late an exit is
 // noticed.
@@ -210,24 +215,26 @@ extension Command {
     /// returns its exit code.
     ///
     /// A child killed by a signal reports 128 plus the signal's number, so it
-    /// never reads as success. Returns `Err(SystemError)` when the program
-    /// cannot be launched: the spawn's cause, `LaunchFailed` when the child
-    /// cannot execute it, and `InvalidArgument` for a program or argument
-    /// holding a NUL byte, which no argument vector can carry, or for a
-    /// variable `env` could not set (see `env`). A program
-    /// that itself exits 127 reads as `LaunchFailed` too.
+    /// never reads as success, and any other exit code, 127 included, is the
+    /// program's own.
+    ///
+    /// Returns `Err(SystemError)` naming the program when it cannot be run.
+    /// One it cannot execute is a `launch` failure: `launch "tool" failed (not
+    /// found)` when no file of that name is on `PATH` (or at the path given),
+    /// `PermissionDenied` for a file that is not executable or a directory,
+    /// and `NotExecutable` for a file the system does not run, which no shell
+    /// is asked to try. A spawn that never started a child is a `spawn`
+    /// failure, as when the process limit is reached, and so is a program or
+    /// argument holding a NUL byte, which no argument vector can carry, or a
+    /// variable `env` could not set (see `env`): `InvalidArgument`.
     public func wait(&self) unsafe -> Result<Int32, SystemError> {
         let flags = self.redirection(false)
         let job = try self.spawned(flags)
         let status = process_reaped(job)
         if status < 0 {
-            return SystemError.of("wait", 0 - status)
+            return SystemError.of("wait", 0 - status, self.program)
         }
-        let code = process_exit_code(status)
-        if code == EXEC_FAILED {
-            return SystemError.raised("exec", SystemErrorKind.LaunchFailed)
-        }
-        code
+        process_exit_code(status)
     }
 
     /// Runs the program and captures its standard output, parking the task
@@ -240,20 +247,19 @@ extension Command {
     ///
     /// The child's standard error is inherited unless `merge_stderr()` was
     /// called. Returns the captured text and the exit code (see
-    /// `CommandOutput`), or `Err(SystemError)` when no complete output exists:
-    /// the causes `wait()` reports (a program that itself exits 127 reads as
-    /// `LaunchFailed` too, as it does there), a read of the child's pipe that failed,
-    /// standard output that is not UTF-8 (`InvalidUtf8`; `output_bytes()`
-    /// takes it as it is), and a capture that could not grow
-    /// (`ResourcesExhausted`). A task cancelled while it waits, on the pipe or
-    /// on the exit, gets `Interrupted`: cancellation ends the wait, not the
-    /// child. The child keeps running with its standard output closed, so a
+    /// `CommandOutput`), or `Err(SystemError)` naming the program when no
+    /// complete output exists: the causes `wait()` reports, a read of the
+    /// child's pipe that failed, standard output that is not UTF-8
+    /// (`InvalidUtf8`; `output_bytes()` takes it as it is), and a capture that
+    /// could not grow (`ResourcesExhausted`). A task cancelled while it waits,
+    /// on the pipe or on the exit, gets `Interrupted`: cancellation ends the
+    /// wait, not the child. The child keeps running with its standard output closed, so a
     /// later write of its own gets `SIGPIPE`, as it would writing into a shell
     /// pipeline whose reader has gone, and a later spawn reaps it once it has
     /// exited.
     public func output(&self) unsafe -> Result<CommandOutput, SystemError> {
         let job = try self.spawned(self.redirection(true))
-        let data = try process_captured(job)
+        let data = try process_captured(job, self.program)
         // The park loop is this body's own, not a helper's: a refusal in a
         // thread body names `Command.output` and the primitive it parks on.
         // The task waits on the child's wait descriptor, and a child the host
@@ -263,14 +269,14 @@ extension Command {
         while process_running(status) {
             if cancelled() {
                 process_abandon(job)
-                return SystemError.raised("output", SystemErrorKind.Interrupted)
+                return SystemError.raised("output", SystemErrorKind.Interrupted, self.program)
             }
             let descriptor = __saw_rt_proc_wait_fd(job)
             if descriptor >= 0 {
                 match io_wait(descriptor, READ_INTEREST, PARK_NO_DEADLINE) {
                     case Cancelled -> {
                         process_abandon(job)
-                        return SystemError.raised("output", SystemErrorKind.Interrupted)
+                        return SystemError.raised("output", SystemErrorKind.Interrupted, self.program)
                     },
                     case _ -> {
                         // A park ceded to the scheduler, so the run of
@@ -290,10 +296,10 @@ extension Command {
         if __saw_rt_op_budget_tick() != 0 {
             yield_now()
         }
-        let code = try process_outcome(status)
+        let code = try process_outcome(status, self.program)
         match data.to_string() {
             case Ok(text) -> CommandOutput(stdout: text, exit_code: code),
-            case Err(_) -> SystemError.raised("output", SystemErrorKind.InvalidUtf8)
+            case Err(_) -> SystemError.raised("output", SystemErrorKind.InvalidUtf8, self.program)
         }
     }
 
@@ -305,7 +311,7 @@ extension Command {
     /// `InvalidUtf8`, which bytes cannot be.
     public func output_bytes(&self) unsafe -> Result<CommandByteOutput, SystemError> {
         let job = try self.spawned(self.redirection(true))
-        let data = try process_captured(job)
+        let data = try process_captured(job, self.program)
         // The park loop is this body's own, as `output()`'s is, so a refusal
         // in a thread body names `Command.output_bytes`.
         var nap = PARK_POLL_START_MS
@@ -313,14 +319,14 @@ extension Command {
         while process_running(status) {
             if cancelled() {
                 process_abandon(job)
-                return SystemError.raised("output", SystemErrorKind.Interrupted)
+                return SystemError.raised("output", SystemErrorKind.Interrupted, self.program)
             }
             let descriptor = __saw_rt_proc_wait_fd(job)
             if descriptor >= 0 {
                 match io_wait(descriptor, READ_INTEREST, PARK_NO_DEADLINE) {
                     case Cancelled -> {
                         process_abandon(job)
-                        return SystemError.raised("output", SystemErrorKind.Interrupted)
+                        return SystemError.raised("output", SystemErrorKind.Interrupted, self.program)
                     },
                     case _ -> {
                         // A park ceded to the scheduler, so the run of
@@ -340,7 +346,7 @@ extension Command {
         if __saw_rt_op_budget_tick() != 0 {
             yield_now()
         }
-        let code = try process_outcome(status)
+        let code = try process_outcome(status, self.program)
         CommandByteOutput(stdout: data, exit_code: code)
     }
 
@@ -361,14 +367,14 @@ extension Command {
     // the spawn gave.
     func spawned(&self, flags: Int) unsafe -> Result<Int, SystemError> {
         if process_holds_nul(self.program) || self.bad_environment {
-            return SystemError.raised("spawn", SystemErrorKind.InvalidArgument)
+            return SystemError.raised("spawn", SystemErrorKind.InvalidArgument, self.program)
         }
         let count = self.args.len()
         let slots = count + 2
         let size = slots * sizeof<UnsafePointer<Int8>>()
         let align = alignof<UnsafePointer<Int8>>()
         guard let block = GlobalAllocator().alloc(size, align) else {
-            return SystemError.raised("spawn", SystemErrorKind.ResourcesExhausted)
+            return SystemError.raised("spawn", SystemErrorKind.ResourcesExhausted, self.program)
         }
         let argv = block as UnsafePointer<UnsafePointer<Int8>>
         argv[0] = self.program.c_bytes()
@@ -377,7 +383,7 @@ extension Command {
             let argument = self.args.get(i) ?? ""
             if process_holds_nul(argument) {
                 GlobalAllocator().dealloc(block, size, align)
-                return SystemError.raised("spawn", SystemErrorKind.InvalidArgument)
+                return SystemError.raised("spawn", SystemErrorKind.InvalidArgument, self.program)
             }
             argv[i + 1] = argument.c_bytes()
             i = i + 1
@@ -402,7 +408,7 @@ extension Command {
         if self.environment.is_empty() {
             let job = __saw_rt_proc_spawn(self.program.c_bytes(), argv, flags)
             if job < 0 {
-                return SystemError.of("spawn", 0 - job)
+                return process_spawn_failure(0 - job, self.program)
             }
             return job
         }
@@ -411,7 +417,7 @@ extension Command {
         let size = slots * sizeof<UnsafePointer<Int8>>()
         let align = alignof<UnsafePointer<Int8>>()
         guard let block = GlobalAllocator().alloc(size, align) else {
-            return SystemError.raised("spawn", SystemErrorKind.ResourcesExhausted)
+            return SystemError.raised("spawn", SystemErrorKind.ResourcesExhausted, self.program)
         }
         let envp = block as UnsafePointer<UnsafePointer<Int8>>
         var i = 0
@@ -429,7 +435,7 @@ extension Command {
         }
         let job = __saw_rt_proc_spawn_env(self.program.c_bytes(), argv, envp, flags)
         if job < 0 {
-            let failure = SystemError.of("spawn", 0 - job)
+            let failure = process_spawn_failure(0 - job, self.program)
             GlobalAllocator().dealloc(block, size, align)
             return move failure
         }
@@ -536,8 +542,8 @@ func process_reaped(job: Int) unsafe -> Int {
 // The captured bytes of `job`'s child, or the failure that ended the drain, a
 // cancel included. The drain has closed the pipe by then, so the child is not
 // waited on: it goes on the orphan list, still running, to be reaped later.
-func process_captured(job: Int) unsafe -> Result<Data, SystemError> {
-    match process_drained(job) {
+func process_captured(job: Int, program: String) unsafe -> Result<Data, SystemError> {
+    match process_drained(job, program) {
         case Ok(bytes) -> bytes,
         case Err(failure) -> {
             process_abandon(job)
@@ -546,17 +552,23 @@ func process_captured(job: Int) unsafe -> Result<Data, SystemError> {
     }
 }
 
-// The exit code a captured child's final wait `status` reports, or the failure
-// it stands for: a failed reap, or a child that could not execute the program.
-func process_outcome(status: Int) unsafe -> Result<Int32, SystemError> {
+// The exit code a captured child's final wait `status` reports, or the failed
+// reap it stands for.
+func process_outcome(status: Int, program: String) unsafe -> Result<Int32, SystemError> {
     if status < 0 {
-        return SystemError.of("wait", 0 - status)
+        return SystemError.of("wait", 0 - status, program)
     }
-    let code = process_exit_code(status)
-    if code == EXEC_FAILED {
-        return SystemError.raised("exec", SystemErrorKind.LaunchFailed)
+    process_exit_code(status)
+}
+
+// The error a spawn seam's negated `answer` stands for: `launch` for a program
+// the child could not execute, `spawn` for a spawn that never made one. Built
+// at once, as the code funnel requires.
+func process_spawn_failure(answer: Int, program: String) -> SystemError {
+    if answer > EXEC_FAILED_BIAS {
+        return SystemError.of("launch", answer - EXEC_FAILED_BIAS, program)
     }
-    code
+    SystemError.of("spawn", answer, program)
 }
 
 // Everything the child writes to its captured stdout, read until it closes the
@@ -564,12 +576,12 @@ func process_outcome(status: Int) unsafe -> Result<Int32, SystemError> {
 // the job and closed here on every path, so a drain that stops early leaves the
 // child no reader. A read that fails is the failure, never the bytes read
 // before it.
-func process_drained(job: Int) unsafe -> Result<Data, SystemError> {
+func process_drained(job: Int, program: String) unsafe -> Result<Data, SystemError> {
     let fd = __saw_rt_proc_take_stdout(job)
     if fd < 0 {
-        return SystemError.raised("read", system_error_kind(0 - fd))
+        return SystemError.raised("read", system_error_kind(0 - fd), program)
     }
-    let answer = process_drain_pipe(fd)
+    let answer = process_drain_pipe(fd, program)
     let _ = close(fd as Int32)
     answer
 }
@@ -579,17 +591,17 @@ func process_drained(job: Int) unsafe -> Result<Data, SystemError> {
 // would run on until the child closed the pipe (SL-896). Each read lands in the
 // captured bytes' own spare room, asked for afresh, so no raw pointer stays in
 // the suspended frame.
-func process_drain_pipe(fd: Int) unsafe -> Result<Data, SystemError> {
+func process_drain_pipe(fd: Int, program: String) unsafe -> Result<Data, SystemError> {
     let set = __saw_rt_set_nonblocking(fd)
     if set < 0 {
-        return SystemError.of("fcntl", 0 - set)
+        return SystemError.of("fcntl", 0 - set, program)
     }
     var collected = Data()
     while not cancelled() {
         match collected.reserve(DRAIN_CHUNK) {
             case Ok(_) -> {},
             case Err(_) -> {
-                return SystemError.raised("read", SystemErrorKind.ResourcesExhausted)
+                return SystemError.raised("read", SystemErrorKind.ResourcesExhausted, program)
             }
         }
         let n = __saw_rt_fs_read(fd, collected.spare(), DRAIN_CHUNK)
@@ -608,7 +620,7 @@ func process_drain_pipe(fd: Int) unsafe -> Result<Data, SystemError> {
                 case WouldBlock -> {
                     match io_wait(fd, READ_INTEREST, PARK_NO_DEADLINE) {
                         case Cancelled -> {
-                            return SystemError.raised("output", SystemErrorKind.Interrupted)
+                            return SystemError.raised("output", SystemErrorKind.Interrupted, program)
                         },
                         case _ -> {
                             __saw_rt_op_budget_reset()
@@ -617,12 +629,12 @@ func process_drain_pipe(fd: Int) unsafe -> Result<Data, SystemError> {
                 },
                 case Interrupted -> {},
                 case _ -> {
-                    return SystemError.of("read", 0 - n)
+                    return SystemError.of("read", 0 - n, program)
                 }
             }
         }
     }
-    SystemError.raised("output", SystemErrorKind.Interrupted)
+    SystemError.raised("output", SystemErrorKind.Interrupted, program)
 }
 
 // Whether a reap's answer says the child is still running: `-WouldBlock`.

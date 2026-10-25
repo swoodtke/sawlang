@@ -1,0 +1,71 @@
+// probe: stated
+// about: an error that names its subject allocates nothing to do it: with every further allocation refused, each failure still comes back naming its path, program or host, and renders through the alloc-free format path (SL-898)
+// stage 0: its frozen std's errors name no subject, and its resolve error builds its text on the heap
+// speeds: -O0 -O2
+// prints: open "/nonexistent_saw_probe/a.toml" failed (not found)
+// prints: unlink "/nonexistent_saw_probe/gone" failed (not found)
+// prints: mkdir "/nonexistent_saw_probe/sub" failed (not found)
+// prints: chdir "/nonexistent_saw_probe" failed (not found)
+// prints: setenv "A=B" failed (invalid argument)
+// prints: io error: listen "localhost" failed (invalid argument)
+// prints: io error: resolve "a\0b" failed (invalid argument)
+// prints: launch "./saw_probe_missing" failed (not found)
+// prints: still refusing: true
+// Every subject is a retain of a string the caller already holds, so the
+// allocator is denied once each argument is built: an error path that reached
+// it would have been refused, and the refusal would show here as a different
+// error or a panic.
+import std.data.{Data}
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.net.{TcpListener, TcpStream}
+import std.path.{Path}
+import std.process.{Command}
+import std.systemerror.{SystemError}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func show<T>(answer: Result<T, SystemError>) {
+    match answer {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+}
+
+func main() {
+    let open_path = Path(s: "/nonexistent_saw_probe/a.toml")
+    let gone = Path(s: "/nonexistent_saw_probe/gone")
+    let sub = Path(s: "/nonexistent_saw_probe/sub")
+    let missing_dir = Path(s: "/nonexistent_saw_probe")
+    let host = "localhost"
+    let bad_host = "a\0b"
+    let missing = Command(program: "./saw_probe_missing")
+
+    __saw_rt_alloc_deny_after(0)
+    show(File.open(open_path))
+    show(File.remove(gone))
+    show(Directory.create(sub))
+    show(Env.set_cwd(missing_dir))
+    show(Env.set("A=B", "1"))
+    match TcpListener.listen(0, host: host) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    match TcpStream.connect(bad_host, 80) {
+        case Ok(_) -> print("UNEXPECTED ok"),
+        case Err(e) -> print("{}", e)
+    }
+    // The spawn's own argument vector is the one allocation it makes.
+    __saw_rt_alloc_deny_after(1)
+    show(missing.wait())
+    var probe = Data()
+    let refused = match probe.push(1) {
+        case Ok(_) -> false,
+        case Err(_) -> true
+    }
+    print("still refusing: {}", refused)
+    __saw_rt_alloc_deny_after(-1)
+}

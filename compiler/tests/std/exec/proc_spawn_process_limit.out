@@ -1,2 +1,2 @@
 setrlimit ok: true
-Err: spawn failed (resources exhausted)
+Err: spawn "true" failed (resources exhausted)

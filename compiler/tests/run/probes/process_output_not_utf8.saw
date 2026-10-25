@@ -4,7 +4,7 @@
 // speeds: -O0 -O2
 // leaks: none
 // prints: output InvalidUtf8 true
-// prints: output renders output failed (not valid UTF-8)
+// prints: output renders output "/bin/sh" failed (not valid UTF-8)
 // prints: bytes 97 255 98 code 3
 // prints: binary 255 254 success true
 // prints: random 16

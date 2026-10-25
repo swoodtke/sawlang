@@ -667,8 +667,8 @@ func main() -> Result<Void, SystemError> {
     print("read {text.len()} bytes")
     return
 }
-// With no saw.toml: writes `error: open failed (not found)` on standard error,
-// exits 1.
+// With no saw.toml: writes `error: open "saw.toml" failed (not found)` on
+// standard error, exits 1.
 ```
 
 The status is one byte wide by the time a shell sees it: POSIX `wait(2)` carries
@@ -11056,11 +11056,13 @@ one's `Deinit` closes its fd exactly once (the move checkpoint prevents
 use-after-close, `NoCopy` prevents double-close). Suspension is hidden INSIDE the
 methods — `accept` / `read` / `connect` register the fd with the reactor and park
 the task internally, so the caller writes an ordinary method call with no `io_wait`
-in sight. Errors are `IoError`: the failing operation's name, a portable
-`IoErrorKind`, and the platform's own code for the refusal. It conforms to
-`Error`, so `"{e}"` renders it as
-`io error: connect failed (host unreachable)` — the KIND only, which is what
-makes the text read the same on every host.
+in sight. Errors are `IoError`: the failing operation's name, the host or
+other subject it was given, a portable `IoErrorKind`, and the platform's own
+code for the refusal. It conforms to `Error`, so `"{e}"` renders it as
+`io error: connect "10.0.0.7" failed (host unreachable)`: the KIND only, which
+is what makes the text read the same on every host. `e.subject()` reads the
+subject back, and an operation given none (a read of a connected stream)
+renders without it.
 
 The two halves answer different questions and design 234 §2 keeps them apart.
 `e.kind()` is the branchable half: a curated portable set (`NotFound`,
@@ -11075,12 +11077,16 @@ on its own behalf such as a park cut short by cancellation. Log the code, branch
 on the kind. Growth is loud: promoting a code out of `Unknown` into a new kind
 breaks an exhaustive match at compile time instead of silently rerouting it.
 
-User code builds an `IoError` with `IoError.of(syscall:kind:)`, for a test double
-or a failure of its own. The result's `code()` is `0`.
+User code builds an `IoError` with `IoError.of(syscall:kind:)`, or
+`IoError.of(syscall:subject:kind:)` to name what the operation was given, for
+a test double or a failure of its own. The result's `code()` is `0`.
 
 ```saw-fragment
 let refused = IoError.of(syscall: "connect", kind: IoErrorKind.ConnectionRefused)
 // "{refused}" renders as: io error: connect failed (connection refused)
+let named = IoError.of(syscall: "connect", subject: "db.internal",
+                       kind: IoErrorKind.ConnectionRefused)
+// "{named}" renders as: io error: connect "db.internal" failed (connection refused)
 ```
 
 ```saw-fragment
@@ -14190,8 +14196,18 @@ wait parks on the child's exit, both through the reactor, so siblings run for th
 child's whole lifetime and no thread waits. A capture that is not UTF-8 is
 `output()`'s `InvalidUtf8`; `output_bytes() -> Result<CommandByteOutput,
 SystemError>` runs and waits the same way and hands back the captured `Data`
-undecoded, for a child whose output is not text. A program that cannot be executed
-is `LaunchFailed`. Cancelling an `output()` ends the WAIT, on the pipe or on the
+undecoded, for a child whose output is not text. A program named without a `/`
+is found on the `PATH` of the environment the child gets, by `execvp`'s rules
+(an empty entry is the working directory, and a file it may not execute is
+reported only if no later entry runs one), and executed directly: a file the
+system does not run is `NotExecutable`, never handed to a shell. A program
+that cannot be executed is a `launch` failure carrying exec's own cause
+(`launch "tool" failed (not found)`, `PermissionDenied` for a file without
+execute permission or a directory), so every exit code `wait()` returns,
+127 included, is the program's own; a spawn that never started a child is a
+`spawn` failure, and every error names the program. The child inherits
+standard input, output and error and no other descriptor the program holds.
+Cancelling an `output()` ends the WAIT, on the pipe or on the
 exit, with `Interrupted`. The child keeps running with its standard output
 closed, so a later write of its own raises `SIGPIPE`, and a later spawn reaps
 it),
@@ -14237,6 +14253,26 @@ lseek, so it reads regular files, pipes and terminals alike: it returns what tha
 read gave, fewer bytes when fewer are there, and an empty `Ok` at end of file. A
 `size` that is not positive panics, since the empty `Ok` a zero-byte read
 answers would read as end of file. Both report a failure as `SystemError`.
+
+**An error names what its operation was given.** A `SystemError` or `IoError`
+from an operation handed a path, a program, a variable's name, a host or a
+signal carries it as the error's subject, which `subject()` returns and the
+text quotes after the operation: `open "saw.toml" failed (not found)`,
+`launch "cc" failed (permission denied)`, `io error: resolve "db.internal"
+failed (not found)`. So a program running several commands, or opening
+several files, can tell from the error which one failed. An operation given
+none, such as a read of a file already open, renders as before:
+`read failed (input/output failed)`. `File.rename` names the file it was asked
+to move. A NUL byte in a subject renders as `\0`. The subject is the caller's
+own string, retained, so naming it allocates nothing, and the error path stays
+usable when the allocator refuses everything.
+
+**Descriptors stay with the program.** Every descriptor the hosted runtime
+opens (a file, a socket, an accepted connection, a pipe) is close-on-exec, and
+a child that `Command` launches closes every descriptor but its standard three
+before it executes the program. A child cannot hold a file, a listener's port
+or another launch's pipe open, so an `output()` reads end of file when its own
+child exits and not when some other child does.
 
 ### The modules
 
