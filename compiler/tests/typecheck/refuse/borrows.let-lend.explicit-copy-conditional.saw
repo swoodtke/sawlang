@@ -1,0 +1,17 @@
+// refuses: borrows.let-lend at 12:13
+// `let` of a conditional lend's optional place with an ExplicitCopy payload:
+// the Optional has `copy()`, so the refusal names it beside the block form
+// (SL:borrowing §12.5; SL-899)
+// message: `bags.find(0)` is lent, and a `let` would keep the lend past this statement. Copy it out with `bags.find(0).copy()`, or name the place for a block: `borrow let b = bags.find(0) { … }`
+
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func first(bags: &Vector<Bag>) -> Int {
+    let b = bags.find(0)
+    0
+}
+
+func main() {
+}

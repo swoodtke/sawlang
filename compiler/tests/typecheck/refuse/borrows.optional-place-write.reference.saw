@@ -1,0 +1,14 @@
+// refuses: borrows.optional-place-write at 10:15
+// `&var` of a conditional lend's optional place would hand out a writable
+// Optional where none is stored, at every copy tier (SL:borrowing §2.4;
+// SL-899)
+// message: `v.find(0)` lends a place only when one is present, so no Optional is stored there to write.
+
+func poke(o: &var Int?) { o = None }
+
+func clear(v: &var Vector<Int>) {
+    poke(&var v.find(0))
+}
+
+func main() {
+}

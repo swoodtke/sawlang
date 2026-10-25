@@ -206,6 +206,9 @@ public struct TcProgram {
     // Whether a leaf declares a `borrow let|var` binding, which names a place
     // an accessor lends.
     lent_bindings: Vector<Bool>
+    // Whether a leaf declares a `borrow let|var` binding of a conditional
+    // lend, which names the lend's optional place whole.
+    lent_optional_bindings: Vector<Bool>
     // Whether a leaf declares a non-escaping function value: a parameter
     // whose function type does not say `escaping`, or a local bound to one.
     nonescaping_bindings: Vector<Bool>
@@ -458,7 +461,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       call_at: Vector<Int>(), calls: Vector<TcCall>(), insts: Vector<Int>(),
                       spawn_roots: Vector<Bool>(), drive_roots: Vector<Bool>(),
                       binds: Vector<Int>(),
-                      local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(), lent_bindings: Vector<Bool>(), nonescaping_bindings: Vector<Bool>(),
+                      local_types: Vector<Int>(), aliasing_bindings: Vector<Bool>(), lent_bindings: Vector<Bool>(), lent_optional_bindings: Vector<Bool>(), nonescaping_bindings: Vector<Bool>(),
                       res_call_at: Vector<Int>(),
                       body_roots: Vector<Int>(), body_decls: Vector<Int>(),
                       ext_visible: Vector<Bool>(), body_result: -1, loop_breaks: Vector<Int>(),

@@ -1,0 +1,15 @@
+// refuses: member.unknown at 11:16
+// `.copy()` of a conditional lend's optional place with a NoCopy payload:
+// there is no copy, and nothing can be moved out of a lend, so the refusal
+// names the block that binds the place (SL:borrowing §12.5; SL-899)
+// message: `member.unknown.copy-nocopy-lend.Res?` is NoCopy, so it has no `copy()`; name the place for a block: `if let x = v.find(0) { … }`
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func held(v: &Vector<Res>) -> Bool {
+    if let c = v.find(0).copy() { true } else { false }
+}
+
+func main() {
+}

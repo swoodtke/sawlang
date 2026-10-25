@@ -1,0 +1,177 @@
+// probe: stated
+// about: `&` of a conditional lend's optional place passes a reference to its optional copy, for a Copy-tier payload (SL-899)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: int vec present 7
+// prints: int vec absent -1
+// prints: int user present 7
+// prints: int user absent -1
+// prints: int shared present 7
+// prints: int shared absent -1
+// prints: int user closes 1 0
+// prints: named vec present 3
+// prints: named vec absent -1
+// prints: named user present 3
+// prints: named user absent -1
+// prints: named shared present 3
+// prints: named shared absent -1
+// prints: named user closes 1 0
+// prints: shape vec present 3
+// prints: shape vec absent -1
+// prints: shape user present 3
+// prints: shape user absent -1
+// prints: shape shared present 3
+// prints: shape shared absent -1
+// prints: shape user closes 1 0
+
+func tag(x: &Int) -> Int { x }
+struct Named { name: String }
+@synthesize
+extension Named: Equatable {}
+func tag(x: &Named) -> Int { x.name.len() }
+enum Shape { case Circle(r: Int), case Label(s: String) }
+@synthesize
+extension Shape: Equatable {}
+func tag(x: &Shape) -> Int {
+    match x {
+        case Circle(r) -> r,
+        case Label(s) -> s.len()
+    }
+}
+
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserInt { e: Int, ok: Bool, closes: Int }
+extension UserInt: NoCopy {}
+extension UserInt {
+    func slot(&var self) borrows -> &var Int? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedInt { e: Int, ok: Bool }
+extension SharedInt: NoCopy {}
+extension SharedInt {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Int? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserNamed { e: Named, ok: Bool, closes: Int }
+extension UserNamed: NoCopy {}
+extension UserNamed {
+    func slot(&var self) borrows -> &var Named? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedNamed { e: Named, ok: Bool }
+extension SharedNamed: NoCopy {}
+extension SharedNamed {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Named? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserShape { e: Shape, ok: Bool, closes: Int }
+extension UserShape: NoCopy {}
+extension UserShape {
+    func slot(&var self) borrows -> &var Shape? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedShape { e: Shape, ok: Bool }
+extension SharedShape: NoCopy {}
+extension SharedShape {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Shape? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+func peek(o: &Int?) -> Int {
+    if let x = o { tag(&x) } else { -1 }
+}
+func peek(o: &Named?) -> Int {
+    if let x = o { tag(&x) } else { -1 }
+}
+func peek(o: &Shape?) -> Int {
+    if let x = o { tag(&x) } else { -1 }
+}
+
+func lent_optional_reference_int() {
+    var v = Vector<Int>()
+    try! v.push(7)
+    var u = UserInt(e: 7, ok: true, closes: 0)
+    var ua = UserInt(e: 7, ok: false, closes: 0)
+    let s = SharedInt(e: 7, ok: true)
+    let sa = SharedInt(e: 7, ok: false)
+    print("int vec present {peek(&v.find(0))}")
+    print("int vec absent {peek(&v.find(9))}")
+    print("int user present {peek(&u.slot())}")
+    print("int user absent {peek(&ua.slot())}")
+    print("int shared present {peek(&s.slot())}")
+    print("int shared absent {peek(&sa.slot())}")
+    print("int user closes {u.closes} {ua.closes}")
+}
+
+func lent_optional_reference_named() {
+    var v = Vector<Named>()
+    try! v.push(Named(name: "ann"))
+    var u = UserNamed(e: Named(name: "ann"), ok: true, closes: 0)
+    var ua = UserNamed(e: Named(name: "ann"), ok: false, closes: 0)
+    let s = SharedNamed(e: Named(name: "ann"), ok: true)
+    let sa = SharedNamed(e: Named(name: "ann"), ok: false)
+    print("named vec present {peek(&v.find(0))}")
+    print("named vec absent {peek(&v.find(9))}")
+    print("named user present {peek(&u.slot())}")
+    print("named user absent {peek(&ua.slot())}")
+    print("named shared present {peek(&s.slot())}")
+    print("named shared absent {peek(&sa.slot())}")
+    print("named user closes {u.closes} {ua.closes}")
+}
+
+func lent_optional_reference_shape() {
+    var v = Vector<Shape>()
+    try! v.push(Shape.Label(s: "abc"))
+    var u = UserShape(e: Shape.Label(s: "abc"), ok: true, closes: 0)
+    var ua = UserShape(e: Shape.Label(s: "abc"), ok: false, closes: 0)
+    let s = SharedShape(e: Shape.Label(s: "abc"), ok: true)
+    let sa = SharedShape(e: Shape.Label(s: "abc"), ok: false)
+    print("shape vec present {peek(&v.find(0))}")
+    print("shape vec absent {peek(&v.find(9))}")
+    print("shape user present {peek(&u.slot())}")
+    print("shape user absent {peek(&ua.slot())}")
+    print("shape shared present {peek(&s.slot())}")
+    print("shape shared absent {peek(&sa.slot())}")
+    print("shape user closes {u.closes} {ua.closes}")
+}
+
+func main() {
+    lent_optional_reference_int()
+    lent_optional_reference_named()
+    lent_optional_reference_shape()
+}

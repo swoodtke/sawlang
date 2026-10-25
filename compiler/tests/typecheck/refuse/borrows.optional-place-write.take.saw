@@ -1,0 +1,13 @@
+// refuses: borrows.optional-place-write at 8:13
+// `take()` of a conditional lend's optional place would write `None` into
+// it, and no Optional is stored there; the element itself is taken out by
+// the container's own method (SL:borrowing §2.4; SL-899)
+// message: Write the element through its binding: `if var x = v.find(0) { x = … }`
+
+func take_first(v: &var Vector<String>) -> Bool {
+    let t = v.find(0).take()
+    t.is_some()
+}
+
+func main() {
+}

@@ -54,7 +54,8 @@ PROBE_KINDS = ("stated", "panics")
 # frame after the executor returns, a state record field one `lend` site's
 # path left unwritten, a payload written through a `match` arm's binding
 # while the window that lends it is open, a shared window running an
-# accessor's exclusive body).
+# accessor's exclusive body, an optional copy built from a lent reference on
+# one edge of its window).
 PROBE_PATTERNS = (
     "thread_*.saw",
     "coro_*.saw",
@@ -76,6 +77,7 @@ PROBE_PATTERNS = (
     "lend_window_*.saw",
     "lend_mode_*.saw",
     "synthesized_twin_*.saw",
+    "lent_optional_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

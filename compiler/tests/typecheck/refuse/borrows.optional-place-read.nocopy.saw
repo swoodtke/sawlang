@@ -1,0 +1,17 @@
+// refuses: borrows.optional-place-read at 13:5
+// a conditional lend's optional place compared with an Optional, its
+// payload NoCopy: it has no copy, so the fix names the place's binding
+// (SL:borrowing §2.2; SL-899)
+// message: `v.find(0)` lends a place only when one is present, so reading it whole copies it out as an Optional, and `borrows.optional-place-read.nocopy.Res` is NoCopy, which has no copy: name the place, `if let x = v.find(0) { … }`
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+@synthesize
+extension Res: Equatable {}
+
+func same(v: &Vector<Res>, want: &Res?) -> Bool {
+    v.find(0) != want
+}
+
+func main() {
+}

@@ -589,7 +589,6 @@ slice.not-yet at L:C`.
 
 | refused | fixture |
 |---|---|
-| a conditional lend's optional place, a `borrow` binding of one, read as a whole value, passed by reference, assigned whole, or the receiver of `is_some()`: no `T?` holds it to copy, point at or write (SL-835) | conditional-place-copy, conditional-place-reference, conditional-place-assign, conditional-place-presence-call |
 | a `for` over an iterator held in a place | iterator-place |
 | a consuming destructure of a type that writes its own `deinit`, since the spec does not say whether dissolving one skips that body: a pattern's, or a part read by value out of a temporary at any depth, through a statement-form `borrow` too | consuming-deinit, consuming-deinit-part-of-temporary, consuming-deinit-borrowed-part, consuming-deinit-forced-part |
 | the release of a consumed receiver that moves out whole, or is an enum, when its type writes its own `deinit` | consumes-whole |

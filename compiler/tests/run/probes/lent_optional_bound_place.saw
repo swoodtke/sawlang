@@ -1,0 +1,90 @@
+// probe: stated
+// about: a `borrow` binding of a conditional lend names its optional place, which reads whole as the lend call does: `.copy()` at the payload's tier, a presence test at every tier, and for a Copy-tier payload a comparison, a `let` and `&`, while the block keeps its window (SL-899)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: named present true false true
+// prints: named present copy ann
+// prints: named present let ann
+// prints: named present eq true false
+// prints: named present peek 3
+// prints: named absent false true false
+// prints: named absent copy none
+// prints: named absent let none
+// prints: named absent eq false true
+// prints: named absent peek -1
+// prints: bag present 3 true
+// prints: bag absent none false
+// prints: res present true false
+// prints: res absent false true
+// prints: bag present 3 true
+// prints: closes 2
+
+struct Named { name: String }
+@synthesize
+extension Named: Equatable {}
+
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+// The accessor counts its epilogues, which run only when it lent.
+struct Rack { bags: [Bag; 1], closes: Int }
+extension Rack: NoCopy {}
+extension Rack {
+    func slot(&var self, i: Int) borrows -> &var Bag? {
+        if i != 0 {
+            return None
+        }
+        lend self.bags[0]
+        self.closes += 1
+    }
+}
+
+func peek(o: &Named?) -> Int {
+    if let x = o { x.name.len() } else { -1 }
+}
+
+func named(v: &var Vector<Named>, i: Int, label: String) {
+    borrow let e = v.find(i) {
+        print("named {label} {e.is_some()} {e.is_none()} {e != None}")
+        if let c = e.copy() { print("named {label} copy {c.name}") } else { print("named {label} copy none") }
+        let c = e
+        if let x = c { print("named {label} let {x.name}") } else { print("named {label} let none") }
+        let want: Named? = Named(name: "ann")
+        print("named {label} eq {e == want} {e != want}")
+        print("named {label} peek {peek(&e)}")
+    }
+}
+
+func bag(r: &var Rack, i: Int, label: String) {
+    borrow let b = r.slot(i) {
+        if let c = b.copy() { print("bag {label} {c.items.len()} {b.is_some()}") } else { print("bag {label} none {b.is_some()}") }
+    }
+}
+
+func res(v: &var Vector<Res>, i: Int, label: String) {
+    borrow let r = v.find(i) {
+        print("res {label} {r.is_some()} {r.is_none()}")
+    }
+}
+
+func main() {
+    var v: Vector<Named> = [Named(name: "ann")]
+    named(&var v, 0, "present")
+    named(&var v, 9, "absent")
+    var rack = Rack(bags: [Bag(items: [1, 2, 3])], closes: 0)
+    bag(&var rack, 0, "present")
+    bag(&var rack, 9, "absent")
+    var rs = Vector<Res>()
+    try! rs.push(Res(id: 9))
+    res(&var rs, 0, "present")
+    res(&var rs, 9, "absent")
+    // Each block's window closes once, at its `}`, however often its body
+    // reads the place; the absent one opens none.
+    bag(&var rack, 0, "present")
+    print("closes {rack.closes}")
+}

@@ -2219,19 +2219,26 @@ extension MirProgram {
         base >= 0 && self.tc.expr_types[base] < 0
     }
 
-    // A place expression, prepared and realized at once.
+    // A place expression read as a value, prepared and realized at once: a
+    // conditional lend's optional place read whole is an optional copy
+    // (`realize_read`) unless the read is exclusive.
     func prepared_val(&var self, e: Int) -> MirVal {
         var steps = Vector<MirStep>()
         self.prepare(e, &var steps)
-        let p = self.realize_all(&steps)
-        let fresh = steps.len() == 1 && steps[0].fresh
-        MirVal(place: p, fresh: fresh)
+        let u = self.tc.expr_use[e]
+        let exclusive = u == TcUse.BorrowVar || u == TcUse.Write || u == TcUse.Update
+        let v = self.realize_read(&steps, exclusive)
+        let fresh = v.fresh || (steps.len() == 1 && steps[0].fresh)
+        MirVal(place: v.place, fresh: fresh)
     }
 
     // A place a position needs: a target's, a borrow's, a `lend`'s.
     public func place_of(&var self, e: Int) -> Int {
-        let v = self.prepared_val(e)
-        self.as_place(v, e)
+        var steps = Vector<MirStep>()
+        self.prepare(e, &var steps)
+        let p = self.realize_all(&steps)
+        let fresh = steps.len() == 1 && steps[0].fresh
+        self.as_place(MirVal(place: p, fresh: fresh), e)
     }
 
     // `borrow PLACE` read as a value: the place, its windows closed as soon
@@ -2248,8 +2255,13 @@ extension MirProgram {
         if self.tc.referent(t) >= 0 {
             // A borrow handed on as a reference: its windows stay open
             // until the call it is passed to returns (`close_argument_windows`).
-            let v = self.prepared_val(e)
             let exclusive = self.tc.is_exclusive_ref(t)
+            var steps = Vector<MirStep>()
+            self.prepare(e, &var steps)
+            let v = self.realize_read(&steps, exclusive)
+            if v.fresh {
+                self.own_temp(v.place)
+            }
             let rv = self.rv_ref(exclusive, v.place)
             let l = self.temp_of(rv)
             return MirVal(place: self.place_local(l), fresh: true)
@@ -2937,6 +2949,7 @@ extension MirProgram {
     //     optional_switch
     //     cached_place
     //     lower_chain_write
+    //     realize_read
     func payload_place(&var self, parent: Int, decl: Int, index: Int, t: Int) -> Int {
         let pt = self.place_type(parent)
         if not self.lent_optional(pt) {
@@ -3154,12 +3167,34 @@ extension MirProgram {
         let w = self.place_local(opened.dest)
         let inner = self.lent_type(&opened)
         let lent = self.project(w, MirProjKind.Deref, -1, -1, inner)
-        let o = self.copy_place(lent)
         if not info.conditional {
+            let o = self.copy_place(lent)
             let rv = self.rv_use(o)
             self.assign(dest, rv)
             self.close_window(opened.window)
             return
+        }
+        self.lent_optional_copy(lent, opened.absent, opened.window, t, dest, -1)
+    }
+
+    // THE LENT-OPTIONAL COPY FUNNEL: a conditional lend's optional place read
+    // whole is an optional copy (SL:borrowing §2.2). On the present path,
+    // where the current block reaches `payload`, `dest` takes `Some` of the
+    // payload copied at its tier, and window `window`, when one is given,
+    // closes there; on the path from block `absent` it takes `None`, and no
+    // window was opened. Both paths meet in the block it leaves current.
+    // With `spelled` the node of a written `.copy()`, a payload that does
+    // not copy silently is copied as that call copies it.
+    // ENTRY POINTS (lent_optional_copy):
+    //     copy_out
+    //     realize_read_as
+    func lent_optional_copy(&var self, payload: Int, absent: Int, window: Int, t: Int, dest: Int, spelled: Int) {
+        let pt = self.place_type(payload)
+        var o = -1
+        if spelled >= 0 && not self.mir_copies_silently(pt) {
+            o = self.spelled_copy(payload, pt, spelled)
+        } else {
+            o = self.copy_place(payload)
         }
         let join = self.new_block()
         let some = self.optional_case("Some")
@@ -3167,10 +3202,12 @@ extension MirProgram {
         try! ops.push(o)
         let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
         self.assign(dest, rv)
-        self.close_window(opened.window)
+        if window >= 0 {
+            self.close_window(window)
+        }
         self.goto(join)
-        if opened.absent >= 0 {
-            self.enter(opened.absent)
+        if absent >= 0 {
+            self.enter(absent)
             let none = self.optional_case("None")
             let empty = Vector<Int>()
             let nrv = self.rv_aggregate(MirAggregate.Case, none, t, &empty)
@@ -3178,6 +3215,212 @@ extension MirProgram {
             self.goto(join)
         }
         self.enter(join)
+    }
+
+    // The copy of place `p`, of type `t`, that the written `.copy()` at node
+    // `e` makes, as the builtin `copy` copies a value of `t`.
+    func spelled_copy(&var self, p: Int, t: Int, e: Int) -> Int {
+        let r = self.shared_ref(p)
+        var args = Vector<Int>()
+        try! args.push(r)
+        var call = self.blank_call(MirCallKind.Builtin, e)
+        call.spelling = self.tc.res.intern("copy")
+        call.owner = t
+        call.arg_first = self.push_args(&args)
+        call.arg_count = 1
+        self.suspension(e, &var call)
+        let v = self.finish_call(call, t)
+        self.op_move(v.place)
+    }
+
+    // A plan a read takes whole, of which `realize_read` and `lent_presence`
+    // need to know whether it ends on a conditional lend's optional place:
+    // its last step a window of an accessor that lends `&T?`, or a root
+    // bound to such a place by a `borrow` binding.
+    func ends_on_lent_optional(&self, steps: &Vector<MirStep>) -> Bool {
+        let n = steps.len()
+        if n == 0 {
+            return false
+        }
+        let last = steps[n - 1]
+        if last.kind == MIR_STEP_WINDOW {
+            return self.tc.sigs[last.decl].lending == TcLend.ConditionalPlace
+        }
+        if n == 1 && last.kind == MIR_STEP_ROOT && last.place >= 0 {
+            // Stage 0 workaround (SL:hazards S4): canonical: return self.lent_optional(self.place_type(last.place))
+            let root_type = self.place_type(last.place)
+            return self.lent_optional(root_type)
+        }
+        false
+    }
+
+    // The place plan `steps` names for a shared read. One that ends on a
+    // conditional lend's optional place reads it whole, as an optional copy
+    // in a fresh temporary, which the caller owns: a window its last step
+    // opens lends on its present edge and closes there, before anything
+    // reads the copy, and a `borrow` binding's place keeps the window its
+    // block holds. Any other plan's place is never fresh here. An
+    // `exclusive` realization of one keeps the refusal, since no Optional is
+    // stored there to write (typecheck's `borrows.optional-place-write`).
+    // ENTRY POINTS (realize_read, realize_read_as):
+    //     prepared_val
+    //     borrow_place_val_of
+    //     call_operands
+    //     builtin_call
+    //     reference
+    public func realize_read(&var self, steps: &Vector<MirStep>, exclusive: Bool) -> MirVal {
+        self.realize_read_as(&steps, exclusive, -1)
+    }
+
+    // `realize_read`, the copy being the one the written `.copy()` at node
+    // `spelled` asks for, or -1.
+    func realize_read_as(&var self, steps: &Vector<MirStep>, exclusive: Bool, spelled: Int) -> MirVal {
+        let n = steps.len()
+        if exclusive || not self.ends_on_lent_optional(&steps) {
+            let p = self.realize_all(&steps)
+            return MirVal(place: p, fresh: false)
+        }
+        let last = steps[n - 1]
+        if last.kind == MIR_STEP_WINDOW {
+            let t = self.tc.expr_types[last.node]
+            let receiver = self.realize(&steps, n - 1)
+            let opened = self.window_open(last.node, receiver, last.index == 1, last.first, last.count, true)
+            let result = self.new_temp(t)
+            if self.live() {
+                let w = self.place_local(opened.dest)
+                let inner = self.lent_type(&opened)
+                let lent = self.project(w, MirProjKind.Deref, -1, -1, inner)
+                let dest = self.place_local(result)
+                self.lent_optional_copy(lent, opened.absent, opened.window, t, dest, spelled)
+            }
+            return MirVal(place: self.place_local(result), fresh: true)
+        }
+        let p = self.realize_optional(&steps)
+        let pt = self.place_type(p)
+        let r = self.tc.arg_of(pt, 0)
+        // Stage 0 workaround (SL:hazards S4): canonical: let t = self.tc.mk_optional(self.tc.referent(r))
+        let referent = self.tc.referent(r)
+        let t = self.tc.mk_optional(referent)
+        let result = self.new_temp(t)
+        let dest = self.place_local(result)
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let present = self.new_block()
+        let absent = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(none)
+        var targets = Vector<Int>()
+        try! targets.push(present)
+        try! targets.push(absent)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(present)
+        let payload = self.payload_place(p, some, 0, referent)
+        self.lent_optional_copy(payload, absent, -1, t, dest, spelled)
+        MirVal(place: self.place_local(result), fresh: true)
+    }
+
+    // A presence test of the optional place plan `steps` ends on, `is_some`
+    // when `some` and `is_none` otherwise, as a `Bool` operand: the tag
+    // alone is read, so it holds at every copy tier (SL:borrowing §2.4). A
+    // window the plan's last step opens closes on its present edge.
+    // ENTRY POINTS:
+    //     function_call (`is_some()`, `is_none()`)
+    //     builtin_call (the builtin `is_some()`, `is_none()`)
+    //     comparison (`== None`, `!= None`)
+    func lent_presence(&var self, steps: &Vector<MirStep>, some: Bool) -> Int {
+        let n = steps.len()
+        let b = self.tc.bool_type()
+        if n == 0 || not self.ends_on_lent_optional(&steps) {
+            let at = if n > 0 { steps[n - 1].node } else { -1 }
+            self.missing(at, "a presence test names no conditional lend's place")
+            return self.dead_operand(b)
+        }
+        let result = self.new_temp(b)
+        let dest = self.place_local(result)
+        let yes = if some { "true" } else { "false" }
+        let no = if some { "false" } else { "true" }
+        let last = steps[n - 1]
+        var absent = -1
+        if last.kind == MIR_STEP_WINDOW {
+            let receiver = self.realize(&steps, n - 1)
+            let opened = self.window_open(last.node, receiver, last.index == 1, last.first, last.count, true)
+            if not self.live() {
+                return self.move_local(result)
+            }
+            self.close_window(opened.window)
+            absent = opened.absent
+        } else {
+            let p = self.realize_optional(&steps)
+            let present = self.new_block()
+            absent = self.new_block()
+            var cases = Vector<Int>()
+            try! cases.push(self.optional_case("Some"))
+            try! cases.push(self.optional_case("None"))
+            var targets = Vector<Int>()
+            try! targets.push(present)
+            try! targets.push(absent)
+            self.switch_cases(p, &cases, &targets, -1)
+            self.enter(present)
+        }
+        let join = self.new_block()
+        let yes_op = self.op_const(MirConstKind.Bool, yes, b)
+        let rv = self.rv_use(yes_op)
+        self.assign(dest, rv)
+        self.goto(join)
+        self.enter(absent)
+        let no_op = self.op_const(MirConstKind.Bool, no, b)
+        let nrv = self.rv_use(no_op)
+        self.assign(dest, nrv)
+        self.goto(join)
+        self.enter(join)
+        self.move_local(result)
+    }
+
+    // Whether expression `e` names a conditional lend's optional place whole,
+    // whose presence `lent_presence` tests: a conditional lend's call, or a
+    // `borrow` binding of one.
+    func names_lent_optional(&self, e: Int) -> Bool {
+        let x = self.tc.unparen(e)
+        if self.conditional_lend(x) {
+            return true
+        }
+        if not self.tc.has_alt(x, Alt.Expr_Name) {
+            return false
+        }
+        let leaf = self.tc.res.first_leaf(x)
+        let b = self.tc.binding_at(leaf)
+        b.kind == ResBindKind.Local && b.node >= 0 && self.tc.lent_optional_bindings[b.node]
+    }
+
+    // Whether call record `c` calls Optional's `is_some` or `is_none`, and
+    // which: 1 for `is_some`, 2 for `is_none`, 0 for neither.
+    func presence_method(&self, c: &TcCall) -> Int {
+        var name = ""
+        if c.role == TcRole.Builtin {
+            name = self.tc.name_text(c.spelling)
+        } else if c.role == TcRole.Call && c.target >= 0 && self.tc.nominal_decl(c.owner) == self.tc.known.optional {
+            let id = self.tc.res.decls[c.target].name
+            if id >= 0 {
+                name = self.tc.name_text(id)
+            }
+        }
+        if name.equals("is_some") {
+            return 1
+        }
+        if name.equals("is_none") {
+            return 2
+        }
+        0
+    }
+
+    // `o.is_some()` or `o.is_none()` (`which`, as `presence_method` gives
+    // it) of a receiver `base` that names a conditional lend's optional
+    // place: its presence test, with no copy.
+    func receiver_presence(&var self, base: Int, which: Int) -> Int {
+        var steps = Vector<MirStep>()
+        self.prepare_base(base, &var steps)
+        self.lent_presence(&steps, which == 1)
     }
 
     // A setitem's store of `value`: a declared `[]=` called with the keys and
@@ -3307,6 +3550,11 @@ extension MirProgram {
     // operand like an argument.
     func function_call(&var self, e: Int, c: &TcCall) -> MirVal {
         let t = self.tc.expr_types[e]
+        let which = self.presence_method(&c)
+        let base = self.tc.call_receiver(e)
+        if which != 0 && base >= 0 && self.names_lent_optional(base) {
+            return MirVal(operand: self.receiver_presence(base, which))
+        }
         var mark = 0
         var kept = Vector<Int>()
         let all = self.call_operands(e, &c, &var mark, &var kept)
@@ -3350,7 +3598,11 @@ extension MirProgram {
         let before = self.scope.len()
         var all = Vector<Int>()
         if by_reference {
-            let p = self.realize_all(&steps)
+            let exclusive = self.borrows_exclusively(base)
+            let v = self.realize_read(&steps, exclusive)
+            if v.fresh {
+                self.own_temp(v.place)
+            }
             var k = before
             while k < self.scope.len() {
                 if self.scope[k].window {
@@ -3358,8 +3610,7 @@ extension MirProgram {
                 }
                 k = k + 1
             }
-            let exclusive = self.borrows_exclusively(base)
-            let rv = self.rv_ref(exclusive, p)
+            let rv = self.rv_ref(exclusive, v.place)
             let rl = self.temp_of(rv)
             let rp = self.place_local(rl)
             try! all.push(self.op_move(rp))
@@ -3682,14 +3933,27 @@ extension MirProgram {
         var mark = self.scope.len()
         if method {
             let base = self.tc.res.first_node_child(callee)
+            let lent_optional = self.names_lent_optional(base)
+            let which = self.presence_method(&c)
+            if lent_optional && which != 0 {
+                return MirVal(operand: self.receiver_presence(base, which))
+            }
             if self.borrows_receiver(base) {
                 var steps = Vector<MirStep>()
                 self.prepare_base(base, &var steps)
+                // The optional copy the read makes is the copy `copy()` asks for.
+                if lent_optional && name.equals("copy") {
+                    let copied = self.realize_read_as(&steps, false, e)
+                    return MirVal(place: copied.place, fresh: copied.fresh)
+                }
                 mark = self.scope.len()
                 let args = self.builtin_operands(e)
-                let p = self.realize_all(&steps)
                 let exclusive = self.borrows_exclusively(base)
-                let rv = self.rv_ref(exclusive, p)
+                let v = self.realize_read(&steps, exclusive)
+                if v.fresh {
+                    self.own_temp(v.place)
+                }
+                let rv = self.rv_ref(exclusive, v.place)
                 let rl = self.temp_of(rv)
                 let rp = self.place_local(rl)
                 try! all.push(self.op_move(rp))
@@ -4023,6 +4287,14 @@ extension MirProgram {
         let op_leaf = self.tc.res.first_leaf(e)
         let op = self.tc.text(m, op_leaf)
         let t = self.tc.expr_types[e]
+        if op.equals("==") || op.equals("!=") {
+            let tested = self.presence_operand(left, right)
+            if tested >= 0 {
+                var steps = Vector<MirStep>()
+                self.prepare_base(tested, &var steps)
+                return self.lent_presence(&steps, op.equals("!="))
+            }
+        }
         let at = self.tc.call_at[e]
         if at < 0 {
             self.missing(e, "a comparison has no operator recorded")
@@ -4045,6 +4317,21 @@ extension MirProgram {
         let o = self.temp_operand(rv)
         self.close_argument_windows(mark)
         o
+    }
+
+    // The operand of an equality between `left` and `right` that names a
+    // conditional lend's optional place while the other is `None`, or -1:
+    // that comparison tests presence alone.
+    func presence_operand(&self, left: Int, right: Int) -> Int {
+        let l = self.tc.unparen(left)
+        let r = self.tc.unparen(right)
+        if self.tc.has_alt(r, Alt.Expr_None) && self.names_lent_optional(l) {
+            return l
+        }
+        if self.tc.has_alt(l, Alt.Expr_None) && self.names_lent_optional(r) {
+            return r
+        }
+        -1
     }
 
     // A comparison a declared `equals` or `compare` answers: `!=` negates
@@ -4254,8 +4541,9 @@ extension MirProgram {
         if self.crosses_fresh_value(&steps) {
             self.close_windows_since(mark)
         }
-        let p = self.realize_all(&steps)
-        if steps.len() == 1 && steps[0].fresh {
+        let v = self.realize_read(&steps, exclusive)
+        let p = v.place
+        if v.fresh || (steps.len() == 1 && steps[0].fresh) {
             self.own_temp(p)
         }
         // `&s` of a slice reborrows it: typecheck types it the slice in the

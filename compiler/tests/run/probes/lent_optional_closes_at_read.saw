@@ -1,0 +1,60 @@
+// probe: stated
+// about: a whole read of a conditional lend's optional place closes the window it opened at the read, on the present edge alone, so the rest of its statement may write the root: a copy, a presence test, a comparison and `&` (SL-899)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: copy 5 2
+// prints: presence true 3
+// prints: none true 4
+// prints: compare true 5
+// prints: peek 3 6
+// prints: absent -1 7
+// prints: closes 5
+
+struct Named { name: String }
+@synthesize
+extension Named: Equatable {}
+
+// The accessor counts its epilogues, which run only when it lent.
+struct Shelf { items: Vector<Named>, closes: Int }
+extension Shelf: NoCopy {}
+extension Shelf {
+    func slot(&var self, i: Int) borrows -> &var Named? {
+        if i < 0 || i >= self.items.len() {
+            return None
+        }
+        lend self.items[i]
+        self.closes += 1
+    }
+}
+
+func grow(s: &var Shelf) -> Int {
+    try! s.items.push(Named(name: "zed"))
+    s.items.len()
+}
+
+func tag(o: Named?) -> Int {
+    if let x = o { x.name.len() } else { -1 }
+}
+
+func peek(o: &Named?) -> Int {
+    if let x = o { x.name.len() } else { -1 }
+}
+
+func main() {
+    var s = Shelf(items: [Named(name: "ann")], closes: 0)
+    let a = tag(s.slot(0).copy()) + grow(&var s)
+    print("copy {a} {s.items.len()}")
+    let b = s.slot(0).is_some() && grow(&var s) > 0
+    print("presence {b} {s.items.len()}")
+    let c = s.slot(0) == None || grow(&var s) > 0
+    print("none {c} {s.items.len()}")
+    let want: Named? = Named(name: "ann")
+    let d = s.slot(0) == want && grow(&var s) > 0
+    print("compare {d} {s.items.len()}")
+    let p = peek(&s.slot(0)) + grow(&var s) * 0
+    print("peek {p} {s.items.len()}")
+    let q = peek(&s.slot(99)) + grow(&var s) * 0
+    print("absent {q} {s.items.len()}")
+    print("closes {s.closes}")
+}

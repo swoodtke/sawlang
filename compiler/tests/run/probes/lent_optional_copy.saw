@@ -1,0 +1,342 @@
+// probe: stated
+// about: `.copy()` of a conditional lend's optional place is the optional copy at the payload's tier, ExplicitCopy included, the window closing at the read (SL-899)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: int vec present 7
+// prints: int vec present let true
+// prints: int vec absent none
+// prints: int vec absent let false
+// prints: int user present 7
+// prints: int user present let true
+// prints: int user absent none
+// prints: int user absent let false
+// prints: int shared present 7
+// prints: int shared present let true
+// prints: int shared absent none
+// prints: int shared absent let false
+// prints: int user closes 2 0
+// prints: named vec present 3
+// prints: named vec present let true
+// prints: named vec absent none
+// prints: named vec absent let false
+// prints: named user present 3
+// prints: named user present let true
+// prints: named user absent none
+// prints: named user absent let false
+// prints: named shared present 3
+// prints: named shared present let true
+// prints: named shared absent none
+// prints: named shared absent let false
+// prints: named user closes 2 0
+// prints: bag vec present 2
+// prints: bag vec present let true
+// prints: bag vec absent none
+// prints: bag vec absent let false
+// prints: bag user present 2
+// prints: bag user present let true
+// prints: bag user absent none
+// prints: bag user absent let false
+// prints: bag shared present 2
+// prints: bag shared present let true
+// prints: bag shared absent none
+// prints: bag shared absent let false
+// prints: bag user closes 2 0
+// prints: shape vec present 3
+// prints: shape vec present let true
+// prints: shape vec absent none
+// prints: shape vec absent let false
+// prints: shape user present 3
+// prints: shape user present let true
+// prints: shape user absent none
+// prints: shape user absent let false
+// prints: shape shared present 3
+// prints: shape shared present let true
+// prints: shape shared absent none
+// prints: shape shared absent let false
+// prints: shape user closes 2 0
+
+func tag(x: &Int) -> Int { x }
+struct Named { name: String }
+@synthesize
+extension Named: Equatable {}
+func tag(x: &Named) -> Int { x.name.len() }
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+@synthesize
+extension Bag: Equatable {}
+func tag(x: &Bag) -> Int { x.items.len() }
+enum Shape { case Circle(r: Int), case Label(s: String) }
+@synthesize
+extension Shape: Equatable {}
+func tag(x: &Shape) -> Int {
+    match x {
+        case Circle(r) -> r,
+        case Label(s) -> s.len()
+    }
+}
+
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserInt { e: Int, ok: Bool, closes: Int }
+extension UserInt: NoCopy {}
+extension UserInt {
+    func slot(&var self) borrows -> &var Int? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedInt { e: Int, ok: Bool }
+extension SharedInt: NoCopy {}
+extension SharedInt {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Int? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserNamed { e: Named, ok: Bool, closes: Int }
+extension UserNamed: NoCopy {}
+extension UserNamed {
+    func slot(&var self) borrows -> &var Named? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedNamed { e: Named, ok: Bool }
+extension SharedNamed: NoCopy {}
+extension SharedNamed {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Named? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserBag { e: Bag, ok: Bool, closes: Int }
+extension UserBag: NoCopy {}
+extension UserBag {
+    func slot(&var self) borrows -> &var Bag? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedBag { e: Bag, ok: Bool }
+extension SharedBag: NoCopy {}
+extension SharedBag {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Bag? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+// The user accessor counts its epilogues, which run only when it lent.
+struct UserShape { e: Shape, ok: Bool, closes: Int }
+extension UserShape: NoCopy {}
+extension UserShape {
+    func slot(&var self) borrows -> &var Shape? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+        self.closes += 1
+    }
+}
+
+struct SharedShape { e: Shape, ok: Bool }
+extension SharedShape: NoCopy {}
+extension SharedShape {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Shape? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+
+func lent_optional_copy_int() {
+    var v = Vector<Int>()
+    try! v.push(7)
+    var u = UserInt(e: 7, ok: true, closes: 0)
+    var ua = UserInt(e: 7, ok: false, closes: 0)
+    let s = SharedInt(e: 7, ok: true)
+    let sa = SharedInt(e: 7, ok: false)
+    if let c = v.find(0).copy() { print("int vec present {tag(&c)}") } else { print("int vec present none") }
+    if true {
+        let d = v.find(0).copy()
+        print("int vec present let {d.is_some()}")
+    }
+    if let c = v.find(9).copy() { print("int vec absent {tag(&c)}") } else { print("int vec absent none") }
+    if true {
+        let d = v.find(9).copy()
+        print("int vec absent let {d.is_some()}")
+    }
+    if let c = u.slot().copy() { print("int user present {tag(&c)}") } else { print("int user present none") }
+    if true {
+        let d = u.slot().copy()
+        print("int user present let {d.is_some()}")
+    }
+    if let c = ua.slot().copy() { print("int user absent {tag(&c)}") } else { print("int user absent none") }
+    if true {
+        let d = ua.slot().copy()
+        print("int user absent let {d.is_some()}")
+    }
+    if let c = s.slot().copy() { print("int shared present {tag(&c)}") } else { print("int shared present none") }
+    if true {
+        let d = s.slot().copy()
+        print("int shared present let {d.is_some()}")
+    }
+    if let c = sa.slot().copy() { print("int shared absent {tag(&c)}") } else { print("int shared absent none") }
+    if true {
+        let d = sa.slot().copy()
+        print("int shared absent let {d.is_some()}")
+    }
+    print("int user closes {u.closes} {ua.closes}")
+}
+
+func lent_optional_copy_named() {
+    var v = Vector<Named>()
+    try! v.push(Named(name: "ann"))
+    var u = UserNamed(e: Named(name: "ann"), ok: true, closes: 0)
+    var ua = UserNamed(e: Named(name: "ann"), ok: false, closes: 0)
+    let s = SharedNamed(e: Named(name: "ann"), ok: true)
+    let sa = SharedNamed(e: Named(name: "ann"), ok: false)
+    if let c = v.find(0).copy() { print("named vec present {tag(&c)}") } else { print("named vec present none") }
+    if true {
+        let d = v.find(0).copy()
+        print("named vec present let {d.is_some()}")
+    }
+    if let c = v.find(9).copy() { print("named vec absent {tag(&c)}") } else { print("named vec absent none") }
+    if true {
+        let d = v.find(9).copy()
+        print("named vec absent let {d.is_some()}")
+    }
+    if let c = u.slot().copy() { print("named user present {tag(&c)}") } else { print("named user present none") }
+    if true {
+        let d = u.slot().copy()
+        print("named user present let {d.is_some()}")
+    }
+    if let c = ua.slot().copy() { print("named user absent {tag(&c)}") } else { print("named user absent none") }
+    if true {
+        let d = ua.slot().copy()
+        print("named user absent let {d.is_some()}")
+    }
+    if let c = s.slot().copy() { print("named shared present {tag(&c)}") } else { print("named shared present none") }
+    if true {
+        let d = s.slot().copy()
+        print("named shared present let {d.is_some()}")
+    }
+    if let c = sa.slot().copy() { print("named shared absent {tag(&c)}") } else { print("named shared absent none") }
+    if true {
+        let d = sa.slot().copy()
+        print("named shared absent let {d.is_some()}")
+    }
+    print("named user closes {u.closes} {ua.closes}")
+}
+
+func lent_optional_copy_bag() {
+    var v = Vector<Bag>()
+    try! v.push(Bag(items: [1, 2]))
+    var u = UserBag(e: Bag(items: [1, 2]), ok: true, closes: 0)
+    var ua = UserBag(e: Bag(items: [1, 2]), ok: false, closes: 0)
+    let s = SharedBag(e: Bag(items: [1, 2]), ok: true)
+    let sa = SharedBag(e: Bag(items: [1, 2]), ok: false)
+    if let c = v.find(0).copy() { print("bag vec present {tag(&c)}") } else { print("bag vec present none") }
+    if true {
+        let d = v.find(0).copy()
+        print("bag vec present let {d.is_some()}")
+    }
+    if let c = v.find(9).copy() { print("bag vec absent {tag(&c)}") } else { print("bag vec absent none") }
+    if true {
+        let d = v.find(9).copy()
+        print("bag vec absent let {d.is_some()}")
+    }
+    if let c = u.slot().copy() { print("bag user present {tag(&c)}") } else { print("bag user present none") }
+    if true {
+        let d = u.slot().copy()
+        print("bag user present let {d.is_some()}")
+    }
+    if let c = ua.slot().copy() { print("bag user absent {tag(&c)}") } else { print("bag user absent none") }
+    if true {
+        let d = ua.slot().copy()
+        print("bag user absent let {d.is_some()}")
+    }
+    if let c = s.slot().copy() { print("bag shared present {tag(&c)}") } else { print("bag shared present none") }
+    if true {
+        let d = s.slot().copy()
+        print("bag shared present let {d.is_some()}")
+    }
+    if let c = sa.slot().copy() { print("bag shared absent {tag(&c)}") } else { print("bag shared absent none") }
+    if true {
+        let d = sa.slot().copy()
+        print("bag shared absent let {d.is_some()}")
+    }
+    print("bag user closes {u.closes} {ua.closes}")
+}
+
+func lent_optional_copy_shape() {
+    var v = Vector<Shape>()
+    try! v.push(Shape.Label(s: "abc"))
+    var u = UserShape(e: Shape.Label(s: "abc"), ok: true, closes: 0)
+    var ua = UserShape(e: Shape.Label(s: "abc"), ok: false, closes: 0)
+    let s = SharedShape(e: Shape.Label(s: "abc"), ok: true)
+    let sa = SharedShape(e: Shape.Label(s: "abc"), ok: false)
+    if let c = v.find(0).copy() { print("shape vec present {tag(&c)}") } else { print("shape vec present none") }
+    if true {
+        let d = v.find(0).copy()
+        print("shape vec present let {d.is_some()}")
+    }
+    if let c = v.find(9).copy() { print("shape vec absent {tag(&c)}") } else { print("shape vec absent none") }
+    if true {
+        let d = v.find(9).copy()
+        print("shape vec absent let {d.is_some()}")
+    }
+    if let c = u.slot().copy() { print("shape user present {tag(&c)}") } else { print("shape user present none") }
+    if true {
+        let d = u.slot().copy()
+        print("shape user present let {d.is_some()}")
+    }
+    if let c = ua.slot().copy() { print("shape user absent {tag(&c)}") } else { print("shape user absent none") }
+    if true {
+        let d = ua.slot().copy()
+        print("shape user absent let {d.is_some()}")
+    }
+    if let c = s.slot().copy() { print("shape shared present {tag(&c)}") } else { print("shape shared present none") }
+    if true {
+        let d = s.slot().copy()
+        print("shape shared present let {d.is_some()}")
+    }
+    if let c = sa.slot().copy() { print("shape shared absent {tag(&c)}") } else { print("shape shared absent none") }
+    if true {
+        let d = sa.slot().copy()
+        print("shape shared absent let {d.is_some()}")
+    }
+    print("shape user closes {u.closes} {ua.closes}")
+}
+
+func main() {
+    lent_optional_copy_int()
+    lent_optional_copy_named()
+    lent_optional_copy_bag()
+    lent_optional_copy_shape()
+}

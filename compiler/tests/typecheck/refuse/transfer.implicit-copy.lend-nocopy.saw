@@ -1,0 +1,17 @@
+// refuses: transfer.implicit-copy at 13:10
+// a by-value read of a conditional lend's optional place with a NoCopy
+// payload: nothing can be moved out of a lend, so the hint names the block
+// that binds the place (SL:borrowing §12.5; SL-899)
+// message: which is NoCopy, by value: only a Copy type copies silently; name the place for a block: `if let x = v.find(0) { … }`
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+
+func take(o: Res?) -> Bool { o.is_some() }
+
+func held(v: &Vector<Res>) -> Bool {
+    take(v.find(0))
+}
+
+func main() {
+}

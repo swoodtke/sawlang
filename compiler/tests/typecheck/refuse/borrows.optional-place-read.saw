@@ -1,0 +1,18 @@
+// refuses: borrows.optional-place-read at 14:5
+// a conditional lend's optional place compared with an Optional reads it
+// whole, a copy an ExplicitCopy payload does not make silently: the fix
+// compares its `.copy()` (SL:borrowing §2.2; SL-899)
+// message: `v.find(0)` lends a place only when one is present, so reading it whole copies it out as an Optional, and `borrows.optional-place-read.Bag` is ExplicitCopy, which does not copy silently: compare `v.find(0).copy()`, or name the place: `if let x = v.find(0) { … }`
+
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+@synthesize
+extension Bag: Equatable {}
+
+func same(v: &Vector<Bag>, want: &Bag?) -> Bool {
+    v.find(0) == want
+}
+
+func main() {
+}

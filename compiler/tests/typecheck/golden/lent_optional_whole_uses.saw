@@ -1,0 +1,327 @@
+// Every whole use of a conditional lend's optional place that is refused,
+// by the payload's copy tier and the accessor that lends it: a write of the
+// place (`&var`, `take()`, an assignment) at every tier, and for an
+// ExplicitCopy or NoCopy payload each read that would copy it silently, the
+// `.copy()` of a NoCopy one, and the same through a `borrow` binding of the
+// lend (SL:borrowing §2.2, §2.4; SL-899). The accepted uses are the run
+// probes `lent_optional_*`.
+
+struct UserInt { e: Int, ok: Bool }
+extension UserInt: NoCopy {}
+extension UserInt {
+    func slot(&var self) borrows -> &var Int? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+struct SharedInt { e: Int, ok: Bool }
+extension SharedInt: NoCopy {}
+extension SharedInt {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Int? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+func take_int(o: Int?) -> Bool { o.is_some() }
+func peek_int(o: &Int?) -> Bool { o.is_some() }
+func poke_int(o: &var Int?) { o = None }
+
+struct Named { name: String }
+@synthesize
+extension Named: Equatable {}
+struct UserNamed { e: Named, ok: Bool }
+extension UserNamed: NoCopy {}
+extension UserNamed {
+    func slot(&var self) borrows -> &var Named? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+struct SharedNamed { e: Named, ok: Bool }
+extension SharedNamed: NoCopy {}
+extension SharedNamed {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Named? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+func take_named(o: Named?) -> Bool { o.is_some() }
+func peek_named(o: &Named?) -> Bool { o.is_some() }
+func poke_named(o: &var Named?) { o = None }
+
+enum Shape { case Circle(r: Int), case Label(s: String) }
+@synthesize
+extension Shape: Equatable {}
+struct UserShape { e: Shape, ok: Bool }
+extension UserShape: NoCopy {}
+extension UserShape {
+    func slot(&var self) borrows -> &var Shape? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+struct SharedShape { e: Shape, ok: Bool }
+extension SharedShape: NoCopy {}
+extension SharedShape {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Shape? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+func take_shape(o: Shape?) -> Bool { o.is_some() }
+func peek_shape(o: &Shape?) -> Bool { o.is_some() }
+func poke_shape(o: &var Shape?) { o = None }
+
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+@synthesize
+extension Bag: Equatable {}
+struct UserBag { e: Bag, ok: Bool }
+extension UserBag: NoCopy {}
+extension UserBag {
+    func slot(&var self) borrows -> &var Bag? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+struct SharedBag { e: Bag, ok: Bool }
+extension SharedBag: NoCopy {}
+extension SharedBag {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Bag? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+func take_bag(o: Bag?) -> Bool { o.is_some() }
+func peek_bag(o: &Bag?) -> Bool { o.is_some() }
+func poke_bag(o: &var Bag?) { o = None }
+extension Optional<Bag> {
+    func held(&self) -> Bool {
+        self.is_some()
+    }
+}
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+@synthesize
+extension Res: Equatable {}
+struct UserRes { e: Res, ok: Bool }
+extension UserRes: NoCopy {}
+extension UserRes {
+    func slot(&var self) borrows -> &var Res? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+struct SharedRes { e: Res, ok: Bool }
+extension SharedRes: NoCopy {}
+extension SharedRes {
+    @synthesize(shared)
+    func slot(&var self) borrows -> &var Res? {
+        if not self.ok {
+            return None
+        }
+        lend self.e
+    }
+}
+func take_res(o: Res?) -> Bool { o.is_some() }
+func peek_res(o: &Res?) -> Bool { o.is_some() }
+func poke_res(o: &var Res?) { o = None }
+extension Optional<Res> {
+    func held(&self) -> Bool {
+        self.is_some()
+    }
+}
+
+func refused_int() {
+    var v = Vector<Int>()
+    try! v.push(7)
+    var u = UserInt(e: 7, ok: true)
+    var s = SharedInt(e: 7, ok: true)
+    let want: Int? = 7
+    poke_int(&var v.find(0))
+    let out0 = v.find(0).take()
+    v.find(0) = None
+    poke_int(&var u.slot())
+    let out1 = u.slot().take()
+    u.slot() = None
+    poke_int(&var s.slot())
+    let out2 = s.slot().take()
+    s.slot() = None
+    borrow var b = v.find(0) {
+        b = None
+        let out = b.take()
+        poke_int(&var b)
+    }
+}
+
+func refused_named() {
+    var v = Vector<Named>()
+    try! v.push(Named(name: "ann"))
+    var u = UserNamed(e: Named(name: "ann"), ok: true)
+    var s = SharedNamed(e: Named(name: "ann"), ok: true)
+    let want: Named? = Named(name: "ann")
+    poke_named(&var v.find(0))
+    let out0 = v.find(0).take()
+    v.find(0) = None
+    poke_named(&var u.slot())
+    let out1 = u.slot().take()
+    u.slot() = None
+    poke_named(&var s.slot())
+    let out2 = s.slot().take()
+    s.slot() = None
+    borrow var b = v.find(0) {
+        b = None
+        let out = b.take()
+        poke_named(&var b)
+    }
+}
+
+func refused_shape() {
+    var v = Vector<Shape>()
+    try! v.push(Shape.Circle(r: 1))
+    var u = UserShape(e: Shape.Circle(r: 1), ok: true)
+    var s = SharedShape(e: Shape.Circle(r: 1), ok: true)
+    let want: Shape? = Shape.Circle(r: 1)
+    poke_shape(&var v.find(0))
+    let out0 = v.find(0).take()
+    v.find(0) = None
+    poke_shape(&var u.slot())
+    let out1 = u.slot().take()
+    u.slot() = None
+    poke_shape(&var s.slot())
+    let out2 = s.slot().take()
+    s.slot() = None
+    borrow var b = v.find(0) {
+        b = None
+        let out = b.take()
+        poke_shape(&var b)
+    }
+}
+
+func refused_bag() {
+    var v = Vector<Bag>()
+    try! v.push(Bag(items: [1]))
+    var u = UserBag(e: Bag(items: [1]), ok: true)
+    var s = SharedBag(e: Bag(items: [1]), ok: true)
+    let want: Bag? = Bag(items: [1])
+    let coalesced0 = v.find(0) ?? Bag(items: [2])
+    let taken0 = take_bag(v.find(0))
+    let held0 = v.find(0)
+    let same0 = v.find(0) == want
+    let differs0 = v.find(0) != want
+    let peeked0 = peek_bag(&v.find(0))
+    let received0 = v.find(0).held()
+    poke_bag(&var v.find(0))
+    let out0 = v.find(0).take()
+    v.find(0) = None
+    let coalesced1 = u.slot() ?? Bag(items: [2])
+    let taken1 = take_bag(u.slot())
+    let held1 = u.slot()
+    let same1 = u.slot() == want
+    let differs1 = u.slot() != want
+    let peeked1 = peek_bag(&u.slot())
+    let received1 = u.slot().held()
+    poke_bag(&var u.slot())
+    let out1 = u.slot().take()
+    u.slot() = None
+    let coalesced2 = s.slot() ?? Bag(items: [2])
+    let taken2 = take_bag(s.slot())
+    let held2 = s.slot()
+    let same2 = s.slot() == want
+    let differs2 = s.slot() != want
+    let peeked2 = peek_bag(&s.slot())
+    let received2 = s.slot().held()
+    poke_bag(&var s.slot())
+    let out2 = s.slot().take()
+    s.slot() = None
+    borrow var b = v.find(0) {
+        let same = b == want
+        let peeked = peek_bag(&b)
+        let received = b.held()
+        b = None
+        let out = b.take()
+        poke_bag(&var b)
+    }
+}
+
+func refused_res() {
+    var v = Vector<Res>()
+    try! v.push(Res(id: 1))
+    var u = UserRes(e: Res(id: 1), ok: true)
+    var s = SharedRes(e: Res(id: 1), ok: true)
+    let want: Res? = Res(id: 1)
+    let coalesced0 = v.find(0) ?? Res(id: 2)
+    let taken0 = take_res(v.find(0))
+    let held0 = v.find(0)
+    let same0 = v.find(0) == want
+    let differs0 = v.find(0) != want
+    let peeked0 = peek_res(&v.find(0))
+    let received0 = v.find(0).held()
+    let copied0 = v.find(0).copy()
+    poke_res(&var v.find(0))
+    let out0 = v.find(0).take()
+    v.find(0) = None
+    let coalesced1 = u.slot() ?? Res(id: 2)
+    let taken1 = take_res(u.slot())
+    let held1 = u.slot()
+    let same1 = u.slot() == want
+    let differs1 = u.slot() != want
+    let peeked1 = peek_res(&u.slot())
+    let received1 = u.slot().held()
+    let copied1 = u.slot().copy()
+    poke_res(&var u.slot())
+    let out1 = u.slot().take()
+    u.slot() = None
+    let coalesced2 = s.slot() ?? Res(id: 2)
+    let taken2 = take_res(s.slot())
+    let held2 = s.slot()
+    let same2 = s.slot() == want
+    let differs2 = s.slot() != want
+    let peeked2 = peek_res(&s.slot())
+    let received2 = s.slot().held()
+    let copied2 = s.slot().copy()
+    poke_res(&var s.slot())
+    let out2 = s.slot().take()
+    s.slot() = None
+    borrow var b = v.find(0) {
+        let same = b == want
+        let peeked = peek_res(&b)
+        let received = b.held()
+        let copied = b.copy()
+        b = None
+        let out = b.take()
+        poke_res(&var b)
+    }
+}
+
+func main() {
+    refused_int()
+    refused_named()
+    refused_shape()
+    refused_bag()
+    refused_res()
+}

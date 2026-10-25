@@ -81,6 +81,19 @@ enum TcArmBinds {
     case Writes
 }
 
+// How a conditional lend's optional place is used whole
+// (`whole_optional_use`): by a position the funnel leaves to others, as a
+// presence test, read as a comparison's operand, by `&` or as a method's
+// receiver, or written.
+enum TcWholeUse {
+    case Other,
+    case Presence,
+    case Compared,
+    case Referenced,
+    case Received,
+    case Written
+}
+
 // The positions the expected-type funnel serves, which its refusals name.
 public enum TcPosition {
     case Let,
@@ -145,6 +158,7 @@ extension TcProgram {
             try! self.local_types.push(-1)
             try! self.aliasing_bindings.push(false)
             try! self.lent_bindings.push(false)
+            try! self.lent_optional_bindings.push(false)
             try! self.lend_tops.push(0)
             try! self.lend_heads.push(false)
             try! self.nonescaping_bindings.push(false)
@@ -730,8 +744,9 @@ extension TcProgram {
         try! msg.append("` is lent, and a `")
         try! msg.append(word)
         try! msg.append("` would keep the lend past this statement. ")
-        let tier = self.tier_word(t)
-        if tier.equals("ExplicitCopy") {
+        let env = self.current_decl
+        let ext = self.current_ext
+        if self.has_copy_method(t, env, ext, m) {
             try! msg.append("Copy it out with `")
             try! msg.append(place)
             try! msg.append(".copy()`, or name the place for a block: `borrow let ")
@@ -788,6 +803,12 @@ extension TcProgram {
         while node >= 0 && steps < 10000 {
             steps = steps + 1
             let c = self.call_at[node]
+            // A getitem's, a plain call's or a builtin method's result
+            // (`x.copy()`'s among them) is a value of its own, which holds
+            // nothing of a lend below it.
+            if c >= 0 && self.calls[c].role == TcRole.Builtin {
+                return -1
+            }
             if c >= 0 && self.calls[c].target >= 0 {
                 let call = self.calls[c]
                 let lends = (self.sigs[call.target].effects & TC_EFFECT_BORROWS) != 0
@@ -795,8 +816,6 @@ extension TcProgram {
                 if lends && (subscript || call.role == TcRole.Call) {
                     return node
                 }
-                // A getitem's or a plain call's result is a value of its own,
-                // which holds nothing of a lend below it.
                 return -1
             }
             let along = self.has_alt(node, Alt.Expr_Member) || self.is_call_alt(node) || self.has_alt(node, Alt.Expr_Subscript_Single) || self.has_alt(node, Alt.Expr_Subscript_Multi) || self.has_alt(node, Alt.Expr_TupleIndex) || self.has_alt(node, Alt.Expr_Force) || self.has_alt(node, Alt.Expr_Paren)
@@ -6664,6 +6683,10 @@ extension TcProgram {
                     self.refuse_not_a_place(place)
                 }
                 self.bind_borrow(target, pt, exclusive)
+                let leaf = self.res.first_leaf(target)
+                if leaf >= 0 && self.is_optional(pt) && self.lends_conditionally(self.unparen(place)) {
+                    self.lent_optional_bindings[leaf] = true
+                }
             } else if self.has_alt(c, Alt.Stmt_Block) {
                 block = c
             }
@@ -7397,7 +7420,7 @@ extension TcProgram {
             return self.set_type(e, t, false)
         }
         if text.equals("copy") {
-            self.check_builtin_copy(e, t)
+            self.check_builtin_copy(e, base, t)
             return self.set_type(e, t, false)
         }
         let b = self.bool_type()
@@ -7407,8 +7430,10 @@ extension TcProgram {
     // The builtin `copy()` exists on a type that meets `ExplicitCopy` where
     // it is named, through its tier or a conformance whose conditions hold,
     // at any depth of a tuple, an array or an Optional; a part that is a type
-    // parameter is answered by the bounds in scope (design 219).
-    func check_builtin_copy(&var self, e: Int, t: Int) {
+    // parameter is answered by the bounds in scope (design 219). A NoCopy
+    // receiver a lend lends cannot be moved out either, so its refusal names
+    // the block that binds the place instead.
+    func check_builtin_copy(&var self, e: Int, base: Int, t: Int) {
         let ec = self.known.explicit_copy
         let env = self.current_decl
         let ext = self.current_ext
@@ -7437,7 +7462,13 @@ extension TcProgram {
             self.refuse(e, "type.bound", msg.build())
             return
         }
-        try! msg.append("` is NoCopy, so it has no `copy()`; move it instead")
+        if self.read_from_lend(base) {
+            try! msg.append("` is NoCopy, so it has no `copy()`; name the place for a block: `")
+            try! msg.append(self.binding_form(base))
+            try! msg.append("`")
+        } else {
+            try! msg.append("` is NoCopy, so it has no `copy()`; move it instead")
+        }
         self.refuse(e, "member.unknown", msg.build())
     }
 
@@ -11644,7 +11675,199 @@ extension TcProgram {
         }
         self.check_plain_subscript_reads(&parents)
         self.lend_window(&parents)
+        self.check_whole_optional_places(&parents)
         self.check_old_prefixes(&parents)
+    }
+
+    // THE WHOLE-OPTIONAL-PLACE FUNNEL: a conditional lend's optional place
+    // used whole, a lend call's or a `borrow` binding's (SL:borrowing §2.2,
+    // §2.4). No Optional sits in storage, so a write of the whole place is
+    // refused, naming the payload's binding; a presence test reads the tag
+    // alone, at every copy tier; any other read copies the place out as an
+    // Optional, so its payload must copy silently. A spelled `.copy()` is
+    // `check_builtin_copy`'s, and a by-value read the transfer checks'. MIR
+    // lowers what it accepts (`lent_presence`, `lent_optional_copy`).
+    //
+    // ENTRY POINTS (`whole_optional_use`, by the place's consumer):
+    //     a method's receiver: `is_some`/`is_none` test, an exclusive one writes, a shared one reads
+    //     a comparison's operand: against `None` by `==`/`!=` tests, any other reads
+    //     `&` and a `borrow` argument read; `&var` and a `borrow var` argument write
+    //     an assignment's target writes
+    func check_whole_optional_places(&var self, parents: &Vector<Int>) {
+        let n = self.res.nodes.len()
+        let skipped = self.outside_slice_marks(n)
+        var k = 0
+        while k < n {
+            let e = k
+            k = k + 1
+            if skipped[e] || not self.whole_optional_place(e) {
+                continue
+            }
+            let how = self.whole_optional_use(e, &parents)
+            match how {
+                case Written -> self.refuse_whole_optional_write(e),
+                case Compared -> self.check_whole_optional_read(e, how),
+                case Referenced -> self.check_whole_optional_read(e, how),
+                case Received -> self.check_whole_optional_read(e, how),
+                case _ -> {}
+            }
+        }
+    }
+
+    // Whether expression `e` names a conditional lend's optional place whole:
+    // a call or subscript of an accessor lending `&T?`, or a `borrow`
+    // binding of one.
+    func whole_optional_place(&self, e: Int) -> Bool {
+        let t = self.expr_types[e]
+        if t < 0 || self.has_error(t) || not self.is_optional(t) || not self.expr_place[e] {
+            return false
+        }
+        if self.has_alt(e, Alt.Expr_Name) {
+            let leaf = self.res.first_leaf(e)
+            let b = self.binding_at(leaf)
+            return b.kind == ResBindKind.Local && b.node >= 0 && self.lent_optional_bindings[b.node]
+        }
+        let at = self.call_at[e]
+        if at < 0 || self.calls[at].target < 0 {
+            return false
+        }
+        let c = self.calls[at]
+        let s = self.sigs[c.target]
+        let role = c.role == TcRole.Call || c.role == TcRole.Place
+        role && (s.effects & TC_EFFECT_BORROWS) != 0 && s.lending == TcLend.ConditionalPlace
+    }
+
+    // What the consumer of whole optional place `e` does with it, looking
+    // through parentheses.
+    func whole_optional_use(&self, e: Int, parents: &Vector<Int>) -> TcWholeUse {
+        var q = e
+        var p = parents[q]
+        while p >= 0 && self.has_alt(p, Alt.Expr_Paren) {
+            q = p
+            p = parents[q]
+        }
+        let u = self.expr_use[e]
+        if u == TcUse.Write || u == TcUse.Update || self.expr_use[q] == TcUse.Write || self.expr_use[q] == TcUse.Update {
+            return TcWholeUse.Written
+        }
+        if p < 0 {
+            return TcWholeUse.Other
+        }
+        let by_reference = self.referent(self.final_type(p)) >= 0
+        if self.has_alt(p, Alt.Expr_Ref_Exclusive) || (self.has_alt(p, Alt.Borrow_Place_Var) && by_reference) {
+            return TcWholeUse.Written
+        }
+        if self.has_alt(p, Alt.Expr_Ref_Shared) || (self.has_alt(p, Alt.Borrow_Place_Shared) && by_reference) {
+            return TcWholeUse.Referenced
+        }
+        if self.has_alt(p, Alt.Expr_Compare_Pair) {
+            let left = self.res.first_node_child(p)
+            let other = if left == q { self.res.last_node_child(p) } else { left }
+            let m = self.node_module(p)
+            let op = self.text(m, self.res.first_leaf(p))
+            let equality = op.equals("==") || op.equals("!=")
+            if equality && self.is_none_literal(self.unparen(other)) {
+                return TcWholeUse.Presence
+            }
+            return TcWholeUse.Compared
+        }
+        if not self.has_alt(p, Alt.Expr_Member) || self.res.first_node_child(p) != q {
+            return TcWholeUse.Other
+        }
+        let call = parents[p]
+        if call < 0 || self.call_at[call] < 0 || self.call_receiver(call) != q {
+            return TcWholeUse.Other
+        }
+        let c = self.calls[self.call_at[call]]
+        let name = self.method_name(&c)
+        if name.equals("is_some") || name.equals("is_none") {
+            return TcWholeUse.Presence
+        }
+        if c.role == TcRole.Builtin && name.equals("copy") {
+            return TcWholeUse.Other
+        }
+        let ru = self.expr_use[q]
+        if ru == TcUse.BorrowVar {
+            return TcWholeUse.Written
+        }
+        if ru == TcUse.Borrow {
+            return TcWholeUse.Received
+        }
+        TcWholeUse.Other
+    }
+
+    // The name call record `c` calls: a builtin's spelling, or an Optional
+    // method's declared name; empty for any other.
+    func method_name(&self, c: &TcCall) -> String {
+        if c.role == TcRole.Builtin {
+            return self.name_text(c.spelling)
+        }
+        if c.role != TcRole.Call || c.target < 0 || self.nominal_decl(c.owner) != self.known.optional {
+            return ""
+        }
+        let name = self.res.decls[c.target].name
+        if name < 0 {
+            return ""
+        }
+        self.name_text(name)
+    }
+
+    // A write of conditional lend `e`'s optional place whole: there is no
+    // Optional to write, only the payload's place when one is present.
+    func refuse_whole_optional_write(&var self, e: Int) {
+        let m = self.node_module(e)
+        let place = self.text(m, e)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(place)
+        try! msg.append("` lends a place only when one is present, so no Optional is stored there to write. Write the element through its binding: `if var x = ")
+        try! msg.append(place)
+        try! msg.append(" \{ x = … \}`")
+        self.refuse_in(m, e, "borrows.optional-place-write", msg.build())
+    }
+
+    // A read of conditional lend `e`'s optional place whole, by `how`: an
+    // optional copy, refused for a payload that does not copy silently,
+    // naming `.copy()` where the payload has one and the binding form where
+    // it has none.
+    func check_whole_optional_read(&var self, e: Int, how: TcWholeUse) {
+        let t = self.expr_types[e]
+        if self.copies_silently(t) {
+            return
+        }
+        let m = self.node_module(e)
+        let place = self.text(m, e)
+        let payload = self.arg_of(t, 0)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(place)
+        try! msg.append("` lends a place only when one is present, so reading it whole copies it out as an Optional, and `")
+        try! msg.append(self.type_text(payload))
+        if self.has_copy_method(t, -1, -1, m) {
+            try! msg.append("` is ExplicitCopy, which does not copy silently: ")
+            match how {
+                case Compared -> try! msg.append("compare `"),
+                case Referenced -> try! msg.append("pass `&"),
+                case _ -> try! msg.append("call it on `")
+            }
+            try! msg.append(place)
+            try! msg.append(".copy()`, or name the place: `if let x = ")
+        } else {
+            try! msg.append("` is NoCopy, which has no copy: name the place, `if let x = ")
+        }
+        try! msg.append(place)
+        try! msg.append(" \{ … \}`")
+        self.refuse_in(m, e, "borrows.optional-place-read", msg.build())
+    }
+
+    // Whether `t` has the builtin `copy()`: it meets `ExplicitCopy`, seen
+    // from declaration `env` and extension `ext` in module `viewer`.
+    func has_copy_method(&var self, t: Int, env: Int, ext: Int, viewer: Int) -> Bool {
+        let ec = self.known.explicit_copy
+        if ec < 0 || self.open_tier(t) {
+            return false
+        }
+        self.satisfies(t, ec, env, ext, viewer, false)
     }
 
     // The calls in the order they settle: each before every call nested in
@@ -13372,11 +13595,37 @@ extension TcProgram {
             try! out.append(".copy()` for a copy, ")
             offered = true
         }
-        if not offered && part.len() == 0 {
+        if not offered && part.len() == 0 && self.read_from_lend(place) {
+            try! out.append("name the place for a block: `")
+            try! out.append(self.binding_form(place))
+            try! out.append("`")
+        } else if not offered && part.len() == 0 {
             try! out.append("a binding that only borrows has nothing to move, so borrow it")
         } else {
             try! out.append("or borrow it")
         }
+        out.build()
+    }
+
+    // Whether place `e` is read out of a lend: a lend's place, or a part of
+    // one, or a `borrow` binding of a conditional lend.
+    func read_from_lend(&self, e: Int) -> Bool {
+        e >= 0 && (self.lend_in_chain(e) >= 0 || self.whole_optional_place(self.unparen(e)))
+    }
+
+    // The block that names place `e`, read out of a lend: `if let` over a
+    // conditional lend's optional place, `borrow let` over any other
+    // (SL:borrowing §12.2).
+    func binding_form(&self, e: Int) -> String {
+        let m = self.node_module(e)
+        var out = StringBuilder()
+        if self.whole_optional_place(self.unparen(e)) {
+            try! out.append("if let x = ")
+        } else {
+            try! out.append("borrow let x = ")
+        }
+        try! out.append(self.text(m, e))
+        try! out.append(" \{ … \}")
         out.build()
     }
 
