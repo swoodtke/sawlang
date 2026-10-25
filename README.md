@@ -922,8 +922,9 @@ func boot() {
 ```
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
-optional extensions, a feature list. `sawc` takes `--target-features`, but does
-not yet write a freestanding object, target a bare-metal triple or take
+optional extensions, a feature list. `sawc` takes `--target-features`, and
+`sawc build -c --target aarch64-unknown-none-elf` writes a bare-metal object.
+It does not yet write a freestanding object, target riscv32 or take
 `--no-hidden-alloc` (SL-865); with those, the build reads:
 
 ```bash
@@ -1035,7 +1036,8 @@ sawc --version
 The `-O` level is handed to clang, and is `-O0` when none is given; `-Os` and
 `-Oz` also mark every function `optsize`, and `-Oz` `minsize`. `-c` writes an
 object (`.o` appended to the `-o` name when it lacks one) and links nothing.
-`--target` cross-compiles for a triple (the host by default),
+`--target` cross-compiles for a triple (the host by default; the bare-metal
+`aarch64-unknown-none-elf` builds only with `-c`),
 `--target-features` names the LLVM subtarget features the code may use (such
 as `+m,+a,+c`), and `--module-path` maps a package name to its source
 directory. `--freestanding` and `--runtime` check a program against the

@@ -4,7 +4,7 @@
     python compiler/tools/build.py                   # .build/sawc-stage1, then .build/sawc-stage2
     python compiler/tools/build.py --quiet           # the same, printing only a failure
     python compiler/tools/build.py ENTRY.saw -o OUT  # the stages, then any program over them
-    python compiler/tools/build.py --runtime TRIPLE  # the stages, then another target's runtime
+    python compiler/tools/build.py --runtime TRIPLE  # the stages, then another target's runtime or clang record
 
 The seed is sawc compiled by clang from its own `.ll`, one set of files per
 host target, which `compiler/seed/manifest.tsv` names by SHA-256 and the blob
@@ -278,19 +278,29 @@ _CHOSEN_CLANGS = {}
 
 
 def choose_clang(triple):
-    """The clang every sawc compile and link for `triple` uses: `SAWC_CLANG`,
-    else the first of `CLANG_CANDIDATES` on `PATH` that compiles
-    `OPAQUE_POINTER_MODULE` for the target. Returns (absolute path, "") or
-    (None, why none qualifies). The runtime manifest records the choice, and
-    everything after reads it there: `sawc build`'s link, `sawc runtime`
-    run without `--clang`, and `stage2_key`.
+    """THE CLANG CHOICE: the clang every sawc compile and link for `triple`
+    uses, `pick_clang`'s answer with `SAWC_CLANG` as the override, made once
+    per target. Returns (absolute path, "") or (None, why none qualifies).
+    The target's manifest or record records the choice, and everything after
+    reads it there: `sawc build`'s link and `-c`, `sawc runtime` run without
+    `--clang`, and `stage2_key`.
 
     ENTRY POINTS:
       build_runtime
+      configure_target
     """
-    if triple in _CHOSEN_CLANGS:
-        return _CHOSEN_CLANGS[triple]
-    named = os.environ.get("SAWC_CLANG")
+    if triple not in _CHOSEN_CLANGS:
+        _CHOSEN_CLANGS[triple] = pick_clang(triple, os.environ.get("SAWC_CLANG"))
+    return _CHOSEN_CLANGS[triple]
+
+
+def pick_clang(triple, named):
+    """The clang for `triple`: `named` (the `SAWC_CLANG` value) when given,
+    with no fallback, else the first of `CLANG_CANDIDATES` on `PATH` that
+    compiles `OPAQUE_POINTER_MODULE` for the target, since whether a clang can
+    compile for a target is a fact about that target: Apple's clang has no
+    RISC-V backend. Returns (absolute path, "") or (None, why none
+    qualifies)."""
     candidates = [named] if named else list(CLANG_CANDIDATES)
     refused = []
     answer = None
@@ -309,7 +319,6 @@ def choose_clang(triple):
         tried = "SAWC_CLANG" if named else "any of %s on PATH" % ", ".join(CLANG_CANDIDATES)
         answer = (None, "no clang qualifies (tried %s): %s. %s" % (tried, "; ".join(refused) or "none is installed",
                                                                     CLANG_REQUIREMENT))
-    _CHOSEN_CLANGS[triple] = answer
     return answer
 
 
@@ -391,6 +400,37 @@ def runtime_manifest(triple):
     if triple == host_triple():
         return RUNTIME_MANIFEST
     return os.path.join(BUILD_DIR, "sawc-runtime-%s.txt" % triple)
+
+
+# The targets with no operating system, which have no runtime to build: a
+# program for one is compiled to an object and never linked by sawc, so its
+# record names the clang alone. `target_bare_metal` in
+# compiler/target/src/layout.saw, which this must agree with.
+BARE_METAL_TARGETS = ("aarch64-unknown-none-elf",)
+
+
+def configure_target(triple):
+    """Makes `sawc build --target TRIPLE` possible for another target: a
+    hosted one gets its runtime (`build_runtime`), and a bare-metal one a
+    record beside the stages naming it and the clang `choose_clang` picks for
+    it, with no object. Returns the error text, or "" when it is written."""
+    if triple not in BARE_METAL_TARGETS:
+        return build_runtime(triple)
+    clang, why = choose_clang(triple)
+    if clang is None:
+        return why
+    record = "target %s\nclang %s\n" % (triple, clang)
+    written = runtime_manifest(triple)
+    old = None
+    if os.path.exists(written):
+        with open(written) as fh:
+            old = fh.read()
+    if old != record:
+        os.makedirs(BUILD_DIR, exist_ok=True)
+        with open(written + ".tmp", "w") as fh:
+            fh.write(record)
+        os.replace(written + ".tmp", written)
+    return ""
 
 
 def build_runtime(triple=None):
@@ -838,7 +878,8 @@ def main():
     ap.add_argument("entry", nargs="?", help="a program to build instead of sawc")
     ap.add_argument("-o", dest="out", help="the output path (required with ENTRY)")
     ap.add_argument("--runtime", metavar="TRIPLE", action="append", default=[],
-                    help="also build the runtime of another target and write its manifest")
+                    help="also configure another target: build its runtime and write its manifest, or for a "
+                         "bare-metal target record its clang")
     ap.add_argument("--quiet", action="store_true",
                     help="print nothing when the stages build, and a failure on standard error")
     args = ap.parse_args()
@@ -857,7 +898,7 @@ def main():
         ok, output = build_sawc()
         target = SAWC
         for triple in args.runtime if ok else []:
-            why = build_runtime(triple)
+            why = configure_target(triple)
             if why:
                 ok, output, target = False, "build: " + why, runtime_manifest(triple)
                 break

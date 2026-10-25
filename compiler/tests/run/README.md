@@ -129,7 +129,17 @@ manifest is refused, saying it is not the host and has no runtime, before
 anything is written: a build never links the host's objects into a module laid
 out for another target. In the Linux VM, `--target x86_64-unknown-linux-gnu`
 is configured that way, and Rosetta runs what it links. The runtime is built at the module's own target, so a
-link prints nothing. The speed flag passes through the driver's one
+link prints nothing.
+
+A bare-metal target (`target_bare_metal` in `compiler/target`, today
+`aarch64-unknown-none-elf`, whose layouts and C convention are Linux
+AArch64's) has no runtime and no C library, so sawc never links for it. A
+build for one without `-c`, `--emit-ll`, `--freestanding` or `--runtime` is
+refused with exit status 2 before anything is written, naming `-c`. With
+`-c` the object is compiled by the clang its record names:
+`sawc-runtime-TRIPLE.txt` beside the binary, which `build.py --runtime
+TRIPLE` writes for a bare-metal target as a `target` and a `clang` line and
+no object. With no record, `-c` is refused, naming that command. The speed flag passes through the driver's one
 `driver_speed_level` funnel (design 265); `-O0` is the default.
 
 ## `sawc runtime`
@@ -177,11 +187,16 @@ ruling). Two builds into two directories write the same bytes. With
 
 sawc's `.ll` uses opaque pointers (`ptr`) throughout, which LLVM 15 made the
 default and Debian 12's own `clang` (14) refuses. `build.py`'s `choose_clang`
-is the one place a clang is chosen: `SAWC_CLANG` if it is set, else the
-first of `clang-19`, `clang-18`, … `clang-15`, `clang` on `PATH`, and the
-choice must compile the two-line module `define ptr @f(ptr %p) { ret ptr %p }`
-for the target. The capability is tested rather than a version read, since
-Apple's clang numbers its versions apart from LLVM's. A clang that fails it
+is the one place a clang is chosen, once per target: `SAWC_CLANG` if it is
+set, with no fallback, else the first of `clang-19`, `clang-18`, … `clang-15`,
+`clang` on `PATH` that compiles the two-line module `define ptr @f(ptr %p) {
+ret ptr %p }` for that target (`pick_clang`). The capability is tested rather
+than a version read, since Apple's clang numbers its versions apart from
+LLVM's, and per target, since a clang need not have every backend: Apple's has
+no RISC-V. The lane checks the choice for `aarch64-unknown-none-elf` with no
+override, with `SAWC_CLANG` naming that clang, and with it naming no
+executable, which is refused by name, and the bare-metal record
+`configure_target` writes. A clang that fails it
 is refused by name with the requirement, and none at all stops the build
 before `sawc runtime` runs. The chosen clang's absolute path goes into the
 manifest's `clang` line, and its `--version` into the runtime's and Stage 2's
@@ -719,7 +734,12 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are nine.
+says why the check cannot be header lines. There are ten.
+`bare_metal_object.saw` is built with `-c --target aarch64-unknown-none-elf`
+at -O0 and -O2, once `build.configure_target` has recorded the target's
+clang: the object must be an ELF64 AArch64 relocatable file whose export
+`nm` reads defined and external, and the same build without `-c` must be
+refused with exit status 2, naming `-c`, writing nothing.
 `object_output_linkage.saw` is built with `-c` at -O0 and -O2 under an `-o`
 naming no `.o`, and `nm` must read its export defined and external, `helper`
 internal (or inlined away at -O2), the panic seam undefined, and no `main` or

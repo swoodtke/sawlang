@@ -108,6 +108,39 @@ def check_golden(failures, counts, write):
             counts["mono golden records"] = counts.get("mono golden records", 0) + 1
 
 
+# Each pair of triples whose layouts are one table: the bare-metal AArch64
+# target is LP64 with the Linux target's C convention, so nothing a layout
+# says may differ between them.
+SAME_LAYOUT_TARGETS = (("aarch64-unknown-none-elf", "aarch64-unknown-linux-gnu"),)
+
+
+def check_target_layouts(failures, counts):
+    """Each golden program's `--layouts` record for a target of
+    `SAME_LAYOUT_TARGETS` equals its record for the target it is paired
+    with, and carries no `ERROR` or `INVARIANT` line."""
+    cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))
+    for target, twin in SAME_LAYOUT_TARGETS:
+        _, out = sawc(["--layouts", "--target", target, "--std-root", "std"] + [rel(s) for s in cases])
+        _, twin_out = sawc(["--layouts", "--target", twin, "--std-root", "std"] + [rel(s) for s in cases])
+        got = borrowck_lane.records(out)
+        expected = borrowck_lane.records(twin_out)
+        for src in cases:
+            record = got.get(rel(src))
+            twin_record = expected.get(rel(src))
+            if record is None or twin_record is None:
+                failures.append("mono layouts %s: no --layouts record for %s or %s" % (rel(src), target, twin))
+                continue
+            if record != twin_record:
+                failures.append("mono layouts %s: the %s record differs from the %s one at %s"
+                                % (rel(src), target, twin, borrowck_lane.first_difference(twin_record, record)))
+                continue
+            if any(line.startswith(("ERROR\t", "INVARIANT\t")) for line in record.split("\n")):
+                failures.append("mono layouts %s: the %s record holds a refusal" % (rel(src), target))
+                continue
+            counts["mono layout records equal across targets"] = (
+                counts.get("mono layout records equal across targets", 0) + 1)
+
+
 def mono_rules():
     with open(RULES_SOURCE) as fh:
         text = fh.read()
@@ -313,6 +346,7 @@ def run(write=False):
     failures = []
     counts = {}
     check_golden(failures, counts, write)
+    check_target_layouts(failures, counts)
     check_refusals(failures, counts)
     check_layouts(failures, counts)
     check_lowerings(failures, counts)

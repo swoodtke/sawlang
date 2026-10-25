@@ -15891,7 +15891,10 @@ sawc --version
 - `-c` compiles to an object and links nothing. `.o` is appended to an `-o`
   name that lacks it, and the object keeps an executable's linkage (see [Link
   symbols and linkage](#link-symbols-and-linkage)).
-- `--target` cross-compiles for a triple (default: the host).
+- `--target` cross-compiles for a triple (default: the host): `arm64-apple-darwin`,
+  `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, or the bare-metal
+  `aarch64-unknown-none-elf`. A bare-metal triple has no C library or runtime
+  to link against, so it builds only with `-c`; a link for it is refused.
 - `--target-features FEATURES` names the LLVM subtarget features every
   function is compiled for, a comma-separated list such as `+m,+a,+c` (see
   Profiles).

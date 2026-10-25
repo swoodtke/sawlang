@@ -32,8 +32,9 @@ line per refusal of mono, an `INVARIANT<TAB>mono<TAB>message` line per broken
 invariant mono met, and with `--dump` each item, with `--layouts` the layout
 table. The exit code is 1 when any program has a refusal or an `INVARIANT`
 line, 2 on a usage failure, and 0 otherwise. `--target` names the triple the
-layouts are for: `arm64-apple-darwin` (the default) or
-`x86_64-unknown-linux-gnu`.
+layouts are for: `arm64-apple-darwin` (the default),
+`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` or the bare-metal
+`aarch64-unknown-none-elf`, whose layouts are the Linux AArch64 target's.
 
 The file is lowered to MIR once. The evaluator borrows that program and
 evaluates its constants before the borrow check and drop elaboration rewrite
@@ -349,6 +350,8 @@ the depth however a type shares its parts (`mono.depth.branching`).
 `mono_lane.py` checks that each golden program's `--dump` and `--layouts`
 records equal its `.mono` and `.layouts` files byte for byte (`--write`
 rewrites them, for review) and carry no `ERROR` or `INVARIANT` line; that each
+golden program's `--layouts` record for `aarch64-unknown-none-elf` equals its
+record for `aarch64-unknown-linux-gnu` (`SAME_LAYOUT_TARGETS`); that each
 fixture in `refuse/` is refused first at its header's position by the rule its
 name starts with, and every rule has a fixture; and that each type of a
 layout table that Stage 0 can spell (not a reference, a function type, `Void`

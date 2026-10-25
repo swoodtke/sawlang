@@ -65,7 +65,7 @@ import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
-import sawtarget.layout.{target_clang_triple, target_known}
+import sawtarget.layout.{target_bare_metal, target_clang_triple, target_known}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
@@ -223,6 +223,10 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
     }
+    if target_bare_metal(triple) && not (object || emit || freestanding || runtime) {
+        print("sawc build: {} is a bare-metal target, with no C library or runtime for sawc to link a program against: `-c` writes an object to link yourself, and `--freestanding` checks a program against the profile a kernel builds under", triple)
+        return DRIVER_EXIT_USAGE
+    }
     std_root = driver_std_root("sawc build", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
@@ -254,12 +258,18 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     // Another target links against its own runtime, which a manifest of its
     // own names once build.py's clang check has passed for it; the host's
-    // objects never reach that link (compiler/tests/run/README.md).
+    // objects never reach that link (compiler/tests/run/README.md). A
+    // bare-metal target's record names its clang and no object, since only
+    // `-c` reaches here for it.
     let cross = not triple.equals(host)
     var foreign = Vector<String>()
     var foreign_clang = StringBuilder()
     if cross {
         let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang)
+        if not configured.equals(triple) && target_bare_metal(triple) {
+            print("sawc build: --target {} has no clang configured to compile for it: `compiler/tools/build.py --runtime {}` records one, the first that compiles IR for that target, or the one SAWC_CLANG names", triple, triple)
+            return 1
+        }
         if not configured.equals(triple) {
             print("sawc build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
             return 1
@@ -422,8 +432,9 @@ func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &
 // The target the runtime manifest of another target `triple` names, read as
 // `driver_read_runtime` reads the host's: `sawc-runtime-TRIPLE.txt` beside
 // this binary, which `compiler/tools/build.py --runtime TRIPLE` writes only
-// once its clang passes the opaque-pointer check for that target. "" when
-// there is none, which is no error: that target is simply not configured.
+// once its clang passes the opaque-pointer check for that target, naming no
+// object for a bare-metal target, which has no runtime. "" when there is
+// none, which is no error: that target is simply not configured.
 func driver_read_target_runtime(triple: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
     var name = StringBuilder()
     try! name.append("sawc-runtime-")

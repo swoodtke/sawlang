@@ -1598,6 +1598,121 @@ def check_object_output(failures, counts):
             counts["run objects holding their linkage"] = counts.get("run objects holding their linkage", 0) + 1
 
 
+# The bare-metal target `probes/bare_metal_object.saw` is built for: it has
+# no runtime and no C library, so `-c` is the one build that writes anything,
+# and the object is ELF64 AArch64 (`e_machine` EM_AARCH64) and relocatable.
+BARE_METAL_PROBE = "bare_metal_object.saw"
+BARE_METAL_TARGET = "aarch64-unknown-none-elf"
+BARE_METAL_EXPORT = "probe_bare_metal_answer"
+ELF_AARCH64 = 183
+ELF_RELOCATABLE = 1
+
+
+def elf_header_problem(path):
+    """Why the file at `path` is no little-endian ELF64 AArch64 relocatable
+    object, or ""."""
+    with open(path, "rb") as fh:
+        head = fh.read(20)
+    if len(head) < 20 or head[:4] != b"\x7fELF":
+        return "it is not an ELF file"
+    if head[4] != 2 or head[5] != 1:
+        return "it is not little-endian ELF64 (class %d, data %d)" % (head[4], head[5])
+    kind = int.from_bytes(head[16:18], "little")
+    machine = int.from_bytes(head[18:20], "little")
+    if kind != ELF_RELOCATABLE or machine != ELF_AARCH64:
+        return "its e_type is %d and e_machine %d, not %d and %d" % (kind, machine, ELF_RELOCATABLE, ELF_AARCH64)
+    return ""
+
+
+def check_bare_metal_object(failures, counts):
+    """The bare-metal target end to end: `build.configure_target` records its
+    clang; `sawc build -c --target aarch64-unknown-none-elf` at -O0 and -O2
+    prints nothing and writes an ELF64 AArch64 relocatable object whose
+    export `nm` reads defined and external; the same build without `-c` is
+    refused with exit status 2, naming `-c`, before any file is written."""
+    probe = os.path.join(PROBES, BARE_METAL_PROBE)
+    why = build.configure_target(BARE_METAL_TARGET)
+    if why:
+        failures.append("run %s: build.py configures no clang for %s: %s" % (rel(probe), BARE_METAL_TARGET, why))
+        return
+    for speed in ("-O0", "-O2"):
+        where = "run %s %s" % (rel(probe), speed)
+        obj = os.path.join(OUT, "bare_metal" + speed[1:] + ".o")
+        if os.path.exists(obj):
+            os.remove(obj)
+        r = subprocess.run([build.SAWC, "build", "-c", speed, "--std-root", "std", "--target", BARE_METAL_TARGET,
+                            rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said or not os.path.exists(obj):
+            failures.append("%s: sawc build -c --target %s exits %d: %s"
+                            % (where, BARE_METAL_TARGET, r.returncode, said[:300]))
+            continue
+        problem = elf_header_problem(obj)
+        if problem:
+            failures.append("%s: the object %s" % (where, problem))
+            continue
+        symbols, why = object_symbols(obj, False)
+        if symbols is None:
+            failures.append("%s: nm cannot read the object: %s" % (where, why))
+            continue
+        if symbols.get(BARE_METAL_EXPORT) != "T":
+            failures.append("%s: `%s` is %s, not defined and external (T)"
+                            % (where, BARE_METAL_EXPORT, symbols.get(BARE_METAL_EXPORT, "absent")))
+            continue
+        counts["run bare-metal objects"] = counts.get("run bare-metal objects", 0) + 1
+    where = "run %s (a link)" % rel(probe)
+    out = os.path.join(OUT, "bare_metal_link")
+    for stale in (out, out + ".ll"):
+        if os.path.exists(stale):
+            os.remove(stale)
+    r = subprocess.run([build.SAWC, "build", "--std-root", "std", "--target", BARE_METAL_TARGET, rel(probe), "-o",
+                        out], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    if (r.returncode != 2 or "bare-metal" not in said or "`-c`" not in said or os.path.exists(out)
+            or os.path.exists(out + ".ll")):
+        failures.append("%s: not refused with exit status 2 naming `-c` before writing anything: exit %d: %s"
+                        % (where, r.returncode, said[:300]))
+    else:
+        counts["run bare-metal links refused"] = 1
+
+
+# A clang path `SAWC_CLANG` can name that no file is at.
+MISSING_CLANG = "/nonexistent/saw-lane/clang"
+
+
+def check_clang_choice(failures, counts):
+    """`build.py`'s clang choice for the bare-metal target (`pick_clang`, which
+    `choose_clang` caches): with no override it picks a clang that compiles IR
+    for that triple, an override naming that clang is taken as named, and an
+    override naming no executable is refused by name, with no fallback to the
+    candidates. Then `configure_target` writes the target's record: its
+    `target` and `clang` lines and no object, since it has no runtime."""
+    where = "run clang choice for %s" % BARE_METAL_TARGET
+    chosen, why = build.pick_clang(BARE_METAL_TARGET, None)
+    if chosen is None or not build.clang_capable(chosen, BARE_METAL_TARGET):
+        failures.append("%s: no capable clang is picked: %s" % (where, why))
+        return
+    named, why = build.pick_clang(BARE_METAL_TARGET, chosen)
+    if named != os.path.abspath(chosen):
+        failures.append("%s: SAWC_CLANG naming %s picks %s: %s" % (where, chosen, named, why))
+    missing, why = build.pick_clang(BARE_METAL_TARGET, MISSING_CLANG)
+    if missing is not None or ("SAWC_CLANG names %s" % MISSING_CLANG) not in why:
+        failures.append("%s: SAWC_CLANG naming no executable picks %s, not a refusal naming it: %s"
+                        % (where, missing, why))
+    why = build.configure_target(BARE_METAL_TARGET)
+    record = build.runtime_manifest(BARE_METAL_TARGET)
+    lines = []
+    if not why and os.path.exists(record):
+        with open(record) as fh:
+            lines = fh.read().splitlines()
+    clang_lines = [line for line in lines if line.startswith("clang ")]
+    if why or lines[:1] != ["target %s" % BARE_METAL_TARGET] or len(clang_lines) != 1 or any(
+            line.startswith("object ") for line in lines):
+        failures.append("%s: the record %s is %r, not its target, one clang and no object: %s"
+                        % (where, rel(record), lines, why))
+    counts["run clang choices checked"] = 3
+
+
 # The attribute group `probes/attribute_group_levels.saw`'s `.ll` ends with,
 # for each set of flags: the frame pointer policy always, then the feature
 # string, then the size level's attributes.
@@ -1653,12 +1768,13 @@ def check_attribute_groups(failures, counts):
 # must print is its binary's real path, which no header line can state. The
 # two `print` probes' output is interleaved by the operating system, and the
 # three dump-churn probes' dumps catch whatever the scheduler has left live.
-# The leak probe's lost block is sized by the allocator. The object probe is
-# read with `nm`, and the attribute probe's `.ll` is written at several flag
-# sets, neither of which is a build and a run.
+# The leak probe's lost block is sized by the allocator. The two object probes
+# are read with `nm` and the ELF header, and the attribute probe's `.ll` is
+# written at several flag sets, none of which is a build and a run.
 CUSTOM_PROBES = {
     OBJECT_PROBE: check_object_output,
     ATTRIBUTE_PROBE: check_attribute_groups,
+    BARE_METAL_PROBE: check_bare_metal_object,
     "executable_path.saw": check_executable_path,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,
@@ -1734,6 +1850,7 @@ def run(names=None, write=False):
         check_debug_shape(failures, counts, write)
         check_symbolization(failures, counts)
         check_foreign_targets(failures, counts)
+        check_clang_choice(failures, counts)
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
         check_long_accessor(failures, counts)

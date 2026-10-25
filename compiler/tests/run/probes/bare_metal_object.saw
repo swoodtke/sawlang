@@ -1,0 +1,11 @@
+// probe: custom
+// about: `sawc build -c --target aarch64-unknown-none-elf` writes an AArch64 ELF object, and a link for that target is refused (SL-865)
+// Built with `-c` for the bare-metal triple: the object must be an ELF64
+// AArch64 relocatable file defining the export. The same build without `-c`
+// has no runtime or C library to link against, so it must be refused before
+// anything is written.
+
+@export("probe_bare_metal_answer")
+func answer(n: Int64) -> Int64 {
+    n * 2 + 1
+}

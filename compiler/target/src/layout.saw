@@ -112,16 +112,30 @@ public struct Target {
 
 extension Target: NoCopy {}
 
-// The triples this description answers for, the default first. All are
-// LP64; they differ only in how an aggregate crosses the C convention, which
-// this slice refuses, and in whether a narrow integer crosses it extended
-// (`c_extends_narrow`).
+// THE TRIPLE SET: the triples this description answers for, the default
+// first. All are LP64; they differ only in how an aggregate crosses the C
+// convention, which this slice refuses, in whether a narrow integer crosses
+// it extended (`c_extends_narrow`), and in whether an operating system is
+// there to link a program against (`target_bare_metal`). compiler/tools/
+// build.py's `BARE_METAL_TARGETS` and `clang_triple` mirror it.
+// ENTRY POINTS:
+//     target_known
+//     target_bare_metal
 public func target_triples() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("arm64-apple-darwin")
     try! out.push("x86_64-unknown-linux-gnu")
     try! out.push("aarch64-unknown-linux-gnu")
+    try! out.push("aarch64-unknown-none-elf")
     move out
+}
+
+// Whether `triple` names no operating system: nothing provides a C library
+// or sawc's hosted runtime there, so a program for it is compiled to an
+// object and never linked by sawc. Its layouts and C convention are its
+// architecture's.
+public func target_bare_metal(triple: String) -> Bool {
+    triple.equals("aarch64-unknown-none-elf")
 }
 
 // Whether `triple` is one this module describes.
@@ -631,7 +645,8 @@ extension Target {
     // the backend's function attributes carry. Darwin's arm64 convention
     // requires a valid frame record in x29, which clang keeps in every
     // non-leaf function. Linux requires none, but a hosted program is profiled
-    // there too and the cost is small, so both Linux triples keep the same.
+    // there too and the cost is small, so both Linux triples keep the same, and
+    // a bare-metal image keeps it for the backtraces a kernel walks.
     // A triple this description does not know would get the conservative
     // `NonLeaf` as well.
     public func frame_pointer(&self) -> TargetFramePointer {
@@ -682,10 +697,10 @@ extension Target {
     // Whether this target's C convention extends an integer narrower than
     // 32 bits to 32 bits by its signedness, as a parameter and as a result,
     // so the side receiving it may read the whole register. Darwin's arm64
-    // convention and x86_64's System V do; AAPCS64 on Linux does not, and
-    // there the receiving side extends it itself.
+    // convention and x86_64's System V do; AAPCS64, on Linux and on bare
+    // metal, does not, and there the receiving side extends it itself.
     public func c_extends_narrow(&self) -> Bool {
-        not self.triple.equals("aarch64-unknown-linux-gnu")
+        not (self.triple.equals("aarch64-unknown-linux-gnu") || self.triple.equals("aarch64-unknown-none-elf"))
     }
 
     // One line describing `t`'s layout, for the layout goldens:
