@@ -1,0 +1,29 @@
+// refuses: type.bound at 27:20
+// a `T: Copy` static that duplicates a borrowed `T`, called through its type
+// written at a move-only argument: refused at the call's head (SL-654)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Dup<T: Copy> {
+    item: T
+}
+
+extension Dup<T> {
+    static func twice(r: &T) -> (T, T) {
+        (r, r)
+    }
+}
+
+func main() {
+    let r = Res(id: 7)
+    let pair = Dup<Res>.twice(&r)
+    print("{} {}", pair.0.id, pair.1.id)
+}

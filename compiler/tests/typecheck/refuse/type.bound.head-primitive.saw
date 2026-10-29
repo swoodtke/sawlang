@@ -1,0 +1,16 @@
+// refuses: type.bound at 14:20
+// a primitive argument written in a construction's head, where `Int` lacks
+// the user trait the bound names (SL-654)
+
+trait Tag {
+    func tag(&self) -> Int
+}
+
+struct Tagged<T: Tag> {
+    item: T
+}
+
+func main() {
+    let a = Tagged<Int>(item: 4)
+    print("{}", a.item)
+}

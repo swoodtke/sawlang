@@ -882,16 +882,31 @@ extension TcProgram {
         return -1
     }
 
-    // Records that `arg` must satisfy `trait_decl`, the bound of parameter
-    // `index` of `owner`, checked once the conformance table exists.
-    public func oblige(&var self, node: Int, arg: Int, trait_decl: Int, owner: Int, index: Int) {
+    // THE BOUND FUNNEL: records that `arg` must satisfy `trait_decl`, the
+    // bound of parameter `index` of `owner`, wherever an instantiation is
+    // formed, written, inferred or synthesized (design 109). Nothing else
+    // checks a formation's bounds. `check_obligations` answers what is
+    // recorded: once the conformance table exists, and again as a body forms
+    // types, so a type a body forms is refused where its refusal would stand
+    // had it been checked at once. `note` is what the refusal says past the
+    // bound.
+    // ENTRY POINTS:
+    //     apply_nominal
+    //     ext_self_type
+    //     build_generic
+    //     named_owner
+    //     defaulted
+    //     settle_solutions
+    public func oblige(&var self, node: Int, arg: Int, trait_decl: Int, owner: Int, index: Int,
+                       note: String = "") {
         let m = self.current
         let env_decl = self.current_decl
         let env_ext = self.current_ext
         let test = self.current_test
         try! self.obligations.push(TcObligation(module: m, node: node, arg: arg,
                                                 trait_decl: trait_decl, owner: owner, index: index,
-                                                env_decl: env_decl, env_ext: env_ext, test: test))
+                                                env_decl: env_decl, env_ext: env_ext, test: test,
+                                                note: note))
     }
 
     // Whether type `t` mentions a type parameter or `Self` anywhere, which

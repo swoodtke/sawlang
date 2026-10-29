@@ -402,8 +402,23 @@ viewer.
 | a `for` over a production `next` beside a test-only `Iterator` conformance | allowed: the loop reads the member, not the conformance | test_only_conformances |
 | the module's test code at every position above, a test-only conformance met by a test-only member, and a test-only refinement of a production conformance, which takes its statuses | allowed | test_only_conformances |
 
-A type argument written inside a body is not bound-checked at all yet
-(SL-654), so that position has no row of its own here.
+A type argument is held to its parameter's bounds wherever an instantiation
+is formed (design 109; row V168). One funnel, `oblige`
+(`compiler/typecheck/src/signatures.saw`), records each formation, written,
+synthesized or inferred, and `check_obligations`
+(`compiler/typecheck/src/tier.saw`) answers it: once the conformance table
+exists, and again as a body forms types, so a body's refusal stands among its
+others where an immediate check would put it (SL-654). Under `type.bound`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a type written in a body: a `let` annotation, a cast target, a closure parameter, a function type, a nested argument, `sizeof`'s argument, a test's body | refused | type.bound.body-let, -cast, -closure-param, -function-type, -nested, -sizeof, -test |
+| a body's own unbounded parameter as the argument | refused | type.bound.body-type-parameter |
+| each kind of bound, from a body: a trait with an associated type, `Copy`, `ExplicitCopy`, `Send`, `Sync` | refused | type.bound.body-associated, -copy, -explicit-copy, -send, -sync |
+| a call head's written argument: a construction, a closure's result built by one, a static, a parameter's default value, an enum case, a primitive argument, std's `Set` | refused | type.bound.head-constructor, -closure-result, -static, -default-value, -enum-case, -primitive, -set |
+| the `Set` or `Map` a collection literal builds | refused | type.bound.literal-set, -map |
+| what a missed bound let through: a `T: Copy` body duplicating a NoCopy value, by a method and by a static; a `T: ExplicitCopy` body's `.copy()` on one; a `T: Send` static moving a non-`Send` value into a thread, naming the function type | refused | type.bound.copy-duplicated, -static, type.bound.explicit-copy-duplicated, type.bound.send-thread |
+| each where the bound holds, concrete or answered by the bounds in scope: a function's, a generic extension's, a conditional extension's | allowed | formed_bounds |
 
 A third filter belongs to the receiver, not the module: a member declared in
 a bounded extension, `extension Cell<T: Equatable> { ... }`, or brought by a

@@ -1,0 +1,26 @@
+// refuses: type.bound at 20:27
+// a parameter's default value calling a static through a generic type
+// written with an argument that misses its bound (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+extension Keyed {
+    static func count() -> Int {
+        9
+    }
+}
+
+func tally(n: Int = Keyed<Label>.count()) -> Int {
+    n
+}
+
+func main() {
+    print("{}", tally())
+}

@@ -1,0 +1,30 @@
+// refuses: type.bound at 27:17
+// a `T: ExplicitCopy` body spelling `.copy()` on its `T`, constructed at a
+// move-only argument that has no copy: refused at the construction's head
+// (SL-654)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Dup<T: ExplicitCopy> {
+    item: T
+}
+
+extension Dup<T> {
+    func twice(&self) -> (T, T) {
+        (self.item.copy(), self.item.copy())
+    }
+}
+
+func main() {
+    let d = Dup<Res>(item: Res(id: 7))
+    let pair = d.twice()
+    print("{} {}", pair.0.id, pair.1.id)
+}

@@ -1,0 +1,17 @@
+// refuses: type.bound at 15:25
+// a generic argument nested inside another, `Vector<Keyed<Label>>`, written in
+// a body, the inner one missing its bound (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    let v: Vector<Keyed<Label>> = Vector()
+    print("{}", v.len())
+}

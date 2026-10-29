@@ -1,0 +1,18 @@
+// refuses: type.bound at 16:18
+// a `let` annotation written in a body, naming a generic type at an argument
+// that misses its bound: a String field keeps `Label` off the automatic
+// Hashable tier (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    let a: Keyed<Label>? = None
+    print("{}", a.is_none())
+}

@@ -1,0 +1,17 @@
+// refuses: type.bound at 15:16
+// a `Copy` bound missed by a move-only argument written in a body (SL-654)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {}
+
+struct Dup<T: Copy> {
+    item: T
+}
+
+func main() {
+    let d: Dup<Res>? = None
+    print("{}", d.is_none())
+}

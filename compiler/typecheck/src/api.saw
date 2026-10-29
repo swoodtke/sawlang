@@ -91,6 +91,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_entry_point(&var p)
     tc_check_lang_shapes(&var p)
     tc_check_bodies(&var p)
+    tc_check_obligations(&var p)
     tc_check_object_safety(&var p)
     tc_check_mutability(&var p)
     tc_check_escaping_consumes(&var p)
@@ -104,6 +105,8 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_verify_all_summaries(&var p)
     tc_check_atomic_widths(&var p)
     tc_check_exports(&var p)
+    // A pass after the bodies that forms a type leaves no bound unanswered.
+    tc_check_obligations(&var p)
     move p
 }
 

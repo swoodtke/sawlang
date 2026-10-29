@@ -1,0 +1,30 @@
+// refuses: type.bound at 27:17
+// a `T: Copy` body duplicates its `T` with nothing written, so a move-only
+// argument written in a construction's head is refused there: the body would
+// copy it bitwise and its `deinit` would run once per copy (SL-654)
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop {}", self.id)
+    }
+}
+
+struct Dup<T: Copy> {
+    item: T
+}
+
+extension Dup<T> {
+    func twice(&self) -> (T, T) {
+        (self.item, self.item)
+    }
+}
+
+func main() {
+    let d = Dup<Res>(item: Res(id: 7))
+    let pair = d.twice()
+    print("{} {}", pair.0.id, pair.1.id)
+}

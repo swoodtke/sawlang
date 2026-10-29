@@ -1,0 +1,60 @@
+// Generic types formed in bodies at arguments that meet their bounds: a
+// concrete argument at every position the bound funnel sees, and a type
+// parameter answered by the bounds in scope, a function's own, a generic
+// extension's, and a conditional extension's (SL-654).
+
+struct Label {
+    id: Int
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+struct Wrap<T> {
+    item: T
+}
+
+extension Keyed {
+    static func count() -> Int {
+        9
+    }
+}
+
+extension Keyed<T> {
+    func again(&self) -> Int {
+        let k: Keyed<T>? = None
+        if k.is_none() { 1 } else { 0 }
+    }
+}
+
+extension Wrap<T: Hashable> {
+    func conditional(&self) -> Int {
+        let k: Keyed<T>? = None
+        let s = Set<T>()
+        if k.is_none() { s.len() + 2 } else { 0 }
+    }
+}
+
+func bounded<T: Hashable>(t: T) -> Int {
+    let k: Keyed<T>? = None
+    let m = Keyed<T>.count()
+    if k.is_none() { m } else { 0 }
+}
+
+func concrete() -> Int {
+    let a: Keyed<Label>? = None
+    let b = Keyed<Label>(item: Label(id: 1))
+    let v: Vector<Keyed<Int>> = Vector()
+    let f: (Keyed<String>?) -> Int = { k in 3 }
+    let take = { q: Keyed<Label>? in 1 }
+    let s = {Label(id: 1), Label(id: 2)}
+    let m = {Label(id: 3): 1}
+    let n = sizeof<Keyed<Int>>()
+    if a.is_none() { b.item.id + v.len() + f(None) + take(None) + s.len() + m.len() + n } else { 0 }
+}
+
+func main() {
+    let w = Wrap<Int>(item: 3)
+    print("{} {} {} {}", bounded(5), Keyed<Int>(item: 1).again(), w.conditional(), concrete())
+}

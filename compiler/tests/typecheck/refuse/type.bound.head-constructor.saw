@@ -1,0 +1,17 @@
+// refuses: type.bound at 15:19
+// a construction whose head writes a type argument missing its bound
+// (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    let a = Keyed<Label>(item: Label(id: 1, text: "a"))
+    print("{}", a.item.id)
+}

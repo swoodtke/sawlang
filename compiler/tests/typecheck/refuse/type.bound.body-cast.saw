@@ -1,0 +1,22 @@
+// refuses: type.bound at 16:41
+// a cast's target type, written in a body, whose generic argument misses its
+// bound (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func poke(n: Int) unsafe -> Int {
+    var k = 5
+    let p = (&k) as UnsafePointer<Keyed<Label>>
+    n
+}
+
+func main() {
+    print("{}", poke(3))
+}

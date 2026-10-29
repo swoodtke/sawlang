@@ -1,0 +1,13 @@
+// refuses: type.bound at 11:13
+// a set literal whose elements are neither Hashable nor Equatable: the `Set`
+// it builds is held to `Set`'s bounds like a written one (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+func main() {
+    let s = {Label(id: 1, text: "a"), Label(id: 2, text: "b")}
+    print("{}", s.len())
+}

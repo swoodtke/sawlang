@@ -1,0 +1,22 @@
+// refuses: type.bound at 20:18
+// a bound naming a trait with an associated type, missed by an argument
+// written in a body (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+trait Source {
+    type Item
+    func pull(&var self) -> Self.Item?
+}
+
+struct Drain<S: Source> {
+    src: S
+}
+
+func main() {
+    let d: Drain<Label>? = None
+    print("{}", d.is_none())
+}

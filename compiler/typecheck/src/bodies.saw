@@ -736,6 +736,7 @@ extension TcProgram {
         var t = self.error_type
         if annotation >= 0 {
             t = self.build_type(annotation)
+            self.check_formed_obligations()
             self.check_let_value(value, t)
         } else {
             let _ = self.expr(value, TC_WANT_NONE)
@@ -4710,6 +4711,7 @@ extension TcProgram {
         let target_node = self.res.last_node_child(e)
         let _ = self.expr(operand, TC_WANT_NONE)
         let to = self.build_type(target_node)
+        self.check_formed_obligations()
         // A reference cast to a raw pointer is the one crossing into the
         // unsafe tier, and takes the reference's address, not its referent.
         let own = self.final_type(operand)
@@ -5751,7 +5753,7 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        let t = self.defaulted(md, key, value)
+        let t = self.defaulted(md, key, value, e)
         self.set_type(e, t, false)
     }
 
@@ -5782,13 +5784,14 @@ extension TcProgram {
         if slot >= 0 {
             return self.set_type(e, slot, false)
         }
-        let t = self.defaulted(sd, element, -1)
+        let t = self.defaulted(sd, element, -1, e)
         self.set_type(e, t, false)
     }
 
     // Nominal `d` applied to `a`, then `b` when it is not -1, then its
-    // remaining parameters' defaults.
-    func defaulted(&var self, d: Int, a: Int, b: Int) -> Int {
+    // remaining parameters' defaults: the collection a literal at node `node`
+    // builds, whose element types are bound like written ones.
+    func defaulted(&var self, d: Int, a: Int, b: Int, node: Int) -> Int {
         self.ensure_generics(d)
         let s = self.sigs[d]
         var args = Vector<Int>()
@@ -5798,6 +5801,18 @@ extension TcProgram {
             try! args.push(b)
             k = 2
         }
+        var i = 0
+        while i < k && i < s.generic_count {
+            let g = self.generics[s.generic_first + i]
+            var j = 0
+            while args[i] >= 0 && j < g.bound_count {
+                let bound = self.traits[g.bound_first + j]
+                self.oblige(node, args[i], bound, d, i)
+                j = j + 1
+            }
+            i = i + 1
+        }
+        self.check_formed_obligations()
         while k < s.generic_count {
             let g = self.generics[s.generic_first + k]
             try! args.push(g.default_type)
@@ -5857,6 +5872,7 @@ extension TcProgram {
             var t = self.error_type
             if annotation >= 0 && res_is_type_alt(self.node_alt(annotation)) {
                 t = self.build_param_type(annotation)
+                self.check_formed_obligations()
                 if self.has_alt(c, Alt.Expr_ClosureParam_Ref) {
                     t = self.mk_ref(false, t)
                 } else if self.has_alt(c, Alt.Expr_ClosureParam_RefExclusive) {
@@ -7142,6 +7158,7 @@ extension TcProgram {
                 try! out.push(v)
             }
         }
+        self.check_formed_obligations()
         move out
     }
 
@@ -8792,7 +8809,8 @@ extension TcProgram {
     // list is refused; or `TC_OWNER_INFER` for a generic type written bare,
     // whose call builds its candidates owner-less so that inference solves
     // the type's parameters from the arguments and the expected type, and
-    // refuses `infer.failed` where nothing determines one (SL-657).
+    // refuses `infer.failed` where nothing determines one (SL-657). A written
+    // argument's bounds go to the bound funnel, `oblige`.
     //
     // ENTRY POINTS:
     //     written_enum_owner
@@ -8814,13 +8832,21 @@ extension TcProgram {
         if not self.check_written_kinds(head, &written, d) {
             return self.error_type
         }
+        let nodes = self.explicit_arg_nodes(head)
         var args = Vector<Int>()
         var k = 0
         while k < s.generic_count {
+            let g = self.generics[s.generic_first + k]
             if k < written.len() {
                 try! args.push(written[k])
+                let at = if k < nodes.len() { nodes[k] } else { leaf }
+                var j = 0
+                while j < g.bound_count {
+                    let bound = self.traits[g.bound_first + j]
+                    self.oblige(at, written[k], bound, d, k)
+                    j = j + 1
+                }
             } else {
-                let g = self.generics[s.generic_first + k]
                 if g.default_type < 0 {
                     self.refuse_type_arity(leaf, d, written.len())
                     return self.error_type
@@ -8829,6 +8855,7 @@ extension TcProgram {
             }
             k = k + 1
         }
+        self.check_formed_obligations()
         self.mk_nominal(d, &args)
     }
 
@@ -11027,30 +11054,16 @@ extension TcProgram {
             var j = 0
             while j < g.bound_count {
                 let bound = self.traits[g.bound_first + j]
-                let env = self.current_decl
-                let ext = self.current_ext
-                let viewer = self.current
-                let in_test = self.current_test
-                if not self.satisfies(arg, bound, env, ext, viewer, in_test) {
-                    var msg = StringBuilder()
-                    try! msg.append("`")
-                    try! msg.append(self.type_text(arg))
-                    try! msg.append("` does not satisfy `")
-                    try! msg.append(self.res.decl_path(bound))
-                    try! msg.append("`, the bound on `")
-                    try! msg.append(self.name_text(g.name))
-                    try! msg.append("` of `")
-                    try! msg.append(self.res.decl_path(owner))
-                    try! msg.append("`")
-                    if bound == self.known.send || bound == self.known.sync {
-                        try! msg.append(self.unsendable_argument_text(e, arg))
-                    }
-                    self.refuse(e, "type.bound", msg.build())
+                var note = ""
+                if bound == self.known.send || bound == self.known.sync {
+                    note = self.unsendable_argument_text(e, arg)
                 }
+                self.oblige(e, arg, bound, owner, k, note)
                 j = j + 1
             }
             k = k + 1
         }
+        self.check_formed_obligations()
     }
 
     // Refuses a conflict unification found, once, and poisons the parameter

@@ -24,7 +24,7 @@ public func tc_compute_tiers(p: &var TcProgram) {
     p.compute_tiers()
 }
 
-// Every type argument against its bound.
+// Every type argument recorded since the last call against its bound.
 public func tc_check_obligations(p: &var TcProgram) {
     p.check_obligations()
 }
@@ -766,15 +766,31 @@ extension TcSatisfyRun {
 
 // Bound satisfaction.
 extension TcProgram {
-    // Every recorded type argument against its parameter's bound.
+    // Every type argument recorded since the last call against its
+    // parameter's bound. The first call opens the funnel: `oblige` records
+    // during signatures, before any conformance can answer, and what it
+    // records afterwards is answered by `check_formed_obligations`.
     public func check_obligations(&var self) {
-        var k = 0
+        var k = self.obligations_checked
+        if k < 0 {
+            k = 0
+        }
         while k < self.obligations.len() {
             let o = self.obligations[k]
             if not self.satisfies(o.arg, o.trait_decl, o.env_decl, o.env_ext, o.module, o.test) {
                 self.refuse_bound(&o)
             }
             k = k + 1
+        }
+        self.obligations_checked = k
+    }
+
+    // The bounds of what a body has formed since the last check, answered
+    // where the body stands, so each refusal sits among the body's others as
+    // an immediate check would put it. Nothing before the funnel opens.
+    public func check_formed_obligations(&var self) {
+        if self.obligations_checked >= 0 {
+            self.check_obligations()
         }
     }
 
@@ -790,7 +806,9 @@ extension TcProgram {
         try! msg.append("` of `")
         try! msg.append(self.res.decl_path(o.owner))
         try! msg.append("`")
-        if o.trait_decl == self.known.send || o.trait_decl == self.known.sync {
+        if o.note.len() > 0 {
+            try! msg.append(o.note)
+        } else if o.trait_decl == self.known.send || o.trait_decl == self.known.sync {
             try! msg.append(self.sendable_hint(o.arg))
         }
         self.refuse_in(o.module, o.node, "type.bound", msg.build())

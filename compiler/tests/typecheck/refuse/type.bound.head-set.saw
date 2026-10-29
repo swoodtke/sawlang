@@ -1,0 +1,14 @@
+// refuses: type.bound at 12:17
+// std's `Set` constructed at an element type that is neither Hashable nor
+// Equatable, refused at the construction even where no member is called
+// (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+func main() {
+    let s = Set<Label>()
+    print("{}", s.len())
+}

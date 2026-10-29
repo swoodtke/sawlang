@@ -1,0 +1,22 @@
+// refuses: type.bound at 16:18
+// a type written in a test's body, at an argument missing its bound: test
+// code is held to bounds as ordinary code is (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+@test
+func keyed_in_a_test() {
+    let a: Keyed<Label>? = None
+    assert(a.is_none(), "none")
+}
+
+func main() {
+    print("main")
+}

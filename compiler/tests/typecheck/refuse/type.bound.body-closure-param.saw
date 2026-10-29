@@ -1,0 +1,17 @@
+// refuses: type.bound at 15:27
+// a closure parameter's written type whose generic argument misses its bound
+// (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    let take = { q: Keyed<Label>? in 1 }
+    print("{}", take(None))
+}

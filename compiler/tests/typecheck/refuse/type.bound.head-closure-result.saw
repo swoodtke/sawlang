@@ -1,0 +1,18 @@
+// refuses: type.bound at 16:24
+// a closure whose result type comes from a construction writing a type
+// argument that misses its bound; a closure writes no result type of its own
+// (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    let make = { Keyed<Label>(item: Label(id: 2, text: "b")) }
+    print("{}", make().item.id)
+}

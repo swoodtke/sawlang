@@ -1,0 +1,17 @@
+// refuses: type.bound at 15:19
+// a function type written in a body, one of whose parameters names a generic
+// type at an argument missing its bound (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    let f: (Keyed<Label>?) -> Int = { k in 3 }
+    print("{}", f(None))
+}

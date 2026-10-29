@@ -238,6 +238,10 @@ public struct TcProgram {
     member_count: Vector<Int>
     tiers: Vector<TcTier>
     obligations: Vector<TcObligation>
+    // How many of `obligations` are answered; one recorded later waits for
+    // the next `check_obligations`. -1 until the first, which runs once the
+    // conformance table exists.
+    obligations_checked: Int
     // Every function-type node of a signature, for the unsafe check.
     func_nodes: Vector<Int>
     // Whether the type being built is a parameter's, whose `escaping` the
@@ -599,7 +603,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       conformances: Vector<TcConformance>(), statuses: Vector<TcStatus>(),
                       members: Vector<TcMember>(), member_first: move firsts,
                       member_count: move counts, tiers: Vector<TcTier>(),
-                      obligations: Vector<TcObligation>(), func_nodes: Vector<Int>(), keep_escaping: false,
+                      obligations: Vector<TcObligation>(), obligations_checked: -1, func_nodes: Vector<Int>(), keep_escaping: false,
                       diags: Vector<TcDiag>(), warnings: Vector<TcWarning>(), lend_tops: Vector<Int>(),
                       lend_heads: Vector<Bool>(), chosen_pair: -1, lend_head: -1, place_wanted: -1, known: known, current: -1, current_decl: -1,
                       current_trait: -1, current_ext: -1, current_self: -1, current_test: false,

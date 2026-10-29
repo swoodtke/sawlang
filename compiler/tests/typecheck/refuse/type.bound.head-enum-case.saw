@@ -1,0 +1,21 @@
+// refuses: type.bound at 16:18
+// an enum case named through its generic type written with an argument that
+// misses the enum's bound (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+enum Slot<T: Hashable> {
+    case Full(t: T),
+    case Empty
+}
+
+func main() {
+    let e = Slot<Label>.Empty
+    match e {
+        case Full(_) -> print("full"),
+        case Empty -> print("empty")
+    }
+}

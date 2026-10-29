@@ -1,0 +1,13 @@
+// refuses: type.bound at 11:13
+// a map literal whose keys are neither Hashable nor Equatable: the `Map` it
+// builds is held to `Map`'s bounds like a written one (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+func main() {
+    let m = {Label(id: 1, text: "a"): 1}
+    print("{}", m.len())
+}

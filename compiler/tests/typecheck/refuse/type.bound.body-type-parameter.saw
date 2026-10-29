@@ -1,0 +1,16 @@
+// refuses: type.bound at 10:18
+// a generic body writing a bounded type at its own unbounded parameter: the
+// bounds in scope answer, and `T` promises no `Hashable` (SL-654)
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func unbounded<T>(t: T) -> Int {
+    let k: Keyed<T>? = None
+    if k.is_none() { 1 } else { 0 }
+}
+
+func main() {
+    print("{}", unbounded(5))
+}

@@ -1,0 +1,16 @@
+// refuses: type.bound at 15:30
+// `sizeof`'s type argument, a generic type at an argument missing its bound
+// (SL-654)
+
+struct Label {
+    id: Int
+    text: String
+}
+
+struct Keyed<T: Hashable> {
+    item: T
+}
+
+func main() {
+    print("{}", sizeof<Keyed<Label>>())
+}

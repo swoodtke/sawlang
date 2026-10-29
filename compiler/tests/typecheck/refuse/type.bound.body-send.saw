@@ -1,0 +1,16 @@
+// refuses: type.bound at 14:17
+// a `Send` bound missed by an argument written in a body: a raw pointer field
+// derives no `Send` (SL-654)
+
+struct Raw {
+    p: UnsafePointer<Int>
+}
+
+struct Ship<T: Send> {
+    item: T
+}
+
+func main() {
+    let s: Ship<Raw>? = None
+    print("{}", s.is_none())
+}

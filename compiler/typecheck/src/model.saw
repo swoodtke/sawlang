@@ -213,7 +213,8 @@ public struct TcTier {
     declared: Bool
 }
 
-// A type argument whose bound is checked once the conformance table exists.
+// A type argument whose bound is checked once the conformance table exists
+// (`oblige`, THE BOUND FUNNEL).
 public struct TcObligation {
     module: Int
     node: Int
@@ -229,6 +230,10 @@ public struct TcObligation {
     // Whether it is written in test code, which may use the module's
     // test-only conformances.
     test: Bool
+    // What the refusal says after the bound, when the place that formed the
+    // instantiation knows more than the types do: a call's closure argument
+    // that keeps a `Send` bound from holding. "" for the default hint.
+    note: String
 }
 
 // How a body's expression is read where it stands (SL:architecture §3.4,

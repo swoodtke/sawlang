@@ -1,0 +1,29 @@
+// refuses: type.bound at 28:22
+// a `T: Send` static moving its `T` into a thread, called through its type
+// written at an argument whose function field is not `sendable`: refused at
+// the call's head, naming the function type (SL-654)
+// message: the function type `() -> Int` is not `sendable`
+
+struct Fn {
+    f: () -> Int
+}
+
+struct Ship<T: Send> {
+    item: T
+}
+
+extension Ship<T> {
+    static func off(item: T) -> Int {
+        var t = try! Thread.spawn { [move item] in
+            let _ = move item
+            1
+        }
+        t.join()
+    }
+}
+
+func main() {
+    let n = 5
+    let x = Fn(f: { n + 1 })
+    print("{}", Ship<Fn>.off(move x))
+}

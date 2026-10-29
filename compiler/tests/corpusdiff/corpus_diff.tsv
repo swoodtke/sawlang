@@ -1066,7 +1066,7 @@ errors/capture_self_move_requires_borrow_sigil.saw	pass	-	resolve.parse-refused:
 errors/capture_self_requires_borrow_sigil.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/capture_self_requires_borrow_sigil.saw` (syntax.expr.refused-capture-self), so its declarations are not available
 errors/cast170_const_out_of_range.saw	pass	-	constant.cast-range: `1000` is not representable as `UInt8`, so this cast would always panic; `UInt8` holds 0 through 255; write `UInt8.from(truncating: ...)` to keep the low bits, or `UInt8.from(...)
 errors/cast170_from_bad_label.saw	pass	-	call.label: an integer's `from` takes an unlabeled argument, or `truncating:`
-errors/channel_not_send.saw	pass	-	type.bound: `std.channel.Channel<channel_not_send.Handle>` has no member `init`: it is declared where `T: Send`, and `channel_not_send.Handle` does not satisfy `Send`
+errors/channel_not_send.saw	pass	-	type.bound: `channel_not_send.Handle` does not satisfy `Send`, the bound on `T` of `Channel`
 errors/closure_statement_never_called.saw	wrong	accepts a refusal test	closure literal is never called: `{ ... }` in statement position builds a closure and discards it, so its body does not run
 errors/comparison_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 200 does not fit in `Int8` (range -128..=127)
 errors/compound_assign_immutable.saw	pass	-	mutability.immutable: this compound assignment writes `x`, and `x` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
@@ -1813,7 +1813,7 @@ map_each_string_enum.saw	pass	-	-
 map_get_is_a_place.saw	pass	judged by its own directives (edited since its oracle)	-
 map_grow_collision.saw	pass	-	-
 map_hashmap_name_gone_error.saw	refused	resolve name.undefined	cannot find `HashMap` in scope
-map_key_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
+map_key_not_hashable_error.saw	pass	-	type.bound: `map_key_not_hashable_error.NoHash` does not satisfy `Hashable`, the bound on `K` of `Map`
 map_keys_values.saw	pass	-	-
 map_literal.saw	pass	-	-
 map_literal_dup_key_no_leak.saw	pass	-	-
@@ -2284,13 +2284,13 @@ set_basic.saw	pass	-	-
 set_copy.saw	pass	-	-
 set_each_mutate_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 set_each_snapshot.saw	pass	-	-
-set_element_not_hashable_error.saw	pass	-	result.discarded: the result of `insert` is `Result<Bool, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
+set_element_not_hashable_error.saw	pass	-	type.bound: `set_element_not_hashable_error.NoHash` does not satisfy `Hashable`, the bound on `T` of `Set`
 set_from_vector.saw	pass	-	-
 set_from_vector_use_after_move_error.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 set_literal.saw	pass	-	-
 set_literal_comparison_elements.saw	pass	-	-
 set_literal_element_mismatch_error.saw	pass	-	type.mismatch: expected `Int`, the type of the collection's element, and found `String`
-set_literal_not_hashable_error.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `set_literal_not_hashable_error.NoHash`, which no conformance of it meets, is not in the backend slice yet (inside std/map.saw:245:24)
+set_literal_not_hashable_error.saw	pass	-	type.bound: `set_literal_not_hashable_error.NoHash` does not satisfy `Hashable`, the bound on `T` of `Set`
 set_nocopy_element_copy_bound_error.saw	pass	-	conformance.signature: `Tag.hash` does not meet `Hashable.hash`, as `Tag` conforms to `Hashable` needs: a parameter's name differs
 set_nocopy_key_error.saw	stage0-wrong	annotated SL-598	sawc meets its directives
 set_owning_key_refcount.saw	pass	-	-

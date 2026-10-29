@@ -1,0 +1,16 @@
+// refuses: type.bound at 14:19
+// a `Sync` bound missed by an argument written in a body: a raw pointer field
+// derives no `Sync` (SL-654)
+
+struct Raw {
+    p: UnsafePointer<Int>
+}
+
+struct Shared<T: Sync> {
+    item: T
+}
+
+func main() {
+    let s: Shared<Raw>? = None
+    print("{}", s.is_none())
+}
