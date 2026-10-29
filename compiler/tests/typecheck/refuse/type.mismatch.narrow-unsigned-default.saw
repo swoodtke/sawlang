@@ -1,0 +1,7 @@
+// refuses: type.mismatch at 5:30
+// a const parameter's default its declared type cannot hold
+// message: the constant argument 300 does not fit `UInt8`, the type of `N`
+
+struct Ring<const N: UInt8 = 300> {
+    n: Int
+}

@@ -1,0 +1,12 @@
+public static MAX_EVENTS: Int = 8
+public static MAX_TIMERS: Int = 8
+public static MAX_ATTACHMENTS: Int = (MAX_EVENTS
+                                      + MAX_TIMERS)
+public static MAX_SLAB_EXTENTS: Int = 4
+
+// sawos's slab shape: a const parameter beside a field sized by a static.
+public struct Slab<T, const N: Int> {
+    public inline: [T; N],
+    public ext_base: [UInt; MAX_SLAB_EXTENTS],
+    public total: Int,
+}

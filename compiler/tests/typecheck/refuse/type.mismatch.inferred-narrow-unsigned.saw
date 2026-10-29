@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 12:17
+// a constant solved from an argument's length that the parameter's declared
+// type cannot hold: inferred, it is checked as a written one is
+// message: `N` is inferred as 300 here, which does not fit `UInt8`
+
+func width<const N: UInt8>(xs: [Int; N]) -> Int {
+    xs.len()
+}
+
+func main() {
+    let big: [Int; 300] = [0; 300]
+    print("{}", width(big))
+}

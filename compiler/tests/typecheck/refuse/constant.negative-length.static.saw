@@ -1,0 +1,11 @@
+// refuses: constant.negative-length at 9:18
+// a static whose value is below 0, named as an array length: refused where
+// the value meets the length, naming the static and its value
+// message: array length is negative (`-1`): the static `N` is -1
+
+static N: Int = 2 - 3
+
+func main() {
+    let x: [Int; N] = [0; 1]
+    print("{}", x.len())
+}

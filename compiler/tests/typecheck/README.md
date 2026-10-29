@@ -485,7 +485,7 @@ that covers it.
 | `T?`, `T??` | `Optional` applied to the payload | types |
 | `&T`, `&var T` | a reference | types, declarations |
 | `&[T]`, `&var [T]` | a slice | types |
-| `[T; N]`, with a literal or a const parameter | an array | generics |
+| `[T; N]`, with a literal, a const parameter or a static | an array | generics, static_constants |
 | `()`, `(T,)`, `(A, B)`, `(x: A, y: B)` | a tuple | types |
 | function type with effects | a function type | types |
 | `any Trait` | an existential | types |
@@ -497,6 +497,10 @@ that covers it.
 | type parameter, const parameter | a parameter keyed by its declaration | generics |
 | generic parameter's bounds, default and const type | traits, a type, a constant | generics |
 | constant argument: a literal, `+`, `-`, `*`, a const parameter | its folded value, or the parameter | generics |
+| a generic argument written on a call's head, or as a const parameter's default: a bare name is a constant when it binds a static or a const parameter (`generic_arg`), and its kind is checked where it meets its parameter (`check_argument_kind`) | a type or a constant | static_constants |
+| a static, bare or module-qualified, as a length, a repeat count, a constant argument or a const default | its value, typed and folded before signatures (`evaluate_constant_statics`, `static_constant`) | static_constants, multi/static_constants |
+| a length or repeat count below 0, written, from a static, or a const parameter's argument where the parameter sizes an array, written as a length or passed on to one that is (`record_length_params`) | refused where the value is known, `constant.negative-length` (`refuse_negative_length`) | refuse/constant.negative-length.* |
+| a constant argument, const default or inferred constant its parameter's declared type cannot hold, at every integer width | refused, `type.mismatch` (`check_constant_fit`) | refuse/type.mismatch.narrow-*, .full-width-*, .inferred-* |
 | field, payload, raw backing, static types | the declaration's types | declarations, tiers |
 | parameter and result types, a receiver | the signature | declarations |
 | extension head, its parameters' bounds, its conformances | the target, conditions, traits | traits |
@@ -506,7 +510,7 @@ that covers it.
 
 | outside the slice | refused as |
 |---|---|
-| a constant argument named by a static | `slice.not-yet` |
+| a static whose value measures a layout, named where a type fixes a constant | `slice.not-yet` |
 | arithmetic over a const parameter, which folds only per instantiation | `slice.not-yet` |
 | a constant argument written with `/`, `%`, a shift, a bit operator, a call or a member | `slice.not-yet` (the alternative) |
 | a generic type alias | `slice.not-yet` (`syntax.decl.type-alias`) |

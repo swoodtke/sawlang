@@ -1,0 +1,13 @@
+// refuses: type.argument-kind at 11:23
+// a type where a const parameter takes a value, in a construction's head: the
+// head's argument meets its parameter's kind as an annotation's does (SL-915)
+// message: this argument's parameter takes a value, and a type is written
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+func main() {
+    let p = Pool<Int, Int>(items: [7; 4])
+    print("{}", p.items[0])
+}

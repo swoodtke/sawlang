@@ -1,0 +1,14 @@
+// refuses: type.mismatch at 13:23
+// a static a narrow unsigned const parameter cannot hold, as a generic
+// function's explicit argument
+// message: the constant argument `BIG` is 300, which does not fit `UInt8`, the type of `N`
+
+static BIG: Int = 300
+
+func width<const N: UInt8>() -> Int {
+    1
+}
+
+func main() {
+    print("{}", width<BIG>())
+}

@@ -32,6 +32,7 @@ import sawtypecheck.paths.{tc_settle_path_uses}
 import sawtypecheck.program.{TcKnown, TcProgram, tc_profile, tc_program}
 import sawtypecheck.refpositions.{tc_check_reference_positions}
 import sawtypecheck.signatures.{tc_index_generics}
+import sawtypecheck.statics.{tc_evaluate_constant_statics}
 import sawtypecheck.summaries.{tc_solve_summaries, tc_verify_all_summaries}
 import sawtypecheck.tier.{tc_check_containment, tc_check_obligations, tc_compute_tiers}
 import sawtypecheck.verify.{tc_verify_module}
@@ -68,6 +69,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     p.find_known()
     tc_check_hosted_imports(&var p)
     tc_index_generics(&var p)
+    tc_evaluate_constant_statics(&var p)
     tc_build_signatures(&var p)
     tc_collect_conformances(&var p)
     tc_check_derived_conformances(&var p)
@@ -173,7 +175,8 @@ extension TcProgram {
 
 // The record of checked program `p`, after its `FILE` line: resolve's
 // refusals, then typecheck's, each an `ERROR` line, `NOTE` lines when asked
-// for, an `INVARIANT` line per problem either verifier finds, and each checked
+// for, an `INVARIANT` line per problem either verifier finds and per table
+// asked before its phase built it (`phase_violation`), and each checked
 // module's dump when asked for. Returns 0 when nothing was refused and 1
 // otherwise. The caller typechecks `p` through the layout-assert funnel
 // (`asserts_typecheck_program`), which this package sits below.
@@ -214,6 +217,15 @@ public func typecheck_record(out: &var StringBuilder, p: &TcProgram, options: &T
             j = j + 1
         }
         append_invariants(out: &var out, p: &p, m: m, problems: &summarized)
+        var early = Vector<String>()
+        j = 0
+        while j < p.phase_problems.len() {
+            if p.phase_problem_modules[j] == m {
+                try! early.push(p.phase_problems.get(j) ?? "")
+            }
+            j = j + 1
+        }
+        append_invariants(out: &var out, p: &p, m: m, problems: &early)
         m = m + 1
     }
     if options.summaries {

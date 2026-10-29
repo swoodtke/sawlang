@@ -28,6 +28,7 @@ extension TcProgram {
             }
             d = d + 1
         }
+        self.members_built = true
     }
 
     // Each written member that meets a production conformance's requirement,

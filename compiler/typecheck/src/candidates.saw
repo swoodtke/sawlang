@@ -4,6 +4,7 @@
 // bounds grant. Each list is in declaration order, so every diagnostic that
 // names candidates names them in one order.
 
+import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.model.{ResBinding, ResBindKind, ResDecl, ResDeclKind}
 import sawtypecheck.conform.{TcSubst, tc_copy_ints}
@@ -62,6 +63,46 @@ extension TcProgram {
         }
     }
 
+    // THE MEMBER-PHASE CHECK: a body's lookup of nominal `d`'s members named
+    // `name`, or of its `init`s, which the member tables answer only once they
+    // are built. One asked before, as a static's initializer typed ahead of
+    // signatures could, is a phase violation and finds nothing, never an
+    // answer read from an empty table.
+    // ENTRY POINTS:
+    //     members_for
+    //     member_place
+    //     static_member
+    //     function_field
+    //     inferred_static_call
+    //     setitem_of
+    //     construction_candidates
+    //     partial_prefix
+    public func members_in_phase(&var self, d: Int, name: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
+        if not self.member_phase_reached(d) {
+            return Vector<Int>()
+        }
+        self.visible_members(d, name, viewer, in_test)
+    }
+
+    public func inits_in_phase(&var self, d: Int, viewer: Int, in_test: Bool) -> Vector<Int> {
+        if not self.member_phase_reached(d) {
+            return Vector<Int>()
+        }
+        self.inits_of(d, viewer, in_test)
+    }
+
+    func member_phase_reached(&var self, d: Int) -> Bool {
+        if self.members_built {
+            return true
+        }
+        var what = StringBuilder()
+        try! what.append("a member of `")
+        try! what.append(if d >= 0 { self.res.decl_path(d) } else { "?" })
+        try! what.append("` is looked up before the member tables are built")
+        self.phase_violation(what.build())
+        false
+    }
+
     // The member-table entries of nominal `d` named `name` that module
     // `viewer`'s test code sees: a later stage re-finds a member typecheck
     // chose by name, and test code sees every member ordinary code does.
@@ -113,7 +154,7 @@ extension TcProgram {
         self.unmet_member = -1
         self.unmet_owner = -1
         let d = self.nominal_decl(owner)
-        let found = self.visible_members(d, name, viewer, in_test)
+        let found = self.members_in_phase(d, name, viewer, in_test)
         var out = Vector<Int>()
         var k = 0
         while k < found.len() {

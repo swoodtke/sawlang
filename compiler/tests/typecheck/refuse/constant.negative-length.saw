@@ -1,0 +1,5 @@
+// refuses: constant.negative-length at 5:29
+// an array length written as a constant that folds below 0 (SL-922)
+// message: array length is negative (`-1`); a length counts elements, so it starts at 0
+
+struct Bad { bytes: [UInt8; 2 - 3] }

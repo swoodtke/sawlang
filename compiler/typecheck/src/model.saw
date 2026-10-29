@@ -579,6 +579,39 @@ public enum TcConstPosition {
     case Assert
 }
 
+// The positions a type fixes at compile time, which a constant there serves
+// and its refusals name: an array length, a repeat count, and a constant
+// generic argument or a const parameter's default.
+public enum TcConstUse {
+    case Length,
+    case Repeat,
+    case Argument
+}
+
+// How far a static's initializer, or a raw-backed case's value, is typed: not
+// yet, being typed ahead of the body phase (so a constant it needs from
+// itself is a cycle), or typed ahead.
+public enum TcStaticTyping {
+    case Untyped,
+    case Typing,
+    case Typed
+}
+
+// What a static stands for where a type fixes a constant: not evaluated (it
+// is named in no such position), the constant it folds to, a static that is
+// no constant, one whose value does not fit an `Int`, or one whose value
+// needs a layout the bootstrap slice does not fold yet, each with its
+// reason; or one whose type or initializer was refused already, which its
+// own declaration reports.
+public enum TcStaticVerdict {
+    case Unevaluated,
+    case Folds,
+    case NotConstant,
+    case Unfit,
+    case NotYet,
+    case Poisoned
+}
+
 // A constant judgment held until every body is typed, by the nodes its check
 // reads: its operand may fold through a static or a raw-backed case declared
 // after it, whose value no body has typed yet where the check meets it.

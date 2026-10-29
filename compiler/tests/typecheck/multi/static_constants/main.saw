@@ -1,0 +1,31 @@
+// Statics of another module where a type fixes a constant (SL-920): imported
+// bare and named through the module, as a constant argument, a construction's
+// head, a length, a repeat count and a static's own type, beside a slab whose
+// field the defining module sizes by its own static.
+
+import limits
+import limits.{MAX_ATTACHMENTS, MAX_SLAB_EXTENTS, MAX_TIMERS, Slab}
+
+struct TimerSlot {
+    armed: Bool,
+    fires: Int,
+}
+
+unsafe static var TIMERS: Slab<TimerSlot, MAX_TIMERS> = Slab<TimerSlot, MAX_TIMERS>(
+    inline: [TimerSlot(armed: false, fires: 0); MAX_TIMERS],
+    ext_base: [0; MAX_SLAB_EXTENTS],
+    total: MAX_TIMERS)
+
+struct Frame {
+    attachments: [Int; limits.MAX_ATTACHMENTS]
+}
+
+func census() unsafe -> Int {
+    TIMERS.total
+}
+
+func main() {
+    let s = Slab<Int, MAX_ATTACHMENTS>(inline: [0; limits.MAX_ATTACHMENTS], ext_base: [0; 4], total: 16)
+    let f = Frame(attachments: [1; MAX_ATTACHMENTS])
+    print("{} {} {}", census(), s.total, f.attachments.len())
+}

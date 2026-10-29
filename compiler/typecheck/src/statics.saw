@@ -1,0 +1,470 @@
+// The statics a type fixes a constant from (spec, Module-level statics, "A
+// static is a constant where a constant is required"): an array length, a
+// repeat count, a constant generic argument and a const parameter's default
+// may name an integer static whose initializer folds. A type is built while
+// signatures are, before any body is typed, and the value comes from the one
+// fold over a typed initializer (`fold.saw`), so each such static's
+// initializer is typed and folded first, here, ahead of the staged order
+// (SL:architecture §3.10). A program naming no static in those positions is
+// left exactly as the staged order would check it.
+
+import sawparse.grammar.{Alt}
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.model.{ResBindKind, ResDeclKind}
+import sawtypecheck.arith.{tc_arith_convert, tc_arith_text}
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.fold.{TcFold}
+import sawtypecheck.model.{TC_FLAG_UNSAFE_VAR, TcStaticTyping, TcStaticVerdict}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcArgSlot}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.typeops.{TcClient}
+
+// What the walk finds about const parameters that size arrays: the
+// declaring leaf of each written bare as a length or a repeat count, and each
+// passed bare as an argument, from `params[k]` into parameter `indexes[k]`
+// of declaration `targets[k]`.
+struct TcLengthFlow {
+    lengths: Vector<Int>
+    params: Vector<Int>
+    targets: Vector<Int>
+    indexes: Vector<Int>
+}
+
+extension TcLengthFlow: NoCopy {}
+
+// Evaluates every static a type position names, before signatures are built.
+public func tc_evaluate_constant_statics(p: &var TcProgram) {
+    p.evaluate_constant_statics()
+}
+
+// What a static's refusal adds, wherever a type fixes a constant.
+func tc_static_hint() -> String {
+    "; a static is a constant here when it is an immutable static of an integer type whose own initializer folds"
+}
+
+extension TcProgram {
+    // Each static named where a type fixes a constant, evaluated in turn, the
+    // statics its initializer names first.
+    // The same walk records each const parameter that sizes an array.
+    func evaluate_constant_statics(&var self) {
+        var found = Vector<Int>()
+        var flow = TcLengthFlow(lengths: Vector<Int>(), params: Vector<Int>(), targets: Vector<Int>(),
+                                indexes: Vector<Int>())
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available && not info.interface_only {
+                self.collect_constant_statics(info.root, false, &var found, &var flow)
+            }
+            m = m + 1
+        }
+        self.record_length_params(&flow)
+        var k = 0
+        while k < found.len() {
+            self.evaluate_static(found[k])
+            k = k + 1
+        }
+    }
+
+    // Every static node `e` names where a type fixes a constant, into `out`:
+    // under a type, a generic parameter, a repeat count and a call head's
+    // type arguments. `inside` says `e` is in such a position. The declaring
+    // leaf of each type parameter written bare as a length or a repeat count
+    // goes into `lengths`.
+    func collect_constant_statics(&self, e: Int, inside: Bool, out: &var Vector<Int>, flow: &var TcLengthFlow) {
+        if e < 0 {
+            return
+        }
+        if self.has_alt(e, Alt.Type_Array) || self.has_alt(e, Alt.Expr_Repeat) {
+            let param = self.bare_param(self.res.last_node_child(e))
+            if param >= 0 && not tc_contains(&flow.lengths, param) {
+                try! flow.lengths.push(param)
+            }
+        }
+        if self.has_alt(e, Alt.Type_Named) || self.has_alt(e, Alt.Expr_Name) {
+            self.collect_parameter_flows(e, &var flow)
+        }
+        if self.is_leaf(e) {
+            if inside {
+                let d = self.static_bound(e)
+                if d >= 0 && not tc_contains(&out, d) {
+                    try! out.push(d)
+                }
+            }
+            return
+        }
+        let here = inside || res_is_type_alt(self.node_alt(e)) || self.has_alt(e, Alt.Generic_Param_Const)
+        let count = if self.has_alt(e, Alt.Expr_Repeat) { self.res.last_node_child(e) } else { -1 }
+        let head = self.has_alt(e, Alt.Expr_Name) || self.has_alt(e, Alt.Expr_Member)
+        let base = if self.has_alt(e, Alt.Expr_Member) { self.res.first_node_child(e) } else { -1 }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            let argument = head && c != base && not self.is_leaf(c)
+            self.collect_constant_statics(c, here || c == count || argument, &var out, &var flow)
+        }
+    }
+
+    // Each const parameter that sizes an array: one written bare as a
+    // length or a repeat count, and, to a fixed point, one passed bare to
+    // another declaration's parameter that sizes one, so a negative argument
+    // is refused where it is written however far it is passed on.
+    func record_length_params(&var self, flow: &TcLengthFlow) {
+        var k = 0
+        while k < flow.lengths.len() {
+            self.add_length_param(flow.lengths[k])
+            k = k + 1
+        }
+        var grew = true
+        while grew {
+            grew = false
+            k = 0
+            while k < flow.params.len() {
+                let p = flow.params[k]
+                let owner = self.param_owner(p)
+                let index = self.param_index(p)
+                if owner >= 0 && self.is_length_param(flow.targets[k], flow.indexes[k]) && not self.is_length_param(owner, index) {
+                    self.add_length_param(p)
+                    grew = true
+                }
+                k = k + 1
+            }
+        }
+    }
+
+    func add_length_param(&var self, leaf: Int) {
+        let owner = self.param_owner(leaf)
+        let index = self.param_index(leaf)
+        if owner >= 0 && index >= 0 && not self.is_length_param(owner, index) {
+            try! self.length_param_owners.push(owner)
+            try! self.length_param_indexes.push(index)
+        }
+    }
+
+    // The declaring leaf of the type parameter node `e` names bare, or -1.
+    func bare_param(&self, e: Int) -> Int {
+        if e < 0 || self.child_count(e) > 1 {
+            return -1
+        }
+        // A type-spelled argument is a path inside the named type.
+        let leaf = if self.has_alt(e, Alt.Type_Named) { self.res.last_leaf_of(self.child(e, 0)) } else { self.res.first_leaf(e) }
+        if leaf < 0 {
+            return -1
+        }
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.TypeParam {
+            return -1
+        }
+        b.node
+    }
+
+    // Each type parameter written bare as an argument of the generic type or
+    // function `e` names (`Buf<M>`, `fill<M>()`): a flow from that parameter
+    // into the target's parameter at the argument's place.
+    func collect_parameter_flows(&self, e: Int, flow: &var TcLengthFlow) {
+        let named = self.has_alt(e, Alt.Type_Named)
+        let leaf = if named { self.res.last_leaf_of(self.child(e, 0)) } else { self.res.first_leaf(e) }
+        if leaf < 0 {
+            return
+        }
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Decl || b.decl < 0 {
+            return
+        }
+        let kind = self.res.decls[b.decl].kind
+        if kind != ResDeclKind.Struct && kind != ResDeclKind.Enum && kind != ResDeclKind.Func {
+            return
+        }
+        let first = if named { 1 } else { 0 }
+        var index = 0
+        let n = self.child_count(e)
+        var k = first
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) {
+                continue
+            }
+            let param = self.bare_param(c)
+            if param >= 0 {
+                try! flow.params.push(param)
+                try! flow.targets.push(b.decl)
+                try! flow.indexes.push(index)
+            }
+            index = index + 1
+        }
+    }
+
+    // Readies what initializer `e` of declaration `owner` names before it is
+    // typed ahead: each static is evaluated first, each raw-backed case's
+    // value typed, and every other declaration's signature built, since no
+    // signature is built yet.
+    func prepare_ahead(&var self, e: Int, owner: Int) {
+        if e < 0 {
+            return
+        }
+        if self.is_leaf(e) {
+            let b = self.binding_at(e)
+            if (b.kind != ResBindKind.Decl && b.kind != ResBindKind.Case) || b.decl < 0 || b.decl == owner {
+                return
+            }
+            let kind = self.res.decls[b.decl].kind
+            if kind == ResDeclKind.Static {
+                self.evaluate_static(b.decl)
+            } else if kind == ResDeclKind.Case {
+                self.evaluate_raw_case(b.decl)
+            } else {
+                self.build_decl(b.decl)
+            }
+            return
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            self.prepare_ahead(c, owner)
+        }
+    }
+
+    // Raw-backed case `c`'s value, typed ahead after what it names, so a
+    // fold through the case reads a typed value. A case of an enum with no
+    // raw backing has none, and is no constant.
+    func evaluate_raw_case(&var self, c: Int) {
+        if self.static_typing[c] != TcStaticTyping.Untyped {
+            return
+        }
+        let parent = self.res.decls[c].parent
+        if parent < 0 {
+            return
+        }
+        self.build_decl(parent)
+        self.build_decl(c)
+        let backing = self.sigs[parent].result
+        let value = self.raw_value_node(c)
+        if backing < 0 || not self.is_integer(backing) || value < 0 || not self.constant_shape(value) {
+            return
+        }
+        self.static_typing[c] = TcStaticTyping.Typing
+        self.prepare_ahead(value, c)
+        self.type_raw_case_ahead(c)
+        self.static_typing[c] = TcStaticTyping.Typed
+    }
+
+    // The static leaf `leaf` binds, or -1.
+    func static_bound(&self, leaf: Int) -> Int {
+        let b = self.binding_at(leaf)
+        if b.kind != ResBindKind.Decl || b.decl < 0 || self.res.decls[b.decl].kind != ResDeclKind.Static {
+            return -1
+        }
+        b.decl
+    }
+
+    // Static `d`'s verdict where a type fixes a constant, its initializer
+    // typed and folded, after the statics it names. One already being
+    // evaluated is on a cycle, which its own declaration refuses.
+    func evaluate_static(&var self, d: Int) {
+        if self.static_typing[d] != TcStaticTyping.Untyped || self.static_verdicts[d] != TcStaticVerdict.Unevaluated {
+            return
+        }
+        self.build_decl(d)
+        let s = self.sigs[d]
+        let info = self.res.decls[d]
+        let m = info.module
+        let name = self.text(m, self.decl_site(d))
+        if s.result < 0 || self.has_error(s.result) {
+            self.static_verdicts[d] = TcStaticVerdict.Poisoned
+            return
+        }
+        if (s.flags & TC_FLAG_UNSAFE_VAR) != 0 {
+            self.static_refused(d, "the mutable static `", &name, "` is not allowed here")
+            return
+        }
+        if not self.is_integer(s.result) {
+            var what = StringBuilder()
+            try! what.append("the `")
+            try! what.append(self.type_text(s.result))
+            try! what.append("` static `")
+            self.static_refused(d, what.build(), &name, "` is not allowed here")
+            return
+        }
+        let value = self.static_initializer(d)
+        if value < 0 {
+            self.static_refused(d, "the static `", &name, "` is declared without an initializer, so it is not allowed here")
+            return
+        }
+        if not self.constant_shape(value) {
+            self.static_refused(d, "the static `", &name, "`'s initializer is not a constant expression")
+            return
+        }
+        self.static_typing[d] = TcStaticTyping.Typing
+        self.prepare_ahead(value, d)
+        let before = self.diags.len()
+        self.type_static_ahead(d)
+        self.static_typing[d] = TcStaticTyping.Typed
+        if self.refused_within(value) {
+            // Its own declaration says why it is no constant, once.
+            self.static_verdicts[d] = TcStaticVerdict.Poisoned
+            return
+        }
+        let v = self.fold_constant(value)
+        if not v.ok && self.diags.len() == before && self.layout_measures(value).len() > 0 {
+            // The layout a measurement reads is folded by code generation's
+            // evaluator, which a type's constant does not reach yet (SL-457).
+            var why = StringBuilder()
+            try! why.append("the static `")
+            try! why.append(name)
+            try! why.append("` measures a layout with `sizeof` or `alignof`, which a type's constant does not fold yet")
+            self.static_reasons[d] = why.build()
+            self.static_verdicts[d] = TcStaticVerdict.NotYet
+            return
+        }
+        if not v.ok || self.diags.len() > before {
+            self.static_refused(d, "the static `", &name, "`'s initializer does not fold")
+            return
+        }
+        let int_t = self.int_type()
+        let r = tc_arith_convert(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty), self.int_width(int_t), true)
+        if not r.ok {
+            var why = StringBuilder()
+            try! why.append("the static `")
+            try! why.append(name)
+            try! why.append("` is ")
+            try! why.append(tc_arith_text(v.bits, self.int_width(v.ty), not self.is_unsigned(v.ty)))
+            try! why.append(", which does not fit `Int`")
+            self.static_reasons[d] = why.build()
+            self.static_verdicts[d] = TcStaticVerdict.Unfit
+            return
+        }
+        self.static_values[d] = r.bits
+        self.static_verdicts[d] = TcStaticVerdict.Folds
+    }
+
+    // Records static `d` as no constant, for the reason `lead`, its name and
+    // `rest` spell.
+    func static_refused(&var self, d: Int, lead: String, name: &String, rest: String) {
+        var why = StringBuilder()
+        try! why.append(lead)
+        try! why.append(name)
+        try! why.append(rest)
+        try! why.append(tc_static_hint())
+        self.static_reasons[d] = why.build()
+        self.static_verdicts[d] = TcStaticVerdict.NotConstant
+    }
+
+    // Whether initializer `e` is shaped as an integer constant: integer
+    // literals, statics, raw-backed cases and the integer limits, under the
+    // arithmetic and bit operators, casts, `sizeof`, `alignof` and a type
+    // alias's construction. Only such an initializer is typed ahead, since
+    // nothing in it asks a conformance or a member table, neither of which
+    // exists before signatures (a comparison would ask `Equatable`, and can
+    // only make a `Bool`); any other is no integer constant, which its own
+    // declaration refuses.
+    func constant_shape(&self, e: Int) -> Bool {
+        if e < 0 {
+            return false
+        }
+        guard let alt = self.node_alt(e) else {
+            return false
+        }
+        match alt {
+            case Expr_Int -> true,
+            case Expr_Paren -> self.constant_shaped_parts(e),
+            case Expr_Unary_Negate -> self.constant_shaped_parts(e),
+            case Expr_Unary_Complement -> self.constant_shaped_parts(e),
+            case Expr_Additive -> self.constant_shaped_parts(e),
+            case Expr_Multiplicative -> self.constant_shaped_parts(e),
+            case Expr_Shift -> self.constant_shaped_parts(e),
+            case Expr_Bitand -> self.constant_shaped_parts(e),
+            case Expr_Bitor -> self.constant_shaped_parts(e),
+            case Expr_Bitxor -> self.constant_shaped_parts(e),
+            case Expr_Cast -> self.constant_shaped_parts(e),
+            case Expr_Name -> self.static_bound(self.res.first_leaf(e)) >= 0,
+            case Expr_Member -> self.constant_shaped_member(e),
+            case Expr_Call_Paren -> self.constant_shaped_call(e),
+            case _ -> false
+        }
+    }
+
+    // Whether each expression child of `e` is constant-shaped; a type among
+    // them, a cast's, is no part.
+    func constant_shaped_parts(&self, e: Int) -> Bool {
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if self.is_leaf(c) || res_is_type_alt(self.node_alt(c)) {
+                continue
+            }
+            if not self.constant_shape(c) {
+                return false
+            }
+        }
+        true
+    }
+
+    // `m.S`, a static named through its module; `E.Case`; `Int.max`.
+    func constant_shaped_member(&self, e: Int) -> Bool {
+        let leaf = self.res.last_leaf_of(e)
+        if leaf < 0 {
+            return false
+        }
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
+            return true
+        }
+        if (b.kind == ResBindKind.Case || b.kind == ResBindKind.Decl) && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Case {
+            return true
+        }
+        let text = self.text(self.node_module(e), leaf)
+        let base = self.res.first_node_child(e)
+        let bb = self.binding_at(self.res.first_leaf(base))
+        (text.equals("max") || text.equals("min")) && bb.kind == ResBindKind.Decl && bb.decl >= 0
+    }
+
+    // `sizeof<T>()`, `alignof<T>()`, and a type alias's construction over a
+    // constant-shaped argument.
+    func constant_shaped_call(&self, e: Int) -> Bool {
+        let callee = self.res.first_node_child(e)
+        if callee < 0 || not self.has_alt(callee, Alt.Expr_Name) {
+            return false
+        }
+        let leaf = self.res.first_leaf(callee)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Overload && b.module == self.res.builtin {
+            let text = self.text(self.node_module(e), leaf)
+            return text.equals("sizeof") || text.equals("alignof")
+        }
+        if b.kind != ResBindKind.Decl || b.decl < 0 {
+            return false
+        }
+        let kind = self.res.decls[b.decl].kind
+        if kind != ResDeclKind.Alias && kind != ResDeclKind.TypeAssign {
+            return false
+        }
+        var args = 0
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            let c = self.child(e, k)
+            k = k + 1
+            if c == callee || self.is_leaf(c) {
+                continue
+            }
+            args = args + 1
+            let value = if self.has_alt(c, Alt.Expr_Argument_Positional) { self.res.first_node_child(c) } else { c }
+            if not self.constant_shape(value) {
+                return false
+            }
+        }
+        args == 1
+    }
+}

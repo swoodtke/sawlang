@@ -1,0 +1,59 @@
+// A static named where a type fixes a constant (SL-920): every position
+// folds it to its value, so `Pool<Int, SLOTS>` is `Pool<Int, 4>`. The rows: a
+// field's length and argument, a static's own type and its initializer's
+// constructor head and repeat count, a parameter and a result, an alias, a
+// nested argument, a const parameter's default, a derived static, a `UInt8`
+// one, arithmetic over a static, a construction's head, a generic function's
+// explicit argument, an inferred `[T; N]`, a repeat count, and a static
+// declared after the positions that name it.
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+struct Wrap<T> {
+    inner: T
+}
+
+struct Ring<const N: Int = SLOTS> {
+    items: [Int; N]
+}
+
+static SLOTS: Int = 4
+static WIDE: Int = (SLOTS
+                    * 2)
+static SMALL: UInt8 = 3
+
+struct Table {
+    raw: [Int; SLOTS]
+    pool: Pool<Int, SLOTS>
+    later: [UInt8; LATER]
+}
+
+static POOL: Pool<Int, SLOTS> = Pool<Int, SLOTS>(items: [7; SLOTS])
+
+type SlotPool = Pool<Int, SLOTS>
+
+func peek(p: &Pool<Int, SLOTS>) -> Wrap<Pool<Int, SLOTS>> {
+    Wrap<Pool<Int, SLOTS>>(inner: Pool<Int, 4>(items: [p.items[0]; 4]))
+}
+
+func fill<const N: Int>() -> [Int; N] {
+    [7; N]
+}
+
+func last<const N: Int>(xs: [Int; N]) -> Int {
+    xs[0]
+}
+
+func main() {
+    let a: SlotPool = Pool<Int, 4>(items: [1; 4])
+    let r: Ring = Ring<4>(items: [2; SLOTS])
+    let w: [Int; WIDE + 1] = [3; 9]
+    let s = [0; SMALL]
+    let f = fill<SLOTS>()
+    let t = Table(raw: [1; 4], pool: Pool<Int, SLOTS>(items: [5; 4]), later: [0; 2])
+    print("{} {} {} {} {} {}", last(f), r.items[0], w.len(), s.len(), peek(&a).inner.items[0], t.raw.len())
+}
+
+static LATER: Int = 2

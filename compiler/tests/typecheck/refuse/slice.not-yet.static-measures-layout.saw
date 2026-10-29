@@ -1,0 +1,11 @@
+// refuses: slice.not-yet at 9:18
+// a static whose value measures a layout, named as a repeat count: the fold a
+// type's constant reads does not compute `sizeof` yet (SL-457)
+// message: the static `WORD` measures a layout with `sizeof` or `alignof`
+
+static WORD: Int = sizeof<UInt64>()
+
+func main() {
+    let xs = [0; WORD]
+    print("{}", xs.len())
+}

@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 9:20
+// a constant above a narrow signed const parameter's range
+// message: the constant argument 128 does not fit `Int8`, the type of `N`
+
+struct Tiny<const N: Int8> {
+    n: Int
+}
+
+func read(t: &Tiny<128>) -> Int {
+    t.n
+}

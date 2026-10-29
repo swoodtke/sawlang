@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 9:20
+// a negative constant for a full-width unsigned const parameter
+// message: the constant argument `0 - 1` is -1, which does not fit `UInt64`, the type of `N`
+
+struct Wide<const N: UInt64> {
+    n: Int
+}
+
+func read(w: &Wide<0 - 1>) -> Int {
+    w.n
+}

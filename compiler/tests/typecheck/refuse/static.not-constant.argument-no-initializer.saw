@@ -1,0 +1,11 @@
+// refuses: static.not-constant at 9:18
+// a static declared without an initializer, named as a repeat count: it is
+// zero only as image bytes, and the spec refuses it by name (SL-920)
+// message: repeat count is not a compile-time constant: the static `ZERO` is declared without an initializer
+
+static ZERO: Int
+
+func main() {
+    let xs = [7; ZERO]
+    print("{}", xs.len())
+}

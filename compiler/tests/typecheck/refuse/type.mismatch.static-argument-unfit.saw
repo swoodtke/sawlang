@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 11:25
+// an integer static whose value no `Int` holds, named as a constant argument
+// message: the static `HIGH` is 9223372036854775808, which does not fit `Int`, as a constant argument must
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+static HIGH: UInt64 = 1 << 63
+
+func size(p: &Pool<Int, HIGH>) -> Int {
+    0
+}

@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 11:19
+// a literal a narrow unsigned const parameter cannot hold, in a
+// construction's head
+// message: the constant argument 300 does not fit `UInt8`, the type of `N`
+
+struct Small<const N: UInt8> {
+    n: Int
+}
+
+func main() {
+    let s = Small<300>(n: 1)
+    print("{}", s.n)
+}

@@ -1,0 +1,12 @@
+// refuses: constant.negative-length at 10:19
+// a negative argument for a const `Int` parameter its declaration writes as
+// an array length: refused where the argument meets the parameter
+// message: array length is negative (`-1`): `N` of `Buf` is -1, and it sizes an array
+
+struct Buf<const N: Int> {
+    items: [Int; N]
+}
+
+func size(b: &Buf<0 - 1>) -> Int {
+    0
+}

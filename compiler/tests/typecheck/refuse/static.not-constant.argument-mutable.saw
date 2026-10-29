@@ -1,0 +1,16 @@
+// refuses: static.not-constant at 14:22
+// an `unsafe static var` named as a constant argument: its value belongs to
+// the running program (SL-920)
+// message: constant argument is not a compile-time constant: the mutable static `LIVE` is not allowed here
+// message: whose own initializer folds
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+unsafe static var LIVE: Int = 4
+
+func main() {
+    let p: Pool<Int, LIVE> = Pool<Int, 4>(items: [7; 4])
+    print("{}", p.items[3])
+}

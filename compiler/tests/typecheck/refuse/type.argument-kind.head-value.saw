@@ -1,0 +1,12 @@
+// refuses: type.argument-kind at 10:18
+// a value where a type parameter takes a type, in a construction's head
+// message: this argument's parameter takes a type, and a value is written
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+func main() {
+    let p = Pool<4, 4>(items: [7; 4])
+    print("{}", p.items[0])
+}

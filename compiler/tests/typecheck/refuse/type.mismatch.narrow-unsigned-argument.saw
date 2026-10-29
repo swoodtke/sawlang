@@ -1,0 +1,14 @@
+// refuses: type.mismatch at 12:21
+// a static whose value a narrow unsigned const parameter cannot hold, at a
+// type position: checked against the parameter's declared type
+// message: the constant argument `BIG` is 300, which does not fit `UInt8`, the type of `N`
+
+struct Small<const N: UInt8> {
+    n: Int
+}
+
+static BIG: Int = 300
+
+func size(s: &Small<BIG>) -> Int {
+    s.n
+}

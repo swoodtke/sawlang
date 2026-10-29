@@ -1,0 +1,9 @@
+// refuses: static.cycle at 5:32
+// a static whose initializer names a type sized by the static itself
+// message: the value of the static `S` depends on itself
+
+static S: Int = sizeof<[UInt8; S]>()
+
+func main() {
+    print("{}", S)
+}

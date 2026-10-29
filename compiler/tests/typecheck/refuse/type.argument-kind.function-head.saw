@@ -1,0 +1,13 @@
+// refuses: type.argument-kind at 11:19
+// a type where a generic function's const parameter takes a value, written on
+// the call's head
+// message: this argument's parameter takes a value, and a type is written
+
+func fill<const N: Int>() -> [Int; N] {
+    [7; N]
+}
+
+func main() {
+    let xs = fill<Int>()
+    print("{}", xs.len())
+}

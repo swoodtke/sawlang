@@ -60,10 +60,10 @@ array_implicit_copy_whole.saw	pass	-	-
 array_in_struct_deinit.saw	pass	-	-
 array_len_builtin.saw	pass	-	-
 array_length_mismatch_error.saw	pass	-	type.mismatch: expected `[Int; 5]`, the type of the parameter, and found `[Int; 3]`
-array_length_negative_error.saw	pass	-	type.mismatch: expected `[UInt8; -1]`, the type of the field, and found `[UInt8; 1]`
-array_length_nonconst_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `ARENA_BYTES`, is not in the bootstrap slice yet
-array_length_nonint_static_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `ENABLED`, is not in the bootstrap slice yet
-array_length_runtime_local_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `n`, is not in the bootstrap slice yet
+array_length_negative_error.saw	pass	-	constant.negative-length: array length is negative (`-1`); a length counts elements, so it starts at 0
+array_length_nonconst_error.saw	pass	-	static.not-constant: array length is not a compile-time constant: the mutable static `ARENA_BYTES` is not allowed here; a static is a constant here when it is an immutable static of an integer type wh
+array_length_nonint_static_error.saw	pass	-	static.not-constant: array length is not a compile-time constant: the `Bool` static `ENABLED` is not allowed here; a static is a constant here when it is an immutable static of an integer type whose o
+array_length_runtime_local_error.saw	pass	-	static.not-constant: array length is not a compile-time constant: `n` names a binding whose value is known only at run time
 array_literal_move_in.saw	pass	-	-
 array_no_extension_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/array_no_extension_error.saw` (syntax.decl.refused-array-extension), so its declarations are not available
 array_nocopy_requires_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `[array_nocopy_requires_move.F; 2]`, which is NoCopy, by value: only a Copy type copies silently; write `move a` to take it, or borrow it
@@ -79,7 +79,7 @@ arrays.saw	refused	typecheck subscript.role	`(Int, Int, Int)` declares no subscr
 assert_fail.saw	pass	-	-
 assert_non_bool_error.saw	pass	-	type.mismatch: a condition is a `Bool`, and this is `String`
 assert_pass.saw	pass	-	-
-assignment_target_adopts_fixed_width.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `N`, is not in the bootstrap slice yet
+assignment_target_adopts_fixed_width.saw	pass	-	-
 assignment_target_literal_out_of_range.saw	pass	-	type.mismatch: integer literal 999 does not fit in `UInt8` (range 0..=255)
 associated_type.saw	pass	-	-
 associated_type_generic.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
@@ -199,7 +199,7 @@ closures_ref_param.saw	pass	-	-
 closures_shorthand.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 closures_trailing.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 coercion/adopt_argument_return.saw	pass	-	-
-coercion/adopt_assign_field_const.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `N`, is not in the bootstrap slice yet
+coercion/adopt_assign_field_const.saw	pass	-	-
 coercion/adopt_coalesce_operand.saw	pass	-	-
 coercion/adopt_compound_and_arms_const.saw	pass	-	-
 coercion/adopt_enum_raw_value_non_constant_refused.saw	pass	-	static.not-constant: `N` is not a constant, and a raw case's value is a constant expression: it may not name a static or another enum's case, since an enum's cases are fixed by its own declaration, be
@@ -223,7 +223,7 @@ coercion/const_expression_range_checked_narrow.saw	pass	-	constant.shift-range: 
 coercion/const_expression_range_checked_wide.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt16` by a count outside its width
 coercion/const_expression_signed_domain_error.saw	stage0-wrong	annotated SL-452	sawc builds it, and its run exits 0
 coercion/const_expression_unary_adopts.saw	refused	typecheck constant.overflow	constant expression overflows `Int8` (range -128..=127)
-coercion/qualname_arr_elem_field.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `N`, is not in the bootstrap slice yet
+coercion/qualname_arr_elem_field.saw	pass	-	-
 coercion/qualname_local.saw	pass	-	-
 coercion/qualname_mod_static.saw	pass	-	-
 coercion/qualname_mod_static_assign.saw	pass	-	-
@@ -340,10 +340,10 @@ conformance/K18_spawn_ref_param_after_group.saw	pass	-	loan.drop-while-borrowed:
 conformance/K19_spawn_ref_param_mt_send.saw	stage0-wrong	annotated SL-788	sawc meets its directives
 conformance/K204_mt_group_stays_live_across_spawns.saw	stage0-wrong	annotated SL-769	sawc meets its directives
 conformance/K20_spawn_ref_param_move_root.saw	pass	-	loan.move-while-borrowed: cannot `move` `buf` while a spawned task borrows it: the task spawned at 33:30 holds `&var buf` until `h.join()` releases it; join the task first — `h.join()` ends the borrow
-conformance/K21_cross_module_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
-conformance/K22_cross_module_generic_embed_private_sibling.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
+conformance/K21_cross_module_embed_private_sibling.saw	pass	-	-
+conformance/K22_cross_module_generic_embed_private_sibling.saw	pass	-	-
 conformance/K24_frame_slot_payload_binding_not_a_copy.saw	pass	-	-
-conformance/K25_cross_module_embed_private_static_const_position.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `SLOTS`, is not in the bootstrap slice yet
+conformance/K25_cross_module_embed_private_static_const_position.saw	pass	-	-
 conformance/K26_closure_capture_of_frame_local_not_a_user_copy.saw	pass	-	-
 conformance/K27_receiver_window_never_spans_suspend.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
 conformance/K28_slot_payload_released_exactly_once.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
@@ -628,19 +628,19 @@ const_generic_default_and_arith.saw	refused	typecheck slice.not-yet	`syntax.cons
 const_generic_enum_and_function.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 const_generic_infer_length.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
 const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/const_generic_specialized_extension_unsupported.saw` (parse-error), so its declarations are not available
-const_generic_type_for_value_error.saw	pass	-	type.mismatch: expected `[UInt8; Int]`, the type of the field, and found `[UInt8; 4]`
-const_generic_value_for_type_error.saw	pass	-	type.mismatch: expected `4`, the type of the field, and found `Int`
+const_generic_type_for_value_error.saw	pass	-	type.argument-kind: this argument's parameter takes a value, and a type is written
+const_generic_value_for_type_error.saw	pass	-	type.argument-kind: this argument's parameter takes a type, and a value is written
 const_length_grammar_bool_error.saw	refused	typecheck slice.not-yet	`syntax.expr.bitand` is not in the bootstrap slice yet
 const_length_grammar_unified.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
-const_qualified_length.saw	refused	typecheck slice.not-yet	`syntax.expr.member` is not in the bootstrap slice yet
+const_qualified_length.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_sizeof_agrees_across_phases.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
 const_static_generic_arg.saw	crash	INVARIANT	47:39 an expression has no type
-const_static_leaf_at_struct_type.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MAX_SLOTS`, is not in the bootstrap slice yet
-const_static_length.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
-const_static_length_crossmodule.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `FRAME_BYTES`, is not in the bootstrap slice yet
+const_static_leaf_at_struct_type.saw	refused	llvm backend.not-yet	a static whose initializer the constant evaluator does not hold is not in the backend slice yet
+const_static_length.saw	pass	-	-
+const_static_length_crossmodule.saw	pass	-	-
 const_static_length_freestanding.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
-const_static_length_shadow.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
-const_static_static_assert_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `REGION_SIZE`, is not in the bootstrap slice yet
+const_static_length_shadow.saw	pass	-	static.not-constant: array length is not a compile-time constant: `REGION_SIZE` names a binding whose value is known only at run time
+const_static_static_assert_error.saw	pass	-	static_assert.failed: static assertion failed: the region must be page-aligned
 constructor_infers_type_arguments.saw	pass	-	-
 consumes_cross_module_call.saw	pass	-	-
 consumes_field_extraction.saw	pass	-	-
@@ -704,7 +704,7 @@ coro_for_of_frames_stress.saw	pass	-	-
 coro_frame_byte_local_across_suspend.saw	pass	-	-
 coro_frame_local_released_at_scope_end.saw	pass	-	-
 coro_frame_optional_param_presence.saw	pass	-	-
-coro_frame_over_65535_nonconstant_values.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `FRAME_VALUES`, is not in the bootstrap slice yet
+coro_frame_over_65535_nonconstant_values.saw	pass	-	-
 coro_generic_call_in_an_expression_position.saw	pass	-	-
 coro_generic_driven_both.saw	pass	-	-
 coro_generic_method_self.saw	pass	-	-
@@ -850,7 +850,7 @@ data_set_oob_panic.saw	pass	-	-
 data_simple.saw	pass	-	-
 data_to_string_validates_utf8.saw	pass	-	-
 declaration_lists_take_a_line_each.saw	refused	resolve slice.not-yet	`syntax.decl.module.inline` is not in the bootstrap slice yet
-declared_length_error_names_its_file_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MUT`, is not in the bootstrap slice yet
+declared_length_error_names_its_file_error.saw	pass	-	static.not-constant: array length is not a compile-time constant: the mutable static `MUT` is not allowed here; a static is a constant here when it is an immutable static of an integer type whose own
 default_param_basic.saw	pass	-	-
 default_param_literal_out_of_range_error.saw	pass	-	type.mismatch: integer literal 200 does not fit in `Int8` (range -128..=127)
 default_param_method_init.saw	pass	-	-
@@ -2233,12 +2233,12 @@ register_mask_idiom.saw	pass	-	-
 renamed_extension_type_param.saw	pass	-	-
 repeat_literal_basic.saw	pass	-	-
 repeat_literal_implicit_copy.saw	pass	-	-
-repeat_literal_negative_error.saw	link	clang or the link	sawc build: clang exited 1
+repeat_literal_negative_error.saw	pass	-	constant.negative-length: repeat count is negative (`-2`); a length counts elements, so it starts at 0
 repeat_literal_nocopy_error.saw	pass	-	transfer.implicit-copy: a repeat literal needs a freely copyable element, and `repeat_literal_nocopy_error.Handle` is NoCopy: write the elements out, or build the array from a Copy value
-repeat_literal_nonconst_error.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `n`, is not in the bootstrap slice yet
+repeat_literal_nonconst_error.saw	pass	-	static.not-constant: repeat count is not a compile-time constant: `n` names a binding whose value is known only at run time
 repeat_literal_static.saw	pass	-	-
 repeat_literal_vector_error.saw	pass	-	type.mismatch: expected `std.vector.Vector<Int, std.alloc.GlobalAllocator>`, the type of the annotated binding, and found `[Int; 8]`
-resolve_seam_offloads.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `MAX_ADDRS`, is not in the bootstrap slice yet
+resolve_seam_offloads.saw	refused	typecheck type.cast	`as` cannot convert `String` to `UnsafePointer<Int8>`: it converts between numbers, from a raw-backed enum, and between pointers
 result_autowrap_final.saw	pass	-	-
 result_basic.saw	pass	-	-
 result_discard_erased_error.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
@@ -2351,9 +2351,9 @@ static_assert_pass.saw	pass	-	-
 static_assert_statement_fail_error.saw	pass	-	static_assert.failed: static assertion failed: statement-position check
 static_atomic_counter.saw	pass	-	-
 static_atomic_threaded.saw	stage0-wrong	annotated SL-765	sawc meets its directives
-static_const_declaration_order.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `PAGE_SIZE`, is not in the bootstrap slice yet
+static_const_declaration_order.saw	refused	typecheck slice.not-yet	`syntax.expr.multiplicative` is not in the bootstrap slice yet
 static_const_expr_init.saw	pass	-	-
-static_derived_from_imported_const.saw	refused	typecheck slice.not-yet	a constant argument named by a static, `A`, is not in the bootstrap slice yet
+static_derived_from_imported_const.saw	pass	-	-
 static_generic_struct_const_init.saw	pass	-	-
 static_method_args.saw	pass	-	-
 static_method_called_on_instance.saw	refused	typecheck member.unknown	`static_method_called_on_instance.Bag` has no method `solo` this module can see

@@ -8,8 +8,8 @@ import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModul
 import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram, res_twin_message}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TcAdjust, TcAllowance, TcAtom, TcCall, TcCapture, TcConformance, TcDefault, TcDiag,
-                               TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig, TcStatus,
-                               TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
+                               TcGeneric, TcItem, TcMember, TcObligation, TcParam, TcPendingConstant, TcSig,
+                               TcStaticTyping, TcStaticVerdict, TcStatus, TcSummary, TcRelocation, TcTier, TcUnit, TcUse, TcWarning}
 import sawtypecheck.stdsuspension.{TcStdRows}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, TcTypes, tc_types}
 import sawtypecheck.walks.{TcMemo, tc_memo}
@@ -496,6 +496,30 @@ public struct TcProgram {
     // after which a judgment is final where it is met.
     pending_constants: Vector<TcPendingConstant>
     constants_final: Bool
+    // Whether the body half's side tables are sized: a static named where a
+    // type fixes a constant has its initializer typed before signatures are
+    // built (`ensure_body_tables`).
+    body_tables: Bool
+    // Whether the member tables are built; a lookup asked before they are,
+    // or a tier asked before tiers are computed, is a phase violation
+    // reported as an INVARIANT line, never answered from an empty table.
+    members_built: Bool
+    phase_problems: Vector<String>
+    phase_problem_modules: Vector<Int>
+    // By declaration: how far a static's initializer (or a raw-backed case's
+    // value) is typed ahead, and what the static stands for where a type
+    // fixes a constant, its value as an `Int`, and the reason one is no
+    // constant (`evaluate_constant_statics`, read by `static_constant`).
+    static_typing: Vector<TcStaticTyping>
+    static_verdicts: Vector<TcStaticVerdict>
+    static_values: Vector<Int>
+    static_reasons: Vector<String>
+    // Each const parameter that sizes an array, written as a length or a
+    // repeat count or passed on to one that is, by its declaration and index,
+    // so a negative argument for it is refused where it is written
+    // (`check_argument_kind`).
+    length_param_owners: Vector<Int>
+    length_param_indexes: Vector<Int>
     // The profile the program is compiled under, the one place it is known
     // (`tc_profile`); every later stage reads it here.
     profile: TcProfile
@@ -529,8 +553,16 @@ public func tc_program(res: ResProgram) -> TcProgram {
     var export_nodes = Vector<Int>()
     var twins = Vector<Int>()
     var defaults = Vector<Int>()
+    var typing = Vector<TcStaticTyping>()
+    var verdicts = Vector<TcStaticVerdict>()
+    var values = Vector<Int>()
+    var reasons = Vector<String>()
     var k = 0
     while k < decl_total {
+        try! typing.push(TcStaticTyping.Untyped)
+        try! verdicts.push(TcStaticVerdict.Unevaluated)
+        try! values.push(0)
+        try! reasons.push("")
         try! sigs.push(TcSig.blank())
         try! firsts.push(-1)
         try! counts.push(0)
@@ -608,6 +640,10 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
+                      body_tables: false, members_built: false, phase_problems: Vector<String>(),
+                      phase_problem_modules: Vector<Int>(), static_typing: move typing, static_verdicts: move verdicts,
+                      static_values: move values, static_reasons: move reasons,
+                      length_param_owners: Vector<Int>(), length_param_indexes: Vector<Int>(),
                       profile: tc_profile(false, false, false), no_hidden_alloc: false,
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>(), blocking_twins: move twins, pair_defaults: move defaults)
@@ -763,6 +799,14 @@ extension TcProgram {
                                     message: text, note: note))
     }
 
+    // Records that `what` was asked of a table its phase has not built yet,
+    // in the module being checked: an INVARIANT line of the record.
+    public func phase_violation(&var self, what: String) {
+        let m = if self.current >= 0 { self.current } else { 0 }
+        try! self.phase_problems.push(what)
+        try! self.phase_problem_modules.push(m)
+    }
+
     // A refusal at node `id` of the module being built.
     public func refuse(&var self, id: Int, rule: String, message: String) {
         let m = self.current
@@ -812,7 +856,8 @@ extension TcProgram {
     }
 
     public func error_count(&self) -> Int {
-        var n = self.res.error_count()
+        // A phase violation stops the compile as a refusal does.
+        var n = self.res.error_count() + self.phase_problems.len()
         var k = 0
         while k < self.diags.len() {
             let d = self.diags[k]

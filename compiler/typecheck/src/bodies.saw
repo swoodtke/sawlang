@@ -37,11 +37,11 @@ import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
 import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
-                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcHeadKind, TcLend, TcMember, TcParam,
-                               TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcUse}
+                               TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcConstUse, TcHeadKind, TcLend, TcMember, TcParam,
+                               TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.program.{TcProgram}
-import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.signatures.{TcArgSlot, TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.strings.{TcStringPosition}
 // For the extension writing `satisfies`.
@@ -143,6 +143,31 @@ extension TcProgram {
     // Sizes the side tables, then checks each body of each module that is
     // not an interface, and settles what each place's use decides.
     public func check_bodies(&var self) {
+        self.ensure_body_tables()
+        var m = 0
+        while m < self.res.modules.len() {
+            let info = self.res.modules[m]
+            if info.available && not info.interface_only {
+                self.check_module_bodies(m)
+            }
+            m = m + 1
+        }
+        self.judge_pending_constants()
+        self.check_zero_inits()
+        self.settle_places()
+        self.settle_captures()
+        self.check_thread_braces()
+        self.check_task_spawn_environments()
+    }
+
+    // Sizes the body half's side tables once: the body phase does, and a
+    // static whose value a type needs has its initializer typed before it
+    // (`evaluate_constant_statics`).
+    public func ensure_body_tables(&var self) {
+        if self.body_tables {
+            return
+        }
+        self.body_tables = true
         let n = self.res.nodes.len()
         var k = 0
         while k < n {
@@ -175,20 +200,6 @@ extension TcProgram {
         }
         let visible = tc_extension_sets(&self)
         self.ext_visible = move visible
-        var m = 0
-        while m < self.res.modules.len() {
-            let info = self.res.modules[m]
-            if info.available && not info.interface_only {
-                self.check_module_bodies(m)
-            }
-            m = m + 1
-        }
-        self.judge_pending_constants()
-        self.check_zero_inits()
-        self.settle_places()
-        self.settle_captures()
-        self.check_thread_braces()
-        self.check_task_spawn_environments()
     }
 
     func check_module_bodies(&var self, m: Int) {
@@ -253,6 +264,11 @@ extension TcProgram {
     func begin_body(&var self, d: Int, root: Int) {
         try! self.body_roots.push(root)
         try! self.body_decls.push(d)
+        self.reset_body(root)
+    }
+
+    // Resets what the walk tracks per body, for a body rooted at `root`.
+    func reset_body(&var self, root: Int) {
         self.loop_breaks = Vector<Int>()
         self.catch_frames = Vector<Int>()
         self.catch_errors = Vector<Int>()
@@ -384,15 +400,46 @@ extension TcProgram {
     // A static's initializer, which expects the static's type. One with none
     // is zero-initialized, which `check_zero_inits` checks once every body
     // is typed.
+    // One typed ahead (`type_static_ahead`) is recorded here, where the body
+    // phase meets it, so the bodies keep declaration order.
     func check_static_body(&var self, d: Int) {
         let s = self.sigs[d]
         let c = self.static_initializer(d)
-        if c >= 0 {
-            self.begin_body(d, c)
+        if c >= 0 && self.static_typing[d] == TcStaticTyping.Typed {
+            try! self.body_roots.push(c)
+            try! self.body_decls.push(d)
+        } else if c >= 0 {
+            if self.static_typing[d] == TcStaticTyping.Typing {
+                self.reset_body(c)
+            } else {
+                self.begin_body(d, c)
+            }
             self.body_result = s.result
             self.check_static_value(c, s.result)
             self.check_constant_position(c, TcConstPosition.Static, d, -1)
         }
+    }
+
+    // Static `d`'s initializer, typed ahead of the body phase for the value a
+    // type needs (`evaluate_constant_statics`); no body is open around it.
+    public func type_static_ahead(&var self, d: Int) {
+        self.ensure_body_tables()
+        let saved = self.save_context()
+        self.enter_decl(d)
+        self.check_static_body(d)
+        self.restore_context(saved)
+        self.current_root = -1
+    }
+
+    // Raw-backed case `c`'s value, typed ahead for a static whose value
+    // folds through the case (`evaluate_raw_case`).
+    public func type_raw_case_ahead(&var self, c: Int) {
+        self.ensure_body_tables()
+        let saved = self.save_context()
+        self.enter_decl(c)
+        self.check_raw_value(c)
+        self.restore_context(saved)
+        self.current_root = -1
     }
 
     // A raw-backed enum case's value, which expects the enum's backing type.
@@ -404,8 +451,17 @@ extension TcProgram {
         while k < n {
             let c = self.child(info.node, k)
             // A documented case's doc comment is a child of its node too.
-            if not self.is_leaf(c) && not self.has_alt(c, Alt.Decl_PayloadField) && not self.res.is_doc(c) {
-                self.begin_body(d, c)
+            let value = not self.is_leaf(c) && not self.has_alt(c, Alt.Decl_PayloadField) && not self.res.is_doc(c)
+            if value && self.static_typing[d] == TcStaticTyping.Typed {
+                // Typed ahead (`type_raw_case_ahead`): recorded here, in order.
+                try! self.body_roots.push(c)
+                try! self.body_decls.push(d)
+            } else if value {
+                if self.static_typing[d] == TcStaticTyping.Typing {
+                    self.reset_body(c)
+                } else {
+                    self.begin_body(d, c)
+                }
                 self.body_result = backing
                 if backing >= 0 {
                     self.check_static_value(c, backing)
@@ -2039,7 +2095,7 @@ extension TcProgram {
     }
 
     // Whether a refusal already stands inside expression `e`.
-    func refused_within(&self, e: Int) -> Bool {
+    public func refused_within(&self, e: Int) -> Bool {
         let m = self.node_module(e)
         let n = self.res.nodes[e]
         var k = 0
@@ -3724,7 +3780,7 @@ extension TcProgram {
         }
         let d = self.nominal_decl(t)
         let in_test = self.current_test
-        let seen = self.visible_members(d, name, m, in_test)
+        let seen = self.members_in_phase(d, name, m, in_test)
         var found = Vector<Int>()
         var j = 0
         while j < seen.len() {
@@ -3811,7 +3867,7 @@ extension TcProgram {
         }
         let name = self.res.intern(text)
         let in_test = self.current_test
-        let found = self.visible_members(d, name, m, in_test)
+        let found = self.members_in_phase(d, name, m, in_test)
         if found.len() > 0 {
             self.not_in_slice(e, Alt.Expr_Member)
         } else {
@@ -3857,7 +3913,7 @@ extension TcProgram {
             return -1
         }
         let leaf = self.res.first_leaf(base)
-        self.named_owner(d, &written, leaf)
+        self.named_owner(d, &written, leaf, base)
     }
 
     // Enum `d`'s type where `want` is expected: its own arguments when it
@@ -5620,7 +5676,7 @@ extension TcProgram {
         let i = self.int_type()
         let _ = self.expr(count, i)
         self.consume(count)
-        let length = self.build_const(count)
+        let length = self.build_length(count, TcConstUse.Repeat)
         let t = self.mk_array(element, length)
         self.set_type(e, t, false)
     }
@@ -7078,15 +7134,50 @@ extension TcProgram {
             if self.type_builds[c] > 0 {
                 try! out.push(self.node_types[c])
             } else if res_is_type_alt(self.node_alt(c)) {
-                try! out.push(self.build_type(c))
+                try! out.push(self.generic_arg(c, TcArgSlot.Unknown))
             } else {
-                let v = self.build_const(c)
+                let v = self.generic_arg(c, TcArgSlot.Unknown)
                 self.node_types[c] = v
                 self.type_builds[c] += 1
                 try! out.push(v)
             }
         }
         move out
+    }
+
+    // The nodes of the type arguments written on a call's head, in the order
+    // `explicit_type_args` reads them.
+    func explicit_arg_nodes(&self, callee: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if callee < 0 || (not self.has_alt(callee, Alt.Expr_Name) && not self.has_alt(callee, Alt.Expr_Member)) {
+            return move out
+        }
+        let base = if self.has_alt(callee, Alt.Expr_Member) { self.res.first_node_child(callee) } else { -1 }
+        let n = self.child_count(callee)
+        var k = 0
+        while k < n {
+            let c = self.child(callee, k)
+            k = k + 1
+            if c != base && not self.is_leaf(c) {
+                try! out.push(c)
+            }
+        }
+        move out
+    }
+
+    // Each argument written on head `head`, formed as `written`, against
+    // parameter list `owner`'s, from the first (`check_argument_kind`).
+    func check_written_kinds(&var self, head: Int, written: &Vector<Int>, owner: Int) -> Bool {
+        let nodes = self.explicit_arg_nodes(head)
+        var fits = true
+        var k = 0
+        while k < written.len() && k < nodes.len() {
+            if not self.check_argument_kind(nodes[k], written[k], owner, k) {
+                fits = false
+            }
+            k = k + 1
+        }
+        fits
     }
 
     // A free function call: an overload set, or a builtin function.
@@ -7449,7 +7540,7 @@ extension TcProgram {
         }
         let m = self.current
         let in_test = self.current_test
-        let found = self.visible_members(d, name, m, in_test)
+        let found = self.members_in_phase(d, name, m, in_test)
         var k = 0
         while k < found.len() {
             let member = self.members[found[k]]
@@ -7884,7 +7975,7 @@ extension TcProgram {
         var t = -1
         if b.decl >= 0 {
             let written = self.explicit_type_args(base)
-            t = self.named_owner(b.decl, &written, leaf)
+            t = self.named_owner(b.decl, &written, leaf, base)
             if t == TC_OWNER_INFER {
                 return self.inferred_static_call(e, callee, b.decl, name, &args, want)
             }
@@ -7946,7 +8037,7 @@ extension TcProgram {
         }
         let m = self.current
         let in_test = self.current_test
-        let found = self.visible_members(d, name, m, in_test)
+        let found = self.members_in_phase(d, name, m, in_test)
         var cands = Vector<TcCand>()
         var own_generics = false
         var k = 0
@@ -8707,7 +8798,7 @@ extension TcProgram {
     //     written_enum_owner
     //     init_call
     //     static_call
-    func named_owner(&var self, d: Int, written: &Vector<Int>, leaf: Int) -> Int {
+    func named_owner(&var self, d: Int, written: &Vector<Int>, leaf: Int, head: Int) -> Int {
         self.ensure_generics(d)
         let s = self.sigs[d]
         if written.len() == 0 {
@@ -8718,6 +8809,9 @@ extension TcProgram {
         }
         if written.len() > s.generic_count {
             self.refuse_type_arity(leaf, d, written.len())
+            return self.error_type
+        }
+        if not self.check_written_kinds(head, &written, d) {
             return self.error_type
         }
         var args = Vector<Int>()
@@ -8779,7 +8873,7 @@ extension TcProgram {
         if self.partial_prefix(d, &written, m) {
             pinned = tc_copy_ints(&written)
         } else {
-            owner = self.named_owner(d, &written, leaf)
+            owner = self.named_owner(d, &written, leaf, callee)
             if owner == TC_OWNER_INFER {
                 owner = -1
             }
@@ -8859,7 +8953,7 @@ extension TcProgram {
         let ov = route.override_init
         let raw = route.raw
         var seen = false
-        let inits = self.inits_of(d, m, in_test)
+        let inits = self.inits_in_phase(d, m, in_test)
         var k = 0
         while k < inits.len() {
             let at = inits[k]
@@ -9364,7 +9458,7 @@ extension TcProgram {
             return false
         }
         let in_test = self.current_test
-        let inits = self.inits_of(d, viewer, in_test)
+        let inits = self.inits_in_phase(d, viewer, in_test)
         k = 0
         while k < inits.len() {
             let member = self.members[inits[k]]
@@ -10406,9 +10500,11 @@ extension TcProgram {
                 self.refuse(e, "type.arity",
                             "this call writes type arguments, and what it calls takes fewer")
             } else {
+                // A wrong kind pins the error type, refused already.
+                let fits = self.check_written_kinds(self.res.first_node_child(e), &explicit, owner)
                 var k = 0
                 while k < explicit.len() {
-                    solve.sol[k] = explicit[k]
+                    solve.sol[k] = if fits { explicit[k] } else { self.error_type }
                     k = k + 1
                 }
             }
@@ -10533,6 +10629,7 @@ extension TcProgram {
         let defaults = self.generic_defaults(c, &bind)
         self.infer_from_defaults(c, &defaults, &sub, &var solve)
         self.settle_solutions(e, owner, &var solve)
+        self.check_inferred_constants(e, owner, explicit.len(), &solve)
         k = 0
         while k < n {
             if not done[k] {
@@ -10554,6 +10651,26 @@ extension TcProgram {
     // auto-wraps, an Optional's payload or a Result's `Ok`. A slot the result
     // does not match fixes nothing, and the call's arguments are then the
     // only source.
+    // Each const parameter of `owner` after the `written` ones, which call
+    // `e` leaves to inference, solved as a constant: it must fit the
+    // parameter's declared type, as a written argument must.
+    func check_inferred_constants(&var self, e: Int, owner: Int, written: Int, solve: &TcSolve) {
+        if owner < 0 {
+            return
+        }
+        let s = self.sigs[owner]
+        var k = written
+        while k < s.generic_count && k < solve.sol.len() {
+            let g = self.generics[s.generic_first + k]
+            let v = solve.sol[k]
+            if g.is_const && g.leaf >= 0 && v >= 0 && self.types.ty(v).kind == TcKind.ConstInt {
+                let name = self.text(self.res.decls[owner].module, g.leaf)
+                let _ = self.check_constant_fit(e, self.types.ty(v).a, g.const_type, &name, true)
+            }
+            k = k + 1
+        }
+    }
+
     func solve_from_slot(&var self, c: TcCand, slot: Int, sub: &TcSubst, solve: &var TcSolve) {
         let raw = self.sigs[c.decl].result
         let result = self.subst(raw, &sub)
@@ -12885,7 +13002,7 @@ extension TcProgram {
         let name = self.res.intern("[]=")
         let m = self.current
         let in_test = self.current_test
-        let found = self.visible_members(d, name, m, in_test)
+        let found = self.members_in_phase(d, name, m, in_test)
         var k = 0
         while k < found.len() {
             if self.is_method_member(found[k], false) {

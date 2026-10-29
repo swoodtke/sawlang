@@ -1,0 +1,15 @@
+// refuses: static.not-constant at 9:26
+// a mutable static of another module, named through its module as an array
+// length (SL-920)
+// message: array length is not a compile-time constant: the mutable static `LIVE` is not allowed here
+
+import sizes
+
+struct Frame {
+    bytes: [UInt8; sizes.LIVE]
+}
+
+func main() {
+    let f = Frame(bytes: [0; 4])
+    print(f.bytes.len())
+}

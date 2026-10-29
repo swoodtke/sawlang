@@ -1,0 +1,73 @@
+// probe: stated
+// about: a static named as a constant argument, a length and a repeat count folds to its value before layout and mangling, so `Pool<Int, SLOTS>` and `Pool<Int, 4>` are one type with one layout and one instance (SL-920)
+// stage 0: no oracle here: what is pinned is sawc's one instance symbol for both spellings, which Stage 0's mangling does not share
+// speeds: -O0 -O2
+// ll defines: saw const_static_argument.Pool.first() args Int 4
+// prints: 32 4 4
+// prints: 13 4
+// prints: 3 6 48
+// prints: 544 128
+import const_static_sizes
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+extension Pool<T, N> {
+    func first(&self) -> T {
+        self.items[0]
+    }
+}
+
+struct Slab<T, const N: Int> {
+    inline: [T; N],
+    ext_base: [UInt; MAX_SLAB_EXTENTS],
+    total: Int,
+}
+
+struct TimerSlot {
+    armed: Bool,
+    fires: Int,
+}
+
+static SLOTS: Int = 4
+static MAX_SLAB_EXTENTS: Int = 4
+static MAX_EVENTS: Int = 8
+static MAX_TIMERS: Int = 8
+static MAX_ATTACHMENTS: Int = (MAX_EVENTS
+                               + MAX_TIMERS)
+static PT_DESCRIPTORS: Int = (4 * 2
+                              + 512)
+static PIPE_BODY_BYTES: Int = 128
+
+unsafe static var TIMERS: Slab<TimerSlot, MAX_TIMERS> = Slab<TimerSlot, MAX_TIMERS>(
+    inline: [TimerSlot(armed: false, fires: 0); MAX_TIMERS],
+    ext_base: [0; MAX_SLAB_EXTENTS],
+    total: MAX_TIMERS)
+
+unsafe static var ATTACHMENTS: Slab<Int, MAX_ATTACHMENTS> = Slab<Int, MAX_ATTACHMENTS>(
+    inline: [0; MAX_ATTACHMENTS],
+    ext_base: [0; MAX_SLAB_EXTENTS],
+    total: MAX_ATTACHMENTS)
+
+unsafe static var PAGE_TABLES: [UInt64; PT_DESCRIPTORS] = [0; PT_DESCRIPTORS]
+
+func tell(body: &[UInt8; PIPE_BODY_BYTES]) -> Int {
+    body.len()
+}
+
+func census() unsafe -> Int {
+    TIMERS.total + ATTACHMENTS.total + PAGE_TABLES.len()
+}
+
+func main() {
+    let a: Pool<Int, SLOTS> = Pool<Int, SLOTS>(items: [9; SLOTS])
+    let b: Pool<Int, 4> = Pool<Int, 4>(items: [4; 4])
+    print("{} {} {}", sizeof<Pool<Int, SLOTS>>(), [0; SLOTS].len(), a.items.len())
+    print("{} {}", a.first() + b.first(), b.items.len())
+    let frame: [Int; const_static_sizes.FRAME_WORDS] = [1; 3]
+    let wide = [0; const_static_sizes.WIDE]
+    print("{} {} {}", frame.len(), wide.len(), sizeof<Pool<Int, const_static_sizes.WIDE>>())
+    let body: [UInt8; PIPE_BODY_BYTES] = [0; PIPE_BODY_BYTES]
+    print("{} {}", census(), tell(&body))
+}

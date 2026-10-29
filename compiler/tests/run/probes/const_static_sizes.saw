@@ -1,0 +1,4 @@
+// probe: module
+// about: the statics `const_static_argument` names through this module, as a length and as a constant argument (SL-920)
+public static FRAME_WORDS: Int = 3
+public static WIDE: Int = FRAME_WORDS * 2

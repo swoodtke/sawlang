@@ -1,0 +1,14 @@
+// refuses: type.mismatch at 12:21
+// a negative static filling a `UInt` const parameter: the value must fit the
+// parameter it fills
+// message: the constant argument `BELOW` is -1, which does not fit `UInt`, the type of `N`
+
+struct Gauge<const N: UInt> {
+    level: Int
+}
+
+static BELOW: Int = 0 - 1
+
+func read(g: &Gauge<BELOW>) -> Int {
+    g.level
+}

@@ -1,12 +1,11 @@
-// refuses: slice.not-yet at 10:19
-// a constant argument named by a static
-
-static SIZE: Int = 4
+// refuses: slice.not-yet at 9:19
+// a constant argument written with `/`, which the constant grammar admits and
+// the bootstrap slice's folder does not compute yet (SL-457)
 
 struct Ring<const N: Int> {
     head: Int
 }
 
-func size(r: Ring<SIZE>) -> Int {
+func size(r: Ring<8 / 2>) -> Int {
     0
 }

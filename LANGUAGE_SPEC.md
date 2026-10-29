@@ -11772,7 +11772,7 @@ The obligation is bigger than Level 1's and is worth stating before the code:
 any two of them may run at the same instant on the same value. Level 1 gets
 that from the lock. Here you owe it method by method.
 
-```saw-pending SL-457
+```saw
 static REGION_BYTES: Int = 4096
 static CHUNK_BYTES: Int = 16
 
@@ -12133,7 +12133,8 @@ declared without an initializer are each refused, and the message names
 which static and why rather than reading as "a static may not be named
 here":
 
-```saw-pending SL-457
+```saw-error
+// error-rule: static.not-constant
 // error-contains: the mutable static
 unsafe static var ARENA_BYTES: Int = 1024
 static ARENA: [UInt8; ARENA_BYTES] = [0; 1024]

@@ -1,0 +1,14 @@
+// refuses: static.not-constant at 12:22
+// a static of a non-integer type named as a constant argument (SL-920)
+// message: constant argument is not a compile-time constant: the `Bool` static `ENABLED` is not allowed here
+
+struct Pool<T, const N: Int> {
+    items: [T; N]
+}
+
+static ENABLED: Bool = true
+
+func main() {
+    let p: Pool<Int, ENABLED> = Pool<Int, 4>(items: [7; 4])
+    print("{}", p.items[3])
+}

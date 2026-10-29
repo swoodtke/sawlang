@@ -121,6 +121,9 @@ extension TcProgram {
     // type being classified adds nothing of its own, since a pointer closes
     // any cycle a finite type has.
     public func tier_of_decl(&var self, d: Int) -> TcTier {
+        if self.tiers.len() == 0 {
+            return self.tier_before_tiers(d)
+        }
         let known = self.tiers[d]
         if known.state == TC_TIER_DONE {
             return known
@@ -134,6 +137,25 @@ extension TcProgram {
         let result = self.classify(d)
         self.tiers[d] = result
         result
+    }
+
+    // Nominal `d`'s tier asked before tiers are computed, as a static's
+    // initializer typed ahead of signatures asks it (`statics.saw`). A
+    // builtin scalar is `Copy` whatever the table would say, since no other
+    // module may declare its policy; any other type's tier is not known yet,
+    // a phase violation.
+    func tier_before_tiers(&var self, d: Int) -> TcTier {
+        let k = self.known
+        let signed = d == k.int || d == k.int8 || d == k.int16 || d == k.int32 || d == k.int64
+        let unsigned = d == k.uint || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64
+        if not signed && not unsigned && d != k.float && d != k.bool_type {
+            var what = StringBuilder()
+            try! what.append("the copy tier of `")
+            try! what.append(self.res.decl_path(d))
+            try! what.append("` is asked before tiers are computed")
+            self.phase_violation(what.build())
+        }
+        TcTier(base: TC_TIER_COPY, mask: 0, declared: false)
     }
 
     func classify(&var self, d: Int) -> TcTier {

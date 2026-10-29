@@ -2300,7 +2300,14 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   plain Int; const ARITHMETIC in instantiation position (`FixedBuf<2 * 128>` IS
   `FixedBuf<256>` — folded before mangling), and a module `static` counts as a
   constant there too (DF-172j: `FixedBuf<CAP>` IS `FixedBuf<16>` for a
-  `static CAP: Int = 16`); defaults compose with design 37
+  `static CAP: Int = 16`). sawc takes it at every position (SL-920): an
+  annotation, a construction's head `Slab<T, MAX>(…)`, a field, a static's
+  own type, a repeat count, a default `<const N: Int = CAP>`, bare or
+  `dep.CAP`, a derived `static B = A * 2` included. Any integer static whose
+  initializer folds qualifies; a mutable, non-integer or uninitialized one is
+  `static.not-constant` naming it, and a local of the same name wins and is
+  refused as the run-time value it is. One whose initializer uses
+  `sizeof`/`alignof` is not folded there yet (SL-457); defaults compose with design 37
   (`<const N: Int = 4>`, so `Ring()` means `Ring<4>`); structs, enums and free
   functions all take them. Explicit at the use site except for ONE inference
   case — a `[T; N]` PARAMETER binds N from the argument's length:
