@@ -2033,8 +2033,9 @@ VOLATILE_PROBE = "memory_volatile_survives_optimization.saw"
 def check_volatile_accesses(failures, counts):
     """`probes/memory_volatile_survives_optimization.saw`'s `.ll` for the
     host, as sawc writes it and after the host clang's -O2: each holds exactly
-    the `Device` view's two volatile loads and two volatile stores, and the
-    `Normal` view's accesses none (SL-914). The count is over the module, so
+    four volatile loads and four volatile stores, two of each through a
+    `Device` view and two through a field it projects, and the `Normal`
+    view's accesses none (SL-914). The count is over the module, so
     whatever the optimizer inlines, a merged `Device` access or a volatile
     `Normal` one moves it."""
     probe = os.path.join(PROBES, VOLATILE_PROBE)
@@ -2061,8 +2062,8 @@ def check_volatile_accesses(failures, counts):
     for stage, text in (("as written", r.stdout), ("after -O2", o.stdout)):
         loads = len(re.findall(r"= load volatile i32, ptr ", text))
         stores = len(re.findall(r"\bstore volatile i32 ", text))
-        if (loads, stores) != (2, 2):
-            failures.append("%s: %s, the .ll holds %d volatile loads and %d volatile stores, not 2 and 2"
+        if (loads, stores) != (4, 4):
+            failures.append("%s: %s, the .ll holds %d volatile loads and %d volatile stores, not 4 and 4"
                             % (where, stage, loads, stores))
             return
     counts["run volatile accesses pinned"] = counts.get("run volatile accesses pinned", 0) + 1

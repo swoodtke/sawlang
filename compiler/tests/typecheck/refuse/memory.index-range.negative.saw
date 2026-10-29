@@ -1,0 +1,10 @@
+// refuses: memory.index-range at 5:47
+// an index projection by a negative constant
+
+func reach(address: Int) unsafe -> UInt8 {
+    UnsafeMemory<[UInt8; 4], Normal>(address)[-1].read()
+}
+
+func main() {
+    print(0)
+}

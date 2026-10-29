@@ -939,7 +939,6 @@ Every body construct in the slice, and how it is typed:
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
 | constructing a builtin type no declaration writes an `init` for; `Atomic(v)`, `UnsafeMutableInterior(v)` and `UnsafeMemory<T, U>(a)` are their lang roles' positional constructions | `slice.not-yet`, under Stage 0's std only; no fixture runs under that root |
-| a field or an index projection through an `UnsafeMemory` view | `slice.not-yet` (SL-914b): `refuse/slice.not-yet.memory-field`, `.memory-index` |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet`, under Stage 0's std only, the one declaring `FuncPointer`; no fixture runs under that root |
 | downcasting an erased box, `b.is<T>()` and `b.take<T>()` | `slice.not-yet` (erased-box-downcast) |
 
@@ -1536,8 +1535,9 @@ view-type funnel (`memory_view_rule`, `compiler/typecheck/src/checks.saw`)
 judges each once tiers exist and refuses it where a position first carries it
 (`tc_check_memory_views`), and mono judges the ones only an instantiation forms
 (`refuse_memory_views`). The view-access funnel (`memory_construct`,
-`memory_access`, `compiler/typecheck/src/bodies.saw`) checks each construction
-and accessor. `t.` abbreviates `refuse/memory.trivial.`, `e.`
+`memory_access`, `memory_field`, `memory_index`,
+`compiler/typecheck/src/bodies.saw`) checks each construction, accessor and
+projection. `t.` abbreviates `refuse/memory.trivial.`, `e.`
 `refuse/memory.enum.`:
 
 | row | verdict | covered by |
@@ -1549,6 +1549,9 @@ and accessor. `t.` abbreviates `refuse/memory.trivial.`, `e.`
 | an intent other than `Device` or `Normal`: a static's type, a field, a construction's head | `memory.intent` | `memory.intent` (bare), `.field`, `.construction-head` |
 | a constant address off the `T`'s alignment: a static, a body | `memory.misaligned` | `memory.misaligned` (bare), `.construction` |
 | every trivial kind, both intents, both markers, a static view, the region accessors, a generic view at a trivial type | allowed | run probe `memory_views_round_trip` |
+| a projection: a field, a nested field, an element, an index then a field, a run-time index, a marked field, a driver's `self.regs.status.read()` | allowed | run probe `memory_view_projections` |
+| a projection to another module's private field; through a view of no struct; by index through a view of no array; by a constant index past the array or below zero | `member.unknown`, `memory.not-a-struct`, `memory.not-an-array`, `memory.index-range` | `member.unknown.memory-private-field/`, `memory.not-a-struct`, `memory.not-an-array`, `memory.index-range` (bare), `.negative` |
+| an accessor a projected marker forbids: `write(v)` of a `ReadOnly` field, directly and through a nested struct; `read()` of a `WriteOnly` field, directly and as an array's element | `memory.read-only`, `memory.write-only` | `memory.read-only.projected`, `.nested`, `memory.write-only.projected`, `.indexed` |
 
 ## The conformance rows
 
@@ -1725,6 +1728,9 @@ its fixit.
 | `memory.write-only` | `read()` of a `WriteOnly<T>` view, or of a whole value holding a `WriteOnly` field, on either intent (SL-914) |
 | `memory.region-accessor` | `ptr()`, `len()` or `end()` of a view that is not `Normal` (SL-914) |
 | `memory.region-length` | `len()` of a view whose `T` is not a fixed array (SL-914) |
+| `memory.not-a-struct` | a field projection, `view.field`, through a view whose `T` is no struct (SL-914) |
+| `memory.not-an-array` | an index projection, `view[i]`, through a view whose `T` is no fixed array (SL-914) |
+| `memory.index-range` | an index projection by a constant outside the viewed array's length, a negative one included; a run-time index is unchecked (SL-914) |
 | `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
 | `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
 | `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |

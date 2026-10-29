@@ -1,0 +1,6 @@
+// The register block a driver in another module projects through.
+
+public struct Regs {
+    data: UInt32
+    private calibration: UInt32
+}

@@ -1,0 +1,20 @@
+// refuses: memory.read-only at 15:5
+// `write(v)` of a `ReadOnly` field reached through a nested struct on a
+// `Normal` view
+
+struct Inner {
+    flag: ReadOnly<UInt32>
+}
+
+struct Block {
+    inner: Inner
+    slots: [WriteOnly<UInt32>; 2]
+}
+
+func reach(address: Int) unsafe {
+    UnsafeMemory<Block, Normal>(address).inner.flag.write(1)
+}
+
+func main() {
+    print(0)
+}

@@ -55,6 +55,10 @@ extension LlEmitter {
             case Adopt -> self.convert_into(&var mono, &var target, &rv, dest, node, "adopt"),
             case Conversion -> {
                 let word = mono.dp.bc.mir.tc.name_text(rv.op)
+                if word.equals("memory_field") || word.equals("memory_index") {
+                    self.view_projection_into(&var mono, &var target, &rv, dest, node, word)
+                    return
+                }
                 self.convert_into(&var mono, &var target, &rv, dest, node, word)
             },
             case Aggregate -> self.aggregate_into(&var mono, &var target, r, dest, node),
@@ -63,6 +67,65 @@ extension LlEmitter {
             case Slice -> self.refuse_here(&var mono, node, "a slice is not in the backend slice yet"),
             case Take -> self.take_into(&var mono, &var target, &rv, dest, node)
         }
+    }
+
+    // A view's projection into `dest` (SL-914): the base view's address
+    // moved on by the field's offset in the target's layout of the viewed
+    // struct (`memory_field`, `rv.decl` the field), or by the index times the
+    // element's size (`memory_index`). The address is the whole new view, and
+    // nothing at it is read.
+    func view_projection_into(&var self, mono: &var MonoProgram, target: &var Target, rv: &MirRvalue, dest: String,
+                              node: Int, word: String) {
+        let o = mono.dp.bc.mir.lists[rv.first]
+        let view = mono.dp.bc.mir.operands[o].ty
+        let viewed = mono.dp.bc.mir.tc.arg_of(view, 0)
+        let width = self.word
+        let held = self.operand_addr(&var mono, &var target, o, view, node)
+        let address = self.load(width, held)
+        if word.equals("memory_field") {
+            let vd = mono.dp.bc.mir.tc.nominal_decl(viewed)
+            let fields = target_struct_fields(&mono.dp.bc.mir.tc, vd)
+            var k = 0
+            while k < fields.len() && fields[k] != rv.decl {
+                k = k + 1
+            }
+            if k == fields.len() {
+                self.refuse_here(&var mono, node, "a view's field projection names no field of the struct it views")
+                return
+            }
+            let offset = target.member_offset(&var mono.dp.bc.mir.tc, viewed, k)
+            var line = StringBuilder()
+            try! line.append("add ")
+            try! line.append(width)
+            try! line.append(" ")
+            try! line.append(address)
+            try! line.append(", ")
+            try! line.append(offset)
+            let moved = self.assign(line.build())
+            self.store(width, moved, dest)
+            return
+        }
+        let i = mono.dp.bc.mir.lists[rv.first + 1]
+        let index = self.operand_value(&var mono, &var target, i, node)
+        let al = self.lay_at(&var mono, &var target, viewed, node)
+        let el = self.lay_at(&var mono, &var target, al.element, node)
+        var scaled = StringBuilder()
+        try! scaled.append("mul ")
+        try! scaled.append(width)
+        try! scaled.append(" ")
+        try! scaled.append(index)
+        try! scaled.append(", ")
+        try! scaled.append(el.size)
+        let step = self.assign(scaled.build())
+        var line = StringBuilder()
+        try! line.append("add ")
+        try! line.append(width)
+        try! line.append(" ")
+        try! line.append(address)
+        try! line.append(", ")
+        try! line.append(step)
+        let moved = self.assign(line.build())
+        self.store(width, moved, dest)
     }
 
     func aggregate_into(&var self, mono: &var MonoProgram, target: &var Target, r: Int, dest: String, node: Int) {

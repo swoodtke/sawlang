@@ -1,0 +1,16 @@
+// refuses: memory.not-an-array at 11:5
+// an index projection through a view of a struct, which has no element
+
+struct Port {
+    data: UInt32
+    status: ReadOnly<UInt32>
+    clear: WriteOnly<UInt32>
+}
+
+func reach(address: Int) unsafe -> UInt32 {
+    UnsafeMemory<Port, Device>(address)[0].read()
+}
+
+func main() {
+    print(0)
+}

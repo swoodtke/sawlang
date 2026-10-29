@@ -1,0 +1,10 @@
+// refuses: memory.not-a-struct at 5:5
+// a field projection through a view of a fixed array, which has no field
+
+func reach(address: Int) unsafe -> UInt32 {
+    UnsafeMemory<[UInt32; 4], Normal>(address).data.read()
+}
+
+func main() {
+    print(0)
+}

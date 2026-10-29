@@ -1,0 +1,20 @@
+// refuses: memory.write-only at 15:5
+// `read()` of a `WriteOnly` element reached by a field, then an index
+// projection
+
+struct Inner {
+    flag: ReadOnly<UInt32>
+}
+
+struct Block {
+    inner: Inner
+    slots: [WriteOnly<UInt32>; 2]
+}
+
+func reach(address: Int) unsafe -> UInt32 {
+    UnsafeMemory<Block, Device>(address).slots[1].read()
+}
+
+func main() {
+    print(0)
+}

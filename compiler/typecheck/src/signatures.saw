@@ -463,6 +463,8 @@ extension TcProgram {
     //     atomic_intrinsic
     //     cell_construct
     //     memory_access
+    //     memory_field
+    //     memory_index
     //     subst
     public func mk_nominal(&var self, d: Int, args: &Vector<Int>) -> Int {
         let none = Vector<Int>()

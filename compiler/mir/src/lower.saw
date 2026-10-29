@@ -2220,6 +2220,9 @@ extension MirProgram {
             if c.role == TcRole.Value {
                 return MirVal(operand: self.function_constant(e, t))
             }
+            if c.role == TcRole.Conversion {
+                return MirVal(operand: self.view_projection(e, &c))
+            }
         }
         let leaf = self.tc.res.first_leaf(e)
         let b = self.tc.binding_at(leaf)
@@ -2991,7 +2994,7 @@ extension MirProgram {
         }
         // A getitem's copy is a value like any other a place projects, owned
         // by its scope even when the plan reads only a part of it.
-        if c.role == TcRole.Getitem {
+        if c.role == TcRole.Getitem || c.role == TcRole.Conversion {
             self.value_root(e, &var steps)
             return
         }
@@ -3683,7 +3686,41 @@ extension MirProgram {
             let p = self.getitem(e, &c)
             return MirVal(place: p, fresh: true)
         }
+        if at >= 0 && self.tc.calls[at].role == TcRole.Conversion {
+            let c = self.tc.calls[at]
+            return MirVal(operand: self.view_projection(e, &c))
+        }
         self.prepared_val(e)
+    }
+
+    // A view's projection, `view.field` or `view[i]` (SL-914): the base view
+    // read by value, then the index, converted into the view of the member,
+    // the field `c.target` names (`memory_field`) or the element
+    // (`memory_index`). Nothing is loaded from the memory viewed.
+    func view_projection(&var self, e: Int, c: &TcCall) -> Int {
+        let t = self.tc.expr_types[e]
+        let base = self.tc.res.first_node_child(e)
+        let spelling = self.tc.name_text(c.spelling)
+        var ops = Vector<Int>()
+        let mark = self.scope.len()
+        if spelling.equals("memory_index") {
+            let keys = self.subscript_values(e)
+            var view = self.operand(base)
+            if not self.is_pure(keys[0]) {
+                view = self.snapshot(view)
+            }
+            try! ops.push(view)
+            try! ops.push(self.operand(keys[0]))
+        } else {
+            try! ops.push(self.operand(base))
+        }
+        let rv = self.rv_over(MirRvalueKind.Conversion, t, spelling, &ops)
+        var info = self.rvalues[rv]
+        info.decl = c.target
+        self.rvalues[rv] = info
+        let o = self.temp_operand(rv)
+        self.close_argument_windows(mark)
+        o
     }
 }
 

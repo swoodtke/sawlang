@@ -1,0 +1,13 @@
+// refuses: member.unknown at 8:41
+// a field projection through a view of another module's struct, naming a field
+// that module keeps private, refused as a member access is
+
+import regs.{Regs}
+
+func reach(address: Int) unsafe -> UInt32 {
+    UnsafeMemory<Regs, Device>(address).calibration.read()
+}
+
+func main() {
+    print(0)
+}

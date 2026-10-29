@@ -15550,8 +15550,7 @@ may write it ([Reference passing](#reference-passing)).
 
 ### `UnsafeMemory<T, Use>` — typed memory at a fixed address
 
-**Status: implemented (design 46); in `sawc`, projection is not built yet
-(SL-914b).** `UnsafeMemory<T, Use>` is a compiler-known one-word wrapper over a
+**Status: implemented (design 46).** `UnsafeMemory<T, Use>` is a compiler-known one-word wrapper over a
 fixed machine address: a typed view onto memory the program does not own, for
 register blocks and board bootstrap regions. A body builds one from an `Int` or
 a `UInt` address, `UnsafeMemory<T, Use>(address)`; a static's initializer
@@ -15614,7 +15613,10 @@ with any raw pointer.
 compile-time offset*; it chains through nested structs and indexes through
 fixed-array fields. No memory is ever loaded to project — it is pure address
 arithmetic (an inbounds GEP through the natural-ABI layout, folded to a constant
-offset).
+offset). A field the projecting module cannot see is refused, as a member access
+is. Indexing `UnsafeMemory<[E; N], Use>` yields `UnsafeMemory<E, Use>` at *base
++ i × the element's size*: a constant index outside `0..<N` is a compile error,
+and a run-time index is unchecked, the author's to keep in range.
 
 **Layout guarantee.** The viewed struct uses **declaration-order, natural-ABI
 layout** — the same language-level rule that governs [all structs](#structs), so

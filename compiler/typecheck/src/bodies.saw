@@ -3792,9 +3792,7 @@ extension TcProgram {
         }
         let d = self.nominal_decl(t)
         if d >= 0 && d == self.known.unsafe_memory {
-            self.not_yet(e, "a field projection through an `UnsafeMemory` view (SL-914b)")
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+            return self.memory_field(e, leaf, t, name)
         }
         let in_test = self.current_test
         let seen = self.members_in_phase(d, name, m, in_test)
@@ -8804,11 +8802,14 @@ extension TcProgram {
     // read by value: `read()` and `write(v)`, which a `ReadOnly<T>` or
     // `WriteOnly<T>` view gates whatever the intent and which reach a scalar
     // alone on `Device`, and the `Normal` region accessors `ptr()`, `len()`
-    // and `end()`. A projection, which `member_place` and `subscript_expr`
-    // meet, is not built yet (SL-914b).
+    // and `end()`. A projection, `view.field` or `view[i]`, is a conversion
+    // of the view into a view of the member at its offset, with the same
+    // `Use`: it loads nothing, so the member is reached only by an accessor.
     // ENTRY POINTS:
     //     init_call
     //     method_call
+    //     member_place
+    //     subscript_expr
     func memory_construct(&var self, e: Int, d: Int, owner: Int, want: Int, args: &TcArgs) -> Int {
         if args.values.len() != 1 || args.labels[0] >= 0 {
             self.refuse(e, "call.arity", "a view is built from one unlabeled address: `UnsafeMemory<T, Use>(address)`")
@@ -8932,6 +8933,124 @@ extension TcProgram {
         c.owner = t
         self.calls[at] = c
         self.set_type(e, result, false)
+    }
+
+    // `view.name` at `e`, `t` the view's type: a view of the viewed struct's
+    // field `name`, which this module must see, as a member access must
+    // (design 80). A marked field's view keeps its marker, which its
+    // accessors read.
+    func memory_field(&var self, e: Int, leaf: Int, t: Int, name: Int) -> Int {
+        let base = self.res.first_node_child(e)
+        let u = self.by_value_use(base)
+        self.set_use(base, u)
+        let viewed = self.arg_of(t, 0)
+        let vd = self.nominal_decl(viewed)
+        if vd < 0 || not self.is_struct_decl(vd) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` views `")
+            try! msg.append(self.type_text(viewed))
+            try! msg.append("`, which is no struct, so a view of it has no field to project")
+            self.refuse(e, "memory.not-a-struct", msg.build())
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let m = self.current
+        let in_test = self.current_test
+        let seen = self.members_in_phase(vd, name, m, in_test)
+        var k = 0
+        while k < seen.len() {
+            let member = self.members[seen[k]]
+            k = k + 1
+            if self.res.decls[member.decl].kind != ResDeclKind.Field || not self.extension_applies(member.ext, viewed) {
+                continue
+            }
+            self.build_decl(member.decl)
+            let written = self.sigs[member.decl].result
+            let s = TcSubst(owner: vd, args: self.nominal_args(viewed))
+            let ft = self.subst(written, &s)
+            if self.has_error(ft) {
+                return self.set_type(e, ft, false)
+            }
+            var args = Vector<Int>()
+            try! args.push(ft)
+            try! args.push(self.arg_of(t, 1))
+            let d = self.known.unsafe_memory
+            let projected = self.mk_nominal(d, &args)
+            let none = Vector<Int>()
+            let _ = self.record_call(e, member.decl, TcRole.Conversion, projected, &none)
+            let at = self.call_at[e]
+            var c = self.calls[at]
+            c.spelling = self.res.intern("memory_field")
+            self.calls[at] = c
+            return self.set_type(e, projected, false)
+        }
+        self.refuse_unknown_member(leaf, viewed)
+        let poisoned = self.error_type
+        self.set_type(e, poisoned, false)
+    }
+
+    // `view[i]` at `e`, `t` the view's type: a view of the viewed array's
+    // element `i`. A constant index past the array is refused; a run-time one
+    // is unchecked, the explicit unchecked escape a view is.
+    func memory_index(&var self, e: Int, base: Int, t: Int, args: &TcArgs) -> Int {
+        let u = self.by_value_use(base)
+        self.set_use(base, u)
+        let i = self.int_type()
+        var k = 0
+        while k < args.values.len() {
+            if args.labels[k] >= 0 {
+                self.refuse(args.values[k], "call.label", "a view's index takes no label")
+            }
+            self.check_argument(args.values[k], i)
+            k = k + 1
+        }
+        if args.values.len() != 1 {
+            self.refuse(e, "call.arity", "a view's subscript takes one index")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let viewed = self.arg_of(t, 0)
+        let vi = self.types.ty(viewed)
+        if vi.kind != TcKind.Array {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` views `")
+            try! msg.append(self.type_text(viewed))
+            try! msg.append("`, which is no fixed array, so a view of it has no element to index")
+            self.refuse(e, "memory.not-an-array", msg.build())
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let length = self.types.ty(self.types.arg(viewed, 0))
+        let index = self.fold_constant(args.values[0])
+        if length.kind == TcKind.ConstInt && index.ok && index.ty >= 0 && self.is_integer(index.ty) && (index.bits < 0 || index.bits >= length.a) {
+            var msg = StringBuilder()
+            try! msg.append("the constant index ")
+            try! msg.append(index.bits)
+            try! msg.append(" is past `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("`'s ")
+            try! msg.append(length.a)
+            try! msg.append(" elements")
+            self.refuse(args.values[0], "memory.index-range", msg.build())
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        var targs = Vector<Int>()
+        try! targs.push(vi.b)
+        try! targs.push(self.arg_of(t, 1))
+        let d = self.known.unsafe_memory
+        let projected = self.mk_nominal(d, &targs)
+        let none = Vector<Int>()
+        let _ = self.record_call(e, -1, TcRole.Conversion, projected, &none)
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.spelling = self.res.intern("memory_index")
+        self.calls[at] = c
+        self.set_type(e, projected, false)
     }
 
     // The gates on `read()` (`reads`) or `write(v)` of view `t`, whose
@@ -11875,11 +11994,10 @@ extension TcProgram {
         }
         let info = self.types.ty(t)
         if info.kind == TcKind.Nominal && info.decl >= 0 && info.decl == self.known.unsafe_memory {
-            self.set_use(base, TcUse.Project)
-            self.type_args_alone(&args)
-            self.not_yet(e, "an index projection through an `UnsafeMemory` view (SL-914b)")
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+            if inner >= 0 {
+                self.add_adjust(base, TcAdjustKind.Deref, inner)
+            }
+            return self.memory_index(e, base, t, &args)
         }
         let pointer = info.kind == TcKind.Nominal && (info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer)
         if info.kind == TcKind.Array || info.kind == TcKind.Slice || pointer {

@@ -1,11 +1,16 @@
 // probe: custom
-// about: a `Device` view's two reads and two writes of one register stay two volatile loads and two volatile stores through clang -O2, and a `Normal` view's stay plain (SL-914)
+// about: a `Device` view's two reads and two writes of one register, and of one register reached by a field projection, stay volatile loads and stores through clang -O2, and a `Normal` view's stay plain (SL-914)
 // `run_lane.py`'s `check_volatile_accesses` writes this program's `.ll`,
-// optimizes it with the target's clang at -O2, and counts the accesses in
-// each function: an optimizer would merge the `Normal` pair and the `Device`
-// pair must survive whole.
+// optimizes it with the target's clang at -O2, and counts the accesses over
+// the module: an optimizer would merge the `Normal` pair, and both `Device`
+// pairs must survive whole.
 
 static BACKING: [UInt32; 2]
+
+struct Regs {
+    data: UInt32
+    status: UInt32
+}
 
 func device_twice(address: Int) unsafe -> UInt32 {
     let reg = UnsafeMemory<UInt32, Device>(address)
@@ -13,6 +18,15 @@ func device_twice(address: Int) unsafe -> UInt32 {
     reg.write(2)
     let first = reg.read()
     let second = reg.read()
+    first + second
+}
+
+func projected_twice(address: Int) unsafe -> UInt32 {
+    let regs = UnsafeMemory<Regs, Device>(address)
+    regs.status.write(3)
+    regs.status.write(4)
+    let first = regs.status.read()
+    let second = regs.status.read()
     first + second
 }
 
@@ -27,5 +41,5 @@ func normal_twice(address: Int) unsafe -> UInt32 {
 
 func main() unsafe {
     let base = ((&BACKING) as UnsafePointer<UInt32>) as Int
-    print("{} {}", device_twice(base), normal_twice(base))
+    print("{} {} {}", device_twice(base), projected_twice(base), normal_twice(base))
 }
