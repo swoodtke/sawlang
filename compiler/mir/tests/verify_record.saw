@@ -14,6 +14,7 @@ import std.data.{Data}
 import std.file.{File}
 import std.path.{Path}
 import sawmir.api.{mir_lower_file}
+import sawtarget.layout.{target_front_end}
 import sawmir.model.{MirFuncKind}
 import sawmir.program.{MirProgram}
 import sawmir.split.{MirHalf}
@@ -130,7 +131,8 @@ func epilogue_of(p: &MirProgram, m: Int, nth: Int) -> Int {
 // `path`, module `name`, lowered and checked clean.
 func lowered(path: String, name: String, names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
     var lowerings = 0
-    var p = mir_lower_file(path, "std", &names, &dirs, &var lowerings)
+    var p = mir_lower_file(path, "std", &names, &dirs, &var lowerings,
+                           target: target_front_end("arm64-apple-darwin", ""))
     let m = module_index(&p, name)
     assert(m >= 0, "the program did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the program is refused")

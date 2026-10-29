@@ -8,6 +8,7 @@
 // never adds, which rule 2 must report as reaching into that child's frame.
 // Paths are the repository root's, where the runner runs.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawtarget.layout.{target_front_end}
 import sawcoro.frames.{coro_frame_of}
 import sawcoro.lower.{coro_add_local, coro_append_stmt, coro_frame_place, coro_use_rvalue}
 import sawcoro.program.{CoroProgram, CoroValueKind}
@@ -55,9 +56,10 @@ func lowered() -> CoroProgram {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/zero_size.saw", std_root: "std",
-                               notes: false, names: &names, dirs: &dirs)
+                               notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     move coro
@@ -109,7 +111,7 @@ func past_the_end() {
         }
     }
     assert(moved == 1, "`outer`'s lowered body drops {} places, not one", moved)
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_verify_lowering(&var coro, &var target)
     let past = reports(&coro, "a slot lies past the frame's end", "verify rule 1 (frame in place)")
     assert(past == 1, "the verifier reports a slot running past the frame's end {} times, not once", past)
@@ -151,7 +153,7 @@ func into_the_child() {
     let steps = coro.mono.dp.bc.mir.projs.len()
     try! coro.mono.dp.bc.mir.places.push(MirPlace(local: local, static_decl: -1, first: steps, count: 0, ty: ty))
     coro_append_stmt(&var coro, f, 0, into, rv, -1)
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_verify_lowering(&var coro, &var target)
     let reached = reports(&coro, "a place reaches into the frame of child `zero_size.make()`",
                           "verify rule 2 (teardown by state)")

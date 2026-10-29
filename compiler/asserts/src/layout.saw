@@ -10,7 +10,7 @@ import sawtypecheck.api.{typecheck_program}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_atomic_widths}
 import sawtypecheck.fold.{TcFold}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
 
@@ -24,11 +24,11 @@ import sawtypecheck.typeops.{TcClient}
 //     driver_fix_file
 //     mir_lower_file
 public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
-                                      dirs: &Vector<String>, runtime: Bool = false,
+                                      dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                                       freestanding: Bool = false, provider: Bool = false,
                                       no_hidden_alloc: Bool = false) -> TcProgram {
-    var p = typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding,
-                              provider: provider, no_hidden_alloc: no_hidden_alloc)
+    var p = typecheck_program(path, std_root, &names, &dirs, target: target, runtime: runtime,
+                              freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc)
     asserts_check_concrete(&var p)
     asserts_check_view_addresses(&var p)
     move p
@@ -39,7 +39,7 @@ public func asserts_typecheck_program(path: String, std_root: String, names: &Ve
 // (SL-914). An address no constant gives is the author's to align, and a `T`
 // naming a type parameter is laid out by no target here.
 func asserts_check_view_addresses(p: &var TcProgram) {
-    var target = Target(triple: "arm64-apple-darwin")
+    var target = Target(triple: p.target.triple)
     var k = 0
     while k < p.memory_constructions.len() {
         let e = p.memory_constructions[k]
@@ -65,11 +65,9 @@ func asserts_check_view_addresses(p: &var TcProgram) {
 }
 
 // Each deferred assertion that measures no type parameter, against the
-// layouts of the types it measures.
+// layouts of the types it measures on the program's target.
 func asserts_check_concrete(p: &var TcProgram) {
-    // Every target sawc describes is LP64 with natural alignment, so one
-    // answers for all of them.
-    var target = Target(triple: "arm64-apple-darwin")
+    var target = Target(triple: p.target.triple)
     var k = 0
     while k < p.layout_asserts.len() {
         if not p.layout_assert_generic[k] {

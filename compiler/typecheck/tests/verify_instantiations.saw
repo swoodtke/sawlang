@@ -8,6 +8,7 @@
 // Paths are the repository root's, where the runner runs.
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.api.{typecheck_program}
+import sawtarget.layout.{target_front_end}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
 import sawtypecheck.program.{TcProgram}
 // For the extension writing `mk_param`, the interner's one way to form a
@@ -90,7 +91,8 @@ func unseen(found: &Vector<String>) -> Int {
 
 // The fixture checked clean.
 func checked(names: &Vector<String>, dirs: &Vector<String>) -> TcProgram {
-    let p = typecheck_program("compiler/tests/typecheck/inject/instantiations.saw", "std", &names, &dirs)
+    let p = typecheck_program("compiler/tests/typecheck/inject/instantiations.saw", "std", &names, &dirs,
+                              target: target_front_end("arm64-apple-darwin", ""))
     let m = module_index(&p, "instantiations")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.error_count() == 0, "the fixture is refused")

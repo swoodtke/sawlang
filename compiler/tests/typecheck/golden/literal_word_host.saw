@@ -1,0 +1,10 @@
+// flags: --std-root std
+// DF-137d on a 64-bit target: `0x80000000` and `0x100000000` fit the 64-bit
+// word, so both literals check clean here; at riscv32's 32-bit word the first
+// is refused (refuse/type.mismatch.literal-word-riscv32.saw).
+
+func main() {
+    let base: Int = 0x80000000
+    let wide: UInt = 0x100000000
+    print("{} {}", base, wide)
+}

@@ -1501,6 +1501,8 @@ extension TcProgram {
             return true
         }
         let k = self.known
+        // `int_width`'s answer, which this module cannot import: `Int` and
+        // `UInt` are the target's word.
         var width = 64
         if d == k.int8 || d == k.uint8 {
             width = 8
@@ -1508,6 +1510,8 @@ extension TcProgram {
             width = 16
         } else if d == k.int32 || d == k.uint32 {
             width = 32
+        } else if d == k.int || d == k.uint {
+            width = self.target.word_bits
         }
         let unsigned = d == k.uint || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64
         if tc_arith_fits(value, 64, true, width, not unsigned) {

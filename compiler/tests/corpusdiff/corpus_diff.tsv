@@ -284,7 +284,7 @@ conformance/D05_diverging_value_branch_arms.saw	pass	-	-
 conformance/D06_diverging_tail_and_never_chain.saw	pass	-	-
 conformance/D07_never_method_and_generic.saw	pass	-	-
 conformance/D08_never_closure_vtable_default.saw	refused	typecheck type.mismatch	expected `D08_never_closure_vtable_default.Reply`, the type of the function's result, which the body's last expression is, and found `Void`
-conformance/D09_diverging_positions_freestanding.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+conformance/D09_diverging_positions_freestanding.saw	refused	llvm backend.not-yet	sawc's backend does not emit for `riscv32-unknown-none-elf` yet: its word is 32 bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the prog
 conformance/D10_spawn_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a loop, `func se
 conformance/D11_spawn_closure_never_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: this closure's body never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a l
 conformance/D12_drive_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever. Write a forever-task as `-> Void` with a loop, `func serve() { while { ... } }`, and e
@@ -435,7 +435,7 @@ conformance/M41_shared_self_indirection_carveout_spellings.saw	pass	judged by it
 conformance/M42_shared_self_inline_array_element.saw	pass	-	mutability.immutable: this assignment writes `self.grid[0]`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare t
 conformance/M43_write_optional_payload_of_let.saw	pass	-	mutability.immutable: this assignment writes `o!.n`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M44_var_self_call_through_inline_array_element.saw	pass	-	mutability.immutable: this exclusive borrow of `h.cells[0]` would let it be written, and `h` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `v
-conformance/N05_freestanding_hosted_module.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+conformance/N05_freestanding_hosted_module.saw	pass	-	import.hosted-only: `std.file` is hosted-only, and the freestanding profile has no operating system under it to provide it; keep this import out of the freestanding build
 conformance/N08_align_local_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 conformance/N09_align_static_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
 conformance/N10_align_rejects_non_power_of_two.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
@@ -618,7 +618,7 @@ const_bitwise_fold.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is no
 const_bitwise_negative_length_error.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_bitwise_shift_range_error.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constant expression shifts a value of type `Int` by a count outside its width
-const_bitwise_width_riscv32.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+const_bitwise_width_riscv32.saw	refused	typecheck slice.not-yet	`syntax.expr.shift` is not in the bootstrap slice yet
 const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
 const_expression_adopts_an_operand_width.saw	pass	-	-
 const_generic_arg_notations.saw	pass	-	-
@@ -638,7 +638,7 @@ const_static_generic_arg.saw	crash	INVARIANT	47:39 an expression has no type
 const_static_leaf_at_struct_type.saw	refused	llvm backend.not-yet	a static whose initializer the constant evaluator does not hold is not in the backend slice yet
 const_static_length.saw	pass	-	-
 const_static_length_crossmodule.saw	pass	-	-
-const_static_length_freestanding.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+const_static_length_freestanding.saw	refused	typecheck slice.not-yet	`syntax.expr.multiplicative` is not in the bootstrap slice yet
 const_static_length_shadow.saw	pass	-	static.not-constant: array length is not a compile-time constant: `REGION_SIZE` names a binding whose value is known only at run time
 const_static_static_assert_error.saw	pass	-	static_assert.failed: static assertion failed: the region must be page-aligned
 constructor_infers_type_arguments.saw	pass	-	-
@@ -876,8 +876,8 @@ deinit_temp_receiver.saw	pass	-	-
 dependency_error_names_its_own_file_error.saw	pass	-	type.not-a-value: `Widget` names a type, a module or a trait, not a value
 dependency_named_main_keeps_the_entry_point.saw	pass	-	-
 destructuring_wildcard_over_a_borrowed_projection.saw	pass	-	-
-df137d_literal_width_riscv32.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
-df137d_literal_width_riscv32_ok.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+df137d_literal_width_riscv32.saw	pass	-	type.mismatch: integer literal 0x80000000 does not fit in `Int` (range -2147483648..=2147483647)
+df137d_literal_width_riscv32_ok.saw	refused	llvm backend.not-yet	sawc's backend does not emit for `riscv32-unknown-none-elf` yet: its word is 32 bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the prog
 df139a_copy_then_overwrite.saw	pass	-	-
 df140b_import_wrap.saw	pass	-	-
 df140c_qualified_type_position.saw	pass	-	-
@@ -1305,7 +1305,7 @@ errors/shared_self_borrows_field_var_method_call.saw	pass	-	mutability.immutable
 errors/shared_self_field_var_method_call.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 errors/shared_self_field_write.saw	pass	-	mutability.immutable: this assignment writes `self.hits`, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached through it: declare the
 errors/shared_self_var_method_call.saw	pass	-	mutability.immutable: this exclusive borrow of `self` would let it be written, and this method's receiver is `&self`, a shared borrow that writes neither the storage it borrows nor storage reached thr
-errors/signal_is_hosted_only.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+errors/signal_is_hosted_only.saw	pass	-	import.hosted-only: `std.signal` is hosted-only, and the freestanding profile has no operating system under it to provide it; keep this import out of the freestanding build
 errors/sleep_bare_int.saw	pass	-	type.mismatch: expected `std.duration.Duration`, the type of the parameter, and found `Int`
 errors/spawn_capture_across_iterations.saw	pass	-	loan.exclusive-twice: exclusive access violation: this task's `&var total` capture is still live when the loop body ends, so the next iteration would open a second exclusive borrow of the same root: t
 errors/spawn_capture_mt_send.saw	stage0-wrong	annotated SL-795	sawc meets its directives
@@ -1315,7 +1315,7 @@ errors/spawn_handle_may_not_escape_the_function.saw	pass	-	drop.must-consume: `t
 errors/spawn_names_its_engine.saw	pass	-	name.retired: `spawn { ... }` no longer names an engine: write `Thread.spawn { ... }` for an OS thread (blocking, `join()` waits), or `Task.spawn(work(...))` or `group.spawn(work(...))` for a cooperat
 errors/spawn_result_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `spawn_result_not_send.Raw` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-
 errors/specialized_method_wrong_type.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `join` this module can see
-errors/spinlock_needs_atomics.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+errors/spinlock_needs_atomics.saw	pass	-	atomics.target: `SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none: its base ISA omits the `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall — enable the ext
 errors/spinlock_suspending_body.saw	wrong	refused by another rule	borrows.sync-window, where the plan names effect.sync
 errors/statement_juxtaposition_in_closure_and_module_scope.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_closure_and_module_scope.saw` (syntax.rule.juxtaposition), so its declarations are not available
 errors/statement_juxtaposition_in_control_flow_bodies.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/statement_juxtaposition_in_control_flow_bodies.saw` (syntax.rule.juxtaposition), so its declarations are not available
@@ -2364,7 +2364,7 @@ static_non_optional_types_unaffected.saw	pass	-	-
 static_optional_type_refused.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_optional_type_refused_none.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_pod.saw	pass	-	-
-static_zero_bss.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
+static_zero_bss.saw	refused	llvm backend.not-yet	sawc's backend does not emit for `riscv32-unknown-none-elf` yet: its word is 32 bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the prog
 static_zero_init.saw	pass	-	-
 std_gated_name_redefined_by_user.saw	pass	-	-
 std_import_gate_signature_position.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it

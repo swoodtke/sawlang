@@ -8,7 +8,7 @@ import sawborrowck.verify.{borrowck_verify_module}
 import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
 import sawmir.program.{MirProgram}
 import sawresolve.program.{ResProgram}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.program.{TcProgram, TcTarget}
 
 // How `sawc borrowck` treats one entry file.
 public struct BorrowckOptions {
@@ -16,6 +16,8 @@ public struct BorrowckOptions {
     // Print each checked module's dump.
     dump: Bool
     notes: Bool
+    // The target the program is checked for (`target_front_end`).
+    target: TcTarget
 }
 
 // The record of one program borrow checked, after its `FILE` line:
@@ -25,7 +27,7 @@ public struct BorrowckOptions {
 // was refused and 1 otherwise. The lowering is counted in `lowerings`.
 public func borrowck_record(out: &var StringBuilder, path: String, options: &BorrowckOptions,
                             names: &Vector<String>, dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
     var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
     var p = borrowck_program(move lowered)
     var m = 0

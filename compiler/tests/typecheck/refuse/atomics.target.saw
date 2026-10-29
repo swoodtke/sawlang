@@ -1,0 +1,21 @@
+// refuses: atomics.target at 10:15
+// flags: --std-root std --target riscv32-unknown-none-elf
+// The target-atomics rule: rv32i has no `A` extension, so a compare-and-swap
+// lowers to an `__atomic_*` libcall, and naming a `SpinLock` is refused once,
+// at the first written type that names it, pointing at `--target-features +a`
+// (golden/atomics_target_answered.saw is the same program with it).
+
+import std.spinlock.*
+
+static COUNT: SpinLock<Int>
+
+func bump() -> Int {
+    borrow var n = COUNT.lock() {
+        n = n + 1
+        n
+    }
+}
+
+func main() {
+    print("{}", bump())
+}

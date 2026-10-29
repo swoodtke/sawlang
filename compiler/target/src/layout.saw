@@ -13,7 +13,7 @@
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.conform.{TcSubst}
-import sawtypecheck.program.{TcProgram}
+import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
@@ -113,11 +113,12 @@ public struct Target {
 extension Target: NoCopy {}
 
 // THE TRIPLE SET: the triples this description answers for, the default
-// first. All are LP64; they differ only in how an aggregate crosses the C
-// convention, which this slice refuses, in whether a narrow integer crosses
-// it extended (`c_extends_narrow`), and in whether an operating system is
-// there to link a program against (`target_bare_metal`). compiler/tools/
-// build.py's `BARE_METAL_TARGETS` and `clang_triple` mirror it.
+// first. All are LP64 but riscv32, which is ILP32 (`target_word_bytes`);
+// they differ besides only in how an aggregate crosses the C convention,
+// which this slice refuses, in whether a narrow integer crosses it extended
+// (`c_extends_narrow`), and in whether an operating system is there to link
+// a program against (`target_bare_metal`). compiler/tools/build.py's
+// `BARE_METAL_TARGETS` and `clang_triple` mirror it.
 // ENTRY POINTS:
 //     target_known
 //     target_bare_metal
@@ -127,6 +128,7 @@ public func target_triples() -> Vector<String> {
     try! out.push("x86_64-unknown-linux-gnu")
     try! out.push("aarch64-unknown-linux-gnu")
     try! out.push("aarch64-unknown-none-elf")
+    try! out.push("riscv32-unknown-none-elf")
     move out
 }
 
@@ -135,7 +137,87 @@ public func target_triples() -> Vector<String> {
 // object and never linked by sawc. Its layouts and C convention are its
 // architecture's.
 public func target_bare_metal(triple: String) -> Bool {
-    triple.equals("aarch64-unknown-none-elf")
+    triple.equals("aarch64-unknown-none-elf") || triple.equals("riscv32-unknown-none-elf")
+}
+
+// THE WORD: the width in bytes of `triple`'s word, which `Int`, `UInt`, a
+// pointer and every length are (spec, `Int`/`UInt` are pointer-width): 4 on
+// riscv32, 8 on every other triple.
+// ENTRY POINTS:
+//     Target.init
+//     target_front_end
+public func target_word_bytes(triple: String) -> Int {
+    if triple.starts_with("riscv32") {
+        return 4
+    }
+    8
+}
+
+// Whether `triple`, compiled with subtarget features `features`, lowers a
+// word's compare-and-swap to an instruction rather than an `__atomic_*`
+// libcall. RISC-V is the one architecture here whose base ISA omits atomics,
+// so `+a` answers it there, the last mention in the list winning as LLVM
+// reads it, and an ISA string in the arch field (`riscv32imac`, `G` meaning
+// `IMAFD`) counts as well; every other architecture has them.
+public func target_native_atomics(triple: String, features: String) -> Bool {
+    if not triple.starts_with("riscv") {
+        return true
+    }
+    var verdict = -1
+    var start = 0
+    let n = features.len()
+    var k = 0
+    while k <= n {
+        if k == n || (features.byte_at(k) as Int) == 44 {
+            // A feature string holds no whitespace: `driver_features_ok`
+            // admits only letters, digits and `+-,._`.
+            let one = features.substring(start, k)
+            if one.equals("+a") || one.equals("a") {
+                verdict = 1
+            } else if one.equals("-a") {
+                verdict = 0
+            }
+            start = k + 1
+        }
+        k = k + 1
+    }
+    if verdict >= 0 {
+        return verdict == 1
+    }
+    let dash = triple.index_of(45) ?? triple.len()
+    let arch = triple.substring(0, dash)
+    var isa = arch.substring(5, arch.len())
+    if isa.starts_with("32") || isa.starts_with("64") {
+        isa = isa.substring(2, isa.len())
+    }
+    isa.contains("a") || isa.contains("g")
+}
+
+// Whether sawc's backend emits a module for `triple`. Every triple does but
+// riscv32, whose 32-bit word the backend's literal widths do not follow, so
+// a build for it checks the program through every stage before the backend
+// and stops there (SL-865).
+// ENTRY POINTS:
+//     driver_build
+//     driver_refuse_mach_o
+public func target_emits(triple: String) -> Bool {
+    not triple.starts_with("riscv32")
+}
+
+// THE FRONT END'S TARGET: the record typecheck and every stage after it read
+// (`TcTarget`) for `triple` compiled with the effective subtarget features
+// `features`, its word from `target_word_bytes` and its atomics from
+// `target_native_atomics`. The one constructor of the record.
+// ENTRY POINTS:
+//     driver_build
+//     driver_resolve
+//     driver_mono
+//     driver_coro
+//     driver_fix_file
+//     llvm_build_exporting
+public func target_front_end(triple: String, features: String) -> TcTarget {
+    TcTarget(triple: triple, word_bits: target_word_bytes(triple) * 8,
+             atomics: target_native_atomics(triple, features))
 }
 
 // Whether `triple`'s objects are Mach-O, whose section names carry a segment.
@@ -188,11 +270,11 @@ public func target_clang_triple(triple: String) -> String {
     triple
 }
 
-// The description of `triple`, which `target_known` must answer for: every
-// triple it knows is LP64.
+// The description of `triple`, which `target_known` must answer for, its
+// word `target_word_bytes`'.
 extension Target {
     public init(triple: String) -> Target {
-        Target(triple: triple, word: 8, layouts: Vector<TargetLayout>(), states: Vector<Int>(),
+        Target(triple: triple, word: target_word_bytes(triple), layouts: Vector<TargetLayout>(), states: Vector<Int>(),
                offsets: Vector<Int>(), cases: Vector<TargetCase>(), reasons: Vector<String>(),
                case_values: Vector<Int>(), case_valued: Vector<Bool>())
     }

@@ -216,6 +216,19 @@ public func tc_profile(runtime: Bool, provider: Bool, freestanding: Bool) -> TcP
     TcProfile(kind: kind)
 }
 
+// What the front end knows of the target a program is compiled for: its
+// triple, the width of its word (`Int`, `UInt` and a pointer), and whether
+// it lowers a word's compare-and-swap to an instruction. Only the target
+// description builds one (`target_front_end`), and every stage entry takes it
+// with no default, so no stage can type a program for one word and lay it out
+// for another. Typecheck reads it here, and every later stage reads it
+// through the program, never a triple of its own.
+public struct TcTarget {
+    triple: String
+    word_bits: Int
+    atomics: Bool
+}
+
 public struct TcProgram {
     res: ResProgram
     types: TcTypes
@@ -554,6 +567,8 @@ public struct TcProgram {
     // profile: any of the five kinds may ask for it or not, so it stays an
     // option beside the record rather than a sixth kind.
     no_hidden_alloc: Bool
+    // The target the program is compiled for (`TcTarget`).
+    target: TcTarget
     // By declaration: the C symbol an `@export` gives it, or "" for none, and
     // the attribute that says so, or -1 (`check_exports`).
     export_symbols: Vector<String>
@@ -569,7 +584,7 @@ public struct TcProgram {
 
 extension TcProgram: NoCopy {}
 
-public func tc_program(res: ResProgram) -> TcProgram {
+public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
     let decl_total = res.decls.len()
     let node_total = res.nodes.len()
     var sigs = Vector<TcSig>()
@@ -675,7 +690,7 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       phase_problem_modules: Vector<Int>(), static_typing: move typing, static_verdicts: move verdicts,
                       static_values: move values, static_reasons: move reasons,
                       length_param_owners: Vector<Int>(), length_param_indexes: Vector<Int>(),
-                      profile: tc_profile(false, false, false), no_hidden_alloc: false,
+                      profile: tc_profile(false, false, false), no_hidden_alloc: false, target: target,
                       export_symbols: move symbols, export_nodes: move export_nodes,
                       erased_nodes: Vector<Int>(), blocking_twins: move twins, pair_defaults: move defaults)
     let empty = Vector<Int>()

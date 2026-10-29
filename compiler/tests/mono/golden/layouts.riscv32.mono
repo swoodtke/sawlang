@@ -1,0 +1,2219 @@
+item #0: layouts.main()
+fn -> Void {
+    let _0: Void;  // return
+    let _1: Int8;  // i8
+    let _2: UInt16;  // u16
+    let _3: Int32;  // i32
+    let _4: UInt64;  // u64
+    let _5: Int?;  // maybe_int
+    let _6: Int?;
+    let _7: Bool?;  // maybe_bool
+    let _8: Bool?;
+    let _9: layouts.Mixed;  // mixed
+    let _10: layouts.Mixed;
+    let _11: layouts.Mixed?;  // maybe_mixed
+    let _12: layouts.Mixed;
+    let _13: layouts.Mixed?;
+    let _14: layouts.Color;  // color
+    let _15: layouts.Color;
+    let _16: layouts.Color?;  // maybe_color
+    let _17: layouts.Color;
+    let _18: layouts.Color?;
+    let _19: layouts.Shape;  // shape
+    let _20: layouts.Shape;
+    let _21: layouts.Shape?;  // maybe_shape
+    let _22: layouts.Shape;
+    let _23: layouts.Shape?;
+    let _24: layouts.Code;  // code
+    let _25: layouts.Code;
+    let _26: layouts.Code?;  // maybe_code
+    let _27: layouts.Code;
+    let _28: layouts.Code?;
+    let _29: layouts.Tagged;  // tagged
+    let _30: layouts.Code;
+    let _31: layouts.Tagged;
+    let _32: Result<Int, Int>;  // wide
+    let _33: Result<Int, Int>;
+    let _34: Result<Int32, Int8>;  // narrow
+    let _35: Result<Int32, Int8>;
+    let _36: (Int, Bool);  // pair
+    let _37: (Int, Bool);
+    let _38: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // v
+    let _39: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _40: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _41: Result<Void, std.alloc.AllocError>;
+    let _42: Void;
+
+    bb0: {
+        _1 = const 1: Int8;
+        _2 = const 2: UInt16;
+        _3 = const 3: Int32;
+        _4 = const 4: UInt64;
+        _6 = Int?::Some(const 5: Int);
+        _5 = move _6;
+        _8 = Bool?::Some(const true: Bool);
+        _7 = move _8;
+        _10 = layouts.Mixed { a: const 1: Int8, b: const 2: Int, c: const true: Bool };
+        _9 = move _10;
+        _12 = layouts.Mixed { a: const 3: Int8, b: const 4: Int, c: const false: Bool };
+        _13 = layouts.Mixed?::Some(move _12);
+        _11 = move _13;
+        _15 = layouts.Color::Green;
+        _14 = move _15;
+        _17 = layouts.Color::Red;
+        _18 = layouts.Color?::Some(move _17);
+        _16 = move _18;
+        _20 = layouts.Shape::Rect(const 1: Int, const 2: Int);
+        _19 = move _20;
+        _22 = layouts.Shape::Empty;
+        _23 = layouts.Shape?::Some(move _22);
+        _21 = move _23;
+        _25 = layouts.Code::Long;
+        _24 = move _25;
+        _27 = layouts.Code::Short;
+        _28 = layouts.Code?::Some(move _27);
+        _26 = move _28;
+        _30 = layouts.Code::Short;
+        _31 = layouts.Tagged { flag: const true: Bool, code: move _30 };
+        _29 = move _31;
+        _33 = Result<Int, Int>::Ok(const 6: Int);
+        _32 = move _33;
+        _35 = Result<Int32, Int8>::Err(const 7: Int8);
+        _34 = move _35;
+        _37 = (const 8: Int, const true: Bool);
+        _36 = move _37;
+        _39 = call std.vector.Vector.init() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [] -> [return: bb1]; => #9
+    }
+
+    bb1: {
+        _38 = move _39;
+        _40 = ref(exclusive, _38);
+        _41 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _40, const 9: Int] -> [return: bb2]; => #10
+    }
+
+    bb2: {
+        _42 = copy (_41 as Ok!).0;
+        drop(_41);
+        call builtin print [format "{} {} {} {} {}", copy _1, copy _2, copy _3, copy _4, copy _36.0] -> [return: bb3];
+    }
+
+    bb3: {
+        drop(_38);
+        drop(_34);
+        drop(_32);
+        drop(_21);
+        drop(_19);
+        return;
+    }
+}
+
+item #1: std.panic.panic_sink(message: UnsafePointer<Int8>, length: Int)
+fn -> Never {
+    let _0: Never;  // return
+    let _1: UnsafePointer<Int8>;  // param message
+    let _2: Int;  // param length
+    let _3: Int;  // at
+    let _4: &Atomic<Int>;
+    let _5: Int;
+    let _6: Bool;
+    let _7: Bool;
+    let _8: &Atomic<Int>;
+    let _9: Bool;
+    let _10: (UnsafePointer<Int8>, Int) unsafe sync -> Void;  // report
+    let _11: UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>;
+    let _12: Int;
+
+    bb0: {
+        _4 = ref(shared, static std.panic.PANIC_REPORT);
+        _5 = call Atomic.load() (owner Atomic<Int>) [move _4] -> [return: bb1]; => #17
+    }
+
+    bb1: {
+        _3 = move _5;
+        _7 = Ne(copy _3, const 0: Int);
+        switch move _7 -> [true: bb4, false: bb5];
+    }
+
+    bb2: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, copy _2] -> !; => #18
+    }
+
+    bb3: {
+        switch move _6 -> [true: bb7, false: bb8];
+    }
+
+    bb4: {
+        _8 = ref(shared, static std.panic.PANIC_REPORTING);
+        _9 = call Atomic.compare_exchange(expected: Int, desired: Int) (owner Atomic<Int>) [move _8, const 0: Int, const 1: Int] -> [return: bb6]; => #19
+    }
+
+    bb5: {
+        _6 = const false: Bool;
+        goto -> bb3;
+    }
+
+    bb6: {
+        _6 = move _9;
+        goto -> bb3;
+    }
+
+    bb7: {
+        _11 = cast(copy _3 as UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>);
+        _12 = const 0: Int;
+        _10 = copy _11[_12];
+        call value copy _10 [copy _1, copy _2] -> [return: bb9];
+    }
+
+    bb8: {
+        goto -> bb2;
+    }
+
+    bb9: {
+        call std.panic.__saw_rt_panic(ptr: UnsafePointer<Int8>, len: Int) [copy _1, const 0: Int] -> !; => #18
+    }
+}
+
+item #2: std.string.string_literal(bytes: UnsafePointer<Int8>)
+fn -> String {
+    let _0: String;  // return
+    let _1: UnsafePointer<Int8>;  // param bytes
+    let _2: String;
+
+    bb0: {
+        _2 = String { bytes: copy _1 };
+        _0 = move _2;
+        return;
+    }
+}
+
+item #3: std.string.string_bytes(text: &String)
+fn -> UnsafePointer<Int8> {
+    let _0: UnsafePointer<Int8>;  // return
+    let _1: &String;  // param text
+
+    bb0: {
+        _0 = copy (*_1).bytes;
+        return;
+    }
+}
+
+item #4: std.string.string_length(text: &String)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // param text
+    let _2: &String;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call std.string.String.len() (owner String) [move _2] -> [return: bb1]; => #21
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #5: std.stringbuilder.StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int)  (from #0)
+fn -> std.stringbuilder.StringBuilder {
+    let _0: std.stringbuilder.StringBuilder;  // return
+    let _1: UnsafePointer<Int8>;  // param bytes
+    let _2: Int;  // param capacity
+    let _3: Bool;
+    let _4: Int;
+    let _5: UnsafePointer<Int8>?;
+    let _6: std.stringbuilder.StringBuilder;
+
+    bb0: {
+        _3 = Lt(copy _2, copy static std.stringbuilder.MIN_FIXED_CAPACITY);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _4 = const 0: Int;
+        _1[_4] = const 0: Int8;
+        _5 = UnsafePointer<Int8>?::Some(copy _1);
+        _6 = std.stringbuilder.StringBuilder { buffer: move _5, length: const 0: Int, capacity: copy _2, fixed: const true: Bool, truncated: const false: Bool };
+        _0 = move _6;
+        return;
+    }
+
+    bb2: {
+        call builtin panic [const "StringBuilder(bytes:capacity:): capacity is too small to format into": String] -> !;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+item #6: std.stringbuilder.StringBuilder.len()  (from #0)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &std.stringbuilder.StringBuilder;  // self
+
+    bb0: {
+        _0 = copy (*_1).length;
+        return;
+    }
+}
+
+item #7: drop glue std.stringbuilder.StringBuilder  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // param
+    let _2: &var std.stringbuilder.StringBuilder;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        call std.stringbuilder.StringBuilder.deinit() (owner std.stringbuilder.StringBuilder) [move _2] -> [return: bb1]; => #22
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #8: std.alloc.AllocError.format(into: &var std.stringbuilder.StringBuilder)  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &std.alloc.AllocError;  // self
+    let _2: &var std.stringbuilder.StringBuilder;  // param into
+    let _3: &var std.stringbuilder.StringBuilder;
+    let _4: Result<Void, std.alloc.AllocError>;
+    let _5: Void;
+    let _6: Int;
+    let _7: &var std.stringbuilder.StringBuilder;
+    let _8: Result<Void, std.alloc.AllocError>;
+    let _9: Void;
+    let _10: &var std.stringbuilder.StringBuilder;
+    let _11: Result<Void, std.alloc.AllocError>;
+    let _12: Void;
+    let _13: Int;
+    let _14: &var std.stringbuilder.StringBuilder;
+    let _15: Result<Void, std.alloc.AllocError>;
+    let _16: Void;
+    let _17: &var std.stringbuilder.StringBuilder;
+    let _18: Result<Void, std.alloc.AllocError>;
+    let _19: Void;
+
+    bb0: {
+        _3 = ref(exclusive, (*_2));
+        _4 = call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder) [move _3, const "allocation of ": String] -> [return: bb1]; => #23
+    }
+
+    bb1: {
+        _5 = copy (_4 as Ok!).0;
+        drop(_4);
+        _6 = copy (*_1).size;
+        _7 = ref(exclusive, (*_2));
+        _8 = call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder) [move _7, move _6] -> [return: bb2]; => #24
+    }
+
+    bb2: {
+        _9 = copy (_8 as Ok!).0;
+        drop(_8);
+        _10 = ref(exclusive, (*_2));
+        _11 = call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder) [move _10, const " bytes (align ": String] -> [return: bb3]; => #23
+    }
+
+    bb3: {
+        _12 = copy (_11 as Ok!).0;
+        drop(_11);
+        _13 = copy (*_1).align;
+        _14 = ref(exclusive, (*_2));
+        _15 = call std.stringbuilder.StringBuilder.append(value: Int) (owner std.stringbuilder.StringBuilder) [move _14, move _13] -> [return: bb4]; => #24
+    }
+
+    bb4: {
+        _16 = copy (_15 as Ok!).0;
+        drop(_15);
+        _17 = ref(exclusive, (*_2));
+        _18 = call std.stringbuilder.StringBuilder.append(s: String) (owner std.stringbuilder.StringBuilder) [move _17, const ") failed": String] -> [return: bb5]; => #23
+    }
+
+    bb5: {
+        _19 = copy (_18 as Ok!).0;
+        drop(_18);
+        return;
+    }
+}
+
+item #9: std.vector.Vector.init() args Int std.alloc.GlobalAllocator  (from #0)
+fn -> std.vector.Vector<Int, std.alloc.GlobalAllocator> {
+    let _0: std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // return
+    let _1: UnsafePointer<Int>?;
+    let _2: std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+
+    bb0: {
+        _1 = UnsafePointer<Int>?::None;
+        _2 = std.vector.Vector<Int, std.alloc.GlobalAllocator> { buffer: move _1, length: const 0: Int, capacity: const 0: Int };
+        _0 = move _2;
+        return;
+    }
+}
+
+item #10: std.vector.Vector.push(value: T) args Int std.alloc.GlobalAllocator  (from #0)
+fn -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // self
+    let _2: Int;  // param value
+    let _3: Int;  // wanted
+    let _4: Int;
+    let _5: Int;
+    let _6: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _7: Bool;
+    let _8: Bool;
+    let _9: Int;
+    let _10: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;
+    let _15: std.alloc.AllocError;
+    let _16: Result<Void, std.alloc.AllocError>;
+    let _17: UnsafePointer<Int>;  // buf
+    let _18: Int;
+    let _19: Int;
+
+    bb0: {
+        _4 = Add(copy (*_1).length, const 1: Int);
+        _3 = move _4;
+        _5 = copy _3;
+        _6 = ref(exclusive, (*_1));
+        _7 = call std.vector.Vector.reserve_slots(wanted: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6, move _5] -> [return: bb2] suspends when A.Allocator.alloc A.Allocator.dealloc; => #25
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb8, None: bb9];
+    }
+
+    bb2: {
+        _8 = Not(move _7);
+        switch move _8 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        _9 = copy _3;
+        _10 = ref(shared, (*_1));
+        _11 = call std.vector.Vector.grow_target(wanted: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _10, move _9] -> [return: bb5]; => #26
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _12 = call builtin sizeof (inst Int) [] -> [return: bb6];
+    }
+
+    bb6: {
+        _13 = Mul(move _11, move _12);
+        _14 = call builtin alignof (inst Int) [] -> [return: bb7];
+    }
+
+    bb7: {
+        _15 = std.alloc.AllocError { size: move _13, align: move _14 };
+        _16 = Result<Void, std.alloc.AllocError>::Err(move _15);
+        _0 = move _16;
+        drop(_2);
+        return;
+    }
+
+    bb8: {
+        _17 = copy ((*_1).buffer as Some).0;
+        _18 = copy (*_1).length;
+        _17[_18] = move _2;
+        _19 = Add(copy (*_1).length, const 1: Int);
+        (*_1).length = move _19;
+        _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
+        return;
+    }
+
+    bb9: {
+        call builtin panic [const "Vector.push: buffer is empty": String] -> !;
+    }
+}
+
+item #11: drop glue Result<Void, std.alloc.AllocError>  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var Result<Void, std.alloc.AllocError>;  // param
+
+    bb0: {
+        switch discriminant((*_1)) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+item #12: drop glue std.vector.Vector<Int, std.alloc.GlobalAllocator>  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // param
+    let _2: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        call std.vector.Vector.deinit() (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _2] -> [return: bb1]; => #27
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #13: drop glue Result<Int32, Int8>  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var Result<Int32, Int8>;  // param
+
+    bb0: {
+        switch discriminant((*_1)) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+item #14: drop glue Result<Int, Int>  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var Result<Int, Int>;  // param
+
+    bb0: {
+        switch discriminant((*_1)) -> [Ok: bb2, Err: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+item #15: drop glue layouts.Shape?  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var layouts.Shape?;  // param
+
+    bb0: {
+        switch discriminant((*_1)) -> [Some: bb2, None: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        drop(((*_1) as Some).0);
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+}
+
+item #16: drop glue layouts.Shape  (from #0)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var layouts.Shape;  // param
+
+    bb0: {
+        switch discriminant((*_1)) -> [Circle: bb2, Rect: bb3, Empty: bb4];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        goto -> bb1;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+}
+
+item #17: Atomic.load() args Int  (from #1)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Atomic<Int>;  // self
+    let _2: &Atomic<Int>;
+    let _3: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1));
+        _3 = call atomic_load_word(a: &Atomic<T>) (inst Int) [move _2] -> [return: bb1]; => #28
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+}
+
+item #18: extern __saw_rt_panic  (from #1)
+
+item #19: Atomic.compare_exchange(expected: Int, desired: Int) args Int  (from #1)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &Atomic<Int>;  // self
+    let _2: Int;  // param expected
+    let _3: Int;  // param desired
+    let _4: &Atomic<Int>;
+    let _5: Bool;
+
+    bb0: {
+        _4 = ref(shared, (*_1));
+        _5 = call atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) (inst Int) [move _4, copy _2, copy _3] -> [return: bb1]; => #29
+    }
+
+    bb1: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #20: copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void  (from #1)
+
+item #21: std.string.String.len()  (from #4)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _4 = copy static std.string.LENGTH_SLOT;
+        _0 = copy _2[_4];
+        return;
+    }
+}
+
+item #22: std.stringbuilder.StringBuilder.deinit()  (from #7)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: UnsafePointer<Int8>;  // buf
+    let _3: std.alloc.GlobalAllocator;
+    let _4: UnsafePointer<Int8>;
+    let _5: Int;
+    let _6: &std.alloc.GlobalAllocator;
+
+    bb0: {
+        switch copy (*_1).fixed -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb5, None: bb6];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        return;
+    }
+
+    bb5: {
+        _2 = copy ((*_1).buffer as Some).0;
+        _3 = std.alloc.GlobalAllocator { };
+        _4 = copy _2;
+        _5 = copy (*_1).capacity;
+        _6 = ref(shared, _3);
+        call std.alloc.GlobalAllocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _6, move _4, move _5, const 1: Int] -> [return: bb7]; => #30
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+
+    bb7: {
+        goto -> bb4;
+    }
+}
+
+item #23: std.stringbuilder.StringBuilder.append(s: String)  (from #8)
+fn -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: String;  // param s
+    let _3: &String;
+    let _4: &var std.stringbuilder.StringBuilder;
+    let _5: Result<Void, std.alloc.AllocError>;
+
+    bb0: {
+        _3 = ref(shared, _2);
+        _4 = ref(exclusive, (*_1));
+        _5 = call std.stringbuilder.StringBuilder.append_text(s: &String) (owner std.stringbuilder.StringBuilder) [move _4, move _3] -> [return: bb1]; => #31
+    }
+
+    bb1: {
+        _0 = move _5;
+        drop(_2);
+        return;
+    }
+}
+
+item #24: std.stringbuilder.StringBuilder.append(value: Int)  (from #8)
+fn -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: Int;  // param value
+    let _3: Int;
+    let _4: &var std.stringbuilder.StringBuilder;
+    let _5: Result<Void, std.alloc.AllocError>;
+
+    bb0: {
+        _3 = copy _2;
+        _4 = ref(exclusive, (*_1));
+        _5 = call std.stringbuilder.StringBuilder.append_decimal(value: Int) (owner std.stringbuilder.StringBuilder) [move _4, move _3] -> [return: bb1]; => #33
+    }
+
+    bb1: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #25: std.vector.Vector.reserve_slots(wanted: Int) args Int std.alloc.GlobalAllocator  (from #10)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // self
+    let _2: Int;  // param wanted
+    let _3: Bool;
+    let _4: Int;  // target
+    let _5: Int;
+    let _6: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;
+    let _7: Int;
+    let _8: std.alloc.GlobalAllocator;
+    let _9: Int;
+    let _10: Int;
+    let _11: Int;
+    let _12: Int;
+    let _13: &std.alloc.GlobalAllocator;
+    let _14: UnsafePointer<Int8>?;
+    let _15: UnsafePointer<Int8>;  // fresh
+    let _16: UnsafePointer<Int>;  // old
+    let _17: UnsafePointer<Int>;  // slots
+    let _18: UnsafePointer<Int>;
+    let _19: Int;  // i
+    let _20: Bool;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+    let _24: std.alloc.GlobalAllocator;
+    let _25: UnsafePointer<Int8>;
+    let _26: Int;
+    let _27: Int;
+    let _28: Int;
+    let _29: Int;
+    let _30: &std.alloc.GlobalAllocator;
+    let _31: UnsafePointer<Int>;
+    let _32: UnsafePointer<Int>?;
+
+    bb0: {
+        _3 = Ge(copy (*_1).capacity, copy _2);
+        switch move _3 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _5 = copy _2;
+        _6 = ref(shared, (*_1));
+        _7 = call std.vector.Vector.grow_target(wanted: Int) (owner std.vector.Vector<Int, std.alloc.GlobalAllocator>) [move _6, move _5] -> [return: bb4]; => #26
+    }
+
+    bb2: {
+        _0 = const true: Bool;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _4 = move _7;
+        _8 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb5];
+    }
+
+    bb5: {
+        _9 = copy _4;
+        _10 = call builtin sizeof (inst Int) [] -> [return: bb6];
+    }
+
+    bb6: {
+        _11 = Mul(move _9, move _10);
+        _12 = call builtin alignof (inst Int) [] -> [return: bb7];
+    }
+
+    bb7: {
+        _13 = ref(shared, _8);
+        _14 = call std.alloc.Allocator.alloc(size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _13, move _11, move _12] -> [return: bb8] suspends when A.Allocator.alloc; => #34
+    }
+
+    bb8: {
+        switch discriminant(_14) -> [Some: bb9, None: bb10];
+    }
+
+    bb9: {
+        _15 = copy (_14 as Some).0;
+        drop(_8);
+        switch discriminant((*_1).buffer) -> [Some: bb12, None: bb13];
+    }
+
+    bb10: {
+        drop(_8);
+        _0 = const false: Bool;
+        return;
+    }
+
+    bb11: {
+        _31 = cast(copy _15 as UnsafePointer<Int>);
+        _32 = UnsafePointer<Int>?::Some(move _31);
+        (*_1).buffer = move _32;
+        (*_1).capacity = copy _4;
+        _0 = const true: Bool;
+        return;
+    }
+
+    bb12: {
+        _16 = copy ((*_1).buffer as Some).0;
+        _18 = cast(copy _15 as UnsafePointer<Int>);
+        _17 = move _18;
+        _19 = const 0: Int;
+        goto -> bb14;
+    }
+
+    bb13: {
+        goto -> bb11;
+    }
+
+    bb14: {
+        _20 = Lt(copy _19, copy (*_1).length);
+        switch move _20 -> [true: bb16, false: bb15];
+    }
+
+    bb15: {
+        _24 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb18];
+    }
+
+    bb16: {
+        budget(yield-capable);
+        goto -> bb17;
+    }
+
+    bb17: {
+        _21 = copy _19;
+        _22 = copy _19;
+        _17[_21] = move _16[_22];
+        _23 = Add(copy _19, const 1: Int);
+        _19 = move _23;
+        goto -> bb14;
+    }
+
+    bb18: {
+        _25 = cast(copy _16 as UnsafePointer<Int8>);
+        _26 = copy (*_1).capacity;
+        _27 = call builtin sizeof (inst Int) [] -> [return: bb19];
+    }
+
+    bb19: {
+        _28 = Mul(move _26, move _27);
+        _29 = call builtin alignof (inst Int) [] -> [return: bb20];
+    }
+
+    bb20: {
+        _30 = ref(shared, _24);
+        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _30, move _25, move _28, move _29] -> [return: bb21] suspends when A.Allocator.dealloc; => #30
+    }
+
+    bb21: {
+        drop(_24);
+        goto -> bb11;
+    }
+}
+
+item #26: std.vector.Vector.grow_target(wanted: Int) args Int std.alloc.GlobalAllocator  (from #10)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // self
+    let _2: Int;  // param wanted
+    let _3: Int;  // doubled
+    let _4: Bool;
+    let _5: Int;
+    let _6: Bool;
+
+    bb0: {
+        _4 = Eq(copy (*_1).capacity, const 0: Int);
+        switch move _4 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _6 = Lt(copy _3, copy _2);
+        switch move _6 -> [true: bb5, false: bb6];
+    }
+
+    bb2: {
+        _3 = copy static std.vector.FIRST_SLOTS;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _5 = Mul(copy (*_1).capacity, const 2: Int);
+        _3 = move _5;
+        goto -> bb1;
+    }
+
+    bb4: {
+        return;
+    }
+
+    bb5: {
+        _0 = copy _2;
+        goto -> bb4;
+    }
+
+    bb6: {
+        _0 = copy _3;
+        goto -> bb4;
+    }
+}
+
+item #27: std.vector.Vector.deinit() args Int std.alloc.GlobalAllocator  (from #12)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.vector.Vector<Int, std.alloc.GlobalAllocator>;  // self
+    let _2: UnsafePointer<Int>;  // buf
+    let _3: Int;  // i
+    let _4: Bool;
+    let _5: Int;
+    let _6: &Int;
+    let _7: UnsafePointer<Int>;
+    let _8: Int;
+    let _9: UnsafePointer<Int8>;  // raw
+    let _10: UnsafePointer<Int8>;
+    let _11: std.alloc.GlobalAllocator;
+    let _12: UnsafePointer<Int8>;
+    let _13: Int;
+    let _14: Int;
+    let _15: Int;
+    let _16: Int;
+    let _17: &std.alloc.GlobalAllocator;
+
+    bb0: {
+        switch discriminant((*_1).buffer) -> [Some: bb2, None: bb3];
+    }
+
+    bb1: {
+        return;
+    }
+
+    bb2: {
+        _2 = copy ((*_1).buffer as Some).0;
+        _3 = const 0: Int;
+        goto -> bb4;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _4 = Lt(copy _3, copy (*_1).length);
+        switch move _4 -> [true: bb6, false: bb5];
+    }
+
+    bb5: {
+        _10 = cast(copy _2 as UnsafePointer<Int8>);
+        _9 = move _10;
+        _11 = call builtin init (owner std.alloc.GlobalAllocator) [] -> [return: bb9];
+    }
+
+    bb6: {
+        budget(yield-capable);
+        goto -> bb7;
+    }
+
+    bb7: {
+        _5 = copy _3;
+        _6 = ref(shared, _2[_5]);
+        _7 = cast(move _6 as UnsafePointer<Int>);
+        call std.mem.drop_in_place(at: UnsafePointer<T>) (inst Int) [move _7] -> [return: bb8]; => #35
+    }
+
+    bb8: {
+        _8 = Add(copy _3, const 1: Int);
+        _3 = move _8;
+        goto -> bb4;
+    }
+
+    bb9: {
+        _12 = copy _9;
+        _13 = copy (*_1).capacity;
+        _14 = call builtin sizeof (inst Int) [] -> [return: bb10];
+    }
+
+    bb10: {
+        _15 = Mul(move _13, move _14);
+        _16 = call builtin alignof (inst Int) [] -> [return: bb11];
+    }
+
+    bb11: {
+        _17 = ref(shared, _11);
+        call std.alloc.Allocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _17, move _12, move _15, move _16] -> [return: bb12] suspends when A.Allocator.dealloc; => #30
+    }
+
+    bb12: {
+        drop(_11);
+        goto -> bb1;
+    }
+}
+
+item #28: atomic_load_word(a: &Atomic<T>) inst Int  (from #17)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &Atomic<Int>;  // param a
+    let _2: &UnsafeMutableInterior<Int>;
+    let _3: UnsafePointer<Int>;
+    let _4: UnsafePointer<Int>;
+    let _5: Int;
+
+    bb0: {
+        _2 = ref(shared, (*_1).value);
+        _3 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _2] -> [return: bb1]; => #36
+    }
+
+    bb1: {
+        _4 = cast(move _3 as UnsafePointer<Int>);
+        _5 = call builtin __saw_atomic_load_i64_seq_cst [move _4] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _5;
+        return;
+    }
+}
+
+item #29: atomic_exchange_word(a: &Atomic<T>, expected: Int, desired: Int) inst Int  (from #19)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &Atomic<Int>;  // param a
+    let _2: Int;  // param expected
+    let _3: Int;  // param desired
+    let _4: &UnsafeMutableInterior<Int>;
+    let _5: UnsafePointer<Int>;
+    let _6: UnsafePointer<Int>;
+    let _7: Bool;
+
+    bb0: {
+        _4 = ref(shared, (*_1).value);
+        _5 = call UnsafeMutableInterior.ptr() (owner UnsafeMutableInterior<Int>) [move _4] -> [return: bb1]; => #36
+    }
+
+    bb1: {
+        _6 = cast(move _5 as UnsafePointer<Int>);
+        _7 = call builtin __saw_atomic_cmpxchg_i64_seq_cst [move _6, copy _2, copy _3] -> [return: bb2];
+    }
+
+    bb2: {
+        _0 = move _7;
+        return;
+    }
+}
+
+item #30: std.alloc.GlobalAllocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)  (from #22)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &std.alloc.GlobalAllocator;  // self
+    let _2: UnsafePointer<Int8>;  // param ptr
+    let _3: Int;  // param size
+    let _4: Int;  // param align
+
+    bb0: {
+        call std.alloc.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [copy _2, copy _3, copy _4] -> [return: bb1]; => #37
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #31: std.stringbuilder.StringBuilder.append_text(s: &String)  (from #23)
+fn -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: &String;  // param s
+    let _3: Int;  // n
+    let _4: &String;
+    let _5: Int;
+    let _6: Bool;
+    let _7: Int;  // needed
+    let _8: Int;
+    let _9: Int;
+    let _10: Int;
+    let _11: &var std.stringbuilder.StringBuilder;
+    let _12: Bool;
+    let _13: Bool;
+    let _14: &String;
+    let _15: Int;
+    let _16: &var std.stringbuilder.StringBuilder;
+    let _17: Int;
+    let _18: &std.stringbuilder.StringBuilder;
+    let _19: Int;
+    let _20: std.alloc.AllocError;
+    let _21: Result<Void, std.alloc.AllocError>;
+    let _22: UnsafePointer<Int8>;  // buf
+    let _23: Int;  // i
+    let _24: Bool;
+    let _25: Int;
+    let _26: Int;
+    let _27: &String;
+    let _28: UInt8;
+    let _29: Int8;
+    let _30: Int;
+    let _31: Int;
+    let _32: Int;
+
+    bb0: {
+        _4 = ref(shared, (*_2));
+        _5 = call std.string.String.len() (owner String) [move _4] -> [return: bb1]; => #21
+    }
+
+    bb1: {
+        _3 = move _5;
+        _6 = Eq(copy _3, const 0: Int);
+        switch move _6 -> [true: bb3, false: bb4];
+    }
+
+    bb2: {
+        _8 = Add(copy (*_1).length, copy _3);
+        _9 = Add(move _8, const 1: Int);
+        _7 = move _9;
+        _10 = copy _7;
+        _11 = ref(exclusive, (*_1));
+        _12 = call std.stringbuilder.StringBuilder.reserve_bytes(wanted: Int) (owner std.stringbuilder.StringBuilder) [move _11, move _10] -> [return: bb6]; => #38
+    }
+
+    bb3: {
+        _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
+        return;
+    }
+
+    bb4: {
+        goto -> bb2;
+    }
+
+    bb5: {
+        switch discriminant((*_1).buffer) -> [Some: bb15, None: bb16];
+    }
+
+    bb6: {
+        _13 = Not(move _12);
+        switch move _13 -> [true: bb7, false: bb8];
+    }
+
+    bb7: {
+        switch copy (*_1).fixed -> [true: bb10, false: bb11];
+    }
+
+    bb8: {
+        goto -> bb5;
+    }
+
+    bb9: {
+        _17 = copy _7;
+        _18 = ref(shared, (*_1));
+        _19 = call std.stringbuilder.StringBuilder.grow_target(wanted: Int) (owner std.stringbuilder.StringBuilder) [move _18, move _17] -> [return: bb13]; => #39
+    }
+
+    bb10: {
+        _14 = ref(shared, (*_2));
+        _15 = copy _3;
+        _16 = ref(exclusive, (*_1));
+        call std.stringbuilder.StringBuilder.overflow(s: &String, n: Int) (owner std.stringbuilder.StringBuilder) [move _16, move _14, move _15] -> [return: bb12]; => #40
+    }
+
+    bb11: {
+        goto -> bb9;
+    }
+
+    bb12: {
+        _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
+        return;
+    }
+
+    bb13: {
+        _20 = std.alloc.AllocError { size: move _19, align: const 1: Int };
+        _21 = Result<Void, std.alloc.AllocError>::Err(move _20);
+        _0 = move _21;
+        return;
+    }
+
+    bb14: {
+        _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
+        return;
+    }
+
+    bb15: {
+        _22 = copy ((*_1).buffer as Some).0;
+        _23 = const 0: Int;
+        goto -> bb17;
+    }
+
+    bb16: {
+        goto -> bb14;
+    }
+
+    bb17: {
+        _24 = Lt(copy _23, copy _3);
+        switch move _24 -> [true: bb19, false: bb18];
+    }
+
+    bb18: {
+        _31 = Add(copy (*_1).length, copy _3);
+        (*_1).length = move _31;
+        _32 = copy (*_1).length;
+        _22[_32] = const 0: Int8;
+        goto -> bb14;
+    }
+
+    bb19: {
+        budget(yield-capable);
+        goto -> bb20;
+    }
+
+    bb20: {
+        _25 = Add(copy (*_1).length, copy _23);
+        _26 = copy _23;
+        _27 = ref(shared, (*_2));
+        _28 = call std.string.String.byte_at(index: Int) (owner String) [move _27, move _26] -> [return: bb21]; => #41
+    }
+
+    bb21: {
+        _29 = from(truncating:)(move _28 as Int8);
+        _22[_25] = move _29;
+        _30 = Add(copy _23, const 1: Int);
+        _23 = move _30;
+        goto -> bb17;
+    }
+}
+
+item #32: drop glue String  (from #23)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var String;  // param
+    let _2: &var String;
+
+    bb0: {
+        _2 = ref(exclusive, (*_1));
+        call std.string.String.deinit() (owner String) [move _2] -> [return: bb1]; => #42
+    }
+
+    bb1: {
+        return;
+    }
+}
+
+item #33: std.stringbuilder.StringBuilder.append_decimal(value: Int)  (from #24)
+fn -> Result<Void, std.alloc.AllocError> {
+    let _0: Result<Void, std.alloc.AllocError>;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: Int;  // param value
+    let _3: Int;  // n
+    let _4: Bool;
+    let _5: Int;
+    let _6: Int;  // digits
+    let _7: Int;  // scale
+    let _8: Int;  // probe
+    let _9: Int;
+    let _10: Bool;
+    let _11: Int;
+    let _12: Int;
+    let _13: Int;
+    let _14: Int;  // sign
+    let _15: Bool;
+    let _16: Int;  // needed
+    let _17: Int;
+    let _18: Int;
+    let _19: Int;
+    let _20: Bool;
+    let _21: Int;
+    let _22: &var std.stringbuilder.StringBuilder;
+    let _23: Bool;
+    let _24: Bool;
+    let _25: Bool;
+    let _26: Int;
+    let _27: &std.stringbuilder.StringBuilder;
+    let _28: Int;
+    let _29: std.alloc.AllocError;
+    let _30: Result<Void, std.alloc.AllocError>;
+    let _31: Bool;
+    let _32: Int;
+    let _33: &var std.stringbuilder.StringBuilder;
+    let _34: Bool;
+    let _35: Int;  // digit
+    let _36: Int;
+    let _37: Int;
+    let _38: Int;
+    let _39: Int;
+    let _40: &var std.stringbuilder.StringBuilder;
+    let _41: Int;
+
+    bb0: {
+        _4 = Lt(copy _2, const 0: Int);
+        switch move _4 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _6 = const 1: Int;
+        _7 = const 1: Int;
+        _8 = copy _3;
+        goto -> bb4;
+    }
+
+    bb2: {
+        _3 = copy _2;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _5 = Sub(const 0: Int, copy _2);
+        _3 = move _5;
+        goto -> bb1;
+    }
+
+    bb4: {
+        _9 = Neg(const 10: Int);
+        _10 = Le(copy _8, move _9);
+        switch move _10 -> [true: bb6, false: bb5];
+    }
+
+    bb5: {
+        _15 = Lt(copy _2, const 0: Int);
+        switch move _15 -> [true: bb9, false: bb10];
+    }
+
+    bb6: {
+        budget(yield-capable);
+        goto -> bb7;
+    }
+
+    bb7: {
+        _11 = Div(copy _8, const 10: Int);
+        _8 = move _11;
+        _12 = Mul(copy _7, const 10: Int);
+        _7 = move _12;
+        _13 = Add(copy _6, const 1: Int);
+        _6 = move _13;
+        goto -> bb4;
+    }
+
+    bb8: {
+        _17 = Add(copy (*_1).length, copy _14);
+        _18 = Add(move _17, copy _6);
+        _19 = Add(move _18, const 1: Int);
+        _16 = move _19;
+        _21 = copy _16;
+        _22 = ref(exclusive, (*_1));
+        _23 = call std.stringbuilder.StringBuilder.reserve_bytes(wanted: Int) (owner std.stringbuilder.StringBuilder) [move _22, move _21] -> [return: bb13]; => #38
+    }
+
+    bb9: {
+        _14 = const 1: Int;
+        goto -> bb8;
+    }
+
+    bb10: {
+        _14 = const 0: Int;
+        goto -> bb8;
+    }
+
+    bb11: {
+        _31 = Lt(copy _2, const 0: Int);
+        switch move _31 -> [true: bb20, false: bb21];
+    }
+
+    bb12: {
+        switch move _20 -> [true: bb16, false: bb17];
+    }
+
+    bb13: {
+        _24 = Not(move _23);
+        switch move _24 -> [true: bb14, false: bb15];
+    }
+
+    bb14: {
+        _25 = Not(copy (*_1).fixed);
+        _20 = move _25;
+        goto -> bb12;
+    }
+
+    bb15: {
+        _20 = const false: Bool;
+        goto -> bb12;
+    }
+
+    bb16: {
+        _26 = copy _16;
+        _27 = ref(shared, (*_1));
+        _28 = call std.stringbuilder.StringBuilder.grow_target(wanted: Int) (owner std.stringbuilder.StringBuilder) [move _27, move _26] -> [return: bb18]; => #39
+    }
+
+    bb17: {
+        goto -> bb11;
+    }
+
+    bb18: {
+        _29 = std.alloc.AllocError { size: move _28, align: const 1: Int };
+        _30 = Result<Void, std.alloc.AllocError>::Err(move _29);
+        _0 = move _30;
+        return;
+    }
+
+    bb19: {
+        goto -> bb23;
+    }
+
+    bb20: {
+        _32 = copy static std.stringbuilder.MINUS_SIGN;
+        _33 = ref(exclusive, (*_1));
+        call std.stringbuilder.StringBuilder.place_byte(b: Int) (owner std.stringbuilder.StringBuilder) [move _33, move _32] -> [return: bb22]; => #43
+    }
+
+    bb21: {
+        goto -> bb19;
+    }
+
+    bb22: {
+        goto -> bb19;
+    }
+
+    bb23: {
+        _34 = Gt(copy _7, const 0: Int);
+        switch move _34 -> [true: bb25, false: bb24];
+    }
+
+    bb24: {
+        _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
+        return;
+    }
+
+    bb25: {
+        budget(yield-capable);
+        goto -> bb26;
+    }
+
+    bb26: {
+        _36 = Div(copy _3, copy _7);
+        _37 = Rem(move _36, const 10: Int);
+        _38 = Sub(const 0: Int, move _37);
+        _35 = move _38;
+        _39 = Add(copy static std.stringbuilder.ASCII_ZERO, copy _35);
+        _40 = ref(exclusive, (*_1));
+        call std.stringbuilder.StringBuilder.place_byte(b: Int) (owner std.stringbuilder.StringBuilder) [move _40, move _39] -> [return: bb27]; => #43
+    }
+
+    bb27: {
+        _41 = Div(copy _7, const 10: Int);
+        _7 = move _41;
+        goto -> bb23;
+    }
+}
+
+item #34: std.alloc.GlobalAllocator.alloc(size: Int, align: Int)  (from #25)
+fn -> UnsafePointer<Int8>? {
+    let _0: UnsafePointer<Int8>?;  // return
+    let _1: &std.alloc.GlobalAllocator;  // self
+    let _2: Int;  // param size
+    let _3: Int;  // param align
+    let _4: UnsafePointer<Int8>?;
+
+    bb0: {
+        _4 = call std.alloc.__saw_rt_alloc(size: Int, align: Int) [copy _2, copy _3] -> [return: bb1]; => #44
+    }
+
+    bb1: {
+        _0 = move _4;
+        return;
+    }
+}
+
+item #35: std.mem.drop_in_place(at: UnsafePointer<T>) inst Int  (from #27)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<Int>;  // param at
+    let _2: UnsafePointer<Int>;
+
+    bb0: {
+        _2 = copy _1;
+        drop((*_2));
+        return;
+    }
+}
+
+item #36: UnsafeMutableInterior.ptr() args Int  (from #28)
+fn -> UnsafePointer<Int> {
+    let _0: UnsafePointer<Int>;  // return
+    let _1: &UnsafeMutableInterior<Int>;  // self
+    let _2: &Int;
+    let _3: UnsafePointer<Int>;
+
+    bb0: {
+        _2 = ref(shared, (*_1).value);
+        _3 = cast(move _2 as UnsafePointer<Int>);
+        _0 = move _3;
+        return;
+    }
+}
+
+item #37: extern __saw_rt_dealloc  (from #30)
+
+item #38: std.stringbuilder.StringBuilder.reserve_bytes(wanted: Int)  (from #31)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: Int;  // param wanted
+    let _3: Int;
+    let _4: Int;
+    let _5: Bool;
+    let _6: Bool;
+    let _7: Int;  // target
+    let _8: Int;
+    let _9: &std.stringbuilder.StringBuilder;
+    let _10: Int;
+    let _11: std.alloc.GlobalAllocator;
+    let _12: Int;
+    let _13: &std.alloc.GlobalAllocator;
+    let _14: UnsafePointer<Int8>?;
+    let _15: UnsafePointer<Int8>;  // fresh
+    let _16: UnsafePointer<Int8>;  // old
+    let _17: std.alloc.GlobalAllocator;
+    let _18: UnsafePointer<Int8>;
+    let _19: Int;
+    let _20: &std.alloc.GlobalAllocator;
+    let _21: Int;
+    let _22: UnsafePointer<Int8>?;
+
+    bb0: {
+        switch copy (*_1).fixed -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _6 = Ge(copy (*_1).capacity, copy _2);
+        switch move _6 -> [true: bb5, false: bb6];
+    }
+
+    bb2: {
+        _3 = copy _2;
+        _4 = Sub(copy (*_1).capacity, copy static std.stringbuilder.MARKER_LEN);
+        _5 = Le(move _3, move _4);
+        _0 = move _5;
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _8 = copy _2;
+        _9 = ref(shared, (*_1));
+        _10 = call std.stringbuilder.StringBuilder.grow_target(wanted: Int) (owner std.stringbuilder.StringBuilder) [move _9, move _8] -> [return: bb7]; => #39
+    }
+
+    bb5: {
+        _0 = const true: Bool;
+        return;
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+
+    bb7: {
+        _7 = move _10;
+        _11 = std.alloc.GlobalAllocator { };
+        _12 = copy _7;
+        _13 = ref(shared, _11);
+        _14 = call std.alloc.GlobalAllocator.alloc(size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _13, move _12, const 1: Int] -> [return: bb8]; => #34
+    }
+
+    bb8: {
+        switch discriminant(_14) -> [Some: bb9, None: bb10];
+    }
+
+    bb9: {
+        _15 = copy (_14 as Some).0;
+        switch discriminant((*_1).buffer) -> [Some: bb12, None: bb13];
+    }
+
+    bb10: {
+        _0 = const false: Bool;
+        return;
+    }
+
+    bb11: {
+        _22 = UnsafePointer<Int8>?::Some(copy _15);
+        (*_1).buffer = move _22;
+        (*_1).capacity = copy _7;
+        _0 = const true: Bool;
+        return;
+    }
+
+    bb12: {
+        _16 = copy ((*_1).buffer as Some).0;
+        call std.mem.copy_bytes(source: UnsafePointer<Int8>, target: UnsafePointer<Int8>, count: Int) [copy _16, copy _15, copy (*_1).length] -> [return: bb14]; => #45
+    }
+
+    bb13: {
+        _21 = const 0: Int;
+        _15[_21] = const 0: Int8;
+        goto -> bb11;
+    }
+
+    bb14: {
+        _17 = std.alloc.GlobalAllocator { };
+        _18 = copy _16;
+        _19 = copy (*_1).capacity;
+        _20 = ref(shared, _17);
+        call std.alloc.GlobalAllocator.dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) (owner std.alloc.GlobalAllocator) [move _20, move _18, move _19, const 1: Int] -> [return: bb15]; => #30
+    }
+
+    bb15: {
+        goto -> bb11;
+    }
+}
+
+item #39: std.stringbuilder.StringBuilder.grow_target(wanted: Int)  (from #31)
+fn -> Int {
+    let _0: Int;  // return
+    let _1: &std.stringbuilder.StringBuilder;  // self
+    let _2: Int;  // param wanted
+    let _3: Int;  // doubled
+    let _4: Bool;
+    let _5: Int;
+    let _6: Bool;
+
+    bb0: {
+        _4 = Eq(copy (*_1).capacity, const 0: Int);
+        switch move _4 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _6 = Lt(copy _3, copy _2);
+        switch move _6 -> [true: bb5, false: bb6];
+    }
+
+    bb2: {
+        _3 = copy static std.stringbuilder.FIRST_CAPACITY;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _5 = Mul(copy (*_1).capacity, const 2: Int);
+        _3 = move _5;
+        goto -> bb1;
+    }
+
+    bb4: {
+        return;
+    }
+
+    bb5: {
+        _0 = copy _2;
+        goto -> bb4;
+    }
+
+    bb6: {
+        _0 = copy _3;
+        goto -> bb4;
+    }
+}
+
+item #40: std.stringbuilder.StringBuilder.overflow(s: &String, n: Int)  (from #31)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: &String;  // param s
+    let _3: Int;  // param n
+    let _4: UnsafePointer<Int8>;  // buf
+    let _5: Int;  // fits
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+    let _9: Bool;
+    let _10: Bool;
+    let _11: Bool;
+    let _12: Int;
+    let _13: &String;
+    let _14: UInt8;
+    let _15: Int;
+    let _16: &std.stringbuilder.StringBuilder;
+    let _17: Bool;
+    let _18: Int;
+    let _19: Int;  // i
+    let _20: Bool;
+    let _21: Int;
+    let _22: Int;
+    let _23: &String;
+    let _24: UInt8;
+    let _25: Int8;
+    let _26: Int;
+    let _27: Int;
+    let _28: &var std.stringbuilder.StringBuilder;
+
+    bb0: {
+        switch copy (*_1).truncated -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb5, None: bb6];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        _28 = ref(exclusive, (*_1));
+        call std.stringbuilder.StringBuilder.mark_truncated() (owner std.stringbuilder.StringBuilder) [move _28] -> [return: bb24]; => #46
+    }
+
+    bb5: {
+        _4 = copy ((*_1).buffer as Some).0;
+        _6 = Sub(copy (*_1).capacity, const 1: Int);
+        _7 = Sub(move _6, copy static std.stringbuilder.MARKER_LEN);
+        _8 = Sub(move _7, copy (*_1).length);
+        _5 = move _8;
+        _9 = Gt(copy _5, copy _3);
+        switch move _9 -> [true: bb8, false: bb9];
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+
+    bb7: {
+        goto -> bb10;
+    }
+
+    bb8: {
+        _5 = copy _3;
+        goto -> bb7;
+    }
+
+    bb9: {
+        goto -> bb7;
+    }
+
+    bb10: {
+        _11 = Gt(copy _5, const 0: Int);
+        switch move _11 -> [true: bb13, false: bb14];
+    }
+
+    bb11: {
+        _19 = const 0: Int;
+        goto -> bb19;
+    }
+
+    bb12: {
+        switch move _10 -> [true: bb17, false: bb11];
+    }
+
+    bb13: {
+        _12 = copy _5;
+        _13 = ref(shared, (*_2));
+        _14 = call std.string.String.byte_at(index: Int) (owner String) [move _13, move _12] -> [return: bb15]; => #41
+    }
+
+    bb14: {
+        _10 = const false: Bool;
+        goto -> bb12;
+    }
+
+    bb15: {
+        _15 = cast(move _14 as Int);
+        _16 = ref(shared, (*_1));
+        _17 = call std.stringbuilder.StringBuilder.is_continuation(b: Int) (owner std.stringbuilder.StringBuilder) [move _16, move _15] -> [return: bb16]; => #47
+    }
+
+    bb16: {
+        _10 = move _17;
+        goto -> bb12;
+    }
+
+    bb17: {
+        budget(yield-capable);
+        goto -> bb18;
+    }
+
+    bb18: {
+        _18 = Sub(copy _5, const 1: Int);
+        _5 = move _18;
+        goto -> bb10;
+    }
+
+    bb19: {
+        _20 = Lt(copy _19, copy _5);
+        switch move _20 -> [true: bb21, false: bb20];
+    }
+
+    bb20: {
+        _27 = Add(copy (*_1).length, copy _5);
+        (*_1).length = move _27;
+        goto -> bb4;
+    }
+
+    bb21: {
+        budget(yield-capable);
+        goto -> bb22;
+    }
+
+    bb22: {
+        _21 = Add(copy (*_1).length, copy _19);
+        _22 = copy _19;
+        _23 = ref(shared, (*_2));
+        _24 = call std.string.String.byte_at(index: Int) (owner String) [move _23, move _22] -> [return: bb23]; => #41
+    }
+
+    bb23: {
+        _25 = from(truncating:)(move _24 as Int8);
+        _4[_21] = move _25;
+        _26 = Add(copy _19, const 1: Int);
+        _19 = move _26;
+        goto -> bb19;
+    }
+
+    bb24: {
+        return;
+    }
+}
+
+item #41: std.string.String.byte_at(index: Int)  (from #31)
+fn -> UInt8 {
+    let _0: UInt8;  // return
+    let _1: &String;  // self
+    let _2: Int;  // param index
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Int;
+    let _6: &String;
+    let _7: Int;
+    let _8: Bool;
+    let _9: Int;
+    let _10: &String;
+    let _11: Int;
+    let _12: Int;
+    let _13: UInt8;
+    let _14: UInt8;
+
+    bb0: {
+        _4 = Lt(copy _2, const 0: Int);
+        switch move _4 -> [true: bb4, false: bb3];
+    }
+
+    bb1: {
+        _12 = copy _2;
+        _13 = from(truncating:)(copy (*_1).bytes[_12] as UInt8);
+        _14 = alias(move _13 as UInt8);
+        _0 = move _14;
+        return;
+    }
+
+    bb2: {
+        switch move _3 -> [true: bb6, false: bb7];
+    }
+
+    bb3: {
+        _5 = copy _2;
+        _6 = ref(shared, (*_1));
+        _7 = call std.string.String.len() (owner String) [move _6] -> [return: bb5]; => #21
+    }
+
+    bb4: {
+        _3 = const true: Bool;
+        goto -> bb2;
+    }
+
+    bb5: {
+        _8 = Ge(move _5, copy _7);
+        _3 = move _8;
+        goto -> bb2;
+    }
+
+    bb6: {
+        _9 = copy _2;
+        _10 = ref(shared, (*_1));
+        _11 = call std.string.String.len() (owner String) [move _10] -> [return: bb8]; => #21
+    }
+
+    bb7: {
+        goto -> bb1;
+    }
+
+    bb8: {
+        call builtin panic [format "String.byte_at: index out of range: {} (len {})", move _9, copy _11] -> !;
+    }
+}
+
+item #42: std.string.String.deinit()  (from #32)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var String;  // self
+    let _2: UnsafePointer<Int>;  // words
+    let _3: UnsafePointer<Int>;
+    let _4: UnsafePointer<Int>;  // count
+    let _5: Int;
+    let _6: &Int;
+    let _7: UnsafePointer<Int>;
+    let _8: Int;
+    let _9: Bool;
+    let _10: Int;  // old
+    let _11: Int;
+    let _12: Bool;
+    let _13: Bool;
+    let _14: Int;  // header_bytes
+    let _15: Int;
+    let _16: Int;
+    let _17: Int;
+    let _18: UnsafePointer<Int8>;  // block
+    let _19: UnsafePointer<Int8>;
+    let _20: UnsafePointer<Int8>;
+    let _21: Int;
+    let _22: Int;
+    let _23: Int;
+    let _24: Int;
+
+    bb0: {
+        _3 = cast(copy (*_1).bytes as UnsafePointer<Int>);
+        _2 = move _3;
+        _5 = copy static std.string.REFCOUNT_SLOT;
+        _6 = ref(shared, _2[_5]);
+        _7 = cast(move _6 as UnsafePointer<Int>);
+        _4 = move _7;
+        _8 = call builtin __saw_atomic_load_i64_relaxed [copy _4] -> [return: bb2];
+    }
+
+    bb1: {
+        _11 = call builtin __saw_atomic_sub_i64_release [copy _4, const 1: Int] -> [return: bb5];
+    }
+
+    bb2: {
+        _9 = Eq(copy _8, copy static std.string.IMMORTAL);
+        switch move _9 -> [true: bb3, false: bb4];
+    }
+
+    bb3: {
+        return;
+    }
+
+    bb4: {
+        goto -> bb1;
+    }
+
+    bb5: {
+        _10 = move _11;
+        _12 = Lt(copy _10, const 1: Int);
+        switch move _12 -> [true: bb7, false: bb8];
+    }
+
+    bb6: {
+        _13 = Eq(copy _10, const 1: Int);
+        switch move _13 -> [true: bb10, false: bb11];
+    }
+
+    bb7: {
+        call builtin panic [const "String: over-release of a String reference (refcount underflow)": String] -> !;
+    }
+
+    bb8: {
+        goto -> bb6;
+    }
+
+    bb9: {
+        return;
+    }
+
+    bb10: {
+        call builtin __saw_atomic_fence_acquire [] -> [return: bb12];
+    }
+
+    bb11: {
+        goto -> bb9;
+    }
+
+    bb12: {
+        _15 = copy static std.string.HEADER_WORDS;
+        _16 = call builtin sizeof (inst Int) [] -> [return: bb13];
+    }
+
+    bb13: {
+        _17 = Mul(move _15, move _16);
+        _14 = move _17;
+        _19 = cast(copy _4 as UnsafePointer<Int8>);
+        _18 = move _19;
+        _20 = copy _18;
+        _21 = copy _14;
+        _22 = copy static std.string.LENGTH_SLOT;
+        _23 = Add(move _21, copy _2[_22]);
+        _24 = Add(move _23, const 1: Int);
+        call std.string.__saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int) [move _20, move _24, copy static std.string.BLOCK_ALIGN] -> [return: bb14]; => #37
+    }
+
+    bb14: {
+        goto -> bb9;
+    }
+}
+
+item #43: std.stringbuilder.StringBuilder.place_byte(b: Int)  (from #33)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: Int;  // param b
+    let _3: Bool;
+    let _4: Int;
+    let _5: Int;
+    let _6: Bool;
+    let _7: &var std.stringbuilder.StringBuilder;
+    let _8: UnsafePointer<Int8>;  // buf
+    let _9: Int;
+    let _10: Int8;
+    let _11: Int;
+    let _12: Int;
+
+    bb0: {
+        switch copy (*_1).fixed -> [true: bb3, false: bb4];
+    }
+
+    bb1: {
+        switch discriminant((*_1).buffer) -> [Some: bb9, None: bb10];
+    }
+
+    bb2: {
+        switch move _3 -> [true: bb5, false: bb6];
+    }
+
+    bb3: {
+        _4 = Add(copy (*_1).length, const 2: Int);
+        _5 = Sub(copy (*_1).capacity, copy static std.stringbuilder.MARKER_LEN);
+        _6 = Gt(move _4, move _5);
+        _3 = move _6;
+        goto -> bb2;
+    }
+
+    bb4: {
+        _3 = const false: Bool;
+        goto -> bb2;
+    }
+
+    bb5: {
+        _7 = ref(exclusive, (*_1));
+        call std.stringbuilder.StringBuilder.mark_truncated() (owner std.stringbuilder.StringBuilder) [move _7] -> [return: bb7]; => #46
+    }
+
+    bb6: {
+        goto -> bb1;
+    }
+
+    bb7: {
+        return;
+    }
+
+    bb8: {
+        return;
+    }
+
+    bb9: {
+        _8 = copy ((*_1).buffer as Some).0;
+        _9 = copy (*_1).length;
+        _10 = from(truncating:)(copy _2 as Int8);
+        _8[_9] = move _10;
+        _11 = Add(copy (*_1).length, const 1: Int);
+        (*_1).length = move _11;
+        _12 = copy (*_1).length;
+        _8[_12] = const 0: Int8;
+        goto -> bb8;
+    }
+
+    bb10: {
+        goto -> bb8;
+    }
+}
+
+item #44: extern __saw_rt_alloc  (from #34)
+
+item #45: std.mem.copy_bytes(source: UnsafePointer<Int8>, target: UnsafePointer<Int8>, count: Int)  (from #38)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: UnsafePointer<Int8>;  // param source
+    let _2: UnsafePointer<Int8>;  // param target
+    let _3: Int;  // param count
+    let _4: Int;  // i
+    let _5: Bool;
+    let _6: Int;
+    let _7: Int;
+    let _8: Int;
+
+    bb0: {
+        _4 = const 0: Int;
+        goto -> bb1;
+    }
+
+    bb1: {
+        _5 = Lt(copy _4, copy _3);
+        switch move _5 -> [true: bb3, false: bb2];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        budget(yield-capable);
+        goto -> bb4;
+    }
+
+    bb4: {
+        _6 = copy _4;
+        _7 = copy _4;
+        _2[_6] = copy _1[_7];
+        _8 = Add(copy _4, const 1: Int);
+        _4 = move _8;
+        goto -> bb1;
+    }
+}
+
+item #46: std.stringbuilder.StringBuilder.mark_truncated()  (from #40)
+fn -> Void {
+    let _0: Void;  // return
+    let _1: &var std.stringbuilder.StringBuilder;  // self
+    let _2: UnsafePointer<Int8>;  // buf
+    let _3: Int;
+    let _4: Int8;
+    let _5: Int;
+    let _6: Int8;
+    let _7: Int;
+    let _8: Int8;
+    let _9: Int;
+    let _10: Int;
+
+    bb0: {
+        switch copy (*_1).truncated -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        (*_1).truncated = const true: Bool;
+        switch discriminant((*_1).buffer) -> [Some: bb5, None: bb6];
+    }
+
+    bb2: {
+        return;
+    }
+
+    bb3: {
+        goto -> bb1;
+    }
+
+    bb4: {
+        return;
+    }
+
+    bb5: {
+        _2 = copy ((*_1).buffer as Some).0;
+        _3 = copy (*_1).length;
+        _4 = from(truncating:)(copy static std.stringbuilder.MARKER_BYTE_0 as Int8);
+        _2[_3] = move _4;
+        _5 = Add(copy (*_1).length, const 1: Int);
+        _6 = from(truncating:)(copy static std.stringbuilder.MARKER_BYTE_1 as Int8);
+        _2[_5] = move _6;
+        _7 = Add(copy (*_1).length, const 2: Int);
+        _8 = from(truncating:)(copy static std.stringbuilder.MARKER_BYTE_2 as Int8);
+        _2[_7] = move _8;
+        _9 = Add(copy (*_1).length, copy static std.stringbuilder.MARKER_LEN);
+        (*_1).length = move _9;
+        _10 = copy (*_1).length;
+        _2[_10] = const 0: Int8;
+        goto -> bb4;
+    }
+
+    bb6: {
+        goto -> bb4;
+    }
+}
+
+item #47: std.stringbuilder.StringBuilder.is_continuation(b: Int)  (from #40)
+fn -> Bool {
+    let _0: Bool;  // return
+    let _1: &std.stringbuilder.StringBuilder;  // self
+    let _2: Int;  // param b
+    let _3: Bool;
+    let _4: Bool;
+    let _5: Bool;
+
+    bb0: {
+        _4 = Ge(copy _2, copy static std.stringbuilder.CONTINUATION_FIRST);
+        switch move _4 -> [true: bb2, false: bb3];
+    }
+
+    bb1: {
+        _0 = move _3;
+        return;
+    }
+
+    bb2: {
+        _5 = Lt(copy _2, copy static std.stringbuilder.CONTINUATION_END);
+        _3 = move _5;
+        goto -> bb1;
+    }
+
+    bb3: {
+        _3 = const false: Bool;
+        goto -> bb1;
+    }
+}

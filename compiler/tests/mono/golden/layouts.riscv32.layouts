@@ -1,0 +1,51 @@
+&Atomic<Int>: size 4 align 4 pointer
+&Int: size 4 align 4 pointer
+&String: size 4 align 4 pointer
+&UnsafeMutableInterior<Int>: size 4 align 4 pointer
+&std.alloc.AllocError: size 4 align 4 pointer
+&std.alloc.GlobalAllocator: size 4 align 4 pointer
+&std.stringbuilder.StringBuilder: size 4 align 4 pointer
+&std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 4 align 4 pointer
+&var Result<Int, Int>: size 4 align 4 pointer
+&var Result<Int32, Int8>: size 4 align 4 pointer
+&var Result<Void, std.alloc.AllocError>: size 4 align 4 pointer
+&var String: size 4 align 4 pointer
+&var layouts.Shape: size 4 align 4 pointer
+&var layouts.Shape?: size 4 align 4 pointer
+&var std.stringbuilder.StringBuilder: size 4 align 4 pointer
+&var std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 4 align 4 pointer
+(Int, Bool): size 8 align 4 record offsets 0 4
+(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 12 align 4 closure
+Bool: size 1 align 1 int
+Bool?: size 2 align 1 optional tag 1, Some=1 @1, None=0
+Int: size 4 align 4 int
+Int32: size 4 align 4 int
+Int8: size 1 align 1 int
+Int?: size 8 align 4 optional tag 1, Some=1 @4, None=0
+Never: size 0 align 1 zero
+Result<Int, Int>: size 8 align 4 enum tag 4, Ok=0 @4, Err=1 @4
+Result<Int32, Int8>: size 8 align 4 enum tag 4, Ok=0 @4, Err=1 @4
+Result<Void, std.alloc.AllocError>: size 12 align 4 enum tag 4, Ok=0 @4, Err=1 @4
+String: size 4 align 4 record offsets 0
+UInt16: size 2 align 2 int
+UInt64: size 8 align 8 int
+UInt8: size 1 align 1 int
+UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>: size 4 align 4 pointer
+UnsafePointer<Int8>: size 4 align 4 pointer
+UnsafePointer<Int8>?: size 8 align 4 optional tag 1, Some=1 @4, None=0
+UnsafePointer<Int>: size 4 align 4 pointer
+UnsafePointer<Int>?: size 8 align 4 optional tag 1, Some=1 @4, None=0
+Void: size 0 align 1 zero
+layouts.Code: size 2 align 2 int tag 2, Short=3, Long=40000
+layouts.Code?: size 4 align 2 optional tag 1, Some=1 @2, None=0
+layouts.Color: size 4 align 4 enum tag 4, Red=0, Green=1
+layouts.Color?: size 8 align 4 optional tag 1, Some=1 @4, None=0
+layouts.Mixed: size 12 align 4 record offsets 0 4 8
+layouts.Mixed?: size 16 align 4 optional tag 1, Some=1 @4, None=0
+layouts.Shape: size 12 align 4 enum tag 4, Circle=0 @4, Rect=1 @4 @8, Empty=2
+layouts.Shape?: size 16 align 4 optional tag 1, Some=1 @4, None=0
+layouts.Tagged: size 4 align 2 record offsets 0 2
+std.alloc.AllocError: size 8 align 4 record offsets 0 4
+std.alloc.GlobalAllocator: size 0 align 1 record offsets
+std.stringbuilder.StringBuilder: size 20 align 4 record offsets 0 8 12 16 17
+std.vector.Vector<Int, std.alloc.GlobalAllocator>: size 16 align 4 record offsets 0 8 12

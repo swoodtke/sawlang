@@ -1,0 +1,19 @@
+(Module literal_word_host
+  (declarations
+    (func main 6:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (main 6:6
+      (7:9-7:13 BindingName Int place temp)
+      (7:21-7:31 IntLit Int value temp)
+      (8:9-8:13 BindingName UInt place temp)
+      (8:22-8:33 IntLit Int (adopt UInt) value temp)
+      (9:5-9:31 Call.paren Void value temp (builtin print))
+      (9:11-9:18 Interp String value temp)
+      (9:20-9:24 Name Int place borrow)
+      (9:26-9:30 Name UInt place borrow)))
+  (string-positions
+    (9:11 format std.stringbuilder.StringBuilder)))

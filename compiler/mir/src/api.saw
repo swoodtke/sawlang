@@ -11,6 +11,7 @@ import sawresolve.verify.{res_verify_module}
 import sawasserts.layout.{asserts_typecheck_program}
 import sawtypecheck.api.{append_tc_diag}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
+import sawtypecheck.program.{TcTarget}
 import sawtypecheck.verify.{tc_verify_module}
 
 // How `sawc mir` treats one entry file.
@@ -23,18 +24,21 @@ public struct MirOptions {
     notes: Bool
     // Follow each dumped statement and terminator with its source position.
     spans: Bool
+    // The target the program is checked for (`target_front_end`).
+    target: TcTarget
 }
 
-// The program whose entry file is `path`, type checked and lowered to MIR,
-// the lowering counted in `lowerings`. A caller lowers a file once and hands
-// that program to every later stage, the evaluator included, so each driver
-// path's count, which `--lowerings` prints, is 1 (SL-523).
+// The program whose entry file is `path`, type checked for `target` and
+// lowered to MIR, the lowering counted in `lowerings`. A caller lowers a file
+// once and hands that program to every later stage, the evaluator included,
+// so each driver path's count, which `--lowerings` prints, is 1 (SL-523).
 public func mir_lower_file(path: String, std_root: String, names: &Vector<String>,
-                           dirs: &Vector<String>, lowerings: &var Int, runtime: Bool = false,
+                           dirs: &Vector<String>, lowerings: &var Int, target: TcTarget, runtime: Bool = false,
                            freestanding: Bool = false, provider: Bool = false,
                            no_hidden_alloc: Bool = false) -> MirProgram {
-    let tc = asserts_typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding,
-                                       provider: provider, no_hidden_alloc: no_hidden_alloc)
+    let tc = asserts_typecheck_program(path, std_root, &names, &dirs, target: target, runtime: runtime,
+                                       freestanding: freestanding, provider: provider,
+                                       no_hidden_alloc: no_hidden_alloc)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
     lowerings = lowerings + 1
@@ -49,7 +53,7 @@ public func mir_lower_file(path: String, std_root: String, names: &Vector<String
 // `lowerings`.
 public func mir_record(out: &var StringBuilder, path: String, options: &MirOptions, names: &Vector<String>,
                        dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var p = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
+    var p = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
     let status = mir_append_checks(out: &var out, p: &var p, notes: options.notes)
     if options.dump {
         mir_append_dumps(out: &var out, p: &p, spans: options.spans)

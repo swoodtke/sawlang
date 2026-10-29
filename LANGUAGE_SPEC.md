@@ -14498,9 +14498,11 @@ the frame's deinit, and the deinit is a no-op afterwards.
 ### Profiles (hosted and freestanding)
 
 **Status: implemented.** `sawc build --freestanding` writes an ELF object for
-the host's ELF triple or for `aarch64-unknown-none-elf`; the runtime provider
-and the riscv32 triple are not in `sawc` yet (SL-865). Saw compiles under two
-profiles.
+the host's ELF triple or for `aarch64-unknown-none-elf`, and `--runtime` builds
+a runtime provider. For `riscv32-unknown-none-elf`, `sawc` checks a program at
+the 32-bit word through every stage before the backend, and a build stops
+there: the backend does not emit for that triple yet (SL-865). Saw compiles
+under two profiles.
 The default **hosted** profile links libc and provides everything above. The
 **freestanding** profile (`--freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an

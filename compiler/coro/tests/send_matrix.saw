@@ -7,6 +7,7 @@
 // that a frame's verdict does not depend on its group. Paths are the
 // repository root's, where the runner runs.
 import sawcoro.api.{coro_lower_file}
+import sawtarget.layout.{target_front_end}
 import sawcoro.program.{CoroProgram}
 import sawmono.dump.{mono_dump_layouts}
 
@@ -144,7 +145,8 @@ func main() {
     let dirs = Vector<String>()
     var front = StringBuilder()
     let coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/send_matrix.saw", std_root: "std",
-                               notes: false, names: &names, dirs: &dirs)
+                               notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked, "the fixture does not reach coroutine lowering: run from the repository root")
     let table = cells()
     var counted = 0

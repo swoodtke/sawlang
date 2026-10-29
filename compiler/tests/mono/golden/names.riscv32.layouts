@@ -1,0 +1,27 @@
+&(): size 4 align 4 pointer
+&Atomic<Int>: size 4 align 4 pointer
+&Int: size 4 align 4 pointer
+&String: size 4 align 4 pointer
+&UnsafeMutableInterior<Int>: size 4 align 4 pointer
+&names.Grid: size 4 align 4 pointer
+&names.Path: size 4 align 4 pointer
+&std.path.Path: size 4 align 4 pointer
+&var (Int,): size 4 align 4 pointer
+&var Int: size 4 align 4 pointer
+&var String: size 4 align 4 pointer
+&var names.Grid: size 4 align 4 pointer
+&var std.path.Path: size 4 align 4 pointer
+(Int) -> Bool: size 12 align 4 closure
+(Int,): size 4 align 4 record offsets 0
+(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 12 align 4 closure
+Bool: size 1 align 1 int
+Int: size 4 align 4 int
+Never: size 0 align 1 zero
+String: size 4 align 4 record offsets 0
+UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>: size 4 align 4 pointer
+UnsafePointer<Int8>: size 4 align 4 pointer
+UnsafePointer<Int>: size 4 align 4 pointer
+Void: size 0 align 1 zero
+names.Grid: size 8 align 4 record offsets 0 4
+names.Path: size 4 align 4 record offsets 0
+std.path.Path: size 4 align 4 record offsets 0

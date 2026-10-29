@@ -13,8 +13,12 @@ directory specifies:
   gives exactly the record in `golden/NAME.mono` (`--dump`) and the layout
   table in `golden/NAME.layouts` (`--layouts`), neither carrying an `ERROR` or
   `INVARIANT` line;
+- each golden program's records for a target with layouts of its own
+  (`OWN_LAYOUT_TARGETS`: riscv32) equal `golden/NAME.riscv32.mono` and
+  `golden/NAME.riscv32.layouts`;
 - each fixture in `refuse/` is refused first at its header's position by the
-  rule its name starts with, and every rule mono refuses by (`mono_rules` in
+  rule its name starts with, checked with the flags a second line
+  `// flags: ...` passes, and every rule mono refuses by (`mono_rules` in
   `compiler/mono/src/worklist.saw`) has a fixture;
 - each type of a layout table that Stage 0 can spell has Stage 0's size and
   alignment there, read off Stage 0's recorded run of a probe program
@@ -54,6 +58,7 @@ PROBES = os.path.join(REPO, ".build", "mono-lane")
 TIMEOUT = 600
 
 _HEADER = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
+_FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 _LAYOUT = re.compile(r"^(.*): size (\d+) align (\d+) ")
 _MODULE_PATH = re.compile(r"\b(?:[a-z_][a-z0-9_]*\.)+(?=[A-Z])")
@@ -141,6 +146,46 @@ def check_target_layouts(failures, counts):
                 counts.get("mono layout records equal across targets", 0) + 1)
 
 
+# Each triple whose layouts are a table of their own, with the suffix of its
+# golden records: riscv32 is ILP32, so its word, and every pointer, `Int`,
+# slice, closure and erased pointer, is four bytes.
+OWN_LAYOUT_TARGETS = (("riscv32-unknown-none-elf", "riscv32"),)
+
+
+def check_own_targets(failures, counts, write):
+    """Each golden program's `--dump` and `--layouts` records for a target of
+    `OWN_LAYOUT_TARGETS` equal `golden/NAME.SUFFIX.mono` and
+    `golden/NAME.SUFFIX.layouts`, and carry no `ERROR` or `INVARIANT` line."""
+    cases = sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))
+    for target, suffix in OWN_LAYOUT_TARGETS:
+        for mode, ext in (("--dump", ".mono"), ("--layouts", ".layouts")):
+            _, out = sawc([mode, "--target", target, "--std-root", "std"] + [rel(s) for s in cases])
+            got = borrowck_lane.records(out)
+            for src in cases:
+                exp = "%s.%s%s" % (os.path.splitext(src)[0], suffix, ext)
+                record = got.get(rel(src))
+                if record is None:
+                    failures.append("mono %s %s: no %s record" % (suffix, rel(src), mode))
+                    continue
+                if write:
+                    with open(exp, "w") as fh:
+                        fh.write(record)
+                    continue
+                if not os.path.exists(exp):
+                    failures.append("mono %s %s: no expectation %s" % (suffix, rel(src), rel(exp)))
+                    continue
+                with open(exp) as fh:
+                    expected = fh.read()
+                if expected != record:
+                    failures.append("mono %s %s: the %s record differs at %s"
+                                    % (suffix, rel(src), mode, borrowck_lane.first_difference(expected, record)))
+                for line in record.split("\n"):
+                    if line.startswith(("ERROR\t", "INVARIANT\t")):
+                        failures.append("mono %s %s: %s" % (suffix, rel(src), line))
+                counts["mono records for a target of its own"] = (
+                    counts.get("mono records for a target of its own", 0) + 1)
+
+
 def mono_rules():
     with open(RULES_SOURCE) as fh:
         text = fh.read()
@@ -149,10 +194,23 @@ def mono_rules():
     return _RULE.findall(body)
 
 
+def refusal_flags(path):
+    """The flags a refusal fixture's second line `// flags: ...` passes."""
+    with open(path) as fh:
+        fh.readline()
+        m = _FLAGS.match(fh.readline().rstrip("\n"))
+    return tuple(m.group(1).split()) if m else ()
+
+
 def check_refusals(failures, counts):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc(["--check", "--std-root", "std"] + [rel(p) for p in cases])
-    got = borrowck_lane.records(out)
+    groups = {}
+    for path in cases:
+        groups.setdefault(refusal_flags(path), []).append(path)
+    got = {}
+    for flags, paths in sorted(groups.items()):
+        code, out = sawc(["--check", "--std-root", "std"] + list(flags) + [rel(p) for p in paths])
+        got.update(borrowck_lane.records(out))
     rules = mono_rules()
     covered = set()
     for path in cases:
@@ -347,6 +405,7 @@ def run(write=False):
     counts = {}
     check_golden(failures, counts, write)
     check_target_layouts(failures, counts)
+    check_own_targets(failures, counts, write)
     check_refusals(failures, counts)
     check_layouts(failures, counts)
     check_lowerings(failures, counts)

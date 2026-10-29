@@ -6,6 +6,7 @@
 // the pointer points at, and the verifier must report that under rule 1.
 // Paths are the repository root's, where the runner runs.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawtarget.layout.{target_front_end}
 import sawcoro.program.{CoroProgram}
 import sawcoro.verify.{coro_verify_lowering}
 import sawmir.model.{MirPlace, MirProjKind, MirStmtKind}
@@ -67,9 +68,10 @@ func main() {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/teardown.saw", std_root: "std",
-                               notes: false, names: &names, dirs: &dirs)
+                               notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     let f = body_of(&coro, "keep")

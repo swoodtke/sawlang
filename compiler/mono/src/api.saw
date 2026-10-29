@@ -21,12 +21,14 @@ import sawtarget.layout.{Target}
 import sawtypecheck.arith.{TcFault}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.fold.{TcFold}
+import sawtypecheck.program.{TcTarget}
 import sawtypecheck.signatures.{TcContext}
 
 // How `sawc mono` treats one entry file.
 public struct MonoOptions {
     std_root: String
-    target: String
+    // The target the program is checked and laid out for (`target_front_end`).
+    target: TcTarget
     // Print each item's concrete function.
     dump: Bool
     // Print the layout table of the types the items reach.
@@ -40,14 +42,15 @@ public struct MonoOptions {
 // is a refusal or a broken invariant, the program comes back blocked and
 // nothing is instantiated. `runtime`, `freestanding` and `provider` are the
 // driver's flags, from which typecheck builds the program's profile record
-// (`TcProfile`); every stage after it reads the record. The file is lowered
-// once, and the program's `lowerings` says so.
+// (`TcProfile`); every stage after it reads the record, as it reads
+// `target`'s through the program. The file is lowered once, and the
+// program's `lowerings` says so.
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
-                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false,
+                            names: &Vector<String>, dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                             freestanding: Bool = false, provider: Bool = false,
                             no_hidden_alloc: Bool = false) -> MonoProgram {
     var lowerings = 0
-    var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, runtime: runtime,
+    var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, target: target, runtime: runtime,
                                  freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc)
     var head = StringBuilder()
     var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
@@ -117,9 +120,7 @@ func mono_check_layout_asserts(mono: &var MonoProgram) {
     if mono.dp.bc.mir.tc.layout_asserts.len() == 0 {
         return
     }
-    // Every target sawc describes is LP64 with natural alignment, so one
-    // answers for all of them, as the layout-assert funnel's does.
-    var target = Target(triple: "arm64-apple-darwin")
+    var target = Target(triple: mono.dp.bc.mir.tc.target.triple)
     var k = 0
     while k < mono.items.len() {
         let it = mono.items[k]
@@ -291,7 +292,7 @@ func mono_take_statics(mono: &var MonoProgram, ev: &EvalProgram) {
 public func mono_record(out: &var StringBuilder, path: String, options: &MonoOptions, names: &Vector<String>,
                         dirs: &Vector<String>, lowerings: &var Int) -> Int {
     var mono = mono_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
-                               names: &names, dirs: &dirs)
+                               names: &names, dirs: &dirs, target: options.target)
     lowerings = lowerings + mono.lowerings
     var status = 0
     if mono.blocked {
@@ -308,7 +309,7 @@ public func mono_record(out: &var StringBuilder, path: String, options: &MonoOpt
         mono.dump_items(&var out)
     }
     if options.layouts {
-        var target = mono.target_for(options.target)
+        var target = mono.target_for()
         mono_dump_layouts(&var mono, &var target, &var out)
     }
     status

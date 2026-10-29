@@ -16,7 +16,7 @@ import sawllvm.module.{ll_lowering}
 import sawllvm.program.{llvm_emit_program}
 import sawmir.model.{MirProjKind}
 import sawmono.dump.{mono_dump_layouts}
-import sawtarget.layout.{target_clang_triple}
+import sawtarget.layout.{target_clang_triple, target_front_end}
 import std.data.{Data}
 import std.env.{Env}
 import std.file.{File}
@@ -86,9 +86,10 @@ func main() {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/asan_overlap.saw",
-                               std_root: "std", notes: false, names: &names, dirs: &dirs)
+                               std_root: "std", notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end(triple, ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
-    var target = coro.mono.target_for(triple)
+    var target = coro.mono.target_for()
     coro.sanitize = true
     coro_lower_for(&var coro, &var target)
     let clean = coro.problems.get(0) ?? ""

@@ -1,0 +1,11 @@
+// refuses: static_assert.failed at 7:15
+// flags: --std-root std --target riscv32-unknown-none-elf
+// A `static_assert` written for a 64-bit word is false at riscv32, where it
+// is measured: the layout funnel takes the program's target, never a fixed
+// LP64 one (golden/static_assert_word_riscv32.saw holds the true ones).
+
+static_assert(sizeof<Int>() == 8, "a word is eight bytes")
+
+func main() {
+    print("{}", sizeof<Int>())
+}

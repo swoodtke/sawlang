@@ -402,12 +402,12 @@ func coro_bt_string(bytes: &Vector<Int>, at: Int, off: Int) -> String {
 public func coro_bt_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
                            dirs: &Vector<String>) -> Int {
     var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
-                               names: &names, dirs: &dirs)
+                               names: &names, dirs: &dirs, target: options.target)
     coro_append_findings(out: &var out, coro: &coro)
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
         return 1
     }
-    var target = coro.mono.target_for(options.target)
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     if coro.problems.len() > 0 {
         var k = 0

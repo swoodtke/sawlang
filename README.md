@@ -925,8 +925,9 @@ func boot() {
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
 optional extensions, a feature list. `sawc build --freestanding --target
-aarch64-unknown-none-elf` writes a freestanding object today; `sawc` does not
-yet target riscv32 (SL-865). With it, the build reads:
+aarch64-unknown-none-elf` writes a freestanding object today. For riscv32,
+`sawc` checks the program at the 32-bit word and stops before the backend,
+which does not emit for it yet (SL-865). Once it does, the build reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \

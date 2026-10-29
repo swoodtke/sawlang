@@ -13,8 +13,8 @@ import sawtypecheck.captures.{tc_check_closure_traits, tc_check_escaping_consume
 import sawtypecheck.checks.{tc_check_atomic_widths, tc_check_derived_conformances, tc_check_entry_point,
                                 tc_check_finite_size, tc_check_inits, tc_check_memory_views,
                                 tc_check_policy_placement,
-                                tc_check_required_conformances, tc_check_test_only_overlaps,
-                                tc_check_unsafe}
+                                tc_check_required_conformances, tc_check_target_atomics,
+                                tc_check_test_only_overlaps, tc_check_unsafe}
 import sawtypecheck.conform.{tc_check_copy_policies, tc_check_test_only_copies,
                                  tc_collect_conformances, tc_extension_sets,
                                  tc_settle_conformances}
@@ -30,7 +30,7 @@ import sawtypecheck.mutability.{tc_check_mutability}
 import sawtypecheck.overloads.{tc_check_redeclarations}
 import sawtypecheck.model.{TcDiag}
 import sawtypecheck.paths.{tc_settle_path_uses}
-import sawtypecheck.program.{TcKnown, TcProgram, tc_profile, tc_program}
+import sawtypecheck.program.{TcKnown, TcProgram, TcTarget, tc_profile, tc_program}
 import sawtypecheck.refpositions.{tc_check_reference_positions}
 import sawtypecheck.signatures.{tc_index_generics}
 import sawtypecheck.statics.{tc_evaluate_constant_statics}
@@ -60,11 +60,11 @@ public struct TypecheckOptions {
 // Copy tiers, and runs the checks that need only those (SL:architecture §3.4,
 // "Order").
 public func typecheck_program(path: String, std_root: String, names: &Vector<String>,
-                              dirs: &Vector<String>, runtime: Bool = false,
+                              dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                               freestanding: Bool = false, provider: Bool = false,
                               no_hidden_alloc: Bool = false) -> TcProgram {
     let res = resolve_program(path, std_root, &names, &dirs)
-    var p = tc_program(move res)
+    var p = tc_program(move res, target)
     p.profile = tc_profile(runtime, provider, freestanding)
     p.no_hidden_alloc = no_hidden_alloc
     p.find_known()
@@ -106,6 +106,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_verify_all_summaries(&var p)
     tc_check_atomic_widths(&var p)
     tc_check_memory_views(&var p)
+    tc_check_target_atomics(&var p)
     tc_check_exports(&var p)
     // A pass after the bodies that forms a type leaves no bound unanswered.
     tc_check_obligations(&var p)

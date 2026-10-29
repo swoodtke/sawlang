@@ -8,6 +8,7 @@
 // holding a new value. Each edit must be reported. Paths are the repository
 // root's, where the runner runs.
 import sawmir.api.{mir_lower_file}
+import sawtarget.layout.{target_front_end}
 import sawmir.model.{MirProjKind, MirStmt, MirStmtKind, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmir.verify.{mir_verify_module}
@@ -92,7 +93,8 @@ func reads_payload(p: &MirProgram, place: Int) -> Bool {
 // The fixture lowered and checked clean.
 func lowered(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
     var lowerings = 0
-    var p = mir_lower_file("compiler/tests/mir/inject/leftovers.saw", "std", &names, &dirs, &var lowerings)
+    var p = mir_lower_file("compiler/tests/mir/inject/leftovers.saw", "std", &names, &dirs, &var lowerings,
+                           target: target_front_end("arm64-apple-darwin", ""))
     let m = module_index(&p, "leftovers")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")

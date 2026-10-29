@@ -5,6 +5,7 @@
 // that slot as written no times. Paths are the repository root's, where the
 // runner runs.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawtarget.layout.{target_front_end}
 import sawcoro.frames.{coro_frame_of}
 import sawcoro.lower.{coro_check_drives}
 import sawcoro.program.{CoroPointKind, CoroProgram}
@@ -104,9 +105,10 @@ func main() {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/golden/drive_arguments.saw",
-                               std_root: "std", notes: false, names: &names, dirs: &dirs)
+                               std_root: "std", notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the golden is refused: run from the repository root")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     assert(coro.problems.len() == 0, "the golden's lowering is not clean: {}", coro.problems.get(0) ?? "")
     let k = drive_of(&coro, "label")

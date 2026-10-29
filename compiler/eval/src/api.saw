@@ -8,6 +8,7 @@ import saweval.check.{eval_fault_name}
 import saweval.interp.{eval_step_budget}
 import saweval.program.{EvalProgram, eval_program}
 import saweval.report.{eval_rules}
+import sawtypecheck.program.{TcTarget}
 
 // How `sawc eval` treats one entry file.
 public struct EvalOptions {
@@ -15,6 +16,8 @@ public struct EvalOptions {
     // Print each module's constants and their values.
     dump: Bool
     notes: Bool
+    // The target the program is checked for (`target_front_end`).
+    target: TcTarget
 }
 
 // The record of one program evaluated, after its `FILE` line: everything
@@ -24,7 +27,7 @@ public struct EvalOptions {
 // and 1 otherwise. The lowering is counted in `lowerings`.
 public func eval_record(out: &var StringBuilder, path: String, options: &EvalOptions, names: &Vector<String>,
                         dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings)
+    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
     var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
     var p = eval_program(&lowered)
     p.evaluate_all(&lowered)

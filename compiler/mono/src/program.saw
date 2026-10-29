@@ -263,11 +263,12 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
 extension MonoProgram {
     public func item(&self, k: Int) -> MonoItem { self.items[k] }
 
-    // The description of `triple` this program's layouts are asked of, given
-    // the evaluated value of every raw-backed case, which its enum's layout
-    // reads.
-    public func target_for(&self, triple: String) -> Target {
-        var target = Target(triple: triple)
+    // The description of the target the program was typed for, which its
+    // layouts are asked of, given the evaluated value of every raw-backed
+    // case, which its enum's layout reads. It takes no triple of its own, so
+    // a program is never laid out for a word it was not typed for.
+    public func target_for(&self) -> Target {
+        var target = Target(triple: self.dp.bc.mir.tc.target.triple)
         var d = 0
         while d < self.static_values.len() {
             let v = self.static_values[d]
@@ -577,7 +578,7 @@ extension MonoProgram {
 
     // The node of the nearest program-written call on the chain of items
     // that reached the current one, or -1.
-    func user_site(&self) -> Int {
+    public func user_site(&self) -> Int {
         var k = self.current
         while k >= 0 {
             let it = self.items[k]

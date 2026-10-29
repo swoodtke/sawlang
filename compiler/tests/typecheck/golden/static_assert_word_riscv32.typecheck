@@ -1,0 +1,48 @@
+(Module static_assert_word_riscv32
+  (declarations
+    (struct Frame 7:8 private)
+    (field Frame.pc 8:5 private UInt)
+    (field Frame.sp 9:5 private UnsafePointer<UInt8>)
+    (field Frame.flags 10:5 private UInt8)
+    (func main 18:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (static_assert_word_riscv32.Frame
+      (field pc UInt private declared)
+      (field sp UnsafePointer<UInt8> private declared)
+      (field flags UInt8 private declared)))
+  (views
+    (static_assert_word_riscv32.Frame pc sp flags))
+  (conformances)
+  (copy-tier
+    (static_assert_word_riscv32.Frame Copy))
+  (bodies
+    (main 18:6
+      (19:5-19:33 Call.paren Void value temp (builtin print))
+      (19:11-19:15 Interp String value temp)
+      (19:17-19:32 Call.paren Int value borrow (builtin sizeof)))
+    (item 13:15
+      (13:15-13:33 Binary.pair Bool value temp (op ==))
+      (13:15-13:28 Call.paren Int value borrow (builtin sizeof))
+      (13:32-13:33 IntLit Int value borrow))
+    (item 14:15
+      (14:15-14:63 Binary.pair Bool value temp (op ==))
+      (14:15-14:29 Call.paren Int value borrow (builtin sizeof))
+      (14:33-14:63 Call.paren Int value borrow (builtin sizeof)))
+    (item 15:15
+      (15:15-15:60 Binary Bool value temp (op &&))
+      (15:15-15:35 Binary.pair Bool value temp (op ==))
+      (15:15-15:30 Call.paren Int value borrow (builtin sizeof))
+      (15:34-15:35 IntLit Int value borrow)
+      (15:39-15:60 Binary.pair Bool value temp (op ==))
+      (15:39-15:55 Call.paren Int value borrow (builtin alignof))
+      (15:59-15:60 IntLit Int value borrow))
+    (item 16:15
+      (16:15-16:61 Binary Bool value temp (op &&))
+      (16:15-16:36 Binary.pair Bool value temp (op ==))
+      (16:15-16:30 Call.paren Int value borrow (builtin sizeof))
+      (16:34-16:36 IntLit Int value borrow)
+      (16:40-16:61 Binary.pair Bool value temp (op ==))
+      (16:40-16:56 Call.paren Int value borrow (builtin alignof))
+      (16:60-16:61 IntLit Int value borrow)))
+  (string-positions
+    (19:11 format std.stringbuilder.StringBuilder)))

@@ -8,6 +8,7 @@
 import sawborrowck.loans.{BorrowckLoans, borrowck_join, borrowck_set_bit, borrowck_slice, borrowck_zeros}
 import sawborrowck.program.{BorrowckProgram, borrowck_program}
 import sawmir.api.{mir_lower_file}
+import sawtarget.layout.{target_front_end}
 import sawmir.initialisation.{MirInit}
 import sawmir.model.{MirCallKind, MirFuncKind, MirTermKind}
 import sawmir.program.{MirProgram}
@@ -159,7 +160,8 @@ func check_forward(p: &BorrowckProgram, f: Int, facts: &BorrowckLoans) {
 // gives; returns how many functions held a loop or a window.
 func check(path: String, name: String, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var lowerings = 0
-    let lowered = mir_lower_file(path, "std", &names, &dirs, &var lowerings)
+    let lowered = mir_lower_file(path, "std", &names, &dirs, &var lowerings,
+                                 target: target_front_end("arm64-apple-darwin", ""))
     assert(lowered.diags.len() == 0 && lowered.tc.error_count() == 0, "a golden is refused")
     let p = borrowck_program(move lowered)
     let m = module_index(&p, name)

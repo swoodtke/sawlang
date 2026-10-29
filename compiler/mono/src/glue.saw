@@ -864,20 +864,21 @@ extension MonoProgram {
         self.dp.bc.mir.goto(join)
     }
 
-    // Operand `value`, an integer of type `t`, as the `Int` of its bits: the
-    // platform pair and the 64-bit widths as they are, a narrower width
-    // zero-extended.
+    // Operand `value`, an integer of type `t`, as the `Int` of its bits: a
+    // width of the target's word as it is, a wider one its low word (which
+    // equal values still share), a narrower one zero-extended.
     func hash_word(&var self, value: Int, t: Int) -> Int {
         let int_type = self.dp.bc.mir.tc.int_type()
         if t == int_type {
             return value
         }
         let width = self.dp.bc.mir.tc.int_width(t)
-        if self.dp.bc.mir.tc.is_unsigned(t) && width == 64 {
+        let word = self.dp.bc.mir.tc.target.word_bits
+        if width > word || (self.dp.bc.mir.tc.is_unsigned(t) && width == word) {
             return self.to_int(value, "from(truncating:)")
         }
         let widened = self.to_int(value, "")
-        if self.dp.bc.mir.tc.is_unsigned(t) || width == 64 {
+        if self.dp.bc.mir.tc.is_unsigned(t) || width == word {
             return widened
         }
         var mask = "255"
@@ -910,11 +911,13 @@ extension MonoProgram {
 
     // `format(into:)`: a Bool's `true` or `false`, an integer's decimal
     // digits, a Float's shortest round-trip text, each appended through the
-    // builder. An unsigned 64-bit value past `Int.max` is no `Int`, so it is
-    // appended as its quotient by ten, when not zero, then its last digit. A
-    // Float is the builder's `append(value: Float)`, the one formatter every
-    // position that shows a Float reaches. An append fails only for a
-    // growable builder's refused growth, which panics as `try!` does.
+    // builder. An unsigned value of the word's width past `Int.max` is no
+    // `Int`, so it is appended as its quotient by ten, when not zero, then
+    // its last digit; an integer wider than the word has no `Int` to go
+    // through at all, and is refused. A Float is the builder's
+    // `append(value: Float)`, the one formatter every position that shows a
+    // Float reaches. An append fails only for a growable builder's refused
+    // growth, which panics as `try!` does.
     func build_scalar_format(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
@@ -945,9 +948,20 @@ extension MonoProgram {
             self.finish_glue(k, f)
             return
         }
+        let width = self.dp.bc.mir.tc.int_width(t)
+        let word = self.dp.bc.mir.tc.target.word_bits
         if self.dp.bc.mir.tc.is_bool(t) {
             self.append_bool(t, text, builder)
-        } else if self.dp.bc.mir.tc.is_unsigned(t) && self.dp.bc.mir.tc.int_width(t) == 64 {
+        } else if width > word {
+            var msg = StringBuilder()
+            try! msg.append("`Printable.format` of `")
+            try! msg.append(self.dp.bc.mir.tc.type_text(t))
+            try! msg.append("`, wider than the target's ")
+            try! msg.append(word)
+            try! msg.append("-bit word, which the builder's `append(value: Int)` cannot hold")
+            let site = self.user_site()
+            self.refuse(site, "mono.not-yet", msg.build())
+        } else if self.dp.bc.mir.tc.is_unsigned(t) && width == word {
             self.append_wide_unsigned(t, digits, builder)
         } else {
             let value = self.referent_copy(1, t)

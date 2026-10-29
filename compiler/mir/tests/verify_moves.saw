@@ -12,6 +12,7 @@
 // must make the verifier report the move. Paths are the repository root's,
 // where the runner runs.
 import sawmir.api.{mir_lower_file}
+import sawtarget.layout.{target_front_end}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirRvalueKind, MirStmtKind}
 import sawmir.program.{MirProgram}
@@ -195,7 +196,8 @@ func owning_move_through_reference(p: &var MirProgram, m: Int, function: Bool) -
 // The take fixture lowered, checked clean, and its take found.
 func lowered_takes(names: &Vector<String>, dirs: &Vector<String>) -> MirProgram {
     var lowerings = 0
-    var p = mir_lower_file("compiler/tests/mir/inject/takes.saw", "std", &names, &dirs, &var lowerings)
+    var p = mir_lower_file("compiler/tests/mir/inject/takes.saw", "std", &names, &dirs, &var lowerings,
+                           target: target_front_end("arm64-apple-darwin", ""))
     let m = module_index(&p, "takes")
     assert(m >= 0, "the take fixture did not load")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the take fixture is refused")
@@ -209,7 +211,8 @@ func main() {
     let names = Vector<String>()
     let dirs = Vector<String>()
     var lowerings = 0
-    var p = mir_lower_file("compiler/tests/mir/inject/moves.saw", "std", &names, &dirs, &var lowerings)
+    var p = mir_lower_file("compiler/tests/mir/inject/moves.saw", "std", &names, &dirs, &var lowerings,
+                           target: target_front_end("arm64-apple-darwin", ""))
     let m = module_index(&p, "moves")
     assert(m >= 0, "the fixture did not load: run from the repository root")
     assert(p.diags.len() == 0 && p.tc.error_count() == 0, "the fixture is refused")
@@ -230,7 +233,8 @@ func main() {
 
     // A call site's sigil mirrors its parameter, so `&t` written for a
     // by-value `T` is refused before any lowering (SL-484).
-    let q = mir_lower_file("compiler/tests/mir/inject/handoff.saw", "std", &names, &dirs, &var lowerings)
+    let q = mir_lower_file("compiler/tests/mir/inject/handoff.saw", "std", &names, &dirs, &var lowerings,
+                           target: target_front_end("arm64-apple-darwin", ""))
     let h = module_index(&q, "handoff")
     assert(h >= 0, "the hand-off fixture did not load")
     assert(q.tc.error_count() == 1, "typecheck does not refuse the hand-off's sigil")

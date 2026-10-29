@@ -109,8 +109,7 @@ extension TcProgram {
     }
 
     // The bit width of integer type `t`. The platform pair is pointer-width
-    // (design 47), read as the 64-bit hosted target's until sawc takes a
-    // target.
+    // (design 47), the target's word; every fixed width is its own.
     public func int_width(&self, t: Int) -> Int {
         let d = self.nominal_decl(t)
         let k = self.known
@@ -122,6 +121,9 @@ extension TcProgram {
         }
         if d == k.int32 || d == k.uint32 {
             return 32
+        }
+        if d == k.int || d == k.uint {
+            return self.target.word_bits
         }
         64
     }

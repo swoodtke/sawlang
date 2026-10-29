@@ -18,12 +18,14 @@ import sawmono.api.{mono_append_findings, mono_lower_file}
 import sawmono.program.{MonoProgram}
 import sawmono.worklist.{mono_rules}
 import sawtarget.layout.{Target}
+import sawtypecheck.program.{TcTarget}
 
 // How `sawc coro` treats one entry file.
 public struct CoroOptions {
     std_root: String
-    // The target triple frames are laid out for.
-    target: String
+    // The target the program is checked and its frames laid out for
+    // (`target_front_end`).
+    target: TcTarget
     // Print each item's frame decision.
     dump: Bool
     // Print each frame's layout.
@@ -38,15 +40,16 @@ public struct CoroOptions {
 // mono report is appended to `out`, as `mono_lower_file` appends it; mono's
 // own findings and this stage's are `coro_append_findings`'. When mono's
 // program comes refused or with a broken invariant, nothing is decided.
-// `runtime`, `freestanding` and `provider` reach typecheck, which builds the
-// profile record every later stage reads.
+// `target`, `runtime`, `freestanding` and `provider` reach typecheck, which
+// keeps the target record and builds the profile record every later stage
+// reads.
 public func coro_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
-                            names: &Vector<String>, dirs: &Vector<String>, runtime: Bool = false,
+                            names: &Vector<String>, dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                             freestanding: Bool = false, provider: Bool = false,
                             no_hidden_alloc: Bool = false) -> CoroProgram {
     var mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
-                               dirs: &dirs, runtime: runtime, freestanding: freestanding, provider: provider,
-                               no_hidden_alloc: no_hidden_alloc)
+                               dirs: &dirs, target: target, runtime: runtime, freestanding: freestanding,
+                               provider: provider, no_hidden_alloc: no_hidden_alloc)
     var coro = coro_program(move mono)
     if not coro.blocked {
         coro_solve_suspension(&var coro)
@@ -107,7 +110,7 @@ public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
 public func coro_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
                         dirs: &Vector<String>) -> Int {
     var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
-                               names: &names, dirs: &dirs)
+                               names: &names, dirs: &dirs, target: options.target)
     coro_append_findings(out: &var out, coro: &coro)
     var status = 0
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
@@ -117,12 +120,12 @@ public func coro_record(out: &var StringBuilder, path: String, options: &CoroOpt
         coro_dump_items(&coro, &var out)
     }
     if options.layouts && not coro.blocked {
-        var target = coro.mono.target_for(options.target)
+        var target = coro.mono.target_for()
         coro_lay_out_frames(&var coro, &var target)
         coro_dump_layouts(&coro, &var out)
     }
     if options.lowered && not coro.blocked {
-        var target = coro.mono.target_for(options.target)
+        var target = coro.mono.target_for()
         let before = coro.problems.len()
         coro_lower_for(&var coro, &var target)
         var k = before

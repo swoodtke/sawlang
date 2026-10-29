@@ -1,0 +1,20 @@
+// flags: --std-root std --target riscv32-unknown-none-elf
+// A `static_assert` measures a layout on the program's target: at riscv32 the
+// word, and so `Int`, `UInt`, a pointer and a record of words, is four bytes,
+// while `Int64` stays eight bytes aligned to eight (ILP32 RISC-V).
+// refuse/static_assert.failed.word-riscv32.saw asserts the 64-bit size.
+
+struct Frame {
+    pc: UInt,
+    sp: UnsafePointer<UInt8>,
+    flags: UInt8
+}
+
+static_assert(sizeof<Int>() == 4, "a riscv32 word is four bytes")
+static_assert(sizeof<UInt>() == sizeof<UnsafePointer<UInt8>>(), "a word is pointer-wide")
+static_assert(sizeof<Int64>() == 8 && alignof<Int64>() == 8, "Int64 keeps its own width")
+static_assert(sizeof<Frame>() == 12 && alignof<Frame>() == 4, "a record of words packs at four")
+
+func main() {
+    print("{}", sizeof<Frame>())
+}

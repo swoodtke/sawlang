@@ -8,6 +8,7 @@
 // reference, so this check is the only one that can. Paths are the
 // repository root's, where the runner runs.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawtarget.layout.{target_front_end}
 import sawcoro.program.{CoroBeforeBody, CoroProgram}
 import sawcoro.verify.{coro_verify_lowering}
 import sawmono.dump.{mono_dump_layouts}
@@ -78,9 +79,10 @@ func main() {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/window_records.saw",
-                               std_root: "std", notes: false, names: &names, dirs: &dirs)
+                               std_root: "std", notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     let at = body_of(&coro, "held")

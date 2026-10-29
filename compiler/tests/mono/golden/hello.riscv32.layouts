@@ -1,0 +1,13 @@
+&Atomic<Int>: size 4 align 4 pointer
+&Int: size 4 align 4 pointer
+&String: size 4 align 4 pointer
+&UnsafeMutableInterior<Int>: size 4 align 4 pointer
+(UnsafePointer<Int8>, Int) unsafe sync -> Void: size 12 align 4 closure
+Bool: size 1 align 1 int
+Int: size 4 align 4 int
+Never: size 0 align 1 zero
+String: size 4 align 4 record offsets 0
+UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>: size 4 align 4 pointer
+UnsafePointer<Int8>: size 4 align 4 pointer
+UnsafePointer<Int>: size 4 align 4 pointer
+Void: size 0 align 1 zero

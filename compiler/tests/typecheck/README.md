@@ -38,7 +38,12 @@ under the freestanding profile (`spawn.freestanding`,
 ordinary function. The flags make the program's profile record,
 `TcProgram.profile` (`tc_profile`, one of five kinds), which every rule that
 knows a profile reads. `--no-hidden-alloc` refuses the allocations no source
-construct names (`alloc.hidden`), under any profile. Each entry gets one record, starting
+construct names (`alloc.hidden`), under any profile. `--target TRIPLE` (default an
+LP64 host's) and `--target-features F` make the target record,
+`TcProgram.target` (`target_front_end` in compiler/target/src/layout.saw):
+`Int`/`UInt` are its word's width (`int_width`), so a literal's range,
+every fold and every `static_assert`'s layout follow it, and
+`atomics.target` reads its atomics. Each entry gets one record, starting
 with the line `FILE<TAB>path`, holding in order:
 
 - one `ERROR<TAB>rule<TAB>file:line:col<TAB>message` line per refusal:
@@ -1731,6 +1736,7 @@ its fixit.
 | `memory.not-a-struct` | a field projection, `view.field`, through a view whose `T` is no struct (SL-914) |
 | `memory.not-an-array` | an index projection, `view[i]`, through a view whose `T` is no fixed array (SL-914) |
 | `memory.index-range` | an index projection by a constant outside the viewed array's length, a negative one included; a run-time index is unchecked (SL-914) |
+| `atomics.target` | a `SpinLock` named by a module of the program on a target whose word compare-and-swap lowers to an `__atomic_*` libcall (riscv32 without `+a`, `TcTarget.atomics`), once, at the first written type, else the first expression, that names one; std's own use is not judged (spec, `SpinLock`, "The target must have atomics"; SL-865) |
 | `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
 | `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
 | `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |

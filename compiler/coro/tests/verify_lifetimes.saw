@@ -8,6 +8,7 @@
 // Rule 5 must report each once, naming both values, the point and the state.
 // Paths are the repository root's, where the runner runs.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawtarget.layout.{target_front_end}
 import sawcoro.frames.{coro_frame_of}
 import sawcoro.program.{CoroProgram, CoroValueKind}
 import sawcoro.verify.{coro_verify_lowering}
@@ -53,9 +54,10 @@ func lowered() -> CoroProgram {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/lifetimes.saw", std_root: "std",
-                               notes: false, names: &names, dirs: &dirs)
+                               notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run from the repository root")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     move coro
@@ -134,7 +136,7 @@ func overlap() {
         rewritten = rewritten + 1
     }
     assert(rewritten > 0, "`keep`'s body names `extra` nowhere")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_verify_lowering(&var coro, &var target)
     var words = Vector<String>()
     try! words.push("_2 `both` at (*frame).[")
@@ -198,7 +200,7 @@ func drop_too_late() {
         }
     }
     assert(moved, "`keep`'s lowered body has no drop a later assignment follows into its slot")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_verify_lowering(&var coro, &var target)
     var words = Vector<String>()
     try! words.push("_4 at (*frame).[")

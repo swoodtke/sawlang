@@ -1,0 +1,26 @@
+(Module atomics_target_answered
+  (declarations
+    (static COUNT 8:8 private std.spinlock.SpinLock<Int>)
+    (func bump 10:6 private (signature (params) -> Int) (summary body (suspends no) (sync-callable yes)))
+    (func main 17:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (bump 10:6
+      (11:5-14:6 BorrowBlock Int value temp)
+      (11:16-11:17 BindingName Int place borrow-var)
+      (11:20-11:32 Call.paren Int place borrow-var (call std.spinlock.SpinLock.lock() (owner std.spinlock.SpinLock<Int>)))
+      (11:20-11:25 Name std.spinlock.SpinLock<Int> (borrow-var &var std.spinlock.SpinLock<Int>) place borrow-var)
+      (12:9-12:10 Name Int place write)
+      (12:13-12:18 Binary Int value temp (op +))
+      (12:13-12:14 Name Int place copy)
+      (12:17-12:18 IntLit Int value temp)
+      (13:9-13:10 Name Int place copy))
+    (main 17:6
+      (18:5-18:24 Call.paren Void value temp (builtin print))
+      (18:11-18:15 Interp String value temp)
+      (18:17-18:23 Call.paren Int value borrow (call atomics_target_answered.bump()))))
+  (string-positions
+    (18:11 format std.stringbuilder.StringBuilder)))

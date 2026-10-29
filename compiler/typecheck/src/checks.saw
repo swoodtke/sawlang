@@ -8,7 +8,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_type_alt}
-import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind}
+import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModuleKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
@@ -1632,6 +1632,89 @@ extension TcProgram {
         }
         msg.build()
     }
+}
+
+// The target-atomics rule (spec, `SpinLock`, "The target must have
+// atomics"): on a target whose word compare-and-swap lowers to an `__atomic_*`
+// libcall (`TcTarget.atomics` false), naming a `SpinLock` is refused once, at
+// the first type the program's own modules write, else the first expression,
+// that names one; std's own use is not judged. The spec says nothing of
+// `Atomic<Int>` or the compiler's own atomics on such a target, so the rule
+// names `SpinLock` alone.
+public func tc_check_target_atomics(p: &var TcProgram) {
+    if p.target.atomics {
+        return
+    }
+    let spin = p.top_decl(p.module_named("std.spinlock"), "SpinLock")
+    if spin < 0 {
+        return
+    }
+    var naming = Vector<Int>()
+    var at = tc_first_naming(&var p, false, spin, &var naming)
+    if at < 0 {
+        at = tc_first_naming(&var p, true, spin, &var naming)
+    }
+    if at < 0 {
+        return
+    }
+    var msg = StringBuilder()
+    try! msg.append("`SpinLock` needs target atomics, and `")
+    try! msg.append(p.target.triple)
+    try! msg.append("` has none: its base ISA omits the `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall — enable the extension with `--target-features +a`; without it the lock would call into a C runtime a freestanding target does not have, and which is usually itself implemented with a lock, and for state a single core serializes by construction, reach for `unsafe static var` instead")
+    let m = p.node_module(at)
+    p.refuse_in(m, at, "atomics.target", msg.build())
+}
+
+// The first node of a module of the program's own whose written type, or
+// with `expressions` whose expression's type, names declaration `d`
+// anywhere in it; -1 when none does. `naming` memoizes the verdict by type.
+func tc_first_naming(p: &var TcProgram, expressions: Bool, d: Int, naming: &var Vector<Int>) -> Int {
+    var m = 0
+    while m < p.res.module_count() {
+        let info = p.res.module(m)
+        m = m + 1
+        if not info.available || info.interface_only || info.kind == ResModuleKind.Std || m - 1 == p.res.builtin {
+            continue
+        }
+        let count = if expressions { p.expr_types.len() } else { p.node_types.len() }
+        var n = info.node_base
+        while n < info.node_base + info.node_count && n < count {
+            let carried = if expressions { p.expr_types[n] } else { p.node_types[n] }
+            if carried >= 0 && tc_type_names(&var p, carried, d, &var naming) {
+                return n
+            }
+            n = n + 1
+        }
+    }
+    -1
+}
+
+// Whether type `t` names declaration `d` itself or in any of its parts.
+func tc_type_names(p: &var TcProgram, t: Int, d: Int, naming: &var Vector<Int>) -> Bool {
+    if t < 0 {
+        return false
+    }
+    while naming.len() <= t {
+        try! naming.push(-1)
+    }
+    if naming[t] >= 0 {
+        return naming[t] == 1
+    }
+    naming[t] = 0
+    let info = p.types.ty(t)
+    var found = info.kind == TcKind.Nominal && info.decl == d
+    let wraps = info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func
+    if not found && wraps {
+        found = tc_type_names(&var p, info.b, d, &var naming)
+    }
+    var k = 0
+    while k < info.count && not found {
+        let inner = p.types.arg(t, k)
+        found = tc_type_names(&var p, inner, d, &var naming)
+        k = k + 1
+    }
+    naming[t] = if found { 1 } else { 0 }
+    found
 }
 
 // The refusals of a test-only conformance to a trait a production type already

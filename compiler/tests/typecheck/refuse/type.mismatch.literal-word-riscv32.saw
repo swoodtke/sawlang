@@ -1,0 +1,11 @@
+// refuses: type.mismatch at 9:21
+// flags: --std-root std --target riscv32-unknown-none-elf
+// DF-137d at riscv32: a bare literal is a platform `Int`, whose range is the
+// target word's, so `0x80000000` does not fit a 32-bit `Int` and is refused at
+// the literal. golden/literal_word_host.saw accepts the same literal on a
+// 64-bit target.
+
+func main() {
+    let base: Int = 0x80000000
+    print("{}", base)
+}

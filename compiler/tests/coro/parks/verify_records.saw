@@ -8,6 +8,7 @@
 // its arm, into the park's own block, and the verifier must report the arm
 // under rule 4. Paths are the repository root's, where the lane runs it.
 import sawcoro.api.{coro_lower_file, coro_lower_for}
+import sawtarget.layout.{target_front_end}
 import sawcoro.program.{CoroProgram}
 import sawcoro.verify.{coro_verify_lowering}
 import sawmir.model.{MirProjKind, MirTermKind}
@@ -112,9 +113,10 @@ func main() {
     let dirs = Vector<String>()
     var front = StringBuilder()
     var coro = coro_lower_file(out: &var front, path: "compiler/tests/coro/inject/records.saw", std_root: root,
-                               notes: false, names: &names, dirs: &dirs)
+                               notes: false, names: &names, dirs: &dirs,
+                               target: target_front_end("arm64-apple-darwin", ""))
     assert(not coro.blocked && coro.diags.len() == 0, "the fixture is refused: run it through the coro lane")
-    var target = coro.mono.target_for("arm64-apple-darwin")
+    var target = coro.mono.target_for()
     coro_lower_for(&var coro, &var target)
     assert(coro.problems.len() == 0, "the fixture's lowering is not clean: {}", coro.problems.get(0) ?? "")
     let f = body_of(&coro, "fd_wait")

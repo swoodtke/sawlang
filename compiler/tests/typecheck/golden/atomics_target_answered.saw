@@ -1,0 +1,19 @@
+// flags: --std-root std --target riscv32-unknown-none-elf --target-features +m,+a,+c
+// The target-atomics rule answered: with `+a` a riscv32 compare-and-swap is an
+// instruction, so naming a `SpinLock` checks clean
+// (refuse/atomics.target.saw is the same program without it).
+
+import std.spinlock.*
+
+static COUNT: SpinLock<Int>
+
+func bump() -> Int {
+    borrow var n = COUNT.lock() {
+        n = n + 1
+        n
+    }
+}
+
+func main() {
+    print("{}", bump())
+}

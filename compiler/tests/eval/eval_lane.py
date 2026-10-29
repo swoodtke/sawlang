@@ -10,14 +10,16 @@ directory specifies:
 
 - each golden program, `golden/NAME.saw`, evaluates to exactly the record in
   `golden/NAME.eval`, which carries no `INVARIANT` line and leaves out the
-  `std.` modules' constants;
+  `std.` modules' constants; a first line `// flags: ...` passes those flags
+  (`--target`, for a target whose word is not 64 bits);
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
   refused first by RULE at the position its `// refuses:` header names, and
   every rule the evaluator refuses by (`eval_rules` in
   `compiler/eval/src/report.saw`) has a fixture. A fixture headed
   `// shadowed: TC-RULE at L:C` instead is refused first by typecheck's
   constant-position funnel, which reaches the fault before the evaluator
-  can; it covers the evaluator rule it is named for;
+  can; it covers the evaluator rule it is named for. A second line
+  `// flags: ...` passes those flags;
 - the compiler's own source, the sawc build and each unit program,
   evaluates with no refusal and no `INVARIANT` line;
 - over tests/corpus/, the evaluator and typecheck's fold agree on every
@@ -46,6 +48,7 @@ RULES_SOURCE = os.path.join(COMPILER, "eval", "src", "report.saw")
 TIMEOUT = 3600
 
 _HEADER = re.compile(r"^// (refuses|shadowed): (\S+)(?: at (\d+:\d+))?$")
+_FLAGS = re.compile(r"^// flags: (.*)$")
 _RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
 # The problems the evaluator's verifier reports, told apart from the earlier
 # stages' by their wording.
@@ -120,10 +123,28 @@ def first_difference(expected, got):
     return "a trailing byte"
 
 
+def line_flags(path, index):
+    """The flags line `index` (0-based) of `path` passes as `// flags: ...`,
+    or none: a golden program's first line, a refusal fixture's second."""
+    with open(path) as fh:
+        lines = fh.read().split("\n")
+    if index < len(lines):
+        m = _FLAGS.match(lines[index])
+        if m:
+            return tuple(m.group(1).split())
+    return ()
+
+
 def check_golden(failures, counts, write):
-    cases = [(src, os.path.splitext(src)[0] + ".eval")
-             for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw")))]
-    code, out = sawc(["--dump", "--std-root", "std"] + [rel(src) for src, _ in cases])
+    groups = {}
+    for src in sorted(glob.glob(os.path.join(GOLDEN, "*.saw"))):
+        groups.setdefault(line_flags(src, 0), []).append((src, os.path.splitext(src)[0] + ".eval"))
+    for flags, cases in sorted(groups.items()):
+        check_golden_group(failures, counts, write, flags, cases)
+
+
+def check_golden_group(failures, counts, write, flags, cases):
+    code, out = sawc(["--dump", "--std-root", "std"] + list(flags) + [rel(src) for src, _ in cases])
     got = {path: without_std_modules(record) for path, record in records(out).items()}
     for src, exp in cases:
         record = got.get(rel(src))
@@ -182,8 +203,13 @@ def evaluator_rules():
 
 def check_refusals(failures, counts, fill):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
-    code, out = sawc(["--check", "--std-root", "std"] + [rel(p) for p in cases])
-    got = {path: without_std_modules(record) for path, record in records(out).items()}
+    groups = {}
+    for path in cases:
+        groups.setdefault(line_flags(path, 1), []).append(path)
+    got = {}
+    for flags, paths in sorted(groups.items()):
+        code, out = sawc(["--check", "--std-root", "std"] + list(flags) + [rel(p) for p in paths])
+        got.update({path: without_std_modules(record) for path, record in records(out).items()})
     covered = set()
     for path in cases:
         record = got.get(rel(path), "")

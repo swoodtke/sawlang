@@ -1,0 +1,14 @@
+// refuses: memory.misaligned at 9:31
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: `UnsafeMemory<Int, Normal>` is built over the address 8194, which is not a multiple of 4, the alignment of `Int` that every access through the view assumes
+// A view's constant address is judged against its element's alignment on the
+// program's target: a riscv32 `Int` aligns to four, where a 64-bit one aligns
+// to eight.
+
+func reach() unsafe -> Int {
+    UnsafeMemory<Int, Normal>(0x2002).read()
+}
+
+func main() {
+    print(0)
+}

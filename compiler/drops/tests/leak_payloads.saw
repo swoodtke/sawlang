@@ -12,6 +12,7 @@ import sawdrops.elaborate.{drops_rules}
 import sawdrops.program.{DropsProgram, drops_program}
 import sawdrops.verify.{drops_verify_module}
 import sawmir.api.{mir_lower_file}
+import sawtarget.layout.{target_front_end}
 import sawmir.model.{MirProjKind, MirStmtKind}
 
 // The index of module `name`, or -1.
@@ -84,7 +85,8 @@ func main() {
     let names = Vector<String>()
     let dirs = Vector<String>()
     var lowerings = 0
-    let lowered = mir_lower_file("compiler/tests/drops/inject/payloads.saw", "std", &names, &dirs, &var lowerings)
+    let lowered = mir_lower_file("compiler/tests/drops/inject/payloads.saw", "std", &names, &dirs, &var lowerings,
+                                 target: target_front_end("arm64-apple-darwin", ""))
     var bc = borrowck_program(move lowered)
     var m = 0
     while m < bc.mir.tc.res.module_count() {

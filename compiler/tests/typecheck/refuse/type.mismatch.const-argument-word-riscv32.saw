@@ -1,0 +1,13 @@
+// refuses: type.mismatch at 11:20
+// flags: --std-root std --target riscv32-unknown-none-elf
+// message: the constant argument 2147483648 does not fit `Int`, the type of `N`
+// A const parameter of type `Int` holds the target word's range, so 2^31 does
+// not fit it at riscv32 though it fits on a 64-bit target.
+
+struct Wide<const N: Int> {
+    n: Int
+}
+
+func read(w: &Wide<2147483648>) -> Int {
+    w.n
+}

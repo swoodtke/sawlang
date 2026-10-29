@@ -1,0 +1,13 @@
+module word_riscv32
+static word_riscv32.INT_MAX: Int = 2147483647
+static word_riscv32.INT_MIN: Int = -2147483648
+static word_riscv32.SIGN_BIT: Int = -2147483648
+static word_riscv32.UINT_MAX: UInt = 4294967295
+static word_riscv32.ALL_ONES: UInt = 4294967295
+static word_riscv32.HALF_MASK: Int = 65535
+static word_riscv32.PAGE: Int = 4096
+static word_riscv32.WIDE: Int64 = 1099511627776
+static word_riscv32.WIDE_MAX: Int64 = 9223372036854775807
+static word_riscv32.NARROW: Int32 = 2147483647
+static_assert word_riscv32 17:15: Bool = true
+static_assert word_riscv32 18:15: Bool = true

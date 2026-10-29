@@ -54,7 +54,7 @@
 
 import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
-import sawcoro.api.{CoroOptions, coro_record}
+import sawcoro.api.{CoroOptions, coro_append_findings, coro_lower_file, coro_record}
 import sawcoro.bttable.{coro_bt_record}
 import sawdrops.api.{DropsOptions, drops_record, drops_record_status}
 import saweval.api.{EvalOptions, eval_record}
@@ -65,8 +65,9 @@ import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
-import sawtarget.layout.{target_bare_metal, target_clang_triple, target_effective_features, target_known, target_mach_o,
-                         target_triples}
+import sawtarget.layout.{target_bare_metal, target_clang_triple, target_effective_features, target_emits,
+                         target_front_end, target_known, target_mach_o, target_triples}
+import sawtypecheck.program.{TcTarget}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
@@ -91,20 +92,21 @@ func driver_usage() -> Int {
     print("                    [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc typecheck (--dump | --check) [--notes] [--interfaces] [--summaries] [--runtime]")
     print("                      [--freestanding] [--no-hidden-alloc] [--lowerings] [-W borrow-prefix] [--std-root DIR]")
-    print("                      [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("                      [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]...")
+    print("                      [FILE | @LIST]...")
     print("       sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR]")
-    print("                [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                 [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc borrowck (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                     [--module-path NAME=DIR]... [FILE | @LIST]...")
-    print("       sawc drops (--dump | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                  [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc mir (--dump | --check) [--notes] [--spans] [--lowerings] [--std-root DIR] [--target TRIPLE]")
+    print("                [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc eval (--dump | --check) [--notes] [--lowerings] [--std-root DIR] [--target TRIPLE]")
+    print("                 [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc borrowck (--dump | --check) [--notes] [--lowerings] [--std-root DIR] [--target TRIPLE]")
+    print("                     [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("       sawc drops (--dump | --check) [--notes] [--lowerings] [--std-root DIR] [--target TRIPLE]")
+    print("                  [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc mono (--dump | --layouts | --check) [--notes] [--lowerings] [--std-root DIR]")
-    print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc coro (--dump | --layouts | --lowered | --bt-table | --check) [--notes] [--std-root DIR]")
-    print("                 [--target TRIPLE] [--module-path NAME=DIR]... [FILE | @LIST]...")
+    print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
     print("                  [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
@@ -247,7 +249,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         return DRIVER_EXIT_USAGE
     }
     if warn {
-        driver_print_warnings(path, std_root, &names, &dirs)
+        let warned_for = if triple.len() > 0 { triple } else { driver_check_triple() }
+        driver_print_warnings(path, std_root, target_front_end(warned_for, features), &names, &dirs)
     }
     // A freestanding build writes an object and links nothing.
     if freestanding {
@@ -276,6 +279,10 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         return driver_refuse_mach_o(path, triple)
     }
     features = target_effective_features(triple, features, freestanding)
+    if not target_emits(triple) {
+        return driver_check_only(path, std_root, target_front_end(triple, features), freestanding, provider,
+                                 hidden, &names, &dirs)
+    }
     if emit {
         let emitting = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                     module_triple: target_clang_triple(triple), runtime: false,
@@ -384,7 +391,7 @@ func driver_refuse_mach_o(path: String, triple: String) -> Int {
     var k = 0
     while k < known.len() {
         let one = known.get(k) ?? ""
-        if target_bare_metal(one) {
+        if target_bare_metal(one) && target_emits(one) {
             try! record.append(" `--target ")
             try! record.append(one)
             try! record.append("`")
@@ -393,6 +400,33 @@ func driver_refuse_mach_o(path: String, triple: String) -> Int {
     }
     try! record.append("\n")
     print(record.build())
+    1
+}
+
+// A build for a target sawc's backend does not emit for (`target_emits`):
+// the program is checked for `target` through every stage before the
+// backend, and the record is what refused it, or, once nothing has, the
+// refusal of the backend itself; either way nothing is written and the
+// status is 1.
+func driver_check_only(path: String, std_root: String, target: TcTarget, freestanding: Bool, provider: Bool,
+                       hidden: Bool, names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var found = StringBuilder()
+    let coro = coro_lower_file(out: &var found, path: path, std_root: std_root, notes: false, names: &names,
+                               dirs: &dirs, target: target, freestanding: freestanding, provider: provider,
+                               no_hidden_alloc: hidden)
+    if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
+        coro_append_findings(out: &var found, coro: &coro)
+        driver_print_refusal(path, &var found)
+        return 1
+    }
+    try! found.append("ERROR\tbackend.not-yet\t")
+    try! found.append(path)
+    try! found.append(":1:1\tsawc's backend does not emit for `")
+    try! found.append(target.triple)
+    try! found.append("` yet: its word is ")
+    try! found.append(target.word_bits)
+    try! found.append(" bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the program checks clean through every stage before it")
+    driver_print_refusal(path, &var found)
     1
 }
 
@@ -408,10 +442,12 @@ func driver_warning_category(category: String) -> Bool {
     false
 }
 
-// The warnings `-W borrow-prefix` asks a build of `path` for, headed by the
-// file, printed when there are any. They never change the exit status.
-func driver_print_warnings(path: String, std_root: String, names: &Vector<String>, dirs: &Vector<String>) {
-    let p = asserts_typecheck_program(path, std_root, &names, &dirs)
+// The warnings `-W borrow-prefix` asks a build of `path` for `target`,
+// headed by the file, printed when there are any. They never change the exit
+// status.
+func driver_print_warnings(path: String, std_root: String, target: TcTarget, names: &Vector<String>,
+                           dirs: &Vector<String>) {
+    let p = asserts_typecheck_program(path, std_root, &names, &dirs, target: target)
     var found = StringBuilder()
     append_tc_warnings(out: &var found, p: &p)
     let text = found.build()
@@ -1340,6 +1376,26 @@ func driver_stem(path: String) -> String {
 // `sawc mono`: one record per entry file, in order, each file the entry of
 // its own program; `--dump` prints the items, `--layouts` the layout table of
 // the types they reach.
+// The triple a checking subcommand checks for when `--target` names none: an
+// LP64 host's, which every hosted triple sawc describes is.
+func driver_check_triple() -> String {
+    "arm64-apple-darwin"
+}
+
+// The target record of a checking subcommand, for `triple` with the
+// subtarget features `features`; or none, once the reason is printed, for a
+// triple sawc does not describe or a malformed feature list.
+func driver_check_target(triple: String, features: String) -> TcTarget? {
+    if not target_known(triple) {
+        print("sawc: unknown target {triple}")
+        return None
+    }
+    if features.len() > 0 && not driver_features_ok(features) {
+        return None
+    }
+    target_front_end(triple, features)
+}
+
 func driver_mono(args: &Vector<String>) -> Int {
     var dump = false
     var layouts = false
@@ -1347,7 +1403,8 @@ func driver_mono(args: &Vector<String>) -> Int {
     var notes = false
     var counted = false
     var std_root = ""
-    var triple = "arm64-apple-darwin"
+    var triple = driver_check_triple()
+    var features = ""
     var names = Vector<String>()
     var dirs = Vector<String>()
     var inputs = Vector<DriverInput>()
@@ -1364,7 +1421,8 @@ func driver_mono(args: &Vector<String>) -> Int {
             notes = true
         } else if arg.equals("--lowerings") {
             counted = true
-        } else if arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target") {
+        } else if (arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
+                   || arg.equals("--target-features")) {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
                 return driver_usage()
@@ -1373,6 +1431,8 @@ func driver_mono(args: &Vector<String>) -> Int {
                 std_root = value
             } else if arg.equals("--target") {
                 triple = value
+            } else if arg.equals("--target-features") {
+                features = value
             } else if not driver_add_mapping(&var names, &var dirs, value) {
                 return driver_usage()
             }
@@ -1395,15 +1455,14 @@ func driver_mono(args: &Vector<String>) -> Int {
     if modes != 1 {
         return driver_usage()
     }
-    if not target_known(triple) {
-        print("sawc: unknown target {triple}")
+    guard let checked_for = driver_check_target(triple, features) else {
         return DRIVER_EXIT_USAGE
     }
     std_root = driver_std_root("sawc mono", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
-    let options = MonoOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, notes: notes)
+    let options = MonoOptions(std_root: std_root, target: checked_for, dump: dump, layouts: layouts, notes: notes)
     var status = 0
     var k = 0
     while k < inputs.len() {
@@ -1440,7 +1499,8 @@ func driver_coro(args: &Vector<String>) -> Int {
     var check = false
     var notes = false
     var std_root = ""
-    var triple = "arm64-apple-darwin"
+    var triple = driver_check_triple()
+    var features = ""
     var names = Vector<String>()
     var dirs = Vector<String>()
     var inputs = Vector<DriverInput>()
@@ -1459,7 +1519,8 @@ func driver_coro(args: &Vector<String>) -> Int {
             check = true
         } else if arg.equals("--notes") {
             notes = true
-        } else if arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target") {
+        } else if (arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
+                   || arg.equals("--target-features")) {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
                 return driver_usage()
@@ -1468,6 +1529,8 @@ func driver_coro(args: &Vector<String>) -> Int {
                 std_root = value
             } else if arg.equals("--target") {
                 triple = value
+            } else if arg.equals("--target-features") {
+                features = value
             } else if not driver_add_mapping(&var names, &var dirs, value) {
                 return driver_usage()
             }
@@ -1491,15 +1554,14 @@ func driver_coro(args: &Vector<String>) -> Int {
     if modes != 1 {
         return driver_usage()
     }
-    if not target_known(triple) {
-        print("sawc: unknown target {triple}")
+    guard let checked_for = driver_check_target(triple, features) else {
         return DRIVER_EXIT_USAGE
     }
     std_root = driver_std_root("sawc coro", std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
-    let options = CoroOptions(std_root: std_root, target: triple, dump: dump, layouts: layouts, lowered: lowered,
+    let options = CoroOptions(std_root: std_root, target: checked_for, dump: dump, layouts: layouts, lowered: lowered,
                               notes: notes)
     var status = 0
     var k = 0
@@ -1615,6 +1677,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var counted = false
     var warn = false
     var std_root = ""
+    var triple = driver_check_triple()
+    var features = ""
     var names = Vector<String>()
     var dirs = Vector<String>()
     var inputs = Vector<DriverInput>()
@@ -1647,13 +1711,18 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             hidden = true
         } else if arg.equals("--spans") && stage == DRIVER_STAGE_MIR {
             spans = true
-        } else if arg.equals("--std-root") || arg.equals("--module-path") {
+        } else if (arg.equals("--std-root") || arg.equals("--module-path")
+                   || ((arg.equals("--target") || arg.equals("--target-features")) && stage != DRIVER_STAGE_RESOLVE)) {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
                 return driver_usage()
             }
             if arg.equals("--std-root") {
                 std_root = value
+            } else if arg.equals("--target") {
+                triple = value
+            } else if arg.equals("--target-features") {
+                features = value
             } else if not driver_add_mapping(&var names, &var dirs, value) {
                 return driver_usage()
             }
@@ -1678,6 +1747,9 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var command = StringBuilder()
     try! command.append("sawc ")
     try! command.append(args.get(1) ?? "")
+    guard let checked_for = driver_check_target(triple, features) else {
+        return DRIVER_EXIT_USAGE
+    }
     std_root = driver_std_root(command.build(), std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
@@ -1685,10 +1757,10 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
     let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,
                                     interfaces: interfaces, summaries: summaries, warn_borrow_prefix: warn)
-    let lowering = MirOptions(std_root: std_root, dump: dump, notes: notes, spans: spans)
-    let evaluating = EvalOptions(std_root: std_root, dump: dump, notes: notes)
-    let borrowing = BorrowckOptions(std_root: std_root, dump: dump, notes: notes)
-    let elaborating = DropsOptions(std_root: std_root, dump: dump, notes: notes)
+    let lowering = MirOptions(std_root: std_root, dump: dump, notes: notes, spans: spans, target: checked_for)
+    let evaluating = EvalOptions(std_root: std_root, dump: dump, notes: notes, target: checked_for)
+    let borrowing = BorrowckOptions(std_root: std_root, dump: dump, notes: notes, target: checked_for)
+    let elaborating = DropsOptions(std_root: std_root, dump: dump, notes: notes, target: checked_for)
     var status = 0
     var k = 0
     while k < inputs.len() {
@@ -1713,8 +1785,8 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
                                     dirs: &dirs, lowerings: &var lowerings)
             } else if typecheck {
                 let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
-                                                        freestanding: freestanding, provider: provider,
-                                                        no_hidden_alloc: hidden)
+                                                        target: checked_for, freestanding: freestanding,
+                                                        provider: provider, no_hidden_alloc: hidden)
                 result = typecheck_record(out: &var out, p: &checked, options: &checking)
             } else {
                 result = resolve_record(out: &var out, path: input.path, options: &options,
@@ -1799,7 +1871,8 @@ func driver_fix(args: &Vector<String>) -> Int {
 // One file of `sawc fix`; false when it could not be written.
 func driver_fix_file(path: String, std_root: String, check: Bool, names: &Vector<String>,
                      dirs: &Vector<String>) -> Bool {
-    let p = asserts_typecheck_program(path, std_root, &names, &dirs)
+    let p = asserts_typecheck_program(path, std_root, &names, &dirs,
+                                      target: target_front_end(driver_check_triple(), ""))
     var record = StringBuilder()
     try! record.append("FILE\t")
     try! record.append(path)
