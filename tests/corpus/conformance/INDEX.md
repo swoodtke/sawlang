@@ -6,6 +6,9 @@ either a file in this directory or an existing `tests/corpus/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
+**787 rows: 363 carry a file here, 424 are covered elsewhere**, when SL-540
+added T29, covered by corpus programs and owed to the self-hosted compiler's
+run lane; previously, and on the same basis:
 **786 rows: 363 carry a file here, 423 are covered elsewhere**, when SL-908
 added X60, owed to the self-hosted compiler; previously, and on the same basis:
 **785 rows: 363 carry a file here, 422 are covered elsewhere**, recounted Oct 24
@@ -627,6 +630,7 @@ Claim source: spec 5 *Runtime Semantics and Traps* + *Integer Conversions*; desi
 | T26 | joining an already-joined `Task` | `taskgroup_stale_handle_join.saw` |  |
 | T27 | `FixedBuf.get` out of range yields `None` | `fixedbuf_get_out_of_range_none.saw` | DF-294a — RULED: the accessor rule's two halves are a rule about the NAME, and a `get` that panicked was the enumeration's one divergence. `Data.get`'s shape, exactly |
 | T28 | `FixedBuf.set` out of range panics, in the DF-249a wording, with the const generic `N` as the length | `fixedbuf_set_oob_panic.saw` |  |
+| T29 | a raw-backed enum value is always a declared case: `E.from(raw:)` yields `None` for every value no case declares and `Some` for each one a case does, at every backing width, a gap between declared values, the width's minimum and maximum and a negative raw on a signed backing included, for a generic enum, an enum with no cases and an argument widened into an `Int` backing | `enum145_raw_backed.saw` + `generic_enum_raw_backing_keeps_values.saw` + `d144_private_type_identity.saw`; owed to the self-hosted compiler (SL-540): run `compiler/tests/run/probes/raw_from_signed.saw` and `compiler/tests/run/probes/raw_from_unsigned.saw` | SL-540 — spec, Raw-backed enums and Flag enums. The backend lowered no `from(raw:)`, and its integer `from` arm would have answered it with a range test, admitting every undeclared value between the minimum and maximum; the lowering tests membership against the case tags a `match` compares |
 
 ## `main`'s return type and the process exit status
 

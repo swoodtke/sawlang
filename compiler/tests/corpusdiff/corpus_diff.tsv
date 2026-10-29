@@ -102,7 +102,7 @@ autowrap_err_no_premature_free.saw	pass	-	-
 autowrap_ok_no_premature_free.saw	pass	-	-
 autowrap_optional_no_premature_free.saw	pass	-	-
 autowrap_return_move_still_works.saw	pass	-	-
-backed_enum_extension_param.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+backed_enum_extension_param.saw	pass	-	-
 background_task_spawn.saw	pass	-	-
 bare_return_in_main.saw	pass	-	-
 binop_mixed_width_operands.saw	pass	-	type.mismatch: an operator's operands agree on one type, and these are `Int` and `Int16`; convert one with `as`
@@ -823,10 +823,10 @@ coro_while_head_move_reevaluates_per_iteration.saw	pass	-	-
 coro_wildcard_discards_own_slots.saw	pass	-	-
 crossmodule_embed_annotation_positions.saw	pass	-	-
 crossmodule_embed_type_identity.saw	pass	-	-
-crossmodule_embed_type_name_head.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+crossmodule_embed_type_name_head.saw	pass	-	-
 d144_bare_ambiguity_error.saw	pass	-	name.ambiguous: ambiguous `Widget`: two imports bind it to different declarations; qualify the use, or import it from a single module
 d144_docs_module_field.saw	refused	driver driver.usage	sawc build takes no --emit-docs
-d144_private_type_identity.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+d144_private_type_identity.saw	pass	-	-
 d144_public_same_name_alias.saw	pass	-	-
 d249_bare_import_tie_names_both_origins_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: chime(n: Int) [modules.d249_tie_b]; chime(n: Int) [modules.d249_tie_a
 d249_bare_imports_merge_into_one_overload_set.saw	pass	-	-
@@ -946,7 +946,7 @@ enum145_import_scope_error.saw	refused	typecheck member.unknown	`modules.enum145
 enum145_init_rejected.saw	wrong	accepts a refusal test	enum `Color` cannot declare an `init`: an enum's cases are its constructors
 enum145_methods.saw	pass	-	-
 enum145_policy_deinit.saw	pass	-	-
-enum145_raw_backed.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+enum145_raw_backed.saw	pass	-	-
 enum145_raw_duplicate_value_error.saw	pass	-	type.raw-value: cases `A` and `B` of enum `Dup` both have raw value 1: raw values identify the cases on the wire, so they must be distinct
 enum145_raw_missing_value_error.saw	pass	-	type.raw-value: case `Missing.B` needs an explicit value: every case of an enum with a raw backing declares its own, since the backing says the numbers are ABI and none is assigned for you
 enum145_raw_payload_error.saw	pass	-	type.raw-backing: case `WithPayload.Detail` carries a payload, so its enum cannot declare a raw backing: a case with a payload has no integer identity
@@ -967,7 +967,7 @@ enum_policy_undeclared_retaining.saw	pass	-	-
 enum_raw_hex_values.saw	pass	-	-
 enum_raw_value_const_expression_needs_constant.saw	pass	-	type.mismatch: expected `UInt8`, the type of the static's type, and found `Int`; a module static keeps its declared type outside a constant expression: write `BASE as UInt8`
 enum_raw_value_const_expression_out_of_range.saw	pass	-	constant.shift-range: constant expression shifts a value of type `UInt8` by a count outside its width
-enum_raw_value_takes_const_expression.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+enum_raw_value_takes_const_expression.saw	pass	-	-
 enum_ref_payload_escape.saw	pass	-	result.discarded: the result of `push` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard it
 enum_variant_through_field_receiver_error.saw	refused	typecheck member.unknown	`enum_variant_through_field_receiver_error.Color` has no method `Custom` this module can see
 enums_associated.saw	pass	-	-
@@ -1627,7 +1627,7 @@ generic_default_init.saw	refused	llvm backend.not-yet	the constant `N` is not in
 generic_default_value.saw	pass	-	-
 generic_effect_poly_call.saw	pass	-	-
 generic_enum.saw	pass	-	-
-generic_enum_raw_backing_keeps_values.saw	refused	llvm backend.not-yet	this conversion is not in the backend slice yet
+generic_enum_raw_backing_keeps_values.saw	pass	-	-
 generic_extension_overload.saw	pass	-	-
 generic_fn_box_param.saw	pass	-	-
 generic_fn_vector_ref_param.saw	pass	-	-

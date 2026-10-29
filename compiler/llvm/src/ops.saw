@@ -758,20 +758,9 @@ extension LlEmitter {
         let from = op.ty
         let to = rv.ty
         let fl = self.lay_at(&var mono, &var target, from, node)
-        if word.equals("from") && mono.dp.bc.mir.tc.is_optional(to) {
-            // The partial conversion: `Some` of the value when it fits.
-            let payload = mono.dp.bc.mir.tc.types.arg(to, 0)
-            let pl = self.lay_at(&var mono, &var target, payload, node)
-            if fl.kind != TargetKind.Int || pl.kind != TargetKind.Int {
-                self.refuse_here(&var mono, node, "this conversion is not in the backend slice yet")
-                return
-            }
-            let x = self.operand_value(&var mono, &var target, a, node)
-            let fs = self.signed_type(&mono, from)
-            let ps = self.signed_type(&mono, payload)
-            let fits = self.fits(x, fl.bits, fs, pl.bits, ps)
-            let v = self.int_convert(x, fl.bits, pl.bits, fs)
-            self.optional_into(&var mono, &var target, to, fits, v, ll_value_type(&pl), dest, node)
+        let partial = word.equals("from") || word.equals("from(raw:)")
+        if partial && mono.dp.bc.mir.tc.is_optional(to) {
+            self.partial_into(&var mono, &var target, a, &fl, to, dest, node, word)
             return
         }
         let tl = self.lay_at(&var mono, &var target, to, node)
@@ -844,6 +833,87 @@ extension LlEmitter {
             return
         }
         self.refuse_here(&var mono, node, "this conversion is not in the backend slice yet")
+    }
+
+    // The partial conversions into Optional `to` from operand `a` (layout
+    // `fl`): `Some` of the value when the source has one, else `None`. An
+    // integer's `from` is present when the value fits the target, a raw-backed
+    // enum's `from(raw:)` when a case declares it. The spelling selects the
+    // test, never the payload's layout: a raw-backed enum is laid out as its
+    // backing integer, so a layout test cannot tell the two apart, and the
+    // integer's range test would admit a value no case declares.
+    // ENTRY POINTS:
+    //     convert_into
+    func partial_into(&var self, mono: &var MonoProgram, target: &var Target, a: Int, fl: &TargetLayout, to: Int,
+                      dest: String, node: Int, word: String) {
+        let from = mono.dp.bc.mir.operands[a].ty
+        let payload = mono.dp.bc.mir.tc.types.arg(to, 0)
+        let pl = self.lay_at(&var mono, &var target, payload, node)
+        if word.equals("from(raw:)") {
+            // MIR widens the argument to the backing first, so the operand
+            // and the enum have one width and the payload is the operand.
+            let raw_backed = pl.shape == TargetShape.Enum && pl.kind == TargetKind.Int
+            if not raw_backed || fl.kind != TargetKind.Int || fl.bits != pl.bits {
+                self.refuse_here(&var mono, node,
+                                 "`from(raw:)` reached the backend with an operand that is not its enum's backing")
+                return
+            }
+            let x = self.operand_value(&var mono, &var target, a, node)
+            let present = self.raw_member(&var target, x, &pl)
+            self.optional_into(&var mono, &var target, to, present, x, ll_value_type(&pl), dest, node)
+            return
+        }
+        if fl.kind != TargetKind.Int || pl.kind != TargetKind.Int {
+            self.refuse_here(&var mono, node, "this conversion is not in the backend slice yet")
+            return
+        }
+        let x = self.operand_value(&var mono, &var target, a, node)
+        let fs = self.signed_type(&mono, from)
+        let ps = self.signed_type(&mono, payload)
+        let fits = self.fits(x, fl.bits, fs, pl.bits, ps)
+        let v = self.int_convert(x, fl.bits, pl.bits, fs)
+        self.optional_into(&var mono, &var target, to, fits, v, ll_value_type(&pl), dest, node)
+    }
+
+    // Whether a case of the raw-backed enum laid out as `l` declares backing
+    // value `x`, as an `i1`. The switch compares the case tags a `match`
+    // compares, with `x` widened as `tag_word` widens a stored tag, so a value
+    // is present exactly when a `match` on it finds its case. The comparison
+    // is exact, so a gap, a negative raw and either extreme answer alike.
+    func raw_member(&var self, target: &var Target, x: String, l: &TargetLayout) -> String {
+        let wide = self.tag_word(x, &l)
+        let hit = self.new_label("rawhit")
+        let miss = self.new_label("rawmiss")
+        let join = self.new_label("rawjoin")
+        var line = StringBuilder()
+        try! line.append("switch i64 ")
+        try! line.append(wide)
+        try! line.append(", label %")
+        try! line.append(miss)
+        try! line.append(" [")
+        var k = 0
+        while k < l.count {
+            let c = target.cases[l.first + k]
+            try! line.append(" i64 ")
+            try! line.append(c.tag)
+            try! line.append(", label %")
+            try! line.append(hit)
+            k = k + 1
+        }
+        try! line.append(" ]")
+        self.put(line.build())
+        self.put_label(hit)
+        self.jump(join)
+        self.put_label(miss)
+        self.jump(join)
+        self.put_label(join)
+        var phi = StringBuilder()
+        try! phi.append("phi i1 [ true, %")
+        try! phi.append(hit)
+        try! phi.append(" ], [ false, %")
+        try! phi.append(miss)
+        try! phi.append(" ]")
+        self.assign(phi.build())
     }
 
     // Whether integer `x` (`fb` bits, signed `fs`) has a value a `tb`-bit

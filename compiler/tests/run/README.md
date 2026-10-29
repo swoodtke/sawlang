@@ -284,6 +284,19 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   can lose its value checks that it fits and names the value; a forced payload
   checks its case. Each panics with Stage 0's wording, `panic at FILE:LINE:
   REASON` (design 122), through the panic sink.
+- **Partial conversions.** An integer's `from` and a raw-backed enum's
+  `from(raw:)` are one funnel, `partial_into` in `compiler/llvm/src/ops.saw`,
+  each writing `Some` of the value or `None`. The spelling picks the test,
+  never the payload's layout, since a raw-backed enum is laid out as its
+  backing integer: `from` is present when the value's round trip through the
+  target is itself and no sign is lost; `from(raw:)` when a `switch` over the
+  enum's case tags, the ones a `match` compares, finds the value widened as a
+  stored tag is (`tag_word` in `compiler/llvm/src/places.saw`). The switch is
+  exact, so a gap between declared values, a negative raw and either extreme
+  each answer as declared, where a range test would admit a value no case
+  declares (SL-540). The probes `raw_from_signed` and `raw_from_unsigned`
+  pin every backing width, a generic enum, an enum with no cases, a widened
+  argument and two of sawos's decodes.
 - **The failure funnel.** Every failing path, a check's, `panic`'s, a failed
   `assert`'s and a refused literal push's, is one call of a compiler helper,
   then `unreachable`: `__saw_fail_overflow`, `_divide`, `_shift`, `_unwrap`

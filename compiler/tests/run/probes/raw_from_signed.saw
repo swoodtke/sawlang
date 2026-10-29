@@ -1,0 +1,271 @@
+// probe: stated
+// about: a raw-backed enum's `from(raw:)` at every signed backing width answers by its declared cases (SL-540)
+// stage 0: agrees line for line in its darwin run, but no Stage 0 runs on Linux to record the aarch64 run
+// speeds: -O0 -O2
+// A raw-backed enum's `from(raw:)` at every signed backing width: `Some` for
+// each declared value, the width's minimum and maximum and a negative one among
+// them, and `None` for each value between them that no case declares. The
+// backend tests membership against the case tags a `match` compares; a range
+// test would admit the gaps (SL-540).
+// prints: Int8 -128 Some -128
+// prints: Int8 -127 None
+// prints: Int8 -6 None
+// prints: Int8 -5 Some -5
+// prints: Int8 -4 None
+// prints: Int8 -1 None
+// prints: Int8 0 Some 0
+// prints: Int8 1 None
+// prints: Int8 6 None
+// prints: Int8 7 Some 7
+// prints: Int8 8 None
+// prints: Int8 126 None
+// prints: Int8 127 Some 127
+// prints: Int8 constant 7
+// prints: Int16 -32768 Some -32768
+// prints: Int16 -32767 None
+// prints: Int16 -6 None
+// prints: Int16 -5 Some -5
+// prints: Int16 -4 None
+// prints: Int16 -1 None
+// prints: Int16 0 Some 0
+// prints: Int16 1 None
+// prints: Int16 6 None
+// prints: Int16 7 Some 7
+// prints: Int16 8 None
+// prints: Int16 32766 None
+// prints: Int16 32767 Some 32767
+// prints: Int16 constant 7
+// prints: Int32 -2147483648 Some -2147483648
+// prints: Int32 -2147483647 None
+// prints: Int32 -6 None
+// prints: Int32 -5 Some -5
+// prints: Int32 -4 None
+// prints: Int32 -1 None
+// prints: Int32 0 Some 0
+// prints: Int32 1 None
+// prints: Int32 6 None
+// prints: Int32 7 Some 7
+// prints: Int32 8 None
+// prints: Int32 2147483646 None
+// prints: Int32 2147483647 Some 2147483647
+// prints: Int32 constant 7
+// prints: Int64 -9223372036854775808 Some -9223372036854775808
+// prints: Int64 -9223372036854775807 None
+// prints: Int64 -6 None
+// prints: Int64 -5 Some -5
+// prints: Int64 -4 None
+// prints: Int64 -1 None
+// prints: Int64 0 Some 0
+// prints: Int64 1 None
+// prints: Int64 6 None
+// prints: Int64 7 Some 7
+// prints: Int64 8 None
+// prints: Int64 9223372036854775806 None
+// prints: Int64 9223372036854775807 Some 9223372036854775807
+// prints: Int64 constant 7
+// prints: Int -9223372036854775808 Some -9223372036854775808
+// prints: Int -9223372036854775807 None
+// prints: Int -6 None
+// prints: Int -5 Some -5
+// prints: Int -4 None
+// prints: Int -1 None
+// prints: Int 0 Some 0
+// prints: Int 1 None
+// prints: Int 6 None
+// prints: Int 7 Some 7
+// prints: Int 8 None
+// prints: Int 9223372036854775806 None
+// prints: Int 9223372036854775807 Some 9223372036854775807
+// prints: Int constant 7
+// prints: widened Some -7
+// prints: widened None
+
+enum RawInt8: Int8 {
+    case Min = -128,
+    case NegFive = -5,
+    case Zero = 0,
+    case Seven = 7,
+    case Max = 127
+}
+
+static SEVEN_INT8: Int8 = 7
+
+func probe_int8(r: Int8) {
+    if let e = RawInt8.from(raw: r) {
+        print("Int8 {} Some {}", r, e as Int8)
+    } else {
+        print("Int8 {} None", r)
+    }
+}
+
+enum RawInt16: Int16 {
+    case Min = -32768,
+    case NegFive = -5,
+    case Zero = 0,
+    case Seven = 7,
+    case Max = 32767
+}
+
+static SEVEN_INT16: Int16 = 7
+
+func probe_int16(r: Int16) {
+    if let e = RawInt16.from(raw: r) {
+        print("Int16 {} Some {}", r, e as Int16)
+    } else {
+        print("Int16 {} None", r)
+    }
+}
+
+enum RawInt32: Int32 {
+    case Min = -2147483648,
+    case NegFive = -5,
+    case Zero = 0,
+    case Seven = 7,
+    case Max = 2147483647
+}
+
+static SEVEN_INT32: Int32 = 7
+
+func probe_int32(r: Int32) {
+    if let e = RawInt32.from(raw: r) {
+        print("Int32 {} Some {}", r, e as Int32)
+    } else {
+        print("Int32 {} None", r)
+    }
+}
+
+enum RawInt64: Int64 {
+    case Min = -9223372036854775808,
+    case NegFive = -5,
+    case Zero = 0,
+    case Seven = 7,
+    case Max = 9223372036854775807
+}
+
+static SEVEN_INT64: Int64 = 7
+
+func probe_int64(r: Int64) {
+    if let e = RawInt64.from(raw: r) {
+        print("Int64 {} Some {}", r, e as Int64)
+    } else {
+        print("Int64 {} None", r)
+    }
+}
+
+enum RawInt: Int {
+    case Min = -9223372036854775808,
+    case NegFive = -5,
+    case Zero = 0,
+    case Seven = 7,
+    case Max = 9223372036854775807
+}
+
+static SEVEN_INT: Int = 7
+
+func probe_int(r: Int) {
+    if let e = RawInt.from(raw: r) {
+        print("Int {} Some {}", r, e as Int)
+    } else {
+        print("Int {} None", r)
+    }
+}
+
+// Only a widening into `Int` is implicit, and MIR makes it before the
+// conversion, so the backend sees an operand of the backing's width.
+enum Wide: Int {
+    case Back = -7,
+    case Far = 40000
+}
+
+func main() {
+    probe_int8(-128)
+    probe_int8(-127)
+    probe_int8(-6)
+    probe_int8(-5)
+    probe_int8(-4)
+    probe_int8(-1)
+    probe_int8(0)
+    probe_int8(1)
+    probe_int8(6)
+    probe_int8(7)
+    probe_int8(8)
+    probe_int8(126)
+    probe_int8(127)
+    if let d = RawInt8.from(raw: SEVEN_INT8) {
+        print("Int8 constant {}", d as Int8)
+    }
+    probe_int16(-32768)
+    probe_int16(-32767)
+    probe_int16(-6)
+    probe_int16(-5)
+    probe_int16(-4)
+    probe_int16(-1)
+    probe_int16(0)
+    probe_int16(1)
+    probe_int16(6)
+    probe_int16(7)
+    probe_int16(8)
+    probe_int16(32766)
+    probe_int16(32767)
+    if let d = RawInt16.from(raw: SEVEN_INT16) {
+        print("Int16 constant {}", d as Int16)
+    }
+    probe_int32(-2147483648)
+    probe_int32(-2147483647)
+    probe_int32(-6)
+    probe_int32(-5)
+    probe_int32(-4)
+    probe_int32(-1)
+    probe_int32(0)
+    probe_int32(1)
+    probe_int32(6)
+    probe_int32(7)
+    probe_int32(8)
+    probe_int32(2147483646)
+    probe_int32(2147483647)
+    if let d = RawInt32.from(raw: SEVEN_INT32) {
+        print("Int32 constant {}", d as Int32)
+    }
+    probe_int64(-9223372036854775808)
+    probe_int64(-9223372036854775807)
+    probe_int64(-6)
+    probe_int64(-5)
+    probe_int64(-4)
+    probe_int64(-1)
+    probe_int64(0)
+    probe_int64(1)
+    probe_int64(6)
+    probe_int64(7)
+    probe_int64(8)
+    probe_int64(9223372036854775806)
+    probe_int64(9223372036854775807)
+    if let d = RawInt64.from(raw: SEVEN_INT64) {
+        print("Int64 constant {}", d as Int64)
+    }
+    probe_int(-9223372036854775808)
+    probe_int(-9223372036854775807)
+    probe_int(-6)
+    probe_int(-5)
+    probe_int(-4)
+    probe_int(-1)
+    probe_int(0)
+    probe_int(1)
+    probe_int(6)
+    probe_int(7)
+    probe_int(8)
+    probe_int(9223372036854775806)
+    probe_int(9223372036854775807)
+    if let d = RawInt.from(raw: SEVEN_INT) {
+        print("Int constant {}", d as Int)
+    }
+    let narrow: Int8 = -7
+    if let w = Wide.from(raw: narrow) {
+        print("widened Some {}", w as Int)
+    }
+    let other: Int8 = 7
+    if let w = Wide.from(raw: other) {
+        print("widened Some {}", w as Int)
+    } else {
+        print("widened None")
+    }
+}

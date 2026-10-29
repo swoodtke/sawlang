@@ -132,11 +132,18 @@ extension LlEmitter {
     public func tag_of(&var self, mono: &var MonoProgram, target: &var Target, addr: String, t: Int,
                        node: Int) -> String {
         let l = self.lay_at(&var mono, &var target, t, node)
+        let raw = self.load(ll_tag_type(&l), addr)
+        self.tag_word(raw, &l)
+    }
+
+    // Tag value `raw`, of layout `l`'s tag type, widened to i64 as every
+    // switch over `l`'s case tags compares it: zero-extended, since a layout
+    // holds each tag as its bits read unsigned (`Target.raw_backed`).
+    public func tag_word(&var self, raw: String, l: &TargetLayout) -> String {
         let ty = ll_tag_type(&l)
         if ty.equals("i64") {
-            return self.load(ty, addr)
+            return raw
         }
-        let raw = self.load(ty, addr)
         var widen = StringBuilder()
         try! widen.append("zext ")
         try! widen.append(ty)

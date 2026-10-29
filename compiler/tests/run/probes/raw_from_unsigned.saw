@@ -1,0 +1,324 @@
+// probe: stated
+// about: a raw-backed enum's `from(raw:)` at every unsigned backing width, a generic enum, no cases and sawos's decodes (SL-540)
+// stage 0: agrees line for line in its darwin run, but no Stage 0 runs on Linux to record the aarch64 run
+// speeds: -O0 -O2
+// A raw-backed enum's `from(raw:)` at every unsigned backing width, then a
+// generic enum, an enum with no cases, and two decodes in sawos's shape: a
+// register-wide op code and a sparse status byte. `Some` for each declared
+// value, `None` for each value no case declares, the maximum included (SL-540).
+// prints: UInt8 0 Some 0
+// prints: UInt8 1 None
+// prints: UInt8 6 None
+// prints: UInt8 7 Some 7
+// prints: UInt8 8 None
+// prints: UInt8 199 None
+// prints: UInt8 200 Some 200
+// prints: UInt8 201 None
+// prints: UInt8 254 None
+// prints: UInt8 255 Some 255
+// prints: UInt8 constant 7
+// prints: UInt16 0 Some 0
+// prints: UInt16 1 None
+// prints: UInt16 6 None
+// prints: UInt16 7 Some 7
+// prints: UInt16 8 None
+// prints: UInt16 199 None
+// prints: UInt16 200 Some 200
+// prints: UInt16 201 None
+// prints: UInt16 65534 None
+// prints: UInt16 65535 Some 65535
+// prints: UInt16 constant 7
+// prints: UInt32 0 Some 0
+// prints: UInt32 1 None
+// prints: UInt32 6 None
+// prints: UInt32 7 Some 7
+// prints: UInt32 8 None
+// prints: UInt32 199 None
+// prints: UInt32 200 Some 200
+// prints: UInt32 201 None
+// prints: UInt32 4294967294 None
+// prints: UInt32 4294967295 Some 4294967295
+// prints: UInt32 constant 7
+// prints: UInt64 0 Some 0
+// prints: UInt64 1 None
+// prints: UInt64 6 None
+// prints: UInt64 7 Some 7
+// prints: UInt64 8 None
+// prints: UInt64 199 None
+// prints: UInt64 200 Some 200
+// prints: UInt64 201 None
+// prints: UInt64 18446744073709551614 None
+// prints: UInt64 18446744073709551615 Some 18446744073709551615
+// prints: UInt64 constant 7
+// prints: UInt 0 Some 0
+// prints: UInt 1 None
+// prints: UInt 6 None
+// prints: UInt 7 Some 7
+// prints: UInt 8 None
+// prints: UInt 199 None
+// prints: UInt 200 Some 200
+// prints: UInt 201 None
+// prints: UInt 18446744073709551614 None
+// prints: UInt 18446744073709551615 Some 18446744073709551615
+// prints: UInt constant 7
+// prints: generic Some 30
+// prints: generic None
+// prints: no cases None
+// prints: op 0 debug-print
+// prints: op 4 process-create
+// prints: op 7 stats-region-map
+// prints: op 8 fault BadOp
+// prints: op 256 fault BadOp
+// prints: op max fault BadOp
+// prints: status 0 0
+// prints: status 3 255
+// prints: status 4 4
+// prints: status 10 10
+// prints: status 11 255
+// prints: status 254 255
+// prints: status 255 255
+// prints: status 256 255
+
+enum RawUInt8: UInt8 {
+    case Zero = 0,
+    case Seven = 7,
+    case Mid = 200,
+    case Max = 255
+}
+
+static SEVEN_UINT8: UInt8 = 7
+
+func probe_uint8(r: UInt8) {
+    if let e = RawUInt8.from(raw: r) {
+        print("UInt8 {} Some {}", r, e as UInt8)
+    } else {
+        print("UInt8 {} None", r)
+    }
+}
+
+enum RawUInt16: UInt16 {
+    case Zero = 0,
+    case Seven = 7,
+    case Mid = 200,
+    case Max = 65535
+}
+
+static SEVEN_UINT16: UInt16 = 7
+
+func probe_uint16(r: UInt16) {
+    if let e = RawUInt16.from(raw: r) {
+        print("UInt16 {} Some {}", r, e as UInt16)
+    } else {
+        print("UInt16 {} None", r)
+    }
+}
+
+enum RawUInt32: UInt32 {
+    case Zero = 0,
+    case Seven = 7,
+    case Mid = 200,
+    case Max = 4294967295
+}
+
+static SEVEN_UINT32: UInt32 = 7
+
+func probe_uint32(r: UInt32) {
+    if let e = RawUInt32.from(raw: r) {
+        print("UInt32 {} Some {}", r, e as UInt32)
+    } else {
+        print("UInt32 {} None", r)
+    }
+}
+
+enum RawUInt64: UInt64 {
+    case Zero = 0,
+    case Seven = 7,
+    case Mid = 200,
+    case Max = 18446744073709551615
+}
+
+static SEVEN_UINT64: UInt64 = 7
+
+func probe_uint64(r: UInt64) {
+    if let e = RawUInt64.from(raw: r) {
+        print("UInt64 {} Some {}", r, e as UInt64)
+    } else {
+        print("UInt64 {} None", r)
+    }
+}
+
+enum RawUInt: UInt {
+    case Zero = 0,
+    case Seven = 7,
+    case Mid = 200,
+    case Max = 18446744073709551615
+}
+
+static SEVEN_UINT: UInt = 7
+
+func probe_uint(r: UInt) {
+    if let e = RawUInt.from(raw: r) {
+        print("UInt {} Some {}", r, e as UInt)
+    } else {
+        print("UInt {} None", r)
+    }
+}
+
+enum Code<T>: UInt8 {
+    case Ok = 10,
+    case Warn = 30
+}
+
+enum Nothing: UInt8 {
+}
+
+// sawos's System object ops: register-wide, so `0x100` is no op rather than
+// a truncated `DebugPrint`.
+enum SystemOp: UInt {
+    case DebugPrint = 0,
+    case Shutdown = 1,
+    case ProcessSelf = 2,
+    case ClockGet = 3,
+    case ProcessCreate = 4,
+    case SlabDonate = 5,
+    case TierGet = 6,
+    case StatsRegionMap = 7
+}
+
+func system_op(raw_op: UInt) -> String {
+    guard let op = SystemOp.from(raw: raw_op) else {
+        return "fault BadOp"
+    }
+    match op {
+        case DebugPrint -> "debug-print",
+        case Shutdown -> "shutdown",
+        case ProcessSelf -> "process-self",
+        case ClockGet -> "clock-get",
+        case ProcessCreate -> "process-create",
+        case SlabDonate -> "slab-donate",
+        case TierGet -> "tier-get",
+        case StatsRegionMap -> "stats-region-map"
+    }
+}
+
+// sawos's status byte: sparse, with gaps below `NoResource` and above
+// `WouldBlock`, read from a register-wide word.
+enum SosStatus: UInt8 {
+    case Ok = 0,
+    case NoResource = 4,
+    case BadImage = 5,
+    case Drained = 6,
+    case QuotaExceeded = 7,
+    case Revoked = 8,
+    case PeerClosed = 9,
+    case WouldBlock = 10,
+    case Unknown = 255
+}
+
+func status_of(raw: UInt) -> SosStatus {
+    if raw > 255 {
+        return SosStatus.Unknown
+    }
+    guard let status = SosStatus.from(raw: raw as UInt8) else {
+        return SosStatus.Unknown
+    }
+    status
+}
+
+func main() {
+    probe_uint8(0)
+    probe_uint8(1)
+    probe_uint8(6)
+    probe_uint8(7)
+    probe_uint8(8)
+    probe_uint8(199)
+    probe_uint8(200)
+    probe_uint8(201)
+    probe_uint8(254)
+    probe_uint8(255)
+    if let d = RawUInt8.from(raw: SEVEN_UINT8) {
+        print("UInt8 constant {}", d as UInt8)
+    }
+    probe_uint16(0)
+    probe_uint16(1)
+    probe_uint16(6)
+    probe_uint16(7)
+    probe_uint16(8)
+    probe_uint16(199)
+    probe_uint16(200)
+    probe_uint16(201)
+    probe_uint16(65534)
+    probe_uint16(65535)
+    if let d = RawUInt16.from(raw: SEVEN_UINT16) {
+        print("UInt16 constant {}", d as UInt16)
+    }
+    probe_uint32(0)
+    probe_uint32(1)
+    probe_uint32(6)
+    probe_uint32(7)
+    probe_uint32(8)
+    probe_uint32(199)
+    probe_uint32(200)
+    probe_uint32(201)
+    probe_uint32(4294967294)
+    probe_uint32(4294967295)
+    if let d = RawUInt32.from(raw: SEVEN_UINT32) {
+        print("UInt32 constant {}", d as UInt32)
+    }
+    probe_uint64(0)
+    probe_uint64(1)
+    probe_uint64(6)
+    probe_uint64(7)
+    probe_uint64(8)
+    probe_uint64(199)
+    probe_uint64(200)
+    probe_uint64(201)
+    probe_uint64(18446744073709551614)
+    probe_uint64(18446744073709551615)
+    if let d = RawUInt64.from(raw: SEVEN_UINT64) {
+        print("UInt64 constant {}", d as UInt64)
+    }
+    probe_uint(0)
+    probe_uint(1)
+    probe_uint(6)
+    probe_uint(7)
+    probe_uint(8)
+    probe_uint(199)
+    probe_uint(200)
+    probe_uint(201)
+    probe_uint(18446744073709551614)
+    probe_uint(18446744073709551615)
+    if let d = RawUInt.from(raw: SEVEN_UINT) {
+        print("UInt constant {}", d as UInt)
+    }
+    let warn: UInt8 = 30
+    if let c = Code<Int>.from(raw: warn) {
+        print("generic Some {}", c as UInt8)
+    }
+    let ordinal: UInt8 = 1
+    if let c = Code<String>.from(raw: ordinal) {
+        print("generic Some {}", c as UInt8)
+    } else {
+        print("generic None")
+    }
+    let zero: UInt8 = 0
+    if let n = Nothing.from(raw: zero) {
+        print("no cases Some {}", n as UInt8)
+    } else {
+        print("no cases None")
+    }
+    print("op 0 {}", system_op(0))
+    print("op 4 {}", system_op(4))
+    print("op 7 {}", system_op(7))
+    print("op 8 {}", system_op(8))
+    print("op 256 {}", system_op(0x100))
+    print("op max {}", system_op(18446744073709551615))
+    print("status 0 {}", status_of(0) as UInt8)
+    print("status 3 {}", status_of(3) as UInt8)
+    print("status 4 {}", status_of(4) as UInt8)
+    print("status 10 {}", status_of(10) as UInt8)
+    print("status 11 {}", status_of(11) as UInt8)
+    print("status 254 {}", status_of(254) as UInt8)
+    print("status 255 {}", status_of(255) as UInt8)
+    print("status 256 {}", status_of(256) as UInt8)
+}
