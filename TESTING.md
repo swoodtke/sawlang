@@ -393,7 +393,7 @@ full; in short, the runner:
 - requires one release number everywhere it is written (the `version` step):
   the driver's `driver_version`, what `sawc --version` prints and the release
   tag in `.sawtracker/version`, so a release bump edits both files;
-- holds each frozen directory (`blade/`, `libs/`, `tests/freestanding/`,
+- holds each frozen directory (`blade/`, `libs/`,
   `examples/`, `prototypes/`, `devtools/bench/`, `devtools/dogfood/`) to the
   git tree `tools/frozen_trees.tsv` records, with nothing in it uncommitted
   (the `frozen` step). Nothing builds those sources, so this is what keeps
@@ -716,8 +716,9 @@ touching the network.
 
 Runs `compiler/tests/run.py`, the self-hosted compiler's tests (above). It is
 where the compiler's unit programs are compiled and run; no other stage opens
-them. `blade/tests`, `libs/*/tests` and `tests/freestanding` are frozen
-sources that no stage runs (their READMEs give the v0.18.0 recipe).
+them. `blade/tests` and `libs/*/tests` are frozen sources that no stage runs
+(their READMEs give the v0.18.0 recipe); `tests/freestanding` is the
+`freestanding` stage's (`tools/freestanding_runner.py`).
 
 The self-hosted compiler's code generation has its own timing report:
 `compiler/tests/run/run_lane.py --bench` times the kernels in

@@ -1,10 +1,8 @@
-// `--runtime-provider` REFUSAL, row 1 of 2 (design 238 unit 1): the SAME
-// export the suite's runtime makes, with the flag WITHHELD.
+// `--runtime` REFUSAL, row 1 of 2: the SAME export the suite's runtime makes,
+// with the flag WITHHELD.
 //
 // `@export`ing a `__saw_rt_*` name is refused unless the compile declares
-// itself a runtime provider (design 149). The positive rows reach the flag
-// through both of its doors — the runner's command line for the sawc-driven
-// cases, `[package] runtime = true` for `tests/freestanding/bladepkg` — so
+// itself a runtime provider. Every positive row is built with `--runtime`, so
 // this is the row that says the flag is load-bearing rather than decorative.
 //
 // SELF-CONTAINED on purpose: it imports nothing, so there is no second
@@ -17,8 +15,9 @@ extern "C" {
 }
 
 @export("__saw_rt_write")
-func rt_write(ptr: UnsafePointer<Int8>, len: UInt) unsafe {
+func rt_write(ptr: UnsafePointer<Int8>, len: UInt) unsafe -> Int {
     fs_console_write(ptr, len)
+    0
 }
 
 @export("fs_main")

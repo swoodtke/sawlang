@@ -58,7 +58,8 @@ libs/              # Real Saw library packages (semver, toml), FROZEN
 libs/imgformat/    # the sosimg layout (design 238 unit 2, moved from sos/):
                    # Blade consumes it via a path dependency, the sawos
                    # kernel via --module-path.
-tests/freestanding/, prototypes/, devtools/bench/, devtools/dogfood/  # FROZEN
+tests/freestanding/ # the freestanding QEMU suite (tools/freestanding_runner.py)
+prototypes/, devtools/bench/, devtools/dogfood/  # FROZEN
                    # The frozen dirs are v0.18.0's language: each README gives
                    # its v0 recipe, and run.py's `frozen` step holds each to
                    # the tree tools/frozen_trees.tsv records.
@@ -133,7 +134,7 @@ snapshot's regeneration run it.
 
 ## Testing
 - **The frozen dirs gate nothing but their own bytes.** Blade, `libs/`,
-  `tests/freestanding/`, `prototypes/`, `devtools/bench/`,
+  `prototypes/`, `devtools/bench/`,
   `devtools/dogfood/` and `examples/` are v0.18.0's sources until their port
   (SL-661); nothing builds them, and run.py's `frozen` step fails a patch that
   changes one (the tree `tools/frozen_trees.tsv` records, nothing uncommitted).
@@ -165,12 +166,20 @@ snapshot's regeneration run it.
   any verdict moved from `corpus_diff.tsv`: a new bucket or key, an
   improvement included, or a new detail inside `stage0-wrong`. A patch that
   moves one on purpose records it with `corpusdiff.py run --baseline --jobs N`
-  in the same patch. It prints each decision and why;
+  in the same patch. And the **freestanding QEMU suite**
+  (`tools/freestanding_runner.py`, `tests/freestanding/`: each case built by
+  sawc `--freestanding --runtime`, linked at a fixed address and booted; a
+  `due` case cites the issue owning its gap) over `tests/freestanding/`, the
+  runner, the `src/` of `compiler/` `typecheck/`, `asserts/`, `mir/`, `mono/`
+  and `coro/`, `compiler/` `llvm/`, `driver/` and `target/`, `build.py`,
+  `runtime/` and `std/`; it SKIPS (passes) when QEMU, ld.lld or a
+  target clang is known absent and FAILS when it cannot tell. It prints each decision and why;
   `./build.sh test --dry-run --diff FILE` shows a patch's decision without
   running anything.
 - **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change
   affects, and never duplicate what the server runs.** The per-patch gate
-  above runs `fixpoint`, `grammarcorpus` and the corpusdiff gate on every
+  above runs `fixpoint`, `grammarcorpus`, the corpusdiff gate and the
+  freestanding suite on every
   patch that reaches their inputs, so NOBODY, implementer or lead, runs them
   per commit or before a submission (the battery keeps them as stages for
   manual runs). The one exception is a change meant to move a corpus verdict
@@ -252,7 +261,9 @@ snapshot's regeneration run it.
   `tools/child_groups.py`, whose handler ends it, and the lane fails on any
   tracked source that makes a group some other way), `floatvectors` (design
   253: the committed Float↔text vectors, bit-exact, plus the Ryū table
-  re-derivation), `abidoc`, then the slow two: `gmgate` (the ownership and
+  re-derivation), `abidoc`, `freestanding` (the gate part above, after
+  `tools/test_freestanding_runner.py` pins its skip-or-fail rule against stub
+  tools), then the slow two: `gmgate` (the ownership and
   concurrency oracles, built by sawc, under Guard Malloc, after a self-test
   that a dropped retain still faults; SL-697) and the opt-in `linux` (the run
   lane in the Linux VM, both arches; see "Linux"). `docverify` checks every

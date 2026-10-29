@@ -59,6 +59,7 @@ STAGES=(
     "childgroups|no|a TERM to a runner ends every child group it started in a session of its own|$PY tools/test_child_groups.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|runtime/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
+    "freestanding|no|sawc's freestanding objects linked and run under QEMU (tests/freestanding); skips when QEMU, ld.lld or a target clang is absent|__FREESTANDING__"
     "gmgate|yes|ownership + concurrency oracles, built by sawc, under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"
 )
@@ -108,6 +109,15 @@ run_linux() {
     "$PY" tools/linux.py lane
 }
 
+# The freestanding suite needs QEMU, ld.lld and a clang for the target, which
+# are host prerequisites. Known absent, it SKIPS and passes; present but unable
+# to answer, it FAILS. That decision is the runner's, pinned first by
+# tools/test_freestanding_runner.py against stub tools, which needs neither.
+run_freestanding() {
+    "$PY" tools/test_freestanding_runner.py || return 1
+    "$PY" tools/freestanding_runner.py
+}
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)
@@ -133,6 +143,8 @@ for entry in "${STAGES[@]}"; do
     stage_start=$(date +%s)
     if [ "$cmd" = "__LINUX__" ]; then
         run_linux
+    elif [ "$cmd" = "__FREESTANDING__" ]; then
+        run_freestanding
     else
         $cmd
     fi

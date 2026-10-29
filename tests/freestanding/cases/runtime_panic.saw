@@ -1,4 +1,4 @@
-// `--runtime-provider`, the PANIC seam (design 238 unit 1). Split from
+// `--runtime`, the PANIC seam (design 238 unit 1). Split from
 // `cases/runtime_seams.saw` because reaching this seam ends the machine, and a
 // case that stops cannot go on to assert anything else.
 //

@@ -13,11 +13,12 @@ import fscore.*
 @export("fs_main")
 func fs_main() unsafe {
     let n = 7
-    // The parameter type is written out so the ONLY diagnostic this case
-    // produces is the one it is about: a `let`-bound closure has no expected
-    // type to infer from, and an inference complaint beside the refusal would
-    // make a passing row ambiguous.
-    let add_n = { v: Int in v + n }
+    // The type is written out so the ONLY diagnostic this case produces is the
+    // one it is about: a `let`-bound closure has no expected type to infer
+    // from, and without `sync` calling it from an `@export`ed entry is the
+    // "may suspend" refusal, which beside this one would make a passing row
+    // ambiguous.
+    let add_n: (Int) sync -> Int = { v in v + n }
     check_value("escaping_capture", add_n(35), 42)
     finish("hidden_alloc_escaping_closure")
 }

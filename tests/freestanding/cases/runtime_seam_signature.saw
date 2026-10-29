@@ -1,5 +1,5 @@
-// `--runtime-provider` REFUSAL, row 2 of 2 (design 238 unit 1): the SIGNATURE
-// CHECK against `sawc/rt/ABI.md`.
+// `--runtime` REFUSAL, row 2 of 2: the SIGNATURE CHECK against
+// `runtime/ABI.md`.
 //
 // The flag does two things — it permits the `__saw_rt_*` exports, and it checks
 // each one against the frozen contract. `cases/runtime_export_ungated.saw`
@@ -21,8 +21,9 @@ extern "C" {
 }
 
 @export("__saw_rt_write")
-func rt_write(ptr: UnsafePointer<Int8>) unsafe {
+func rt_write(ptr: UnsafePointer<Int8>) unsafe -> Int {
     fs_console_write(ptr, 1)
+    0
 }
 
 @export("fs_main")

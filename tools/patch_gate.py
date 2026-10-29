@@ -6,8 +6,9 @@
 `build.sh` bootstraps the venv and holds the suite lock around this script,
 passing the time it waited for the lock in `SAW_GATE_LOCK_WAIT`. Every part
 builds and runs sawc, the self-hosted compiler. sawc's tests always run. The fixpoint lane, the full grammar
-corpus and the corpus differential's regression gate run only when a changed
-path is one they read (`SUITE_INPUTS`); without the full grammar corpus, each
+corpus, the corpus differential's regression gate and the freestanding QEMU
+suite run only when a changed path is one they read (`SUITE_INPUTS`); without
+the full grammar corpus, each
 changed .saw file gets that check on its own (`PER_FILE`). With no source of
 changed paths, or when git cannot name them, everything runs. `--dry-run`
 prints the decision and runs nothing.
@@ -70,6 +71,25 @@ SUITE_INPUTS = {
         "tools/child_groups.py",
         "tools/gate_jobs.py",            # its worker budget
     ),
+    "freestanding": (
+        "tests/freestanding/",           # the cases, the three modules, the boot stubs and link scripts
+        "tools/freestanding_runner.py",  # the runner and its expectations
+        # Every stage decides what a refusal row says or what an object holds.
+        "compiler/typecheck/src/",
+        "compiler/mir/src/",
+        "compiler/mono/src/",
+        "compiler/coro/src/",
+        "compiler/asserts/src/",
+        "compiler/llvm/",                # the backend that writes the objects
+        "compiler/driver/",              # the profile, the object compile and the target record
+        "compiler/target/",              # the bare-metal triples and their features
+        "compiler/tools/build.py",       # which builds sawc and writes the target's clang record
+        "runtime/",                      # runtime/ABI.md, which the provider's seams are checked against
+        "std/",                          # the std every case compiles against
+        # The modules the runner imports.
+        "tools/child_groups.py",
+        "tools/gate_jobs.py",
+    ),
 }
 
 GRAMMAR_CORPUS = "compiler/tests/grammar/corpus.py"
@@ -81,6 +101,7 @@ PARTS = (
     ("fixpoint", ["compiler/tests/fixpoint/fixpoint_lane.py"]),
     ("grammar corpus", [GRAMMAR_CORPUS]),
     ("corpusdiff", ["compiler/tests/corpusdiff/corpusdiff.py", "gate"]),
+    ("freestanding", ["tools/freestanding_runner.py"]),
 )
 
 # The parser corpus, whose case files corpus.py skips too.

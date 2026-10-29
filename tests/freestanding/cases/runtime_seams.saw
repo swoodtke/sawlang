@@ -1,16 +1,16 @@
-// `--runtime-provider`, the POSITIVE row (design 238 unit 1): a package
-// supplying the five frozen `__saw_rt_*` seams, with every one of them
-// REACHED by a running program.
+// `--runtime`, the POSITIVE row: a package supplying the `__saw_rt_*` seams a
+// running program reaches, each one of them reached here.
 //
-//   __saw_rt_write    every line this case prints
-//   __saw_rt_alloc    the Vector below, which the SOURCE names — nothing the
-//                     compiler inserts allocates, since the whole suite builds
-//                     under `--no-hidden-alloc`
-//   __saw_rt_dealloc  the Vector's drop at the end of the scope
-//   __saw_rt_panic    `cases/runtime_panic.saw`, which is a separate case
-//                     because it ends the machine
+//   __saw_rt_write_line  every line this case prints
+//   __saw_rt_alloc       the Vector below, which the SOURCE names — nothing the
+//                        compiler inserts allocates, since the whole suite
+//                        builds under `--no-hidden-alloc`
+//   __saw_rt_dealloc     the Vector's drop at the end of the scope
+//   __saw_rt_panic       `cases/runtime_panic.saw`, which is a separate case
+//                        because it ends the machine
 //   __saw_rt_executable_path  called below as std's `Env.executable_path`
-//                     calls it; a board has no executable file, so NULL
+//                        calls it; a board has no executable file, so NULL
+//                        with `NotFound` in the status word
 //
 // The arena cursor is what turns "the program did not crash" into "the seam
 // answered": `fsrt.arena_used()` reads the same word `__saw_rt_alloc` advances,
@@ -18,14 +18,17 @@
 //
 // The negative rows are `cases/runtime_export_ungated.saw` (the flag withheld)
 // and `cases/runtime_seam_signature.saw` (the signature disagreeing with
-// `sawc/rt/ABI.md`).
+// `runtime/ABI.md`).
 
 import fscore.*
 import fsrt
 
 extern "C" {
-    func __saw_rt_executable_path() -> UnsafePointer<Int8>?
+    func __saw_rt_executable_path(status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
 }
+
+/// The status tag `runtime/ABI.md` gives a missing file.
+static NOT_FOUND_TAG: Int = 10
 
 @export("fs_main")
 func fs_main() unsafe {
@@ -54,11 +57,10 @@ func fs_main() unsafe {
     check_value("second_vector_length", more.len(), 64)
     check("alloc_seam_advanced", fsrt.arena_used() > after_push)
 
-    var no_path = true
-    if let _ = __saw_rt_executable_path() {
-        no_path = false
-    }
-    check("executable_path_seam_is_null", no_path)
+    var status = 0
+    let path = __saw_rt_executable_path((&var status) as UnsafePointer<Int>)
+    check("executable_path_seam_is_null", path.is_none())
+    check_value("executable_path_status_not_found", status, NOT_FOUND_TAG)
 
     finish("runtime_seams")
 }
