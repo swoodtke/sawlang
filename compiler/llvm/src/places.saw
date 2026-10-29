@@ -190,17 +190,7 @@ extension LlEmitter {
         self.branch(within, pass, fail)
         self.put_label(fail)
         var parts = LlParts()
-        var wide = i
-        if self.word_bits != 64 {
-            var extend = StringBuilder()
-            try! extend.append("sext ")
-            try! extend.append(self.word)
-            try! extend.append(" ")
-            try! extend.append(i)
-            try! extend.append(" to i64")
-            wide = self.assign(extend.build())
-        }
-        ll_parts_push(&var parts, LL_PART_SIGNED, wide, "")
+        ll_parts_push(&var parts, LL_PART_SIGNED, i, "")
         var tail = StringBuilder()
         try! tail.append(" (len ")
         try! tail.append(length)

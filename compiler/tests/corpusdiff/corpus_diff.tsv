@@ -284,7 +284,7 @@ conformance/D05_diverging_value_branch_arms.saw	pass	-	-
 conformance/D06_diverging_tail_and_never_chain.saw	pass	-	-
 conformance/D07_never_method_and_generic.saw	pass	-	-
 conformance/D08_never_closure_vtable_default.saw	refused	typecheck type.mismatch	expected `D08_never_closure_vtable_default.Reply`, the type of the function's result, which the body's last expression is, and found `Void`
-conformance/D09_diverging_positions_freestanding.saw	refused	llvm backend.not-yet	sawc's backend does not emit for `riscv32-unknown-none-elf` yet: its word is 32 bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the prog
+conformance/D09_diverging_positions_freestanding.saw	refused	llvm backend.not-yet	sawc does not write an object for `riscv32-unknown-none-elf` yet: `--emit-ll` writes its module at the 32-bit word, and an object waits for the run harness that executes one (SL-865); the program chec
 conformance/D10_spawn_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a loop, `func se
 conformance/D11_spawn_closure_never_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: this closure's body never returns, so the task never completes and `join` on its handle could never return. Write a forever-task as `-> Void` with a l
 conformance/D12_drive_never_body_refused.saw	pass	-	spawn.never-body: a task body may not be `Never`: `halt` never returns, so `__saw_drive` would drive it for ever. Write a forever-task as `-> Void` with a loop, `func serve() { while { ... } }`, and e
@@ -877,7 +877,7 @@ dependency_error_names_its_own_file_error.saw	pass	-	type.not-a-value: `Widget` 
 dependency_named_main_keeps_the_entry_point.saw	pass	-	-
 destructuring_wildcard_over_a_borrowed_projection.saw	pass	-	-
 df137d_literal_width_riscv32.saw	pass	-	type.mismatch: integer literal 0x80000000 does not fit in `Int` (range -2147483648..=2147483647)
-df137d_literal_width_riscv32_ok.saw	refused	llvm backend.not-yet	sawc's backend does not emit for `riscv32-unknown-none-elf` yet: its word is 32 bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the prog
+df137d_literal_width_riscv32_ok.saw	refused	llvm backend.not-yet	sawc does not write an object for `riscv32-unknown-none-elf` yet: `--emit-ll` writes its module at the 32-bit word, and an object waits for the run harness that executes one (SL-865); the program chec
 df139a_copy_then_overwrite.saw	pass	-	-
 df140b_import_wrap.saw	pass	-	-
 df140c_qualified_type_position.saw	pass	-	-
@@ -2364,7 +2364,7 @@ static_non_optional_types_unaffected.saw	pass	-	-
 static_optional_type_refused.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_optional_type_refused_none.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_pod.saw	pass	-	-
-static_zero_bss.saw	refused	llvm backend.not-yet	sawc's backend does not emit for `riscv32-unknown-none-elf` yet: its word is 32 bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the prog
+static_zero_bss.saw	refused	llvm backend.not-yet	sawc does not write an object for `riscv32-unknown-none-elf` yet: `--emit-ll` writes its module at the 32-bit word, and an object waits for the run harness that executes one (SL-865); the program chec
 static_zero_init.saw	pass	-	-
 std_gated_name_redefined_by_user.saw	pass	-	-
 std_import_gate_signature_position.saw	pass	-	name.not-in-prelude: `Data` is not in the prelude and must be imported: `import std.data.{Data}` selects it

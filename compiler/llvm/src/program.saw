@@ -11,7 +11,8 @@ import sawllvm.closures.{ll_env_lead}
 import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawllvm.erased.{ll_drop_nothing}
 import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_SIGNED,
-                          LL_PART_UNSIGNED, ll_fail_reason, ll_fail_symbol}
+                          LL_PART_SIGNED_WIDE, LL_PART_UNSIGNED, LL_PART_UNSIGNED_WIDE, ll_fail_reason,
+                          ll_fail_symbol}
 import sawcoro.lower.{CORO_STATE_START}
 import sawllvm.module.{LlEmitter, LlLowering, ll_bt_table_address, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar,
                        ll_reaches_extern, ll_resume_symbol, ll_symbol, ll_value_type}
@@ -49,7 +50,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     e.word = word.build()
     e.word_bits = target.word * 8
     // The helpers copy with it whether or not any function does.
-    e.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+    e.declare_memcpy()
     // A program's entry point defines the argument accessors (runtime/ABI.md,
     // "Program arguments"), which std's `extern` declarations name, and,
     // when it hands `main`'s frame to the entry executor, the descriptor call
@@ -190,16 +191,16 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
     try! out.append("\n")
     try! out.append(e.defs.build())
     try! out.append(entry)
-    try! out.append(ll_helpers())
+    try! out.append(ll_helpers(e.word, e.wide_render))
     if mono.panic_item >= 0 {
         let sink = mono.panic_item
         let symbol = e.plain_symbol(&var mono, sink)
-        let failing = e.debug_artificial(&mono, ll_fail_helpers(symbol))
+        let failing = e.debug_artificial(&mono, ll_fail_helpers(symbol, e.word, e.wide_render))
         try! out.append(failing)
         let renderer = mono.print_failure_item
         if renderer >= 0 {
             let renderer_symbol = e.plain_symbol(&var mono, renderer)
-            let printing = e.debug_artificial(&mono, ll_print_failure_helper(renderer_symbol, e.word, e.word_bits))
+            let printing = e.debug_artificial(&mono, ll_print_failure_helper(renderer_symbol, e.word))
             try! out.append(printing)
         }
     }
@@ -240,7 +241,7 @@ extension LlEmitter {
         let r = self.resume_of(main_item)
         if r >= 0 {
             try! out.append(self.descriptor(&var mono, &var target, main_item))
-            try! out.append(ll_frame_resume_helper(target.closure_env_offset()))
+            try! out.append(ll_frame_resume_helper(target.closure_env_offset(), self.word))
         }
         try! out.append("define i32 @main(i32 %argc, ptr %argv)")
         try! out.append(attributes)
@@ -557,12 +558,14 @@ func ll_result_drop_symbol(mono: &MonoProgram, k: Int) -> String {
 // value returning a `Poll` is (`sret`, then the environment), with the
 // `Poll`'s tag as its result (runtime/ABI.md, "The compiler → executor
 // boundary").
-func ll_frame_resume_helper(env_offset: Int) -> String {
+func ll_frame_resume_helper(env_offset: Int, word: String) -> String {
     var out = StringBuilder()
     try! out.append("define internal i32 @__saw_frame_resume(ptr %descriptor, ptr %frame, ptr %cx)")
     try! out.append(ll_function_attributes(""))
     try! out.append(" \{\nentry:\n  %poll.at = alloca i32, align 4\n  %resume = load ptr, ptr %descriptor\n")
-    try! out.append("  %env.at = getelementptr i8, ptr %descriptor, i64 ")
+    try! out.append("  %env.at = getelementptr i8, ptr %descriptor, ")
+    try! out.append(word)
+    try! out.append(" ")
     try! out.append(env_offset)
     try! out.append("\n  %env = load ptr, ptr %env.at\n")
     try! out.append("  call void %resume(ptr %poll.at, ptr %env, ptr %frame, ptr %cx)\n")
@@ -570,75 +573,134 @@ func ll_frame_resume_helper(env_offset: Int) -> String {
     out.build()
 }
 
-// The compiler's own helpers (runtime/ABI.md's `__saw_*` tier, never a runtime
-// seam): decimal rendering of an `i64`, signed and unsigned, and an append
-// into a panic message's buffer that cuts at its limit, and the end that
-// marks a cut.
-func ll_helpers() -> String {
+// Helper text `template` with `$W` spelled `word`, the integer type of a
+// position or a length, `$V` spelled `value`, the type of the value a
+// renderer takes, and `$S` spelled `suffix`, which names the 64-bit
+// renderers apart from the word's.
+func ll_spell(template: String, word: String, value: String, suffix: String) -> String {
+    var out = StringBuilder()
+    var start = 0
+    var k = 0
+    let n = template.len()
+    while k < n {
+        if (template.byte_at(k) as Int) == 36 && k + 1 < n {
+            let mark = template.byte_at(k + 1) as Int
+            if mark == 87 || mark == 86 || mark == 83 {
+                try! out.append(template.substring(start, k))
+                if mark == 87 {
+                    try! out.append(word)
+                } else if mark == 86 {
+                    try! out.append(value)
+                } else {
+                    try! out.append(suffix)
+                }
+                k = k + 2
+                start = k
+                continue
+            }
+        }
+        k = k + 1
+    }
+    try! out.append(template.substring(start, n))
+    out.build()
+}
+
+// The decimal renderers of a value of type `value` (`$V`), unsigned then
+// signed, named with `suffix` (`$S`), each writing into scratch at `out` and
+// returning the length, a `word` (`$W`).
+func ll_render_helpers(word: String, value: String, suffix: String) -> String {
     let attributes = ll_function_attributes("")
     var out = StringBuilder()
-    try! out.append("define internal i64 @__saw_render_uint(ptr %out, i64 %v)")
+    try! out.append(ll_spell("define internal $W @__saw_render_uint$S(ptr %out, $V %v)", word, value, suffix))
     try! out.append(attributes)
     try! out.append(" \{\n")
     try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  br label %loop\n")
-    try! out.append("loop:\n  %n = phi i64 [ %v, %entry ], [ %q, %loop ]\n  %i = phi i64 [ 24, %entry ], [ %i1, %loop ]\n")
-    try! out.append("  %q = udiv i64 %n, 10\n  %r = urem i64 %n, 10\n  %d = trunc i64 %r to i8\n  %c = add i8 %d, 48\n")
-    try! out.append("  %i1 = sub i64 %i, 1\n  %p = getelementptr i8, ptr %tmp, i64 %i1\n  store i8 %c, ptr %p\n")
-    try! out.append("  %more = icmp ne i64 %q, 0\n  br i1 %more, label %loop, label %done\n")
-    try! out.append("done:\n  %len = sub i64 24, %i1\n  %src = getelementptr i8, ptr %tmp, i64 %i1\n")
-    try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %out, ptr %src, i64 %len, i1 false)\n  ret i64 %len\n\}\n\n")
-    try! out.append("define internal i64 @__saw_render_int(ptr %out, i64 %v)")
+    try! out.append(ll_spell("loop:\n  %n = phi $V [ %v, %entry ], [ %q, %loop ]\n  %i = phi $W [ 24, %entry ], [ %i1, %loop ]\n", word, value, suffix))
+    try! out.append(ll_spell("  %q = udiv $V %n, 10\n  %r = urem $V %n, 10\n  %d = trunc $V %r to i8\n  %c = add i8 %d, 48\n", word, value, suffix))
+    try! out.append(ll_spell("  %i1 = sub $W %i, 1\n  %p = getelementptr i8, ptr %tmp, $W %i1\n  store i8 %c, ptr %p\n", word, value, suffix))
+    try! out.append(ll_spell("  %more = icmp ne $V %q, 0\n  br i1 %more, label %loop, label %done\n", word, value, suffix))
+    try! out.append(ll_spell("done:\n  %len = sub $W 24, %i1\n  %src = getelementptr i8, ptr %tmp, $W %i1\n", word, value, suffix))
+    try! out.append(ll_spell("  call void @llvm.memcpy.p0.p0.$W(ptr %out, ptr %src, $W %len, i1 false)\n  ret $W %len\n\}\n\n", word, value, suffix))
+    try! out.append(ll_spell("define internal $W @__saw_render_int$S(ptr %out, $V %v)", word, value, suffix))
     try! out.append(attributes)
     try! out.append(" \{\n")
-    try! out.append("entry:\n  %neg = icmp slt i64 %v, 0\n  br i1 %neg, label %minus, label %plain\n")
-    try! out.append("minus:\n  store i8 45, ptr %out\n  %mag = sub i64 0, %v\n  %rest = getelementptr i8, ptr %out, i64 1\n")
-    try! out.append("  %n = call i64 @__saw_render_uint(ptr %rest, i64 %mag)\n  %len = add i64 %n, 1\n  ret i64 %len\n")
-    try! out.append("plain:\n  %m = call i64 @__saw_render_uint(ptr %out, i64 %v)\n  ret i64 %m\n\}\n\n")
+    try! out.append(ll_spell("entry:\n  %neg = icmp slt $V %v, 0\n  br i1 %neg, label %minus, label %plain\n", word, value, suffix))
+    try! out.append(ll_spell("minus:\n  store i8 45, ptr %out\n  %mag = sub $V 0, %v\n  %rest = getelementptr i8, ptr %out, $W 1\n", word, value, suffix))
+    try! out.append(ll_spell("  %n = call $W @__saw_render_uint$S(ptr %rest, $V %mag)\n  %len = add $W %n, 1\n  ret $W %len\n", word, value, suffix))
+    try! out.append(ll_spell("plain:\n  %m = call $W @__saw_render_uint$S(ptr %out, $V %v)\n  ret $W %m\n\}\n\n", word, value, suffix))
+    out.build()
+}
+
+// The appends of a rendered value of type `value` (`$V`) at position `$W`
+// of a panic message's buffer, signed then unsigned, named with `suffix`.
+func ll_append_helpers(word: String, value: String, suffix: String) -> String {
+    let attributes = ll_function_attributes("")
+    var out = StringBuilder()
+    try! out.append(ll_spell("define internal $W @__saw_append_int$S(ptr %buf, $W %pos, $V %v)", word, value, suffix))
+    try! out.append(attributes)
+    try! out.append(" \{\n")
+    try! out.append(ll_spell("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call $W @__saw_render_int$S(ptr %tmp, $V %v)\n", word, value, suffix))
+    try! out.append(ll_spell("  %end = call $W @__saw_append(ptr %buf, $W %pos, ptr %tmp, $W %n)\n  ret $W %end\n\}\n\n", word, value, suffix))
+    try! out.append(ll_spell("define internal $W @__saw_append_uint$S(ptr %buf, $W %pos, $V %v)", word, value, suffix))
+    try! out.append(attributes)
+    try! out.append(" \{\n")
+    try! out.append(ll_spell("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call $W @__saw_render_uint$S(ptr %tmp, $V %v)\n", word, value, suffix))
+    try! out.append(ll_spell("  %end = call $W @__saw_append(ptr %buf, $W %pos, ptr %tmp, $W %n)\n  ret $W %end\n\}", word, value, suffix))
+    out.build()
+}
+
+// The compiler's own helpers (runtime/ABI.md's `__saw_*` tier, never a runtime
+// seam): decimal rendering of an integer at the word's width, signed and
+// unsigned, an append into a panic message's buffer that cuts at its limit,
+// and the end that marks a cut, every position and length a `word`. With
+// `wide`, the renderers of an integer wider than the word follow, its digit
+// loop dividing 64 bits (spec, "An integer argument renders at its own
+// width"); a word-wide one never does.
+func ll_helpers(word: String, wide: Bool) -> String {
+    let attributes = ll_function_attributes("")
+    var out = StringBuilder()
+    try! out.append(ll_render_helpers(word, word, ""))
     // A position below zero is a closed buffer, `-1 - END`: an append cut
     // its text at END, on a UTF-8 boundary, so nothing more is written, and
     // `__saw_finish` stamps the `…` there. The scratch holds the limit's bytes
     // plus the marker and the line break.
-    try! out.append("define internal i64 @__saw_append(ptr %buf, i64 %pos, ptr %src, i64 %len)")
+    try! out.append(ll_spell("define internal $W @__saw_append(ptr %buf, $W %pos, ptr %src, $W %len)", word, word, ""))
     try! out.append(attributes)
     try! out.append(" \{\n")
-    try! out.append("entry:\n  %closed = icmp slt i64 %pos, 0\n  br i1 %closed, label %keep, label %open\n")
-    try! out.append("keep:\n  ret i64 %pos\n")
-    try! out.append("open:\n  %room = sub i64 ")
+    try! out.append(ll_spell("entry:\n  %closed = icmp slt $W %pos, 0\n  br i1 %closed, label %keep, label %open\n", word, word, ""))
+    try! out.append(ll_spell("keep:\n  ret $W %pos\n", word, word, ""))
+    try! out.append(ll_spell("open:\n  %room = sub $W ", word, word, ""))
     try! out.append(LL_MESSAGE_LIMIT)
-    try! out.append(", %pos\n  %fits = icmp ule i64 %len, %room\n  br i1 %fits, label %whole, label %back\n")
-    try! out.append("whole:\n  %at = getelementptr i8, ptr %buf, i64 %pos\n")
-    try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %at, ptr %src, i64 %len, i1 false)\n")
-    try! out.append("  %end = add i64 %pos, %len\n  ret i64 %end\n")
-    try! out.append("back:\n  %n = phi i64 [ %room, %open ], [ %n1, %step ]\n")
-    try! out.append("  %none = icmp eq i64 %n, 0\n  br i1 %none, label %cut, label %test\n")
-    try! out.append("test:\n  %p = getelementptr i8, ptr %src, i64 %n\n  %b = load i8, ptr %p\n")
+    try! out.append(ll_spell(", %pos\n  %fits = icmp ule $W %len, %room\n  br i1 %fits, label %whole, label %back\n", word, word, ""))
+    try! out.append(ll_spell("whole:\n  %at = getelementptr i8, ptr %buf, $W %pos\n", word, word, ""))
+    try! out.append(ll_spell("  call void @llvm.memcpy.p0.p0.$W(ptr %at, ptr %src, $W %len, i1 false)\n", word, word, ""))
+    try! out.append(ll_spell("  %end = add $W %pos, %len\n  ret $W %end\n", word, word, ""))
+    try! out.append(ll_spell("back:\n  %n = phi $W [ %room, %open ], [ %n1, %step ]\n", word, word, ""))
+    try! out.append(ll_spell("  %none = icmp eq $W %n, 0\n  br i1 %none, label %cut, label %test\n", word, word, ""))
+    try! out.append(ll_spell("test:\n  %p = getelementptr i8, ptr %src, $W %n\n  %b = load i8, ptr %p\n", word, word, ""))
     try! out.append("  %hi = and i8 %b, -64\n  %inside = icmp eq i8 %hi, -128\n  br i1 %inside, label %step, label %cut\n")
-    try! out.append("step:\n  %n1 = sub i64 %n, 1\n  br label %back\n")
-    try! out.append("cut:\n  %at2 = getelementptr i8, ptr %buf, i64 %pos\n")
-    try! out.append("  call void @llvm.memcpy.p0.p0.i64(ptr %at2, ptr %src, i64 %n, i1 false)\n")
-    try! out.append("  %stop = add i64 %pos, %n\n  %shut = sub i64 -1, %stop\n  ret i64 %shut\n\}\n\n")
-    try! out.append("define internal i64 @__saw_finish(ptr %buf, i64 %pos)")
+    try! out.append(ll_spell("step:\n  %n1 = sub $W %n, 1\n  br label %back\n", word, word, ""))
+    try! out.append(ll_spell("cut:\n  %at2 = getelementptr i8, ptr %buf, $W %pos\n", word, word, ""))
+    try! out.append(ll_spell("  call void @llvm.memcpy.p0.p0.$W(ptr %at2, ptr %src, $W %n, i1 false)\n", word, word, ""))
+    try! out.append(ll_spell("  %stop = add $W %pos, %n\n  %shut = sub $W -1, %stop\n  ret $W %shut\n\}\n\n", word, word, ""))
+    try! out.append(ll_spell("define internal $W @__saw_finish(ptr %buf, $W %pos)", word, word, ""))
     try! out.append(attributes)
     try! out.append(" \{\n")
-    try! out.append("entry:\n  %cut = icmp slt i64 %pos, 0\n  br i1 %cut, label %mark, label %line\n")
-    try! out.append("mark:\n  %stop = sub i64 -1, %pos\n  %m0 = getelementptr i8, ptr %buf, i64 %stop\n")
-    try! out.append("  store i8 -30, ptr %m0\n  %m1 = getelementptr i8, ptr %m0, i64 1\n  store i8 -128, ptr %m1\n")
-    try! out.append("  %m2 = getelementptr i8, ptr %m0, i64 2\n  store i8 -90, ptr %m2\n  %marked = add i64 %stop, 3\n")
+    try! out.append(ll_spell("entry:\n  %cut = icmp slt $W %pos, 0\n  br i1 %cut, label %mark, label %line\n", word, word, ""))
+    try! out.append(ll_spell("mark:\n  %stop = sub $W -1, %pos\n  %m0 = getelementptr i8, ptr %buf, $W %stop\n", word, word, ""))
+    try! out.append(ll_spell("  store i8 -30, ptr %m0\n  %m1 = getelementptr i8, ptr %m0, $W 1\n  store i8 -128, ptr %m1\n", word, word, ""))
+    try! out.append(ll_spell("  %m2 = getelementptr i8, ptr %m0, $W 2\n  store i8 -90, ptr %m2\n  %marked = add $W %stop, 3\n", word, word, ""))
     try! out.append("  br label %line\n")
-    try! out.append("line:\n  %end = phi i64 [ %marked, %mark ], [ %pos, %entry ]\n")
-    try! out.append("  %nl = getelementptr i8, ptr %buf, i64 %end\n  store i8 10, ptr %nl\n")
-    try! out.append("  %total = add i64 %end, 1\n  ret i64 %total\n\}\n\n")
-    try! out.append("define internal i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v)")
-    try! out.append(attributes)
-    try! out.append(" \{\n")
-    try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_int(ptr %tmp, i64 %v)\n")
-    try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}\n\n")
-    try! out.append("define internal i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v)")
-    try! out.append(attributes)
-    try! out.append(" \{\n")
-    try! out.append("entry:\n  %tmp = alloca [24 x i8], align 1\n  %n = call i64 @__saw_render_uint(ptr %tmp, i64 %v)\n")
+    try! out.append(ll_spell("line:\n  %end = phi $W [ %marked, %mark ], [ %pos, %entry ]\n", word, word, ""))
+    try! out.append(ll_spell("  %nl = getelementptr i8, ptr %buf, $W %end\n  store i8 10, ptr %nl\n", word, word, ""))
+    try! out.append(ll_spell("  %total = add $W %end, 1\n  ret $W %total\n\}\n\n", word, word, ""))
     // The last line has no line break of its own: print supplies it.
-    try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr %tmp, i64 %n)\n  ret i64 %end\n\}")
+    try! out.append(ll_append_helpers(word, word, ""))
+    if wide {
+        try! out.append("\n\n")
+        try! out.append(ll_render_helpers(word, "i64", "64"))
+        try! out.append(ll_append_helpers(word, "i64", "64"))
+    }
     out.build()
 }
 
@@ -647,9 +709,9 @@ func ll_helpers() -> String {
 // names, writes the cause from the write's status into this frame's scratch,
 // and `__saw_fail` panics with it at the site, cut and marked as every
 // message is.
-func ll_print_failure_helper(renderer: String, word: String, bits: Int) -> String {
+func ll_print_failure_helper(renderer: String, word: String) -> String {
     var out = StringBuilder()
-    try! out.append("\n\ndefine internal void @__saw_fail_print(ptr %file, i64 %file_len, i64 %line, ")
+    try! out.append(ll_spell("\n\ndefine internal void @__saw_fail_print(ptr %file, $W %file_len, $W %line, ", word, word, ""))
     try! out.append(word)
     try! out.append(" %status)")
     try! out.append(ll_function_attributes("noinline noreturn"))
@@ -666,16 +728,7 @@ func ll_print_failure_helper(renderer: String, word: String, bits: Int) -> Strin
     try! out.append(" ")
     try! out.append(LL_MESSAGE_LIMIT + 4)
     try! out.append(")\n")
-    var wide = "%n"
-    if bits != 64 {
-        try! out.append("  %n.wide = zext ")
-        try! out.append(word)
-        try! out.append(" %n to i64\n")
-        wide = "%n.wide"
-    }
-    try! out.append("  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr %cause, i64 ")
-    try! out.append(wide)
-    try! out.append(")\n")
+    try! out.append(ll_spell("  call void @__saw_fail(ptr %file, $W %file_len, $W %line, ptr %cause, $W %n)\n", word, word, ""))
     try! out.append("  unreachable\n\}")
     out.build()
 }
@@ -688,8 +741,10 @@ func ll_print_failure_helper(renderer: String, word: String, bits: Int) -> Strin
 // failing block into a `.cold.N` function with unwind entries of its own,
 // which grows the object for no measured gain, as `!prof` weights on the check
 // branches do (SL-528). A line below zero is a site with no line,
-// rendered as its file alone.
-func ll_fail_helpers(sink: String) -> String {
+// rendered as its file alone. Every position, length and line is a `word`,
+// the sink's `length: Int` among them; with `wide`, the helpers rendering an
+// integer wider than the word follow.
+func ll_fail_helpers(sink: String, word: String, wide: Bool) -> String {
     let outlined = ll_function_attributes("noinline noreturn")
     var opening = StringBuilder()
     try! opening.append(")")
@@ -717,27 +772,27 @@ func ll_fail_helpers(sink: String) -> String {
         try! out.append("\"\n")
         kind = kind + 1
     }
-    try! out.append("\ndefine internal i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)")
+    try! out.append(ll_spell("\ndefine internal $W @__saw_fail_head(ptr %buf, ptr %file, $W %file_len, $W %line)", word, word, ""))
     try! out.append(ll_function_attributes(""))
     try! out.append(" \{\n")
-    try! out.append("entry:\n  %at = call i64 @__saw_append(ptr %buf, i64 0, ptr @__saw_fail_at, i64 9)\n")
-    try! out.append("  %named = call i64 @__saw_append(ptr %buf, i64 %at, ptr %file, i64 %file_len)\n")
-    try! out.append("  %known = icmp sge i64 %line, 0\n  br i1 %known, label %number, label %tail\n")
-    try! out.append("number:\n  %colon = call i64 @__saw_append(ptr %buf, i64 %named, ptr @__saw_fail_colon, i64 1)\n")
-    try! out.append("  %lined = call i64 @__saw_append_uint(ptr %buf, i64 %colon, i64 %line)\n  br label %tail\n")
-    try! out.append("tail:\n  %pos = phi i64 [ %named, %entry ], [ %lined, %number ]\n")
-    try! out.append("  %end = call i64 @__saw_append(ptr %buf, i64 %pos, ptr @__saw_fail_colon, i64 2)\n")
-    try! out.append("  ret i64 %end\n\}\n\n")
-    let site = "(ptr %file, i64 %file_len, i64 %line, ptr %text, i64 %text_len"
-    let head = "  %head = call i64 @__saw_fail_head(ptr %buf, ptr %file, i64 %file_len, i64 %line)\n"
-    let text = "  %pos = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)\n"
+    try! out.append(ll_spell("entry:\n  %at = call $W @__saw_append(ptr %buf, $W 0, ptr @__saw_fail_at, $W 9)\n", word, word, ""))
+    try! out.append(ll_spell("  %named = call $W @__saw_append(ptr %buf, $W %at, ptr %file, $W %file_len)\n", word, word, ""))
+    try! out.append(ll_spell("  %known = icmp sge $W %line, 0\n  br i1 %known, label %number, label %tail\n", word, word, ""))
+    try! out.append(ll_spell("number:\n  %colon = call $W @__saw_append(ptr %buf, $W %named, ptr @__saw_fail_colon, $W 1)\n", word, word, ""))
+    try! out.append(ll_spell("  %lined = call $W @__saw_append_uint(ptr %buf, $W %colon, $W %line)\n  br label %tail\n", word, word, ""))
+    try! out.append(ll_spell("tail:\n  %pos = phi $W [ %named, %entry ], [ %lined, %number ]\n", word, word, ""))
+    try! out.append(ll_spell("  %end = call $W @__saw_append(ptr %buf, $W %pos, ptr @__saw_fail_colon, $W 2)\n", word, word, ""))
+    try! out.append(ll_spell("  ret $W %end\n\}\n\n", word, word, ""))
+    let site = ll_spell("(ptr %file, $W %file_len, $W %line, ptr %text, $W %text_len", word, word, "")
+    let head = ll_spell("  %head = call $W @__saw_fail_head(ptr %buf, ptr %file, $W %file_len, $W %line)\n", word, word, "")
+    let text = ll_spell("  %pos = call $W @__saw_append(ptr %buf, $W %head, ptr %text, $W %text_len)\n", word, word, "")
     var tail = StringBuilder()
-    try! tail.append(", i64 %done)\n  call void ")
+    try! tail.append(ll_spell(", $W %done)\n  call void ", word, word, ""))
     try! tail.append(sink)
-    try! tail.append("(ptr %buf, i64 %end)\n  unreachable\n\}\n\n")
+    try! tail.append(ll_spell("(ptr %buf, $W %end)\n  unreachable\n\}\n\n", word, word, ""))
     let sunk = tail.build()
     var whole = StringBuilder()
-    try! whole.append("  %end = call i64 @__saw_finish(ptr %buf")
+    try! whole.append(ll_spell("  %end = call $W @__saw_finish(ptr %buf", word, word, ""))
     try! whole.append(sunk)
     let finish = whole.build()
     try! out.append("define internal void @__saw_fail")
@@ -746,78 +801,81 @@ func ll_fail_helpers(sink: String) -> String {
     try! out.append(buffer)
     try! out.append(" x i8], align 1\n")
     try! out.append(head)
-    try! out.append("  %done = call i64 @__saw_append(ptr %buf, i64 %head, ptr %text, i64 %text_len)\n")
+    try! out.append(ll_spell("  %done = call $W @__saw_append(ptr %buf, $W %head, ptr %text, $W %text_len)\n", word, word, ""))
     try! out.append(finish)
-    try! out.append("define internal void @__saw_fail_signed")
-    try! out.append(site)
-    try! out.append(", i64 %v")
-    try! out.append(attributes)
-    try! out.append(buffer)
-    try! out.append(" x i8], align 1\n")
-    try! out.append(head)
-    try! out.append(text)
-    try! out.append("  %done = call i64 @__saw_append_int(ptr %buf, i64 %pos, i64 %v)\n")
-    try! out.append(finish)
-    try! out.append("define internal void @__saw_fail_unsigned")
-    try! out.append(site)
-    try! out.append(", i64 %v")
-    try! out.append(attributes)
-    try! out.append(buffer)
-    try! out.append(" x i8], align 1\n")
-    try! out.append(head)
-    try! out.append(text)
-    try! out.append("  %done = call i64 @__saw_append_uint(ptr %buf, i64 %pos, i64 %v)\n")
-    try! out.append(finish)
+    try! out.append(ll_fail_value_helpers(site, attributes, buffer, head, text, finish, word, word, ""))
     // A part is its kind, then a run's address and length, an integer, or a
-    // Bool's byte, `LL_FAIL_PART_SIZE` bytes in all.
+    // Bool's byte, `LL_FAIL_PART_SIZE` bytes in all: the kind and a length
+    // are words, and the value's slot holds an integer wider than the word.
     try! out.append("define internal void @__saw_fail_parts")
     try! out.append(site)
-    try! out.append(", ptr %parts, i64 %count")
+    try! out.append(ll_spell(", ptr %parts, $W %count", word, word, ""))
     try! out.append(attributes)
     try! out.append(buffer)
     try! out.append(" x i8], align 1\n")
     try! out.append(head)
     try! out.append(text)
     try! out.append("  br label %loop\n")
-    try! out.append("loop:\n  %i = phi i64 [ 0, %entry ], [ %i1, %next ]\n  %at = phi i64 [ %pos, %entry ], [ %after, %next ]\n")
-    try! out.append("  %more = icmp slt i64 %i, %count\n  br i1 %more, label %part, label %last\n")
-    try! out.append("part:\n  %offset = mul i64 %i, ")
+    try! out.append(ll_spell("loop:\n  %i = phi $W [ 0, %entry ], [ %i1, %next ]\n  %at = phi $W [ %pos, %entry ], [ %after, %next ]\n", word, word, ""))
+    try! out.append(ll_spell("  %more = icmp slt $W %i, %count\n  br i1 %more, label %part, label %last\n", word, word, ""))
+    try! out.append(ll_spell("part:\n  %offset = mul $W %i, ", word, word, ""))
     try! out.append(LL_FAIL_PART_SIZE)
-    try! out.append("\n  %p = getelementptr i8, ptr %parts, i64 %offset\n  %kind = load i64, ptr %p\n")
-    try! out.append("  %first = getelementptr i8, ptr %p, i64 8\n  %second = getelementptr i8, ptr %p, i64 16\n")
-    try! out.append("  switch i64 %kind, label %run [ i64 ")
+    try! out.append(ll_spell("\n  %p = getelementptr i8, ptr %parts, $W %offset\n  %kind = load $W, ptr %p\n", word, word, ""))
+    try! out.append(ll_spell("  %first = getelementptr i8, ptr %p, $W 8\n  %second = getelementptr i8, ptr %p, $W 16\n", word, word, ""))
+    try! out.append(ll_spell("  switch $W %kind, label %run [ $W ", word, word, ""))
     try! out.append(LL_PART_SIGNED)
-    try! out.append(", label %signed i64 ")
+    try! out.append(ll_spell(", label %signed $W ", word, word, ""))
     try! out.append(LL_PART_UNSIGNED)
-    try! out.append(", label %unsigned i64 ")
+    try! out.append(ll_spell(", label %unsigned $W ", word, word, ""))
     try! out.append(LL_PART_BOOL)
-    try! out.append(", label %bool ]\n")
-    try! out.append("run:\n  %src = load ptr, ptr %first\n  %len = load i64, ptr %second\n")
-    try! out.append("  %ran = call i64 @__saw_append(ptr %buf, i64 %at, ptr %src, i64 %len)\n  br label %next\n")
-    try! out.append("signed:\n  %sv = load i64, ptr %first\n")
-    try! out.append("  %sd = call i64 @__saw_append_int(ptr %buf, i64 %at, i64 %sv)\n  br label %next\n")
-    try! out.append("unsigned:\n  %uv = load i64, ptr %first\n")
-    try! out.append("  %ud = call i64 @__saw_append_uint(ptr %buf, i64 %at, i64 %uv)\n  br label %next\n")
+    if wide {
+        try! out.append(ll_spell(", label %bool $W ", word, word, ""))
+        try! out.append(LL_PART_SIGNED_WIDE)
+        try! out.append(ll_spell(", label %signed64 $W ", word, word, ""))
+        try! out.append(LL_PART_UNSIGNED_WIDE)
+        try! out.append(", label %unsigned64 ]\n")
+    } else {
+        try! out.append(", label %bool ]\n")
+    }
+    try! out.append(ll_spell("run:\n  %src = load ptr, ptr %first\n  %len = load $W, ptr %second\n", word, word, ""))
+    try! out.append(ll_spell("  %ran = call $W @__saw_append(ptr %buf, $W %at, ptr %src, $W %len)\n  br label %next\n", word, word, ""))
+    try! out.append(ll_spell("signed:\n  %sv = load $W, ptr %first\n", word, word, ""))
+    try! out.append(ll_spell("  %sd = call $W @__saw_append_int(ptr %buf, $W %at, $W %sv)\n  br label %next\n", word, word, ""))
+    try! out.append(ll_spell("unsigned:\n  %uv = load $W, ptr %first\n", word, word, ""))
+    try! out.append(ll_spell("  %ud = call $W @__saw_append_uint(ptr %buf, $W %at, $W %uv)\n  br label %next\n", word, word, ""))
+    if wide {
+        try! out.append(ll_spell("signed64:\n  %swv = load i64, ptr %first\n", word, word, ""))
+        try! out.append(ll_spell("  %swd = call $W @__saw_append_int64(ptr %buf, $W %at, i64 %swv)\n  br label %next\n", word, word, ""))
+        try! out.append(ll_spell("unsigned64:\n  %uwv = load i64, ptr %first\n", word, word, ""))
+        try! out.append(ll_spell("  %uwd = call $W @__saw_append_uint64(ptr %buf, $W %at, i64 %uwv)\n  br label %next\n", word, word, ""))
+    }
     try! out.append("bool:\n  %byte = load i8, ptr %first\n  %yes = icmp ne i8 %byte, 0\n")
     try! out.append("  %word = select i1 %yes, ptr @__saw_fail_true, ptr @__saw_fail_false\n")
-    try! out.append("  %size = select i1 %yes, i64 4, i64 5\n")
-    try! out.append("  %bd = call i64 @__saw_append(ptr %buf, i64 %at, ptr %word, i64 %size)\n  br label %next\n")
-    try! out.append("next:\n  %after = phi i64 [ %ran, %run ], [ %sd, %signed ], [ %ud, %unsigned ], [ %bd, %bool ]\n")
-    try! out.append("  %i1 = add i64 %i, 1\n  br label %loop\n")
-    try! out.append("last:\n  %done = phi i64 [ %at, %loop ]\n")
+    try! out.append(ll_spell("  %size = select i1 %yes, $W 4, $W 5\n", word, word, ""))
+    try! out.append(ll_spell("  %bd = call $W @__saw_append(ptr %buf, $W %at, ptr %word, $W %size)\n  br label %next\n", word, word, ""))
+    try! out.append(ll_spell("next:\n  %after = phi $W [ %ran, %run ], [ %sd, %signed ], [ %ud, %unsigned ], [ %bd, %bool ]", word, word, ""))
+    if wide {
+        try! out.append(", [ %swd, %signed64 ], [ %uwd, %unsigned64 ]")
+    }
+    try! out.append("\n")
+    try! out.append(ll_spell("  %i1 = add $W %i, 1\n  br label %loop\n", word, word, ""))
+    try! out.append(ll_spell("last:\n  %done = phi $W [ %at, %loop ]\n", word, word, ""))
     try! out.append(finish)
+    if wide {
+        try! out.append(ll_fail_value_helpers(site, attributes, buffer, head, text, finish, word, "i64", "64"))
+    }
     kind = 0
     while kind < LL_FAIL_KINDS {
         let symbol = ll_fail_symbol(kind)
         let reason = ll_fail_reason(kind)
         try! out.append("define internal void @")
         try! out.append(symbol)
-        try! out.append("(ptr %file, i64 %file_len, i64 %line)")
+        try! out.append(ll_spell("(ptr %file, $W %file_len, $W %line)", word, word, ""))
         try! out.append(outlined)
         try! out.append(" \{\nentry:\n")
-        try! out.append("  call void @__saw_fail(ptr %file, i64 %file_len, i64 %line, ptr @")
+        try! out.append(ll_spell("  call void @__saw_fail(ptr %file, $W %file_len, $W %line, ptr @", word, word, ""))
         try! out.append(symbol)
-        try! out.append(".reason, i64 ")
+        try! out.append(ll_spell(".reason, $W ", word, word, ""))
         try! out.append(reason.len())
         try! out.append(")\n  unreachable\n\}")
         kind = kind + 1
@@ -825,5 +883,34 @@ func ll_fail_helpers(sink: String) -> String {
             try! out.append("\n\n")
         }
     }
+    out.build()
+}
+
+// `__saw_fail_signed` and `__saw_fail_unsigned` with `suffix`, each panicking
+// with its text then an integer of type `value`, rendered by the append
+// helpers of the same suffix; the pieces are `ll_fail_helpers`'.
+func ll_fail_value_helpers(site: String, attributes: String, buffer: String, head: String, text: String,
+                           finish: String, word: String, value: String, suffix: String) -> String {
+    var out = StringBuilder()
+    try! out.append(ll_spell("define internal void @__saw_fail_signed$S", word, value, suffix))
+    try! out.append(site)
+    try! out.append(ll_spell(", $V %v", word, value, suffix))
+    try! out.append(attributes)
+    try! out.append(buffer)
+    try! out.append(" x i8], align 1\n")
+    try! out.append(head)
+    try! out.append(text)
+    try! out.append(ll_spell("  %done = call $W @__saw_append_int$S(ptr %buf, $W %pos, $V %v)\n", word, value, suffix))
+    try! out.append(finish)
+    try! out.append(ll_spell("define internal void @__saw_fail_unsigned$S", word, value, suffix))
+    try! out.append(site)
+    try! out.append(ll_spell(", $V %v", word, value, suffix))
+    try! out.append(attributes)
+    try! out.append(buffer)
+    try! out.append(" x i8], align 1\n")
+    try! out.append(head)
+    try! out.append(text)
+    try! out.append(ll_spell("  %done = call $W @__saw_append_uint$S(ptr %buf, $W %pos, $V %v)\n", word, value, suffix))
+    try! out.append(finish)
     out.build()
 }

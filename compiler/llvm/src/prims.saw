@@ -115,7 +115,9 @@ extension LlEmitter {
         try! line.append(name)
         try! line.append(" = getelementptr i8, ptr ")
         try! line.append(base)
-        try! line.append(", i64 ")
+        try! line.append(", ")
+        try! line.append(self.word)
+        try! line.append(" ")
         try! line.append(offset)
         self.put(line.build())
         name
@@ -164,17 +166,27 @@ extension LlEmitter {
         name
     }
 
+    // Declares `llvm.memcpy` at the word's length type, the one spelling every
+    // block copy names.
+    public func declare_memcpy(&var self) {
+        self.declare(ll_memcpy_name(self.word), ll_memcpy_declaration(self.word))
+    }
+
     public func memcpy(&var self, dest: String, src: String, size: Int) {
         if size == 0 {
             return
         }
-        self.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+        self.declare_memcpy()
         var line = StringBuilder()
-        try! line.append("call void @llvm.memcpy.p0.p0.i64(ptr ")
+        try! line.append("call void @llvm.memcpy.p0.p0.")
+        try! line.append(self.word)
+        try! line.append("(ptr ")
         try! line.append(dest)
         try! line.append(", ptr ")
         try! line.append(src)
-        try! line.append(", i64 ")
+        try! line.append(", ")
+        try! line.append(self.word)
+        try! line.append(" ")
         try! line.append(size)
         try! line.append(", i1 false)")
         self.put(line.build())
@@ -361,22 +373,30 @@ extension LlEmitter {
         self.fail_call(&var mono, node, call.build())
     }
 
-    // `reason`, then integer `value` (an i64) in decimal, signed or not.
+    // `reason`, then integer `value` in decimal, signed or not: a word, or
+    // with `wide` an i64 wider than the word.
     public func fail_value(&var self, mono: &var MonoProgram, node: Int, reason: String, value: String,
-                           signed: Bool) {
+                           signed: Bool, wide: Bool) {
         let site = self.fail_site(&mono, node)
         let bytes = self.text_bytes(reason)
         let text = self.fail_bytes(&bytes)
         var call = StringBuilder()
         if signed {
-            try! call.append("call void @__saw_fail_signed(")
+            try! call.append("call void @__saw_fail_signed")
         } else {
-            try! call.append("call void @__saw_fail_unsigned(")
+            try! call.append("call void @__saw_fail_unsigned")
         }
+        if wide {
+            self.wide_render = true
+            try! call.append("64")
+        }
+        try! call.append("(")
         try! call.append(site)
         try! call.append(", ")
         try! call.append(text)
-        try! call.append(", i64 ")
+        try! call.append(", ")
+        try! call.append(if wide { "i64" } else { self.word })
+        try! call.append(" ")
         try! call.append(value)
         try! call.append(")")
         self.fail_call(&var mono, node, call.build())
@@ -407,16 +427,20 @@ extension LlEmitter {
             let at = self.offset_addr(table, k * LL_FAIL_PART_SIZE)
             var tag = StringBuilder()
             try! tag.append(kind)
-            self.store("i64", tag.build(), at)
+            let word = self.word
+            self.store(word, tag.build(), at)
             let value_at = self.offset_addr(table, k * LL_FAIL_PART_SIZE + 8)
             if kind == LL_PART_RUN {
                 self.store("ptr", first, value_at)
                 let length_at = self.offset_addr(table, k * LL_FAIL_PART_SIZE + 16)
-                self.store("i64", second, length_at)
+                self.store(word, second, length_at)
             } else if kind == LL_PART_BOOL {
                 self.store("i8", first, value_at)
-            } else {
+            } else if ll_part_wide(kind) {
+                self.wide_render = true
                 self.store("i64", first, value_at)
+            } else {
+                self.store(word, first, value_at)
             }
             k = k + 1
         }
@@ -427,7 +451,9 @@ extension LlEmitter {
         try! call.append(text)
         try! call.append(", ptr ")
         try! call.append(table)
-        try! call.append(", i64 ")
+        try! call.append(", ")
+        try! call.append(self.word)
+        try! call.append(" ")
         try! call.append(count)
         try! call.append(")")
         call.build()
@@ -444,7 +470,7 @@ extension LlEmitter {
         self.put("unreachable")
     }
 
-    // The site's arguments, `ptr FILE, i64 LENGTH, i64 LINE`: the base name
+    // The site's arguments, `ptr FILE, WORD LENGTH, WORD LINE`: the base name
     // and line `site_text` spells as `FILE:LINE`, or its whole text and line
     // -1, which the helpers render without a line, for a node with no source
     // position.
@@ -486,18 +512,22 @@ extension LlEmitter {
         let spelled = self.fail_bytes(&file)
         var out = StringBuilder()
         try! out.append(spelled)
-        try! out.append(", i64 ")
+        try! out.append(", ")
+        try! out.append(self.word)
+        try! out.append(" ")
         try! out.append(line)
         out.build()
     }
 
-    // Constant `bytes` as a helper's `ptr ADDRESS, i64 LENGTH` arguments.
+    // Constant `bytes` as a helper's `ptr ADDRESS, WORD LENGTH` arguments.
     public func fail_bytes(&var self, bytes: &Vector<Int>) -> String {
         let g = self.pooled(&bytes, false, 0)
         var out = StringBuilder()
         try! out.append("ptr ")
         try! out.append(g)
-        try! out.append(", i64 ")
+        try! out.append(", ")
+        try! out.append(self.word)
+        try! out.append(" ")
         try! out.append(bytes.len())
         out.build()
     }
@@ -562,12 +592,38 @@ public func ll_fail_reason(kind: Int) -> String {
 }
 
 // What a message part is: a run of bytes (`first` its address, `second` its
-// length), an integer widened to i64 (`first`), signed or not, or a Bool's
-// byte (`first`). `__saw_fail_parts` reads the same codes.
+// length, a word), an integer widened to the word (`first`), signed or not,
+// an integer wider than the word widened to i64 (`first`), signed or not, or
+// a Bool's byte (`first`). `__saw_fail_parts` reads the same codes.
 public static LL_PART_RUN: Int = 0
 public static LL_PART_SIGNED: Int = 1
 public static LL_PART_UNSIGNED: Int = 2
 public static LL_PART_BOOL: Int = 3
+public static LL_PART_SIGNED_WIDE: Int = 4
+public static LL_PART_UNSIGNED_WIDE: Int = 5
+
+// `llvm.memcpy` at length type `word`, and its declaration.
+public func ll_memcpy_name(word: String) -> String {
+    var out = StringBuilder()
+    try! out.append("llvm.memcpy.p0.p0.")
+    try! out.append(word)
+    out.build()
+}
+
+public func ll_memcpy_declaration(word: String) -> String {
+    var out = StringBuilder()
+    try! out.append("declare void @llvm.memcpy.p0.p0.")
+    try! out.append(word)
+    try! out.append("(ptr, ptr, ")
+    try! out.append(word)
+    try! out.append(", i1)")
+    out.build()
+}
+
+// Whether part kind `kind` is an integer wider than the word.
+public func ll_part_wide(kind: Int) -> Bool {
+    kind == LL_PART_SIGNED_WIDE || kind == LL_PART_UNSIGNED_WIDE
+}
 
 // A message's parts, in order.
 public struct LlParts {

@@ -1,0 +1,35 @@
+// A riscv32 wide probe (compiler/tests/run/riscv32_ir.py): `Int64` and
+// `UInt64` arithmetic, a struct holding every integer width, a match on a
+// `UInt64`-backed enum, and both 64-bit types rendered by `print`, `panic`
+// and interpolation, which the spec lowers to the 64-bit division libcalls on
+// a 32-bit target (spec, "An integer argument renders at its own width").
+
+struct AllWidths {
+    a: Int8,
+    b: UInt16,
+    c: Int32,
+    d: Int,
+    e: Int64,
+    f: UInt64
+}
+
+enum Big: UInt64 {
+    case Low = 1,
+    case High = 18000000000000000000
+}
+
+@export("probe_wide")
+func probe_wide(lo: Int64, hi: UInt64, n: Int) -> Int64 {
+    let all = AllWidths(a: 1, b: 2, c: 3, d: n, e: lo, f: hi)
+    let product = all.e &* 3 &+ (all.d as Int64)
+    let big = if hi > 5 { Big.High } else { Big.Low }
+    match big {
+        case Low -> print("low {}", product),
+        case High -> print("high {} {}", hi, lo)
+    }
+    let text = "{lo} and {hi}"
+    if lo < 0 {
+        panic("negative: {} {}", lo, text)
+    }
+    product / 7
+}

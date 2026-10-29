@@ -200,7 +200,9 @@ extension LlEmitter {
             try! text.append(self.plain_symbol(&var mono, glue))
             try! text.append("(ptr %env)\n")
         }
-        try! text.append("  %block = getelementptr i8, ptr %env, i64 -")
+        try! text.append("  %block = getelementptr i8, ptr %env, ")
+        try! text.append(word)
+        try! text.append(" -")
         try! text.append(lead)
         try! text.append("\n  call void @__saw_rt_dealloc(ptr %block, ")
         try! text.append(word)
@@ -247,9 +249,11 @@ extension LlEmitter {
         try! text.append("(ptr %p1)")
         try! text.append(ll_function_attributes(""))
         try! text.append(" \{\nentry:\n")
-        ll_function_value_words(&var text, &target)
+        ll_function_value_words(&var text, &target, word)
         try! text.append("  %owns = icmp ne ptr %release, null\n  br i1 %owns, label %owned, label %done\n")
-        try! text.append("owned:\n  %count.at = getelementptr i8, ptr %env, i64 -")
+        try! text.append("owned:\n  %count.at = getelementptr i8, ptr %env, ")
+        try! text.append(word)
+        try! text.append(" -")
         try! text.append(target.word)
         try! text.append("\n  %old = atomicrmw sub ptr %count.at, ")
         try! text.append(word)
@@ -287,18 +291,24 @@ extension LlEmitter {
     //     emit_function_value_glue
     func function_value_copy(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
         let word = self.word_type(&var mono, &var target, -1)
-        self.declare("llvm.memcpy.p0.p0.i64", "declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+        self.declare_memcpy()
         var text = StringBuilder()
         try! text.append("define internal void ")
         try! text.append(ll_symbol(&mono, k))
         try! text.append("(ptr %p1, ptr %p2)")
         try! text.append(ll_function_attributes(""))
-        try! text.append(" \{\nentry:\n  call void @llvm.memcpy.p0.p0.i64(ptr %p1, ptr %p2, i64 ")
+        try! text.append(" \{\nentry:\n  call void @llvm.memcpy.p0.p0.")
+        try! text.append(word)
+        try! text.append("(ptr %p1, ptr %p2, ")
+        try! text.append(word)
+        try! text.append(" ")
         try! text.append(3 * target.word)
         try! text.append(", i1 false)\n")
-        ll_function_value_words(&var text, &target)
+        ll_function_value_words(&var text, &target, word)
         try! text.append("  %owns = icmp ne ptr %release, null\n  br i1 %owns, label %owned, label %done\n")
-        try! text.append("owned:\n  %count.at = getelementptr i8, ptr %env, i64 -")
+        try! text.append("owned:\n  %count.at = getelementptr i8, ptr %env, ")
+        try! text.append(word)
+        try! text.append(" -")
         try! text.append(target.word)
         try! text.append("\n  %old = atomicrmw add ptr %count.at, ")
         try! text.append(word)
@@ -320,11 +330,16 @@ public func ll_dealloc_declaration(word: String) -> String {
     out.build()
 }
 
-// `%env` and `%release`, read from the function value at `%p1`.
-func ll_function_value_words(text: &var StringBuilder, target: &Target) {
-    try! text.append("  %env.at = getelementptr i8, ptr %p1, i64 ")
+// `%env` and `%release`, read from the function value at `%p1`, each offset
+// a `word`.
+func ll_function_value_words(text: &var StringBuilder, target: &Target, word: String) {
+    try! text.append("  %env.at = getelementptr i8, ptr %p1, ")
+    try! text.append(word)
+    try! text.append(" ")
     try! text.append(target.closure_env_offset())
-    try! text.append("\n  %env = load ptr, ptr %env.at\n  %release.at = getelementptr i8, ptr %p1, i64 ")
+    try! text.append("\n  %env = load ptr, ptr %env.at\n  %release.at = getelementptr i8, ptr %p1, ")
+    try! text.append(word)
+    try! text.append(" ")
     try! text.append(target.closure_release_offset())
     try! text.append("\n  %release = load ptr, ptr %release.at\n")
 }

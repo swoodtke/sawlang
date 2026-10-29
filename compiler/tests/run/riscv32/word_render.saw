@@ -1,0 +1,31 @@
+// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): every integer
+// width up to the word rendered as a format argument, by `print`, `panic`
+// and `assert`, a checked cast and an index check that panic naming their
+// value, a Bool and a String part, and a user Printable rendered into fixed
+// scratch. None of it is wider than the word, so none of it divides 64 bits.
+
+struct Point {
+    x: Int,
+    y: Int
+}
+
+extension Point: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.x)
+        try! into.append(self.y)
+    }
+}
+
+@export("probe_render")
+func probe_render(n: Int, u: UInt, small: Int8, half: Int16, word: Int32, unsigned: UInt32, bit: Int) -> Int {
+    let table = [10, 20, 30, 40]
+    let flag = bit != 0
+    print("{} {} {} {} {} {} {} {}", n, u, small, half, word, unsigned, flag, "text")
+    print("{}", Point(x: n, y: n + 1))
+    assert(n != 7, "n was {}", n)
+    if n > 100 {
+        panic("too large: {} of {}", n, u)
+    }
+    let narrow = n as UInt8
+    table[n] + (narrow as Int)
+}

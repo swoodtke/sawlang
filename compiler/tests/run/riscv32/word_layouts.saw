@@ -1,0 +1,91 @@
+// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): a struct of every
+// integer width up to the word passed and returned through memory, a repeat
+// literal both zeroed and copied, raw-pointer arithmetic, enums with payloads
+// and a raw backing matched, an Optional, an erased error boxed and
+// propagated, and a function value copied and dropped.
+
+struct Widths {
+    a: Int8,
+    b: UInt8,
+    c: Int16,
+    d: UInt16,
+    e: Int32,
+    f: UInt32,
+    g: Int,
+    h: UInt
+}
+
+enum Shape {
+    case Circle(r: Int),
+    case Rect(w: Int, h: Int),
+    case Empty
+}
+
+enum Code: UInt16 {
+    case Short = 3,
+    case Long = 40000
+}
+
+struct Missing {
+    what: Int
+}
+
+extension Missing: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.what)
+    }
+}
+
+extension Missing: Error {}
+
+func area(s: Shape) -> Int {
+    match s {
+        case Circle(r) -> r * r * 3,
+        case Rect(w, h) -> w * h,
+        case Empty -> 0
+    }
+}
+
+func lookup(n: Int) -> Result<Int, Box<any Error>> {
+    if n < 0 {
+        return Missing(what: n)
+    }
+    return n
+}
+
+func step(p: UnsafePointer<Int>, n: Int) unsafe -> UnsafePointer<Int> {
+    p + n
+}
+
+func echo(w: Widths) -> Widths {
+    w
+}
+
+@export("probe_layouts")
+func probe_layouts(n: Int) -> Int {
+    let zeroed = [0; 8]
+    let filled = [n; 6]
+    let w = echo(Widths(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: n, h: 8))
+    let shapes = [Shape.Circle(r: n), Shape.Rect(w: n, h: 2), Shape.Empty]
+    var total = zeroed[1] + filled[2] + (w.g as Int)
+    var k = 0
+    while k < 3 {
+        total = total + area(shapes[k])
+        k = k + 1
+    }
+    let code = if n > 1 { Code.Long } else { Code.Short }
+    match code {
+        case Short -> total = total + 1,
+        case Long -> total = total + 2
+    }
+    let maybe: Int? = if n > 0 { n } else { None }
+    total = total + (maybe ?? 0)
+    match lookup(n) {
+        case Ok(v) -> total = total + v,
+        case Err(e) -> print("{}", e)
+    }
+    let base = n
+    let f: (Int) sync -> Int = { m: Int in m + base }
+    let g = f
+    total + g(1)
+}

@@ -57,6 +57,9 @@ public struct LlEmitter {
     // bits: set once per program (`llvm_emit_program`).
     word: String
     word_bits: Int
+    // Whether a message renders an integer wider than the word, which the
+    // 64-bit helpers then render (`ll_wide_helpers`); never on a 64-bit word.
+    wide_render: Bool
     // The line tables (debug.saw): whether the module carries them, and
     // whether its code is optimised; the metadata written so far and the next
     // node's number; by module its file's node, or -1; and the function being
@@ -152,7 +155,7 @@ extension LlEmitter {
                   try_errors: Vector<Int>(), current: -1,
                   body: StringBuilder(), allocas: StringBuilder(), temps: 0, labels: 0, sret: false, refused: false,
                   lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0,
-                  word: "", word_bits: 0, debug: false, dbg_optimized: false, dbg_meta: StringBuilder(),
+                  word: "", word_bits: 0, wide_render: false, debug: false, dbg_optimized: false, dbg_meta: StringBuilder(),
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>())
     }

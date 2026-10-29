@@ -1,0 +1,57 @@
+// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): a view's address
+// is the word, so its volatile and plain accesses, its field and index
+// projections and `ptr()`/`end()`/`len()` spell no i64; a raw-backed enum's
+// `from(raw:)` compares widened tags only; an integer's partial `from` and a
+// const parameter's value stay at their own widths.
+
+struct Regs {
+    data: UInt32
+    status: ReadOnly<UInt32>
+    pairs: [UInt16; 4]
+}
+
+enum Level: Int32 {
+    case Low = -5,
+    case High = 70000
+}
+
+enum Kind: UInt16 {
+    case Short = 3,
+    case Long = 40000
+}
+
+func scaled<const N: Int>(n: Int) -> Int {
+    n * N
+}
+
+func capped<const M: UInt>() -> UInt {
+    M
+}
+
+func touch(address: Int, i: Int) unsafe -> Int {
+    let device = UnsafeMemory<Regs, Device>(address)
+    let normal = UnsafeMemory<Regs, Normal>(address)
+    device.data.write(7)
+    normal.pairs[i].write(3)
+    let status = device.status.read()
+    let pair = normal.pairs[1].read()
+    let whole = normal.read()
+    let span = (normal.end() as Int) - (normal.ptr() as Int)
+    (status as Int) + (pair as Int) + (whole.data as Int) + span + normal.pairs.len()
+}
+
+static BACKING: [UInt32; 4]
+
+@export("probe_views")
+func probe_views(n: Int) unsafe -> Int {
+    let base = ((&BACKING) as UnsafePointer<UInt32>) as Int
+    var total = touch(base, n)
+    if let l = Level.from(raw: n as Int32) {
+        total = total + (l as Int32) as Int
+    }
+    if let k = Kind.from(raw: UInt16.from(truncating: n)) {
+        total = total + (k as UInt16) as Int
+    }
+    total = total + ((Int8.from(n) ?? 0) as Int)
+    total + scaled<3>(n) + (capped<40000>() as Int)
+}

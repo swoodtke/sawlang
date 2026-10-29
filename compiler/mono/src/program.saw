@@ -578,7 +578,7 @@ extension MonoProgram {
 
     // The node of the nearest program-written call on the chain of items
     // that reached the current one, or -1.
-    public func user_site(&self) -> Int {
+    func user_site(&self) -> Int {
         var k = self.current
         while k >= 0 {
             let it = self.items[k]

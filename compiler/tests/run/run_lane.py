@@ -56,6 +56,9 @@ run of it, built against its own std.
   host build, so a cross-built binary meets the host's expectations;
 - `sawc runtime` writes the same bytes into two directories, and refuses a
   copy of the runtime that leaves a seam undefined or defines one twice;
+- each `riscv32/` probe's `.ll` for riscv32 holds an `i64` only where the
+  value is 64 bits, and compiles to an object referencing the routines its
+  width and the `A` extension allow (`riscv32_ir.py`);
 - each `probes/NAME.saw` states in its leading comment lines how it is held
   (README.md, "Probes"): `// probe: stated` is built by sawc alone at its
   `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
@@ -113,6 +116,9 @@ sys.path.append(os.path.join(REPO, "tools"))
 import build  # noqa: E402
 import gate_jobs  # noqa: E402
 import oracle  # noqa: E402
+
+sys.path.insert(0, HERE)
+import riscv32_ir  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
 # Stage 0's recorded runs, one directory per host triple (README.md, "The
@@ -2162,6 +2168,7 @@ def run(names=None, write=False):
         check_symbolization(failures, counts)
         check_foreign_targets(failures, counts)
         check_clang_choice(failures, counts)
+        riscv32_ir.check(failures, counts)
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
         check_long_accessor(failures, counts)

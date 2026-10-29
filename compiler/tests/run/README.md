@@ -612,10 +612,35 @@ what Stage 0 is no oracle for.
   count a capped dataflow stops at (SL-610), and Stage 0 cannot parse a
   `borrow` block;
 - every program of `probes/` is held to what its header states (below);
+- every program of `riscv32/` holds the riscv32 word check (below);
 - no record under `stage0/` names a program that is gone.
 
 Stage 0 is the oracle: a difference is a sawc bug until shown otherwise
 (SL:architecture §5).
+
+### The riscv32 word check
+
+`riscv32_ir.py` holds the backend to riscv32's 32-bit word with no riscv32
+machine to run on. Each program of `riscv32/` is built `--emit-ll
+--freestanding --target riscv32-unknown-none-elf`, once with `+m,-a,+c` and
+once with `+m,+a,+c`:
+
+- a `word_*.saw` program uses no type wider than the word, so every `i64` in
+  its module must be an enum tag widened to the 64-bit tag carrier, or a
+  switch or compare of one; any other `i64` is a word the backend wrote at
+  64 bits;
+- a `wide_*.saw` program renders `Int64` and `UInt64`, through the 64-bit
+  renderers `__saw_render_int64` and `__saw_render_uint64`, which take an
+  `i64` and return the word;
+- each module compiles with the clang `build.py`'s `pick_clang` picks for
+  riscv32 (`SAWC_CLANG` overrides), and its object references no
+  `__atomic_*_8` and, for a word program, no 64-bit division routine. Without
+  `+a`, the atomics program references exactly `__atomic_load_4`,
+  `__atomic_store_4`, `__atomic_fetch_add_4`, `__atomic_fetch_sub_4` and
+  `__atomic_compare_exchange_4`; with `+a` it references none.
+
+When no clang compiles IR for riscv32, the object half is skipped, its reason
+in the lane's counts. The `i64` half always runs.
 
 ## Line tables
 

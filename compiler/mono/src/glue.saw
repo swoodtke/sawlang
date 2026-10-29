@@ -913,8 +913,8 @@ extension MonoProgram {
     // digits, a Float's shortest round-trip text, each appended through the
     // builder. An unsigned value of the word's width past `Int.max` is no
     // `Int`, so it is appended as its quotient by ten, when not zero, then
-    // its last digit; an integer wider than the word has no `Int` to go
-    // through at all, and is refused. A Float is the builder's
+    // its last digit; an integer wider than the word is appended in parts
+    // that each fit the word (`append_wider`). A Float is the builder's
     // `append(value: Float)`, the one formatter every position that shows a
     // Float reaches. An append fails only for a growable builder's refused
     // growth, which panics as `try!` does.
@@ -953,14 +953,7 @@ extension MonoProgram {
         if self.dp.bc.mir.tc.is_bool(t) {
             self.append_bool(t, text, builder)
         } else if width > word {
-            var msg = StringBuilder()
-            try! msg.append("`Printable.format` of `")
-            try! msg.append(self.dp.bc.mir.tc.type_text(t))
-            try! msg.append("`, wider than the target's ")
-            try! msg.append(word)
-            try! msg.append("-bit word, which the builder's `append(value: Int)` cannot hold")
-            let site = self.user_site()
-            self.refuse(site, "mono.not-yet", msg.build())
+            self.append_wider(t, digits, text, builder)
         } else if self.dp.bc.mir.tc.is_unsigned(t) && width == word {
             self.append_wide_unsigned(t, digits, builder)
         } else {
@@ -996,6 +989,155 @@ extension MonoProgram {
         let word = self.dp.bc.mir.op_const(MirConstKind.String, spelling, string_type)
         self.append_checked(text, builder, word)
         self.dp.bc.mir.goto(join)
+    }
+
+    // An integer `(*_1)` of type `t`, wider than the word, in decimal, where
+    // no `Int` holds it whole: a `-` for a negative one, then its magnitude
+    // as a `UInt64` split into three parts below 10^9, each of which fits a
+    // 32-bit word, the leading nonzero part appended bare and every later one
+    // as its nine digits. The split divides 64 bits, as the spec has a 64-bit
+    // value's rendering do on a 32-bit target.
+    func append_wider(&var self, t: Int, digits: Int, text: Int, builder: Int) {
+        let u64_decl = self.dp.bc.mir.tc.known.uint64
+        let u64 = self.dp.bc.mir.tc.prim(u64_decl)
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        let mag = self.dp.bc.mir.new_temp(u64)
+        if self.dp.bc.mir.tc.is_unsigned(t) {
+            let v = self.referent_copy(1, t)
+            let rv = self.dp.bc.mir.rv_one(MirRvalueKind.Conversion, u64, "from(truncating:)", v)
+            let p = self.dp.bc.mir.place_local(mag)
+            self.dp.bc.mir.assign(p, rv)
+        } else {
+            let minus = self.dp.bc.mir.new_block()
+            let plain = self.dp.bc.mir.new_block()
+            let join = self.dp.bc.mir.new_block()
+            var test = Vector<Int>()
+            try! test.push(self.referent_copy(1, t))
+            try! test.push(self.dp.bc.mir.op_const(MirConstKind.Int, "0", t))
+            let sign = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, "<", &test)
+            let negative = self.dp.bc.mir.temp_of(sign)
+            let negative_op = self.dp.bc.mir.move_local(negative)
+            self.dp.bc.mir.switch_bool(negative_op, minus, plain)
+            self.dp.bc.mir.enter(minus)
+            let string_type = self.dp.bc.mir.tc.string_type()
+            let dash = self.dp.bc.mir.op_const(MirConstKind.String, "\"-\"", string_type)
+            self.append_checked(text, builder, dash)
+            // Wrapping, so the least value negates to itself, whose bits read
+            // unsigned are its magnitude.
+            var ops = Vector<Int>()
+            try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, "0", t))
+            try! ops.push(self.referent_copy(1, t))
+            let flipped = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, t, "&-", &ops)
+            let negated = self.dp.bc.mir.temp_of(flipped)
+            let negated_op = self.dp.bc.mir.move_local(negated)
+            let from_negated = self.dp.bc.mir.rv_one(MirRvalueKind.Conversion, u64, "from(truncating:)", negated_op)
+            let at_minus = self.dp.bc.mir.place_local(mag)
+            self.dp.bc.mir.assign(at_minus, from_negated)
+            self.dp.bc.mir.goto(join)
+            self.dp.bc.mir.enter(plain)
+            let v = self.referent_copy(1, t)
+            let from_plain = self.dp.bc.mir.rv_one(MirRvalueKind.Conversion, u64, "from(truncating:)", v)
+            let at_plain = self.dp.bc.mir.place_local(mag)
+            self.dp.bc.mir.assign(at_plain, from_plain)
+            self.dp.bc.mir.goto(join)
+            self.dp.bc.mir.enter(join)
+        }
+        let low = self.wider_part(mag, u64, "%")
+        let upper = self.wider_split(mag, u64)
+        let middle = self.wider_part(upper, u64, "%")
+        let high = self.wider_part(upper, u64, "/")
+        let int_type = self.dp.bc.mir.tc.int_type()
+        let with_high = self.dp.bc.mir.new_block()
+        let without_high = self.dp.bc.mir.new_block()
+        let with_middle = self.dp.bc.mir.new_block()
+        let low_only = self.dp.bc.mir.new_block()
+        let done = self.dp.bc.mir.new_block()
+        let high_set = self.nonzero(high, int_type)
+        self.dp.bc.mir.switch_bool(high_set, with_high, without_high)
+        self.dp.bc.mir.enter(with_high)
+        self.append_local(digits, builder, high)
+        self.append_nine(digits, builder, middle)
+        self.append_nine(digits, builder, low)
+        self.dp.bc.mir.goto(done)
+        self.dp.bc.mir.enter(without_high)
+        let middle_set = self.nonzero(middle, int_type)
+        self.dp.bc.mir.switch_bool(middle_set, with_middle, low_only)
+        self.dp.bc.mir.enter(with_middle)
+        self.append_local(digits, builder, middle)
+        self.append_nine(digits, builder, low)
+        self.dp.bc.mir.goto(done)
+        self.dp.bc.mir.enter(low_only)
+        self.append_local(digits, builder, low)
+        self.dp.bc.mir.goto(done)
+        self.dp.bc.mir.enter(done)
+    }
+
+    // Local `l`, a `UInt64` (`u64`), divided by 10^9, as a new local.
+    func wider_split(&var self, l: Int, u64: Int) -> Int {
+        var ops = Vector<Int>()
+        let p = self.dp.bc.mir.place_local(l)
+        try! ops.push(self.dp.bc.mir.op_copy(p))
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, "1000000000", u64))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, u64, "/", &ops)
+        self.dp.bc.mir.temp_of(rv)
+    }
+
+    // Local `l`, a `UInt64` (`u64`), `op` 10^9 (`%` its part below 10^9, `/`
+    // the quotient, below 10^9 for a quotient already divided once), as a new
+    // `Int` local.
+    func wider_part(&var self, l: Int, u64: Int, op: String) -> Int {
+        var ops = Vector<Int>()
+        let p = self.dp.bc.mir.place_local(l)
+        try! ops.push(self.dp.bc.mir.op_copy(p))
+        try! ops.push(self.dp.bc.mir.op_const(MirConstKind.Int, "1000000000", u64))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, u64, op, &ops)
+        let part = self.dp.bc.mir.temp_of(rv)
+        let part_op = self.dp.bc.mir.move_local(part)
+        let as_int = self.to_int(part_op, "from(truncating:)")
+        let int_rv = self.dp.bc.mir.rv_use(as_int)
+        self.dp.bc.mir.temp_of(int_rv)
+    }
+
+    // Whether `Int` local `l` is not zero, as an operand.
+    func nonzero(&var self, l: Int, int_type: Int) -> Int {
+        let bool_type = self.dp.bc.mir.tc.bool_type()
+        var test = Vector<Int>()
+        let p = self.dp.bc.mir.place_local(l)
+        try! test.push(self.dp.bc.mir.op_copy(p))
+        try! test.push(self.dp.bc.mir.op_const(MirConstKind.Int, "0", int_type))
+        let rv = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, bool_type, "!=", &test)
+        let set = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.move_local(set)
+    }
+
+    // `Int` local `l` appended through `digits`.
+    func append_local(&var self, digits: Int, builder: Int, l: Int) {
+        let p = self.dp.bc.mir.place_local(l)
+        let value = self.dp.bc.mir.op_copy(p)
+        self.append_checked(digits, builder, value)
+    }
+
+    // `Int` local `l`, below 10^9, appended as nine digits, leading zeros
+    // included, each digit `(l / 10^k) % 10`.
+    func append_nine(&var self, digits: Int, builder: Int, l: Int) {
+        let int_type = self.dp.bc.mir.tc.int_type()
+        var power = 100000000
+        while power >= 1 {
+            var div = Vector<Int>()
+            let p = self.dp.bc.mir.place_local(l)
+            try! div.push(self.dp.bc.mir.op_copy(p))
+            try! div.push(self.dp.bc.mir.op_const(MirConstKind.Int, power.to_string(), int_type))
+            let quotient = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, int_type, "/", &div)
+            let q = self.dp.bc.mir.temp_of(quotient)
+            var rem = Vector<Int>()
+            try! rem.push(self.dp.bc.mir.move_local(q))
+            try! rem.push(self.dp.bc.mir.op_const(MirConstKind.Int, "10", int_type))
+            let digit = self.dp.bc.mir.rv_over(MirRvalueKind.Binary, int_type, "%", &rem)
+            let d = self.dp.bc.mir.temp_of(digit)
+            let d_op = self.dp.bc.mir.move_local(d)
+            self.append_checked(digits, builder, d_op)
+            power = power / 10
+        }
     }
 
     // An unsigned 64-bit `(*_1)` in decimal: its quotient by ten, when that

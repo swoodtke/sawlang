@@ -2991,9 +2991,10 @@ marker below. `panic` and `assert` assemble one message and are bounded as a
 whole (508 bytes of message); see [Panic](#panic-for-unrecoverable-errors).
 
 An integer argument renders at its own width, not the platform's. `Int64` and
-`UInt64` print all 64 bits on a 32-bit target, where the digit loop lowers to
-the 64-bit division libcalls; every narrower type extends to the platform word
-as before. `print(v)`, `print("{}", v)` and a panic message that names `v`
+`UInt64` print all 64 bits on a 32-bit target, where the digit loop may lower
+to the 64-bit division libcalls (`__udivdi3`, `__umoddi3`), which the
+environment then supplies; every narrower type extends to the platform word
+and renders there, with no 64-bit division at all. `print(v)`, `print("{}", v)` and a panic message that names `v`
 produce the same bytes at every width.
 
 #### `StringBuilder` fixed mode
@@ -14499,10 +14500,10 @@ the frame's deinit, and the deinit is a no-op afterwards.
 
 **Status: implemented.** `sawc build --freestanding` writes an ELF object for
 the host's ELF triple or for `aarch64-unknown-none-elf`, and `--runtime` builds
-a runtime provider. For `riscv32-unknown-none-elf`, `sawc` checks a program at
-the 32-bit word through every stage before the backend, and a build stops
-there: the backend does not emit for that triple yet (SL-865). Saw compiles
-under two profiles.
+a runtime provider. For `riscv32-unknown-none-elf`, `sawc build --emit-ll`
+writes the module at the 32-bit word, and an object build checks the program
+through every stage before the backend and stops there: `sawc` does not write
+a riscv32 object yet (SL-865). Saw compiles under two profiles.
 The default **hosted** profile links libc and provides everything above. The
 **freestanding** profile (`--freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an
@@ -14511,7 +14512,14 @@ symbols the environment must supply at link time — `__saw_rt_alloc(size, align
 `__saw_rt_dealloc(ptr, size, align)`, `__saw_rt_write_line(parts, count)` (the
 line `print` writes), the noreturn
 `__saw_rt_panic(msg, len)` and the rest of the frozen set — which the hosted
-profile satisfies by linking a runtime built from `runtime/`. Freestanding
+profile satisfies by linking a runtime built from `runtime/`. On a target
+whose word compare-and-swap is no instruction (riscv32 without `+a`), the
+environment also supplies the atomic routines `sawc`'s output can reference,
+exactly `__atomic_load_N`, `__atomic_store_N`, `__atomic_fetch_add_N`,
+`__atomic_fetch_sub_N` and `__atomic_compare_exchange_N` with `N` the word's
+bytes (4 on riscv32), each at the word, since every atomic `sawc` emits is
+on a word: `Atomic<Int>`, a `String`'s and an `Arc`'s refcount, and a closure
+environment's. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
 hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,

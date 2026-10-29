@@ -279,7 +279,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         return driver_refuse_mach_o(path, triple)
     }
     features = target_effective_features(triple, features, freestanding)
-    if not target_emits(triple) {
+    if not target_emits(triple) && not emit {
         return driver_check_only(path, std_root, target_front_end(triple, features), freestanding, provider,
                                  hidden, &names, &dirs)
     }
@@ -403,11 +403,11 @@ func driver_refuse_mach_o(path: String, triple: String) -> Int {
     1
 }
 
-// A build for a target sawc's backend does not emit for (`target_emits`):
-// the program is checked for `target` through every stage before the
-// backend, and the record is what refused it, or, once nothing has, the
-// refusal of the backend itself; either way nothing is written and the
-// status is 1.
+// An object or executable build for a target sawc writes no object for
+// (`target_emits`; `--emit-ll` still writes its module): the program is
+// checked for `target` through every stage before the backend, and the
+// record is what refused it, or, once nothing has, the refusal of the object
+// itself; either way nothing is written and the status is 1.
 func driver_check_only(path: String, std_root: String, target: TcTarget, freestanding: Bool, provider: Bool,
                        hidden: Bool, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var found = StringBuilder()
@@ -421,11 +421,11 @@ func driver_check_only(path: String, std_root: String, target: TcTarget, freesta
     }
     try! found.append("ERROR\tbackend.not-yet\t")
     try! found.append(path)
-    try! found.append(":1:1\tsawc's backend does not emit for `")
+    try! found.append(":1:1\tsawc does not write an object for `")
     try! found.append(target.triple)
-    try! found.append("` yet: its word is ")
+    try! found.append("` yet: `--emit-ll` writes its module at the ")
     try! found.append(target.word_bits)
-    try! found.append(" bits, and the widths the backend writes into the module are 64-bit words until they follow the target (SL-865); the program checks clean through every stage before it")
+    try! found.append("-bit word, and an object waits for the run harness that executes one (SL-865); the program checks clean through every stage before the backend")
     driver_print_refusal(path, &var found)
     1
 }

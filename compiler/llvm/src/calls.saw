@@ -7,8 +7,8 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_UNSIGNED, LlParts,
-                      ll_parts_push}
+import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_SIGNED_WIDE,
+                      LL_PART_UNSIGNED, LL_PART_UNSIGNED_WIDE, LlParts, ll_part_wide, ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.closures.{ll_dealloc_declaration}
 // For the extension writing `debug_artificial`.
@@ -701,22 +701,25 @@ extension LlEmitter {
             k = k + 1
             let v = self.operand_value(&var mono, &var target, o, node)
             let wide = self.offload_widen(v, &pl)
-            let at = self.offset_addr("%frame", point.slot + k * 8)
-            self.store("i64", wide, at)
+            let at = self.offset_addr("%frame", point.slot + k * target.word)
+            let slot_word = self.word
+            self.store(slot_word, wide, at)
         }
         var argp = "0"
         if sig.params.len() > 0 {
-            let first = self.offset_addr("%frame", point.slot + 8)
+            let first = self.offset_addr("%frame", point.slot + target.word)
             var cast = StringBuilder()
             try! cast.append("ptrtoint ptr ")
             try! cast.append(first)
-            try! cast.append(" to i64")
+            try! cast.append(" to ")
+            try! cast.append(self.word)
             argp = self.assign(cast.build())
         }
         var code = StringBuilder()
         try! code.append("ptrtoint ptr ")
         try! code.append(thunk)
-        try! code.append(" to i64")
+        try! code.append(" to ")
+        try! code.append(self.word)
         let fn = self.assign(code.build())
         // The seam stores the job straight into the storage's job word, and
         // reports a job it could not start (no memory, no pipe, no thread) as
@@ -776,10 +779,8 @@ extension LlEmitter {
         try! raw_call.append(word)
         try! raw_call.append(" @__saw_rt_last_raw_code()")
         let raw_word = self.assign(raw_call.build())
-        let bits = self.word_bits
-        let raw = self.int_convert(raw_word, bits, 64, true)
         var parts = LlParts()
-        ll_parts_push(&var parts, LL_PART_SIGNED, raw, "")
+        ll_parts_push(&var parts, LL_PART_SIGNED, raw_word, "")
         let close = self.text_bytes(")")
         let g = self.pooled(&close, false, 0)
         ll_parts_push(&var parts, LL_PART_RUN, g, "1")
@@ -851,7 +852,7 @@ extension LlEmitter {
     }
 
     // THE OFFLOAD THUNK FUNNEL: the thunk of offloaded extern item `ext`,
-    // `i64 (i64 %slots)`, defined once per extern: it reads each argument
+    // `WORD (WORD %slots)`, defined once per extern: it reads each argument
     // word from the slot array `%slots` points at, narrows it to its declared
     // type, calls the extern, and returns its result widened into a word, or
     // 0 for an extern that returns nothing. Returns the thunk's symbol.
@@ -875,23 +876,36 @@ extension LlEmitter {
         // Stage 0 workaround (SL:hazards S4): canonical: self.declare_extern(&sig, sig.declared)
         let declared = sig.declared
         self.declare_extern(&sig, declared)
+        let w = self.word
         var text = StringBuilder()
-        try! text.append("define internal i64 ")
+        try! text.append("define internal ")
+        try! text.append(w)
+        try! text.append(" ")
         try! text.append(name)
-        try! text.append("(i64 %slots)")
+        try! text.append("(")
+        try! text.append(w)
+        try! text.append(" %slots)")
         try! text.append(ll_function_attributes(""))
-        try! text.append(" \{\nentry:\n  %base = inttoptr i64 %slots to ptr\n")
+        try! text.append(" \{\nentry:\n  %base = inttoptr ")
+        try! text.append(w)
+        try! text.append(" %slots to ptr\n")
         var args = StringBuilder()
         k = 0
         while k < sig.params.len() {
             let pl = sig.params[k]
             try! text.append("  %at.")
             try! text.append(k)
-            try! text.append(" = getelementptr i64, ptr %base, i64 ")
+            try! text.append(" = getelementptr ")
+            try! text.append(w)
+            try! text.append(", ptr %base, ")
+            try! text.append(w)
+            try! text.append(" ")
             try! text.append(k)
             try! text.append("\n  %word.")
             try! text.append(k)
-            try! text.append(" = load i64, ptr %at.")
+            try! text.append(" = load ")
+            try! text.append(w)
+            try! text.append(", ptr %at.")
             try! text.append(k)
             try! text.append("\n")
             var word = StringBuilder()
@@ -900,7 +914,7 @@ extension LlEmitter {
             var arg = StringBuilder()
             try! arg.append("%arg.")
             try! arg.append(k)
-            let narrowed = ll_offload_narrow_text(arg.build(), word.build(), &pl)
+            let narrowed = ll_offload_narrow_text(arg.build(), word.build(), &pl, w, self.word_bits)
             ll_thunk_line(&var text, narrowed.text)
             if k > 0 {
                 try! args.append(", ")
@@ -926,11 +940,15 @@ extension LlEmitter {
         try! text.append(args.build())
         try! text.append(")\n")
         if sig.ret_type.equals("void") {
-            try! text.append("  ret i64 0\n")
+            try! text.append("  ret ")
+            try! text.append(w)
+            try! text.append(" 0\n")
         } else {
-            let widened = ll_offload_widen_text("%result.word", "%result", &sig.ret)
+            let widened = ll_offload_widen_text("%result.word", "%result", &sig.ret, w, self.word_bits)
             ll_thunk_line(&var text, widened.text)
-            try! text.append("  ret i64 ")
+            try! text.append("  ret ")
+            try! text.append(w)
+            try! text.append(" ")
             try! text.append(widened.value)
             try! text.append("\n")
         }
@@ -940,10 +958,10 @@ extension LlEmitter {
         name
     }
 
-    // Value `v`, of layout `l`, widened into a 64-bit word.
+    // Value `v`, of layout `l`, widened into a word.
     func offload_widen(&var self, v: String, l: &TargetLayout) -> String {
         let name = self.fresh()
-        let made = ll_offload_widen_text(name, v, &l)
+        let made = ll_offload_widen_text(name, v, &l, self.word, self.word_bits)
         if made.text.len() > 0 {
             self.put(made.text)
         }
@@ -953,7 +971,7 @@ extension LlEmitter {
     // Word `word` narrowed back to a value of layout `l`.
     func offload_narrow(&var self, word: String, l: &TargetLayout) -> String {
         let name = self.fresh()
-        let made = ll_offload_narrow_text(name, word, &l)
+        let made = ll_offload_narrow_text(name, word, &l, self.word, self.word_bits)
         if made.text.len() > 0 {
             self.put(made.text)
         }
@@ -979,13 +997,14 @@ struct LlOffloadValue {
     value: String
 }
 
-// Value `v`, of layout `l`, widened into a 64-bit word named `name`: an
-// integer zero-extended, a pointer's address, a Float's bits.
-func ll_offload_widen_text(name: String, v: String, l: &TargetLayout) -> LlOffloadValue {
+// Value `v`, of layout `l`, widened into a word of type `word`, `bits`
+// wide, named `name`: an integer zero-extended, a pointer's address, a
+// Float's bits.
+func ll_offload_widen_text(name: String, v: String, l: &TargetLayout, word: String, bits: Int) -> LlOffloadValue {
     var op = ""
     var from = ll_value_type(&l)
     if l.kind == TargetKind.Int {
-        if l.bits == 64 {
+        if l.bits == bits {
             return LlOffloadValue(text: "", value: v)
         }
         op = "zext"
@@ -1002,17 +1021,18 @@ func ll_offload_widen_text(name: String, v: String, l: &TargetLayout) -> LlOfflo
     try! text.append(from)
     try! text.append(" ")
     try! text.append(v)
-    try! text.append(" to i64")
+    try! text.append(" to ")
+    try! text.append(word)
     LlOffloadValue(text: text.build(), value: name)
 }
 
-// Word `word` narrowed into a value of layout `l` named `name`: the inverse
-// of `ll_offload_widen_text`.
-func ll_offload_narrow_text(name: String, word: String, l: &TargetLayout) -> LlOffloadValue {
+// Word `slot`, of type `word`, `bits` wide, narrowed into a value of layout
+// `l` named `name`: the inverse of `ll_offload_widen_text`.
+func ll_offload_narrow_text(name: String, slot: String, l: &TargetLayout, word: String, bits: Int) -> LlOffloadValue {
     var op = ""
     if l.kind == TargetKind.Int {
-        if l.bits == 64 {
-            return LlOffloadValue(text: "", value: word)
+        if l.bits == bits {
+            return LlOffloadValue(text: "", value: slot)
         }
         op = "trunc"
     } else if l.kind == TargetKind.Pointer {
@@ -1024,8 +1044,10 @@ func ll_offload_narrow_text(name: String, word: String, l: &TargetLayout) -> LlO
     try! text.append(name)
     try! text.append(" = ")
     try! text.append(op)
-    try! text.append(" i64 ")
+    try! text.append(" ")
     try! text.append(word)
+    try! text.append(" ")
+    try! text.append(slot)
     try! text.append(" to ")
     try! text.append(ll_value_type(&l))
     LlOffloadValue(text: text.build(), value: name)
@@ -1251,7 +1273,8 @@ extension LlEmitter {
 
     // The atomic intrinsics, as LLVM atomics of the orderings their names
     // state: the String layer's refcount's four, and `Atomic<Int>`'s
-    // sequentially consistent four.
+    // sequentially consistent four. Each operates on the `Int` its pointer
+    // names, a word, aligned to the word, whatever its name says.
     func atomic(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, name: &String) {
         let node = info.node
         if name.equals("__saw_atomic_fence_acquire") {
@@ -1265,24 +1288,32 @@ extension LlEmitter {
             self.seq_cst_atomic(&var mono, &var target, &info, &name, at)
             return
         }
+        let word = self.word
         var text = StringBuilder()
         if name.equals("__saw_atomic_load_i64_relaxed") {
-            try! text.append("load atomic i64, ptr ")
+            try! text.append("load atomic ")
+            try! text.append(word)
+            try! text.append(", ptr ")
             try! text.append(at)
-            try! text.append(" monotonic, align 8")
+            try! text.append(" monotonic, align ")
+            try! text.append(target.word)
         } else {
             let o = mono.dp.bc.mir.lists[info.arg_first + 1]
             let v = self.operand_value(&var mono, &var target, o, node)
             if name.equals("__saw_atomic_add_i64") {
                 try! text.append("atomicrmw add ptr ")
                 try! text.append(at)
-                try! text.append(", i64 ")
+                try! text.append(", ")
+                try! text.append(word)
+                try! text.append(" ")
                 try! text.append(v)
                 try! text.append(" monotonic")
             } else {
                 try! text.append("atomicrmw sub ptr ")
                 try! text.append(at)
-                try! text.append(", i64 ")
+                try! text.append(", ")
+                try! text.append(word)
+                try! text.append(" ")
                 try! text.append(v)
                 try! text.append(" release")
             }
@@ -1290,57 +1321,72 @@ extension LlEmitter {
         let result = self.assign(text.build())
         if info.dest >= 0 {
             let dest = self.place_addr(&var mono, &var target, info.dest, node)
-            self.store("i64", result, dest)
+            self.store(word, result, dest)
         }
     }
 
     // A sequentially consistent load, store, add or compare-exchange of the
-    // word at `at`.
+    // word at `at`, aligned to the word.
     func seq_cst_atomic(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, name: &String,
                         at: String) {
         let node = info.node
+        let word = self.word
         var text = StringBuilder()
         if name.equals("__saw_atomic_load_i64_seq_cst") {
-            try! text.append("load atomic i64, ptr ")
+            try! text.append("load atomic ")
+            try! text.append(word)
+            try! text.append(", ptr ")
             try! text.append(at)
-            try! text.append(" seq_cst, align 8")
+            try! text.append(" seq_cst, align ")
+            try! text.append(target.word)
             let v = self.assign(text.build())
-            self.atomic_result("i64", v, &var mono, &var target, &info)
+            self.atomic_result(word, v, &var mono, &var target, &info)
             return
         }
         let o = mono.dp.bc.mir.lists[info.arg_first + 1]
         let first = self.operand_value(&var mono, &var target, o, node)
         if name.equals("__saw_atomic_store_i64_seq_cst") {
-            try! text.append("store atomic i64 ")
+            try! text.append("store atomic ")
+            try! text.append(word)
+            try! text.append(" ")
             try! text.append(first)
             try! text.append(", ptr ")
             try! text.append(at)
-            try! text.append(" seq_cst, align 8")
+            try! text.append(" seq_cst, align ")
+            try! text.append(target.word)
             self.put(text.build())
             return
         }
         if name.equals("__saw_atomic_add_i64_seq_cst") {
             try! text.append("atomicrmw add ptr ")
             try! text.append(at)
-            try! text.append(", i64 ")
+            try! text.append(", ")
+            try! text.append(word)
+            try! text.append(" ")
             try! text.append(first)
             try! text.append(" seq_cst")
             let v = self.assign(text.build())
-            self.atomic_result("i64", v, &var mono, &var target, &info)
+            self.atomic_result(word, v, &var mono, &var target, &info)
             return
         }
         let d = mono.dp.bc.mir.lists[info.arg_first + 2]
         let desired = self.operand_value(&var mono, &var target, d, node)
         try! text.append("cmpxchg ptr ")
         try! text.append(at)
-        try! text.append(", i64 ")
+        try! text.append(", ")
+        try! text.append(word)
+        try! text.append(" ")
         try! text.append(first)
-        try! text.append(", i64 ")
+        try! text.append(", ")
+        try! text.append(word)
+        try! text.append(" ")
         try! text.append(desired)
         try! text.append(" seq_cst seq_cst")
         let pair = self.assign(text.build())
         var swapped = StringBuilder()
-        try! swapped.append("extractvalue \{ i64, i1 \} ")
+        try! swapped.append("extractvalue \{ ")
+        try! swapped.append(word)
+        try! swapped.append(", i1 \} ")
         try! swapped.append(pair)
         try! swapped.append(", 1")
         let bit = self.assign(swapped.build())
@@ -1388,15 +1434,13 @@ extension LlEmitter {
                 length = self.part_run_length(kind, first, second)
             } else {
                 run = self.slot(24, 1)
-                length = self.render_integer(run, first, kind == LL_PART_SIGNED)
+                length = self.render_integer(run, first, kind)
             }
             let at = self.offset_addr(table, k * record)
             self.store("ptr", run, at)
             let length_at = self.offset_addr(table, k * record + target.word)
             let word = self.word
-            let bits = self.word_bits
-            let narrow = self.int_convert(length, 64, bits, false)
-            self.store(word, narrow, length_at)
+            self.store(word, length, length_at)
             k = k + 1
         }
         let status = self.write_line(table, count)
@@ -1502,7 +1546,8 @@ extension LlEmitter {
 
     // Operand `o` read as a message part: a String's bytes and length, read
     // through the String roles in place (a `&String` through its
-    // reference); an integer widened to i64; a Bool's byte.
+    // reference); an integer widened to the word, or one wider than the word
+    // widened to i64; a Bool's byte.
     func prepare(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int, parts: &var LlParts) {
         let op = mono.dp.bc.mir.operands[o]
         if op.kind == MirOperandKind.Const && op.const_kind == MirConstKind.String {
@@ -1523,9 +1568,7 @@ extension LlEmitter {
             let text = self.string_addr(&var mono, &var target, o, node)
             let bytes = self.string_bytes_of(&var mono, text, node)
             let len_word = self.string_length(&var mono, text, node)
-            let bits = self.word_bits
-            let len = self.int_convert(len_word, bits, 64, false)
-            ll_parts_push(&var parts, LL_PART_RUN, bytes, len)
+            ll_parts_push(&var parts, LL_PART_RUN, bytes, len_word)
             return
         }
         if not mono.dp.bc.mir.tc.is_integer(t) && not mono.dp.bc.mir.tc.is_bool(t) {
@@ -1548,11 +1591,17 @@ extension LlEmitter {
             return
         }
         let signed = not mono.dp.bc.mir.tc.is_unsigned(t)
-        let wide = self.int_convert(v, l.bits, 64, signed)
+        if l.bits > self.word_bits {
+            let wide = self.int_convert(v, l.bits, 64, signed)
+            self.wide_render = true
+            ll_parts_push(&var parts, if signed { LL_PART_SIGNED_WIDE } else { LL_PART_UNSIGNED_WIDE }, wide, "")
+            return
+        }
+        let widened = self.int_convert(v, l.bits, self.word_bits, signed)
         if signed {
-            ll_parts_push(&var parts, LL_PART_SIGNED, wide, "")
+            ll_parts_push(&var parts, LL_PART_SIGNED, widened, "")
         } else {
-            ll_parts_push(&var parts, LL_PART_UNSIGNED, wide, "")
+            ll_parts_push(&var parts, LL_PART_UNSIGNED, widened, "")
         }
     }
 
@@ -1581,25 +1630,42 @@ extension LlEmitter {
             return second
         }
         let bit = self.to_bit(first)
+        let word = self.word
         var size = StringBuilder()
         try! size.append("select i1 ")
         try! size.append(bit)
-        try! size.append(", i64 4, i64 5")
+        try! size.append(", ")
+        try! size.append(word)
+        try! size.append(" 4, ")
+        try! size.append(word)
+        try! size.append(" 5")
         self.assign(size.build())
     }
 
-    // Integer `wide` (an i64) rendered in decimal into `buf`; returns the
-    // length.
-    func render_integer(&var self, buf: String, wide: String, signed: Bool) -> String {
+    // Integer part `value`, of part kind `kind`, rendered in decimal into
+    // `buf` by the word's renderer or, for an integer wider than the word,
+    // the 64-bit one; returns the length, a word.
+    func render_integer(&var self, buf: String, value: String, kind: Int) -> String {
+        let wide = ll_part_wide(kind)
+        let signed = kind == LL_PART_SIGNED || kind == LL_PART_SIGNED_WIDE
         var call = StringBuilder()
+        try! call.append("call ")
+        try! call.append(self.word)
         if signed {
-            try! call.append("call i64 @__saw_render_int(ptr ")
+            try! call.append(" @__saw_render_int")
         } else {
-            try! call.append("call i64 @__saw_render_uint(ptr ")
+            try! call.append(" @__saw_render_uint")
         }
+        if wide {
+            self.wide_render = true
+            try! call.append("64")
+        }
+        try! call.append("(ptr ")
         try! call.append(buf)
-        try! call.append(", i64 ")
-        try! call.append(wide)
+        try! call.append(", ")
+        try! call.append(if wide { "i64" } else { self.word })
+        try! call.append(" ")
+        try! call.append(value)
         try! call.append(")")
         self.assign(call.build())
     }
@@ -1802,9 +1868,13 @@ extension LlEmitter {
         try! text.append(name)
         try! text.append("(ptr %block)")
         try! text.append(ll_function_attributes(""))
-        try! text.append(" \{\nentry:\n  %env.at = getelementptr i8, ptr %block, i64 ")
+        try! text.append(" \{\nentry:\n  %env.at = getelementptr i8, ptr %block, ")
+        try! text.append(word)
+        try! text.append(" ")
         try! text.append(env_offset)
-        try! text.append("\n  %env = load ptr, ptr %env.at\n  %result.at = getelementptr i8, ptr %block, i64 ")
+        try! text.append("\n  %env = load ptr, ptr %env.at\n  %result.at = getelementptr i8, ptr %block, ")
+        try! text.append(word)
+        try! text.append(" ")
         try! text.append(result_at)
         try! text.append("\n")
         var args = StringBuilder()

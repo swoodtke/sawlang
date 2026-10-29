@@ -796,17 +796,20 @@ extension LlEmitter {
         let base = self.operand_value(&var mono, &var target, a, node)
         let raw = self.operand_value(&var mono, &var target, b, node)
         let signed = self.signed_type(&mono, count_type)
-        let count = self.int_convert(raw, cl.bits, 64, signed)
+        let word = self.word
+        let count = self.int_convert(raw, cl.bits, self.word_bits, signed)
         var size = StringBuilder()
         try! size.append(el.size)
-        var bytes = self.simple("mul", "i64", count, size.build())
+        var bytes = self.simple("mul", word, count, size.build())
         if op.equals("-") {
-            bytes = self.simple("sub", "i64", "0", bytes)
+            bytes = self.simple("sub", word, "0", bytes)
         }
         var text = StringBuilder()
         try! text.append("getelementptr i8, ptr ")
         try! text.append(base)
-        try! text.append(", i64 ")
+        try! text.append(", ")
+        try! text.append(word)
+        try! text.append(" ")
         try! text.append(bytes)
         let v = self.assign(text.build())
         self.store("ptr", v, dest)
@@ -889,8 +892,9 @@ extension LlEmitter {
                 try! reason.append("cast to ")
                 try! reason.append(mono.dp.bc.mir.tc.type_text(to))
                 try! reason.append(" out of range: ")
-                let wide = self.int_convert(x, fl.bits, 64, fs)
-                self.fail_value(&var mono, node, reason.build(), wide, fs)
+                let wide = fl.bits > self.word_bits
+                let shown = self.int_convert(x, fl.bits, if wide { 64 } else { self.word_bits }, fs)
+                self.fail_value(&var mono, node, reason.build(), shown, fs, wide)
                 self.put_label(pass)
             }
             self.store(ty, v, dest)
