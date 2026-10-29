@@ -16,8 +16,8 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
 import sawtypecheck.types.{TC_HOLDS_ERROR, TcKind, TcType}
-import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TC_WALK_CELL, TC_WALK_DEPTH_REFUSED, TC_WALK_NO_MOVE,
-                           TC_WALK_TRIVIAL, TcMemo, tc_memo}
+import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TC_WALK_CELL, TC_WALK_DEPTH_REFUSED, TC_WALK_ENUM,
+                           TC_WALK_NO_MOVE, TC_WALK_TRIVIAL, TcMemo, tc_memo}
 
 // Every nominal type's Copy tier.
 public func tc_compute_tiers(p: &var TcProgram) {
@@ -520,9 +520,10 @@ extension TcProgram {
     }
 }
 
-// The inline walks: `is_no_move`, `is_cell_carrying` and `is_trivial`, one
-// memoized walk keyed by TypeId over what a value holds inline. A type's
-// summary is (holds, mask): for NoMove and the cell, whether it holds one and
+// The inline walks: `is_no_move`, `is_cell_carrying`, `is_trivial` and
+// `holds_enum`, one memoized walk keyed by TypeId over what a value holds
+// inline. A type's summary is (holds, mask): for NoMove, the cell and an enum,
+// whether it holds one and
 // which type parameters it holds inline, through which it might; for
 // triviality, whether it can be trivial and which parameters must be. A
 // generic declaration's rule is its members' summary over its own
@@ -594,6 +595,13 @@ extension TcProgram {
                 return tc_summary(true, 0)
             }
             if pointer || d == k.func_pointer {
+                return tc_summary(false, 0)
+            }
+        } else if q == TC_WALK_ENUM {
+            if self.res.decls[d].kind == ResDeclKind.Enum {
+                return tc_summary(true, 0)
+            }
+            if pointer || d == k.func_pointer || self.res.decls[d].kind == ResDeclKind.Primitive {
                 return tc_summary(false, 0)
             }
         } else {
@@ -1166,6 +1174,19 @@ extension TcProgram {
         }
         let s = self.inline_summary(t, TC_WALK_TRIVIAL)
         tc_summary_holds(s) && tc_summary_mask(s) == 0
+    }
+
+    // Whether a value of type `t` holds an enum in its own storage: `t`
+    // itself, or one in a field, an Optional (itself an enum), a tuple's or an
+    // array's element, a generic instance's members at its arguments
+    // included. A pointer, a reference and a function value hold what they
+    // reach behind an indirection, and a type parameter holds none until an
+    // instantiation makes it concrete.
+    public func holds_enum(&var self, t: Int) -> Bool {
+        if t < 0 {
+            return false
+        }
+        tc_summary_holds(self.inline_summary(t, TC_WALK_ENUM))
     }
 
     // Whether `t` is trivially copyable for some arguments of the type

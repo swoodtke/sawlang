@@ -4136,7 +4136,14 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   becomes a compile error instead of a silent corruption. Design the
   format alignment-friendly (each u32 4-aligned) so the overlay is exact;
   note LE assumptions in a comment. Share the struct module between
-  writer and reader when they are separate packages. `@export("sym")`/`@section(".s")` on
+  writer and reader when they are separate packages. The viewed type is
+  TRIVIALLY COPYABLE (no `String`/`Box`/`Arc`, no copy policy, no `deinit`)
+  and holds NO ENUM at any depth, an Optional included: both are compile
+  errors at the type (SL-914). `ReadOnly<T>`/`WriteOnly<T>` gate `read()`/
+  `write(v)` on `Normal` views too; a `Device` view reaches one integer,
+  `Float`, `Bool` or raw pointer per access; a constant address must be
+  aligned to `T`.
+  A body builds a view with `UnsafeMemory<T, Use>(address)` (`Int` or `UInt`). `@export("sym")`/`@section(".s")` on
 top-level func/static ONLY (`@synthesize` is the extension-only one — see
 traits; each is a clean error in the other's position)
 (C ABI, whitelist: fixed-width ints, Int/UInt,
@@ -4442,8 +4449,9 @@ construct in the owner and lend `&driver` down.
   `&self` goes through cell types.
 - **RAW-BACKED ENUMS are the wire idiom** (design 145 B2). A payload-free enum
   may declare an integer backing in the colon position; that PINS the width and
-  the tag values, so it may be a field of an `UnsafeMemory`-viewed wire struct
-  (`flags: SegFlags` instead of a bare `UInt8` and a comment):
+  the tag values. An `UnsafeMemory`-viewed struct holds NO enum, backed or not
+  (user ruling, Oct 29; SL-914): the view's field is the bare `UInt8`, and the
+  reader converts it with `from(raw:)`, which is `None` for an undeclared value:
   ```saw-fragment
   enum SysError: UInt8 { case Ok = 0, case BadHandle = 3, case NoMemory = 12 }
   let raw = err as UInt8                       // TOTAL — the enum IS its tag

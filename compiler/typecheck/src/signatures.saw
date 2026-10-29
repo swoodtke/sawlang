@@ -447,7 +447,8 @@ extension TcProgram {
 extension TcProgram {
     // THE NOMINAL-TYPE FUNNEL: every nominal type is formed here, written,
     // inferred or substituted, so an `Atomic<X>` at an `X` other than `Int`
-    // is noted here for the atomic role's refusal (SL:open-questions D38).
+    // is noted here for the atomic role's refusal (SL:open-questions D38),
+    // and every `UnsafeMemory<T, Use>` for the view rules.
     // ENTRY POINTS:
     //     void_type
     //     prim
@@ -461,6 +462,7 @@ extension TcProgram {
     //     finish_call
     //     atomic_intrinsic
     //     cell_construct
+    //     memory_access
     //     subst
     public func mk_nominal(&var self, d: Int, args: &Vector<Int>) -> Int {
         let none = Vector<Int>()
@@ -479,7 +481,23 @@ extension TcProgram {
                 try! self.narrow_reported.push(false)
             }
         }
+        if d >= 0 && d == self.known.unsafe_memory {
+            self.note_memory_view(t)
+        }
         t
+    }
+
+    // Notes view type `t` for the view rules, once.
+    func note_memory_view(&var self, t: Int) {
+        var k = 0
+        while k < self.memory_views.len() {
+            if self.memory_views[k] == t {
+                return
+            }
+            k = k + 1
+        }
+        try! self.memory_views.push(t)
+        try! self.memory_reported.push(false)
     }
 
     // Whether type `outer` holds type `t` anywhere inside it. A type's parts

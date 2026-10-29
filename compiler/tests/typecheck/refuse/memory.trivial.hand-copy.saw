@@ -1,0 +1,22 @@
+// refuses: memory.trivial at 16:15
+// an `UnsafeMemory` view of a type whose `Copy` runs a written `copy()`: a
+// view copies the bytes it reads and writes, so its `T` is trivially copyable
+
+struct Counted {
+    n: Int
+}
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        Counted(n: self.n)
+    }
+}
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Counted, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

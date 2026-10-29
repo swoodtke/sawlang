@@ -1,0 +1,12 @@
+// refuses: memory.trivial at 6:15
+// an `UnsafeMemory` view of a `Vector`, which owns its buffer: a view copies
+// the bytes it reads and writes, so its `T` is trivially copyable
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Vector<Int>, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

@@ -328,3 +328,34 @@ extension Atomic<T>: UnsafeSync {}
 
 // A copy would be a second counter, invisible to the first (design 202).
 extension Atomic<T>: NoCopy {}
+
+/// A typed view of memory at a fixed address: a register block, or a region
+/// the program does not own, such as a boot stack.
+///
+/// `T` is the viewed type. It must be trivially copyable and hold no enum,
+/// since every access copies its bytes. `Use` is `Device` or `Normal`, and is
+/// always written. The view is one word, the address, built positionally:
+/// `UnsafeMemory<T, Use>(address)`, or `UnsafeMemory(address)` where the type
+/// is expected, as in a static. A `Device` view's `read()` and `write(v)` are
+/// volatile and reach one scalar; a `Normal` view's are plain loads and
+/// stores, and it also offers `ptr()`, `len()` and `end()`.
+public unsafe struct UnsafeMemory<T, Use> {
+    private addr: Int
+}
+
+/// The intent of a memory-mapped register block: every access is volatile.
+public struct Device {}
+
+/// The intent of ordinary memory, such as a boot stack or an early heap:
+/// accesses are plain loads and stores.
+public struct Normal {}
+
+/// A field a view reads and never writes, laid out as its `T`.
+public struct ReadOnly<T> {
+    value: T
+}
+
+/// A field a view writes and never reads, laid out as its `T`.
+public struct WriteOnly<T> {
+    value: T
+}

@@ -1,0 +1,10 @@
+// refuses: memory.trivial at 5:11
+// a view of a `String`, written as a struct field's type
+
+struct Driver {
+    regs: UnsafeMemory<String, Normal>
+}
+
+func main() {
+    print(0)
+}

@@ -1,0 +1,118 @@
+// probe: stated
+// about: an `UnsafeMemory` view of each trivially copyable kind round-trips through its accessors; a read copies with no `move`, a write leaves its source usable (SL-914)
+// stage 0: v0.18.0 views owning and enum types, never gates a marker on `Normal`, and cannot build a view inside a generic body this way
+// speeds: -O0 -O2
+// Each view is built over a static backing store, so the accesses run on the
+// host: `Normal` views of a number, a `Bool`, a `Float`, a raw pointer, a
+// tuple, an array and a nested struct, `Device` views of a register word and
+// a `Float` register, the two field markers read and written as their own
+// direction allows, a static view over a constant address, the region
+// accessors, and a generic body instantiated at a trivial type.
+// prints: int 7 -3
+// prints: byte 200
+// prints: flag true
+// prints: float 2.5
+// prints: pointer 7
+// prints: tuple 9 4
+// prints: array 1 2 3 4
+// prints: nested 5 6 7 8
+// prints: source 5 6
+// prints: device 21 21
+// prints: device float -0.5
+// prints: marked 42
+// prints: whole 42 0
+// prints: region 64 64 8
+// prints: static 4096 16
+// prints: generic 7
+
+struct Inner {
+    a: UInt32
+    b: UInt32
+}
+
+struct Block {
+    head: UInt32
+    inner: Inner
+    tail: [UInt32; 2]
+}
+
+struct Status {
+    level: ReadOnly<UInt32>
+    spare: UInt32
+}
+
+static BACKING: [UInt64; 8]
+static FIXED: UnsafeMemory<[UInt8; 16], Normal> = UnsafeMemory(0x1000)
+
+func peek<T>(address: Int) unsafe -> T {
+    UnsafeMemory<T, Normal>(address).read()
+}
+
+func main() unsafe {
+    let base = ((&BACKING) as UnsafePointer<UInt64>) as Int
+
+    let int_view = UnsafeMemory<Int, Normal>(base)
+    int_view.write(7)
+    let first = int_view.read()
+    int_view.write(-3)
+    print("int {} {}", first, int_view.read())
+
+    let byte_view = UnsafeMemory<UInt8, Normal>(base)
+    byte_view.write(200)
+    print("byte {}", byte_view.read())
+
+    let flag_view = UnsafeMemory<Bool, Normal>(base)
+    flag_view.write(true)
+    print("flag {}", flag_view.read())
+
+    let float_view = UnsafeMemory<Float, Normal>(base)
+    float_view.write(2.5)
+    print("float {}", float_view.read())
+
+    var target: Int = 7
+    let pointer_view = UnsafeMemory<UnsafePointer<Int>, Normal>(base)
+    pointer_view.write((&var target) as UnsafePointer<Int>)
+    print("pointer {}", *pointer_view.read())
+
+    let tuple_view = UnsafeMemory<(Int, UInt8), Normal>(base)
+    tuple_view.write((9, 4))
+    let pair = tuple_view.read()
+    print("tuple {} {}", pair.0, pair.1)
+
+    let array_view = UnsafeMemory<[UInt32; 4], Normal>(base)
+    array_view.write([1, 2, 3, 4])
+    let words = array_view.read()
+    print("array {} {} {} {}", words[0], words[1], words[2], words[3])
+
+    let block_view = UnsafeMemory<Block, Normal>(base)
+    let block = Block(head: 5, inner: Inner(a: 6, b: 7), tail: [8, 9])
+    block_view.write(block)
+    let back = block_view.read()
+    print("nested {} {} {} {}", back.head, back.inner.a, back.inner.b, back.tail[0])
+    print("source {} {}", block.head, block.inner.a)
+
+    let device_view = UnsafeMemory<UInt32, Device>(base)
+    device_view.write(21)
+    let once = device_view.read()
+    print("device {} {}", once, device_view.read())
+
+    let float_register = UnsafeMemory<Float, Device>(base)
+    float_register.write(-0.5)
+    print("device float {}", float_register.read())
+
+    UnsafeMemory<WriteOnly<UInt32>, Device>(base).write(42)
+    print("marked {}", UnsafeMemory<ReadOnly<UInt32>, Normal>(base).read())
+
+    UnsafeMemory<UInt32, Normal>(base + 4).write(0)
+    let status = UnsafeMemory<Status, Normal>(base).read()
+    print("whole {} {}", status.level.value, status.spare)
+
+    let region = UnsafeMemory<[UInt64; 8], Normal>(base)
+    let span = (region.end() as Int) - (region.ptr() as Int)
+    print("region {} {} {}", region.len(), span, sizeof<UnsafeMemory<Block, Device>>())
+
+    print("static {} {}", FIXED.ptr() as Int, FIXED.len())
+
+    int_view.write(7)
+    print("generic {}", peek<Int>(base))
+}

@@ -1,0 +1,11 @@
+// refuses: memory.trivial at 9:23
+// a view of a `String`, written as a generic argument
+
+func count<T>(items: &Vector<T>) -> Int {
+    items.len()
+}
+
+func main() unsafe {
+    let none = Vector<UnsafeMemory<String, Normal>>()
+    print(count<UnsafeMemory<String, Normal>>(&none))
+}

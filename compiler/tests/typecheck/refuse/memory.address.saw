@@ -1,0 +1,10 @@
+// refuses: memory.address at 5:42
+// a view built over an address that is neither an `Int` nor a `UInt`
+
+func reach(address: UInt8) unsafe {
+    let _ = UnsafeMemory<UInt32, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

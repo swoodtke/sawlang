@@ -1,0 +1,14 @@
+// refuses: memory.trivial at 8:15
+// an `UnsafeMemory` view of an `Arc`, which is refcounted: a view copies the
+// bytes it reads and writes, so its `T` is trivially copyable
+
+import std.arc.{Arc}
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Arc<Int>, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

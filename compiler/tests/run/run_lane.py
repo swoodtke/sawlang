@@ -99,6 +99,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2026,6 +2027,47 @@ def check_attribute_groups(failures, counts):
         counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
 
 
+VOLATILE_PROBE = "memory_volatile_survives_optimization.saw"
+
+
+def check_volatile_accesses(failures, counts):
+    """`probes/memory_volatile_survives_optimization.saw`'s `.ll` for the
+    host, as sawc writes it and after the host clang's -O2: each holds exactly
+    the `Device` view's two volatile loads and two volatile stores, and the
+    `Normal` view's accesses none (SL-914). The count is over the module, so
+    whatever the optimizer inlines, a merged `Device` access or a volatile
+    `Normal` one moves it."""
+    probe = os.path.join(PROBES, VOLATILE_PROBE)
+    triple = TARGET or build.host_triple()
+    where = "run %s" % rel(probe)
+    r = subprocess.run([build.SAWC, "build", "-g0", "--emit-ll", "--std-root", "std", rel(probe)], cwd=REPO,
+                       capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("%s: sawc wrote no .ll: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+        return
+    clang = manifest_clang(triple)
+    if clang is None:
+        failures.append("%s: %s names no clang" % (where, build.runtime_manifest(triple)))
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        written = os.path.join(tmp, "probe.ll")
+        with open(written, "w") as fh:
+            fh.write(r.stdout)
+        o = subprocess.run([clang, "-target", build.clang_triple(triple), "-O2", "-S", "-emit-llvm", "-x", "ir",
+                            written, "-o", "-"], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if o.returncode != 0:
+        failures.append("%s: clang -O2 refused the .ll: %s" % (where, o.stderr.strip()[:300]))
+        return
+    for stage, text in (("as written", r.stdout), ("after -O2", o.stdout)):
+        loads = len(re.findall(r"= load volatile i32, ptr ", text))
+        stores = len(re.findall(r"\bstore volatile i32 ", text))
+        if (loads, stores) != (2, 2):
+            failures.append("%s: %s, the .ll holds %d volatile loads and %d volatile stores, not 2 and 2"
+                            % (where, stage, loads, stores))
+            return
+    counts["run volatile accesses pinned"] = counts.get("run volatile accesses pinned", 0) + 1
+
+
 # The custom probes, each checked by its own function. `executable_path.saw`
 # is run through a renamed link on `PATH` from another directory, and what it
 # must print is its binary's real path, which no header line can state. The
@@ -2033,10 +2075,12 @@ def check_attribute_groups(failures, counts):
 # three dump-churn probes' dumps catch whatever the scheduler has left live.
 # The leak probe's lost block is sized by the allocator. The two object probes
 # are read with `nm` and the ELF header, and the attribute probe's `.ll` is
-# written at several flag sets, none of which is a build and a run.
+# written at several flag sets, none of which is a build and a run. The
+# volatile probe's `.ll` is read before and after clang's optimizer.
 CUSTOM_PROBES = {
     OBJECT_PROBE: check_object_output,
     ATTRIBUTE_PROBE: check_attribute_groups,
+    VOLATILE_PROBE: check_volatile_accesses,
     BARE_METAL_PROBE: check_bare_metal_object,
     FREESTANDING_PROBE: check_freestanding_object,
     PROVIDER_PROBE: check_runtime_provider,

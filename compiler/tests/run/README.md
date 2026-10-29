@@ -773,7 +773,12 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are thirteen.
+says why the check cannot be header lines. There are fourteen.
+`memory_volatile_survives_optimization.saw` writes a `Device` view's register
+twice and reads it twice, and a `Normal` view's the same way: its `.ll`, as
+sawc writes it for the host and after the host clang's `-O2`, holds exactly two
+`load volatile` and two `store volatile` over the whole module, so a merged
+`Device` access or a volatile `Normal` one fails it (SL-914).
 `runtime_provider.saw` defines every seam a printing `main` reaches over
 libc: built with `--runtime` and with `--runtime-provider`, at -O0 and -O2,
 the binary defines those seams itself and prints its line; built

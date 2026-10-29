@@ -1,0 +1,11 @@
+// refuses: memory.trivial at 6:9
+// a view of `Vector<T>` in a generic body: not trivially copyable for any `T`,
+// so it is refused at the definition
+
+func reach<T>(address: Int) unsafe {
+    let _ = UnsafeMemory<Vector<T>, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

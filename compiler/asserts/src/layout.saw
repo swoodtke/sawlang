@@ -11,6 +11,7 @@ import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_atomic_widths}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
 
 // THE LAYOUT-ASSERT FUNNEL: the program typechecked, then every deferred
@@ -29,7 +30,38 @@ public func asserts_typecheck_program(path: String, std_root: String, names: &Ve
     var p = typecheck_program(path, std_root, &names, &dirs, runtime: runtime, freestanding: freestanding,
                               provider: provider, no_hidden_alloc: no_hidden_alloc)
     asserts_check_concrete(&var p)
+    asserts_check_view_addresses(&var p)
     move p
+}
+
+// Each view built over a constant address, `UnsafeMemory<T, Use>(<int>)`,
+// against `T`'s alignment, which every access through the view assumes
+// (SL-914). An address no constant gives is the author's to align, and a `T`
+// naming a type parameter is laid out by no target here.
+func asserts_check_view_addresses(p: &var TcProgram) {
+    var target = Target(triple: "arm64-apple-darwin")
+    var k = 0
+    while k < p.memory_constructions.len() {
+        let e = p.memory_constructions[k]
+        let at = p.memory_addresses[k]
+        k = k + 1
+        let t = p.expr_types[e]
+        if t < 0 || not p.is_memory_view(t) || p.mentions_param(t) {
+            continue
+        }
+        let v = p.fold_constant(at)
+        if not v.ok || v.ty < 0 || not p.is_integer(v.ty) {
+            continue
+        }
+        let viewed = p.types.arg(t, 0)
+        let l = target.layout(&var p, viewed)
+        if target.reason_of(&l).len() > 0 || l.align <= 1 {
+            continue
+        }
+        if ((v.bits % l.align) + l.align) % l.align != 0 {
+            p.refuse_misaligned_view(at, t, v.bits, l.align)
+        }
+    }
 }
 
 // Each deferred assertion that measures no type parameter, against the

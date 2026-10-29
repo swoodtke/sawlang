@@ -1,0 +1,18 @@
+// refuses: memory.enum at 15:17
+// a view of `T` that only an instantiation makes an enum
+
+enum Mode: UInt8 {
+    case Off = 0,
+    case On = 1
+}
+
+func peek<T>(address: Int) unsafe -> T {
+    UnsafeMemory<T, Normal>(address).read()
+}
+
+func main() unsafe {
+    if false {
+        let m = peek<Mode>(0x1000)
+        print(m as UInt8)
+    }
+}

@@ -1,0 +1,15 @@
+// refuses: memory.region-accessor at 10:5
+// `end()` of a `Device` view
+
+struct Regs {
+    data: UInt32
+    status: UInt32
+}
+
+func reach(address: Int) unsafe -> UnsafePointer<Int8> {
+    UnsafeMemory<Regs, Device>(address).end()
+}
+
+func main() {
+    print(0)
+}

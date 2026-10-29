@@ -1,0 +1,15 @@
+// refuses: memory.enum at 10:9
+// a view of an enum with no backing
+
+enum Phase {
+    case Idle,
+    case Busy
+}
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<Phase, Device>(address)
+}
+
+func main() {
+    print(0)
+}

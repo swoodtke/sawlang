@@ -1,0 +1,10 @@
+// refuses: memory.device-whole at 5:5
+// `write(v)` of a whole array on a `Device` view
+
+func reach(address: Int) unsafe {
+    UnsafeMemory<[UInt32; 2], Device>(address).write([0, 0])
+}
+
+func main() {
+    print(0)
+}

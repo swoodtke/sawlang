@@ -88,6 +88,13 @@ public struct TcKnown {
     // The marker that vouches for a type's all-zero value; -1 under Stage 0's
     // std, which has none.
     zero_init: Int
+    // The typed view of memory at a fixed address, its intents and its field
+    // markers; -1 under a std root that declares none.
+    unsafe_memory: Int
+    device: Int
+    normal: Int
+    read_only: Int
+    write_only: Int
 }
 
 // Who defines the `__saw_rt_*` seams a program calls.
@@ -481,6 +488,15 @@ public struct TcProgram {
     narrow_atomics: Vector<Int>
     // By entry of `narrow_atomics`: whether its refusal is reported.
     narrow_reported: Vector<Bool>
+    // Every `UnsafeMemory<T, Use>` type formed, written, inferred or
+    // substituted (`mk_nominal`), which the view rules judge once tiers exist
+    // (`memory_view_rule`), and by entry whether its refusal is reported.
+    memory_views: Vector<Int>
+    memory_reported: Vector<Bool>
+    // Each construction of a view, by node, and its address expression, which
+    // the layout-assert funnel folds and holds to the viewed type's alignment.
+    memory_constructions: Vector<Int>
+    memory_addresses: Vector<Int>
     // The `static_assert`s whose condition measures a layout or names a
     // const parameter, deferred from the fold (`defer_assert`), by condition
     // node: its message leaf or -1, the function whose body holds it or -1,
@@ -600,7 +616,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                         bool_type: -1, range: -1, range_inclusive: -1, iterator: -1, box: -1,
                         vector: -1, map: -1, set: -1, arc: -1, task_group: -1, task: -1,
                         thread: -1, system_error: -1, func_pointer: -1,
-                        ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1)
+                        ordering: -1, hasher: -1, panic_sink: -1, zero_init: -1, unsafe_memory: -1,
+                        device: -1, normal: -1, read_only: -1, write_only: -1)
     var p = TcProgram(res: move res, types: tc_types(), sigs: move sigs,
                       generics: Vector<TcGeneric>(), traits: Vector<Int>(),
                       params: Vector<TcParam>(), node_types: move node_types,
@@ -646,6 +663,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       closure_blocker: Vector<Int>(), closure_blocker_trait: Vector<Int>(),
                       thread_forms: Vector<Int>(), thread_braces: Vector<Int>(), closure_never: false,
                       implied_copies: Vector<Int>(), narrow_atomics: Vector<Int>(), narrow_reported: Vector<Bool>(),
+                      memory_views: Vector<Int>(), memory_reported: Vector<Bool>(),
+                      memory_constructions: Vector<Int>(), memory_addresses: Vector<Int>(),
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),

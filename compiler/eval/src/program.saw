@@ -11,8 +11,9 @@ import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
 
 // What an evaluated value is: an integer of type `ty`, a `Bool`, a
-// payload-free case `decl` of an enum, `()`, an `Atomic(<int>)` of type `ty`
-// whose word is `bits` (SL:open-questions D38), an aggregate, or no value.
+// payload-free case `decl` of an enum, `()`, an `Atomic(<int>)` or an
+// `UnsafeMemory(<int>)` of type `ty` whose word is `bits` (SL:open-questions
+// D38), an aggregate, or no value.
 // An aggregate's parts live in `EvalProgram.parts`: a struct's construction
 // (`decl` the struct) or a fixed array's literal (`decl` -1) is the run of
 // `count` parts from `bits`, in field or index order, and `[v; N]` is the one

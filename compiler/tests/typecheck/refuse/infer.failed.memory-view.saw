@@ -1,0 +1,11 @@
+// refuses: infer.failed at 5:16
+// a view built with no `T` and `Use` written or expected
+
+func reach(address: Int) unsafe {
+    let view = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

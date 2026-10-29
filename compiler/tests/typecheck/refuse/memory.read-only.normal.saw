@@ -1,0 +1,11 @@
+// refuses: memory.read-only at 6:5
+// `write(v)` of a `ReadOnly` field on a `Normal` view: a marker gates both
+// intents
+
+func reach(address: Int) unsafe {
+    UnsafeMemory<ReadOnly<UInt32>, Normal>(address).write(1)
+}
+
+func main() {
+    print(0)
+}

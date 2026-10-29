@@ -1,0 +1,16 @@
+// refuses: unsafe.undeclared at 9:10
+// reading a view field through `&self` in a method not declared `unsafe`
+
+struct Uart {
+    regs: UnsafeMemory<UInt32, Device>
+}
+
+extension Uart {
+    func poll(&self) -> UInt32 {
+        self.regs.read()
+    }
+}
+
+func main() {
+    print(0)
+}

@@ -1,0 +1,15 @@
+// refuses: memory.enum at 10:9
+// a view of a `ReadOnly` field marker over a raw-backed enum
+
+enum Mode: UInt8 {
+    case Off = 0,
+    case On = 1
+}
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<ReadOnly<Mode>, Device>(address)
+}
+
+func main() {
+    print(0)
+}

@@ -852,8 +852,10 @@ Saw is freestanding: the same language targets bare metal.
 - **Pluggable allocation**: the allocator is a default type parameter on the
   allocating containers (`Vector<T, A = GlobalAllocator>`). A custom zero-sized
   allocator produces a distinct type that routes through its own allocator.
-- **Memory-mapped I/O**: `UnsafeMemory<T>` is a typed view of memory at a fixed
-  address, with volatile `read()`/`write()` for device registers.
+- **Memory-mapped I/O**: `UnsafeMemory<T, Use>` is a typed view of memory at a
+  fixed address. A `Device` view's `read()`/`write(v)` are volatile; a
+  `Normal` view's are plain loads and stores. The viewed type is trivially
+  copyable and holds no enum, which the compiler checks at the type.
 - **No hidden allocations, enforced**: `--no-hidden-alloc` rejects the
   allocations the compiler would insert on its own authority, and names the
   spelling that does not allocate (not yet in `sawc`, SL-865).

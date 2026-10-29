@@ -1,0 +1,11 @@
+// refuses: memory.trivial at 5:15
+// a view of a `String`, nested as an Optional's payload in a local's type
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<String, Normal>? = None
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

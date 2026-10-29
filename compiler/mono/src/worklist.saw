@@ -44,6 +44,9 @@ import sawtypecheck.types.{TcKind}
 public func mono_rules() -> Vector<String> {
     var out = Vector<String>()
     try! out.push("atomic.width")
+    try! out.push("memory.enum")
+    try! out.push("memory.intent")
+    try! out.push("memory.trivial")
     try! out.push("mono.depth")
     try! out.push("mono.not-yet")
     try! out.push("static_assert.failed")
@@ -56,7 +59,13 @@ public func mono_rules() -> Vector<String> {
 // ENTRY POINTS:
 //     resolve_call
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name) || name.equals("Thread.spawn")
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name) || name.equals("Thread.spawn") || mono_memory_accessor(name)
+}
+
+// A view's accessors, which the backend lowers by the view's concrete type
+// (SL-914).
+func mono_memory_accessor(name: String) -> Bool {
+    name.equals("memory_read") || name.equals("memory_write") || name.equals("memory_ptr") || name.equals("memory_len") || name.equals("memory_end")
 }
 
 // Whether a construction of kind `agg` is a collection literal: a fixed
@@ -381,6 +390,7 @@ extension MonoProgram {
     public func concrete_type(&var self, k: Int, t: Int) -> Int {
         let out = self.substituted(k, t)
         self.refuse_narrow_atomics(k, out)
+        self.refuse_memory_views(k, out)
         out
     }
 
@@ -592,6 +602,26 @@ extension MonoProgram {
                 try! msg.append("` is not an atomic this compiler lowers: v1 atomics are `Atomic<Int>` only")
                 let site = self.items[k].origin_node
                 self.refuse(site, "atomic.width", msg.build())
+            }
+            j = j + 1
+        }
+    }
+
+    // The view rules at an instantiation: each `UnsafeMemory<T, Use>` that
+    // concrete type `t` holds and only substitution formed, judged by the
+    // view-type funnel and refused once, where item `k` was reached (SL-914).
+    func refuse_memory_views(&var self, k: Int, t: Int) {
+        var j = 0
+        while j < self.dp.bc.mir.tc.memory_views.len() {
+            let view = self.dp.bc.mir.tc.memory_views[j]
+            if not self.dp.bc.mir.tc.memory_reported[j] && self.dp.bc.mir.tc.type_holds(t, view) {
+                let rule = self.dp.bc.mir.tc.memory_view_rule(view)
+                if rule.len() > 0 {
+                    self.dp.bc.mir.tc.memory_reported[j] = true
+                    let msg = self.dp.bc.mir.tc.memory_view_message(view, rule)
+                    let site = self.items[k].origin_node
+                    self.refuse(site, rule, msg)
+                }
             }
             j = j + 1
         }

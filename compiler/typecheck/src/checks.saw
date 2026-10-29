@@ -1501,6 +1501,139 @@ extension TcProgram {
     }
 }
 
+// The view rules (SL-914): each `UnsafeMemory<T, Use>` the program forms
+// (`memory_views`) is judged once tiers exist and refused once, where a
+// position first carries exactly it, or else where one first carries a type
+// holding it. One formed only by monomorphization is mono's to refuse.
+public func tc_check_memory_views(p: &var TcProgram) {
+    var k = 0
+    while k < p.memory_views.len() {
+        let t = p.memory_views[k]
+        k = k + 1
+        if p.memory_reported[k - 1] {
+            continue
+        }
+        let rule = p.memory_view_rule(t)
+        if rule.len() == 0 {
+            continue
+        }
+        var at = tc_first_carrier(&var p, false, t, true)
+        if at < 0 {
+            at = tc_first_carrier(&var p, true, t, true)
+        }
+        if at < 0 {
+            at = tc_first_carrier(&var p, false, t, false)
+        }
+        if at < 0 {
+            at = tc_first_carrier(&var p, true, t, false)
+        }
+        if at >= 0 {
+            p.refuse_memory_view(at, t, rule)
+            p.memory_reported[k - 1] = true
+        }
+    }
+}
+
+extension TcProgram {
+    // THE VIEW-TYPE FUNNEL: the rule view type `t`, an `UnsafeMemory<T,
+    // Use>`, is refused by, or "" when it is sound (SL-914). `Use` is `Device`
+    // or `Normal`. `T` is trivially copyable, since every access copies its
+    // bytes with no retain and no deinit. `T` holds no enum at any depth,
+    // since a view reads bytes no case was built from. A part that names a
+    // type parameter is judged where an instantiation makes it concrete, by
+    // mono.
+    // ENTRY POINTS:
+    //     tc_check_memory_views
+    //     refuse_memory_views (mono)
+    public func memory_view_rule(&var self, t: Int) -> String {
+        if self.has_error(t) || self.nominal_args(t).len() != 2 {
+            return ""
+        }
+        let viewed = self.types.arg(t, 0)
+        let intent = self.types.arg(t, 1)
+        let ik = self.types.ty(intent).kind
+        let concrete_intent = ik != TcKind.Param && ik != TcKind.SelfType && ik != TcKind.Projection
+        if concrete_intent && not self.is_memory_intent(intent) {
+            return "memory.intent"
+        }
+        if self.mentions_param(viewed) {
+            if not self.may_be_trivial(viewed) {
+                return "memory.trivial"
+            }
+        } else if not self.is_trivial(viewed) {
+            return "memory.trivial"
+        }
+        if self.holds_enum(viewed) {
+            return "memory.enum"
+        }
+        ""
+    }
+
+    // Whether `t` is one of the two intents, `Device` or `Normal`.
+    public func is_memory_intent(&self, t: Int) -> Bool {
+        let info = self.types.ty(t)
+        info.kind == TcKind.Nominal && info.decl >= 0 && (info.decl == self.known.device || info.decl == self.known.normal)
+    }
+
+    // Refuses view type `t` at node `at` by `rule`, which `memory_view_rule`
+    // answered.
+    public func refuse_memory_view(&var self, at: Int, t: Int, rule: String) {
+        let m = self.node_module(at)
+        let msg = self.memory_view_message(t, rule)
+        self.refuse_in(m, at, rule, msg)
+    }
+
+    // Refuses the constant address `address` a view of type `t` is built
+    // over, at node `at`, which is not a multiple of the viewed type's
+    // alignment `align` that every access through the view assumes. The
+    // layout-assert funnel, which holds the target's layouts, decides.
+    public func refuse_misaligned_view(&var self, at: Int, t: Int, address: Int, align: Int) {
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` is built over the address ")
+        try! msg.append(address)
+        try! msg.append(", which is not a multiple of ")
+        try! msg.append(align)
+        try! msg.append(", the alignment of `")
+        try! msg.append(self.type_text(self.types.arg(t, 0)))
+        try! msg.append("` that every access through the view assumes")
+        let m = self.node_module(at)
+        self.refuse_in(m, at, "memory.misaligned", msg.build())
+    }
+
+    // Why view type `t` is refused by `rule`, in the spec's terms.
+    public func memory_view_message(&var self, t: Int, rule: String) -> String {
+        let viewed = self.types.arg(t, 0)
+        let intent = self.types.arg(t, 1)
+        var msg = StringBuilder()
+        if rule.equals("memory.intent") {
+            try! msg.append("`")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` names `")
+            try! msg.append(self.type_text(intent))
+            try! msg.append("` as its intent, which is `Device` (a register block, accessed volatile) or `Normal` (plain memory)")
+            return msg.build()
+        }
+        try! msg.append("`")
+        try! msg.append(self.type_text(t))
+        try! msg.append("` views `")
+        try! msg.append(self.type_text(viewed))
+        if rule.equals("memory.enum") {
+            try! msg.append("`, which holds an enum: a view reads bytes that no case was built from, so it views no enum, backed or not, at any depth; read the raw integer and convert it with `from(raw:)`, which answers `None` for a value no case declares")
+            return msg.build()
+        }
+        try! msg.append("`, which is not trivially copyable: every access copies the bytes it reads or writes, with no retain and no `deinit`, so a view holds no owning or refcounted value")
+        let d = self.nominal_decl(viewed)
+        if d >= 0 && self.declared_policy(d) >= 0 {
+            try! msg.append(", and `")
+            try! msg.append(self.type_text(viewed))
+            try! msg.append("` declares a copy policy (`Copy`, `ExplicitCopy` or `NoCopy`), which a trivially copyable type does not")
+        }
+        msg.build()
+    }
+}
+
 // The refusals of a test-only conformance to a trait a production type already
 // meets in production code, and of a test-only member meeting a requirement a
 // production conformance already meets.

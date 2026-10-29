@@ -1,0 +1,17 @@
+// refuses: memory.trivial at 11:15
+// an `UnsafeMemory` view of a struct holding a `String` field: a view copies
+// the bytes it reads and writes, so its `T` is trivially copyable
+
+struct Named {
+    id: Int
+    name: String
+}
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Named, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

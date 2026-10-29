@@ -1,0 +1,31 @@
+// probe: custom
+// about: a `Device` view's two reads and two writes of one register stay two volatile loads and two volatile stores through clang -O2, and a `Normal` view's stay plain (SL-914)
+// `run_lane.py`'s `check_volatile_accesses` writes this program's `.ll`,
+// optimizes it with the target's clang at -O2, and counts the accesses in
+// each function: an optimizer would merge the `Normal` pair and the `Device`
+// pair must survive whole.
+
+static BACKING: [UInt32; 2]
+
+func device_twice(address: Int) unsafe -> UInt32 {
+    let reg = UnsafeMemory<UInt32, Device>(address)
+    reg.write(1)
+    reg.write(2)
+    let first = reg.read()
+    let second = reg.read()
+    first + second
+}
+
+func normal_twice(address: Int) unsafe -> UInt32 {
+    let cell = UnsafeMemory<UInt32, Normal>(address)
+    cell.write(1)
+    cell.write(2)
+    let first = cell.read()
+    let second = cell.read()
+    first + second
+}
+
+func main() unsafe {
+    let base = ((&BACKING) as UnsafePointer<UInt32>) as Int
+    print("{} {}", device_twice(base), normal_twice(base))
+}

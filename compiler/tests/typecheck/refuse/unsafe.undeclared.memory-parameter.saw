@@ -1,0 +1,9 @@
+// refuses: unsafe.undeclared at 4:6
+// receiving a view in a function not declared `unsafe`
+
+func reach(view: UnsafeMemory<UInt32, Normal>) {
+}
+
+func main() {
+    print(0)
+}

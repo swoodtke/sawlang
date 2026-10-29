@@ -1,0 +1,10 @@
+// refuses: memory.trivial at 5:9
+// a view of a `String`, written in its construction's head
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<String, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

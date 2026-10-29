@@ -1,0 +1,17 @@
+// refuses: memory.enum at 12:9
+// a view of a raw-backed enum: a view views no enum, backed or not
+// message: views no enum, backed or not, at any depth
+// message: convert it with `from(raw:)`
+
+enum Mode: UInt8 {
+    case Off = 0,
+    case On = 1
+}
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<Mode, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

@@ -1,0 +1,10 @@
+// refuses: memory.region-accessor at 5:5
+// `len()` of a `Device` view
+
+func reach(address: Int) unsafe -> Int {
+    UnsafeMemory<[UInt32; 4], Device>(address).len()
+}
+
+func main() {
+    print(0)
+}

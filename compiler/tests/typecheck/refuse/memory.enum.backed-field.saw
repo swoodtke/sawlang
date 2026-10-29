@@ -1,0 +1,20 @@
+// refuses: memory.enum at 15:9
+// a view of a struct holding a raw-backed enum field
+
+enum Mode: UInt8 {
+    case Off = 0,
+    case On = 1
+}
+
+struct Header {
+    kind: UInt32
+    mode: Mode
+}
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<Header, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

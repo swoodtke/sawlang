@@ -1,0 +1,10 @@
+// refuses: memory.enum at 5:9
+// a view of an Optional, which is an enum
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<Int?, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

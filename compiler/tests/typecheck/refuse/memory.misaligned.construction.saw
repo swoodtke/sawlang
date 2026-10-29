@@ -1,0 +1,11 @@
+// refuses: memory.misaligned at 6:34
+// a view of a `UInt64` built in a body over a constant address that is not a
+// multiple of 8
+
+func reach() unsafe -> UInt64 {
+    UnsafeMemory<UInt64, Normal>(0x2004).read()
+}
+
+func main() {
+    print(0)
+}

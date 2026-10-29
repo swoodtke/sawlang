@@ -1,0 +1,10 @@
+// refuses: memory.write-only at 5:5
+// `read()` of a `WriteOnly` register on a `Device` view
+
+func reach(address: Int) unsafe -> UInt32 {
+    UnsafeMemory<WriteOnly<UInt32>, Device>(address).read()
+}
+
+func main() {
+    print(0)
+}

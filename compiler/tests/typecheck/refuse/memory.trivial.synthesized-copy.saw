@@ -1,0 +1,21 @@
+// refuses: memory.trivial at 15:15
+// an `UnsafeMemory` view of an all-`Int` struct that declares a copy policy,
+// counted as not trivially copyable: a view copies the bytes it reads and
+// writes, so its `T` is trivially copyable
+// message: declares a copy policy (`Copy`, `ExplicitCopy` or `NoCopy`), which a trivially copyable type does not
+
+struct Pod {
+    n: Int
+}
+
+@synthesize
+extension Pod: Copy {}
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Pod, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

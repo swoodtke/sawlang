@@ -1,0 +1,8 @@
+// refuses: memory.trivial at 4:14
+// a view of a `String`, written as a static's type over a constant address
+
+static TEXT: UnsafeMemory<String, Normal> = UnsafeMemory(0x1000)
+
+func main() {
+    print(0)
+}

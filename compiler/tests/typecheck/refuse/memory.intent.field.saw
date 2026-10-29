@@ -1,0 +1,10 @@
+// refuses: memory.intent at 5:11
+// an intent that is neither `Device` nor `Normal`, written as a field's type
+
+struct Driver {
+    regs: UnsafeMemory<UInt32, Int>
+}
+
+func main() {
+    print(0)
+}

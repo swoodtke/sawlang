@@ -1,0 +1,14 @@
+// refuses: memory.trivial at 11:17
+// a view of `T` that only an instantiation makes a `String`: refused where the
+// generic is instantiated, and never where it is not
+
+func peek<T>(address: Int) unsafe -> T {
+    UnsafeMemory<T, Normal>(address).read()
+}
+
+func main() unsafe {
+    if false {
+        let s = peek<String>(0x1000)
+        print(s)
+    }
+}

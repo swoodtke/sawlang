@@ -1,0 +1,23 @@
+// refuses: memory.enum at 18:9
+// a view of an array of structs nesting an enum with no backing
+
+enum Phase {
+    case Idle,
+    case Busy
+}
+
+struct Slot {
+    phase: Phase
+}
+
+struct Table {
+    slots: [Slot; 4]
+}
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<Table, Normal>(address)
+}
+
+func main() {
+    print(0)
+}

@@ -1,0 +1,10 @@
+// refuses: unsafe.undeclared at 4:6
+// returning a view from a function not declared `unsafe`
+
+func reach(address: Int) -> UnsafeMemory<UInt32, Device> {
+    UnsafeMemory(address)
+}
+
+func main() {
+    print(0)
+}

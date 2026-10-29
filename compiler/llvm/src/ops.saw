@@ -768,9 +768,10 @@ extension LlEmitter {
             self.operand_into(&var mono, &var target, a, dest, to, node)
             return
         }
-        if word.equals("interior") || word.equals("atomic") {
-            // A cell is layout-transparent: the value is stored where the
-            // wrapper begins, at its own type.
+        if word.equals("interior") || word.equals("atomic") || word.equals("memory") {
+            // A cell is layout-transparent, and a view is its one address
+            // word: the value is stored where the wrapper begins, at its own
+            // type.
             self.operand_into(&var mono, &var target, a, dest, from, node)
             return
         }
@@ -970,7 +971,7 @@ public func ll_lossless(fb: Int, fs: Bool, tb: Int, ts: Bool) -> Bool {
 
 // The instruction `word` (`inttoptr` or `ptrtoint`) converting `x` of type
 // `from` to type `to`.
-func ll_pointer_cast(word: String, from: String, x: String, to: String) -> String {
+public func ll_pointer_cast(word: String, from: String, x: String, to: String) -> String {
     var text = StringBuilder()
     try! text.append(word)
     try! text.append(" ")

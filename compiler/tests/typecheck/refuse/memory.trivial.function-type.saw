@@ -1,0 +1,9 @@
+// refuses: memory.trivial at 4:20
+// a view of a `String`, written inside a function type
+
+func reach(probe: (UnsafeMemory<String, Normal>) unsafe -> Int) unsafe {
+}
+
+func main() {
+    print(0)
+}

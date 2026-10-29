@@ -242,8 +242,6 @@ TEST_CASES = [
         # Struct layout asserted at RUN time through a typed view over bytes
         # written by hand, plus the aggregate-by-value ABI.
         "name": "struct_layout",
-        "due": "sawc's std has no `UnsafeMemory` (SL-914)",
-        "due_shows": "cannot find `UnsafeMemory` in scope",
         "expect_out": ["fs check descriptor_size=1",
                        "fs check descriptor_align=1",
                        "fs check field_magic=1",

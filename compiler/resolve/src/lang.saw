@@ -85,9 +85,17 @@ public enum ResLang {
     // that text has one source (SL-768). Stage 0's compiler writes its own.
     case PrintFailureFunction,
     // The park point a task's `Thread.join` cedes at, until the thread's
-    // exit publishes its handshake word. Last in the table, since a role's
-    // index is its position (SL-782).
-    case ParkThreadFunction
+    // exit publishes its handshake word (SL-782).
+    case ParkThreadFunction,
+    // The typed view of memory at a fixed address, its two intents and its
+    // two field markers. The compiler builds the view, checks its arguments
+    // and lowers its accessors (SL-914). A role's index is its position, so
+    // new roles go last.
+    case UnsafeMemoryStruct,
+    case DeviceStruct,
+    case NormalStruct,
+    case ReadOnlyStruct,
+    case WriteOnlyStruct
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -147,6 +155,11 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.ZeroInitTrait)
     try! out.push(ResLang.PrintFailureFunction)
     try! out.push(ResLang.ParkThreadFunction)
+    try! out.push(ResLang.UnsafeMemoryStruct)
+    try! out.push(ResLang.DeviceStruct)
+    try! out.push(ResLang.NormalStruct)
+    try! out.push(ResLang.ReadOnlyStruct)
+    try! out.push(ResLang.WriteOnlyStruct)
     move out
 }
 
@@ -249,7 +262,12 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
                                          builtin_home: "builtin", builtin_name: ""),
         case PrintFailureFunction -> ResLangRow(index: 40, name: "print_failure", home: "std.panic",
                                                 builtin_home: "builtin", builtin_name: ""),
-        case ParkThreadFunction -> ResLangRow.task_function(41, "__saw_park_thread")
+        case ParkThreadFunction -> ResLangRow.task_function(41, "__saw_park_thread"),
+        case UnsafeMemoryStruct -> ResLangRow.type(42, "UnsafeMemory"),
+        case DeviceStruct -> ResLangRow.type(43, "Device"),
+        case NormalStruct -> ResLangRow.type(44, "Normal"),
+        case ReadOnlyStruct -> ResLangRow.type(45, "ReadOnly"),
+        case WriteOnlyStruct -> ResLangRow.type(46, "WriteOnly")
     }
 }
 

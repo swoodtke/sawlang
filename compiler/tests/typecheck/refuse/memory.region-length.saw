@@ -1,0 +1,15 @@
+// refuses: memory.region-length at 10:5
+// `len()` of a `Normal` view of a struct: a region's length is a fixed array's
+
+struct Regs {
+    data: UInt32
+    status: UInt32
+}
+
+func reach(address: Int) unsafe -> Int {
+    UnsafeMemory<Regs, Normal>(address).len()
+}
+
+func main() {
+    print(0)
+}

@@ -241,7 +241,7 @@ extension EvalProgram {
                 if word.equals("alias") {
                     return self.converted(&mir, f, &rv, &locals)
                 }
-                if word.equals("atomic") {
+                if word.equals("atomic") || word.equals("memory") {
                     return self.atomic_word(&mir, f, &rv, &locals)
                 }
                 self.not_yet(&mir, f, "a conversion")
@@ -474,7 +474,9 @@ extension EvalProgram {
     }
 
     // `Atomic(<int>)`: the aggregate whose cell holds the integer, the one
-    // construction of a cell that is a constant (SL:open-questions D38).
+    // construction of a cell that is a constant (SL:open-questions D38). A
+    // view over a constant address, `UnsafeMemory(<int>)`, is one word too,
+    // the address.
     func atomic_word(&var self, mir: &MirProgram, f: Int, rv: &MirRvalue,
                      locals: &Vector<EvalValue>) -> EvalValue {
         let o = mir.lists[rv.first]

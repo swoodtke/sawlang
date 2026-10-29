@@ -1,0 +1,15 @@
+// refuses: memory.region-accessor at 10:5
+// `ptr()` of a `Device` view: the region accessors are `Normal`'s
+
+struct Regs {
+    data: UInt32
+    status: UInt32
+}
+
+func reach(address: Int) unsafe -> UnsafePointer<Int8> {
+    UnsafeMemory<Regs, Device>(address).ptr()
+}
+
+func main() {
+    print(0)
+}

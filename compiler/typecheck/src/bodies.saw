@@ -48,7 +48,7 @@ import sawtypecheck.strings.{TcStringPosition}
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
-import sawtypecheck.walks.{TcMemo, tc_memo}
+import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 
 // Checks every body of every module checked in full.
 public func tc_check_bodies(p: &var TcProgram) {
@@ -2279,7 +2279,9 @@ extension TcProgram {
         // `Atomic(<int>)` is a static's constant, the form the spec names
         // (SL:open-questions D38); no other construction of a cell is.
         let atomic = c.role == TcRole.Conversion && spelling.equals("atomic") && pos == TcConstPosition.Static
-        if not alias && not memberwise && not atomic {
+        // So is a view over a constant address, `UnsafeMemory(<int>)` (SL-914).
+        let view = c.role == TcRole.Conversion && spelling.equals("memory") && pos == TcConstPosition.Static
+        if not alias && not memberwise && not atomic && not view {
             return e
         }
         let callee = self.res.first_node_child(e)
@@ -3789,6 +3791,11 @@ extension TcProgram {
             return self.set_type(e, poisoned, place)
         }
         let d = self.nominal_decl(t)
+        if d >= 0 && d == self.known.unsafe_memory {
+            self.not_yet(e, "a field projection through an `UnsafeMemory` view (SL-914b)")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         let in_test = self.current_test
         let seen = self.members_in_phase(d, name, m, in_test)
         var found = Vector<Int>()
@@ -7303,6 +7310,9 @@ extension TcProgram {
         if (tk == TcKind.Array || tk == TcKind.Slice) && (text.equals("len") || text.equals("swap")) {
             return self.sequence_method(e, base, inner, t, &text, &args)
         }
+        if self.is_memory_view(t) && tc_memory_accessor(&text) {
+            return self.memory_access(e, base, inner, t, &text, &args)
+        }
         var cands = Vector<TcCand>()
         self.method_candidates(&var cands, t, name, false)
         let field = self.function_field(t, name)
@@ -8787,6 +8797,250 @@ extension TcProgram {
         self.set_type(e, t, false)
     }
 
+    // THE VIEW-ACCESS FUNNEL: every use of an `UnsafeMemory<T, Use>` value a
+    // body writes (SL-914). A construction, `UnsafeMemory<T, Use>(address)`,
+    // is a conversion of an `Int` or `UInt` address into the view written or
+    // expected. Each accessor is a builtin of the view type, its receiver
+    // read by value: `read()` and `write(v)`, which a `ReadOnly<T>` or
+    // `WriteOnly<T>` view gates whatever the intent and which reach a scalar
+    // alone on `Device`, and the `Normal` region accessors `ptr()`, `len()`
+    // and `end()`. A projection, which `member_place` and `subscript_expr`
+    // meet, is not built yet (SL-914b).
+    // ENTRY POINTS:
+    //     init_call
+    //     method_call
+    func memory_construct(&var self, e: Int, d: Int, owner: Int, want: Int, args: &TcArgs) -> Int {
+        if args.values.len() != 1 || args.labels[0] >= 0 {
+            self.refuse(e, "call.arity", "a view is built from one unlabeled address: `UnsafeMemory<T, Use>(address)`")
+            self.type_args_alone(&args)
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        let v = args.values[0]
+        let _ = self.expr(v, TC_WANT_NONE)
+        let address = self.read_value(v)
+        self.consume(v)
+        if owner < 0 {
+            // An expected type already refused explains this construction.
+            if want < 0 || not self.has_error(want) {
+                self.refuse(e, "infer.failed", "a view's `T` and `Use` are written or expected: write `UnsafeMemory<T, Use>(address)`")
+            }
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        if self.has_error(address) {
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        let ad = self.nominal_decl(address)
+        if ad < 0 || (ad != self.known.int && ad != self.known.uint) {
+            var msg = StringBuilder()
+            try! msg.append("a view's address is an `Int` or a `UInt`, and this is `")
+            try! msg.append(self.type_text(address))
+            try! msg.append("`")
+            self.refuse(v, "memory.address", msg.build())
+            let bad = self.error_type
+            return self.set_type(e, bad, false)
+        }
+        let none = Vector<Int>()
+        let _ = self.record_call(e, d, TcRole.Conversion, owner, &none)
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.spelling = self.res.intern("memory")
+        self.calls[at] = c
+        try! self.memory_constructions.push(e)
+        try! self.memory_addresses.push(v)
+        self.set_type(e, owner, false)
+    }
+
+    // Whether `t` is a view type, `UnsafeMemory<T, Use>`.
+    public func is_memory_view(&self, t: Int) -> Bool {
+        self.known.unsafe_memory >= 0 && self.is_nominal_of(t, self.known.unsafe_memory) && self.nominal_args(t).len() == 2
+    }
+
+    func memory_access(&var self, e: Int, base: Int, inner: Int, t: Int, text: &String, args: &TcArgs) -> Int {
+        if inner >= 0 {
+            self.add_adjust(base, TcAdjustKind.Deref, inner)
+        }
+        self.consume(base)
+        let viewed = self.arg_of(t, 0)
+        // A `Use` that is a type parameter may be `Device`, so it is held to
+        // the stricter rules.
+        let intent = self.arg_of(t, 1)
+        let normal = self.is_nominal_of(intent, self.known.normal)
+        var element = viewed
+        var marker = -1
+        let vd = self.nominal_decl(viewed)
+        if vd >= 0 && (vd == self.known.read_only || vd == self.known.write_only) && self.nominal_args(viewed).len() == 1 {
+            marker = vd
+            element = self.arg_of(viewed, 0)
+        }
+        let reads = text.equals("read")
+        let writes = text.equals("write")
+        let wanted = if writes { 1 } else { 0 }
+        if args.values.len() != wanted {
+            self.refuse(e, "call.arity", "`write(v)` takes one value, and `read()`, `ptr()`, `len()` and `end()` none")
+            self.type_args_alone(&args)
+        } else if writes {
+            if args.labels[0] >= 0 {
+                self.refuse(args.values[0], "call.label", "`write(v)` takes its value unlabeled")
+            }
+            self.check_argument(args.values[0], element)
+        }
+        var spelling = "memory_read"
+        var result = element
+        if reads || writes {
+            if writes {
+                spelling = "memory_write"
+                result = self.void_type()
+            }
+            self.check_memory_access(e, t, element, marker, reads, not normal)
+        } else {
+            if not normal {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(text)
+                try! msg.append("()` is a region accessor of a `Normal` view, and `")
+                try! msg.append(self.type_text(t))
+                try! msg.append("` is not one: a register block is reached through `read()` and `write(v)`")
+                self.refuse(e, "memory.region-accessor", msg.build())
+            }
+            if text.equals("len") {
+                spelling = "memory_len"
+                result = self.int_type()
+                if self.kind_of(viewed) != TcKind.Array {
+                    var msg = StringBuilder()
+                    try! msg.append("`len()` is the byte length of a region, a view of a fixed array, and `")
+                    try! msg.append(self.type_text(t))
+                    try! msg.append("` views `")
+                    try! msg.append(self.type_text(viewed))
+                    try! msg.append("`")
+                    self.refuse(e, "memory.region-length", msg.build())
+                }
+            } else {
+                spelling = if text.equals("ptr") { "memory_ptr" } else { "memory_end" }
+                var bytes = Vector<Int>()
+                let byte = self.known.int8
+                try! bytes.push(self.prim(byte))
+                let pointer = self.known.unsafe_pointer
+                result = self.mk_nominal(pointer, &bytes)
+            }
+        }
+        self.record_builtin(e, -1, TcRole.Builtin, spelling)
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.owner = t
+        self.calls[at] = c
+        self.set_type(e, result, false)
+    }
+
+    // The gates on `read()` (`reads`) or `write(v)` of view `t`, whose
+    // element is `element` behind field marker `marker` (-1 for none): the
+    // marker forbids the other direction, a whole value read or written
+    // reads or writes every marked field inside it, and a view that may be
+    // `Device` (`volatile`) reaches one scalar.
+    func check_memory_access(&var self, e: Int, t: Int, element: Int, marker: Int, reads: Bool, volatile: Bool) {
+        let forbidden = if reads { self.known.write_only } else { self.known.read_only }
+        let call = if reads { "read()" } else { "write(v)" }
+        let rule = if reads { "memory.write-only" } else { "memory.read-only" }
+        let marker_name = if reads { "WriteOnly" } else { "ReadOnly" }
+        if marker >= 0 && marker == forbidden {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(call)
+            try! msg.append("` of `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("`, a `")
+            try! msg.append(marker_name)
+            try! msg.append("` field: the marker forbids it whatever the view's intent")
+            self.refuse(e, rule, msg.build())
+            return
+        }
+        if marker < 0 && self.holds_memory_marker(element, forbidden, 0) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(call)
+            try! msg.append("` of `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` reaches a `")
+            try! msg.append(marker_name)
+            try! msg.append("` field inside the whole value, which the marker forbids whatever the view's intent")
+            self.refuse(e, rule, msg.build())
+            return
+        }
+        if volatile && not self.is_memory_scalar(element) {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(call)
+            try! msg.append("` of `")
+            try! msg.append(self.type_text(t))
+            try! msg.append("` reaches a whole `")
+            try! msg.append(self.type_text(element))
+            try! msg.append("`, and a `Device` view reaches one scalar register at a time (an integer, a `Float`, a `Bool` or a raw pointer): reading or writing several registers is never one access, and a read can have side effects")
+            self.refuse(e, "memory.device-whole", msg.build())
+        }
+    }
+
+    // Whether `t` is a scalar a `Device` view reaches: an integer, a `Float`,
+    // a `Bool` or a raw pointer.
+    func is_memory_scalar(&self, t: Int) -> Bool {
+        if self.is_integer(t) || self.is_float(t) || self.is_bool(t) {
+            return true
+        }
+        let d = self.nominal_decl(t)
+        d >= 0 && (d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer)
+    }
+
+    // Whether a value of type `t` holds marker `marker` (`ReadOnly` or
+    // `WriteOnly`) in its own storage, in a field, a tuple's or an array's
+    // element.
+    func holds_memory_marker(&var self, t: Int, marker: Int, depth: Int) -> Bool {
+        if t < 0 || marker < 0 || depth > TC_INSTANTIATION_DEPTH {
+            return false
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Array {
+            return self.holds_memory_marker(info.b, marker, depth + 1)
+        }
+        if info.kind == TcKind.Tuple {
+            var k = 0
+            while k < info.count {
+                let part = self.types.arg(t, k)
+                if self.holds_memory_marker(part, marker, depth + 1) {
+                    return true
+                }
+                k = k + 1
+            }
+            return false
+        }
+        if info.kind != TcKind.Nominal || info.decl < 0 {
+            return false
+        }
+        if info.decl == marker {
+            return true
+        }
+        if not self.is_struct_decl(info.decl) {
+            return false
+        }
+        let members = self.members_of(info.decl)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            if self.res.decls[m].kind != ResDeclKind.Field {
+                continue
+            }
+            self.build_decl(m)
+            let written = self.sigs[m].result
+            let s = TcSubst(owner: info.decl, args: self.nominal_args(t))
+            let ft = self.subst(written, &s)
+            if self.holds_memory_marker(ft, marker, depth + 1) {
+                return true
+            }
+        }
+        false
+    }
+
     // `Box<any Trait, A>.make(v)`, the erasing construction (spec, `any
     // Trait` existentials): `v`, of a concrete type that conforms, moved into
     // a box allocated through `A`. It is no call of std's `make`, whose
@@ -8967,6 +9221,9 @@ extension TcProgram {
         if d >= 0 && (d == self.known.interior || d == self.known.atomic) {
             let wanted = if owner >= 0 { owner } else { want }
             return self.cell_construct(e, d, &args, wanted)
+        }
+        if d >= 0 && d == self.known.unsafe_memory {
+            return self.memory_construct(e, d, owner, want, &args)
         }
         var cands = Vector<TcCand>()
         if not self.construction_candidates(e, d, owner, &args, &var cands) {
@@ -11292,6 +11549,11 @@ extension TcProgram {
     }
 }
 
+// Whether `name` is one of a view's builtin accessors.
+public func tc_memory_accessor(name: &String) -> Bool {
+    name.equals("read") || name.equals("write") || name.equals("ptr") || name.equals("len") || name.equals("end")
+}
+
 // Whether row `a` of `scores` beats row `b`: no worse at any argument, and
 // better at one.
 public func tc_dominates(scores: &Vector<Int>, a: Int, b: Int, width: Int) -> Bool {
@@ -11612,6 +11874,13 @@ extension TcProgram {
             return self.set_type(e, t, true)
         }
         let info = self.types.ty(t)
+        if info.kind == TcKind.Nominal && info.decl >= 0 && info.decl == self.known.unsafe_memory {
+            self.set_use(base, TcUse.Project)
+            self.type_args_alone(&args)
+            self.not_yet(e, "an index projection through an `UnsafeMemory` view (SL-914b)")
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
         let pointer = info.kind == TcKind.Nominal && (info.decl == self.known.unsafe_pointer || info.decl == self.known.unsafe_const_pointer)
         if info.kind == TcKind.Array || info.kind == TcKind.Slice || pointer {
             if inner >= 0 {

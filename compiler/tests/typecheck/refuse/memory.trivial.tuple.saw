@@ -1,0 +1,12 @@
+// refuses: memory.trivial at 6:15
+// an `UnsafeMemory` view of a tuple holding a `String`: a view copies the
+// bytes it reads and writes, so its `T` is trivially copyable
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<(Int, String), Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

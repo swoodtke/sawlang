@@ -1,0 +1,10 @@
+// refuses: call.arity at 5:13
+// a view built from a labeled address
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<UInt32, Normal>(at: address)
+}
+
+func main() {
+    print(0)
+}

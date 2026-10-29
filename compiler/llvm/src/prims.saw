@@ -121,11 +121,17 @@ extension LlEmitter {
         name
     }
 
-    public func load(&var self, ty: String, addr: String) -> String {
+    // A `volatile` load or store is never removed, merged or reordered
+    // against another volatile access: a `Device` view's register access
+    // (SL-914).
+    public func load(&var self, ty: String, addr: String, volatile: Bool = false) -> String {
         let name = self.fresh()
         var line = StringBuilder()
         try! line.append(name)
         try! line.append(" = load ")
+        if volatile {
+            try! line.append("volatile ")
+        }
         try! line.append(ty)
         try! line.append(", ptr ")
         try! line.append(addr)
@@ -133,9 +139,12 @@ extension LlEmitter {
         name
     }
 
-    public func store(&var self, ty: String, value: String, addr: String) {
+    public func store(&var self, ty: String, value: String, addr: String, volatile: Bool = false) {
         var line = StringBuilder()
         try! line.append("store ")
+        if volatile {
+            try! line.append("volatile ")
+        }
         try! line.append(ty)
         try! line.append(" ")
         try! line.append(value)

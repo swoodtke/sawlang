@@ -13,7 +13,7 @@ import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.closures.{ll_dealloc_declaration}
 // For the extension writing `debug_artificial`.
 import sawllvm.debug.{LL_DEBUG_FIRST}
-import sawllvm.ops.{ll_lossless}
+import sawllvm.ops.{ll_lossless, ll_pointer_cast}
 import sawllvm.places.{ll_local_slot}
 import sawllvm.render.{ll_spelled}
 import sawllvm.text.{LlPieces, ll_format_pieces, ll_quoted, ll_string_bytes}
@@ -1084,12 +1084,82 @@ extension LlEmitter {
             self.array_swap(&var mono, &var target, &info)
         } else if name.equals("copy") {
             self.builtin_copy(&var mono, &var target, &info)
+        } else if name.starts_with("memory_") {
+            self.memory_access(&var mono, &var target, &info, &name)
         } else if name.equals("__saw_suspend") || name.equals("__saw_test_suspend") {
             // Coroutine lowering replaces every call of either in a lowered
             // frame, and refuses the frames it does not lower.
             self.refuse_here(&var mono, node, "a test suspension outside a lowered frame")
         } else {
             self.atomic(&var mono, &var target, &info, &name)
+        }
+    }
+
+    // A view's accessor, `name` its builtin's spelling (SL-914). The receiver
+    // is the view, whose one word is the address. `read()` and `write(v)`
+    // load or store the element there, volatile on a `Device` view, the
+    // element being the field a marker wraps; `ptr()` is the address,
+    // `end()` the address past the viewed type, and `len()` the viewed
+    // type's size. A `Device` view reaches a scalar only, which typecheck
+    // holds it to.
+    func memory_access(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall, name: &String) {
+        let node = info.node
+        let o = mono.dp.bc.mir.lists[info.arg_first]
+        let view = mono.dp.bc.mir.operands[o].ty
+        let viewed = mono.dp.bc.mir.tc.arg_of(view, 0)
+        let intent = mono.dp.bc.mir.tc.arg_of(view, 1)
+        let device = mono.dp.bc.mir.tc.known.device
+        let volatile = mono.dp.bc.mir.tc.is_nominal_of(intent, device)
+        let word = self.word
+        let held = self.operand_addr(&var mono, &var target, o, view, node)
+        let address = self.load(word, held)
+        let at = self.assign(ll_pointer_cast("inttoptr", word, address, "ptr"))
+        if name.equals("memory_len") || name.equals("memory_end") || name.equals("memory_ptr") {
+            if info.dest < 0 {
+                return
+            }
+            let dest = self.place_addr(&var mono, &var target, info.dest, node)
+            let rl = self.lay_at(&var mono, &var target, viewed, node)
+            if name.equals("memory_len") {
+                var size = StringBuilder()
+                try! size.append(rl.size)
+                self.store(word, size.build(), dest)
+            } else if name.equals("memory_end") {
+                let past = self.offset_addr(at, rl.size)
+                self.store("ptr", past, dest)
+            } else {
+                self.store("ptr", at, dest)
+            }
+            return
+        }
+        var element = viewed
+        let vd = mono.dp.bc.mir.tc.nominal_decl(viewed)
+        let read_only = mono.dp.bc.mir.tc.known.read_only
+        let write_only = mono.dp.bc.mir.tc.known.write_only
+        if vd >= 0 && (vd == read_only || vd == write_only) {
+            element = mono.dp.bc.mir.tc.arg_of(viewed, 0)
+        }
+        let el = self.lay_at(&var mono, &var target, element, node)
+        if name.equals("memory_read") {
+            if ll_is_scalar(&el) {
+                let v = self.load(ll_value_type(&el), at, volatile: volatile)
+                if info.dest >= 0 {
+                    let dest = self.place_addr(&var mono, &var target, info.dest, node)
+                    self.store(ll_value_type(&el), v, dest)
+                }
+            } else if info.dest >= 0 {
+                let dest = self.place_addr(&var mono, &var target, info.dest, node)
+                self.copy_bits(&el, dest, at)
+            }
+            return
+        }
+        let a = mono.dp.bc.mir.lists[info.arg_first + 1]
+        if ll_is_scalar(&el) {
+            let v = self.operand_value(&var mono, &var target, a, node)
+            self.store(ll_value_type(&el), v, at, volatile: volatile)
+        } else {
+            let src = self.operand_addr(&var mono, &var target, a, element, node)
+            self.copy_bits(&el, at, src)
         }
     }
 

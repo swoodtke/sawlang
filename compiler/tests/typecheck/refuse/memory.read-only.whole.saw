@@ -1,0 +1,16 @@
+// refuses: memory.read-only at 11:5
+// `write(v)` of a whole struct holding a `ReadOnly` field, on a `Normal` view
+
+struct Port {
+    data: UInt32
+    status: ReadOnly<UInt32>
+    clear: WriteOnly<UInt32>
+}
+
+func reach(address: Int, port: Port) unsafe {
+    UnsafeMemory<Port, Normal>(address).write(port)
+}
+
+func main() {
+    print(0)
+}

@@ -1,0 +1,11 @@
+// refuses: memory.intent at 7:14
+// a view whose intent is a struct other than `Device` or `Normal`, written as
+// a static's type
+
+struct Cached {}
+
+static REGS: UnsafeMemory<UInt32, Cached> = UnsafeMemory(0x4000_0000)
+
+func main() {
+    print(0)
+}

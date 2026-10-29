@@ -1,0 +1,15 @@
+// refuses: memory.device-whole at 10:5
+// `read()` of a whole register block on a `Device` view
+
+struct Regs {
+    data: UInt32
+    status: UInt32
+}
+
+func reach(address: Int) unsafe -> Regs {
+    UnsafeMemory<Regs, Device>(address).read()
+}
+
+func main() {
+    print(0)
+}

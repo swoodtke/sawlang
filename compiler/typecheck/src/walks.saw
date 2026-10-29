@@ -16,6 +16,8 @@ public static TC_WALK_REFERENCE: Int = 10
 public static TC_WALK_COPIES: Int = 11
 // Keyed by an extension declaration: the `Self` its head forms.
 public static TC_WALK_EXT_SELF: Int = 12
+// An inline question: whether a value holds an enum in its own storage.
+public static TC_WALK_ENUM: Int = 13
 
 // How deeply a type that a derivation reaches may nest before it is refused
 // (spec, "Instantiation depth is bounded").

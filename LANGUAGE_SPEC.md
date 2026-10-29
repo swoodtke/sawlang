@@ -2201,9 +2201,13 @@ A case of a backed enum is a compile-time constant, so it may be a
 a constant. A combination of cases is the **backing integer**, not the enum; see
 "Flag enums".
 
-Because the representation is pinned, a backed enum is a legal field type in a
-struct read through `UnsafeMemory`, so a typed wire view can name a flags byte
-by its type:
+Because the representation is pinned, a backed enum has a fixed size and
+offset in a struct, which `static_assert` can hold to a wire layout. A struct
+read through `UnsafeMemory` holds no enum, backed or not (see
+[`UnsafeMemory<T, Use>`](#unsafememoryt-use--typed-memory-at-a-fixed-address)):
+a view reads bytes no case was built from, so a wire view carries the flags
+byte as its integer and converts it with `from(raw:)`, which answers `None`
+for a value no case declares.
 
 ```saw-pending SL-762
 enum SegFlags: UInt8 {
@@ -15546,13 +15550,29 @@ may write it ([Reference passing](#reference-passing)).
 
 ### `UnsafeMemory<T, Use>` — typed memory at a fixed address
 
-**Status: implemented (design 46).** `UnsafeMemory<T, Use>` is a compiler-known
-one-word wrapper over a fixed machine address: a typed view onto memory the
-program does not own, for register blocks and board bootstrap regions. It is
-const-initialized from an integer literal, `static`-able, and `Sync` by fiat
-(the `Atomic` precedent — sharing across tasks is sound; synchronizing the
-memory it names is the programmer's responsibility). The `Unsafe` prefix is the
-house rule for any type whose ordinary use can violate memory safety.
+**Status: implemented (design 46); in `sawc`, projection is not built yet
+(SL-914b).** `UnsafeMemory<T, Use>` is a compiler-known one-word wrapper over a
+fixed machine address: a typed view onto memory the program does not own, for
+register blocks and board bootstrap regions. A body builds one from an `Int` or
+a `UInt` address, `UnsafeMemory<T, Use>(address)`; a static's initializer
+writes `UnsafeMemory(<int>)` over a constant, the type coming from the
+annotation. It is `static`-able and `Sync` by fiat (the `Atomic` precedent —
+sharing across tasks is sound; synchronizing the memory it names is the
+programmer's responsibility). The `Unsafe` prefix is the house rule for any
+type whose ordinary use can violate memory safety.
+
+**The viewed type.** Every access copies the bytes it reads or writes, with no
+retain and no `deinit`, so `T` is **trivially copyable**: numbers, `Bool`,
+`Float`, raw pointers, and structs, tuples and fixed arrays of them, none of
+which declares a copy policy (`Copy`, `ExplicitCopy` or `NoCopy`). A view
+over an owning or refcounted type (`String`, `Box`, `Arc`, any NoCopy or
+ExplicitCopy type, any type with a `deinit`) is a compile error. `T` also
+holds **no enum** at any depth, backed or not, an Optional included: a view
+reads bytes no case was built from, so a hardware field is read as its integer
+and converted with `E.from(raw:)`, which answers `None` for a value no case
+declares. Both rules are checked at the type, wherever a view type is written
+or inferred; a generic view whose `T` names a type parameter is checked at each
+instantiation.
 
 The second parameter, `Use`, is an **intent marker** and is **explicit always —
 there is no default**. The compiler derives the access discipline from it; the
@@ -15562,18 +15582,32 @@ promise). Two markers exist today:
 
 - **`Device`** — a memory-mapped register block. Accesses lower to **volatile**
   loads/stores, so they are never reordered, merged, or elided. Only scalar
-  views may be accessed, through **`read()`** / **`write(v)`**; there is **no
-  whole-struct access** (multi-register access is never atomic, and reads can
-  have side effects). Within the viewed struct, the layout-transparent field
-  markers **`ReadOnly<T>`** and **`WriteOnly<T>`** gate the accessor projection
-  exposes — a `ReadOnly` field offers only `read()`, a `WriteOnly` field only
-  `write()`, a plain field both. **Volatile is not atomic** — it constrains the
-  compiler, not the memory system; ordering across accesses still needs fences.
+  views may be accessed, through **`read()`** / **`write(v)`**, a scalar being
+  an integer, a `Float`, a `Bool` or a raw pointer; there is **no whole-struct access**
+  (multi-register access is never atomic, and reads can have side effects).
+  **Volatile is not atomic** — it constrains the compiler, not the memory
+  system; ordering across accesses still needs fences.
 - **`Normal`** — bootstrap or DMA-visible RAM (the initial stack, an early
   heap). Plain (non-volatile) loads/stores; whole-struct and element access are
   allowed; and it carries the region accessors **`ptr() -> UnsafePointer<Int8>`**,
   **`len() -> Int`** (region byte length), and **`end() -> UnsafePointer<Int8>`**
   (one-past-the-end — a stack top or slab handoff).
+
+**Field markers (both intents).** Within the viewed struct, the field markers
+**`ReadOnly<T>`** and **`WriteOnly<T>`** lay out as their `T` and gate the
+accessor projection exposes: a `ReadOnly` field offers only `read()`, a
+`WriteOnly` field only `write(v)`, a plain field both, and `read()` of a marked
+field yields its `T`. A marker means the same on either intent, so a `Normal`
+view is gated the same way, and a whole value read or written through a view
+reads or writes every marked field inside it: a whole `read()` of a value
+holding a `WriteOnly` field is refused, as is a whole `write(v)` of one holding
+a `ReadOnly` field.
+
+**Alignment.** Every access assumes the address is a multiple of `T`'s
+alignment. A view built over a constant address that is not is a compile
+error where `T` is concrete; a run-time address, and a constant one under a
+generic view whose `T` names a type parameter, are the author's to align, as
+with any raw pointer.
 
 **Projection (both intents, one engine).** Member access on
 `UnsafeMemory<Struct, Use>` yields `UnsafeMemory<Field, Use>` at *base +

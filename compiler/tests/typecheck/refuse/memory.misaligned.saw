@@ -1,0 +1,9 @@
+// refuses: memory.misaligned at 5:60
+// a static view of a `UInt32` over a constant address that is not a multiple
+// of 4
+
+static STATUS: UnsafeMemory<UInt32, Device> = UnsafeMemory(0x4000_0002)
+
+func main() {
+    print(0)
+}

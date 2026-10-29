@@ -1,0 +1,11 @@
+// refuses: memory.intent at 6:9
+// an intent that is neither `Device` nor `Normal`, written in a construction's
+// head
+
+func reach(address: Int) unsafe {
+    let _ = UnsafeMemory<UInt32, Bool>(address)
+}
+
+func main() {
+    print(0)
+}

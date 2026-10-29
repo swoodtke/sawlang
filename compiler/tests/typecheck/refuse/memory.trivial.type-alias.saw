@@ -1,0 +1,11 @@
+// refuses: memory.trivial at 4:15
+// a view of a `String`, named by a type alias
+
+type Region = UnsafeMemory<String, Normal>
+
+func reach(view: Region) unsafe {
+}
+
+func main() {
+    print(0)
+}

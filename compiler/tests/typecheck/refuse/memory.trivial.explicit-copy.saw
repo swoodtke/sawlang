@@ -1,0 +1,25 @@
+// refuses: memory.trivial at 19:15
+// an `UnsafeMemory` view of an ExplicitCopy type: a view copies the bytes it
+// reads and writes, so its `T` is trivially copyable
+
+struct Sample {
+    n: Int
+}
+
+extension Sample: ExplicitCopy {
+    func copy(&self) -> Sample {
+        Sample(n: self.n)
+    }
+
+    func deinit(&var self) {
+    }
+}
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Sample, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

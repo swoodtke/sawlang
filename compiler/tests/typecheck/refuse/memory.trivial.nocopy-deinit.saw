@@ -1,0 +1,21 @@
+// refuses: memory.trivial at 15:15
+// an `UnsafeMemory` view of a NoCopy type with a `deinit`: a view copies the
+// bytes it reads and writes, so its `T` is trivially copyable
+
+struct Handle {
+    fd: Int
+}
+
+extension Handle: NoCopy {
+    func deinit(&var self) {
+    }
+}
+
+func reach(address: Int) unsafe {
+    let view: UnsafeMemory<Handle, Normal> = UnsafeMemory(address)
+    let _ = view
+}
+
+func main() {
+    print(0)
+}

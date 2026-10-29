@@ -1,0 +1,10 @@
+// refuses: memory.trivial at 4:36
+// a view of a `String`, written as a return type
+
+func reach(address: Int) unsafe -> UnsafeMemory<String, Normal> {
+    UnsafeMemory(address)
+}
+
+func main() {
+    print(0)
+}

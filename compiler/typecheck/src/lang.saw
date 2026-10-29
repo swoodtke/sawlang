@@ -207,7 +207,21 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         case PrintFailureFunction -> {
             try! out.push("func (signature (params (status Int owned) (bytes UnsafePointer<Int8> owned) (capacity Int owned)) (effects unsafe) -> Int)")
         },
-        case ParkThreadFunction -> try! out.push("func (signature (params (word Int owned)) -> Void)")
+        case ParkThreadFunction -> try! out.push("func (signature (params (word Int owned)) -> Void)"),
+        case UnsafeMemoryStruct -> {
+            try! out.push("struct (generics (T) (Use))")
+            try! out.push("(field addr Int private)")
+        },
+        case DeviceStruct -> try! out.push("struct"),
+        case NormalStruct -> try! out.push("struct"),
+        case ReadOnlyStruct -> {
+            try! out.push("struct (generics (T))")
+            try! out.push("(field value T public)")
+        },
+        case WriteOnlyStruct -> {
+            try! out.push("struct (generics (T))")
+            try! out.push("(field value T public)")
+        }
     }
     move out
 }

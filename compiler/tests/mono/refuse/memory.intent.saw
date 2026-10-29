@@ -1,0 +1,17 @@
+// refuses: memory.intent at 15:15
+// a view whose intent only an instantiation makes neither `Device` nor
+// `Normal`
+
+struct Cached {}
+
+func peek<U>(address: Int) unsafe -> UInt32 {
+    let view: UnsafeMemory<UInt32, U> = UnsafeMemory(address)
+    let _ = view
+    0
+}
+
+func main() unsafe {
+    if false {
+        print(peek<Cached>(0x1000))
+    }
+}

@@ -938,7 +938,8 @@ Every body construct in the slice, and how it is typed:
 | a call whose signature names a type from a std module the parser refuses | `slice.not-yet` |
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
-| constructing a builtin type no declaration writes an `init` for, `UnsafeMemory<T, U>(a)`; `Atomic(v)` and `UnsafeMutableInterior(v)` are their lang roles' positional constructions | `slice.not-yet`, under Stage 0's std only, the one declaring `UnsafeMemory`; no fixture runs under that root |
+| constructing a builtin type no declaration writes an `init` for; `Atomic(v)`, `UnsafeMutableInterior(v)` and `UnsafeMemory<T, U>(a)` are their lang roles' positional constructions | `slice.not-yet`, under Stage 0's std only; no fixture runs under that root |
+| a field or an index projection through an `UnsafeMemory` view | `slice.not-yet` (SL-914b): `refuse/slice.not-yet.memory-field`, `.memory-index` |
 | calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet`, under Stage 0's std only, the one declaring `FuncPointer`; no fixture runs under that root |
 | downcasting an erased box, `b.is<T>()` and `b.take<T>()` | `slice.not-yet` (erased-box-downcast) |
 
@@ -1528,6 +1529,27 @@ every copy and outlives each call). Checked once captures are settled
 | a non-escaping closure consuming its `move` capture | allowed | capture_rules |
 | a `Thread.spawn` brace consuming its capture | allowed: the brace is exempt | golden `thread_spawn` (`fan`'s `[move v]`) |
 
+**The view rules** (SL-914, the SL-379 ruling: an `UnsafeMemory<T, Use>`
+views a trivially copyable `T` holding no enum). Every view type is formed
+through the nominal-type funnel, which notes it (`note_memory_view`); the
+view-type funnel (`memory_view_rule`, `compiler/typecheck/src/checks.saw`)
+judges each once tiers exist and refuses it where a position first carries it
+(`tc_check_memory_views`), and mono judges the ones only an instantiation forms
+(`refuse_memory_views`). The view-access funnel (`memory_construct`,
+`memory_access`, `compiler/typecheck/src/bodies.saw`) checks each construction
+and accessor. `t.` abbreviates `refuse/memory.trivial.`, `e.`
+`refuse/memory.enum.`:
+
+| row | verdict | covered by |
+|---|---|---|
+| a `T` per kind: `String`, `Box`, `Vector`, `Arc`, NoCopy with a `deinit`, `ExplicitCopy`, a written `Copy`, a `@synthesize Copy` all-`Int` struct, `Atomic`, a cell, a tuple or an array holding a `String`, a struct holding one, a function value, a distinct alias of `String` | `memory.trivial` | `memory.trivial` (bare, `String`), t.box, t.vector, t.arc, t.nocopy-deinit, t.explicit-copy, t.hand-copy, t.synthesized-copy, t.atomic, t.cell, t.tuple, t.array, t.struct-field, t.closure, t.alias |
+| a non-trivial `T` at each position: a local's type (the kind rows), a field, a parameter, a return, a static, a generic argument, an Optional's payload, a type alias, a construction's head, a closure parameter, a function type, a generic body's `Vector<T>` | `memory.trivial` | t.field, t.parameter, t.return, t.static, t.generic-argument, t.nested, t.type-alias, t.construction-head, t.closure-parameter, t.function-type, t.generic-body |
+| a `T` only an instantiation makes non-trivial, an enum or a bad intent | refused by mono at the instantiation | `compiler/tests/mono/refuse/memory.trivial`, `memory.enum`, `memory.intent` |
+| an enum: raw-backed, unbacked, a backed field, an unbacked one nested in an array of structs, an Optional, behind a marker | `memory.enum` | `memory.enum` (bare), e.unbacked, e.backed-field, e.unbacked-nested, e.optional, e.marker |
+| an intent other than `Device` or `Normal`: a static's type, a field, a construction's head | `memory.intent` | `memory.intent` (bare), `.field`, `.construction-head` |
+| a constant address off the `T`'s alignment: a static, a body | `memory.misaligned` | `memory.misaligned` (bare), `.construction` |
+| every trivial kind, both intents, both markers, a static view, the region accessors, a generic view at a trivial type | allowed | run probe `memory_views_round_trip` |
+
 ## The conformance rows
 
 The rows of `examples/conformance/INDEX.md`'s Mutability and References
@@ -1693,6 +1715,16 @@ its fixit.
 | `format.argument` | a format argument or interpolated segment that is neither Printable nor a primitive; and at `main`, the error type of a `main` returning a `Result`, which an `Err` renders (`.main-error`, SL-874) |
 | `format.mixed` | a format string that interpolates a value beside its `{}` slots or arguments (spec, "Format arguments and the allocation-free path"), judged where the string-position funnel records it as `format` |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int`, written or inferred, once per type, where a position first carries it: v1 atomics are `Atomic<Int>` only (SL:open-questions D38); one only an instantiation forms is mono's |
+| `memory.trivial` | an `UnsafeMemory<T, Use>` whose `T` is not trivially copyable (`is_trivial`; a declared copy policy counts against it, and the refusal says so), written or inferred, once per type, where a position first carries it, as `atomic.width` is placed (the view rules matrix below); one only an instantiation forms is mono's (SL-914) |
+| `memory.enum` | an `UnsafeMemory<T, Use>` whose `T` holds an enum at any depth, backed or not, an Optional included (`holds_enum`), placed as `memory.trivial` is (SL-914) |
+| `memory.intent` | an `UnsafeMemory<T, Use>` whose `Use` is neither `Device` nor `Normal`, placed as `memory.trivial` is (SL-914) |
+| `memory.misaligned` | a view built over a constant address that is not a multiple of its `T`'s alignment, judged by the layout-assert funnel once typecheck ends, for a `T` naming no type parameter (a generic view's constant address goes unchecked) (SL-914) |
+| `memory.address` | a view built over an address that is neither an `Int` nor a `UInt` (SL-914) |
+| `memory.device-whole` | `read()` or `write(v)` of a view that may be `Device` whose element is no scalar: an integer, a `Float`, a `Bool` or a raw pointer (SL-914) |
+| `memory.read-only` | `write(v)` of a `ReadOnly<T>` view, or of a whole value holding a `ReadOnly` field, on either intent (SL-914) |
+| `memory.write-only` | `read()` of a `WriteOnly<T>` view, or of a whole value holding a `WriteOnly` field, on either intent (SL-914) |
+| `memory.region-accessor` | `ptr()`, `len()` or `end()` of a view that is not `Normal` (SL-914) |
+| `memory.region-length` | `len()` of a view whose `T` is not a fixed array (SL-914) |
 | `export.c-abi` | an `@export`ed function whose parameter or result C cannot pass: anything but a fixed-width integer, `Int`/`UInt`, `Float`, a pointer or a `FuncPointer`, and `Void` or `Never` as a result, so never an optional; an exported static whose type has no fixed C data layout (designs 58 and 113b) |
 | `export.generic` | an `@export`ed generic function, whose one C symbol cannot name a body per instantiation |
 | `export.duplicate` | a second declaration exported under a C symbol the program already exports, at the second |

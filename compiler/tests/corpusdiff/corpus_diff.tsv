@@ -951,7 +951,7 @@ enum145_raw_duplicate_value_error.saw	pass	-	type.raw-value: cases `A` and `B` o
 enum145_raw_missing_value_error.saw	pass	-	type.raw-value: case `Missing.B` needs an explicit value: every case of an enum with a raw backing declares its own, since the backing says the numbers are ABI and none is assigned for you
 enum145_raw_payload_error.saw	pass	-	type.raw-backing: case `WithPayload.Detail` carries a payload, so its enum cannot declare a raw backing: a case with a payload has no integer identity
 enum145_raw_unbacked_cast_error.saw	pass	-	type.cast: `as` cannot convert `enum145_raw_unbacked_cast_error.Plain` to `UInt8`: it converts between numbers, from a raw-backed enum, and between pointers
-enum145_raw_wire_struct.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
+enum145_raw_wire_struct.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
 enum145_traits.saw	pass	-	-
 enum_arc_struct_payload_match.saw	pass	-	-
 enum_bitwise_value_error.saw	pass	-	operator.undefined: a bit operator takes integers; a `Bool` takes `&&`, `||` and `not`, and this is `enum_bitwise_value_error.Perm`
@@ -1389,12 +1389,12 @@ errors/unsafe_expression_marker_removed.saw	pass	-	resolve.parse-refused: the pa
 errors/unsafe_fn_type_missing_effect.saw	pass	-	unsafe.function-type: the function type `(unsafe_fn_type_missing_effect.UnsafeMmioReg) sync -> Int` names an unsafe type (`unsafe_fn_type_missing_effect.UnsafeMmioReg`) but its effect slot does not sa
 errors/unsafe_fn_type_safe_signature.saw	pass	-	unsafe.function-type: the function type `(Int) unsafe sync -> Int` declares `unsafe` but its signature names no unsafe type: a function taking only safe types must be sound for every input
 errors/unsafe_keyword_before_decl.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_keyword_before_decl.saw` (syntax.decl.refused-effect-prefix), so its declarations are not available
-errors/unsafe_mem_bad_use.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-errors/unsafe_mem_device_region_accessor.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-errors/unsafe_mem_device_whole_struct.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-errors/unsafe_mem_missing_use.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-errors/unsafe_mem_ro_write.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
-errors/unsafe_mem_wo_read.saw	refused	resolve name.undefined	cannot find `WriteOnly` in scope
+errors/unsafe_mem_bad_use.saw	pass	-	memory.intent: `UnsafeMemory<Int, unsafe_mem_bad_use.Foo>` names `unsafe_mem_bad_use.Foo` as its intent, which is `Device` (a register block, accessed volatile) or `Normal` (plain memory)
+errors/unsafe_mem_device_region_accessor.saw	pass	-	memory.region-accessor: `ptr()` is a region accessor of a `Normal` view, and `UnsafeMemory<unsafe_mem_device_region_accessor.Regs, Device>` is not one: a register block is reached through `read()` and
+errors/unsafe_mem_device_whole_struct.saw	pass	-	memory.device-whole: `read()` of `UnsafeMemory<unsafe_mem_device_whole_struct.Regs, Device>` reaches a whole `unsafe_mem_device_whole_struct.Regs`, and a `Device` view reaches one scalar register at a
+errors/unsafe_mem_missing_use.saw	pass	-	type.arity: `UnsafeMemory` takes 2 type arguments, and 1 are written
+errors/unsafe_mem_ro_write.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
+errors/unsafe_mem_wo_read.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
 errors/unsafe_modifier_on_enum.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_modifier_on_enum.saw` (syntax.decl.refused-unsafe-prefix), so its declarations are not available
 errors/unsafe_prefix_on_init.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/unsafe_prefix_on_init.saw` (syntax.decl.refused-effect-prefix), so its declarations are not available
 errors/unsafe_reference_param_triggers.saw	pass	-	unsafe.undeclared: `peek` is not declared `unsafe`, but its signature names a value of unsafe type (`UnsafePointer<Int8>`): write `unsafe` after its parameter list, where every caller can see it
@@ -2359,7 +2359,7 @@ static_method_args.saw	pass	-	-
 static_method_called_on_instance.saw	refused	typecheck member.unknown	`static_method_called_on_instance.Bag` has no method `solo` this module can see
 static_method_through_field_receiver.saw	refused	typecheck member.unknown	`static_method_through_field_receiver.Inner` has no method `nullary` this module can see
 static_methods.saw	pass	-	-
-static_named_array_type_init.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
+static_named_array_type_init.saw	pass	-	-
 static_non_optional_types_unaffected.saw	pass	-	-
 static_optional_type_refused.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
 static_optional_type_refused_none.saw	pass	-	static.optional: the static `SLOT` is `Int?`, and a static is never optional: it is initialized once and always present, so give it the payload's type, or compute absent state with `Once<T>` or an `un
@@ -2554,12 +2554,12 @@ unsafe_conformance_effects.saw	pass	-	-
 unsafe_declarations_accepted.saw	pass	-	-
 unsafe_effect_slot.saw	pass	-	-
 unsafe_fn_type_generic_slot.saw	pass	-	-
-unsafe_mem_device_read_twice.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
-unsafe_mem_device_registers.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
-unsafe_mem_mmio_sim.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-unsafe_mem_normal_region.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-unsafe_mem_projection_nested.saw	refused	resolve name.undefined	cannot find `UnsafeMemory` in scope
-unsafe_mem_static_board.saw	refused	resolve name.undefined	cannot find `ReadOnly` in scope
+unsafe_mem_device_read_twice.saw	refused	typecheck slice.not-yet	an index projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
+unsafe_mem_device_registers.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
+unsafe_mem_mmio_sim.saw	refused	typecheck slice.not-yet	an index projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
+unsafe_mem_normal_region.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
+unsafe_mem_projection_nested.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
+unsafe_mem_static_board.saw	refused	typecheck slice.not-yet	a field projection through an `UnsafeMemory` view (SL-914b) is not in the bootstrap slice yet
 unsafe_not_transitive.saw	pass	-	-
 unsafe_static_var.saw	pass	-	-
 unsafe_surface_ok.saw	pass	-	-
