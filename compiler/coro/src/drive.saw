@@ -149,7 +149,7 @@ func coro_lower_drive_site(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
     let text = coro_site_text(&var coro, site.drive, node)
     let site_operand = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: site_ty,
-                                                      const_kind: MirConstKind.String, text: text))
+                                                      const_kind: MirConstKind.String, text: text, param: -1))
     try! coro.mono.dp.bc.mir.lists.push(site_operand)
     drive_call.arg_count = drive_call.arg_count + 1
     if steps {
@@ -167,7 +167,7 @@ func coro_lower_drive_site(coro: &var CoroProgram, item: Int, f: Int, b: Int) {
         let from = coro_frame_place(&var coro, storage, off, ty)
         let o = coro.mono.dp.bc.mir.operands.len()
         try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Move, place: from, ty: ty,
-                                                          const_kind: MirConstKind.Unit, text: -1))
+                                                          const_kind: MirConstKind.Unit, text: -1, param: -1))
         let first = coro.mono.dp.bc.mir.lists.len()
         try! coro.mono.dp.bc.mir.lists.push(o)
         let rv = coro_use_rvalue(&var coro, ty, first)

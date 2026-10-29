@@ -621,12 +621,12 @@ const_bitwise_static_assert_range_error.saw	pass	-	constant.shift-range: constan
 const_bitwise_width_riscv32.saw	refused	driver driver.unknown-target	sawc: unknown target riscv32-unknown-none-elf
 const_builtin_leaf_every_position.saw	refused	typecheck slice.not-yet	`syntax.expr.call.paren` is not in the bootstrap slice yet
 const_expression_adopts_an_operand_width.saw	pass	-	-
-const_generic_arg_notations.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
-const_generic_bad_value_type_error.saw	wrong	accepts a refusal test	a const parameter is `Int` or `UInt`, and `Name` is declared `String`
-const_generic_basic.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
+const_generic_arg_notations.saw	pass	-	-
+const_generic_bad_value_type_error.saw	pass	-	type.const-parameter: a const parameter is `Int` or `UInt` or another integer type, and `Name` is declared `String`
+const_generic_basic.saw	pass	-	-
 const_generic_default_and_arith.saw	refused	typecheck slice.not-yet	`syntax.const.term` is not in the bootstrap slice yet
-const_generic_enum_and_function.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
-const_generic_infer_length.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
+const_generic_enum_and_function.saw	pass	-	-
+const_generic_infer_length.saw	pass	-	-
 const_generic_specialized_extension_unsupported.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/const_generic_specialized_extension_unsupported.saw` (parse-error), so its declarations are not available
 const_generic_type_for_value_error.saw	pass	-	type.argument-kind: this argument's parameter takes a value, and a type is written
 const_generic_value_for_type_error.saw	pass	-	type.argument-kind: this argument's parameter takes a type, and a value is written
@@ -1623,7 +1623,7 @@ generic_bound_not_trait_error.saw	pass	-	type.not-a-trait: `Int` is not a trait,
 generic_bound_propagation.saw	pass	-	-
 generic_bound_unknown_trait_error.saw	refused	resolve name.undefined	cannot find `Fooable` in scope
 generic_container_nomove_cascade.saw	pass	-	transfer.no-move: cannot `move` `w`: `generic_container_nomove_cascade.Wrap<std.taskgroup.TaskGroup>` is `NoMove`, so it lives where its constructor built it and may not be relocated; pass `&var` to l
-generic_default_init.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
+generic_default_init.saw	pass	-	-
 generic_default_value.saw	pass	-	-
 generic_effect_poly_call.saw	pass	-	-
 generic_enum.saw	pass	-	-
@@ -1635,7 +1635,7 @@ generic_for_loop_owning_balance.saw	pass	-	-
 generic_init_moved_parameter_is_released_once.saw	stage0-wrong	XFAIL DF-302b	sawc meets its directives
 generic_instance_associated_type_binding.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_instance_associated_type_return.saw	refused	resolve name.undefined	cannot find `Item` in scope; an associated type of a bound is named through its type parameter, as `T.Item`
-generic_instance_const_parameter_value.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
+generic_instance_const_parameter_value.saw	pass	-	-
 generic_instance_constructs_type_param.saw	pass	-	-
 generic_instantiation_unsafe_signature.saw	wrong	accepts a refusal test	`idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)
 generic_local_at_void.saw	pass	-	-
@@ -1710,10 +1710,10 @@ infer_overload_driven.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-p
 infer_type_args.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 init_fallible_result.saw	refused	typecheck slice.not-yet	`syntax.expr.try.route` is not in the bootstrap slice yet
 init_fallible_result_module_qualified.saw	pass	-	-
-init_fallible_result_shapes.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
+init_fallible_result_shapes.saw	pass	-	-
 init_generic_body_isolates_cleanup_state.saw	pass	-	-
 init_generic_param_released.saw	pass	-	-
-init_receiver_return_spellings.saw	refused	llvm backend.not-yet	the constant `N` is not in the backend slice yet
+init_receiver_return_spellings.saw	pass	-	-
 int_abs_min_panics.saw	pass	-	-
 int_limits.saw	pass	-	-
 int_literal_out_of_range.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/int_literal_out_of_range.saw` (syntax.lex.int-range), so its declarations are not available

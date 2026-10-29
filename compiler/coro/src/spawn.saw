@@ -175,7 +175,7 @@ public func coro_write_frame(coro: &var CoroProgram, f: Int, wb: Int, boxed: Int
     let zero = coro.mono.dp.bc.mir.operands.len()
     let text = coro.mono.dp.bc.mir.tc.res.intern("0")
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: word,
-                                                      const_kind: MirConstKind.Int, text: text))
+                                                      const_kind: MirConstKind.Int, text: text, param: -1))
     let first = coro.mono.dp.bc.mir.lists.len()
     try! coro.mono.dp.bc.mir.lists.push(zero)
     let rv = coro_use_rvalue(&var coro, word, first)
@@ -238,7 +238,7 @@ func coro_local_operand(coro: &var CoroProgram, l: Int, ty: Int, moved: Bool) ->
     let kind = if moved { MirOperandKind.Move } else { MirOperandKind.Copy }
     let at = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: kind, place: place, ty: ty,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     at
 }
 

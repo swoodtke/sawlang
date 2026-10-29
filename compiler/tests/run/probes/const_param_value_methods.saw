@@ -1,0 +1,55 @@
+// probe: stated
+// about: a method reads its type's const parameter as the instance's value: the spec's `FixedBuf.capacity`, an extension renaming the parameter beside a method-level one, a defaulted parameter, and a type parameter beside a const one (SL-548)
+// stage 0: prints the same lines, but a program new since v0.18.0 has no Linux record, so the lines are stated
+// speeds: -O0 -O2
+// prints: 16 256
+// prints: 5 82
+// prints: 4
+// prints: 6 16
+struct FixedBuf<const N: Int> {
+    data: [UInt8; N]
+}
+
+extension FixedBuf<N> {
+    init() -> FixedBuf<N> {
+        FixedBuf<N>(data: [0; N])
+    }
+
+    func capacity(&self) -> Int { N }
+}
+
+struct Ring<const N: Int = 4> {
+    used: Int
+}
+
+// `M` is `Ring`'s `N` under another name, beside the method's own `K`.
+extension Ring<M> {
+    func room(&self) -> Int { M - self.used }
+
+    func both<const K: Int>(&self) -> Int { M * 10 + K }
+}
+
+struct Pool<T, const N: Int> {
+    first: T
+}
+
+extension Pool<T, N> {
+    func slots(&self) -> Int { N }
+}
+
+func count<T, const N: Int>(p: &Pool<T, N>) -> Int {
+    p.slots() + N
+}
+
+func main() {
+    let small = FixedBuf<16>()
+    let big = FixedBuf<256>()
+    print("{} {}", small.capacity(), big.capacity())
+    let r = Ring<8>(used: 3)
+    print("{} {}", r.room(), r.both<2>())
+    let d: Ring = Ring(used: 0)
+    print("{}", d.room())
+    let p = Pool<String, 3>(first: "a")
+    let q = Pool<Int, 8>(first: 1)
+    print("{} {}", count(&p), count(&q))
+}

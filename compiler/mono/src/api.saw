@@ -18,7 +18,10 @@ import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
 import sawmono.worklist.{mono_rules}
 import sawasserts.layout.{AssertsVerdict, asserts_verdict}
 import sawtarget.layout.{Target}
+import sawtypecheck.arith.{TcFault}
 import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.fold.{TcFold}
+import sawtypecheck.signatures.{TcContext}
 
 // How `sawc mono` treats one entry file.
 public struct MonoOptions {
@@ -106,10 +109,10 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     move mono
 }
 
-// The deferred `static_assert`s over a type parameter (SL:open-questions
-// D40), each checked at every instantiation of the function whose body holds
-// it, against the layouts its arguments give; one in a body never
-// instantiated is never checked.
+// The deferred `static_assert`s over a type or const parameter, each checked
+// at every instantiation of the function whose body holds it, against the
+// layouts and const values its arguments give; one in a body never
+// instantiated is never checked (SL:open-questions D40).
 func mono_check_layout_asserts(mono: &var MonoProgram) {
     if mono.dp.bc.mir.tc.layout_asserts.len() == 0 {
         return
@@ -134,7 +137,8 @@ func mono_check_layout_asserts(mono: &var MonoProgram) {
     }
 }
 
-// Deferred assertion `a` at item `k`'s concrete arguments.
+// Deferred assertion `a` at item `k`'s concrete arguments. A const parameter
+// with no value at `k` has its invariant reported by `const_argument`.
 func mono_check_instance(mono: &var MonoProgram, target: &var Target, k: Int, a: Int) {
     let cond = mono.dp.bc.mir.tc.layout_asserts[a]
     let message = mono.dp.bc.mir.tc.layout_assert_messages[a]
@@ -150,12 +154,71 @@ func mono_check_instance(mono: &var MonoProgram, target: &var Target, k: Int, a:
     try! instance.append("`")
     try! instance.append(mono.item_name(k))
     try! instance.append("`")
-    let verdict = asserts_verdict(&var mono.dp.bc.mir.tc, &var target, cond, message, &measures, &types,
-                                  instance.build())
+    // The const parameters the condition names, at item `k`'s values.
+    let named = mono.dp.bc.mir.tc.const_parameters_named(cond)
+    var params = Vector<Int>()
+    var values = Vector<Int>()
+    var kinds = Vector<Int>()
+    j = 0
+    while j < named.len() {
+        let leaf = named[j]
+        j = j + 1
+        let ty = mono.dp.bc.mir.tc.const_parameter_type(leaf)
+        let param = mono.dp.bc.mir.tc.param_type(leaf)
+        let v = mono.const_argument(k, param, ty)
+        if not v.ok {
+            return
+        }
+        try! params.push(leaf)
+        try! values.push(v.bits)
+        try! kinds.push(ty)
+    }
+    mono.dp.bc.mir.tc.instance_params = move params
+    mono.dp.bc.mir.tc.instance_values = move values
+    mono.dp.bc.mir.tc.instance_types = move kinds
+    let at = instance.build()
+    let verdict = asserts_verdict(&var mono.dp.bc.mir.tc, &var target, cond, message, &measures, &types, at)
+    // A condition over a const parameter that faults at this instance (a
+    // shift by its value out of range, say) has no truth to hold, so it fails
+    // rather than passing unread. A layout one's measurements are gone by
+    // now, and its faults are the layout funnel's.
+    var fault = TcFault.Clean
+    if verdict.rule.len() == 0 && measures.len() == 0 && named.len() > 0 {
+        let v = mono.dp.bc.mir.tc.fold_constant(cond)
+        if not v.ok {
+            fault = v.fault
+        }
+    }
+    mono.dp.bc.mir.tc.instance_params = Vector<Int>()
+    mono.dp.bc.mir.tc.instance_values = Vector<Int>()
+    mono.dp.bc.mir.tc.instance_types = Vector<Int>()
     if verdict.rule.equals("static_assert.failed") {
         mono.refuse(cond, "static_assert.failed", verdict.message)
     } else if verdict.rule.len() > 0 {
         mono.refuse(cond, "mono.not-yet", verdict.message)
+    } else if fault != TcFault.Clean && fault != TcFault.NotConstant && fault != TcFault.Cycle {
+        var msg = StringBuilder()
+        try! msg.append("static assertion failed: its condition ")
+        try! msg.append(mono_fault_text(fault))
+        if message >= 0 {
+            try! msg.append(" (")
+            try! msg.append(mono.dp.bc.mir.tc.assert_message_text(message))
+            try! msg.append(")")
+        }
+        try! msg.append(", at ")
+        try! msg.append(at)
+        mono.refuse(cond, "static_assert.failed", msg.build())
+    }
+}
+
+// What fault `f` did to a condition's fold, as a verb phrase.
+func mono_fault_text(f: TcFault) -> String {
+    match f {
+        case Overflow -> "overflows its type",
+        case ShiftRange -> "shifts by a count out of range",
+        case DivideByZero -> "divides by zero",
+        case NotFit -> "converts a value into a type that cannot hold it",
+        case _ -> "does not fold"
     }
 }
 

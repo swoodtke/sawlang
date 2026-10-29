@@ -20,7 +20,9 @@ import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_
                             MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
                             MONO_KEY_VTABLE, MonoItem,
                             MonoItemKind, MonoProgram, MonoThreadSpawn, MonoVtable}
+import sawtypecheck.arith.{TcFault, tc_arith_normalize, tc_arith_text}
 import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.fold.{TcFold}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
@@ -766,6 +768,9 @@ extension MonoProgram {
         at
     }
 
+    // Operand `o` at item `k`'s types. A const parameter read as a value
+    // becomes its instance's value, spelled in decimal at its declared type,
+    // and keeps the `Generic` kind: it is no source literal.
     func copy_operand(&var self, k: Int, o: Int) -> Int {
         if o < 0 {
             return -1
@@ -773,10 +778,40 @@ extension MonoProgram {
         let info = self.dp.bc.mir.operands[o]
         let place = self.copy_place(k, info.place)
         let ty = self.concrete_type(k, info.ty)
+        var text = info.text
+        var param = info.param
+        if info.kind == MirOperandKind.Const && info.const_kind == MirConstKind.Generic && param >= 0 {
+            let v = self.const_argument(k, param, ty)
+            if v.ok {
+                let w = self.dp.bc.mir.tc.int_width(ty)
+                let signed = not self.dp.bc.mir.tc.is_unsigned(ty)
+                text = self.dp.bc.mir.tc.res.intern(tc_arith_text(v.bits, w, signed))
+                param = -1
+            }
+        }
         let at = self.dp.bc.mir.operands.len()
         try! self.dp.bc.mir.operands.push(MirOperand(kind: info.kind, place: place, ty: ty,
-                                                     const_kind: info.const_kind, text: info.text))
+                                                     const_kind: info.const_kind, text: text, param: param))
         at
+    }
+
+    // THE CONST-ARGUMENT FUNNEL: the value const parameter `param` (the type
+    // it denotes in its body) takes at item `k`, at its declared integer type
+    // `ty`. An instance always gives one, so a missing value is an invariant
+    // broken upstream, never a zero (spec, Const generics).
+    // ENTRY POINTS:
+    //     copy_operand
+    //     mono_check_instance
+    public func const_argument(&var self, k: Int, param: Int, ty: Int) -> TcFold {
+        let arg = self.substituted(k, param)
+        if arg < 0 || self.dp.bc.mir.tc.kind_of(arg) != TcKind.ConstInt || not self.dp.bc.mir.tc.is_integer(ty) {
+            try! self.problems.push("a const parameter read as a value has no constant argument at its instance")
+            return TcFold(fault: TcFault.NotConstant, ty: ty, at: -1)
+        }
+        let w = self.dp.bc.mir.tc.int_width(ty)
+        let signed = not self.dp.bc.mir.tc.is_unsigned(ty)
+        let value = self.dp.bc.mir.tc.types.ty(arg).a
+        TcFold(bits: tc_arith_normalize(value, w, signed), ty: ty)
     }
 
     // Operands `first .. first + count` of the lists, copied into a new run.

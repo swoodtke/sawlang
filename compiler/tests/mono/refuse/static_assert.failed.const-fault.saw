@@ -1,0 +1,13 @@
+// refuses: static_assert.failed at 7:20
+// A `static_assert` whose condition faults at an instance, shifting by the
+// const parameter's value out of range, has no truth to hold and fails there
+// rather than passing unread (SL-548).
+
+func bit<const N: Int>() -> Int {
+    static_assert((1 << N) > 0, "the bit is positive")
+    1
+}
+
+func main() {
+    print(bit<3>() + bit<64>())
+}

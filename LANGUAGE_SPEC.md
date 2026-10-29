@@ -12830,11 +12830,20 @@ neither is assignable to the other and each gets its own specialized code.
 
 Scope, deliberately narrow in this version:
 
-- **Value type**: `Int` or `UInt`. A parameter of any other type is rejected at
-  the declaration (`a const parameter is `Int` or `UInt``).
+- **Value type**: any primitive integer type, `Int` and `UInt` or a fixed
+  width from `Int8` to `UInt64`. Read as a value, the parameter has that type,
+  so a `const N: UInt8` is a `UInt8` and its arithmetic runs at `UInt8`. A
+  parameter of any other type, such as `Bool`, `String` or a struct, is
+  refused at the declaration, and so is a distinct alias of an integer
+  (`Byte`), which is a type of its own rather than a width: write the type it
+  stands for.
 - **Where a parameter may be used**: an array length (`[T; N]`), a
-  `static_assert` operand, `sizeof` arithmetic, a repeat-literal count, and any
-  expression position wanting an `Int`.
+  `static_assert` operand (checked at each instantiation against that
+  instance's value, so one false at any instance the program makes is a
+  compile error there), `sizeof` arithmetic, a repeat-literal count, and any
+  expression position wanting a value of its type, where it reads as its
+  instance's value. It never adopts another integer type: `let b: UInt8 = N`
+  over a `const N: Int` needs a conversion, as any `Int` value does.
 - **Const arithmetic** in instantiation position: literals, const parameters,
   and `+ - * / %` over them, plus `sizeof<T>()` / `alignof<T>()`
   (`Ring<sizeof<UInt64>()>`, which is `Ring<8>`; both are built-in names, so
@@ -12852,7 +12861,9 @@ Scope, deliberately narrow in this version:
   generic extension (`extension FixedBuf<N>` — the constness comes from the
   declaration, so it is not repeated).
 - **Defaults** compose with default type arguments: `struct Ring<const N: Int =
-  4>` lets `Ring()` mean `Ring<4>`.
+  4>` lets `Ring()` mean `Ring<4>`. A parameter's default value may read a
+  const parameter, `func pad<const N: Int>(x: Int, by: Int = N)`, and takes
+  the calling instance's value.
 - **Inference**: explicit in this version, with one exception. A `[T; N]`
   parameter binds `N` from the argument's length:
 

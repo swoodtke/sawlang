@@ -1,0 +1,11 @@
+// refuses: type.const-parameter at 5:25
+// a `Bool` const parameter: a const parameter carries an integer of any width, and nothing else (SL-548)
+// message: a const parameter is `Int` or `UInt` or another integer type, and `B` is declared `Bool`
+
+struct Flagged<const B: Bool> {
+    n: Int
+}
+
+func main() {
+    print("unreachable")
+}

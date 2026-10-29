@@ -1,0 +1,27 @@
+// probe: stated
+// about: a `static_assert` over a const parameter that every instance satisfies, alone, beside a value read and beside a layout, builds and runs (SL-548)
+// stage 0: prints the same lines, but a program new since v0.18.0 has no Linux record, so the lines are stated
+// speeds: -O0 -O2
+// prints: 1 1
+// prints: 2 9
+// prints: 2
+func checked<const N: Int>() -> Int {
+    static_assert(N > 0, "N must be positive")
+    1
+}
+
+func bumped<const N: Int>() -> Int {
+    static_assert(N > 0, "N must be positive")
+    N + 1
+}
+
+func fits<const N: Int>() -> Int {
+    static_assert(sizeof<Int>() * N <= 16, "the slab fits 16 bytes")
+    N
+}
+
+func main() {
+    print("{} {}", checked<1>(), checked<3>())
+    print("{} {}", bumped<1>(), bumped<8>())
+    print("{}", fits<2>())
+}

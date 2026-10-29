@@ -481,10 +481,11 @@ public struct TcProgram {
     narrow_atomics: Vector<Int>
     // By entry of `narrow_atomics`: whether its refusal is reported.
     narrow_reported: Vector<Bool>
-    // The `static_assert`s whose condition measures a layout, deferred from
-    // the fold (SL:open-questions D40), by condition node: its message leaf
-    // or -1, the function whose body holds it or -1, and whether it measures
-    // a type parameter. One over concrete types is checked by the
+    // The `static_assert`s whose condition measures a layout or names a
+    // const parameter, deferred from the fold (`defer_assert`), by condition
+    // node: its message leaf or -1, the function whose body holds it or -1,
+    // and whether it waits for an instance, measuring a type parameter or
+    // naming a const one. One over concrete types is checked by the
     // layout-assert funnel once typecheck ends, one over a parameter by mono
     // per instantiation.
     layout_asserts: Vector<Int>
@@ -495,6 +496,11 @@ public struct TcProgram {
     // call node, and its value at the layout being checked.
     measured_nodes: Vector<Int>
     measured_values: Vector<Int>
+    // The const parameters a deferred assert's fold reads at one instance:
+    // each one's declaring leaf, and its value there, at `instance_types`.
+    instance_params: Vector<Int>
+    instance_values: Vector<Int>
+    instance_types: Vector<Int>
     // The constant judgments held until every body is typed, in the order
     // they were met (`defer_constant`), and whether that point is reached,
     // after which a judgment is final where it is met.
@@ -643,6 +649,8 @@ public func tc_program(res: ResProgram) -> TcProgram {
                       layout_asserts: Vector<Int>(), layout_assert_messages: Vector<Int>(),
                       layout_assert_decls: Vector<Int>(), layout_assert_generic: Vector<Bool>(),
                       measured_nodes: Vector<Int>(), measured_values: Vector<Int>(),
+                      instance_params: Vector<Int>(), instance_values: Vector<Int>(),
+                      instance_types: Vector<Int>(),
                       pending_constants: Vector<TcPendingConstant>(), constants_final: false,
                       body_tables: false, members_built: false, phase_problems: Vector<String>(),
                       phase_problem_modules: Vector<Int>(), static_typing: move typing, static_verdicts: move verdicts,

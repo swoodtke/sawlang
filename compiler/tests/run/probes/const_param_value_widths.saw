@@ -1,0 +1,43 @@
+// probe: stated
+// about: a const parameter of any integer width is a value of that width: an `Int8` one is an `i8` that sign-extends, a `UInt8` one zero-extends, and each fixed width holds its edge values, negative ones written as a static and as const arithmetic (SL-548)
+// stage 0: refuses a const parameter of any type but `Int` and `UInt`, which SL-548 c2 rules legal at every integer width
+// speeds: -O0 -O2
+// prints: 7 5
+// prints: -3 -128 127
+// prints: 255 200 9
+// prints: 32767 65535
+// prints: 2147483647 4294967295
+// prints: 5 9
+// prints: -32768 -32768
+static LOW: Int16 = -32768
+
+func get<const N: UInt>() -> UInt { N }
+func half<const N: UInt>() -> UInt { N / 2 }
+
+func i8<const N: Int8>() -> Int8 { N }
+func i8_widened<const N: Int8>() -> Int { N as Int }
+
+func u8<const N: UInt8>() -> UInt8 { N }
+func u8_widened<const N: UInt8>() -> Int { N as Int }
+
+func u8_slot<const N: UInt8>() -> UInt8 {
+    let b: UInt8 = N
+    b
+}
+
+func i16<const N: Int16>() -> Int16 { N }
+func u16<const N: UInt16>() -> UInt16 { N }
+func i32<const N: Int32>() -> Int32 { N }
+func u32<const N: UInt32>() -> UInt32 { N }
+func i64<const N: Int64>() -> Int64 { N }
+func u64<const N: UInt64>() -> UInt64 { N }
+
+func main() {
+    print("{} {}", get<7>(), half<10>())
+    print("{} {} {}", i8<0 - 3>(), i8_widened<0 - 128>(), i8<127>())
+    print("{} {} {}", u8<255>(), u8_widened<200>(), u8_slot<9>())
+    print("{} {}", i16<32767>(), u16<65535>())
+    print("{} {}", i32<2147483647>(), u32<4294967295>())
+    print("{} {}", i64<5>(), u64<9>())
+    print("{} {}", i16<LOW>(), i16<0 - 32768>())
+}

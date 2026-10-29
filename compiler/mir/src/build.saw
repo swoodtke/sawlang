@@ -585,7 +585,8 @@ extension MirProgram {
             kind = MirOperandKind.Move
         }
         let at = self.operands.len()
-        try! self.operands.push(MirOperand(kind: kind, place: p, ty: t, const_kind: MirConstKind.Unit, text: -1))
+        try! self.operands.push(MirOperand(kind: kind, place: p, ty: t, const_kind: MirConstKind.Unit, text: -1,
+                                           param: -1))
         at
     }
 
@@ -632,7 +633,8 @@ extension MirProgram {
             kind = MirOperandKind.Copy
         }
         let at = self.operands.len()
-        try! self.operands.push(MirOperand(kind: kind, place: p, ty: t, const_kind: MirConstKind.Unit, text: -1))
+        try! self.operands.push(MirOperand(kind: kind, place: p, ty: t, const_kind: MirConstKind.Unit, text: -1,
+                                           param: -1))
         at
     }
 
@@ -640,7 +642,18 @@ extension MirProgram {
         let id = self.tc.res.intern(text)
         let at = self.operands.len()
         try! self.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: t, const_kind: kind,
-                                           text: id))
+                                           text: id, param: -1))
+        at
+    }
+
+    // Const parameter `param` (the type it denotes in its body) read as a
+    // value of type `t`, spelled `text`: mono replaces it by each instance's
+    // value (`const_argument`).
+    public func op_generic(&var self, text: String, t: Int, param: Int) -> Int {
+        let id = self.tc.res.intern(text)
+        let at = self.operands.len()
+        try! self.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: t,
+                                           const_kind: MirConstKind.Generic, text: id, param: param))
         at
     }
 
@@ -649,7 +662,7 @@ extension MirProgram {
         let info = self.operands[o]
         let at = self.operands.len()
         try! self.operands.push(MirOperand(kind: info.kind, place: info.place, ty: t,
-                                           const_kind: info.const_kind, text: info.text))
+                                           const_kind: info.const_kind, text: info.text, param: info.param))
         at
     }
 

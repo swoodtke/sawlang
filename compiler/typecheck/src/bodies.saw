@@ -1962,8 +1962,14 @@ extension TcProgram {
         }
         if pos == TcConstPosition.Assert {
             let measures = self.layout_measures(e)
-            if measures.len() > 0 {
-                self.defer_layout_assert(e, message, &measures)
+            let named = self.const_parameters_named(e)
+            if measures.len() > 0 || named.len() > 0 {
+                // A part no instance changes faults here and now; the rest
+                // folds at each instance.
+                if measures.len() == 0 {
+                    let _ = self.check_constant_faults(e)
+                }
+                self.defer_assert(e, message, &measures, named.len() > 0)
                 return
             }
         }
@@ -2025,12 +2031,15 @@ extension TcProgram {
         c.spelling >= 0 && self.name_text(c.spelling).equals("sizeof")
     }
 
-    // Defers the `static_assert` whose condition `e` reads layouts through
-    // `measures` (SL:open-questions D40): the layout-assert funnel checks one
-    // over concrete types once typecheck ends, and mono one over a type
-    // parameter, per instantiation.
-    func defer_layout_assert(&var self, e: Int, message: Int, measures: &Vector<Int>) {
-        var generic = false
+    // THE DEFERRED-ASSERT FUNNEL: the `static_assert` whose condition `e`
+    // reads layouts through `measures` (SL:open-questions D40), or names a
+    // const parameter (`names_const`), waits for what typecheck cannot know.
+    // The layout-assert funnel checks one over concrete types once typecheck
+    // ends, and mono one over a type or const parameter, per instantiation.
+    // ENTRY POINTS:
+    //     check_constant_position
+    func defer_assert(&var self, e: Int, message: Int, measures: &Vector<Int>, names_const: Bool) {
+        var generic = names_const
         var k = 0
         while k < measures.len() {
             // Stage 0 workaround (SL:hazards S4): canonical: if self.mentions_param(self.measured_type(measures[k])) {
@@ -4328,6 +4337,49 @@ extension TcProgram {
             return TcFold(fault: TcFault.NotConstant, ty: -1, at: c)
         }
         self.fold_constant(c)
+    }
+
+    // The declaring leaf of each const parameter expression `e` names, in
+    // order, once per mention.
+    public func const_parameters_named(&var self, e: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        self.collect_const_parameters(e, &var out)
+        move out
+    }
+
+    func collect_const_parameters(&var self, e: Int, out: &var Vector<Int>) {
+        if e < 0 {
+            return
+        }
+        if self.is_leaf(e) {
+            let b = self.binding_at(e)
+            if b.kind == ResBindKind.TypeParam && self.const_parameter_type(b.node) >= 0 {
+                try! out.push(b.node)
+            }
+            return
+        }
+        let n = self.child_count(e)
+        var k = 0
+        while k < n {
+            // Stage 0 workaround (SL:hazards S4): canonical: self.collect_const_parameters(self.child(e, k), &var out)
+            let c = self.child(e, k)
+            self.collect_const_parameters(c, &var out)
+            k = k + 1
+        }
+    }
+
+    // The declared type of the const parameter declared at `leaf`, or -1 for
+    // a type parameter.
+    public func const_parameter_type(&var self, leaf: Int) -> Int {
+        let owner = self.param_owner(leaf)
+        let index = self.param_index(leaf)
+        if owner < 0 || index < 0 {
+            return -1
+        }
+        self.ensure_generics(owner)
+        let s = self.sigs[owner]
+        let g = self.generics[s.generic_first + index]
+        if g.is_const { g.const_type } else { -1 }
     }
 
     // Whether expression `e` names a type or const parameter, or has a part

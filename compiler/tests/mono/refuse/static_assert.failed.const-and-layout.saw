@@ -1,0 +1,13 @@
+// refuses: static_assert.failed at 7:19
+// A `static_assert` measuring a type parameter's layout and naming a const
+// parameter folds both at each instantiation: two `Int`s fit 16 bytes, four
+// do not (SL-548).
+
+func fits<T, const N: Int>() -> Int {
+    static_assert(sizeof<T>() * N <= 16, "the slab fits 16 bytes")
+    1
+}
+
+func main() {
+    print(fits<Int, 2>() + fits<Int, 4>())
+}

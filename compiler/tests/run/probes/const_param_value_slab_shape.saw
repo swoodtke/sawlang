@@ -1,0 +1,64 @@
+// probe: stated
+// about: sawos's `Slab<T, const N: Int>` shape: its extension reads `N` in arithmetic, in a plain method's tail and in a comparison inside a `borrows` accessor, instantiated at a static in an `unsafe static var` (SL-548)
+// stage 0: prints the same line, but a program new since v0.18.0 has no Linux record, so the line is stated
+// speeds: -O0 -O2
+// prints: 3 7 0 3
+static MAX_EXTENTS: Int = 4
+static MAX_EVENTS: Int = 3
+
+struct Slot {
+    state: Int
+}
+
+struct Slab<T, const N: Int> {
+    inline: [T; N],
+    ext_slots: [Int; MAX_EXTENTS],
+    ext_count: Int,
+    total: Int,
+}
+
+extension Slab<T, N> {
+    func locate(&self, i: Int) -> (Int, Int) {
+        var rest = i - N
+        var e = 0
+        while e < self.ext_count {
+            let here = self.ext_slots[e]
+            if rest < here {
+                return (e, rest)
+            }
+            rest = rest - here
+            e = e + 1
+        }
+        panic("Slab.locate: index out of range: {} (len {})", i, self.total)
+    }
+
+    func [](&self, i: Int) borrows -> &T {
+        if i < 0 || i >= self.total || i >= N {
+            panic("Slab.[]: index out of range: {} (len {})", i, self.total)
+        }
+        lend self.inline[i]
+    }
+
+    func floor(&self) -> Int { N }
+
+    func donate(&var self, slots: Int) -> Bool {
+        if self.ext_count >= MAX_EXTENTS { return false }
+        self.ext_slots[self.ext_count] = slots
+        self.ext_count = self.ext_count + 1
+        self.total = self.total + slots
+        true
+    }
+}
+
+unsafe static var EVENTS: Slab<Slot, MAX_EVENTS> = Slab(inline: [Slot(state: 7); MAX_EVENTS],
+    ext_slots: [0; MAX_EXTENTS], ext_count: 0, total: MAX_EVENTS)
+
+func report() unsafe {
+    let _ = EVENTS.donate(5)
+    let (e, rest) = EVENTS.locate(6)
+    print("{} {} {} {}", EVENTS.floor(), EVENTS[2].state, e, rest)
+}
+
+func main() {
+    report()
+}

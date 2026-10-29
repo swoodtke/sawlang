@@ -1,0 +1,19 @@
+// refuses: static_assert.failed at 8:19
+// A `static_assert` over a const parameter waits for each instantiation, and
+// folds the parameter to that instance's value: `checked<1>` holds, at `0` it
+// is refused, though the body never reads `N` as a value (SL-548); `never`,
+// false at every value, is never instantiated and never checked.
+
+func checked<const N: Int>() -> Int {
+    static_assert(N > 0, "N must be positive")
+    1
+}
+
+func never<const N: Int>() -> Int {
+    static_assert(N != N, "no value differs from itself")
+    1
+}
+
+func main() {
+    print(checked<1>() + checked<0>())
+}

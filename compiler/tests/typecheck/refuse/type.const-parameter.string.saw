@@ -1,0 +1,11 @@
+// refuses: type.const-parameter at 5:24
+// a `String` const parameter on a function, refused at its declaration though nothing instantiates it (SL-548)
+// message: `Name` is declared `String`
+
+func label<const Name: String>() -> Int {
+    0
+}
+
+func main() {
+    print("unreachable")
+}

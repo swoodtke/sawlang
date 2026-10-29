@@ -102,7 +102,10 @@ public enum MirConstKind {
     case Format,
     // A function named as a value: its spelling is its target's identity.
     case Function,
-    // A const generic parameter, `N`, folded per instantiation.
+    // A const generic parameter, `N`: in a generic body its spelling, with
+    // the parameter in the operand's `param`; in a concrete one its
+    // instance's value, in decimal, which mono writes there. Never an `Int`,
+    // which reads as a source literal (`-N` at `Int.min` must still trap).
     case Generic,
     // A builtin integer bound, `Int.max`, or a source location, `#line`.
     case Builtin
@@ -116,6 +119,10 @@ public struct MirOperand {
     const_kind: MirConstKind
     // A constant's spelling, interned in the program's texts, or -1.
     text: Int
+    // An unresolved `Generic` constant's parameter, as the type it denotes in
+    // its body (`param_type`), which mono substitutes; -1 for every other
+    // operand.
+    param: Int
 }
 
 public enum MirRvalueKind {

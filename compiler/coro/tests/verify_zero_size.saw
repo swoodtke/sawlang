@@ -142,7 +142,7 @@ func into_the_child() {
     let from = coro_frame_place(&var coro, frame_local, end, ty)
     let o = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: ty,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     let first = coro.mono.dp.bc.mir.lists.len()
     try! coro.mono.dp.bc.mir.lists.push(o)
     let rv = coro_use_rvalue(&var coro, ty, first)

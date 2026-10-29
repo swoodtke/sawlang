@@ -854,14 +854,18 @@ const-argument positions fold in `build_const`, which takes no static at all
 
 A `static_assert` whose condition measures a type with `sizeof` or `alignof`
 waits for the type's layout, which only `compiler/target` computes
-(SL:open-questions D40). The funnel defers it (`defer_layout_assert`) with its
+(SL:open-questions D40). One whose condition names a const parameter waits for
+the instance's value the same way, after the parts no instance changes are
+checked for faults (SL-548). The funnel defers both (`defer_assert`) with the
 message and the function whose body holds it. One over concrete types is
 checked by the layout-assert funnel, `asserts_typecheck_program` in
 `compiler/asserts`, which every mode's typecheck goes through, so it is refused
 as `static_assert.failed` at its condition whether its body is reachable or
 not, under `--check` too (`static_assert.failed.layout`,
-`.layout-body`). One that measures a type parameter is checked by mono at each
-instantiation of its function (`compiler/tests/mono/refuse/static_assert.failed`),
+`.layout-body`). One that measures a type parameter or names a const parameter
+is checked by mono at each instantiation of its function, the const parameter
+folding to the instance's value (`compiler/tests/mono/refuse/static_assert.failed`,
+`.const-parameter`, `.const-and-layout`),
 and one in a body never instantiated is never checked. The evaluator leaves
 every deferred one alone (`compiler/tests/eval/golden/layout_asserts`).
 
@@ -1599,6 +1603,7 @@ its fixit.
 | `type.not-a-trait` | a bound, a trait's parent or a conformance that names something not a trait |
 | `type.arity` | more type arguments than parameters, fewer than those with no default, arguments on a type parameter or `Self`, an extension renaming a different number of parameters than its type has |
 | `type.argument-kind` | a type for a const parameter, a value for a type parameter |
+| `type.const-parameter` | a const parameter declared with a type that is no primitive integer type, `Bool`, `String`, a struct, or a distinct alias even of an integer (`Byte`, a user `type Small = UInt16`), whose message names the type the alias stands for; refused at its declaration whether or not anything instantiates it (spec, Const generics; SL-548: bare, `.string`, `.alias`) |
 | `type.bound` | a type argument, or a default, that does not satisfy its parameter's bound, for every kind of type, primitives included (design 109); a member of a bounded extension or conformance on a receiver whose arguments do not meet its bounds, and the builtin `copy()` reaching a type parameter no bound makes `ExplicitCopy` (SL-463) |
 | `type.default` | a parameter with no default after one with a default; a default that names a type parameter |
 | `type.alias-cycle` | type aliases that stand for each other |

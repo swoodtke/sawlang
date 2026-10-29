@@ -434,10 +434,22 @@ extension TcProgram {
         TcFold(bits: if conjunction { 1 } else { 0 }, ty: bt)
     }
 
-    // A name: a module static, by its initializer.
+    // A name: a module static, by its initializer; a const parameter, by the
+    // value mono gives it at the instance being checked, and no constant
+    // before one.
     func fold_name(&var self, e: Int, chain: &var Vector<Int>) -> TcFold {
         let leaf = self.res.first_leaf(e)
         let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.TypeParam {
+            var k = 0
+            while k < self.instance_params.len() {
+                if self.instance_params[k] == b.node {
+                    return TcFold(bits: self.instance_values[k], ty: self.instance_types[k])
+                }
+                k = k + 1
+            }
+            return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
+        }
         if b.kind != ResBindKind.Decl || b.decl < 0 {
             return TcFold(fault: TcFault.NotConstant, ty: -1, at: e)
         }

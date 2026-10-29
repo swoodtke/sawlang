@@ -1,0 +1,16 @@
+// probe: panics
+// about: `-N` negates the instance's value at run time, so at `Int.min` it is the overflow panic, never a silently wrapped negated literal (SL-548)
+// stage 0: crashes on the static argument ("const generic parameter `N` has no value in this instantiation"); with the argument written as const arithmetic it panics the same way
+// speeds: -O0 -O2
+// prints: -5
+// panics: integer overflow
+static LOW: Int = Int.min
+
+func neg<const N: Int>() -> Int {
+    -N
+}
+
+func main() {
+    print("{}", neg<5>())
+    print("{}", neg<LOW>())
+}

@@ -2167,7 +2167,12 @@ extension MirProgram {
         if b.kind == ResBindKind.TypeParam {
             let m = self.tc.node_module(e)
             let text = self.tc.text(m, leaf)
-            return MirVal(operand: self.op_const(MirConstKind.Generic, text, t))
+            let param = self.tc.param_type(b.node)
+            if param < 0 {
+                self.missing(e, "a const parameter read as a value names no parameter")
+                return MirVal(operand: self.dead_operand(t))
+            }
+            return MirVal(operand: self.op_generic(text, t, param))
         }
         self.not_yet(e, "this name")
         MirVal(operand: self.dead_operand(t))

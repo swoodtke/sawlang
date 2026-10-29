@@ -802,6 +802,7 @@ extension TcProgram {
                 }
             } else if g.is_const && res_is_type_alt(self.node_alt(c)) {
                 g.const_type = self.build_type(c)
+                self.refuse_const_parameter_type(&var g, c)
             } else if res_is_type_alt(self.node_alt(c)) {
                 let _ = self.build_type(c)
             }
@@ -835,6 +836,58 @@ extension TcProgram {
                 }
             }
         }
+    }
+
+    // A const parameter carries a primitive integer of any width, and nothing
+    // else, so a value of its type is a constant every position can fold
+    // (spec, Const generics). A distinct alias (`Byte`) is a distinct type,
+    // not a width, so it is refused too, though the type it stands for is the
+    // integer. Refused at the declaration, so no body or argument meets it.
+    func refuse_const_parameter_type(&var self, g: &var TcGeneric, c: Int) {
+        let t = g.const_type
+        if t < 0 {
+            return
+        }
+        let info = self.types.ty(t)
+        if info.kind == TcKind.Error {
+            return
+        }
+        let d = if info.kind == TcKind.Nominal { info.decl } else { -1 }
+        let k = self.known
+        let integer = d >= 0 && (d == k.int || d == k.uint || d == k.int8 || d == k.int16 || d == k.int32 || d == k.int64 || d == k.uint8 || d == k.uint16 || d == k.uint32 || d == k.uint64)
+        let alias = self.written_alias(c)
+        if integer && alias < 0 {
+            return
+        }
+        let m = self.current
+        var msg = StringBuilder()
+        try! msg.append("a const parameter is `Int` or `UInt` or another integer type, and `")
+        try! msg.append(self.text(m, g.leaf))
+        try! msg.append("` is declared `")
+        try! msg.append(self.text(m, c))
+        try! msg.append("`")
+        if alias >= 0 && integer {
+            try! msg.append(", a distinct alias, which is a type of its own and no integer type: declare it `")
+            try! msg.append(self.name_text(self.res.decls[d].name))
+            try! msg.append("`, the type the alias stands for")
+        }
+        self.refuse(c, "type.const-parameter", msg.build())
+        g.const_type = self.error_type
+    }
+
+    // The type alias type node `c` names, bare or module-qualified, or -1 for
+    // any other type.
+    func written_alias(&self, c: Int) -> Int {
+        if not self.has_alt(c, Alt.Type_Named) || self.child_count(c) != 1 {
+            return -1
+        }
+        let path = self.child(c, 0)
+        let leaf = self.child(path, self.child_count(path) - 1)
+        let b = self.binding_at(leaf)
+        if b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Alias {
+            return b.decl
+        }
+        -1
     }
 
     // `NoMove` licenses a generic body nothing, so it is no bound: it is

@@ -1,0 +1,14 @@
+// probe: stated
+// about: a parameter's default value may name a const parameter, which is the calling instance's value (SL-548)
+// stage 0: refuses the default ("undefined variable `N`")
+// speeds: -O0 -O2
+// prints: 13 11
+// prints: 107
+func pad<const N: Int>(x: Int, by: Int = N) -> Int {
+    x + by
+}
+
+func main() {
+    print("{} {}", pad<3>(10), pad<3>(10, by: 1))
+    print("{}", pad<7>(100))
+}

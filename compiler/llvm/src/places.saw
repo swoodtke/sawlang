@@ -459,6 +459,14 @@ extension LlEmitter {
             try! out.append(ll_fit_signed(ll_integer_value(text), l.bits))
             return out.build()
         }
+        // A const parameter's value, which mono wrote at its declared type
+        // (`const_argument`); one it left unresolved is mono's broken
+        // invariant, already reported there.
+        if op.const_kind == MirConstKind.Generic && l.kind == TargetKind.Int && op.param < 0 {
+            var out = StringBuilder()
+            try! out.append(ll_fit_signed(ll_integer_value(text), l.bits))
+            return out.build()
+        }
         if op.const_kind == MirConstKind.Float && l.kind == TargetKind.Float {
             // Typecheck refuses an unrepresentable literal (`float.unrepresentable`), so saturated bits never reach here.
             let v = tc_float_bits(&text)

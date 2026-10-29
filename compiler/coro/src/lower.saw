@@ -463,7 +463,7 @@ func coro_index_load(coro: &var CoroProgram, f: Int, frame_local: Int, resident:
     let from = coro_frame_place(&var coro, frame_local, offset, ty)
     let o = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: ty,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     let rv = coro_operand_rvalue(&var coro, ty, o)
     let place = coro_whole_place(&var coro, temp, ty)
     let s = coro.mono.dp.bc.mir.stmts.len()
@@ -1202,7 +1202,7 @@ func coro_token(coro: &var CoroProgram, cx: &CoroContext, f: Int, b: Int, ctx: I
     let from = coro_context_place(&var coro, ctx, cx.ty, cx.park, cx.park_ty, false)
     let o = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: from, ty: cx.park_ty,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     let rv = coro.mono.dp.bc.mir.rv_one(MirRvalueKind.Cast, word, "", o)
     let place = coro_whole_place(&var coro, token, word)
     coro_append_stmt(&var coro, f, b, place, rv, node)
@@ -1247,7 +1247,7 @@ func coro_int_operand(coro: &var CoroProgram, ty: Int, value: Int) -> Int {
     let text = coro.mono.dp.bc.mir.tc.res.intern(spelled.build())
     let at = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Const, place: -1, ty: ty,
-                                                      const_kind: MirConstKind.Int, text: text))
+                                                      const_kind: MirConstKind.Int, text: text, param: -1))
     at
 }
 
@@ -1272,7 +1272,7 @@ func coro_whole_operand(coro: &var CoroProgram, l: Int, ty: Int, moved: Bool) ->
     let kind = if moved { MirOperandKind.Move } else { MirOperandKind.Copy }
     let at = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: kind, place: place, ty: ty,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     at
 }
 
@@ -1387,7 +1387,7 @@ func coro_lower_drive(coro: &var CoroProgram, f: Int, frame_local: Int, b: Int, 
         let from = coro_frame_place(&var coro, frame_local, slot + off, ty)
         let o = coro.mono.dp.bc.mir.operands.len()
         try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Move, place: from, ty: ty,
-                                                          const_kind: MirConstKind.Unit, text: -1))
+                                                          const_kind: MirConstKind.Unit, text: -1, param: -1))
         let first = coro.mono.dp.bc.mir.lists.len()
         try! coro.mono.dp.bc.mir.lists.push(o)
         let rv = coro_use_rvalue(&var coro, ty, first)
@@ -1439,7 +1439,7 @@ func coro_lower_conditional_result(coro: &var CoroProgram, f: Int, b: Int, call:
     try! coro.mono.dp.bc.mir.places.push(MirPlace(local: held, static_decl: -1, first: first, count: 1, ty: lent))
     let o = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Move, place: payload, ty: lent,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     let taken = coro_operand_rvalue(&var coro, lent, o)
     let present = coro_add_goto_block(&var coro, f, call.next, call.node)
     coro_append_stmt(&var coro, f, present, call.dest, taken, call.node)
@@ -1680,7 +1680,7 @@ func coro_lower_cancel_reads(coro: &var CoroProgram, cx: &CoroContext, f: Int, c
             let word = coro_context_place_to(&var coro, ctx, cx.ty, cx.cancel, cx.cancel_ty, truth)
             let o = coro.mono.dp.bc.mir.operands.len()
             try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: word, ty: truth,
-                                                              const_kind: MirConstKind.Unit, text: -1))
+                                                              const_kind: MirConstKind.Unit, text: -1, param: -1))
             let rv = coro_operand_rvalue(&var coro, truth, o)
             coro_append_stmt(&var coro, f, here, call.dest, rv, call.node)
         }
@@ -1701,7 +1701,7 @@ func coro_slot_operand(coro: &var CoroProgram, frame_local: Int, offset: Int, ty
     let place = coro_frame_place(&var coro, frame_local, offset, ty)
     let at = coro.mono.dp.bc.mir.operands.len()
     try! coro.mono.dp.bc.mir.operands.push(MirOperand(kind: MirOperandKind.Copy, place: place, ty: ty,
-                                                      const_kind: MirConstKind.Unit, text: -1))
+                                                      const_kind: MirConstKind.Unit, text: -1, param: -1))
     at
 }
 

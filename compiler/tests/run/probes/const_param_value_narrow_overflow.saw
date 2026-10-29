@@ -1,0 +1,14 @@
+// probe: panics
+// about: arithmetic over a `UInt8` const parameter runs at `UInt8`, and its overflow is the run-time panic, since the parameter is constant only per instance (SL-548)
+// stage 0: refuses a `UInt8` const parameter, which SL-548 c2 rules legal
+// speeds: -O0 -O2
+// prints: 255
+// panics: integer overflow
+func next<const N: UInt8>() -> UInt8 {
+    N + 1
+}
+
+func main() {
+    print("{}", next<254>())
+    print("{}", next<255>())
+}

@@ -1,0 +1,19 @@
+// refuses: type.const-parameter at 7:26
+// a distinct alias as a const parameter's type: `Byte` is a type of its own,
+// not a width, though it stands for `UInt8`, and a user alias is refused the
+// same way (SL-548)
+// message: `B` is declared `Byte`, a distinct alias, which is a type of its own and no integer type: declare it `UInt8`
+
+func byte_value<const B: Byte>() -> Int {
+    0
+}
+
+type Small = UInt16
+
+func small_value<const S: Small>() -> Int {
+    0
+}
+
+func main() {
+    print("unreachable")
+}

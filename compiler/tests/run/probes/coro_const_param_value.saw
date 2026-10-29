@@ -1,0 +1,26 @@
+// probe: stated
+// about: a suspending generic reads its const parameter on both sides of a suspension, driven and spawned into a group, as the instance's value (SL-548)
+// stage 0: crashes on the driven body ("const generic parameter `N` has no value in this instantiation") and refuses the spawned one ("undefined variable `N`")
+// speeds: -O0 -O2
+// prints: 33 44
+// prints: 10 12
+import std.task.*
+
+func waited<const N: Int>() -> Int {
+    let before = N
+    yield_now()
+    before * 10 + N
+}
+
+func doubled<const N: Int>() -> Int {
+    yield_now()
+    N * 2
+}
+
+func main() {
+    print("{} {}", waited<3>(), waited<4>())
+    var group = TaskGroup()
+    let a = group.spawn(doubled<5>())
+    let b = group.spawn(doubled<6>())
+    print("{} {}", a.join(), b.join())
+}

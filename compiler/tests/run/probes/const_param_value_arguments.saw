@@ -1,0 +1,44 @@
+// probe: stated
+// about: a const parameter passed on, as another generic's const argument and as a value argument, and a parameter whose argument is a static or a default, each read as its instance's value (SL-548)
+// stage 0: crashes on the static argument ("const generic parameter `N` has no value in this instantiation")
+// speeds: -O0 -O2
+// prints: 22 77
+// prints: 6 15
+// prints: 12
+// prints: 7 9
+static SLOTS: Int = 6
+
+func inner<const M: Int>() -> Int {
+    M * 10
+}
+
+func outer<const N: Int>() -> Int {
+    inner<N>() + N
+}
+
+func twice(n: Int) -> Int {
+    n * 2
+}
+
+func ident<T>(x: T) -> T {
+    x
+}
+
+func passed<const N: Int>() -> Int {
+    twice(N) + ident(N)
+}
+
+func doubled<const N: Int>() -> Int {
+    N * 2
+}
+
+func diff<const A: Int, const B: Int = 1>() -> Int {
+    A - B
+}
+
+func main() {
+    print("{} {}", outer<2>(), outer<7>())
+    print("{} {}", passed<2>(), passed<5>())
+    print("{}", doubled<SLOTS>())
+    print("{} {}", diff<10, 3>(), diff<10>())
+}

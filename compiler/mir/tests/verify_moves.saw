@@ -140,7 +140,7 @@ func inject_copy_through_reference(p: &var MirProgram, m: Int) -> Int {
             let ty = p.places[lent].ty
             if ty == p.operands[p.lists[slot]].ty {
                 try! p.operands.push(MirOperand(kind: MirOperandKind.Copy, place: lent, ty: ty,
-                                                const_kind: MirConstKind.Unit, text: -1))
+                                                const_kind: MirConstKind.Unit, text: -1, param: -1))
                 let o = p.operands.len() - 1
                 p.lists[slot] = o
                 return o

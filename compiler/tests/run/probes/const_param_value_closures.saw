@@ -1,0 +1,24 @@
+// probe: stated
+// about: a const parameter read in a closure body, one passed straight to a call and one escaping its generic, is the instance's value (SL-548)
+// stage 0: prints the same lines, but a program new since v0.18.0 has no Linux record, so the lines are stated
+// speeds: -O0 -O2
+// prints: 6 15
+// prints: 104 109
+func run(f: () -> Int) -> Int {
+    f()
+}
+
+func boxed<const N: Int>() -> Int {
+    run({ N * 3 })
+}
+
+func maker<const N: Int>() -> () -> Int {
+    return { N + 100 }
+}
+
+func main() {
+    print("{} {}", boxed<2>(), boxed<5>())
+    let f = maker<4>()
+    let g = maker<9>()
+    print("{} {}", f(), g())
+}

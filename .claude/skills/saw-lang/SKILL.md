@@ -2295,9 +2295,20 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   ```
   The value is part of the type identity and the monomorphization key, so
   `FixedBuf<16>` and `FixedBuf<256>` are two types with two layouts and neither
-  flows into the other. v1 scope: `Int`/`UInt` values only; usable as a `[T; N]`
-  length, a `static_assert` operand, a `sizeof` operand, a repeat count, or a
-  plain Int; const ARITHMETIC in instantiation position (`FixedBuf<2 * 128>` IS
+  flows into the other. The value's type is ANY INTEGER WIDTH (`Int`, `UInt`,
+  `Int8`…`UInt64`; SL-548 c2), and `Bool`/`String`/a struct is refused at the
+  declaration (`type.const-parameter`), as is a distinct alias like `Byte`
+  (write `UInt8`); usable as a `[T; N]`
+  length, a `static_assert` operand (checked at EACH instance, so
+  `static_assert(N > 0, …)` refuses `f<0>()`; sawc passed every one unread
+  before SL-548), a `sizeof` operand, a repeat count, a
+  parameter's default (`by: Int = N`), or a plain value of its declared type
+  anywhere in the body — a closure, a method, a suspending body included. It
+  is its instance's value at run time: a `const N: UInt8` adds at `UInt8` and
+  overflows by the ordinary panic, `-N` at `Int.min` panics, and it never
+  adopts another width (`let b: UInt8 = N` over `const N: Int` wants `as`).
+  sawc built none of those value reads before SL-548 (`backend.not-yet: the
+  constant N`), so treat them as SUSPECT in older builds; const ARITHMETIC in instantiation position (`FixedBuf<2 * 128>` IS
   `FixedBuf<256>` — folded before mangling), and a module `static` counts as a
   constant there too (DF-172j: `FixedBuf<CAP>` IS `FixedBuf<16>` for a
   `static CAP: Int = 16`). sawc takes it at every position (SL-920): an
@@ -2316,8 +2327,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   print(width([1, 2, 3, 4]))    // 4
   ```
   Wrong-kind arguments are clean errors naming the parameter (`FixedBuf<Int>` →
-  "takes a VALUE"; `Pair<4>` → "takes a TYPE"). NOT in v1: const params of user
-  types, `where N > 0` (use `static_assert(N > 0, ...)` in the body), variadics.
+  "takes a VALUE"; `Pair<4>` → "takes a TYPE"). NOT in v1: a `UInt` argument at
+  or above 2^63 (SL-931), `where N > 0` (use `static_assert(N > 0, ...)` in the body), variadics.
 - **The fixed-buffer idiom (std.fixedbuf).** For formatting or scratch bytes
   with no allocator, reach for the std types rather than rolling a buffer:
   ```saw-pending SL-596
