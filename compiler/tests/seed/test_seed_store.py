@@ -257,6 +257,15 @@ def path_free_cases(case, host, triple):
                counts.get("seed files path-free") == 2 and len(failures) == 1
                and "%s/runtime/common/value.ll.xz holds an absolute path: /Users/a/b" % triple in failures[0],
                repr(failures))
+    # The driver spells `/bin/sh` (its tool runner), so the IR holding it is
+    # a function of the source; a path no source spells is still refused.
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True,
+                          check=True).stdout.strip()
+    spelled = b'c"/bin/sh\\00" c"/Users/a/b\\00"'
+    case.check("a path the sources spell is source-determined, and only that one",
+               seed.absolute_paths(spelled) == ["/bin/sh", "/Users/a/b"]
+               and seed.absolute_paths(spelled, head) == ["/Users/a/b"],
+               repr((seed.absolute_paths(spelled), seed.absolute_paths(spelled, head))))
 
 
 def publish_cases(case, host, triple):

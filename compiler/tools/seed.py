@@ -22,8 +22,9 @@ shim change that alters a seam the pinned runtime IR calls owes a bump.
 
 - **every target**: each target of `runtime_table.HOSTS` has a seed, holding
   exactly the files its pinned tree's sources call for;
-- **path-free**: no seed file's `.ll` holds an absolute path, so the IR is a
-  function of the source and the target alone, whatever machine wrote it;
+- **path-free**: no seed file's `.ll` holds an absolute path the pinned
+  sources don't spell themselves (`/bin/sh`, say), so the IR is a function of
+  the source and the target alone, whatever machine wrote it;
 - **self-reproduction**: the seed `build.py` builds from the manifest's IR
   (the host's, or `--seed`'s) emits, for the pinned commit's tree, every
   target's IR byte for byte.
@@ -159,16 +160,28 @@ def seed_ir(entry):
         return fh.read()
 
 
-def absolute_paths(text):
-    """The absolute paths in the `.ll` `text`, at most five, each once."""
+def absolute_paths(text, commit=None):
+    """The absolute paths in the `.ll` `text`, at most five, each once. With
+    `commit`, a path that commit's own sources spell is left out: the IR holds
+    it because the source does, so it is still a function of the source."""
     found = []
     for m in ABSOLUTE_PATH.finditer(text):
         path = m.group(0).decode("utf-8", "replace")
-        if path not in found:
-            found.append(path)
+        if path in found or (commit is not None and spelled_in_source(path, commit)):
+            continue
+        found.append(path)
         if len(found) == 5:
             break
     return found
+
+
+def spelled_in_source(path, commit):
+    """Whether a `.saw` file the seed is emitted from spells `path` at
+    `commit`."""
+    r = subprocess.run(["git", "grep", "-q", "-F", "-e", path, commit, "--",
+                        "compiler/*.saw", "std/*.saw", "runtime/*.saw"],
+                       cwd=REPO, capture_output=True)
+    return r.returncode == 0
 
 
 # The detector's own cases, run before it judges the seed: (IR text, whether
@@ -187,10 +200,11 @@ def check_path_free(failures, counts):
         if bool(absolute_paths(text)) != absolute:
             failures.append("seed: the absolute-path detector %s %r" % ("misses" if absolute else "flags", text))
         counts["seed detector cases"] = counts.get("seed detector cases", 0) + 1
+    pin = read_pin()
     for triple in TARGETS:
         for entry in build.seed_entries(triple):
             try:
-                paths = absolute_paths(seed_ir(entry))
+                paths = absolute_paths(seed_ir(entry), pin)
             except build.SeedError as e:
                 failures.append("seed: %s" % e)
                 continue
@@ -324,7 +338,7 @@ def emit(targets, compiler=None):
             emitted, why = emit_ir(compiler, REPO, triple, name)
             if emitted is None:
                 return "%s does not emit %s for %s: %s" % (rel(compiler), name, triple, why)
-            paths = absolute_paths(emitted)
+            paths = absolute_paths(emitted, head)
             if paths:
                 return "%s's .ll for %s holds an absolute path: %s" % (name, triple, ", ".join(paths))
             path = os.path.join(partial, name)
