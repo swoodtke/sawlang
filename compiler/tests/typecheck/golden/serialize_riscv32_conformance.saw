@@ -1,0 +1,35 @@
+// flags: --std-root std --freestanding --target riscv32-unknown-none-elf
+// The library's integer conformances and a hand-written one check clean for a
+// 32-bit target, where `Int` is narrower than the wire's 64-bit data model:
+// `Int` and `UInt` read through the range checks, `Int64` and `UInt64` whole.
+import std.serialize.{Decoder, Encoder}
+import std.json.{DecodeError, EncodeError}
+
+struct Sample {
+    id: UInt
+    offset: Int64
+    total: UInt64
+}
+
+extension Sample: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(3)
+        try self.id.serialize(to: &var to)
+        try to.write_int(self.offset)
+        try to.write_uint(self.total)
+        return
+    }
+}
+
+extension Sample: Deserialize {
+    static func deserialize(from: &var any Decoder) sync -> Result<Sample, DecodeError> {
+        try from.expect_array(3)
+        let id = try UInt.deserialize(from: &var from)
+        let offset = try Int64.deserialize(from: &var from)
+        let total = try UInt64.deserialize(from: &var from)
+        return Sample(id: id, offset: offset, total: total)
+    }
+}
+
+func main() {
+}

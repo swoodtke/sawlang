@@ -14392,16 +14392,17 @@ need one of the three [import forms](#imports).
 | `std.duration` | `Duration` | yes |
 | `std.time` | `Instant`, `unix_timestamp` | no |
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
-| `std.serde` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | yes |
+| `std.serialize` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | `Serialize`, `Deserialize` |
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
 | `std.json` | `JsonEncoder`, `JsonDecoder`, `JsonValue`, `encode` | no |
 | `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
-The `std.serde`, `std.cbor` and `std.json` rows describe the target surface.
-`std/serde.saw` and `std/cbor.saw` do not exist (SL-596). Of the `std.json`
-row only `JsonValue` is declared today, and `std/json.saw` also declares
-`EncodeError`, `DecodeError` and their fault enums until `std.serde` holds
-them. `JsonEncoder`, `JsonDecoder` and `encode` are pending SL-596.
+The `std.serialize`, `std.cbor` and `std.json` rows describe the target surface.
+`std/serialize.saw` declares the four traits and the library's conformances;
+`std/cbor.saw` does not exist (SL-596). Of the `std.json` row only `JsonValue`
+is declared today, and `std/json.saw` also declares `EncodeError`,
+`DecodeError` and their fault enums until `std.serialize` holds them.
+`JsonEncoder`, `JsonDecoder` and `encode` are pending SL-833.
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 `async`/`await`. The NAMESPACE is the engine.

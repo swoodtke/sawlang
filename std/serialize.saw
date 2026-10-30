@@ -1,0 +1,368 @@
+//! The serialization vocabulary: `Serialize`, `Deserialize`, and the
+//! `Encoder`/`Decoder` seam they travel over.
+//!
+//! The pair is format-agnostic. A value writes itself into an `any Encoder`
+//! and reads itself back out of an `any Decoder`; the concrete format decides
+//! what the bytes are. `std.json` is a format in the tree.
+//!
+//! A struct is written as one array of its stored fields in declaration
+//! order, so there are no field names on the wire. Conformances are written
+//! by hand today; the `@synthesize` derivation of that shape is not built yet.
+//!
+//! Only `Serialize` and `Deserialize` are prelude-visible. `Encoder` and
+//! `Decoder` need `import std.serialize`, which keeps those names free for
+//! user code. The error types are `std.json`'s until they move here. Nothing
+//! here allocates, so a kernel can serialize into its own buffer.
+
+import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+
+// =============================================================================
+// The seam
+// =============================================================================
+
+/// The sink a `Serialize` value writes itself into.
+///
+/// The methods name a data model, not a byte layout. An array or map is
+/// opened with its item count and followed by exactly that many items; a byte
+/// string is opened with `begin_bytes` and followed by exactly that many
+/// `write_byte` calls. Miscounting is `CountMismatch`.
+public trait Encoder {
+    /// Writes an unsigned integer. The data model is the wire's 64-bit range,
+    /// so every unsigned type widens to it without loss.
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError>
+
+    /// Writes a signed integer, in the same 64-bit range.
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError>
+
+    /// Writes a boolean.
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError>
+
+    /// Writes the null item, which is what an absent Optional becomes.
+    func write_null(&var self) sync -> Result<Void, EncodeError>
+
+    /// Writes a UTF-8 text string.
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError>
+
+    /// Opens a byte string of exactly `count` bytes.
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError>
+
+    /// Writes one byte of an open byte string.
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError>
+
+    /// Opens an array of exactly `count` items.
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError>
+
+    /// Opens a map of exactly `count` key/value pairs.
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError>
+}
+
+/// The source a `Deserialize` value reads itself out of.
+///
+/// Every method reports malformed input as `Err(DecodeError)` carrying the
+/// byte offset it stopped at.
+public trait Decoder {
+    /// Reads an unsigned integer in the wire's 64-bit range.
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError>
+
+    /// Reads a signed integer in the wire's 64-bit range.
+    func read_int(&var self) sync -> Result<Int64, DecodeError>
+
+    /// Reads a boolean.
+    func read_bool(&var self) sync -> Result<Bool, DecodeError>
+
+    /// Reads the null item.
+    func read_null(&var self) sync -> Result<Void, DecodeError>
+
+    /// Reads a UTF-8 text string.
+    func read_text(&var self) sync -> Result<String, DecodeError>
+
+    /// Opens a byte string, returning how many bytes follow.
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError>
+
+    /// Reads one byte of an open byte string.
+    func read_byte(&var self) sync -> Result<Byte, DecodeError>
+
+    /// Opens an array, returning how many items follow.
+    func begin_array(&var self) sync -> Result<Int, DecodeError>
+
+    /// Opens a map, returning how many key/value pairs follow.
+    func begin_map(&var self) sync -> Result<Int, DecodeError>
+
+    /// Returns whether the next item is null, consuming nothing.
+    func at_null(&var self) sync -> Result<Bool, DecodeError>
+
+    /// Returns the byte offset reached so far.
+    func offset(&self) sync -> Int
+
+    /// Consumes the next item whatever it is, including its contents.
+    func skip(&var self) sync -> Result<Void, DecodeError>
+
+    /// Opens an array and checks it holds exactly `count` items.
+    func expect_array(&var self, count: Int) sync -> Result<Void, DecodeError> {
+        let n = try self.begin_array()
+        if n != count {
+            return DecodeError(offset: self.offset(), fault: DecodeFault.CountMismatch)
+        }
+        return
+    }
+
+    /// Reads a signed integer and checks it lies between `min` and `max`.
+    ///
+    /// A narrowing cast would panic on an out-of-range value, and malformed
+    /// input never panics, so the range is checked first. A value outside it is
+    /// `OutOfRange`, which is also how a platform `Int` narrower than the wire
+    /// refuses a wide value.
+    func read_int_range(&var self, min: Int64, max: Int64) sync -> Result<Int64, DecodeError> {
+        let v = try self.read_int()
+        if v < min || v > max {
+            return DecodeError(offset: self.offset(), fault: DecodeFault.OutOfRange)
+        }
+        return v
+    }
+
+    /// Reads an unsigned integer and checks it does not exceed `max`.
+    func read_uint_max(&var self, max: UInt64) sync -> Result<UInt64, DecodeError> {
+        let v = try self.read_uint()
+        if v > max {
+            return DecodeError(offset: self.offset(), fault: DecodeFault.OutOfRange)
+        }
+        return v
+    }
+}
+
+// =============================================================================
+// The pair
+// =============================================================================
+
+/// A value that can write itself into any `Encoder`.
+///
+/// A struct writes `begin_array` with its field count, then each field in
+/// declaration order.
+public trait Serialize {
+    /// Writes `self` into `to`.
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError>
+}
+
+/// A value that can read itself back out of any `Decoder`.
+///
+/// `deserialize` is static, so it is called on the type:
+/// `Endpoint.deserialize(from: &var decoder)`. That makes `Deserialize` a
+/// generic bound, never an existential.
+public trait Deserialize {
+    /// Reads a value of this type out of `from`.
+    static func deserialize(from: &var any Decoder) sync -> Result<Self, DecodeError>
+}
+
+// =============================================================================
+// The library's own conformances
+// =============================================================================
+
+// A signed integer is written with `write_int` and an unsigned one with
+// `write_uint`, whatever its width, both in the wire's 64-bit range. Every
+// conversion below is a widening or follows a range check, so none can panic.
+// A type read narrower than the wire (`Int8`..`Int32`, and `Int`/`UInt` on a
+// 32-bit target) goes through the range checks and answers `OutOfRange`.
+
+extension Int: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_int(self as Int64)
+    }
+}
+
+extension Int: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Int, DecodeError> {
+        let v = try from.read_int_range(min: Int.min as Int64, max: Int.max as Int64)
+        return v as Int
+    }
+}
+
+extension Int8: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_int(self as Int64)
+    }
+}
+
+extension Int8: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Int8, DecodeError> {
+        let v = try from.read_int_range(min: Int8.min as Int64, max: Int8.max as Int64)
+        return v as Int8
+    }
+}
+
+extension Int16: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_int(self as Int64)
+    }
+}
+
+extension Int16: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Int16, DecodeError> {
+        let v = try from.read_int_range(min: Int16.min as Int64, max: Int16.max as Int64)
+        return v as Int16
+    }
+}
+
+extension Int32: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_int(self as Int64)
+    }
+}
+
+extension Int32: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Int32, DecodeError> {
+        let v = try from.read_int_range(min: Int32.min as Int64, max: Int32.max as Int64)
+        return v as Int32
+    }
+}
+
+extension Int64: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_int(self)
+    }
+}
+
+extension Int64: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Int64, DecodeError> {
+        from.read_int()
+    }
+}
+
+extension UInt: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_uint(self as UInt64)
+    }
+}
+
+extension UInt: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<UInt, DecodeError> {
+        let v = try from.read_uint_max(max: UInt.max as UInt64)
+        return v as UInt
+    }
+}
+
+extension UInt8: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_uint(self as UInt64)
+    }
+}
+
+extension UInt8: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<UInt8, DecodeError> {
+        let v = try from.read_uint_max(max: UInt8.max as UInt64)
+        return v as UInt8
+    }
+}
+
+extension UInt16: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_uint(self as UInt64)
+    }
+}
+
+extension UInt16: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<UInt16, DecodeError> {
+        let v = try from.read_uint_max(max: UInt16.max as UInt64)
+        return v as UInt16
+    }
+}
+
+extension UInt32: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_uint(self as UInt64)
+    }
+}
+
+extension UInt32: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<UInt32, DecodeError> {
+        let v = try from.read_uint_max(max: UInt32.max as UInt64)
+        return v as UInt32
+    }
+}
+
+extension UInt64: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_uint(self)
+    }
+}
+
+extension UInt64: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<UInt64, DecodeError> {
+        from.read_uint()
+    }
+}
+
+extension Bool: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_bool(self)
+    }
+}
+
+extension Bool: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Bool, DecodeError> {
+        from.read_bool()
+    }
+}
+
+extension String: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        to.write_text(self)
+    }
+}
+
+extension String: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<String, DecodeError> {
+        from.read_text()
+    }
+}
+
+// An absent Optional is the null item.
+extension Optional<T: Serialize>: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        match self {
+            case Some(borrow let v) -> v.serialize(to: &var to),
+            case None -> to.write_null()
+        }
+    }
+}
+
+extension Optional<T: Deserialize>: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<T?, DecodeError> {
+        if try from.at_null() {
+            try from.read_null()
+            return None
+        }
+        let v = try T.deserialize(from: &var from)
+        return move v
+    }
+}
+
+// A vector is an array of its items.
+extension Vector<T: Serialize, A: Allocator = GlobalAllocator>: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        let n = self.len()
+        try to.begin_array(n)
+        var i = 0
+        while i < n {
+            try borrow self[i].serialize(to: &var to)
+            i = i + 1
+        }
+        return
+    }
+}
+
+extension Vector<T: Deserialize, A: Allocator = GlobalAllocator>: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<Vector<T, A>, DecodeError> {
+        let n = try from.begin_array()
+        var out = Vector<T, A>()
+        var i = 0
+        while i < n {
+            let v = try T.deserialize(from: &var from)
+            match out.push(move v) {
+                case Ok(_) -> {},
+                case Err(_) -> { return DecodeError(offset: from.offset(), fault: DecodeFault.Alloc) }
+            }
+            i = i + 1
+        }
+        return move out
+    }
+}

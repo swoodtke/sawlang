@@ -1,0 +1,31 @@
+// flags: --std-root std --freestanding
+// A hand-written Serialize and Deserialize check clean under the freestanding
+// profile: every signature is `sync` and nothing in them needs the hosted std.
+import std.serialize.{Decoder, Encoder}
+import std.json.{DecodeError, EncodeError}
+
+struct Reading {
+    channel: Int
+    value: Int
+}
+
+extension Reading: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(2)
+        try to.write_int(self.channel as Int64)
+        try to.write_int(self.value as Int64)
+        return
+    }
+}
+
+extension Reading: Deserialize {
+    static func deserialize(from: &var any Decoder) sync -> Result<Reading, DecodeError> {
+        try from.expect_array(2)
+        let channel = try Int.deserialize(from: &var from)
+        let value = try Int.deserialize(from: &var from)
+        return Reading(channel: channel, value: value)
+    }
+}
+
+func main() {
+}

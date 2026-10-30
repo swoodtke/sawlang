@@ -1,0 +1,26 @@
+// probe: stated
+// about: a user `Encoder` beside `import std.serialize`, whose hand-written Serialize names the std trait through the qualifier (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// prints: level 3
+import std.serialize
+import std.json.{EncodeError}
+
+struct Encoder {
+    level: Int
+}
+
+struct Point {
+    x: Int
+}
+
+extension Point: Serialize {
+    func serialize(&self, to: &var any serialize.Encoder) sync -> Result<Void, EncodeError> {
+        to.write_int(self.x as Int64)
+    }
+}
+
+func main() {
+    let e = Encoder(level: 3)
+    print("level {}", e.level)
+}

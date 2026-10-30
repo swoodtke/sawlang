@@ -1,0 +1,320 @@
+// probe: stated
+// about: the std Serialize and Deserialize conformances of every integer width, Bool, String, Optional and Vector, in the 64-bit wire range with narrow integers read through the range checks (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// prints: Int64.max: i9223372036854775807 -> i9223372036854775807
+// prints: Int64.min: i-9223372036854775808 -> i-9223372036854775808
+// prints: UInt64.max: u18446744073709551615 -> u18446744073709551615
+// prints: Int.min: i-9223372036854775808 -> i-9223372036854775808
+// prints: UInt.max: u18446744073709551615 -> u18446744073709551615
+// prints: Int32.min: i-2147483648 -> i-2147483648
+// prints: UInt32.max: u4294967295 -> u4294967295
+// prints: a2 i1 i-2
+// prints: tx
+// prints: n
+// prints: i-5
+// prints: u200
+// prints: b1
+// prints: u18446744073709551615
+// prints: back len 3 last 6
+// prints: opt none
+// prints: opt x
+// prints: UInt64 18446744073709551615
+// prints: Int64 -9223372036854775808
+// prints: Bool false
+// prints: Int: decode error at byte 0: the item is not of the expected type
+// prints: Int8 127: accepted
+// prints: Int8 128: decode error at byte 1: the value does not fit the destination type
+// prints: Int8 -129: decode error at byte 1: the value does not fit the destination type
+// prints: Int16 32767: accepted
+// prints: Int16 32768: decode error at byte 1: the value does not fit the destination type
+// prints: Int16 -32769: decode error at byte 1: the value does not fit the destination type
+// prints: Int32 2147483647: accepted
+// prints: Int32 2147483648: decode error at byte 1: the value does not fit the destination type
+// prints: Int32 -2147483649: decode error at byte 1: the value does not fit the destination type
+// prints: UInt8 255: accepted
+// prints: UInt8 256: decode error at byte 1: the value does not fit the destination type
+// prints: UInt16 65535: accepted
+// prints: UInt16 65536: decode error at byte 1: the value does not fit the destination type
+// prints: UInt32 4294967295: accepted
+// prints: UInt32 4294967296: decode error at byte 1: the value does not fit the destination type
+// A token tape is both sides of the seam: a value is written into it and read
+// back. An integer outside a narrow type is OutOfRange at the byte after the
+// item, and never a trap. The Int64 and UInt64 extremes round-trip whole.
+import std.serialize.{Decoder, Encoder}
+import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+
+// One token per item: a kind letter and its text. `Tape` is both sides of the
+// seam, so a probe writes a value into it and reads the value back.
+static KIND_INT: Byte = 0x69
+static KIND_UINT: Byte = 0x75
+static KIND_BOOL: Byte = 0x62
+static KIND_NULL: Byte = 0x6E
+static KIND_TEXT: Byte = 0x74
+static KIND_ARRAY: Byte = 0x61
+static KIND_MAP: Byte = 0x6D
+
+struct Tape {
+    items: Vector<String>
+    at: Int
+}
+
+extension Tape: NoCopy {}
+
+extension Tape {
+    func put(&var self, token: String) sync -> Result<Void, EncodeError> {
+        match self.items.push(token) {
+            case Ok(_) -> { return },
+            case Err(_) -> { return EncodeError(fault: EncodeFault.Alloc) }
+        }
+    }
+
+    func peek(&self) sync -> Result<String, DecodeError> {
+        guard let tok = self.items.get(self.at) else {
+            return DecodeError(offset: self.at, fault: DecodeFault.Truncated)
+        }
+        return tok
+    }
+
+    // The next token's text after its kind letter, or TypeMismatch at the
+    // token's own position.
+    func take(&var self, kind: Byte) sync -> Result<String, DecodeError> {
+        let tok = try self.peek()
+        if tok.byte_at(0) != kind {
+            return DecodeError(offset: self.at, fault: DecodeFault.TypeMismatch)
+        }
+        self.at = self.at + 1
+        return tok.substring(1, tok.len())
+    }
+
+    func render(&self) -> String {
+        var out = StringBuilder()
+        var i = 0
+        while i < self.items.len() {
+            if i > 0 {
+                try! out.append(" ")
+            }
+            try! out.append(self.items[i])
+            i = i + 1
+        }
+        return out.build()
+    }
+}
+
+extension Tape: Encoder {
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_UINT)
+        try! b.append(v.to_string())
+        return self.put(b.build())
+    }
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_INT)
+        try! b.append(v.to_string())
+        return self.put(b.build())
+    }
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
+        if v {
+            return self.put("b1")
+        }
+        return self.put("b0")
+    }
+    func write_null(&var self) sync -> Result<Void, EncodeError> {
+        self.put("n")
+    }
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_TEXT)
+        try! b.append(v)
+        return self.put(b.build())
+    }
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_ARRAY)
+        try! b.append(count)
+        return self.put(b.build())
+    }
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_MAP)
+        try! b.append(count)
+        return self.put(b.build())
+    }
+}
+
+extension Tape: Decoder {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_UINT)
+        guard let v = text.to_uint() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v as UInt64
+    }
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_INT)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v as Int64
+    }
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        let text = try self.take(KIND_BOOL)
+        return text == "1"
+    }
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.take(KIND_NULL)
+        return
+    }
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        self.take(KIND_TEXT)
+    }
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_ARRAY)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v
+    }
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_MAP)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v
+    }
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        let tok = try self.peek()
+        return tok.byte_at(0) == KIND_NULL
+    }
+    func offset(&self) sync -> Int {
+        self.at
+    }
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.peek()
+        self.at = self.at + 1
+        return
+    }
+}
+
+// A tape holding the space-separated tokens of `text`, ready to read.
+func tape_from(text: String) -> Tape {
+    Tape(items: try! text.split(" "), at: 0)
+}
+
+func encoded<T: Serialize>(value: &T) -> String {
+    var tape = Tape(items: Vector<String>(), at: 0)
+    try! value.serialize(to: &var tape)
+    return tape.render()
+}
+
+func decode<T: Deserialize>(text: String) -> Result<T, DecodeError> {
+    var tape = tape_from(text)
+    return T.deserialize(from: &var tape)
+}
+
+func range_check<T: Deserialize>(label: String, text: String) {
+    match decode<T>(text) {
+        case Ok(_) -> print("{}: accepted", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+// Writes `value` and reads it straight back, printing the tape and what the
+// decode re-encodes to.
+func round_trip<T: Serialize + Deserialize>(label: String, value: T) {
+    var tape = Tape(items: Vector<String>(), at: 0)
+    try! value.serialize(to: &var tape)
+    let wrote = tape.render()
+    match T.deserialize(from: &var tape) {
+        case Ok(back) -> print("{}: {} -> {}", label, wrote, encoded(&back)),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func main() {
+    round_trip<Int64>("Int64.max", Int64.max)
+    round_trip<Int64>("Int64.min", Int64.min)
+    round_trip<UInt64>("UInt64.max", UInt64.max)
+    round_trip<Int>("Int.min", Int.min)
+    round_trip<UInt>("UInt.max", UInt.max)
+    round_trip<Int32>("Int32.min", Int32.min)
+    round_trip<UInt32>("UInt32.max", UInt32.max)
+    var v = Vector<Int>()
+    try! v.push(1)
+    try! v.push(-2)
+    print("{}", encoded(&v))
+    let some: String? = "x"
+    print("{}", encoded(&some))
+    let none: Int? = None
+    print("{}", encoded(&none))
+    let small: Int8 = -5i8
+    print("{}", encoded(&small))
+    let byte: UInt8 = 200
+    print("{}", encoded(&byte))
+    let flag = true
+    print("{}", encoded(&flag))
+    let top: UInt = UInt.max
+    print("{}", encoded(&top))
+
+    match decode<Vector<Int>>("a3 i4 i5 i6") {
+        case Ok(back) -> print("back len {} last {}", back.len(), back[2]),
+        case Err(e) -> print("refused: {}", e)
+    }
+    match decode<String?>("n") {
+        case Ok(back) -> print("opt {}", back ?? "none"),
+        case Err(e) -> print("opt: {}", e)
+    }
+    match decode<String?>("tx") {
+        case Ok(back) -> print("opt {}", back ?? "none"),
+        case Err(e) -> print("opt: {}", e)
+    }
+    match decode<UInt64>("u18446744073709551615") {
+        case Ok(back) -> print("UInt64 {}", back),
+        case Err(e) -> print("UInt64: {}", e)
+    }
+    match decode<Int64>("i-9223372036854775808") {
+        case Ok(back) -> print("Int64 {}", back),
+        case Err(e) -> print("Int64: {}", e)
+    }
+    match decode<Bool>("b0") {
+        case Ok(back) -> print("Bool {}", back),
+        case Err(e) -> print("Bool: {}", e)
+    }
+    match decode<Int>("tx") {
+        case Ok(_) -> print("Int accepted"),
+        case Err(e) -> print("Int: {}", e)
+    }
+
+    range_check<Int8>("Int8 127", "i127")
+    range_check<Int8>("Int8 128", "i128")
+    range_check<Int8>("Int8 -129", "i-129")
+    range_check<Int16>("Int16 32767", "i32767")
+    range_check<Int16>("Int16 32768", "i32768")
+    range_check<Int16>("Int16 -32769", "i-32769")
+    range_check<Int32>("Int32 2147483647", "i2147483647")
+    range_check<Int32>("Int32 2147483648", "i2147483648")
+    range_check<Int32>("Int32 -2147483649", "i-2147483649")
+    range_check<UInt8>("UInt8 255", "u255")
+    range_check<UInt8>("UInt8 256", "u256")
+    range_check<UInt16>("UInt16 65535", "u65535")
+    range_check<UInt16>("UInt16 65536", "u65536")
+    range_check<UInt32>("UInt32 4294967295", "u4294967295")
+    range_check<UInt32>("UInt32 4294967296", "u4294967296")
+}

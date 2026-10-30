@@ -217,14 +217,22 @@ public func res_declare_prelude(p: &var ResProgram) {
     p.prelude_name("Vector", "std.vector")
     p.prelude_name("VectorIterator", "std.vector")
     p.prelude_name("EnumeratedIterator", "std.vector")
-    p.prelude_name("EncodeFault", "std.serde")
-    p.prelude_name("EncodeError", "std.serde")
-    p.prelude_name("DecodeFault", "std.serde")
-    p.prelude_name("DecodeError", "std.serde")
-    p.prelude_name("Encoder", "std.serde")
-    p.prelude_name("Decoder", "std.serde")
-    p.prelude_name("Serialize", "std.serde")
-    p.prelude_name("Deserialize", "std.serde")
+    // A prelude name is reserved, so the new std exposes only the pair and
+    // leaves `Encoder`, `Decoder` and the error types free for user code.
+    if not p.std_new {
+        p.prelude_name("EncodeFault", "std.serde")
+        p.prelude_name("EncodeError", "std.serde")
+        p.prelude_name("DecodeFault", "std.serde")
+        p.prelude_name("DecodeError", "std.serde")
+        p.prelude_name("Encoder", "std.serde")
+        p.prelude_name("Decoder", "std.serde")
+        p.prelude_name("Serialize", "std.serde")
+        p.prelude_name("Deserialize", "std.serde")
+    }
+    if p.std_new {
+        p.prelude_name("Serialize", "std.serialize")
+        p.prelude_name("Deserialize", "std.serialize")
+    }
     p.prelude_name("InvalidScalar", "std.scalar")
     p.prelude_name("Scalar", "std.scalar")
     p.prelude_name("StringBytes", "std.string")

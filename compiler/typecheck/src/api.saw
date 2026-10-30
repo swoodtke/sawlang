@@ -119,7 +119,8 @@ extension TcProgram {
     // with no name occurrence to read.
     func find_known(&var self) {
         let b = self.res.builtin
-        let serde = self.module_named("std.serde")
+        let serialize_module = self.module_named("std.serialize")
+        let serde = if serialize_module >= 0 { serialize_module } else { self.module_named("std.serde") }
         let std_box = self.module_named("std.box")
         let std_vector = self.module_named("std.vector")
         let std_map = self.module_named("std.map")

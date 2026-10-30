@@ -1,0 +1,13 @@
+// probe: stated
+// about: only Serialize and Deserialize are prelude names, so a user type named `Encoder` builds and runs (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// prints: level 3
+struct Encoder {
+    level: Int
+}
+
+func main() {
+    let e = Encoder(level: 3)
+    print("level {}", e.level)
+}

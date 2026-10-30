@@ -1,0 +1,6 @@
+// refuses: name.reserved at 4:8
+// `Serialize` is a prelude name, so a user declaration of it is reserved
+
+struct Serialize {
+    n: Int
+}

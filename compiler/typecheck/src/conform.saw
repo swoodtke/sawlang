@@ -500,7 +500,7 @@ extension TcProgram {
     }
 
     // Whether a trait's requirement is derived under `@synthesize` (design 128):
-    // the copy policies, Equatable, Comparable and Hashable, and serde's pair.
+    // the copy policies, Equatable, Comparable and Hashable, and `Serialize`/`Deserialize`.
     public func is_derivable(&self, requirement: Int) -> Bool {
         let info = self.res.decls[requirement]
         let t = info.parent

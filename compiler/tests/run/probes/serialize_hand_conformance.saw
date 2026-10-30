@@ -1,0 +1,171 @@
+// probe: stated
+// about: a hand-written Serialize and Deserialize over `any Encoder` and `any Decoder`, the Decoder default bodies, a static requirement called on the type, and a generic `T: Serialize` caller (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// prints: point 41 -7
+// prints: refused: decode error at byte 3: the value does not fit the destination type
+// prints: refused: decode error at byte 1: the array or map holds a different number of items than expected
+// prints: items 3
+// A hand-written conformance reads and writes Point as an array of its two
+// fields, and the Decoder's defaults (`expect_array`, `read_int_range`) run on
+// the user's own decoder. `Ints` replays a list of integers; `Count` counts the
+// items it is handed.
+import std.serialize.{Decoder, Encoder}
+import std.json.{DecodeError, DecodeFault, EncodeError}
+
+struct Point {
+    x: Int
+    y: Int8
+}
+
+extension Point: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(2)
+        try to.write_int(self.x as Int64)
+        try to.write_int(self.y as Int64)
+        return
+    }
+}
+
+extension Point: Deserialize {
+    static func deserialize(from: &var any Decoder) sync -> Result<Point, DecodeError> {
+        try from.expect_array(2)
+        let x = try Int.deserialize(from: &var from)
+        let w = try from.read_int_range(min: -128, max: 127)
+        return Point(x: x, y: w as Int8)
+    }
+}
+
+// A decoder over a fixed list of integers: an array head, then items.
+struct Ints {
+    items: Vector<Int>
+    at: Int
+}
+
+extension Ints: NoCopy {}
+
+extension Ints: Decoder {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
+        let v = try self.read_int()
+        return UInt64.from(truncating: v)
+    }
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
+        let here = self.at
+        guard let v = self.items.get(here) else {
+            return DecodeError(offset: here, fault: DecodeFault.Truncated)
+        }
+        self.at = here + 1
+        return v as Int64
+    }
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        let v = try self.read_int()
+        return v != 0
+    }
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        return
+    }
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        let n = try self.read_int()
+        return n as Int
+    }
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        let n = try self.read_int()
+        return n as Int
+    }
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        return false
+    }
+    func offset(&self) sync -> Int {
+        self.at
+    }
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.read_int()
+        return
+    }
+}
+
+struct Count {
+    n: Int
+}
+
+extension Count: NoCopy {}
+
+extension Count: Encoder {
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        self.n = self.n + 1
+        return
+    }
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
+        self.n = self.n + 1
+        return
+    }
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
+        self.n = self.n + 1
+        return
+    }
+    func write_null(&var self) sync -> Result<Void, EncodeError> {
+        self.n = self.n + 1
+        return
+    }
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
+        self.n = self.n + 1
+        return
+    }
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return
+    }
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        return
+    }
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        self.n = self.n + 1
+        return
+    }
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return
+    }
+}
+
+func count_items<T: Serialize>(value: &T) -> Result<Int, EncodeError> {
+    var c = Count(n: 0)
+    try value.serialize(to: &var c)
+    return c.n
+}
+
+func decode_with(items: Vector<Int>) {
+    var dec = Ints(items: move items, at: 0)
+    match Point.deserialize(from: &var dec) {
+        case Ok(p) -> print("point {} {}", p.x, p.y as Int),
+        case Err(e) -> print("refused: {}", e)
+    }
+}
+
+func main() {
+    var good = Vector<Int>()
+    try! good.push(2)
+    try! good.push(41)
+    try! good.push(-7)
+    decode_with(move good)
+    var wide = Vector<Int>()
+    try! wide.push(2)
+    try! wide.push(41)
+    try! wide.push(300)
+    decode_with(move wide)
+    var short = Vector<Int>()
+    try! short.push(3)
+    decode_with(move short)
+    let p = Point(x: 1, y: 2)
+    match count_items(&p) {
+        case Ok(n) -> print("items {}", n),
+        case Err(e) -> print("count: {}", e)
+    }
+}
