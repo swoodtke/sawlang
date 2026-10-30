@@ -1,0 +1,27 @@
+// refuses: synthesize.unmet-member at 25:18
+// A derived `Hashable` over a member whose type does not conform, at a field, reached by a `Set` insert.
+// message: `synthesize.unmet-member.hashable-field-set.Holder`'s field `x` of type `synthesize.unmet-member.hashable-field-set.EqOnly` does not conform to `Hashable`
+// message: in the instantiation `std.set.Set.insert(value: T)
+
+struct EqOnly {
+    s: String
+}
+
+@synthesize
+extension EqOnly: Equatable {}
+
+struct Holder {
+    x: EqOnly
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Hashable {}
+
+func main() {
+    var s = Set<Holder>()
+    let _ = try! s.insert(Holder(x: EqOnly(s: "a")))
+    print(s.len())
+}

@@ -2066,6 +2066,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   Comparable requires Equatable (no auto, so EVERY Comparable conformance is
   written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
+  A derived `Equatable`/`Comparable`/`Hashable` over a member that does not conform compiles until something reaches it (`==`, `<`, a `Map` key, a bound, an Optional's `== None`), and the error, `synthesize.unmet-member`, lands at that use naming the member and its type (SL-941).
 - **`Self` works in an extension signature, at every position and on a GENERIC
   extension too** (DF-216f, DF-216r): a parameter, a return, and nested in
   either (`&Self`, `Self?`, `Vector<Self>`, `(Self, Int)`). Inside

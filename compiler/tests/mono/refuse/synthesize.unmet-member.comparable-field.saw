@@ -1,0 +1,23 @@
+// refuses: synthesize.unmet-member at 22:11
+// A derived `Comparable` over a member whose type does not conform, at a field, reached by `<`.
+// message: `synthesize.unmet-member.comparable-field.Holder`'s field `x` of type `synthesize.unmet-member.comparable-field.Pt` does not conform to `Comparable`
+
+struct Pt {
+    x: Int
+}
+
+struct Holder {
+    x: Pt
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Comparable {}
+
+func main() {
+    let a = Holder(x: Pt(x: 1))
+    let b = Holder(x: Pt(x: 1))
+    print(a < b)
+}

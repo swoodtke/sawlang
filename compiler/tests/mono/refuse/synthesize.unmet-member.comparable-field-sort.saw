@@ -1,0 +1,26 @@
+// refuses: synthesize.unmet-member at 24:5
+// A derived `Comparable` over a member whose type does not conform, at a field, reached by `Vector.sort()`, refused at the program's call.
+// message: `synthesize.unmet-member.comparable-field-sort.Holder`'s field `x` of type `synthesize.unmet-member.comparable-field-sort.Pt` does not conform to `Comparable`
+// message: in the instantiation `std.vector.Vector.sort()
+
+struct Pt {
+    x: Int
+}
+
+struct Holder {
+    x: Pt
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Comparable {}
+
+func main() {
+    var v = Vector<Holder>()
+    try! v.push(Holder(x: Pt(x: 1)))
+    try! v.push(Holder(x: Pt(x: 1)))
+    v.sort()
+    print(v.len())
+}

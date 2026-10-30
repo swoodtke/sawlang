@@ -985,7 +985,7 @@ equatable_auto_struct.saw	pass	-	-
 equatable_custom_override.saw	pass	-	-
 equatable_enum_deep.saw	pass	-	-
 equatable_enum_optional_payload.saw	pass	-	-
-equatable_field_not_equatable_error.saw	refused	mono mono.not-yet	a call of `Equatable.equals(other: &Self)` on `equatable_field_not_equatable_error.Inner`, which no conformance of it meets, is not in the backend slice yet
+equatable_field_not_equatable_error.saw	pass	-	synthesize.unmet-member: `equatable_field_not_equatable_error.Outer`'s field `inner` of type `equatable_field_not_equatable_error.Inner` does not conform to `Equatable`, which `equatable_field_not_equ
 equatable_generic_bound.saw	pass	-	-
 equatable_nan.saw	pass	-	-
 equatable_not_equatable_error.saw	pass	-	operator.undefined: `==` compares two `equatable_not_equatable_error.Holder`, which is not `Equatable`

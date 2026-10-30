@@ -1,0 +1,75 @@
+// probe: stated
+// about: a `@synthesize`d `Equatable`, `Comparable` or `Hashable` over a member that does not conform compiles while nothing reaches it, and a conditional lend's `== None` reads the tag alone, so it reaches nothing (SL-941)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: built 1 1 1
+// prints: lent false true true
+// prints: payload false true true
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+struct Pt {
+    x: Int
+}
+
+struct EqOnly {
+    s: String
+}
+
+@synthesize
+extension EqOnly: Equatable {}
+
+// Never compared: `Opaque` is not Equatable.
+struct Unequal {
+    x: Opaque
+}
+
+@synthesize
+extension Unequal: Equatable {}
+
+// Never ordered: `Pt` is Equatable and not Comparable.
+struct Unordered {
+    x: Pt
+}
+
+@synthesize
+extension Unordered: Equatable {}
+
+@synthesize
+extension Unordered: Comparable {}
+
+// Never hashed: `EqOnly` is Equatable and not Hashable.
+struct Unhashed {
+    x: EqOnly
+}
+
+@synthesize
+extension Unhashed: Equatable {}
+
+@synthesize
+extension Unhashed: Hashable {}
+
+enum Slot {
+    case Full(x: Opaque),
+    case Empty
+}
+
+@synthesize
+extension Slot: Equatable {}
+
+func main() {
+    let a = Unequal(x: Opaque.Other)
+    let b = Unordered(x: Pt(x: 1))
+    let c = Unhashed(x: EqOnly(s: "a"))
+    print("built {} {} {}", b.x.x, c.x.s.len(), match a.x { case Other -> 1, case Some(n) -> n })
+    var v = Vector<Unequal>()
+    try! v.push(Unequal(x: Opaque.Some(n: 2)))
+    print("lent {} {} {}", v.find(0) == None, v.find(0) != None, None == v.find(9))
+    var w = Vector<Slot>()
+    try! w.push(Slot.Full(x: Opaque.Other))
+    print("payload {} {} {}", w.find(0) == None, w.find(0) != None, None == w.find(9))
+}

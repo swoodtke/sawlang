@@ -1,0 +1,21 @@
+// refuses: synthesize.unmet-member at 20:11
+// A derived `Equatable` over a member whose type does not conform, at a fixed-array field, reached by `==`.
+// message: `synthesize.unmet-member.equatable-array-field.Holder`'s field `x` of type `[synthesize.unmet-member.equatable-array-field.Opaque; 2]` does not conform to `Equatable` (`synthesize.unmet-member.equatable-array-field.Opaque` does not)
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+struct Holder {
+    x: [Opaque; 2]
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a = Holder(x: [Opaque.Other, Opaque.Other])
+    let b = Holder(x: [Opaque.Other, Opaque.Other])
+    print(a == b)
+}

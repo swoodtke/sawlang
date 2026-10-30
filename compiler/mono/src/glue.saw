@@ -522,6 +522,7 @@ extension MonoProgram {
     // ENTRY POINTS:
     //     member_glue_of
     //     build_member_glue
+    //     spec_withholds
     public func member_refusal(&var self, req: Int, t: Int) -> String {
         let hook = self.hook_of(req)
         let kind = self.glue_kind(t)
@@ -600,8 +601,32 @@ extension MonoProgram {
         "only a scalar's builtin hooks and an aggregate's `equals`, `compare` and `hash`"
     }
 
+    // Whether the member glue table refuses requirement `req` on `t` because
+    // the spec grants `t` no such conformance, as typecheck does at a direct
+    // use: a struct's or an enum's `equals`, `compare` or `hash` that no
+    // conformance gives it, and a tuple's, an Optional's or a fixed array's
+    // `compare`. A cell typecheck grants and the spec does not, `Bool`'s
+    // `compare` or a raw pointer's `equals`, is an open question rather than
+    // the program's error (SL-715).
+    // ENTRY POINTS:
+    //     member_glue_of
+    public func spec_withholds(&var self, req: Int, t: Int) -> Bool {
+        if self.member_refusal(req, t).len() == 0 {
+            return false
+        }
+        let compare = self.hook_of(req) == MonoHook.Compare
+        match self.glue_kind(t) {
+            case Struct -> self.structural_hook(req),
+            case Enum -> self.structural_hook(req),
+            case Tuple -> compare,
+            case Optional -> compare,
+            case Array -> compare,
+            case _ -> false
+        }
+    }
+
     // Whether type declaration `d` declares a conformance to trait `tr`.
-    func declares_trait(&self, d: Int, tr: Int) -> Bool {
+    public func declares_trait(&self, d: Int, tr: Int) -> Bool {
         var k = 0
         while k < self.dp.bc.mir.tc.conformances.len() {
             let c = self.dp.bc.mir.tc.conformances[k]

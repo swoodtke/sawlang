@@ -1,0 +1,38 @@
+// refuses: synthesize.unmet-member at 36:18
+// A derived `Hashable` over a member whose type does not conform, at a field of a nested `@synthesize`d struct, two levels deep, reached by a `Map` insert.
+// message: `synthesize.unmet-member.hashable-nested.Inner`'s field `x` of type `synthesize.unmet-member.hashable-nested.EqOnly` does not conform to `Hashable`
+// message: reached through `synthesize.unmet-member.hashable-nested.Holder`'s field `inner`
+// message: in the instantiation `std.map.Map.insert(key: K, value: V)
+
+struct EqOnly {
+    s: String
+}
+
+@synthesize
+extension EqOnly: Equatable {}
+
+struct Inner {
+    x: EqOnly
+}
+
+@synthesize
+extension Inner: Equatable {}
+
+@synthesize
+extension Inner: Hashable {}
+
+struct Holder {
+    inner: Inner
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Hashable {}
+
+func main() {
+    var m = Map<Holder, Int>()
+    let _ = try! m.insert(Holder(inner: Inner(x: EqOnly(s: "a"))), 1)
+    print(m.len())
+}

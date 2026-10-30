@@ -1,0 +1,32 @@
+// refuses: synthesize.unmet-member at 31:11
+// A derived `Hashable` over a member whose type does not conform, at a field, reached by a generic body's use under the bound, refused at the outer call that instantiated it.
+// message: `synthesize.unmet-member.hashable-field-generic.Holder`'s field `x` of type `synthesize.unmet-member.hashable-field-generic.EqOnly` does not conform to `Hashable`
+// message: in the instantiation `synthesize.unmet-member.hashable-field-generic.digest(a: &T)
+
+struct EqOnly {
+    s: String
+}
+
+@synthesize
+extension EqOnly: Equatable {}
+
+struct Holder {
+    x: EqOnly
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Hashable {}
+
+func digest<T: Hashable>(a: &T) -> Int {
+    var h = Hasher()
+    a.hash(&var h)
+    h.finish()
+}
+
+func main() {
+    let a = Holder(x: EqOnly(s: "a"))
+    print(digest(&a))
+}

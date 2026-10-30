@@ -1,0 +1,27 @@
+// refuses: synthesize.unmet-member at 25:18
+// A derived `Hashable` over a member whose type does not conform, at a field, reached by a `Map` insert.
+// message: `synthesize.unmet-member.hashable-field.Holder`'s field `x` of type `synthesize.unmet-member.hashable-field.EqOnly` does not conform to `Hashable`
+// message: in the instantiation `std.map.Map.insert(key: K, value: V)
+
+struct EqOnly {
+    s: String
+}
+
+@synthesize
+extension EqOnly: Equatable {}
+
+struct Holder {
+    x: EqOnly
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Hashable {}
+
+func main() {
+    var m = Map<Holder, Int>()
+    let _ = try! m.insert(Holder(x: EqOnly(s: "a")), 1)
+    print(m.len())
+}

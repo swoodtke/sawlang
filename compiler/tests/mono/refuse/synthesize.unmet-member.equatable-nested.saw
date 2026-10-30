@@ -1,0 +1,29 @@
+// refuses: synthesize.unmet-member at 28:11
+// A derived `Equatable` over a member whose type does not conform, at a field of a nested `@synthesize`d struct, two levels deep, reached by `==`.
+// message: `synthesize.unmet-member.equatable-nested.Inner`'s field `x` of type `synthesize.unmet-member.equatable-nested.Opaque` does not conform to `Equatable`
+// message: reached through `synthesize.unmet-member.equatable-nested.Holder`'s field `inner`
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+struct Inner {
+    x: Opaque
+}
+
+@synthesize
+extension Inner: Equatable {}
+
+struct Holder {
+    inner: Inner
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a = Holder(inner: Inner(x: Opaque.Other))
+    let b = Holder(inner: Inner(x: Opaque.Other))
+    print(a == b)
+}

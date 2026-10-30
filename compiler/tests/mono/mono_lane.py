@@ -18,8 +18,9 @@ directory specifies:
   `golden/NAME.riscv32.layouts`;
 - each fixture in `refuse/` is refused first at its header's position by the
   rule its name starts with, checked with the flags a second line
-  `// flags: ...` passes, and every rule mono refuses by (`mono_rules` in
-  `compiler/mono/src/worklist.saw`) has a fixture;
+  `// flags: ...` passes, that refusal's message holds each `// message:`
+  line of its leading comment, and every rule mono refuses by (`mono_rules`
+  in `compiler/mono/src/worklist.saw`) has a fixture;
 - each type of a layout table that Stage 0 can spell has Stage 0's size and
   alignment there, read off Stage 0's recorded run of a probe program
   (`stage0/HOST/NAME.stage0`, which `--stage0` writes through the v0
@@ -59,7 +60,8 @@ TIMEOUT = 600
 
 _HEADER = re.compile(r"^// refuses: (\S+) at (\d+:\d+)$")
 _FLAGS = re.compile(r"^// flags: (.*)$")
-_RULE = re.compile(r'try! out\.push\("([^"]+)"\)')
+_MESSAGE = re.compile(r"^// message: (.+)$")
+_RULE =re.compile(r'try! out\.push\("([^"]+)"\)')
 _LAYOUT = re.compile(r"^(.*): size (\d+) align (\d+) ")
 _MODULE_PATH = re.compile(r"\b(?:[a-z_][a-z0-9_]*\.)+(?=[A-Z])")
 _MAIN = re.compile(r"^func main\(\)", re.M)
@@ -202,6 +204,27 @@ def refusal_flags(path):
     return tuple(m.group(1).split()) if m else ()
 
 
+def fixture_messages(path):
+    """The text of each `// message:` line in a fixture's leading comment."""
+    messages = []
+    with open(path) as fh:
+        for line in fh.read().split("\n"):
+            if not line.startswith("//"):
+                break
+            m = _MESSAGE.match(line)
+            if m:
+                messages.append(m.group(1))
+    return messages
+
+
+def first_message(record):
+    """The message of a record's first refusal, or ""."""
+    for line in record.split("\n"):
+        if line.startswith("ERROR\t"):
+            return line.split("\t", 3)[3]
+    return ""
+
+
 def check_refusals(failures, counts):
     cases = sorted(glob.glob(os.path.join(REFUSE, "*.saw")))
     groups = {}
@@ -232,6 +255,11 @@ def check_refusals(failures, counts):
                             % (rel(path), want[0], want[1], "nothing" if found is None else "%s at %s" % found))
         else:
             covered.add(rule)
+            message = first_message(got.get(rel(path), ""))
+            for text in fixture_messages(path):
+                if text not in message:
+                    failures.append("mono refusal %s: the message does not hold %r: %s"
+                                    % (rel(path), text, message))
         for line in got.get(rel(path), "").split("\n"):
             if line.startswith("INVARIANT\t"):
                 failures.append("mono refusal %s: %s" % (rel(path), line))

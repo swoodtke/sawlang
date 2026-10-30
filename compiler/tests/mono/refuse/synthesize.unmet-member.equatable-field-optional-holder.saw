@@ -1,0 +1,21 @@
+// refuses: synthesize.unmet-member at 20:11
+// A derived `Equatable` over a member whose type does not conform, at a field, reached by `==` on `Holder?`, whose Optional glue asks `Holder`'s.
+// message: `synthesize.unmet-member.equatable-field-optional-holder.Holder`'s field `x` of type `synthesize.unmet-member.equatable-field-optional-holder.Opaque` does not conform to `Equatable`
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+struct Holder {
+    x: Opaque
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a: Holder? = Holder(x: Opaque.Other)
+    let b: Holder? = Holder(x: Opaque.Other)
+    print(a == b)
+}

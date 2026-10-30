@@ -1,0 +1,24 @@
+// refuses: synthesize.unmet-member at 23:11
+// A derived `Comparable` over a member whose type does not conform, at an enum case's payload, reached by `<`.
+// message: `synthesize.unmet-member.comparable-payload.Holder`'s case `Full` payload `x` of type `synthesize.unmet-member.comparable-payload.Pt` does not conform to `Comparable`
+
+struct Pt {
+    x: Int
+}
+
+enum Holder {
+    case Full(x: Pt),
+    case Empty
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Comparable {}
+
+func main() {
+    let a = Holder.Full(x: Pt(x: 1))
+    let b = Holder.Full(x: Pt(x: 1))
+    print(a < b)
+}

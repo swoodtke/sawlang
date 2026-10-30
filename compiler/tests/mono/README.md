@@ -167,7 +167,10 @@ that the requirement funnel resolves as it resolves any, at the place the
 glue was first reached, so a part's hook is its written member, a default
 body or member glue again, and a part's refusal is reported there
 (`mono.not-yet.derived`, a `Bool` field's `compare`; `mono.not-yet.aggregate`,
-a raw pointer in a tuple). Each answer is Stage 0's:
+a raw pointer in a tuple). A part whose type the spec gives no such
+conformance, asked by a `@synthesize`d struct's or enum's glue, is that
+derivation's unmet member instead (`synthesize.unmet-member`, under Rules).
+Each answer is Stage 0's:
 
 | kind | `equals` | `compare` | `hash` |
 |---|---|---|---|
@@ -325,8 +328,9 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets, a call of a body this program does not lower, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a cell the member glue table refuses though typecheck grants the bound, `Bool`'s `compare` or a raw pointer's `equals` (SL-715), a call of a body this program does not lower, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
+| `synthesize.unmet-member` | a `@synthesize`d `Equatable`, `Comparable` or `Hashable` whose member glue asks a part that nothing meets: a member type with no conformance, or one the spec gives none (a struct's or an enum's `compare` no conformance writes, a payload-carrying enum's unwritten `equals` or `hash`, a tuple's, an Optional's or a fixed array's `compare`), reached through any Optional, fixed array or tuple glue between the derivation and the member. A derivation nothing reaches is legal (spec, Equality), so it is refused where something first reaches it: at the outermost call the program writes on the chain of instantiations that reached the derived glue, naming the derived type, the member, its type, the trait, any outer derived type it is reached through, and the generic instantiation that call made (SL-941). A conditional lend's `== None` reads the tag alone and reaches nothing; an Optional's own `==`, `== None` included, reaches the payload's derivation | `.equatable-field`, `-ne`, `-generic`, `-optional-holder`, `-array-holder`, `-tuple-holder`, `-against-none`, `.equatable-optional-field`, `-array-field`, `-payload`, `-payload-against-none`, `-nested`; the `.comparable-` rows with `-ge`, `-sort`, `-generic`; the `.hashable-` rows with `-set`, `-generic`, `-optional-holder`; the run probe `derived_unmet_member_unreached` builds the derivations nothing reaches |
 | `static_assert.failed` | a deferred `static_assert` false at an instantiation of the function holding it: one measuring a type parameter's layout, one naming a const parameter, which folds to the instance's value, or both; one whose condition faults at the instance (a shift by the value out of range) fails too (SL:open-questions D40; SL-548) | `static_assert.failed`, `.const-parameter`, `.const-and-layout`, `.const-fault` |
 | `atomic.width` | an `Atomic<X>` at an `X` other than `Int` that only an instantiation forms, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL:open-questions D38) | `atomic.width` |
 | `memory.trivial`, `memory.enum`, `memory.intent` | an `UnsafeMemory<T, Use>` that only an instantiation forms whose `T` is not trivially copyable, holds an enum, or whose `Use` is neither `Device` nor `Normal`, judged by typecheck's view-type funnel, once per type, where the item was reached; one a written or inferred position carries is typecheck's (SL-914) | `memory.trivial`, `memory.enum`, `memory.intent` |
@@ -355,7 +359,8 @@ rewrites them, for review) and carry no `ERROR` or `INVARIANT` line; that each
 golden program's `--layouts` record for `aarch64-unknown-none-elf` equals its
 record for `aarch64-unknown-linux-gnu` (`SAME_LAYOUT_TARGETS`); that each
 fixture in `refuse/` is refused first at its header's position by the rule its
-name starts with, and every rule has a fixture; and that each type of a
+name starts with, that refusal's message holding each `// message: TEXT` line
+of the fixture's leading comment, and every rule has a fixture; and that each type of a
 layout table that Stage 0 can spell (not a reference, a function type, `Void`
 or `Never`) has Stage 0's size and alignment: the probe is the golden
 program with its `main` renamed and a new one printing `sizeof` and `alignof`

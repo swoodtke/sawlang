@@ -1,0 +1,26 @@
+// refuses: synthesize.unmet-member at 25:11
+// A derived `Equatable` over a member whose type does not conform, at a field, reached by a generic body's use under the bound, refused at the outer call that instantiated it.
+// message: `synthesize.unmet-member.equatable-field-generic.Holder`'s field `x` of type `synthesize.unmet-member.equatable-field-generic.Opaque` does not conform to `Equatable`
+// message: in the instantiation `synthesize.unmet-member.equatable-field-generic.same(a: &T, b: &T)
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+struct Holder {
+    x: Opaque
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func same<T: Equatable>(a: &T, b: &T) -> Bool {
+    a == b
+}
+
+func main() {
+    let a = Holder(x: Opaque.Other)
+    let b = Holder(x: Opaque.Other)
+    print(same(&a, &b))
+}

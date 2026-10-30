@@ -1,0 +1,21 @@
+// refuses: synthesize.unmet-member at 20:11
+// A derived `Equatable` over a member whose type does not conform, at an enum case's payload, reached by `==` against `None` on a local `Holder?`: an Optional's `==` asks `Holder`'s for two `Some`s.
+// message: `synthesize.unmet-member.equatable-payload-against-none.Holder`'s case `Full` payload `x` of type `synthesize.unmet-member.equatable-payload-against-none.Opaque` does not conform to `Equatable`
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+enum Holder {
+    case Full(x: Opaque),
+    case Empty
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+func main() {
+    let a: Holder? = Holder.Full(x: Opaque.Other)
+    print(a == None)
+}

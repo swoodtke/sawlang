@@ -1,0 +1,34 @@
+// refuses: synthesize.unmet-member at 33:11
+// A derived `Comparable` over a member whose type does not conform, at a field of a nested `@synthesize`d struct, two levels deep, reached by `<`.
+// message: `synthesize.unmet-member.comparable-nested.Inner`'s field `x` of type `synthesize.unmet-member.comparable-nested.Pt` does not conform to `Comparable`
+// message: reached through `synthesize.unmet-member.comparable-nested.Holder`'s field `inner`
+
+struct Pt {
+    x: Int
+}
+
+struct Inner {
+    x: Pt
+}
+
+@synthesize
+extension Inner: Equatable {}
+
+@synthesize
+extension Inner: Comparable {}
+
+struct Holder {
+    inner: Inner
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+@synthesize
+extension Holder: Comparable {}
+
+func main() {
+    let a = Holder(inner: Inner(x: Pt(x: 1)))
+    let b = Holder(inner: Inner(x: Pt(x: 1)))
+    print(a < b)
+}

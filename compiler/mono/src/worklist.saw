@@ -14,7 +14,7 @@ import sawmir.program.{MirProgram}
 import sawmir.build.{mir_func_local}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.glue.{mono_copies_bitwise}
-import sawtarget.layout.{target_struct_fields}
+import sawtarget.layout.{target_enum_cases, target_member_type, target_struct_fields}
 import sawmono.program.{MONO_DEPTH_LIMIT, MONO_KEY_COPY, MONO_KEY_DEALLOC, MONO_KEY_DISPATCHED, MONO_KEY_DROP,
                             MONO_KEY_EXTERN, MONO_KEY_FUNCTION, MONO_KEY_MEMBER, MONO_KEY_RELOCATIONS, MONO_KEY_RENDER,
                             MONO_KEY_RENDER_SLOT, MONO_KEY_TASK_ROOT, MONO_KEY_THREAD, MONO_KEY_TRY_ERROR,
@@ -50,6 +50,7 @@ public func mono_rules() -> Vector<String> {
     try! out.push("mono.depth")
     try! out.push("mono.not-yet")
     try! out.push("static_assert.failed")
+    try! out.push("synthesize.unmet-member")
     try! out.push("transfer.no-move")
     move out
 }
@@ -1591,8 +1592,10 @@ extension MonoProgram {
     // requirement met otherwise, by another derivation or by a builtin
     // type's own conformance, is the glue that synthesizes it.
     // A bound is also met with no conformance at all (`met_without_conformance`),
-    // so that requirement reaches `glued` too. `item` is -1 unless the answer
-    // is glue.
+    // so that requirement reaches `glued` too. A requirement nothing meets is
+    // refused: as a derivation's unmet member when a derived type's glue asked
+    // (`refuse_unmet_member`), else as outside the slice. `item` is -1 unless
+    // the answer is glue.
     // ENTRY POINTS:
     //     resolve_call
     //     render_of
@@ -1636,6 +1639,9 @@ extension MonoProgram {
         }
         if self.met_without_conformance(req, owner) {
             return self.glued(req, owner, k, node)
+        }
+        if self.refuse_unmet_member(req, owner, k) {
+            return MonoTarget(decl: -1, self_type: -1, item: -1)
         }
         var msg = StringBuilder()
         try! msg.append("a call of `")
@@ -1684,6 +1690,184 @@ extension MonoProgram {
         }
     }
 
+    // THE UNMET-MEMBER FUNNEL: requirement `req` on `owner`, which nothing
+    // meets, called by item `k`, refused as the program's own error when `k`
+    // is the member glue of a `@synthesize`d `equals`, `compare` or `hash`
+    // asking one of its parts: the derivation ranges over a member whose type
+    // does not conform, which is legal until something reaches it (spec,
+    // Equality). The refusal names the derived type, the member, its type
+    // and the trait, and is reported at the outermost call the program writes
+    // on the chain of instantiations that reached the derivation, naming the
+    // generic instantiation that call made. False, with nothing reported, when
+    // no derived type's glue asked.
+    // ENTRY POINTS:
+    //     resolve_requirement
+    //     member_glue_of
+    func refuse_unmet_member(&var self, req: Int, owner: Int, k: Int) -> Bool {
+        let trait_decl = self.dp.bc.mir.tc.res.decls[req].parent
+        var part = owner
+        var at = k
+        var derived = -1
+        while derived < 0 && self.asks_parts(at, req) {
+            let t = self.items[at].glue_type
+            if self.derives(t, trait_decl) {
+                derived = at
+            } else {
+                part = t
+                at = self.items[at].origin
+            }
+        }
+        if derived < 0 {
+            return false
+        }
+        let t = self.items[derived].glue_type
+        let member = self.member_text(t, part)
+        if member.len() == 0 {
+            return false
+        }
+        let trait_name = self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[trait_decl].name)
+        var msg = StringBuilder()
+        try! msg.append("`")
+        try! msg.append(self.dp.bc.mir.tc.type_text(t))
+        try! msg.append("`'s ")
+        try! msg.append(member)
+        try! msg.append(" of type `")
+        try! msg.append(self.dp.bc.mir.tc.type_text(part))
+        try! msg.append("` does not conform to `")
+        try! msg.append(trait_name)
+        try! msg.append("`")
+        if part != owner {
+            try! msg.append(" (`")
+            try! msg.append(self.dp.bc.mir.tc.type_text(owner))
+            try! msg.append("` does not)")
+        }
+        try! msg.append(", which `")
+        try! msg.append(self.dp.bc.mir.tc.type_text(t))
+        try! msg.append("`'s derived `")
+        try! msg.append(trait_name)
+        try! msg.append("` needs")
+        var inner = t
+        at = self.items[derived].origin
+        while self.asks_parts(at, req) {
+            let outer = self.items[at].glue_type
+            if self.derives(outer, trait_decl) {
+                let hop = self.member_text(outer, inner)
+                if hop.len() > 0 {
+                    try! msg.append(", reached through `")
+                    try! msg.append(self.dp.bc.mir.tc.type_text(outer))
+                    try! msg.append("`'s ")
+                    try! msg.append(hop)
+                }
+            }
+            inner = outer
+            at = self.items[at].origin
+        }
+        var site = self.items[k].origin_node
+        var instance = -1
+        at = k
+        while at >= 0 && self.instantiated(at) {
+            if self.items[at].kind == MonoItemKind.Function {
+                instance = at
+            }
+            if self.items[at].origin_node >= 0 {
+                site = self.items[at].origin_node
+            }
+            at = self.items[at].origin
+        }
+        if instance >= 0 {
+            try! msg.append(", in the instantiation `")
+            try! msg.append(self.item_name(instance))
+            try! msg.append("`")
+        }
+        try! msg.append("; write `")
+        try! msg.append(self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[req].name))
+        try! msg.append("` by hand, or give the member a type that conforms")
+        let text = msg.build()
+        var j = 0
+        while j < self.diags.len() {
+            if self.diags[j].id.equals("synthesize.unmet-member") && self.diags[j].message.equals(text) {
+                return true
+            }
+            j = j + 1
+        }
+        self.refuse(site, "synthesize.unmet-member", text)
+        true
+    }
+
+    // Whether item `at` is the member glue of requirement `req`, an
+    // aggregate's hook that asks each of its parts the same requirement.
+    func asks_parts(&self, at: Int, req: Int) -> Bool {
+        at >= 0 && self.items[at].kind == MonoItemKind.MemberGlue && self.items[at].decl == req
+    }
+
+    // Whether concrete type `t` is a struct or an enum whose conformance to
+    // `trait_decl` is written, which member glue answers only by deriving it.
+    func derives(&var self, t: Int, trait_decl: Int) -> Bool {
+        let nominal = match self.glue_kind(t) {
+            case Struct -> true,
+            case Enum -> true,
+            case _ -> false
+        }
+        nominal && self.declares_trait(self.dp.bc.mir.tc.nominal_decl(t), trait_decl)
+    }
+
+    // Item `at`'s arguments are an instantiation's: glue, or a function at
+    // receiver arguments, its own type arguments or a `Self`.
+    func instantiated(&self, at: Int) -> Bool {
+        let it = self.items[at]
+        it.kind != MonoItemKind.Function || it.args_count > 0 || it.inst_count > 0 || it.self_type >= 0
+    }
+
+    // The first member of struct or enum type `t` of type `part`, as a
+    // message names it: "field `x`" or "case `C` payload `x`"; "" for none.
+    func member_text(&var self, t: Int, part: Int) -> String {
+        let d = self.dp.bc.mir.tc.nominal_decl(t)
+        if d < 0 {
+            return ""
+        }
+        var out = StringBuilder()
+        if self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Struct {
+            let fields = target_struct_fields(&self.dp.bc.mir.tc, d)
+            var j = 0
+            while j < fields.len() {
+                let written = self.dp.bc.mir.tc.sigs[fields[j]].result
+                if target_member_type(&var self.dp.bc.mir.tc, t, written) == part {
+                    try! out.append("field `")
+                    try! out.append(self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[fields[j]].name))
+                    try! out.append("`")
+                    return out.build()
+                }
+                j = j + 1
+            }
+            return ""
+        }
+        let cases = target_enum_cases(&self.dp.bc.mir.tc, d)
+        var c = 0
+        while c < cases.len() {
+            let s = self.dp.bc.mir.tc.sigs[cases[c]]
+            var p = 0
+            while p < s.param_count {
+                let param = self.dp.bc.mir.tc.params[s.param_first + p]
+                if target_member_type(&var self.dp.bc.mir.tc, t, param.ty) == part {
+                    try! out.append("case `")
+                    try! out.append(self.dp.bc.mir.tc.res.name_text(self.dp.bc.mir.tc.res.decls[cases[c]].name))
+                    if param.name >= 0 {
+                        try! out.append("` payload `")
+                        try! out.append(self.dp.bc.mir.tc.res.name_text(param.name))
+                        try! out.append("`")
+                    } else {
+                        try! out.append("` payload ")
+                        try! out.append(p)
+                    }
+                    return out.build()
+                }
+                p = p + 1
+            }
+            c = c + 1
+        }
+        ""
+    }
+
     // THE HOOK GLUE FUNNEL: which glue answers requirement `req` on `owner`,
     // as a call target, or a refused one when glue for it is not in the
     // slice. A `copy()` on a struct, an enum, a tuple or an array is its copy
@@ -1709,7 +1893,9 @@ extension MonoProgram {
 
     // THE MEMBER GLUE FUNNEL: the glue that synthesizes requirement `req` for
     // concrete type `t`, made when new; -1 when refused. In the slice: the
-    // cells the member glue table admits (`member_refusal` in glue.saw).
+    // cells the member glue table admits (`member_refusal` in glue.saw). A
+    // cell the spec withholds, asked by a derived type's glue, is that
+    // derivation's unmet member (`refuse_unmet_member`).
     // ENTRY POINTS:
     //     glued
     public func member_glue_of(&var self, req: Int, t: Int, origin: Int, node: Int) -> Int {
@@ -1723,6 +1909,9 @@ extension MonoProgram {
         }
         let why = self.member_refusal(req, t)
         if why.len() > 0 {
+            if self.spec_withholds(req, t) && self.refuse_unmet_member(req, t, origin) {
+                return -1
+            }
             var msg = StringBuilder()
             try! msg.append("a synthesized `")
             try! msg.append(self.dp.bc.mir.tc.target_text(req))
