@@ -1,0 +1,28 @@
+// refuses: slice.not-yet at 25:17
+// A derived `deserialize` builds its value through the `init` that overrides
+// the construction; a fallible one's refusal is `DecodeFault.InitFailed`,
+// which the decoder vocabulary does not declare yet (SL-833), so the
+// derivation is refused by name rather than given another fault.
+
+enum PortError {
+    case Reserved(number: Int)
+}
+
+struct Port {
+    number: Int
+}
+
+extension Port {
+    init(number: Int) -> Result<Port, PortError> {
+        if number < 1024 {
+            return PortError.Reserved(number: number)
+        }
+        return Port(number: number)
+    }
+}
+
+@synthesize
+extension Port: Deserialize {}
+
+func main() {
+}

@@ -2115,10 +2115,13 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   on ExplicitCopy/NoCopy operands (transitively, through fields, payloads and
   tuple elements) and did not catch at all on the Copy tier.
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
-  `Decoder`.** **Status: pending SL-596, NOT implemented** — there is no
-  `std/serde.saw`; the resolver reserves the names, nothing declares the traits
-  (`EncodeError`/`DecodeError` and their fault enums live in `std/json.saw` for
-  now). What follows is the target design. Prelude-visible, both profiles. A value writes itself into a
+  `Decoder`.** **Status: partly implemented (SL-833).** `std/serialize.saw`
+  declares the four traits and the library's conformances (integers, Bool,
+  String, Optional, Vector), and `@synthesize` derives both directions.
+  Only `Serialize`/`Deserialize` are prelude-visible; `Encoder`/`Decoder` need
+  `import std.serialize`. `EncodeError`/`DecodeError` and their fault enums
+  still live in `std/json.saw`, and no format implements the seam yet (write
+  a test `Encoder` by hand). Both profiles. A value writes itself into a
   format-agnostic sink and reads itself back out of one. `@synthesize` DERIVES
   both directions — every stored field, declaration order, as one array:
   ```saw-fragment
@@ -2133,9 +2136,16 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   The walk covers the integer types, Bool, String, Optional (absent -> null),
   Vector, RAW-BACKED enums (out via the raw value, back via the partial
   `from(raw:)`; an unknown value is `UnknownCase`, never a trap) and any member
-  that itself conforms. Anything else is a clean error NAMING THE FIELD — write
-  the body by hand. An enum with no raw backing is refused (its cases have no
-  wire values). Hand-written bodies are the escape hatch for invariant-carrying
+  that itself conforms — `private` fields included, a type parameter through
+  the extension's bound (`extension Wrap<T: Serialize>: Serialize {}`).
+  Anything else (Map, a tuple, `[T; N]`, Float, a closure, an unconforming
+  type) is a clean error AT THE DERIVATION naming the field — write the body by
+  hand. An enum with no raw backing, or a payload case, is refused (its cases
+  have no wire values). A signed backing travels as `write_int`/`read_int_range`,
+  an unsigned one as `write_uint`/`read_uint_max`. A struct with an `init`
+  override is built through it; a FALLIBLE override is refused for now
+  (`DecodeFault` has no `InitFailed` yet). Fields read before a failing one are
+  dropped. Hand-written bodies are the escape hatch for invariant-carrying
   types, exactly as with the rest of the family.
   EVERY serde signature is `sync` — serialization writes into a buffer, so it
   works inside a place window, under a SpinLock, and in a kernel. Do I/O on the

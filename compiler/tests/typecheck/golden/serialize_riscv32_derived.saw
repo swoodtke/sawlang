@@ -1,0 +1,28 @@
+// flags: --std-root std --freestanding --target riscv32-unknown-none-elf
+// `@synthesize`d Serialize and Deserialize check clean for a 32-bit
+// freestanding target: a struct over `UInt`, `Int64` and a raw-backed enum,
+// each requirement derived (SL-833).
+
+enum Mode: UInt8 {
+    case Off = 0,
+    case On = 1
+}
+
+@synthesize
+extension Mode: Serialize {}
+@synthesize
+extension Mode: Deserialize {}
+
+struct Reading {
+    id: UInt
+    offset: Int64
+    mode: Mode
+}
+
+@synthesize
+extension Reading: Serialize {}
+@synthesize
+extension Reading: Deserialize {}
+
+func main() {
+}

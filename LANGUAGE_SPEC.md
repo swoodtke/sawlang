@@ -8330,16 +8330,18 @@ trait Hashable {            // requires Equatable
 
 ### Serialization (`Serialize`, `Deserialize`, `Encoder`, `Decoder`)
 
-**Status: pending SL-596, not implemented.** `std/serde.saw` does not exist, so
-`Serialize`, `Deserialize`, `Encoder` and `Decoder` have no declaration in the
-tree; the resolver reserves the four names (and the error types) as prelude
-names of `std.serde`, which is the intended home. Only `EncodeError`,
-`EncodeFault`, `DecodeError` and `DecodeFault` exist today, declared in
-`std/json.saw`. The rest of this section is the target design
-(`designs/169-serialize-cbor.md`). A value writes itself into an `any Encoder`
+**Status: partly implemented (SL-833).** `std/serialize.saw` declares
+`Serialize`, `Deserialize`, `Encoder` and `Decoder`, with the library's
+conformances for every integer width, `Bool`, `String`, `Optional` and
+`Vector`, and `@synthesize` derives both directions as described below. Only
+`Serialize` and `Deserialize` are prelude-visible; `Encoder` and `Decoder`
+need `import std.serialize`. `EncodeError`, `EncodeFault`, `DecodeError` and
+`DecodeFault` are still declared in `std/json.saw`, and no format implements
+the seam yet. The rest of this section is the target design
+(`designs/169-serialize-cbor.md`) where it says more. A value writes itself into an `any Encoder`
 and reads itself back out of an `any Decoder`. The traits name a data model;
-the concrete format decides the bytes. All four names are to be
-prelude-visible and present in the freestanding profile.
+the concrete format decides the bytes. All four are present in the
+freestanding profile.
 
 ```saw-fragment
 trait Serialize {
@@ -8373,11 +8375,17 @@ trait Deserialize {
   inside a `borrows(sync)` window such as a lock's, or in a kernel. A conformer that
   wants to do I/O writes into a buffer first and sends the buffer afterwards.
 - **`@synthesize` derives both directions structurally.** The walk emits every
-  stored field in declaration order as one array; it covers the integer types,
-  `Bool`, `String`, `Optional` (absent becomes null), `Vector`, raw-backed enums,
-  and any member that itself conforms. A member outside that set is a clean
-  error naming the field and its type, with the hand-written body as the way
-  out — never a silently skipped field.
+  stored field, `private` ones included, in declaration order as one array; it
+  covers the integer types, `Bool`, `String`, `Optional` (absent becomes null),
+  `Vector`, raw-backed enums, and any member that itself conforms, a type
+  parameter through the extension's bound included. A member outside that set
+  is a clean error at the derivation, naming the field and its type, with the
+  hand-written body as the way out — never a silently skipped field:
+  ``cannot derive `serialize` for `Config`: field `limits` of type
+  `std.map.Map<String, Int, std.alloc.GlobalAllocator>`, which does not
+  conform to `Serialize` ``. A derived `deserialize` owns each field from the
+  moment it is read, so when a later field fails, the ones read before it are
+  dropped. **Status: implemented** (SL-833).
   ```saw-fragment
   @synthesize
   extension Endpoint: Serialize {}
@@ -8387,20 +8395,26 @@ trait Deserialize {
   A **raw-backed enum** derives from the design-145 idiom: out through the
   case's raw value, back through the partial `E.from(raw:)`. A raw value no case
   carries is data, not a trap — it becomes `UnknownCase` at the byte it was read
-  at. An enum with **no** raw backing is refused, naming the backing to declare:
-  its cases have no on-the-wire values.
+  at. The raw value travels at the wire's 64 bits of the backing's signedness:
+  an unsigned backing through `write_uint` and `read_uint_max`, a signed one
+  through `write_int` and `read_int_range`, each read bounded by the backing's
+  range. An enum with **no** raw backing, or with a payload case, is refused,
+  naming the backing to declare: its cases have no on-the-wire values.
   A struct whose construction an `init` overrides (see *An `init` that
   overrides the construction*) is built through that `init`. When the
   override fails, `deserialize` returns
   `DecodeError(offset: <where the item started>, fault: .InitFailed)`, the
   case `InitFailed = 13`, "the type's init refused the decoded fields". It
   allocates nothing and does not carry the `init`'s own error, which a
-  caller who needs it gets by writing `deserialize` by hand. **Status:**
-  planned, with the self-hosted compiler's serde.
-  Unlike the Equatable/Comparable/Hashable derivations, which codegen emits from
-  the field layout, these two synthesize a real source body and hand it to the
-  ordinary front end — a derived body is made of `try`, method calls and a `for`
-  loop, and `Result` propagation is not worth re-implementing in IR.
+  caller who needs it gets by writing `deserialize` by hand. **Status:** an
+  infallible override is implemented; `DecodeFault` declares no `InitFailed`
+  case yet (SL-833), so a derivation through a fallible override is refused by
+  name until it does.
+  Unlike the Equatable/Comparable/Hashable derivations, which the backend emits
+  from the field layout, these two are lowered as an ordinary body before the
+  borrow check and drop elaboration, which judge it as they judge user code: a
+  derived body is made of `try`s and calls, and its error paths drop what it
+  has read.
 - `Decoder` carries three requirements with **default bodies**:
   `expect_array(count:)` (open an array and check its length),
   `read_int_range(min:max:)` and `read_uint_max(max:)`. The last two are how a

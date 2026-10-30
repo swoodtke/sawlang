@@ -1,6 +1,7 @@
 // The MIR stage's entry points: a program checked, then lowered, and the
 // record `sawc mir` prints for it.
 
+import sawmir.derive.{mir_lower_derived_bodies}
 import sawmir.dump.{mir_dump_module}
 import sawmir.lower.{mir_lower_program}
 import sawmir.model.{MirDiag}
@@ -41,6 +42,7 @@ public func mir_lower_file(path: String, std_root: String, names: &Vector<String
                                        no_hidden_alloc: no_hidden_alloc)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
+    mir_lower_derived_bodies(&var p)
     lowerings = lowerings + 1
     move p
 }

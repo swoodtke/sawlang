@@ -1,0 +1,13 @@
+// refuses: synthesize.member at 11:19
+// a derived `serialize` over a `Map` field, which no conformance makes
+// `Serialize`: refused at the derivation, naming the field and its type
+
+struct Config {
+    name: String
+    limits: Map<String, Int>
+}
+
+@synthesize
+extension Config: Serialize {}
+
+extension Config: NoCopy {}

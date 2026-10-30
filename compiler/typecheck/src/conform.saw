@@ -507,6 +507,30 @@ extension TcProgram {
         t == self.known.copy || t == self.known.explicit_copy || t == self.known.equatable || t == self.known.comparable || t == self.known.hashable || t == self.known.serialize || t == self.known.deserialize
     }
 
+    // Whether trait `tr` is `Serialize` or `Deserialize`, whose derivation
+    // MIR lowers as a body (`lower_derived_bodies`).
+    public func is_serde_trait(&self, tr: Int) -> Bool {
+        tr >= 0 && (tr == self.known.serialize || tr == self.known.deserialize)
+    }
+
+    // The requirement of its own trait a `Serialize` or `Deserialize`
+    // conformance `at` derives, or -1.
+    public func derived_requirement(&self, at: Int) -> Int {
+        let c = self.conformances[at]
+        if not self.is_serde_trait(c.trait_decl) {
+            return -1
+        }
+        var k = 0
+        while k < c.status_count {
+            let st = self.statuses[c.status_first + k]
+            k = k + 1
+            if st.kind == TcStatusKind.Synthesized && self.res.decls[st.requirement].parent == c.trait_decl {
+                return st.requirement
+            }
+        }
+        return -1
+    }
+
     // Whether a requirement is `Deinit`'s `deinit`, which is synthesized for
     // every type that owns something, with no marker.
     public func is_implicit(&self, requirement: Int) -> Bool {
@@ -620,7 +644,7 @@ extension TcProgram {
     // -1. A production generic has one instance at a production type, which
     // production code runs, so every conformance reaching the trait answers
     // as the production one does, which sees no test-only member.
-    func production_status(&self, at: Int, req: Int) -> Int {
+    public func production_status(&self, at: Int, req: Int) -> Int {
         if not self.is_test_only_conformance(at) {
             return -1
         }

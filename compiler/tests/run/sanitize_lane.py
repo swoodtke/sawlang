@@ -55,7 +55,8 @@ PROBE_KINDS = ("stated", "panics")
 # path left unwritten, a payload written through a `match` arm's binding
 # while the window that lends it is open, a shared window running an
 # accessor's exclusive body, an optional copy built from a lent reference on
-# one edge of its window, owned elements dropped on a decode's error path).
+# one edge of its window, owned elements dropped on a decode's error path,
+# a derived body's fields dropped when a later one fails).
 PROBE_PATTERNS = (
     "thread_*.saw",
     "coro_*.saw",
@@ -79,6 +80,7 @@ PROBE_PATTERNS = (
     "synthesized_twin_*.saw",
     "lent_optional_*.saw",
     "serialize_library_*.saw",
+    "serialize_derived_*.saw",
 )
 INJECTOR = os.path.join(TESTS, "coro", "inject", "asan_inject.saw")
 BUILD_TIMEOUT = 600

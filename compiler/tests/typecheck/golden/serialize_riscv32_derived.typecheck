@@ -1,0 +1,44 @@
+(Module serialize_riscv32_derived
+  (declarations
+    (enum Mode 6:6 private (raw UInt8))
+    (case Mode.Off 7:10)
+    (case Mode.On 8:10)
+    (extension 12:1 (target serialize_riscv32_derived.Mode) (conforms std.serialize.Serialize) synthesize)
+    (extension 14:1 (target serialize_riscv32_derived.Mode) (conforms std.serialize.Deserialize) synthesize)
+    (struct Reading 16:8 private)
+    (field Reading.id 17:5 private UInt)
+    (field Reading.offset 18:5 private Int64)
+    (field Reading.mode 19:5 private serialize_riscv32_derived.Mode)
+    (extension 23:1 (target serialize_riscv32_derived.Reading) (conforms std.serialize.Serialize) synthesize)
+    (extension 25:1 (target serialize_riscv32_derived.Reading) (conforms std.serialize.Deserialize) synthesize)
+    (func main 27:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
+  (members
+    (serialize_riscv32_derived.Mode
+      (case Off private declared)
+      (case On private declared)
+      (static from public (synthesized raw))
+      (method serialize public (synthesized std.serialize.Serialize))
+      (static deserialize public (synthesized std.serialize.Deserialize)))
+    (serialize_riscv32_derived.Reading
+      (field id UInt private declared)
+      (field offset Int64 private declared)
+      (field mode serialize_riscv32_derived.Mode private declared)
+      (method serialize public (synthesized std.serialize.Serialize))
+      (static deserialize public (synthesized std.serialize.Deserialize))))
+  (views
+    (serialize_riscv32_derived.Mode Off On from serialize deserialize)
+    (serialize_riscv32_derived.Reading id offset mode serialize deserialize))
+  (conformances
+    (serialize_riscv32_derived.Mode std.serialize.Serialize 12:17 (serialize synthesized))
+    (serialize_riscv32_derived.Mode std.serialize.Deserialize 14:17 (deserialize synthesized))
+    (serialize_riscv32_derived.Reading std.serialize.Serialize 23:20 (serialize synthesized))
+    (serialize_riscv32_derived.Reading std.serialize.Deserialize 25:20 (deserialize synthesized)))
+  (copy-tier
+    (serialize_riscv32_derived.Mode Copy)
+    (serialize_riscv32_derived.Reading Copy))
+  (bodies
+    (Mode.Off 7:10
+      (7:16-7:17 IntLit Int (adopt UInt8) value temp))
+    (Mode.On 8:10
+      (8:15-8:16 IntLit Int (adopt UInt8) value temp))
+    (main 27:6)))

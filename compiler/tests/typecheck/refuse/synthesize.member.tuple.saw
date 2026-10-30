@@ -1,0 +1,9 @@
+// refuses: synthesize.member at 9:17
+// a derived `serialize` over a tuple field: a tuple has no `Serialize`
+
+struct Span {
+    bounds: (Int, Int)
+}
+
+@synthesize
+extension Span: Serialize {}

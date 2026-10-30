@@ -1,0 +1,15 @@
+// refuses: synthesize.member at 15:20
+// a derived `serialize` over a field of a user type that declares no
+// `Serialize`: the derivation is refused where it is written, never where
+// the body is first reached
+
+struct Point {
+    x: Int
+}
+
+struct Segment {
+    from: Point
+}
+
+@synthesize
+extension Segment: Serialize {}

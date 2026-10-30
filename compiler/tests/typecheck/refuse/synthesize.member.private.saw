@@ -1,0 +1,15 @@
+// refuses: synthesize.member at 13:20
+// a derivation reaches a `private` field too, since every stored field is
+// written, so a private field whose type is not `Serialize` is refused like
+// any other (one of a conforming type round-trips: run probe
+// `serialize_derived_struct`)
+
+public struct Account {
+    name: String
+    private ledger: Map<String, Int>
+}
+
+@synthesize
+extension Account: Serialize {}
+
+extension Account: NoCopy {}

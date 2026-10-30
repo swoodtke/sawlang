@@ -1,0 +1,582 @@
+// The derived bodies (spec, Serialization): each `@synthesize`d
+// `Serialize.serialize` and `Deserialize.deserialize` lowered as the one body
+// its hand-written twin would be, before the borrow check and drop
+// elaboration, which judge it as they judge user code. Typecheck has already
+// refused a derivation a member cannot meet (`check_derivations`), so every
+// field here meets the trait, or the type is a raw-backed enum.
+//
+// Every type the bodies name is read from the requirements' signatures: the
+// encoder and decoder traits, `EncodeError`, `DecodeError` and the fault enum
+// its `fault` field holds are whatever `std.serialize` declares or imports,
+// never a module named here.
+
+import sawmir.build.{mir_func_local}
+import sawmir.lower.{MirVal}
+import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirConstKind, MirFuncKind, MirLocalKind, MirProjKind,
+                         MirRvalueKind}
+import sawmir.program.{MirProgram}
+import sawresolve.dump.{res_sort_strings}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawtypecheck.candidates.{tc_contains}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.conform.{TcSubst}
+import sawtypecheck.declarations.{tc_build_signatures}
+import sawtypecheck.program.{TcProgram}
+import sawtypecheck.signatures.{TcContext}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.tier.{tc_compute_tiers}
+import sawtypecheck.typeops.{TcClient}
+import sawtypecheck.types.{TcKind}
+
+// Lowers the derived bodies of every module checked in full, refusal-free.
+public func mir_lower_derived_bodies(p: &var MirProgram) {
+    p.lower_derived_bodies()
+}
+
+// What a derived body reads its types and requirements through: the
+// requirement's own signature, at the derived type.
+struct MirDerivation {
+    // The conformance's trait path, which every statement and call carries.
+    node: Int
+    // The derived type, its declaration, and the requirement.
+    self_type: Int
+    decl: Int
+    req: Int
+    // The body's result type, and the encoder's or decoder's reference
+    // parameter type.
+    result: Int
+    seam: Int
+}
+
+extension MirProgram {
+    // THE DERIVED-BODY FUNNEL: one MIR function per `@synthesize`d
+    // `Serialize.serialize` and `Deserialize.deserialize`, its kind `Derived`,
+    // in its conformance's module. A struct writes `begin_array` with its
+    // field count, then each field's `serialize` in declaration order, private
+    // fields included; it reads `expect_array`, then each field's type's
+    // `deserialize`, each field owned by the body from the moment it is read,
+    // so a later field's failure drops the earlier ones, then builds the value
+    // through the construction, an `init` that overrides it included. A
+    // raw-backed enum writes its raw value as the wire's 64-bit integer of its
+    // signedness and reads it back through the range read and `from(raw:)`, an
+    // unknown value being `UnknownCase` at the offset the item started at. A
+    // test-only conformance inheriting a production derivation shares its body
+    // (`production_status`). Mono reaches each body by its type and
+    // requirement (`derived_body`).
+    // ENTRY POINTS:
+    //     mir_lower_derived_bodies
+    public func lower_derived_bodies(&var self) {
+        var at = 0
+        while at < self.tc.conformances.len() {
+            let c = self.tc.conformances[at]
+            let req = self.tc.derived_requirement(at)
+            at = at + 1
+            if req < 0 || not self.tc.is_serde_trait(c.trait_decl) || self.tc.production_status(at - 1, req) >= 0 {
+                continue
+            }
+            let m = c.module
+            if m < 0 || self.tc.module_refused(m) || self.tc.res.modules[m].interface_only {
+                continue
+            }
+            self.order_now = self.tc.body_roots.len()
+            if c.trait_decl == self.tc.known.serialize {
+                self.lower_derived_serialize(at - 1, req)
+            } else {
+                self.lower_derived_deserialize(at - 1, req)
+            }
+        }
+    }
+
+    // Starts derived body `req` of conformance `at`: its locals `_1` the
+    // receiver, when the requirement takes one, then the seam's reference.
+    func begin_derived(&var self, at: Int, req: Int) -> MirDerivation {
+        let c = self.tc.conformances[at]
+        let self_type = self.tc.self_type_of(c.type_decl)
+        var sub = TcSubst(owner: -1, args: Vector<Int>())
+        sub.self_type = self_type
+        let s = self.tc.sigs[req]
+        let result = self.tc.subst(s.result, &sub)
+        self.begin_function(MirFuncKind.Derived, c.module, req, c.node, -1, -1, 0, c.type_decl, result)
+        var seam = -1
+        if s.param_count == 1 {
+            let p = self.tc.params[s.param_first]
+            seam = self.tc.subst(p.ty, &sub)
+        } else {
+            self.missing(c.node, "a serialization requirement takes other than one parameter")
+        }
+        MirDerivation(node: c.node, self_type: self_type, decl: c.type_decl, req: req, result: result, seam: seam)
+    }
+
+    // The parameter locals: the receiver `&Self` when `receiver`, then the
+    // seam's reference, named as the requirement names it.
+    func derived_params(&var self, d: &MirDerivation, receiver: Bool) {
+        if receiver {
+            let t = self.tc.mk_ref(false, d.self_type)
+            let l = self.new_local(t, MirLocalKind.Receiver, -1, -1)
+            self.mark_reference(l)
+        }
+        let s = self.tc.sigs[d.req]
+        let p = self.tc.params[s.param_first]
+        let _ = self.new_local(d.seam, MirLocalKind.Param, p.name, -1)
+        self.end_params()
+    }
+
+    // `serialize`: a struct's fields as one array, or a raw-backed enum's
+    // raw value.
+    func lower_derived_serialize(&var self, at: Int, req: Int) {
+        let d = self.begin_derived(at, req)
+        self.derived_params(&d, true)
+        let seam = 2
+        if self.tc.is_enum_decl(d.decl) {
+            self.serialize_raw(&d, seam)
+        } else {
+            var fields = Vector<Int>()
+            var types = Vector<Int>()
+            self.struct_fields(d.self_type, &var fields, &var types)
+            let count = self.int_const(fields.len())
+            var args = Vector<Int>()
+            try! args.push(count)
+            let r = self.seam_call(&d, seam, "begin_array", true, &var args)
+            self.propagate(&d, r, -1)
+            var k = 0
+            while k < fields.len() {
+                let receiver = self.place_local(1)
+                let whole = self.project(receiver, MirProjKind.Deref, -1, -1, d.self_type)
+                let field = self.project(whole, MirProjKind.Field, fields[k], -1, types[k])
+                let field_ref = self.rv_ref(false, field)
+                let recv = self.temp_of(field_ref)
+                let to = self.seam_reborrow(seam, true)
+                var call_args = Vector<Int>()
+                try! call_args.push(self.move_local(recv))
+                try! call_args.push(self.move_local(to))
+                let fr = self.requirement_call(&d, req, types[k], &var call_args, d.result)
+                self.propagate(&d, fr, -1)
+                k = k + 1
+            }
+        }
+        self.return_ok_unit(&d)
+        self.finish_function()
+    }
+
+    // `deserialize`: a struct read field by field, or a raw-backed enum read
+    // back through its raw value.
+    func lower_derived_deserialize(&var self, at: Int, req: Int) {
+        let d = self.begin_derived(at, req)
+        self.derived_params(&d, false)
+        let seam = 1
+        if self.tc.is_enum_decl(d.decl) {
+            self.deserialize_raw(&d, seam)
+            self.finish_function()
+            return
+        }
+        var fields = Vector<Int>()
+        var types = Vector<Int>()
+        self.struct_fields(d.self_type, &var fields, &var types)
+        let overriding = self.tc.construction_override(d.decl)
+        // A fallible override's refusal is reported where the value started.
+        var start = -1
+        if overriding >= 0 && self.tc.is_result(self.tc.sigs[overriding].result) {
+            start = self.decoder_offset(&d, seam)
+        }
+        let count = self.int_const(fields.len())
+        var args = Vector<Int>()
+        try! args.push(count)
+        let r = self.seam_call(&d, seam, "expect_array", true, &var args)
+        self.propagate(&d, r, -1)
+        var locals = Vector<Int>()
+        var k = 0
+        while k < fields.len() {
+            let name = self.tc.res.decls[fields[k]].name
+            let l = self.new_local(types[k], MirLocalKind.User, name, -1)
+            let from = self.seam_reborrow(seam, true)
+            var call_args = Vector<Int>()
+            try! call_args.push(self.move_local(from))
+            let read_type = self.result_of(types[k], d.result)
+            let fr = self.requirement_call(&d, req, types[k], &var call_args, read_type)
+            self.propagate(&d, fr, l)
+            self.scope_owned(l)
+            try! locals.push(l)
+            k = k + 1
+        }
+        if overriding < 0 {
+            var ops = Vector<Int>()
+            k = 0
+            while k < locals.len() {
+                try! ops.push(self.move_local(locals[k]))
+                k = k + 1
+            }
+            let built = self.rv_aggregate(MirAggregate.Struct, d.decl, d.self_type, &ops)
+            let v = self.temp_of(built)
+            self.return_ok(&d, self.move_local(v))
+        } else {
+            self.construct_through(&d, overriding, &fields, &locals, start)
+        }
+        self.finish_function()
+    }
+
+    // The value built by `init` `overriding`, which overrides the
+    // construction: its parameters take the fields by label. A fallible one's refusal is
+    // `DecodeError(offset: start, fault: .InitFailed)`, whose fault is the
+    // decoder vocabulary's own, so a vocabulary that declares no `InitFailed`
+    // refuses the derivation by name.
+    func construct_through(&var self, d: &MirDerivation, overriding: Int, fields: &Vector<Int>,
+                           locals: &Vector<Int>, start: Int) {
+        let s = self.tc.sigs[overriding]
+        var args = Vector<Int>()
+        var k = 0
+        while k < s.param_count {
+            let p = self.tc.params[s.param_first + k]
+            k = k + 1
+            var j = 0
+            var found = -1
+            while j < fields.len() {
+                if self.tc.res.decls[fields[j]].name == p.name {
+                    found = j
+                }
+                j = j + 1
+            }
+            if found < 0 {
+                self.missing(d.node, "a construction override takes a parameter no field names")
+                return
+            }
+            try! args.push(self.move_local(locals[found]))
+        }
+        var sub = TcSubst(owner: d.decl, args: self.tc.nominal_args(d.self_type))
+        sub.self_type = d.self_type
+        let made_type = self.tc.subst(s.result, &sub)
+        var c = self.blank_call(MirCallKind.Function, d.node)
+        c.target = overriding
+        c.owner = d.self_type
+        c.arg_first = self.push_args(&args)
+        c.arg_count = args.len()
+        let made = self.new_temp(made_type)
+        c.dest = self.place_local(made)
+        let _ = self.call_and_continue(c)
+        if not self.tc.is_result(made_type) {
+            self.return_ok(&d, self.move_local(made))
+            return
+        }
+        let error = self.tc.arg_of(d.result, 1)
+        let fault = self.fault_case(&d, error, "InitFailed")
+        if fault < 0 {
+            self.not_yet(d.node, "a derived `deserialize` through a fallible `init`, whose refusal is `DecodeFault.InitFailed`, which the decoder vocabulary does not declare,")
+            return
+        }
+        let p = self.place_local(made)
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let good = self.new_block()
+        let bad = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(p, &cases, &targets, -1)
+        self.enter(bad)
+        self.emit_drop(self.place_local(made))
+        let refused = self.decode_error(&d, error, start, fault)
+        self.return_err(&d, refused)
+        self.enter(good)
+        let value = self.project(self.place_local(made), MirProjKind.Payload, ok, 0, d.self_type)
+        let held = self.new_temp(d.self_type)
+        self.assign_local(held, self.rv_move(value))
+        self.return_ok(&d, self.move_local(held))
+    }
+
+    // A raw-backed enum's raw value, widened to the wire's 64 bits of its
+    // signedness, through `write_uint` or `write_int`.
+    func serialize_raw(&var self, d: &MirDerivation, seam: Int) {
+        let backing = self.tc.sigs[d.decl].result
+        let unsigned = self.tc.is_unsigned(backing)
+        let receiver = self.place_local(1)
+        let whole = self.project(receiver, MirProjKind.Deref, -1, -1, d.self_type)
+        let tag = self.temp_of(self.rv_one(MirRvalueKind.Cast, backing, "", self.op_copy(whole)))
+        let wide_type = self.wire_type(unsigned)
+        let wide = self.temp_of(self.rv_one(MirRvalueKind.Cast, wide_type, "", self.move_local(tag)))
+        var args = Vector<Int>()
+        try! args.push(self.move_local(wide))
+        let method = if unsigned { "write_uint" } else { "write_int" }
+        let r = self.seam_call(&d,seam, method, true, &var args)
+        self.propagate(&d,r, -1)
+    }
+
+    // A raw-backed enum read back: the range read of its backing's bounds,
+    // then `from(raw:)`; a value no case declares is `UnknownCase` at the
+    // offset where the item started.
+    func deserialize_raw(&var self, d: &MirDerivation, seam: Int) {
+        let backing = self.tc.sigs[d.decl].result
+        let unsigned = self.tc.is_unsigned(backing)
+        let wide_type = self.wire_type(unsigned)
+        let start = self.decoder_offset(&d,seam)
+        let width = self.tc.nominal_name(self.tc.nominal_decl(backing))
+        var args = Vector<Int>()
+        if not unsigned {
+            try! args.push(self.bound_const(width, ".min", backing, wide_type))
+        }
+        try! args.push(self.bound_const(width, ".max", backing, wide_type))
+        let method = if unsigned { "read_uint_max" } else { "read_int_range" }
+        let r = self.seam_call(&d,seam, method, true, &var args)
+        let v = self.new_temp(wide_type)
+        self.propagate(&d,r, v)
+        let raw = self.temp_of(self.rv_one(MirRvalueKind.Cast, backing, "", self.op_copy(self.place_local(v))))
+        var opt_args = Vector<Int>()
+        try! opt_args.push(d.self_type)
+        let opt_type = self.tc.mk_nominal(self.tc.known.optional, &opt_args)
+        let found = self.temp_of(self.rv_one(MirRvalueKind.Conversion, opt_type, "from(raw:)",
+                                             self.move_local(raw)))
+        let some = self.optional_case("Some")
+        let none = self.optional_case("None")
+        let known = self.new_block()
+        let unknown = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(some)
+        try! cases.push(none)
+        var targets = Vector<Int>()
+        try! targets.push(known)
+        try! targets.push(unknown)
+        self.switch_cases(self.place_local(found), &cases, &targets, -1)
+        self.enter(unknown)
+        let error = self.tc.arg_of(d.result, 1)
+        let fault = self.fault_case(&d,error, "UnknownCase")
+        if fault < 0 {
+            self.not_yet(d.node, "a derived `deserialize` of a raw-backed enum, whose unknown value is `DecodeFault.UnknownCase`, which the decoder vocabulary does not declare,")
+            return
+        }
+        let refused = self.decode_error(&d,error, start, fault)
+        self.return_err(&d,refused)
+        self.enter(known)
+        let value = self.project(self.place_local(found), MirProjKind.Payload, some, 0, d.self_type)
+        self.return_ok(&d,self.op_copy(value))
+    }
+
+    // `UInt64` or `Int64`, the wire's integer of a signedness.
+    func wire_type(&var self, unsigned: Bool) -> Int {
+        let decl = if unsigned { self.tc.known.uint64 } else { self.tc.known.int64 }
+        self.tc.prim(decl)
+    }
+
+    // `Width.min` or `Width.max` of backing type `backing`, widened to `wide`.
+    func bound_const(&var self, width: String, which: String, backing: Int, wide: Int) -> Int {
+        var text = StringBuilder()
+        try! text.append(width)
+        try! text.append(which)
+        let bound = self.op_const(MirConstKind.Builtin, text.build(), backing)
+        let l = self.temp_of(self.rv_one(MirRvalueKind.Cast, wide, "", bound))
+        self.move_local(l)
+    }
+
+    func int_const(&var self, n: Int) -> Int {
+        var text = StringBuilder()
+        try! text.append(n)
+        let t = self.tc.int_type()
+        self.op_const(MirConstKind.Int, text.build(), t)
+    }
+
+    // A reborrow of the seam's reference parameter `seam`, in a temporary.
+    func seam_reborrow(&var self, seam: Int, exclusive: Bool) -> Int {
+        let p = self.place_local(seam)
+        self.temp_of(self.rv_reborrow(exclusive, p))
+    }
+
+    // `from.offset()`, in a local.
+    func decoder_offset(&var self, d: &MirDerivation, seam: Int) -> Int {
+        var none = Vector<Int>()
+        self.seam_call(&d,seam, "offset", false, &var none)
+    }
+
+    // A call of the seam's requirement `name` on the seam parameter, through
+    // its existential, reborrowed in mode `exclusive`, with `args` after the
+    // receiver; returns the local its result lands in.
+    func seam_call(&var self, d: &MirDerivation, seam: Int, name: String, exclusive: Bool, args: &var Vector<Int>) -> Int {
+        let existential = self.tc.deref_type(d.seam)
+        let trait_decl = self.tc.types.ty(existential).decl
+        let req = self.member_named(trait_decl, name)
+        if req < 0 {
+            self.missing(d.node, "the serialization seam declares no requirement a derived body calls")
+            return self.new_temp(self.tc.int_type())
+        }
+        let recv = self.seam_reborrow(seam, exclusive)
+        var all = Vector<Int>()
+        try! all.push(self.move_local(recv))
+        var k = 0
+        while k < args.len() {
+            try! all.push(args[k])
+            k = k + 1
+        }
+        let result = self.tc.sigs[req].result
+        self.requirement_call(&d,req, existential, &var all, result)
+    }
+
+    // The requirement of trait `t` named `name`, or -1.
+    func member_named(&self, t: Int, name: String) -> Int {
+        let members = self.tc.members_of(t)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            if self.tc.res.name_text(self.tc.res.decls[m].name).equals(name) {
+                return m
+            }
+        }
+        return -1
+    }
+
+    // A call of requirement `req` on `owner` with `args`, its result of type
+    // `result` landing in a new local, which it returns. Every serialization
+    // requirement is `sync`, so the call is no suspension point.
+    func requirement_call(&var self, d: &MirDerivation, req: Int, owner: Int, args: &var Vector<Int>, result: Int) -> Int {
+        var c = self.blank_call(MirCallKind.Function, d.node)
+        c.target = req
+        c.owner = owner
+        c.arg_first = self.push_args(&args)
+        c.arg_count = args.len()
+        let l = self.new_temp(result)
+        c.dest = self.place_local(l)
+        let _ = self.call_and_continue(c)
+        l
+    }
+
+    // `Result<t, E>` for the derived body's result type `whole`'s `E`.
+    func result_of(&var self, t: Int, whole: Int) -> Int {
+        var args = Vector<Int>()
+        try! args.push(t)
+        try! args.push(self.tc.arg_of(whole, 1))
+        self.tc.mk_nominal(self.tc.known.result, &args)
+    }
+
+    // `try` of the Result in local `r`: its error returns from the body as
+    // its own `Err`, after every owned local's drop; its `Ok` payload lands in
+    // local `into`, or is dropped with the Result when `into` is -1.
+    func propagate(&var self, d: &MirDerivation, r: Int, into: Int) {
+        let rt = self.local_type(r)
+        let t = self.tc.arg_of(rt, 0)
+        let et = self.tc.arg_of(rt, 1)
+        let ok = self.result_case("Ok")
+        let err = self.result_case("Err")
+        let good = self.new_block()
+        let bad = self.new_block()
+        var cases = Vector<Int>()
+        try! cases.push(ok)
+        try! cases.push(err)
+        var targets = Vector<Int>()
+        try! targets.push(good)
+        try! targets.push(bad)
+        self.switch_cases(self.place_local(r), &cases, &targets, -1)
+        self.enter(bad)
+        let error = self.project(self.place_local(r), MirProjKind.Payload, err, 0, et)
+        var ops = Vector<Int>()
+        try! ops.push(self.op_move(error))
+        self.assign(self.place_local(0), self.rv_aggregate(MirAggregate.Case, err, d.result, &ops))
+        // A copied error leaves the Result whole, so it drops whole.
+        if self.copied_part_type(et) {
+            self.emit_drop(self.place_local(r))
+        }
+        self.unwind_to(0)
+        self.ret()
+        self.enter(good)
+        let value = self.project(self.place_local(r), MirProjKind.Payload, ok, 0, t)
+        if into >= 0 && self.owns(t) {
+            let held = self.new_temp(t)
+            self.assign_local(held, self.rv_move(value))
+            self.assign_local(into, self.rv_use(self.move_local(held)))
+            return
+        }
+        if into >= 0 {
+            self.assign_local(into, self.rv_use(self.op_copy(value)))
+        }
+        self.emit_drop(self.place_local(r))
+    }
+
+    // `Ok(())`, then every owned local's drop and the return.
+    func return_ok_unit(&var self, d: &MirDerivation) {
+        let v = self.tc.void_type()
+        let unit = self.op_const(MirConstKind.Unit, "()", v)
+        self.return_ok(&d,unit)
+    }
+
+    // `Ok(o)`, then every owned local's drop and the return.
+    func return_ok(&var self, d: &MirDerivation, o: Int) {
+        var ops = Vector<Int>()
+        try! ops.push(o)
+        let ok = self.result_case("Ok")
+        let wrapped = self.temp_of(self.rv_aggregate(MirAggregate.Case, ok, d.result, &ops))
+        self.assign(self.place_local(0), self.rv_use(self.move_local(wrapped)))
+        self.unwind_to(0)
+        self.ret()
+    }
+
+    // `Err(o)`, then every owned local's drop and the return.
+    func return_err(&var self, d: &MirDerivation, o: Int) {
+        var ops = Vector<Int>()
+        try! ops.push(o)
+        let err = self.result_case("Err")
+        let wrapped = self.temp_of(self.rv_aggregate(MirAggregate.Case, err, d.result, &ops))
+        self.assign(self.place_local(0), self.rv_use(self.move_local(wrapped)))
+        self.unwind_to(0)
+        self.ret()
+    }
+
+    // The case named `name` of the fault enum error type `error`'s `fault`
+    // field holds, or -1.
+    func fault_case(&var self, d: &MirDerivation, error: Int, name: String) -> Int {
+        let fault_type = self.error_field_type(error, "fault")
+        if fault_type < 0 {
+            return -1
+        }
+        let id = self.tc.res.intern(name)
+        self.tc.case_named(self.tc.nominal_decl(fault_type), id)
+    }
+
+    // The type of error struct `error`'s field `name`, or -1.
+    func error_field_type(&var self, error: Int, name: String) -> Int {
+        var fields = Vector<Int>()
+        var types = Vector<Int>()
+        self.struct_fields(error, &var fields, &var types)
+        var k = 0
+        while k < fields.len() {
+            if self.tc.res.name_text(self.tc.res.decls[fields[k]].name).equals(name) {
+                return types[k]
+            }
+            k = k + 1
+        }
+        return -1
+    }
+
+    // `DecodeError(offset: start, fault: case)`, built memberwise as the
+    // decoder vocabulary declares it: its `offset` the local `start`.
+    func decode_error(&var self, d: &MirDerivation, error: Int, start: Int, fault_case: Int) -> Int {
+        var fields = Vector<Int>()
+        var types = Vector<Int>()
+        self.struct_fields(error, &var fields, &var types)
+        if self.tc.construction_override(self.tc.nominal_decl(error)) >= 0 {
+            self.not_yet(d.node, "a derived `deserialize` whose decoder error type overrides its construction")
+        }
+        var ops = Vector<Int>()
+        var k = 0
+        while k < fields.len() {
+            let name = self.tc.res.name_text(self.tc.res.decls[fields[k]].name)
+            if name.equals("offset") {
+                try! ops.push(self.op_copy(self.place_local(start)))
+            } else if name.equals("fault") {
+                var none = Vector<Int>()
+                let fault = self.temp_of(self.rv_aggregate(MirAggregate.Case, fault_case, types[k], &none))
+                try! ops.push(self.move_local(fault))
+            } else {
+                self.missing(d.node, "the decoder error type has a field besides `offset` and `fault`")
+                return self.dead_value(error)
+            }
+            k = k + 1
+        }
+        let decl = self.tc.nominal_decl(error)
+        let made = self.temp_of(self.rv_aggregate(MirAggregate.Struct, decl, error, &ops))
+        self.move_local(made)
+    }
+
+    func dead_value(&var self, t: Int) -> Int {
+        let l = self.new_temp(t)
+        self.move_local(l)
+    }
+}

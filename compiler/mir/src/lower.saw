@@ -235,8 +235,8 @@ extension MirProgram {
     }
 
     // Starts a function of kind `kind` whose return place has type `result`.
-    func begin_function(&var self, kind: MirFuncKind, m: Int, d: Int, root: Int, param: Int, parent: Int,
-                        ordinal: Int, owner: Int, result: Int) {
+    public func begin_function(&var self, kind: MirFuncKind, m: Int, d: Int, root: Int, param: Int, parent: Int,
+                               ordinal: Int, owner: Int, result: Int) {
         let f = self.funcs.len()
         let local_first = self.locals.len()
         let block_first = self.blocks.len()
@@ -267,7 +267,7 @@ extension MirProgram {
     }
 
     // Records how many parameters the function has, once they are bound.
-    func end_params(&var self) {
+    public func end_params(&var self) {
         let f = self.cur
         var info = self.funcs[f]
         info.param_count = self.locals.len() - self.local_base - 1
@@ -276,7 +276,7 @@ extension MirProgram {
 
     // Ends the function: the path still open leaves every scope and returns;
     // a block nothing reaches and nothing terminated is unreachable.
-    func finish_function(&var self) {
+    public func finish_function(&var self) {
         if self.live() {
             let root = self.funcs[self.cur].root
             let saved = self.source_closing(root)

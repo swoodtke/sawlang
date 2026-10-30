@@ -1,0 +1,10 @@
+// refuses: synthesize.member at 10:19
+// a derived `deserialize` over a `Float` field: the data model has no float
+
+struct Sample {
+    id: Int
+    value: Float
+}
+
+@synthesize
+extension Sample: Deserialize {}

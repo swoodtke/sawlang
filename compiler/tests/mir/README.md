@@ -70,7 +70,9 @@ fn NAME -> RESULT {
   static's initializer, a raw-backed case's value and an `@align` argument;
   `static_assert MODULE L:C` and `test MODULE L:C`; `closure#K of PARENT` for
   the K-th closure, counted from 0, written in function PARENT; `prologue
-  TARGET` and `epilogue TARGET` for a `borrows` accessor's two halves (below).
+  TARGET` and `epilogue TARGET` for a `borrows` accessor's two halves (below);
+  `derived IDENTITY TARGET` for the body of a `@synthesize`d `Serialize` or
+  `Deserialize` of type IDENTITY (Derived bodies, below).
 - Locals are numbered from 0 in each function. `_0` is the return place, then
   the parameters, the receiver first (`// self`) and a closure's environment
   first (`// env`), then the rest. The note names a binding: `// param NAME`,
@@ -263,6 +265,33 @@ no half: it is never a suspension point, and the backend emits nothing for it.
 | a `borrows(sync)` accessor | accessors `Lock.hold` |
 | a caller holding records | accessors `use_all` |
 | a producer of a borrowing struct, and a `for` over it | windows `Row.steps`, `walk` |
+
+## Derived bodies
+
+A `@synthesize`d `Serialize.serialize` or `Deserialize.deserialize` has no
+source body, so the lowering builds one (`lower_derived_bodies` in
+`compiler/mir/src/derive.saw`, after every body root): kind `Derived`, its
+declaration the requirement, its owner the type it derives for, its source
+node every statement's and call's the conformance's trait path. Its shape is
+what the hand-written conformance's would lower to, so the borrow check and
+drop elaboration judge it as user code: each `try` a switch on the call's
+`Result`, whose `Err` edge returns the error after every owned local's drop,
+and each field `deserialize` reads a local the body owns from that point, so
+a later field's failure drops the earlier ones. Every type and requirement
+is read from the two requirements' signatures, never from a module's name.
+Typecheck refuses a derivation a member cannot meet first
+(`synthesize.member`, `synthesize.raw-backing`), so every field meets the
+trait here. Mono reaches a body by its type and requirement (`derived_target`).
+
+| case | covered by |
+|---|---|
+| a struct's `serialize`, a private field included | derived_bodies `Entry` |
+| a struct's `deserialize`, an owning field dropped when a later one fails | derived_bodies `Entry` |
+| a generic struct, through the bound | derived_bodies `Wrap` |
+| an `init` that overrides the construction, its parameters in another order | derived_bodies `Clamped` |
+| an unsigned raw backing: `write_uint`, `read_uint_max` | derived_bodies `Kind` |
+| a signed raw backing: `write_int`, `read_int_range` | derived_bodies `Step` |
+| a fallible override, whose `InitFailed` the vocabulary does not declare | refuse `derived-fallible-init` |
 
 ## The position matrices
 

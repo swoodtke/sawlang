@@ -1,0 +1,223 @@
+// probe: stated
+// about: a `@synthesize`d Deserialize builds its value through the `init` that overrides the construction, its parameters taken by label in another order than the fields (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: a2 i21 tlab
+// prints: lab 21
+// prints: cold -273
+import std.serialize.{Decoder, Encoder}
+import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+
+// One token per item: a kind letter and its text. `Tape` is both sides of the
+// seam, so a probe writes a value into it and reads the value back.
+static KIND_INT: Byte = 0x69
+static KIND_UINT: Byte = 0x75
+static KIND_BOOL: Byte = 0x62
+static KIND_NULL: Byte = 0x6E
+static KIND_TEXT: Byte = 0x74
+static KIND_ARRAY: Byte = 0x61
+static KIND_MAP: Byte = 0x6D
+
+struct Tape {
+    items: Vector<String>
+    at: Int
+}
+
+extension Tape: NoCopy {}
+
+extension Tape {
+    func put(&var self, token: String) sync -> Result<Void, EncodeError> {
+        match self.items.push(token) {
+            case Ok(_) -> { return },
+            case Err(_) -> { return EncodeError(fault: EncodeFault.Alloc) }
+        }
+    }
+
+    func peek(&self) sync -> Result<String, DecodeError> {
+        guard let tok = self.items.get(self.at) else {
+            return DecodeError(offset: self.at, fault: DecodeFault.Truncated)
+        }
+        return tok
+    }
+
+    // The next token's text after its kind letter, or TypeMismatch at the
+    // token's own position.
+    func take(&var self, kind: Byte) sync -> Result<String, DecodeError> {
+        let tok = try self.peek()
+        if tok.byte_at(0) != kind {
+            return DecodeError(offset: self.at, fault: DecodeFault.TypeMismatch)
+        }
+        self.at = self.at + 1
+        return tok.substring(1, tok.len())
+    }
+
+    func render(&self) -> String {
+        var out = StringBuilder()
+        var i = 0
+        while i < self.items.len() {
+            if i > 0 {
+                try! out.append(" ")
+            }
+            try! out.append(self.items[i])
+            i = i + 1
+        }
+        return out.build()
+    }
+}
+
+extension Tape: Encoder {
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_UINT)
+        try! b.append(v.to_string())
+        return self.put(b.build())
+    }
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_INT)
+        try! b.append(v.to_string())
+        return self.put(b.build())
+    }
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
+        if v {
+            return self.put("b1")
+        }
+        return self.put("b0")
+    }
+    func write_null(&var self) sync -> Result<Void, EncodeError> {
+        self.put("n")
+    }
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_TEXT)
+        try! b.append(v)
+        return self.put(b.build())
+    }
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_ARRAY)
+        try! b.append(count)
+        return self.put(b.build())
+    }
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        var b = StringBuilder()
+        try! b.append(KIND_MAP)
+        try! b.append(count)
+        return self.put(b.build())
+    }
+}
+
+extension Tape: Decoder {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_UINT)
+        guard let v = text.to_uint() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v as UInt64
+    }
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_INT)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v as Int64
+    }
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        let text = try self.take(KIND_BOOL)
+        return text == "1"
+    }
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.take(KIND_NULL)
+        return
+    }
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        self.take(KIND_TEXT)
+    }
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_ARRAY)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v
+    }
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_MAP)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v
+    }
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        let tok = try self.peek()
+        return tok.byte_at(0) == KIND_NULL
+    }
+    func offset(&self) sync -> Int {
+        self.at
+    }
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.peek()
+        self.at = self.at + 1
+        return
+    }
+}
+
+// A tape holding the space-separated tokens of `text`, ready to read.
+func tape_from(text: String) -> Tape {
+    Tape(items: try! text.split(" "), at: 0)
+}
+
+// An `init` matching the fields overrides the construction, so the derived
+// `deserialize` builds every value through it.
+struct Celsius {
+    reading: Int
+    label: String
+}
+
+extension Celsius {
+    init(label: String, reading: Int) -> Celsius {
+        var clamped = reading
+        if clamped < -273 {
+            clamped = -273
+        }
+        Celsius(reading: clamped, label: label)
+    }
+}
+
+@synthesize
+extension Celsius: Serialize {}
+@synthesize
+extension Celsius: Deserialize {}
+
+func read(text: String) {
+    var tape = tape_from(text)
+    match Celsius.deserialize(from: &var tape) {
+        case Ok(c) -> print("{} {}", c.label, c.reading),
+        case Err(e) -> print("refused: {}", e)
+    }
+}
+
+func main() {
+    let c = Celsius(label: "lab", reading: 21)
+    var tape = Tape(items: Vector<String>(), at: 0)
+    try! c.serialize(to: &var tape)
+    print("{}", tape.render())
+    read("a2 i21 tlab")
+    read("a2 i-500 tcold")
+}

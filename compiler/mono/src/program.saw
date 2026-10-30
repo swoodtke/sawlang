@@ -182,9 +182,11 @@ public struct MonoProgram {
     // Whether an earlier stage refused the program, so nothing was made.
     blocked: Bool
     // By declaration: the elaborated MIR function of its body, or -1; and
-    // (declaration, parameter) -> a default value's function.
+    // (declaration, parameter) -> a default value's function; and (type
+    // declaration, requirement) -> its derived body's function.
     body_of: Vector<Int>
     defaults: ResIndex
+    derived: ResIndex
     // The items of the exported functions, in declaration order, each a root
     // the backend defines under its C symbol.
     export_items: Vector<Int>
@@ -256,7 +258,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 builder_build_item: -1, builder_len_item: -1, literal_inits: Vector<Int>(),
                 literal_pushes: Vector<Int>(), vtables: Vector<MonoVtable>(), vtable_slots: Vector<Int>(),
                 erase_vtables: Vector<Int>(), erase_allocs: Vector<Int>(), dispatch_slots: Vector<Int>(), depth_call: -1, depth_glue: -1, current: -1, blocked: blocked,
-                body_of: move bodies, defaults: ResIndex(), export_items: Vector<Int>(),
+                body_of: move bodies, defaults: ResIndex(), derived: ResIndex(), export_items: Vector<Int>(),
                 lowerings: 0)
 }
 

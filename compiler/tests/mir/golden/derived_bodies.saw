@@ -1,0 +1,65 @@
+// The derived bodies (SL-833): a `@synthesize`d `serialize` writes
+// `begin_array` with the field count, then each field's own `serialize` in
+// declaration order; a derived `deserialize` reads `expect_array`, then each
+// field's type's `deserialize` into a local the body owns, then builds the
+// value, through an `init` that overrides the construction when one does. A
+// raw-backed enum writes its raw value at the wire's 64 bits of its
+// signedness and reads it back through the range read and `from(raw:)`, a
+// value no case declares being `UnknownCase` at the item's starting offset.
+
+struct Entry {
+    name: String
+    count: Int
+    private flag: Bool
+}
+
+@synthesize
+extension Entry: Serialize {}
+@synthesize
+extension Entry: Deserialize {}
+
+struct Wrap<T> {
+    value: T
+}
+
+@synthesize
+extension Wrap<T: Serialize>: Serialize {}
+@synthesize
+extension Wrap<T: Deserialize>: Deserialize {}
+
+struct Clamped {
+    level: UInt8
+    tag: String
+}
+
+extension Clamped {
+    init(tag: String, level: UInt8) -> Clamped {
+        Clamped(level: level, tag: tag)
+    }
+}
+
+@synthesize
+extension Clamped: Deserialize {}
+
+enum Kind: UInt8 {
+    case Plain = 0,
+    case Fancy = 9
+}
+
+@synthesize
+extension Kind: Serialize {}
+@synthesize
+extension Kind: Deserialize {}
+
+enum Step: Int32 {
+    case Back = -1,
+    case Ahead = 1
+}
+
+@synthesize
+extension Step: Serialize {}
+@synthesize
+extension Step: Deserialize {}
+
+func main() {
+}

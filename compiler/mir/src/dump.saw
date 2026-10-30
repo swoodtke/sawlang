@@ -312,6 +312,12 @@ extension MirProgram {
             case Epilogue -> {
                 try! out.append("epilogue ")
                 try! out.append(self.tc.target_text(info.decl))
+            },
+            case Derived -> {
+                try! out.append("derived ")
+                try! out.append(self.tc.res.decl_identity(info.owner))
+                try! out.append(" ")
+                try! out.append(self.tc.target_text(info.decl))
             }
         }
         out.build()

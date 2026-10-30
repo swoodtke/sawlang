@@ -150,6 +150,8 @@ extension MonoProgram {
                     self.body_of[info.decl] = f
                 } else if info.kind == MirFuncKind.Default {
                     self.defaults.add(info.decl, info.param, f)
+                } else if info.kind == MirFuncKind.Derived {
+                    self.derived.add(info.owner, info.decl, f)
                 }
             }
             f = f + 1
@@ -1584,8 +1586,10 @@ extension MonoProgram {
 
     // THE REQUIREMENT FUNNEL: requirement `req` called on concrete `owner`,
     // the member the owner's conformance writes, or the trait's default body
-    // under `Self` = owner; a requirement met with neither, by a derivation or
-    // by a builtin type's own conformance, is the glue that synthesizes it.
+    // under `Self` = owner; a derivation MIR lowered as a body
+    // (`lower_derived_bodies`) is that body at the owner's arguments; a
+    // requirement met otherwise, by another derivation or by a builtin
+    // type's own conformance, is the glue that synthesizes it.
     // A bound is also met with no conformance at all (`met_without_conformance`),
     // so that requirement reaches `glued` too. `item` is -1 unless the answer
     // is glue.
@@ -1616,6 +1620,9 @@ extension MonoProgram {
                 if status.kind == TcStatusKind.Default {
                     return MonoTarget(decl: req, self_type: owner, item: -1)
                 }
+                if status.kind == TcStatusKind.Synthesized && self.derived.first(d, req) >= 0 {
+                    return self.derived_target(req, d, owner, k, node)
+                }
                 if status.kind == TcStatusKind.Synthesized || status.kind == TcStatusKind.Implicit {
                     return self.glued(req, owner, k, node)
                 }
@@ -1638,6 +1645,19 @@ extension MonoProgram {
         try! msg.append("`, which no conformance of it meets, is not in the backend slice yet")
         self.refuse(node, "mono.not-yet", msg.build())
         MonoTarget(decl: -1, self_type: -1, item: -1)
+    }
+
+    // Derived body `req` of type declaration `d`, which `index_bodies` found
+    // elaborated, at concrete `owner`'s arguments, under `Self` = owner.
+    func derived_target(&var self, req: Int, d: Int, owner: Int, k: Int, node: Int) -> MonoTarget {
+        let body = self.derived.value(self.derived.first(d, req))
+        let args = self.dp.bc.mir.tc.nominal_args(owner)
+        let no_inst = Vector<Int>()
+        let item = self.function_item(body, d, &args, -1, &no_inst, owner, k, node, MONO_KEY_FUNCTION)
+        if item < 0 {
+            return MonoTarget(decl: -1, self_type: -1, item: -1)
+        }
+        MonoTarget(decl: req, self_type: -1, item: item)
     }
 
     // Whether `owner` meets the trait of requirement `req` with no

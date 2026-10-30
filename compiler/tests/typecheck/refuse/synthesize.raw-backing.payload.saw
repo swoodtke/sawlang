@@ -1,0 +1,11 @@
+// refuses: synthesize.raw-backing at 11:18
+// a derived `deserialize` on a payload enum, which no raw backing can hold:
+// the refusal names the payload case
+
+enum Shape {
+    case Circle(r: Int),
+    case Empty
+}
+
+@synthesize
+extension Shape: Deserialize {}

@@ -180,6 +180,14 @@ OWNERSHIP = (
             CORPUS + "let_tuple_destructure_owning_move.saw",
             # A heap String auto-wrapped into Ok from a tail expression.
             CORPUS + "autowrap_ok_no_premature_free.saw",
+            # Derived serialization bodies: each field moved out of its read's
+            # Ok payload, and the fields read so far dropped once when a
+            # later one fails. Stage 0 has no std.serialize, so none is a twin.
+            RUN_LANE + "probes/serialize_derived_struct.saw",
+            RUN_LANE + "probes/serialize_derived_raw_enum.saw",
+            RUN_LANE + "probes/serialize_derived_generic.saw",
+            RUN_LANE + "probes/serialize_derived_partial_failure.saw",
+            RUN_LANE + "probes/serialize_derived_init_override.saw",
         ),
         blocked=(
             Blocked(CORPUS + "df151d_match_temporary_scrutinee.saw", "slice.not-yet", "SL-674",

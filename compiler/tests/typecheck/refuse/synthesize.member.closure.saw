@@ -1,0 +1,9 @@
+// refuses: synthesize.member at 9:17
+// a derived `serialize` over a function-valued field
+
+struct Hook {
+    run: () -> Int
+}
+
+@synthesize
+extension Hook: Serialize {}

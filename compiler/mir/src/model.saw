@@ -477,7 +477,11 @@ public enum MirFuncKind {
     // A `borrows` accessor's halves: the code up to its `lend`, and the code
     // after it.
     case Prologue,
-    case Epilogue
+    case Epilogue,
+    // A `@synthesize`d `Serialize.serialize` or `Deserialize.deserialize`:
+    // `decl` the requirement, `owner` the type it derives for, whose
+    // parameters the body's types name, `root` the conformance's trait path.
+    case Derived
 }
 
 public struct MirFunc {

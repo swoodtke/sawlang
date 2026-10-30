@@ -2,8 +2,9 @@
 // size, which is a cycle in the by-value containment graph (spec, Recursive
 // types), the signature half of `unsafe` (designs 130 and 136), the rules on
 // the traits the compiler only derives and on the thread-safety assertions,
-// where a type's policies are declared, and a test-only conformance or member
-// overlapping what production code meets.
+// where a type's policies are declared, a test-only conformance or member
+// overlapping what production code meets, and a derivation whose members
+// cannot meet its trait.
 
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
@@ -39,6 +40,11 @@ public func tc_check_derived_conformances(p: &var TcProgram) {
 
 // The rule that a conformance to `Comparable` or `Hashable` requires
 // `Equatable` beside it.
+// The refusals of a derivation whose members cannot meet its trait.
+public func tc_check_derivations(p: &var TcProgram) {
+    p.check_derivations()
+}
+
 public func tc_check_required_conformances(p: &var TcProgram) {
     p.check_required_conformances()
 }
@@ -652,6 +658,131 @@ extension TcProgram {
             }
             at = at + 1
         }
+    }
+
+    // THE DERIVATION FUNNEL: a `@synthesize`d `Serialize` or `Deserialize`
+    // is refused at its head when the body MIR lowers for it
+    // (`lower_derived_bodies`) could not be written, rather than where that
+    // body is first reached. A struct's every stored field, private ones
+    // included, must meet the trait with the extension's conditions in
+    // scope; an enum is written as its raw value, so it needs a raw backing
+    // (spec, Serialization). Equatable, Comparable and Hashable stay lazy: a
+    // member that cannot be compared is an error at the comparison (spec,
+    // Equality). A test-only conformance that inherits a production one's
+    // derivation is that one's to check.
+    // ENTRY POINTS:
+    //     tc_check_derivations
+    public func check_derivations(&var self) {
+        var at = 0
+        while at < self.conformances.len() {
+            let req = self.derived_requirement(at)
+            if req >= 0 && self.production_status(at, req) < 0 {
+                self.check_derivation(at, req)
+            }
+            at = at + 1
+        }
+    }
+
+    func check_derivation(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        let d = c.type_decl
+        if self.is_enum_decl(d) {
+            self.check_raw_backing(at, req)
+            return
+        }
+        let in_test = self.is_test_only_conformance(at)
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            if self.res.decls[m].kind != ResDeclKind.Field {
+                continue
+            }
+            self.build_decl(m)
+            let t = self.sigs[m].result
+            if t >= 0 && not self.satisfies(t, c.trait_decl, d, c.ext, c.module, in_test) {
+                self.refuse_underivable(at, req, m, t)
+            }
+        }
+    }
+
+    // A `Serialize` or `Deserialize` enum's derivation: out through its raw
+    // value and back through `from(raw:)`, so the enum declares a raw
+    // backing, which no payload case can carry.
+    func check_raw_backing(&var self, at: Int, req: Int) {
+        let c = self.conformances[at]
+        let d = c.type_decl
+        if self.sigs[d].result >= 0 {
+            return
+        }
+        let type_name = self.res.decl_path(d)
+        var msg = StringBuilder()
+        try! msg.append("cannot derive `")
+        try! msg.append(self.res.name_text(self.res.decls[req].name))
+        try! msg.append("` for `")
+        try! msg.append(type_name)
+        try! msg.append("`: an enum is written as its raw value, and ")
+        let payload = self.payload_case(d)
+        if payload >= 0 {
+            try! msg.append("its case `")
+            try! msg.append(self.res.name_text(self.res.decls[payload].name))
+            try! msg.append("` carries a payload, which no raw value holds: only a payload-free enum with a raw backing, `enum ")
+            try! msg.append(type_name)
+            try! msg.append(": UInt8` with a value for each case, derives it; write `")
+        } else {
+            try! msg.append("`")
+            try! msg.append(type_name)
+            try! msg.append("` declares no raw backing, so its cases have no on-the-wire values: declare one, `enum ")
+            try! msg.append(type_name)
+            try! msg.append(": UInt8` with a value for each case, or write `")
+        }
+        try! msg.append(self.res.name_text(self.res.decls[req].name))
+        try! msg.append("` by hand")
+        self.refuse_in(c.module, c.node, "synthesize.raw-backing", msg.build())
+    }
+
+    // The first case of enum `d` that carries a payload, or -1.
+    func payload_case(&var self, d: Int) -> Int {
+        let members = self.members_of(d)
+        var k = 0
+        while k < members.len() {
+            let m = members[k]
+            k = k + 1
+            if self.res.decls[m].kind == ResDeclKind.Case {
+                self.build_decl(m)
+                if self.sigs[m].param_count > 0 {
+                    return m
+                }
+            }
+        }
+        return -1
+    }
+
+    // Field `m` of conformance `at`'s type, whose type `t` does not meet the
+    // trait.
+    func refuse_underivable(&var self, at: Int, req: Int, m: Int, t: Int) {
+        let c = self.conformances[at]
+        let trait_name = self.res.decl_path(c.trait_decl)
+        let req_name = self.res.name_text(self.res.decls[req].name)
+        var msg = StringBuilder()
+        try! msg.append("cannot derive `")
+        try! msg.append(req_name)
+        try! msg.append("` for `")
+        try! msg.append(self.res.decl_path(c.type_decl))
+        try! msg.append("`: field `")
+        try! msg.append(self.res.name_text(self.res.decls[m].name))
+        try! msg.append("` of type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which does not conform to `")
+        try! msg.append(trait_name)
+        try! msg.append("`, and the derived body reaches every stored field, private ones included: write `")
+        try! msg.append(req_name)
+        try! msg.append("` by hand, or give the field a type that conforms")
+        if self.mentions_param(t) {
+            try! msg.append(", which a bound on the extension's parameter can promise")
+        }
+        self.refuse_in(c.module, c.node, "synthesize.member", msg.build())
     }
 
     func check_required(&var self, at: Int, tr: Int, needs: Int) {

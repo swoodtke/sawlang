@@ -1,0 +1,9 @@
+// refuses: synthesize.member at 9:20
+// a generic derivation whose extension does not bound the parameter a field has
+
+struct Wrap<T> {
+    value: T
+}
+
+@synthesize
+extension Wrap<T>: Serialize {}

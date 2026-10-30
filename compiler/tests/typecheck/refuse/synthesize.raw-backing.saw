@@ -1,0 +1,11 @@
+// refuses: synthesize.raw-backing at 11:18
+// a derived `serialize` on an enum with no raw backing: its cases have no
+// on-the-wire values, and the refusal names the backing to declare
+
+enum Level {
+    case Low,
+    case High
+}
+
+@synthesize
+extension Level: Serialize {}

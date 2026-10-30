@@ -1290,7 +1290,7 @@ errors/semicolon_doubled.saw	pass	-	resolve.parse-refused: the parser refuses `t
 errors/send_bound_not_satisfied.saw	pass	-	type.bound: `send_bound_not_satisfied.RawHandle` does not satisfy `Send`, the bound on `T` of `needs_send`
 errors/send_explicit_conformance.saw	pass	-	conformance.derived-only: cannot explicitly implement `Send`: it is a marker trait derived structurally by the compiler, so `Foo` is `Send` exactly when its members are; where an unsafe-typed member b
 errors/serde169_deserialize_not_any.saw	pass	-	name.not-in-prelude: `Decoder` is not in the prelude and must be imported: `import std.serialize.{Decoder}` selects it
-errors/serde169_underivable_field.saw	pass	-	result.discarded: the result of `insert` is `Result<Int?, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
+errors/serde169_underivable_field.saw	pass	-	synthesize.member: cannot derive `serialize` for `Config`: field `limits` of type `std.map.Map<String, Int, std.alloc.GlobalAllocator>`, which does not conform to `Serialize`, and the derived body rea
 errors/shadow_closure_param.saw	pass	-	name.shadowing: `total` shadows an enclosing binding, which a pattern, a parameter or a closure parameter may not do; pick another name
 errors/shadow_for_nested_loop.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
 errors/shadow_for_nonderived.saw	pass	-	name.shadowing: `x` shadows an enclosing binding without deriving from it; pick another name, or mention `x` in the initializer
