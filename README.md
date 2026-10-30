@@ -927,11 +927,9 @@ func boot() {
 ```
 
 Cross-compiling to a bare-metal target takes a triple and, where the part has
-optional extensions, a feature list. `sawc build --freestanding --target
-aarch64-unknown-none-elf` writes a freestanding object today. For riscv32,
-`sawc build --emit-ll` writes the module at the 32-bit word, and an object
-build stops before the backend: `sawc` does not write a riscv32 object yet
-(SL-865). Once it does, the build reads:
+optional extensions, a feature list. `sawc build --freestanding` writes a
+freestanding object for `aarch64-unknown-none-elf` and for
+`riscv32-unknown-none-elf`, whose word is 32 bits. A riscv32 build reads:
 
 ```bash
 sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
@@ -940,7 +938,9 @@ sawc kernel.saw -o kernel.o --freestanding --no-hidden-alloc \
 
 Base rv32i has no divide instruction, so `+m` is what keeps integer
 formatting from calling a library routine the freestanding profile has no
-library to provide. On aarch64 the freestanding profile defaults to
+library to provide. Without `+a`, every atomic operation becomes a call to
+one of five `__atomic_*` routines your kernel supplies (the spec lists them),
+and `SpinLock` is refused. On aarch64 the freestanding profile defaults to
 `-neon,-fp-armv8`: a core traps Advanced SIMD at EL1 out of reset, and LLVM
 reaches for `q` registers to move a struct, so a kernel would fault on its
 first block copy — before the exception vectors that would report it were
@@ -1001,8 +1001,8 @@ string to check an installed compiler against.
 
 A consumer that builds Stage 0's language through this repository (sawos, or
 any `SAWLANG_ROOT` user that needs `sawc0`'s command line) builds through a
-pin at or before v0.18.0 until `sawc` builds that command line, riscv32
-included (SL-865).
+pin at or before v0.18.0 until its sources build under `sawc`. The command
+line itself builds, for riscv32 and arm64 alike (SL-865).
 sawos's copy of the toolchain resolver follows this one when its work resumes.
 
 ### Linux
@@ -1019,9 +1019,11 @@ limactl start --name=sawlang-linux tools/lima/sawlang-linux.yaml   # once
 ```
 
 `sawc`'s LLVM IR needs a clang with opaque pointers (LLVM 15 or later).
-`compiler/tools/build.py` picks `SAWC_CLANG` if it is set, else the first
-`clang-19` … `clang` that compiles a test module, and refuses by name a clang
-that cannot.
+`compiler/tools/build.py` picks `SAWC_CLANG` if it is set. Otherwise it takes
+the first clang that compiles a test module for the target, trying each
+`clang-NN` on `PATH` (newest first), then `clang`, then Homebrew's LLVM
+clang, and it refuses by name a clang that cannot. Apple's clang has no
+RISC-V backend, so on a Mac the riscv32 target needs `brew install llvm`.
 
 ### Compiler options
 

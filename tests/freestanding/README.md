@@ -16,16 +16,20 @@ tools/freestanding_runner.py hello          # named cases
 tools/freestanding_runner.py --tools        # the prerequisite decision alone
 ```
 
-It needs QEMU (`qemu-system-aarch64`), `ld.lld`, and a clang that compiles for
-the target (the one sawc's own record beside the stages names). When one of
-them is known absent the suite skips and passes, saying which; when their
-presence cannot be determined it fails. It is the battery's `freestanding`
-stage and a part of the per-patch gate.
+It needs QEMU (`qemu-system-riscv32` and `qemu-system-aarch64`), `ld.lld`, and
+a clang that compiles for each target (the one sawc's own record beside the
+stages names; on macOS Apple's clang has no RISC-V backend, so riscv32's is
+Homebrew's LLVM). When one of them is known absent the suite skips and
+passes, saying which; when their presence cannot be determined it fails. It
+is the battery's `freestanding` stage and a part of the per-patch gate.
 
-arm64 runs today. The riscv32 rows are off until sawc builds a riscv32 object
-(SL-865). A case blocked by a sawc gap is marked `due` in the runner, citing
-the issue that owns the gap, and must fail with that gap's diagnostic until
-the gap closes.
+Both architectures run: riscv32 (`+m,+a,+c`, QEMU `virt -bios none`) and
+arm64. The riscv32 cases marked `no_atomics` build for a part without the `A`
+extension (`+m,+c`), where sawc's atomics are `__atomic_*` libcalls: the
+object must reference exactly the five routines the spec lists, and
+`hal/riscv32/atomics.c` supplies them, linked into those cases alone. A case
+blocked by a sawc gap is marked `due` in the runner, citing the issue that
+owns the gap, and must fail with that gap's diagnostic until the gap closes.
 
 `bladepkg/` is the Blade case (`blade build --target T`), which is not run:
 Blade is frozen in v0.18.0's language until its port (SL-661).

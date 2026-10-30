@@ -153,9 +153,10 @@ out for another target. In the Linux VM, `--target x86_64-unknown-linux-gnu`
 is configured that way, and Rosetta runs what it links. The runtime is built at the module's own target, so a
 link prints nothing.
 
-A bare-metal target (`target_bare_metal` in `compiler/target`, today
+A bare-metal target (`target_bare_metal` in `compiler/target`:
 `aarch64-unknown-none-elf`, whose layouts and C convention are Linux
-AArch64's) has no runtime and no C library, so sawc never links for it. A
+AArch64's, and `riscv32-unknown-none-elf`, ILP32) has no runtime and no C
+library, so sawc never links for it. A
 build for one without `-c`, `--emit-ll`, `--freestanding` or `--runtime` is
 refused with exit status 2 before anything is written, naming `-c`. With
 `-c` the object is compiled by the clang its record names:
@@ -213,12 +214,15 @@ ruling). Two builds into two directories write the same bytes. With
 sawc's `.ll` uses opaque pointers (`ptr`) throughout, which LLVM 15 made the
 default and Debian 12's own `clang` (14) refuses. `build.py`'s `choose_clang`
 is the one place a clang is chosen, once per target: `SAWC_CLANG` if it is
-set, with no fallback, else the first of `clang-19`, `clang-18`, … `clang-15`,
-`clang` on `PATH` that compiles the two-line module `define ptr @f(ptr %p) {
-ret ptr %p }` for that target (`pick_clang`). The capability is tested rather
+set, with no fallback, else the first that compiles the two-line module
+`define ptr @f(ptr %p) { ret ptr %p }` for that target (`pick_clang`) of
+`clang_candidates()`: each `clang-NN` on `PATH`, the newest first, then
+`clang`, then Homebrew's LLVM clang, `$HOMEBREW_PREFIX/opt/llvm/bin/clang`
+(`/opt/homebrew` when unset), which Homebrew keeps off `PATH`. The capability is tested rather
 than a version read, since Apple's clang numbers its versions apart from
 LLVM's, and per target, since a clang need not have every backend: Apple's has
-no RISC-V. The lane checks the choice for `aarch64-unknown-none-elf` with no
+no RISC-V, so on macOS Homebrew's is riscv32's. The lane checks the candidate
+order, the choice for `aarch64-unknown-none-elf` with no
 override, with `SAWC_CLANG` naming that clang, and with it naming no
 executable, which is refused by name, and the bare-metal record, which
 must already be there from the stage build before `configure_target`
@@ -646,15 +650,19 @@ once with `+m,+a,+c`:
 - a `wide_*.saw` program renders `Int64` and `UInt64`, through the 64-bit
   renderers `__saw_render_int64` and `__saw_render_uint64`, which take an
   `i64` and return the word;
-- each module compiles with the clang `build.py`'s `pick_clang` picks for
-  riscv32 (`SAWC_CLANG` overrides), and its object references no
-  `__atomic_*_8` and, for a word program, no 64-bit division routine. Without
-  `+a`, the atomics program references exactly `__atomic_load_4`,
-  `__atomic_store_4`, `__atomic_fetch_add_4`, `__atomic_fetch_sub_4` and
-  `__atomic_compare_exchange_4`; with `+a` it references none.
+- each module compiles with the clang riscv32's record names (the stage
+  build writes it from `pick_clang`; `SAWC_CLANG` overrides), and its object
+  references no `__atomic_*_8` and, for a word program, no 64-bit division
+  routine. Without `+a`, the atomics program references exactly
+  `__atomic_load_4`, `__atomic_store_4`, `__atomic_fetch_add_4`,
+  `__atomic_fetch_sub_4` and `__atomic_compare_exchange_4`; with `+a` it
+  references none;
+- `sawc build --freestanding --target riscv32-unknown-none-elf` writes the
+  atomics program as an ELF32 RISC-V relocatable object defining its export.
 
-When no clang compiles IR for riscv32, the object half is skipped, its reason
-in the lane's counts. The `i64` half always runs.
+When no clang compiles IR for riscv32, there is no record and the object half
+is skipped, its reason in the lane's counts; a capable clang with no record
+fails. The `i64` half always runs.
 
 ## Line tables
 

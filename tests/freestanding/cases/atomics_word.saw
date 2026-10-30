@@ -1,0 +1,54 @@
+// The word's atomics on a target that has them: riscv32 built with `+a`, and
+// arm64. `Atomic<Int>`'s four operations, a String's refcount (a copy and its
+// release, which add and subtract atomically), and a `SpinLock` taken, tried
+// and released. The runner also reads the object: with native atomics it
+// references no `__atomic_*` routine.
+//
+// The values sit inside 2^31, so every check holds at either word.
+
+import fscore.*
+import std.spinlock.{SpinLock}
+
+static COUNTER: Atomic<Int> = Atomic(0)
+
+// Zero is an unlocked lock over a zero payload, so the static needs no
+// initializer.
+static TALLY: SpinLock<Int>
+
+@export("fs_main")
+func fs_main() unsafe {
+    COUNTER.store(40)
+    check_value("load_after_store", COUNTER.load(), 40)
+    check_value("fetch_add_returns_before", COUNTER.fetch_add(5), 40)
+    check_value("fetch_add_applied", COUNTER.load(), 45)
+    check_value("fetch_add_negative_returns_before", COUNTER.fetch_add(-3), 45)
+    check_value("fetch_add_negative_applied", COUNTER.load(), 42)
+    check("compare_exchange_matches", COUNTER.compare_exchange(42, 7))
+    check_value("compare_exchange_stored", COUNTER.load(), 7)
+    check("compare_exchange_mismatch_refused", not COUNTER.compare_exchange(42, 9))
+    check_value("compare_exchange_mismatch_kept", COUNTER.load(), 7)
+
+    let text = "shared text"
+    let copied = text
+    check("string_copy_shares", copied.equals(text))
+    check_value("string_copy_length", copied.len(), 11)
+
+    borrow var tally = TALLY.lock() {
+        tally = tally + 3
+    }
+    check("spinlock_released_after_lock", not TALLY.is_locked())
+    var tried = false
+    if var tally = TALLY.try_lock() {
+        tally = tally + 4
+        tried = true
+    }
+    check("spinlock_try_lock_taken", tried)
+    check("spinlock_released_after_try_lock", not TALLY.is_locked())
+    var seen = 0
+    borrow var tally = TALLY.lock() {
+        seen = tally
+    }
+    check_value("spinlock_guarded_value", seen, 7)
+
+    finish("atomics_word")
+}

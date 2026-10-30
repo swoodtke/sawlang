@@ -1,0 +1,79 @@
+// Integers wider than the word, and a `UInt32` above 2^31, rendered and
+// hashed. On riscv32 an `Int64`/`UInt64` `{}` argument goes through the
+// 64-bit renderers and an interpolation or a `to_string()` through the
+// Printable glue that renders a wide value in parts; a `UInt32` above 2^31 is
+// the word's own width there, unsigned. On arm64 the same source is the
+// control, every value at most the word.
+//
+// The hash checks hold on every target by the hash/== contract: equal values
+// hash alike, and keys that differ only above the low 32 bits stay distinct
+// keys of a map whatever their digests.
+//
+// Built WITHOUT `--no-hidden-alloc`: interpolation builds a String, which is
+// half of what is under test.
+
+import fscore.*
+
+func digest_of_wide(v: Int64) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+func digest_of_narrow(v: UInt32) -> Int {
+    var h = Hasher()
+    v.hash(&var h)
+    h.finish()
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    let high: Int64 = 0x1234
+    let value = (high << 32) | 0x5678
+    let negative = 0 - value
+    let largest: Int64 = 9_223_372_036_854_775_807
+    let smallest = 0 - largest - 1
+    let unsigned_max: UInt64 = 0xFFFF_FFFF_FFFF_FFFFu64
+    let above_half: UInt32 = 3_000_000_000
+    let all_ones: UInt32 = 0xFFFF_FFFF
+    let narrow_min: Int32 = -2_147_483_648
+
+    print("fs value arg_signed={}", value)
+    print("fs value arg_negative={}", negative)
+    print("fs value arg_largest={}", largest)
+    print("fs value arg_smallest={}", smallest)
+    print("fs value arg_unsigned_max={}", unsigned_max)
+    print("fs value arg_above_half={}", above_half)
+    print("fs value arg_all_ones={}", all_ones)
+    print("fs value arg_narrow_min={}", narrow_min)
+
+    let interpolated = "{value} {negative} {largest} {smallest} {unsigned_max} {above_half} {all_ones} {narrow_min}"
+    print("fs value interpolated={}", interpolated)
+    let rendered = smallest.to_string()
+    print("fs value to_string_smallest={}", rendered)
+    check("interpolated_matches_arguments", interpolated.equals("20014547621496 -20014547621496 9223372036854775807 -9223372036854775808 18446744073709551615 3000000000 4294967295 -2147483648"))
+
+    let again = (high << 32) | 0x5678
+    check("equal_wide_values_hash_alike", digest_of_wide(value) == digest_of_wide(again))
+    let echo: UInt32 = 1_500_000_000 * 2
+    check("equal_narrow_values_hash_alike", digest_of_narrow(above_half) == digest_of_narrow(echo))
+
+    let twin = value + (1i64 << 32)
+    var wide = Map<Int64, Int>()
+    let _ = try! wide.insert(value, 1)
+    let _ = try! wide.insert(twin, 2)
+    let _ = try! wide.insert(negative, 3)
+    check_value("wide_keys_distinct", wide.len(), 3)
+    check_value("wide_key_low_twin", wide.get(value) ?? 0, 1)
+    check_value("wide_key_high_twin", wide.get(twin) ?? 0, 2)
+    check_value("wide_key_negative", wide.get(negative) ?? 0, 3)
+
+    var narrow = Map<UInt32, Int>()
+    let _ = try! narrow.insert(above_half, 5)
+    let _ = try! narrow.insert(above_half - 2_147_483_648, 6)
+    check_value("narrow_keys_distinct", narrow.len(), 2)
+    check_value("narrow_key_above_half", narrow.get(above_half) ?? 0, 5)
+    check_value("narrow_key_below_half", narrow.get(852_516_352) ?? 0, 6)
+
+    finish("wide_hash_format")
+}

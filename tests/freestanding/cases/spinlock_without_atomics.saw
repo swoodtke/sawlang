@@ -1,0 +1,18 @@
+// A REFUSAL: riscv32 built without the `A` extension, where a word's
+// compare-and-swap is a libcall the environment supplies, cannot name a
+// `SpinLock` (spec, Profiles). `Atomic<Int>` is still legal there
+// (`atomics_libcall.saw`). This case is never run; the compile is the
+// assertion.
+
+import fscore.*
+import std.spinlock.{SpinLock}
+
+static TALLY: SpinLock<Int>
+
+@export("fs_main")
+func fs_main() unsafe {
+    borrow var tally = TALLY.lock() {
+        tally = tally + 1
+    }
+    finish("spinlock_without_atomics")
+}

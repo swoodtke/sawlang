@@ -193,17 +193,6 @@ public func target_native_atomics(triple: String, features: String) -> Bool {
     isa.contains("a") || isa.contains("g")
 }
 
-// Whether sawc's backend emits a module for `triple`. Every triple does but
-// riscv32, whose 32-bit word the backend's literal widths do not follow, so
-// a build for it checks the program through every stage before the backend
-// and stops there (SL-865).
-// ENTRY POINTS:
-//     driver_build
-//     driver_refuse_mach_o
-public func target_emits(triple: String) -> Bool {
-    not triple.starts_with("riscv32")
-}
-
 // THE FRONT END'S TARGET: the record typecheck and every stage after it read
 // (`TcTarget`) for `triple` compiled with the effective subtarget features
 // `features`, its word from `target_word_bytes` and its atomics from

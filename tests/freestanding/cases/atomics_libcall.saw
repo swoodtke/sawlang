@@ -1,0 +1,34 @@
+// The word's atomics on a target WITHOUT them: riscv32 built with `+m,+c`,
+// no `A` extension. sawc lowers every atomic to an `__atomic_*` libcall
+// there, and the environment supplies the routines (spec, Profiles); this
+// suite's are `hal/riscv32/atomics.c`. The runner reads the object first: it
+// must reference exactly the spec's five routines at the 4-byte word.
+//
+// `Atomic<Int>` reaches the load, the store, the add and the compare-and-swap;
+// a String's copy and release reach the add and the subtract. A `SpinLock` is
+// refused on this target (`spinlock_without_atomics.saw`).
+
+import fscore.*
+
+static COUNTER: Atomic<Int> = Atomic(0)
+
+@export("fs_main")
+func fs_main() unsafe {
+    COUNTER.store(40)
+    check_value("load_after_store", COUNTER.load(), 40)
+    check_value("fetch_add_returns_before", COUNTER.fetch_add(5), 40)
+    check_value("fetch_add_applied", COUNTER.load(), 45)
+    check_value("fetch_add_negative_returns_before", COUNTER.fetch_add(-3), 45)
+    check_value("fetch_add_negative_applied", COUNTER.load(), 42)
+    check("compare_exchange_matches", COUNTER.compare_exchange(42, 7))
+    check_value("compare_exchange_stored", COUNTER.load(), 7)
+    check("compare_exchange_mismatch_refused", not COUNTER.compare_exchange(42, 9))
+    check_value("compare_exchange_mismatch_kept", COUNTER.load(), 7)
+
+    let text = "shared text"
+    let copied = text
+    check("string_copy_shares", copied.equals(text))
+    check_value("string_copy_length", copied.len(), 11)
+
+    finish("atomics_libcall")
+}

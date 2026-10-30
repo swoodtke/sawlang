@@ -12469,10 +12469,11 @@ Two constraints are enforced, not documented:
   owner. A consequence: a task cannot be switched out while it holds the lock,
   so two tasks on one thread never contend, and contention always means another
   thread or another core.
-- **The target must have atomics.** Where a compare-and-swap lowers to
-  `__atomic_*` libcalls (rv32i), naming a `SpinLock` is a compile error
-  pointing at `--target-features +a`, never a silent fallback into a C
-  runtime a freestanding target does not have.
+- **The target must have atomics.** A `SpinLock` spins on a hardware
+  read-modify-write, so where a compare-and-swap lowers to `__atomic_*`
+  libcalls (rv32i), naming one is a compile error pointing at
+  `--target-features +a`. `Atomic<Int>` stays legal there, through the
+  routines the environment supplies (Profiles).
 
 Hold it briefly. A waiter burns its core until the lock is free.
 
@@ -14499,11 +14500,9 @@ the frame's deinit, and the deinit is a no-op afterwards.
 ### Profiles (hosted and freestanding)
 
 **Status: implemented.** `sawc build --freestanding` writes an ELF object for
-the host's ELF triple or for `aarch64-unknown-none-elf`, and `--runtime` builds
-a runtime provider. For `riscv32-unknown-none-elf`, `sawc build --emit-ll`
-writes the module at the 32-bit word, and an object build checks the program
-through every stage before the backend and stops there: `sawc` does not write
-a riscv32 object yet (SL-865). Saw compiles under two profiles.
+the host's ELF triple, for `aarch64-unknown-none-elf` or for
+`riscv32-unknown-none-elf`, and `--runtime` builds a runtime provider. Saw
+compiles under two profiles.
 The default **hosted** profile links libc and provides everything above. The
 **freestanding** profile (`--freestanding`, optionally with `--target
 <triple>`) targets kernels and bare-metal: it links no libc and emits an

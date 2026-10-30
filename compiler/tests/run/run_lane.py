@@ -1957,7 +1957,8 @@ def check_clang_choice(failures, counts):
     override naming no executable is refused by name, with no fallback to the
     candidates. The stage build has written the target's record before any
     of this runs; `configure_target` then rewrites it: its `target` and
-    `clang` lines and no object, since it has no runtime."""
+    `clang` lines and no object, since it has no runtime. The candidates are
+    each `clang-NN` on PATH, the newest first, then `clang`, then Homebrew's."""
     where = "run clang choice for %s" % BARE_METAL_TARGET
     problem = bare_metal_record_problem("clang choice for %s" % BARE_METAL_TARGET)
     if problem:
@@ -1985,6 +1986,13 @@ def check_clang_choice(failures, counts):
             line.startswith("object ") for line in lines):
         failures.append("%s: the record %s is %r, not its target, one clang and no object: %s"
                         % (where, rel(record), lines, why))
+    candidates = build.clang_candidates()
+    versioned = [re.match(r"^clang-(\d+)$", c) for c in candidates[:-2]]
+    versions = [int(m.group(1)) for m in versioned if m]
+    if (candidates[-2:] != ["clang", build.homebrew_clang()] or not all(versioned)
+            or versions != sorted(versions, reverse=True)):
+        failures.append("%s: the candidates are %r, not each clang-NN on PATH newest first, then clang, then %s"
+                        % (where, candidates, build.homebrew_clang()))
     counts["run clang choices checked"] = 3
 
 

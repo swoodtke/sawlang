@@ -6,9 +6,9 @@
 
 Each RUN case is compiled by sawc (`--freestanding --runtime
 --no-hidden-alloc --target T`, with the suite's three modules through
-`--module-path`), linked by ld.lld with a boot stub and a C floor at a fixed
-address, booted under QEMU, and judged by its console transcript and exit
-status. A REFUSAL case stops at the compile and is judged by sawc's
+`--module-path`), its object's `__atomic_*` references read with `nm`, linked
+by ld.lld with a boot stub and a C floor at a fixed address, booted under
+QEMU, and judged by its console transcript and exit status. A REFUSAL case stops at the compile and is judged by sawc's
 diagnostic. A case marked `due` is blocked by a sawc gap and cites the issue
 that owns it; it must fail, and passing fails the run so the marker comes off.
 
@@ -85,9 +85,15 @@ ARCHES = [
         # gets the same set through `-march`.
         "cc_args": ["-march=rv32imac_zicsr", "-mabi=ilp32"],
         "features": "+m,+a,+c",
+        # The part with no `A` extension (an ESP32-C3's shape), for the cases
+        # marked `no_atomics`: the Saw half built without `+a`, and the
+        # environment's atomic routines compiled for the same ISA and linked
+        # beside the case.
+        "no_atomics": {"features": "+m,+c", "cc_args": ["-march=rv32imc_zicsr", "-mabi=ilp32"],
+                       "support": os.path.join(HAL_DIR, "riscv32", "atomics.c")},
         "word_bytes": 4,
         "load_base": 0x8000_0000,
-        "off": "sawc builds no riscv32 object yet (SL-865 U6c)",
+        "off": None,
     },
     {
         "name": "arm64",
@@ -100,6 +106,7 @@ ARCHES = [
         "cc_args": [],
         # None keeps sawc's freestanding default (`-neon,-fp-armv8`).
         "features": None,
+        "no_atomics": None,
         "word_bytes": 8,
         "load_base": 0x4000_0000,
         "off": None,
@@ -123,6 +130,16 @@ def expectations(arch):
         "int_max": str(2 ** (word * 8 - 1) - 1),
         "mark_address": str(arch["load_base"] + FSMARK_OFFSET),
     }
+
+
+def atomic_routines(case, arch):
+    """The `__atomic_*` routines a RUN case's object must reference: built
+    without native atomics, exactly the five the spec lists at the word's
+    width (Profiles); else none, since the target's instructions answer."""
+    if not case.get("no_atomics"):
+        return set()
+    return {"__atomic_%s_%d" % (op, arch["word_bytes"])
+            for op in ("load", "store", "fetch_add", "fetch_sub", "compare_exchange")}
 
 
 # =============================================================================
@@ -197,6 +214,11 @@ def arch_free_problems():
 # a case that is ABOUT a level. `due` marks a case blocked by a sawc gap,
 # citing the issue that owns the gap, and `due_shows` is the gap's own
 # diagnostic: the case must fail saying it, so another failure is not hidden.
+# `no_atomics` builds the case for the arch's part without native atomics
+# (the arch's `no_atomics` entry), linking the environment's atomic routines;
+# every RUN case's object is read with `nm` first and must reference exactly
+# `atomic_routines`. `no_hidden_alloc: False` withholds `--no-hidden-alloc`
+# from a case that is about an allocation the flag refuses.
 #
 # The Blade case (`blade build --target T` over `tests/freestanding/bladepkg`)
 # is not run: Blade is frozen in v0.18.0's language and sawc cannot build it
@@ -446,6 +468,93 @@ TEST_CASES = [
                        "fs done wide_value_rendering ok"],
         "expect_clean_exit": True,
     },
+    {
+        # Integers wider than the word rendered by a `{}` argument, an
+        # interpolation and `to_string()`, a `UInt32` above 2^31, and both
+        # hashed. On riscv32 this is the 64-bit renderers' and the Printable
+        # glue's execution; arm64, where every value is at most the word, is
+        # the control.
+        "name": "wide_hash_format",
+        "no_hidden_alloc": False,
+        "expect_out": ["fs value arg_signed=20014547621496",
+                       "fs value arg_negative=-20014547621496",
+                       "fs value arg_largest=9223372036854775807",
+                       "fs value arg_smallest=-9223372036854775808",
+                       "fs value arg_unsigned_max=18446744073709551615",
+                       "fs value arg_above_half=3000000000",
+                       "fs value arg_all_ones=4294967295",
+                       "fs value arg_narrow_min=-2147483648",
+                       "fs value interpolated=20014547621496 -20014547621496 9223372036854775807 "
+                       "-9223372036854775808 18446744073709551615 3000000000 4294967295 -2147483648",
+                       "fs value to_string_smallest=-9223372036854775808",
+                       "fs check interpolated_matches_arguments=1",
+                       "fs check equal_wide_values_hash_alike=1",
+                       "fs check equal_narrow_values_hash_alike=1",
+                       "fs check wide_keys_distinct=1",
+                       "fs check wide_key_low_twin=1",
+                       "fs check wide_key_high_twin=1",
+                       "fs check wide_key_negative=1",
+                       "fs check narrow_keys_distinct=1",
+                       "fs check narrow_key_above_half=1",
+                       "fs check narrow_key_below_half=1",
+                       "fs done wide_hash_format ok"],
+        "expect_clean_exit": True,
+    },
+    # --- atomics --------------------------------------------------------------
+    {
+        # The word's atomics where the target has them: `Atomic<Int>`, a
+        # String's refcount and a `SpinLock`, with no `__atomic_*` routine
+        # referenced.
+        "name": "atomics_word",
+        "expect_out": ["fs check load_after_store=1",
+                       "fs check fetch_add_returns_before=1",
+                       "fs check fetch_add_applied=1",
+                       "fs check fetch_add_negative_returns_before=1",
+                       "fs check fetch_add_negative_applied=1",
+                       "fs check compare_exchange_matches=1",
+                       "fs check compare_exchange_stored=1",
+                       "fs check compare_exchange_mismatch_refused=1",
+                       "fs check compare_exchange_mismatch_kept=1",
+                       "fs check string_copy_shares=1",
+                       "fs check string_copy_length=1",
+                       "fs check spinlock_released_after_lock=1",
+                       "fs check spinlock_try_lock_taken=1",
+                       "fs check spinlock_released_after_try_lock=1",
+                       "fs check spinlock_guarded_value=1",
+                       "fs done atomics_word ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The same atomics on the part without them: the object references
+        # exactly the spec's five routines, which `hal/riscv32/atomics.c`
+        # supplies (the user's ruling: the environment provides them).
+        "name": "atomics_libcall",
+        "arches": ["riscv32"],
+        "no_atomics": True,
+        "expect_out": ["fs check load_after_store=1",
+                       "fs check fetch_add_returns_before=1",
+                       "fs check fetch_add_applied=1",
+                       "fs check fetch_add_negative_returns_before=1",
+                       "fs check fetch_add_negative_applied=1",
+                       "fs check compare_exchange_matches=1",
+                       "fs check compare_exchange_stored=1",
+                       "fs check compare_exchange_mismatch_refused=1",
+                       "fs check compare_exchange_mismatch_kept=1",
+                       "fs check string_copy_shares=1",
+                       "fs check string_copy_length=1",
+                       "fs done atomics_libcall ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # A `SpinLock` stays refused on the part without atomics.
+        "name": "spinlock_without_atomics",
+        "arches": ["riscv32"],
+        "no_atomics": True,
+        "expect_compile_error": ["atomics.target", "spinlock_without_atomics.saw:10:",
+                                 "`SpinLock` needs target atomics, and `riscv32-unknown-none-elf` has none",
+                                 "a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics",
+                                 "--target-features +a"],
+    },
 ]
 
 INSTALL_HINTS = {
@@ -571,20 +680,50 @@ def build_shared(arch, clang):
                                                  "-o", boot_o])
     # -fno-builtin: support.c DEFINES memcpy, and without it LLVM may rewrite
     # its byte loop into a call to itself.
-    checked([clang, target] + arch["cc_args"] + ["-ffreestanding", "-fno-builtin", "-ffunction-sections",
-                                                 "-fdata-sections", "-nostdlib", "-O2", "-c", SUPPORT_C,
-                                                 "-o", support_o])
-    return [boot_o, support_o]
+    floor = ["-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections", "-nostdlib", "-O2", "-c"]
+    checked([clang, target] + arch["cc_args"] + floor + [SUPPORT_C, "-o", support_o])
+    shared = {"all": [boot_o, support_o], "no_atomics": None}
+    if arch["no_atomics"]:
+        atomics_o = os.path.join(out, "atomics.o")
+        checked([clang, target] + arch["no_atomics"]["cc_args"] + floor + [arch["no_atomics"]["support"],
+                                                                          "-o", atomics_o])
+        shared["no_atomics"] = atomics_o
+    return shared
+
+
+def nm_tool(clang):
+    """The `nm` that reads the arch's objects: the LLVM one beside its clang,
+    else one on PATH."""
+    beside = os.path.join(os.path.dirname(clang), "llvm-nm")
+    if os.path.exists(beside):
+        return beside
+    return shutil.which("llvm-nm") or "nm"
+
+
+def atomics_problem(case, arch, obj, clang):
+    """None when the object references exactly `atomic_routines`, else why."""
+    code, out = run([nm_tool(clang), "-u", obj], PROBE_TIMEOUT_S)
+    if code != 0:
+        return "nm cannot read %s: %s" % (obj, out.strip()[:300])
+    found = {line.split()[-1] for line in out.splitlines() if line.strip()}
+    referenced = {name for name in found if name.startswith("__atomic_")}
+    wanted = atomic_routines(case, arch)
+    if referenced != wanted:
+        return "the object references the atomic routines %s, not exactly %s" % (sorted(referenced), sorted(wanted))
+    return None
 
 
 def sawc_command(case, arch, obj):
     """The compile a case asks for: the flags are half of what is under test."""
     cmd = [build.SAWC, "build", os.path.join(CASES_DIR, case["name"] + ".saw"), "-o", obj,
-           "--freestanding", "--no-hidden-alloc", "--target", arch["triple"]]
+           "--freestanding", "--target", arch["triple"]]
+    if case.get("no_hidden_alloc", True):
+        cmd.append("--no-hidden-alloc")
     if case.get("runtime", True):
         cmd.append("--runtime")
-    if arch["features"]:
-        cmd += ["--target-features", arch["features"]]
+    features = arch["no_atomics"]["features"] if case.get("no_atomics") else arch["features"]
+    if features:
+        cmd += ["--target-features", features]
     if case.get("modules", True):
         for name in sorted(MODULES):
             cmd += ["--module-path", "%s=%s" % (name, MODULES[name])]
@@ -619,17 +758,23 @@ def check_refusal(case, arch):
     return in_order(out, case["expect_compile_error"], "diagnostic")
 
 
-def check_run(case, arch, shared, lld, qemu):
+def check_run(case, arch, shared, lld, qemu, clang):
     out_dir = build_dir(arch)
     obj = os.path.join(out_dir, case["name"] + ".o")
     elf = os.path.join(out_dir, case["name"] + ".elf")
     for stale in (obj, elf):
         if os.path.exists(stale):
             os.remove(stale)
+    objects = list(shared["all"])
+    if case.get("no_atomics"):
+        objects.append(shared["no_atomics"])
     try:
         checked(sawc_command(case, arch, obj))
+        problem = atomics_problem(case, arch, obj, clang)
+        if problem:
+            return problem
         checked([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
-                + shared + [obj])
+                + objects + [obj])
     except ToolError as e:
         return "build error\n%s" % e
     status, out = run([qemu] + arch["qemu_args"] + ["-nographic", "-kernel", elf], QEMU_TIMEOUT_S)
@@ -661,7 +806,7 @@ def run_arch(arch, cases, qemu, clang, lld):
     def one(case):
         if case.get("expect_compile_error"):
             return check_refusal(case, arch)
-        return check_run(case, arch, shared, lld, qemu)
+        return check_run(case, arch, shared, lld, qemu, clang)
 
     problems = gate_jobs.map_ordered(one, cases)
     passed = failed = due = 0

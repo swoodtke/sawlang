@@ -1638,9 +1638,10 @@ extension TcProgram {
 // atomics"): on a target whose word compare-and-swap lowers to an `__atomic_*`
 // libcall (`TcTarget.atomics` false), naming a `SpinLock` is refused once, at
 // the first type the program's own modules write, else the first expression,
-// that names one; std's own use is not judged. The spec says nothing of
-// `Atomic<Int>` or the compiler's own atomics on such a target, so the rule
-// names `SpinLock` alone.
+// that names one; std's own use is not judged. `Atomic<Int>` and the
+// compiler's own atomics stay legal there, as calls to the `__atomic_*`
+// routines the environment supplies (spec, Profiles), so the rule names
+// `SpinLock` alone.
 public func tc_check_target_atomics(p: &var TcProgram) {
     if p.target.atomics {
         return
@@ -1660,7 +1661,7 @@ public func tc_check_target_atomics(p: &var TcProgram) {
     var msg = StringBuilder()
     try! msg.append("`SpinLock` needs target atomics, and `")
     try! msg.append(p.target.triple)
-    try! msg.append("` has none: its base ISA omits the `A` extension, so a compare-and-swap lowers to an `__atomic_*` libcall — enable the extension with `--target-features +a`; without it the lock would call into a C runtime a freestanding target does not have, and which is usually itself implemented with a lock, and for state a single core serializes by construction, reach for `unsafe static var` instead")
+    try! msg.append("` has none without the `A` extension: a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics — enable the extension with `--target-features +a`; `Atomic<Int>` still works without it, through the `__atomic_*` routines the environment supplies, and for state a single core serializes by construction, reach for `unsafe static var` instead")
     let m = p.node_module(at)
     p.refuse_in(m, at, "atomics.target", msg.build())
 }

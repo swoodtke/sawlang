@@ -18,11 +18,15 @@
 - every probe's module compiles for riscv32 with a RISC-V-capable clang,
   and the object references no `__atomic_*_8` and no 64-bit division
   routine for a word probe, and exactly `atomic_routines()` without `+a` and
-  no atomic routine with it for the atomics probe.
+  no atomic routine with it for the atomics probe;
+- `sawc build --freestanding` for riscv32 writes the atomics probe as an
+  ELF32 RISC-V relocatable object defining its export.
 
-The clang is `build.pick_clang`'s for the triple (`SAWC_CLANG` overrides).
-When none compiles IR for riscv32, the object half is skipped and says why;
-the `i64` half always runs.
+The clang is the one the riscv32 record beside the stages names, which the
+stage build writes from `build.pick_clang` (`SAWC_CLANG` overrides). When no
+clang compiles IR for riscv32 there is no record, and the object half is
+skipped and says why; a capable clang with no record fails. The `i64` half
+always runs.
 """
 import glob
 import os
@@ -49,6 +53,13 @@ ATOMICS_PROBE = "word_atomics.saw"
 NO_ATOMICS = ("--target-features", "+m,-a,+c")
 FEATURE_SETS = (NO_ATOMICS, ("--target-features", "+m,+a,+c"))
 TIMEOUT = 600
+# The probe `sawc build --freestanding` writes an object of, and its export.
+OBJECT_PROBE = "word_atomics.saw"
+OBJECT_EXPORT = "probe_atomics"
+ELF_CLASS32 = 1
+ELF_LITTLE = 1
+ELF_RELOCATABLE = 1
+ELF_RISCV = 243
 
 _TAG_WIDEN = re.compile(r"^\s*(%[\w.]+) = zext i(?:8|16|32) %[\w.]+ to i64$")
 _TAG_SWITCH = re.compile(r"^\s*switch i64 (%[\w.]+), label %[\w.]+ \[(?:\s*i64 -?\d+, label %[\w.]+)*\s*\]$")
@@ -117,9 +128,20 @@ def emit(probe, flags):
 
 
 def riscv_clang():
-    """The clang that compiles IR for riscv32 and the reason, or None and
-    why none does."""
-    return build.pick_clang(TRIPLE, os.environ.get("SAWC_CLANG"))
+    """(clang, skip, problem): the clang the riscv32 record beside the stages
+    names, which `sawc build` compiles riscv32 objects with; else why the
+    object half skips, when no clang compiles IR for riscv32; else the
+    problem, when one does and the stage build wrote no record naming it."""
+    record = build.runtime_manifest(TRIPLE)
+    if os.path.exists(record):
+        with open(record) as fh:
+            for line in fh:
+                if line.startswith("clang "):
+                    return line[len("clang "):].strip(), "", ""
+    clang, why = build.pick_clang(TRIPLE, os.environ.get("SAWC_CLANG"))
+    if clang is None:
+        return None, why, ""
+    return None, "", "%s compiles IR for riscv32, and no clang record %s is beside the stages" % (clang, rel(record))
 
 
 def nm_tool(clang):
@@ -162,6 +184,36 @@ def symbol_problems(where, probe, flags, symbols):
     return problems
 
 
+def sawc_object_problems(clang):
+    """`sawc build --freestanding --target riscv32-unknown-none-elf` writes,
+    with the record's clang, an ELF32 little-endian RISC-V relocatable object
+    defining the probe's export."""
+    probe = os.path.join(PROBES, OBJECT_PROBE)
+    where = "riscv32 object %s" % rel(probe)
+    obj = os.path.join(OUT, "sawc-object.o")
+    if os.path.exists(obj):
+        os.remove(obj)
+    r = subprocess.run([build.SAWC, "build", "--freestanding", "--target", TRIPLE, "--std-root", "std"]
+                       + list(FEATURE_SETS[1]) + [rel(probe), "-o", obj], cwd=REPO, capture_output=True, text=True,
+                       timeout=TIMEOUT)
+    said = (r.stdout + r.stderr).strip()
+    if r.returncode != 0 or said or not os.path.exists(obj):
+        return ["%s: sawc build exits %d: %s" % (where, r.returncode, said[:300])]
+    with open(obj, "rb") as fh:
+        head = fh.read(20)
+    kind = int.from_bytes(head[16:18], "little")
+    machine = int.from_bytes(head[18:20], "little")
+    if head[:4] != b"\x7fELF" or head[4] != ELF_CLASS32 or head[5] != ELF_LITTLE or kind != ELF_RELOCATABLE \
+            or machine != ELF_RISCV:
+        return ["%s: the object is not an ELF32 little-endian RISC-V relocatable file (header %r)"
+                % (where, head.hex())]
+    r = subprocess.run([nm_tool(clang), "-g", "--defined-only", obj], capture_output=True, text=True,
+                       timeout=TIMEOUT)
+    if r.returncode != 0 or not re.search(r"^\S+ T %s$" % OBJECT_EXPORT, r.stdout, re.M):
+        return ["%s: `%s` is not defined and external: %s" % (where, OBJECT_EXPORT, (r.stdout + r.stderr)[:300])]
+    return []
+
+
 def wide_problems(where, ll):
     """A wide probe renders `Int64` and `UInt64` through the 64-bit renderers,
     each taking an i64 and returning its length as the word."""
@@ -174,7 +226,10 @@ def wide_problems(where, ll):
 
 def check(failures, counts):
     os.makedirs(OUT, exist_ok=True)
-    clang, why = riscv_clang()
+    clang, why, problem = riscv_clang()
+    if problem:
+        failures.append("riscv32 IR: " + problem)
+        return
     probes = sorted(glob.glob(os.path.join(PROBES, "*.saw")))
     if not probes:
         failures.append("riscv32 IR: no probe in %s" % rel(PROBES))
@@ -215,6 +270,11 @@ def check(failures, counts):
                     counts.get("riscv32 objects with the expected routines", 0) + 1)
     if clang is None:
         counts["riscv32 object checks skipped, no RISC-V-capable clang: " + why[:120]] = 1
+        return
+    found = sawc_object_problems(clang)
+    failures.extend(found)
+    if not found:
+        counts["riscv32 objects written by sawc build"] = 1
 
 
 def main():

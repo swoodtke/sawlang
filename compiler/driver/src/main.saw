@@ -54,7 +54,7 @@
 
 import sawasserts.layout.{asserts_typecheck_program}
 import sawborrowck.api.{BorrowckOptions, borrowck_record}
-import sawcoro.api.{CoroOptions, coro_append_findings, coro_lower_file, coro_record}
+import sawcoro.api.{CoroOptions, coro_record}
 import sawcoro.bttable.{coro_bt_record}
 import sawdrops.api.{DropsOptions, drops_record, drops_record_status}
 import saweval.api.{EvalOptions, eval_record}
@@ -65,8 +65,8 @@ import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
-import sawtarget.layout.{target_bare_metal, target_clang_triple, target_effective_features, target_emits,
-                         target_front_end, target_known, target_mach_o, target_triples}
+import sawtarget.layout.{target_bare_metal, target_clang_triple, target_effective_features, target_front_end,
+                         target_known, target_mach_o, target_triples}
 import sawtypecheck.program.{TcTarget}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
@@ -279,10 +279,6 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         return driver_refuse_mach_o(path, triple)
     }
     features = target_effective_features(triple, features, freestanding)
-    if not target_emits(triple) && not emit {
-        return driver_check_only(path, std_root, target_front_end(triple, features), freestanding, provider,
-                                 hidden, &names, &dirs)
-    }
     if emit {
         let emitting = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                     module_triple: target_clang_triple(triple), runtime: false,
@@ -303,7 +299,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if cross {
         let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang)
         if not configured.equals(triple) && target_bare_metal(triple) {
-            print("sawc build: --target {} has no clang configured to compile for it: compiler/tools/build.py records one on every build, the one SAWC_CLANG names or else the first of clang-19 ... clang on PATH that compiles IR for that target, and found none (`compiler/tools/build.py --runtime {}` says why)", triple, triple)
+            print("sawc build: --target {} has no clang configured to compile for it: compiler/tools/build.py records one on every build, the one SAWC_CLANG names or else the first that compiles IR for that target of each clang-NN on PATH (the newest first), clang, and Homebrew's LLVM clang ($HOMEBREW_PREFIX/opt/llvm/bin/clang, /opt/homebrew when unset), and found none (`compiler/tools/build.py --runtime {}` says why)", triple, triple)
             return 1
         }
         if not configured.equals(triple) && (freestanding || provider) {
@@ -391,7 +387,7 @@ func driver_refuse_mach_o(path: String, triple: String) -> Int {
     var k = 0
     while k < known.len() {
         let one = known.get(k) ?? ""
-        if target_bare_metal(one) && target_emits(one) {
+        if target_bare_metal(one) {
             try! record.append(" `--target ")
             try! record.append(one)
             try! record.append("`")
@@ -400,33 +396,6 @@ func driver_refuse_mach_o(path: String, triple: String) -> Int {
     }
     try! record.append("\n")
     print(record.build())
-    1
-}
-
-// An object or executable build for a target sawc writes no object for
-// (`target_emits`; `--emit-ll` still writes its module): the program is
-// checked for `target` through every stage before the backend, and the
-// record is what refused it, or, once nothing has, the refusal of the object
-// itself; either way nothing is written and the status is 1.
-func driver_check_only(path: String, std_root: String, target: TcTarget, freestanding: Bool, provider: Bool,
-                       hidden: Bool, names: &Vector<String>, dirs: &Vector<String>) -> Int {
-    var found = StringBuilder()
-    let coro = coro_lower_file(out: &var found, path: path, std_root: std_root, notes: false, names: &names,
-                               dirs: &dirs, target: target, freestanding: freestanding, provider: provider,
-                               no_hidden_alloc: hidden)
-    if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
-        coro_append_findings(out: &var found, coro: &coro)
-        driver_print_refusal(path, &var found)
-        return 1
-    }
-    try! found.append("ERROR\tbackend.not-yet\t")
-    try! found.append(path)
-    try! found.append(":1:1\tsawc does not write an object for `")
-    try! found.append(target.triple)
-    try! found.append("` yet: `--emit-ll` writes its module at the ")
-    try! found.append(target.word_bits)
-    try! found.append("-bit word, and an object waits for the run harness that executes one (SL-865); the program checks clean through every stage before the backend")
-    driver_print_refusal(path, &var found)
     1
 }
 

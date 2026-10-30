@@ -74,8 +74,8 @@ HALs, runtime, root server and their tests live in the sawos repo
 (`../sawos` locally), flattened to its root, building against a sawlang
 checkout through the resolver (`SAWLANG_ROOT` is the everyday spelling).
 sawlang references sawos nowhere. sawos builds through a pin at or before
-v0.18.0 until `sawc` builds its kernel command line, riscv32 included
-(SL-865).
+v0.18.0 until its sources build under `sawc`; the kernel command line itself
+builds, riscv32 objects included (SL-865).
 
 ## Python environment
 The tools use the standard library alone; `.venv/` (Python 3.14) pins the
@@ -97,9 +97,10 @@ VM-side git through `tools/linux.py`, never in a hand-written `limactl shell`.
 The battery's `linux` lane (`tools/linux.py lane`) runs both arches and SKIPS
 (passes) only when the VM is known down or Lima is absent; a limactl that
 cannot report Lima's state (exit 4) FAILS it (`tools/test_linux.py`). sawc learns its host from the runtime manifest beside it, and
-`build.py`'s `choose_clang` funnel (`SAWC_CLANG`, else clang-19 … clang) picks
-the clang, which must compile opaque-pointer IR; Debian's default clang 14
-cannot. `build.py --runtime TRIPLE` configures another target's runtime.
+`build.py`'s `choose_clang` funnel (`SAWC_CLANG`, else each clang-NN on PATH
+newest first, clang, Homebrew's LLVM clang) picks the clang per target, which
+must compile opaque-pointer IR for it; Debian's default clang 14 cannot, and
+Apple's has no RISC-V. `build.py --runtime TRIPLE` configures another target's runtime.
 
 ## Compiler usage (dev)
 `sawc` is the self-hosted compiler. `bin/sawc` (installed by `make install`)

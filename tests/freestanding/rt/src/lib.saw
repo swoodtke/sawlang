@@ -101,6 +101,14 @@ func rt_output_lock() {
 func rt_output_unlock() {
 }
 
+/// The calling context's identity, which a `SpinLock` records as its owner.
+/// One hart runs every case and no interrupt handler takes a lock, so there
+/// is one context, and its identity is the nonzero `1`.
+@export("__saw_rt_lock_owner")
+func rt_lock_owner() -> Int {
+    1
+}
+
 /// The error stream. The board has one UART, so it is the console.
 @export("__saw_rt_write_error")
 func rt_write_error(ptr: UnsafePointer<Int8>, len: UInt) unsafe {

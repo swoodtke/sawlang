@@ -23,11 +23,12 @@
 //     `cases/int_widths.saw` divides on purpose.
 //
 // WHAT IS DELIBERATELY ABSENT, where sos's copy carries it: the `__atomic_*`
-// family. Both of this suite's builds name an atomics-capable ISA (riscv32
+// family. The suite's default builds name an atomics-capable ISA (riscv32
 // through `--target-features +m,+a,+c`, arm64 natively), so the backend emits
-// instructions rather than libcalls, and an unreferenced fallback in a TEST
-// stub is a thing that can rot without anything noticing. A profile that drops
-// `+a` would need them back, and the link failure would say so by name.
+// instructions rather than libcalls, and an unreferenced fallback linked into
+// every image is a thing that can rot without anything noticing. The cases
+// built without `+a` link `riscv32/atomics.c` instead, and the runner checks
+// their objects reference exactly its routines.
 
 typedef unsigned char      u8;
 typedef unsigned long      usize;   // ilp32: 32-bit; lp64: 64-bit. size_t on both.

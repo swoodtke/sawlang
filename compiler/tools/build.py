@@ -265,9 +265,36 @@ def link_libraries(triple):
     return ["-lm"] if triple in ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu") else []
 
 
-# The clangs tried when `SAWC_CLANG` names none, in order: the versioned
-# names a Linux distribution installs beside an older default, then `clang`.
-CLANG_CANDIDATES = ("clang-19", "clang-18", "clang-17", "clang-16", "clang-15", "clang")
+# Homebrew's LLVM, which Homebrew keeps off `PATH` beside Apple's clang, under
+# `HOMEBREW_PREFIX` (Homebrew's own variable, `/opt/homebrew` when unset). It
+# comes after `clang` so a host Apple's clang serves keeps it, and it is what
+# serves a target Apple's clang has no backend for (RISC-V).
+HOMEBREW_DEFAULT_PREFIX = "/opt/homebrew"
+_VERSIONED_CLANG = re.compile(r"^clang-(\d+)$")
+
+
+def homebrew_clang():
+    return os.path.join(os.environ.get("HOMEBREW_PREFIX") or HOMEBREW_DEFAULT_PREFIX, "opt", "llvm", "bin", "clang")
+
+
+def clang_candidates():
+    """The clangs tried when `SAWC_CLANG` names none, in order: every
+    versioned `clang-NN` on `PATH`, the newest first (the names a Linux
+    distribution installs beside an older default), then `clang`, then
+    `homebrew_clang()`. Each is a name `shutil.which` resolves."""
+    versions = set()
+    for directory in (os.environ.get("PATH") or "").split(os.pathsep):
+        try:
+            names = os.listdir(directory)
+        except OSError:
+            continue
+        for name in names:
+            m = _VERSIONED_CLANG.match(name)
+            if m and os.access(os.path.join(directory, name), os.X_OK):
+                versions.add(int(m.group(1)))
+    return ["clang-%d" % v for v in sorted(versions, reverse=True)] + ["clang", homebrew_clang()]
+
+
 # The capability every clang sawc hands its `.ll` to must have: opaque
 # pointers (`ptr`), which sawc emits throughout and LLVM 15 made the default.
 # The module is compiled rather than a version parsed, since Apple's clang
@@ -296,12 +323,11 @@ def choose_clang(triple):
 
 def pick_clang(triple, named):
     """The clang for `triple`: `named` (the `SAWC_CLANG` value) when given,
-    with no fallback, else the first of `CLANG_CANDIDATES` on `PATH` that
-    compiles `OPAQUE_POINTER_MODULE` for the target, since whether a clang can
-    compile for a target is a fact about that target: Apple's clang has no
-    RISC-V backend. Returns (absolute path, "") or (None, why none
-    qualifies)."""
-    candidates = [named] if named else list(CLANG_CANDIDATES)
+    with no fallback, else the first of `clang_candidates()` that compiles
+    `OPAQUE_POINTER_MODULE` for the target, since whether a clang can compile
+    for a target is a fact about that target: Apple's clang has no RISC-V
+    backend. Returns (absolute path, "") or (None, why none qualifies)."""
+    candidates = [named] if named else clang_candidates()
     refused = []
     answer = None
     for candidate in candidates:
@@ -316,7 +342,7 @@ def pick_clang(triple, named):
             break
         refused.append("%s does not compile opaque-pointer IR (`ptr`) for %s" % (path, triple))
     if answer is None:
-        tried = "SAWC_CLANG" if named else "any of %s on PATH" % ", ".join(CLANG_CANDIDATES)
+        tried = "SAWC_CLANG" if named else "any of %s" % ", ".join(candidates)
         answer = (None, "no clang qualifies (tried %s): %s. %s" % (tried, "; ".join(refused) or "none is installed",
                                                                     CLANG_REQUIREMENT))
     return answer
@@ -406,7 +432,7 @@ def runtime_manifest(triple):
 # program for one is compiled to an object and never linked by sawc, so its
 # record names the clang alone. `target_bare_metal` in
 # compiler/target/src/layout.saw, which this must agree with.
-BARE_METAL_TARGETS = ("aarch64-unknown-none-elf",)
+BARE_METAL_TARGETS = ("aarch64-unknown-none-elf", "riscv32-unknown-none-elf")
 
 
 def configure_target(triple):
@@ -444,7 +470,7 @@ def configure_bare_metal_targets():
     for triple in BARE_METAL_TARGETS:
         record = runtime_manifest(triple)
         key_path = record + ".key"
-        looked_at = [os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in CLANG_CANDIDATES]
+        looked_at = [os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in clang_candidates()]
         current = None
         if os.path.exists(record):
             with open(record) as fh:
