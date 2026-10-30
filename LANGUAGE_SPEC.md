@@ -14584,9 +14584,21 @@ environment's. Freestanding
 programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 `Data`, `StringBuilder`, `Path`), which allocate only through the seams; the
 hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
-`net`, `signal`) and `Float`
-printing are unavailable: importing one is refused at the import
+`net`, `signal`) are unavailable: importing one is refused at the import
 (`import.hosted-only`). See `designs/19-freestanding-profile.md` for the full design.
+
+On a target with no floating-point unit (aarch64 under the freestanding
+default `-fp-armv8`, riscv32 without `F`/`D`), the environment also supplies
+the soft-float routines `sawc`'s output can reference, exactly `__adddf3`,
+`__subdf3`, `__muldf3`, `__divdf3`, `__eqdf2`, `__nedf2`, `__ltdf2`,
+`__ledf2`, `__gtdf2`, `__gedf2`, `__unorddf2`, `__fixdfsi`, `__fixdfdi`,
+`__fixunsdfsi`, `__fixunsdfdi`, `__floatsidf`, `__floatdidf`,
+`__floatunsidf` and `__floatundidf`, which compiler-rt's builtins provide.
+The list is the same on both targets: `Float` arithmetic, its comparisons and
+`is_nan`, and its conversions to and from every integer width. On aarch64
+each routine takes and returns a `double` in general registers, so the
+environment builds them, and any C that passes `sawc`'s code a `Float`, for
+the soft-float ABI (clang's `-mgeneral-regs-only -mabi=aapcs-soft`).
 
 A freestanding object's roots are its `@export`ed functions. It has no C entry
 point and no program-argument accessors, and a `main` it declares is an

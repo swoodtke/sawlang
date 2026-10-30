@@ -10,8 +10,13 @@ all, a tool on PATH that does not answer `--version`, or a `SAWC_CLANG` naming
 no usable clang. Each case runs the runner's `--tools` decision with stub tools
 first on a PATH that holds no real ones, with `HOMEBREW_PREFIX` naming no
 Homebrew, so nothing is built or booted.
+
+It also holds each arch's `soft_float` list equal to the routines
+LANGUAGE_SPEC.md's Profiles paragraph names, which is the list the runner
+checks every case object against.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -89,6 +94,28 @@ def run_case(name, stubs, after, sawc_clang):
     return r.returncode, r.stdout + r.stderr
 
 
+SPEC = os.path.join(REPO, "LANGUAGE_SPEC.md")
+# The opening of the Profiles paragraph that lists the soft-float routines.
+SOFT_FLOAT_PARAGRAPH = "On a target with no floating-point unit"
+
+
+def soft_float_problems():
+    """Why the runner's `soft_float` lists differ from the spec's, or []."""
+    with open(SPEC, encoding="utf-8") as fh:
+        paragraphs = [" ".join(p.split()) for p in fh.read().split("\n\n")]
+    found = [p for p in paragraphs if p.startswith(SOFT_FLOAT_PARAGRAPH)]
+    if len(found) != 1:
+        return ["LANGUAGE_SPEC.md has %d paragraphs opening %r, not one" % (len(found), SOFT_FLOAT_PARAGRAPH)]
+    spec = set(re.findall(r"`(__\w+)`", found[0]))
+    problems = []
+    for arch in freestanding_runner.ARCHES:
+        if arch["soft_float"] != spec:
+            problems.append("%s: the runner's soft_float list differs from the spec's: only the runner has %s, "
+                            "only the spec has %s" % (arch["name"], sorted(arch["soft_float"] - spec),
+                                                      sorted(spec - arch["soft_float"])))
+    return problems
+
+
 def main():
     real, _ = build.pick_clang(ARCHES[0]["triple"], None)
     if real is not None and not all(build.clang_capable(real, a["triple"]) for a in ARCHES):
@@ -111,9 +138,11 @@ def main():
             failures.append("%s: passes without saying it SKIPPED: %s" % (name, said.strip()[:400]))
         if not skipped and "SKIPPED" in said:
             failures.append("%s: says it SKIPPED: %s" % (name, said.strip()[:400]))
+    failures += soft_float_problems()
     for failure in failures:
         print(failure)
-    print("freestanding runner: %s: %d stub cases" % ("FAIL (%d)" % len(failures) if failures else "ok", ran))
+    print("freestanding runner: %s: %d stub cases, the soft-float list"
+          % ("FAIL (%d)" % len(failures) if failures else "ok", ran))
     return 1 if failures else 0
 
 

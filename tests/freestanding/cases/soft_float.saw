@@ -1,0 +1,176 @@
+// Every Float operation the language has, run where each one is a call into
+// the environment's soft-float routines (SL-929).
+//
+// On a target with no floating-point unit (aarch64 under the freestanding
+// default `-fp-armv8`, riscv32 without `F`/`D`), the backend lowers each Float
+// operation to a compiler-rt builtin (`__adddf3`, `__ltdf2`, `__fixdfsi`, ...)
+// that the image links from `hal/compiler-rt/`. The runner builds this case at
+// `-O0`, and every operand reaches its operation through a function parameter,
+// so no operation folds away and each routine runs.
+//
+// Each result is printed and the runner matches the text; a comparison is a
+// `check`. The formatter is integer arithmetic over the value's bits, so the
+// printed text judges the routine's result without trusting any other routine.
+// Every expected value is IEEE 754 binary64 round-to-nearest-even arithmetic.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    arithmetic()
+    comparisons()
+    float_to_integer()
+    integer_to_float()
+    finish("soft_float")
+}
+
+// ---- the operations, one function each, so their operands stay runtime ----
+
+func add(a: Float, b: Float) -> Float { a + b }
+func sub(a: Float, b: Float) -> Float { a - b }
+func mul(a: Float, b: Float) -> Float { a * b }
+func div(a: Float, b: Float) -> Float { a / b }
+func negate(a: Float) -> Float { -a }
+
+func compound(start: Float) -> Float {
+    var x = start
+    x += 2.25
+    x -= 0.5
+    x *= 4.0
+    x /= 8.0
+    x
+}
+
+func lt(a: Float, b: Float) -> Bool { a < b }
+func le(a: Float, b: Float) -> Bool { a <= b }
+func gt(a: Float, b: Float) -> Bool { a > b }
+func ge(a: Float, b: Float) -> Bool { a >= b }
+func eq(a: Float, b: Float) -> Bool { a == b }
+func ne(a: Float, b: Float) -> Bool { a != b }
+
+func arithmetic() unsafe {
+    print("fs value add={}", add(0.1, 0.2))
+    print("fs value sub={}", sub(0.3, 0.1))
+    print("fs value mul={}", mul(0.1, 3.0))
+    print("fs value div={}", div(1.0, 3.0))
+    print("fs value negate={}", negate(2.5))
+    print("fs value negate_zero={}", negate(0.0))
+    print("fs value compound={}", compound(1.5))
+    // 2^53 + 1 is halfway between 2^53 and 2^53 + 2: ties go to even, 2^53.
+    print("fs value add_tie_even={}", add(9007199254740992.0, 1.0))
+    // 2^-1075 is halfway between 0 and the min subnormal: ties go to 0.
+    print("fs value mul_underflow={}", mul(Float.from(bits: 1), 0.5))
+    print("fs value mul_subnormal={}", mul(Float.from(bits: 1), 2.0))
+    print("fs value mul_overflow={}", mul(Float.from(bits: 9218868437227405311), 2.0))
+    print("fs value div_by_zero={}", div(1.0, 0.0))
+    print("fs value div_negative_by_zero={}", div(negate(1.0), 0.0))
+    print("fs value div_zero_by_zero={}", div(0.0, 0.0))
+}
+
+func comparisons() unsafe {
+    let nan = div(0.0, 0.0)
+    check("lt_holds", lt(1.0, 2.0))
+    check("lt_refused", not lt(2.0, 1.0))
+    check("le_equal", le(1.5, 1.5))
+    check("le_refused", not le(2.0, 1.0))
+    check("gt_holds", gt(2.0, 1.0))
+    check("gt_refused", not gt(1.0, 1.0))
+    check("ge_equal", ge(1.5, 1.5))
+    check("ge_refused", not ge(1.0, 2.0))
+    check("eq_holds", eq(0.25, 0.25))
+    check("eq_signed_zeros", eq(0.0, negate(0.0)))
+    check("eq_refused", not eq(0.1, 0.2))
+    check("ne_holds", ne(0.1, 0.2))
+    check("ne_refused", not ne(0.25, 0.25))
+    // A NaN is unordered: every ordered comparison is false, and `!=` is true.
+    check("nan_lt", not lt(nan, 1.0))
+    check("nan_le", not le(nan, nan))
+    check("nan_gt", not gt(1.0, nan))
+    check("nan_ge", not ge(nan, nan))
+    check("nan_eq", not eq(nan, nan))
+    check("nan_ne", ne(nan, nan))
+    check("nan_is_nan", nan.is_nan())
+    check("one_is_not_nan", not div(1.0, 1.0).is_nan())
+}
+
+// ---- Float to integer: `as` truncates toward zero, `from` is partial -------
+
+func to_i8(f: Float) -> Int8 { f as Int8 }
+func to_i16(f: Float) -> Int16 { f as Int16 }
+func to_i32(f: Float) -> Int32 { f as Int32 }
+func to_i64(f: Float) -> Int64 { f as Int64 }
+func to_int(f: Float) -> Int { f as Int }
+func to_u8(f: Float) -> UInt8 { f as UInt8 }
+func to_u16(f: Float) -> UInt16 { f as UInt16 }
+func to_u32(f: Float) -> UInt32 { f as UInt32 }
+func to_u64(f: Float) -> UInt64 { f as UInt64 }
+func to_uint(f: Float) -> UInt { f as UInt }
+
+func float_to_integer() unsafe {
+    print("fs value as_i8={}", to_i8(127.9))
+    print("fs value as_i8_negative={}", to_i8(negate(128.5)))
+    print("fs value as_i16={}", to_i16(negate(32768.0)))
+    print("fs value as_i32={}", to_i32(2147483647.0))
+    print("fs value as_i32_negative={}", to_i32(negate(2147483648.0)))
+    print("fs value as_i64={}", to_i64(negate(9223372036854775808.0)))
+    print("fs value as_i64_large={}", to_i64(4611686018427387904.0))
+    print("fs value as_int={}", to_int(negate(123456.75)))
+    print("fs value as_u8={}", to_u8(255.5))
+    print("fs value as_u16={}", to_u16(65535.0))
+    print("fs value as_u32={}", to_u32(4294967295.0))
+    print("fs value as_u64={}", to_u64(18446744073709549568.0))
+    print("fs value as_uint={}", to_uint(3000000000.5))
+    print("fs value as_uint_negative_fraction={}", to_uint(negate(0.9)))
+
+    check("from_i8_fits", (Int8.from(negate(1.5)) ?? 0) == -1)
+    check("from_i8_above", Int8.from(128.0).is_none())
+    check("from_i16_fits", (Int16.from(32767.5) ?? 0) == 32767)
+    check("from_i32_nan", Int32.from(div(0.0, 0.0)).is_none())
+    check("from_i64_min", (Int64.from(negate(9223372036854775808.0)) ?? 0) == Int64.min)
+    check("from_i64_above", Int64.from(9223372036854775808.0).is_none())
+    check("from_int_infinity", Int.from(div(1.0, 0.0)).is_none())
+    check("from_u8_negative", UInt8.from(negate(1.0)).is_none())
+    check("from_u8_negative_fraction", (UInt8.from(negate(0.9)) ?? 1) == 0)
+    check("from_u16_fits", (UInt16.from(65535.0) ?? 0) == 65535)
+    check("from_u32_above", UInt32.from(4294967296.0).is_none())
+    check("from_u64_fits", (UInt64.from(18446744073709549568.0) ?? 0) == 18_446_744_073_709_549_568)
+    check("from_u64_above", UInt64.from(18446744073709551616.0).is_none())
+    check("from_uint_fits", (UInt.from(3000000000.5) ?? 0) == 3_000_000_000)
+}
+
+// ---- integer to Float: `as` rounds, `Float.from` is exact or absent --------
+
+func from_i8(n: Int8) -> Float { n as Float }
+func from_i16(n: Int16) -> Float { n as Float }
+func from_i32(n: Int32) -> Float { n as Float }
+func from_i64(n: Int64) -> Float { n as Float }
+func from_int(n: Int) -> Float { n as Float }
+func from_u8(n: UInt8) -> Float { n as Float }
+func from_u16(n: UInt16) -> Float { n as Float }
+func from_u32(n: UInt32) -> Float { n as Float }
+func from_u64(n: UInt64) -> Float { n as Float }
+func from_uint(n: UInt) -> Float { n as Float }
+
+func exact_i64(n: Int64) -> Float? { Float.from(n) }
+func exact_u64(n: UInt64) -> Float? { Float.from(n) }
+func exact_i32(n: Int32) -> Float? { Float.from(n) }
+
+func integer_to_float() unsafe {
+    print("fs value from_i8={}", from_i8(-128))
+    print("fs value from_i16={}", from_i16(32767))
+    print("fs value from_i32={}", from_i32(-2_147_483_648))
+    print("fs value from_i64={}", from_i64(-1))
+    // 2^53 + 1 has no Float: halfway between 2^53 and 2^53 + 2, ties to even.
+    print("fs value from_i64_rounded={}", from_i64(9_007_199_254_740_993))
+    print("fs value from_int={}", from_int(-1000))
+    print("fs value from_u8={}", from_u8(255))
+    print("fs value from_u16={}", from_u16(65535))
+    print("fs value from_u32={}", from_u32(4_294_967_295))
+    print("fs value from_u64={}", from_u64(18_446_744_073_709_551_615))
+    print("fs value from_uint={}", from_uint(4_000_000_000))
+
+    check("exact_i64_absent", exact_i64(9_007_199_254_740_993).is_none())
+    check("exact_i64_present", exact_i64(9_007_199_254_740_992).is_some())
+    check("exact_u64_absent", exact_u64(18_446_744_073_709_551_615).is_none())
+    check("exact_i32_present", exact_i32(-2_147_483_648).is_some())
+}

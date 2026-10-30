@@ -7,8 +7,9 @@
 Each RUN case is compiled by sawc (`--freestanding --runtime
 --no-hidden-alloc --target T`, with the suite's three modules through
 `--module-path`), its object's undefined symbols read with `nm` (runtime
-seams, the HAL's symbols and its atomic routines alone), linked
-by ld.lld with a boot stub and a C floor at a fixed address, booted under
+seams, the HAL's symbols, its atomic routines and the spec's soft-float
+routines alone), linked by ld.lld with a boot stub, a C floor and
+compiler-rt's soft-float builtins at a fixed address, booted under
 QEMU, and judged by its console transcript and exit status. A REFUSAL case stops at the compile and is judged by sawc's
 diagnostic. A case marked `due` is blocked by a sawc gap and cites the issue
 that owns it; it must fail, and passing fails the run so the marker comes off.
@@ -25,6 +26,7 @@ inside the lock their caller already holds.
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -41,6 +43,9 @@ FS_DIR = os.path.join(REPO, "tests", "freestanding")
 CASES_DIR = os.path.join(FS_DIR, "cases")
 HAL_DIR = os.path.join(FS_DIR, "hal")
 SUPPORT_C = os.path.join(HAL_DIR, "support.c")
+# compiler-rt's soft-float builtins, vendored unmodified (its README names the
+# release and the files).
+COMPILER_RT_DIR = os.path.join(HAL_DIR, "compiler-rt")
 
 # The three modules every case composes, reached the way a kernel reaches its
 # own: through `--module-path`, from a directory.
@@ -53,10 +58,9 @@ MODULES = {
 QEMU_TIMEOUT_S = 20
 
 # The optimization level every case is compiled at unless it is ABOUT another
-# (`extra_flags`): the O1 pipeline the expectations were written against.
-# `float_text` links at -O1 only because its float operations fold away; at
-# sawc's default -O0, under aarch64's `-fp-armv8` default, it needs soft-float
-# libcalls (`__subdf3`) that the support code does not provide yet (SL-929).
+# (`extra_flags`): the O1 pipeline the expectations were written against. At
+# -O1 most of a case's constant float arithmetic folds away, so the soft-float
+# routines are exercised by `soft_float`, which is built at -O0.
 SUITE_LEVEL = "-O1"
 BUILD_TIMEOUT_S = 300
 PROBE_TIMEOUT_S = 60
@@ -73,6 +77,17 @@ EXIT_UNKNOWN = 4
 # written against: a case's source is shared, so a target-dependent number is
 # printed by the program and matched here rather than asserted there. An arch
 # with `off` set is described but not run, and the reason says what it waits on.
+# `soft_float` is the set of compiler-rt routines the spec says sawc's output
+# may reference on the arch (Profiles); tools/test_freestanding_runner.py holds
+# it equal to the spec's list.
+
+# The spec lists one set for both targets, since neither has an FPU here.
+SOFT_FLOAT_ROUTINES = frozenset({
+    "__adddf3", "__subdf3", "__muldf3", "__divdf3",
+    "__eqdf2", "__nedf2", "__ltdf2", "__ledf2", "__gtdf2", "__gedf2", "__unorddf2",
+    "__fixdfsi", "__fixdfdi", "__fixunsdfsi", "__fixunsdfdi",
+    "__floatsidf", "__floatdidf", "__floatunsidf", "__floatundidf",
+})
 
 ARCHES = [
     {
@@ -92,6 +107,7 @@ ARCHES = [
         # beside the case.
         "no_atomics": {"features": "+m,+c", "cc_args": ["-march=rv32imc_zicsr", "-mabi=ilp32"],
                        "support": os.path.join(HAL_DIR, "riscv32", "atomics.c")},
+        "soft_float": SOFT_FLOAT_ROUTINES,
         "word_bytes": 4,
         "load_base": 0x8000_0000,
         "off": None,
@@ -104,10 +120,15 @@ ARCHES = [
         # hal/arm64/boot.S for why not PSCI); `gic-version=2` is pinned so a
         # newer emulator changing its default cannot swap the machine.
         "qemu_args": ["-M", "virt,gic-version=2", "-cpu", "cortex-a53", "-semihosting"],
-        "cc_args": [],
+        # The C half gets the Saw half's `-neon,-fp-armv8` too: general
+        # registers only, and `aapcs-soft` so a `double` travels in the integer
+        # registers, which is where the Saw half passes one to a soft-float
+        # routine.
+        "cc_args": ["-mgeneral-regs-only", "-mabi=aapcs-soft"],
         # None keeps sawc's freestanding default (`-neon,-fp-armv8`).
         "features": None,
         "no_atomics": None,
+        "soft_float": SOFT_FLOAT_ROUTINES,
         "word_bytes": 8,
         "load_base": 0x4000_0000,
         "off": None,
@@ -135,9 +156,19 @@ def expectations(arch):
 
 # What a RUN case's object may leave undefined besides its atomic routines:
 # the runtime's seams, which fsrt defines, and what `hal/` defines, the boot
-# stub's `fs_*` hooks and support.c's `mem*` and 64-bit division libcalls.
+# stub's `fs_*` hooks, support.c's `mem*` and 64-bit division libcalls, and
+# the arch's `soft_float` routines from `hal/compiler-rt/`.
 HAL_PREFIXES = ("__saw_rt_", "fs_", "mem")
 HAL_LIBCALLS = frozenset({"__udivdi3", "__umoddi3"})
+
+# A name shaped like a compiler-rt floating-point builtin: an operation on a
+# float mode (`__adddf3`, `__unorddf2`, `__extendsfdf2`), a float-to-integer
+# conversion (`__fixunsdfsi`) or an integer-to-float one (`__floatundidf`). One
+# outside the arch's `soft_float` list is a routine the spec does not promise
+# an environment supplies.
+FLOAT_MODE = "(?:hf|sf|df|tf|xf)"
+SOFT_FLOAT_SHAPE = re.compile(r"^__(?:[a-z]+%s[0-9]|fix(?:uns)?%s(?:si|di|ti)|float(?:un)?(?:si|di|ti)%s)$"
+                              % (FLOAT_MODE, FLOAT_MODE, FLOAT_MODE))
 
 
 def atomic_routines(case, arch):
@@ -425,6 +456,93 @@ TEST_CASES = [
                        "fs value fmt_arg=0.30000000000000004",
                        "fs value print_arm=\n1.5",
                        "fs done float_text ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # Every Float operation as a soft-float call: at -O0 nothing folds, so
+        # each of the spec's routines runs, from `hal/compiler-rt/`, and the
+        # object's references are held to the spec's list.
+        "name": "soft_float",
+        "extra_flags": ["-O0"],
+        "expect_out": ["fs value add=0.30000000000000004",
+                       "fs value sub=0.19999999999999998",
+                       "fs value mul=0.30000000000000004",
+                       "fs value div=0.3333333333333333",
+                       "fs value negate=-2.5",
+                       "fs value negate_zero=-0.0",
+                       "fs value compound=1.625",
+                       "fs value add_tie_even=9007199254740992.0",
+                       "fs value mul_underflow=0.0",
+                       "fs value mul_subnormal=1e-323",
+                       "fs value mul_overflow=inf",
+                       "fs value div_by_zero=inf",
+                       "fs value div_negative_by_zero=-inf",
+                       "fs value div_zero_by_zero=nan",
+                       "fs check lt_holds=1",
+                       "fs check lt_refused=1",
+                       "fs check le_equal=1",
+                       "fs check le_refused=1",
+                       "fs check gt_holds=1",
+                       "fs check gt_refused=1",
+                       "fs check ge_equal=1",
+                       "fs check ge_refused=1",
+                       "fs check eq_holds=1",
+                       "fs check eq_signed_zeros=1",
+                       "fs check eq_refused=1",
+                       "fs check ne_holds=1",
+                       "fs check ne_refused=1",
+                       "fs check nan_lt=1",
+                       "fs check nan_le=1",
+                       "fs check nan_gt=1",
+                       "fs check nan_ge=1",
+                       "fs check nan_eq=1",
+                       "fs check nan_ne=1",
+                       "fs check nan_is_nan=1",
+                       "fs check one_is_not_nan=1",
+                       "fs value as_i8=127",
+                       "fs value as_i8_negative=-128",
+                       "fs value as_i16=-32768",
+                       "fs value as_i32=2147483647",
+                       "fs value as_i32_negative=-2147483648",
+                       "fs value as_i64=-9223372036854775808",
+                       "fs value as_i64_large=4611686018427387904",
+                       "fs value as_int=-123456",
+                       "fs value as_u8=255",
+                       "fs value as_u16=65535",
+                       "fs value as_u32=4294967295",
+                       "fs value as_u64=18446744073709549568",
+                       "fs value as_uint=3000000000",
+                       "fs value as_uint_negative_fraction=0",
+                       "fs check from_i8_fits=1",
+                       "fs check from_i8_above=1",
+                       "fs check from_i16_fits=1",
+                       "fs check from_i32_nan=1",
+                       "fs check from_i64_min=1",
+                       "fs check from_i64_above=1",
+                       "fs check from_int_infinity=1",
+                       "fs check from_u8_negative=1",
+                       "fs check from_u8_negative_fraction=1",
+                       "fs check from_u16_fits=1",
+                       "fs check from_u32_above=1",
+                       "fs check from_u64_fits=1",
+                       "fs check from_u64_above=1",
+                       "fs check from_uint_fits=1",
+                       "fs value from_i8=-128.0",
+                       "fs value from_i16=32767.0",
+                       "fs value from_i32=-2147483648.0",
+                       "fs value from_i64=-1.0",
+                       "fs value from_i64_rounded=9007199254740992.0",
+                       "fs value from_int=-1000.0",
+                       "fs value from_u8=255.0",
+                       "fs value from_u16=65535.0",
+                       "fs value from_u32=4294967295.0",
+                       "fs value from_u64=1.8446744073709552e+19",
+                       "fs value from_uint=4000000000.0",
+                       "fs check exact_i64_absent=1",
+                       "fs check exact_i64_present=1",
+                       "fs check exact_u64_absent=1",
+                       "fs check exact_i32_present=1",
+                       "fs done soft_float ok"],
         "expect_clean_exit": True,
     },
     {
@@ -726,7 +844,8 @@ def record_clang(arch):
 # =============================================================================
 
 def build_shared(arch, clang):
-    """The boot stub and the C floor every image links, built once per arch."""
+    """The boot stub, the C floor and the soft-float routines every image
+    links, built once per arch."""
     out = build_dir(arch)
     os.makedirs(out, exist_ok=True)
     boot_o = os.path.join(out, "boot.o")
@@ -735,10 +854,22 @@ def build_shared(arch, clang):
     checked([clang, target] + arch["cc_args"] + ["-nostdlib", "-c", os.path.join(HAL_DIR, arch["name"], "boot.S"),
                                                  "-o", boot_o])
     # -fno-builtin: support.c DEFINES memcpy, and without it LLVM may rewrite
-    # its byte loop into a call to itself.
-    floor = ["-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections", "-nostdlib", "-O2", "-c"]
+    # its byte loop into a call to itself. -ffp-contract=off: compiler-rt's
+    # 64-bit conversions do double arithmetic, and on aarch64 a contracted
+    # multiply-add lowers to a call to libm's `fma`, which no image defines.
+    floor = ["-ffreestanding", "-fno-builtin", "-ffp-contract=off", "-ffunction-sections", "-fdata-sections",
+             "-nostdlib", "-O2", "-c"]
     checked([clang, target] + arch["cc_args"] + floor + [SUPPORT_C, "-o", support_o])
     shared = {"all": [boot_o, support_o], "no_atomics": None}
+    # The soft-float routines, linked into every image; `--gc-sections` keeps
+    # only the ones a case calls.
+    rt_out = os.path.join(out, "compiler-rt")
+    os.makedirs(rt_out, exist_ok=True)
+    for name in sorted(os.listdir(COMPILER_RT_DIR)):
+        if name.endswith(".c"):
+            rt_o = os.path.join(rt_out, name[:-2] + ".o")
+            checked([clang, target] + arch["cc_args"] + floor + [os.path.join(COMPILER_RT_DIR, name), "-o", rt_o])
+            shared["all"].append(rt_o)
     if arch["no_atomics"]:
         atomics_o = os.path.join(out, "atomics.o")
         checked([clang, target] + arch["no_atomics"]["cc_args"] + floor + [arch["no_atomics"]["support"],
@@ -758,9 +889,10 @@ def nm_tool(clang):
 
 def references_problem(case, arch, obj, clang):
     """None when every symbol the object leaves undefined is a runtime seam,
-    a symbol the HAL defines (`HAL_PREFIXES`, `HAL_LIBCALLS`), or one of
-    `atomic_routines`, and it references exactly those routines; else why.
-    A host library's name here is a call past the runtime ABI (SL-933)."""
+    a symbol the HAL defines (`HAL_PREFIXES`, `HAL_LIBCALLS`, the arch's
+    `soft_float`), or one of `atomic_routines`, and it references exactly
+    those atomic routines; else why. A host library's name here is a call past
+    the runtime ABI (SL-933)."""
     code, out = run([nm_tool(clang), "-u", obj], PROBE_TIMEOUT_S)
     if code != 0:
         return "nm cannot read %s: %s" % (obj, out.strip()[:300])
@@ -769,11 +901,17 @@ def references_problem(case, arch, obj, clang):
     wanted = atomic_routines(case, arch)
     if referenced != wanted:
         return "the object references the atomic routines %s, not exactly %s" % (sorted(referenced), sorted(wanted))
-    stray = sorted(name for name in found - referenced
+    unlisted = sorted(name for name in found
+                      if SOFT_FLOAT_SHAPE.match(name) and name not in arch["soft_float"])
+    if unlisted:
+        return ("the object references the soft-float routine(s) %s, which the spec's list for %s "
+                "(LANGUAGE_SPEC.md, Profiles) does not name" % (", ".join(unlisted), arch["name"]))
+    stray = sorted(name for name in found - referenced - arch["soft_float"]
                    if not name.startswith(HAL_PREFIXES) and name not in HAL_LIBCALLS)
     if stray:
         return ("the object references %s, which neither the runtime ABI (`__saw_rt_*`) nor the HAL "
-                "(`fs_*`, `mem*`, %s) defines" % (", ".join(stray), ", ".join(sorted(HAL_LIBCALLS))))
+                "(`fs_*`, `mem*`, %s, the soft-float routines) defines"
+                % (", ".join(stray), ", ".join(sorted(HAL_LIBCALLS))))
     return None
 
 
