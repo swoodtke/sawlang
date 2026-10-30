@@ -1,0 +1,33 @@
+// expect-panic: `__saw_drive(...)` at the site: the driven frame recorded park word 2, which names no park
+// A drive point refuses a park word on the null address that is none of the
+// encoding's constants, here the offload tag beneath no job: the null address
+// is one of the two places the constants sit, so no park on memory names it
+// (`drive_timer_park` pins tag 3).
+
+import std.taskgroup.{FrameDescriptor, Poll, TaskContext}
+import std.taskgroup.{__saw_exec_drive}
+
+func null_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
+    print("frame parks on the null address")
+    cx[0].park[0] = 2
+    Poll.Pending
+}
+
+func drop_nothing(at: UnsafePointer<UInt8>) unsafe {
+}
+
+func run() unsafe {
+    let parker = FrameDescriptor(resume: { f, c in null_resume(f, c) },
+                                 size: sizeof<Int>(), align: alignof<Int>(),
+                                 result_offset: 0, result_size: 0, result_align: 1,
+                                 drop_result: { p in drop_nothing(p) }, backtrace: -1)
+    let d = (&parker) as UnsafePointer<FrameDescriptor>
+    var storage = 0
+    let frame = (&storage) as UnsafePointer<UInt8>
+    __saw_exec_drive(d, frame, "`__saw_drive(...)` at the site")
+    print("drove")
+}
+
+func main() {
+    run()
+}

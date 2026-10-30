@@ -1,0 +1,42 @@
+// A drive point whose frame parks on a channel, in a freestanding image
+// (SL-939): the drive hands its wait to the shared sweep, which runs the
+// group's sender, and resumes the frame once the channel's readiness word is
+// set.
+//
+// The drive's park word names the readiness word by its address. On riscv32
+// every RAM address lies above 2^31, so `Int` reads it as negative; the case
+// states that first, so a pass shows such an address decodes. A `blocking`
+// receive, the other wait that drives on a word, needs the gate seams, which
+// an environment with no threads defines none of.
+
+import fscore.*
+import std.channel.{Channel}
+import std.task.*
+
+func received(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(order) -> order,
+        case Err(_) -> 0
+    }
+}
+
+func sent(orders: Channel<Int>, order: Int) -> Int {
+    yield_now()
+    match orders.send(order) {
+        case Ok(_) -> 1,
+        case Err(_) -> 0
+    }
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    var marker = 0
+    let at = (&marker) as UnsafePointer<Int> as Int
+    check("ram_reads_negative_on_32_bit", sizeof<Int>() != 4 || at < 0)
+    let orders = try! Channel<Int>()
+    var group = TaskGroup()
+    let sender = group.spawn(sent(orders.copy(), 5))
+    check_value("drive_point_received", __saw_drive(received(orders.copy())), 5)
+    check_value("sender_sent", sender.join(), 1)
+    finish("cooperative_drive")
+}

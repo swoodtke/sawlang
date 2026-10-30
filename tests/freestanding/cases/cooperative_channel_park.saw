@@ -1,0 +1,40 @@
+// A channel park that wakes, in a freestanding image (SL-939): a task parks
+// receiving on an empty channel, a sibling sends after a yield, and the sweep
+// resumes the receiver with the message.
+//
+// The park word names the channel's readiness word by its address. On
+// riscv32 every RAM address lies above 2^31, so `Int` reads it as negative;
+// the case states that first, so a pass shows such an address decodes.
+
+import fscore.*
+import std.channel.{Channel}
+import std.task.{yield_now}
+
+func received(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(order) -> order,
+        case Err(_) -> 0
+    }
+}
+
+func sent(orders: Channel<Int>, order: Int) -> Int {
+    yield_now()
+    match orders.send(order) {
+        case Ok(_) -> 1,
+        case Err(_) -> 0
+    }
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    var marker = 0
+    let at = (&marker) as UnsafePointer<Int> as Int
+    check("ram_reads_negative_on_32_bit", sizeof<Int>() != 4 || at < 0)
+    let orders = try! Channel<Int>()
+    var group = TaskGroup()
+    let receiver = group.spawn(received(orders.copy()))
+    let sender = group.spawn(sent(orders.copy(), 7))
+    check_value("receiver_took_the_message", receiver.join(), 7)
+    check_value("sender_sent", sender.join(), 1)
+    finish("cooperative_channel_park")
+}

@@ -1,9 +1,12 @@
-// expect-panic: `__saw_drive(...)` at the site: the driven frame recorded park word 1000000, which names no park
+// expect-panic: `__saw_drive(...)` at the site: the driven frame recorded park word 1000003, which names no park
 // A drive point resumes a ready yield at once, and hands a timer park to the
 // executor's sweep, which idles until the deadline the frame's context
 // records; each counts as one `Pending` (SL-645, SL:coroutines A11). A frame
 // that records a park word no park has is refused, naming the word and the
-// site, rather than waited on.
+// site, rather than waited on. The words the encoding can refuse are those
+// on tag 3 or the null address that are none of its constants: any other
+// word is read as an address, so a refusal checks those bits, not the word's
+// whole value. `drive_null_park` pins the null address.
 
 import std.taskgroup.{FrameDescriptor, Poll, TaskContext}
 import std.taskgroup.{__saw_exec_drive, __saw_exec_drive_steps, __saw_exec_timer_deadline}
@@ -18,7 +21,7 @@ struct Sleeper {
 }
 
 // Yields, sleeps, then is done; then, started again, records a park word
-// that names no park.
+// that names no park: a non-null address on tag 3.
 func sleeper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>) unsafe -> Poll {
     let f = frame as UnsafePointer<Sleeper>
     let state = f[0].state
@@ -41,7 +44,7 @@ func sleeper_resume(frame: UnsafePointer<UInt8>, cx: UnsafePointer<TaskContext>)
         return Poll.Ready
     }
     print("sleeper parks")
-    cx[0].park[0] = 1000000
+    cx[0].park[0] = 1000003
     Poll.Pending
 }
 

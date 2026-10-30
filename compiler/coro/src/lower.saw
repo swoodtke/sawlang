@@ -51,7 +51,7 @@ public static CORO_POLL_PENDING: Int = 1
 
 // What a park records in the root's park word, by reason: the park word
 // vocabulary of std/taskgroup.saw. A channel park records its operand, the
-// readiness word's negated address.
+// readiness word's address with the channel tag, which std computes.
 public static CORO_PARK_READY: Int = 0
 public static CORO_PARK_TIMER: Int = 1
 public static CORO_PARK_FD: Int = -1

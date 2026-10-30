@@ -467,12 +467,9 @@ TEST_CASES = [
     {
         # The deadlock report: the panic line, then the task dump naming the
         # channel-parked task and its frame, and `fsrt`'s panic status. On
-        # riscv32 the channel's park word is the negated address of a word
-        # above 2^31, which reads as no park.
+        # riscv32 the channel's word lies above 2^31, so its park word is a
+        # negative `Int`.
         "name": "cooperative_deadlock",
-        "due": "a park word that negates an address above 2^31 names no park on a 32-bit target (SL-939)",
-        "due_on": ["riscv32"],
-        "due_shows": "which names no park",
         "expect_out": ["fs check reached_the_join=1",
                        "panic at ",
                        "deadlock: every task is waiting to receive from a channel",
@@ -482,6 +479,26 @@ TEST_CASES = [
                        " in drained"],
         "expect_clean_exit": False,
         "expect_status": 64,
+    },
+    {
+        # A channel park that wakes: a receiver parked on an empty channel,
+        # resumed with a sibling's message.
+        "name": "cooperative_channel_park",
+        "expect_out": ["fs check ram_reads_negative_on_32_bit=1",
+                       "fs check receiver_took_the_message=1",
+                       "fs check sender_sent=1",
+                       "fs done cooperative_channel_park ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # A drive point whose frame parks on a channel, resumed once the
+        # group's sender sets the channel's word.
+        "name": "cooperative_drive",
+        "expect_out": ["fs check ram_reads_negative_on_32_bit=1",
+                       "fs check drive_point_received=1",
+                       "fs check sender_sent=1",
+                       "fs done cooperative_drive ok"],
+        "expect_clean_exit": True,
     },
     # --- the linker script ----------------------------------------------------
     {

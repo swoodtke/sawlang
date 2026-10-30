@@ -359,7 +359,7 @@ public(package) func __saw_park_fd_until(fd: Int, write: Int, deadline_nanos: UI
     panic("std.task: a descriptor park reached code generation unlowered")
 }
 
-// A channel's readiness word, named by its negated address.
+// A channel's readiness word, by its address with the channel tag.
 public(package) func __saw_park_channel(word: Int) {
     panic("std.task: a channel park reached code generation unlowered")
 }
@@ -369,9 +369,9 @@ public(package) func __saw_park_offload(job: Int) {
     panic("std.task: an offload park reached code generation unlowered")
 }
 
-// A thread's exit: `word` is the negated address of its control block's
-// handshake word, less one, which the exit leaves negative: odd, so apart
-// from a channel's word (std.taskgroup). A cancel does not wake it.
+// A thread's exit: `word` is its park word, the address of its control
+// block's handshake word, which the exit leaves negative, with the join tag
+// (std.taskgroup). A cancel does not wake it.
 public(package) func __saw_park_thread(word: Int) {
     panic("std.task: a thread park reached code generation unlowered")
 }

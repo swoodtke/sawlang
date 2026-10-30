@@ -38,7 +38,7 @@
 import std.mem.{drop_in_place}
 import std.systemerror.{SystemError}
 import std.task.{__saw_park_channel}
-import std.taskgroup.{__saw_exec_await_word, __saw_exec_chan_wake}
+import std.taskgroup.{__saw_exec_await_word, __saw_exec_chan_wake, __saw_exec_channel_park}
 
 extern "C" {
     // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
@@ -69,8 +69,8 @@ static CHANNEL_GATE_SLOT: Int = 64
 // The block every handle of one channel points at. Every field but
 // `refcount` is read and written under `lock`; `refcount` is atomic.
 //
-// `ready` is the readiness word: a receiver parks on it by its negated
-// address, and the executor resumes the receiver once it is nonzero, so a
+// `ready` is the readiness word: a receiver parks on it by its address
+// (`park_word`), and the executor resumes the receiver once it is nonzero, so a
 // send wakes only this channel's receivers. Invariant, kept under `lock`:
 // `ready != 0` exactly when `count > 0` or `closed` (design 230).
 //
@@ -379,12 +379,11 @@ extension Channel<T: Send> {
         }
     }
 
-    // The park word a receiver records: the readiness word's negated address.
-    // A word is 8-aligned and never at address 0, so the value is below -1,
-    // apart from every other park word (std.taskgroup).
+    // The park word a receiver records: the readiness word's address with the
+    // channel tag, made by the executor's one encoding.
     func park_word(&self) unsafe -> Int {
         let block = self.block
-        0 - ((&block[0].ready) as UnsafePointer<Int> as Int)
+        __saw_exec_channel_park((&block[0].ready) as UnsafePointer<Int>)
     }
 
     // The head message, or `None` when the queue is empty. `drained` is set
