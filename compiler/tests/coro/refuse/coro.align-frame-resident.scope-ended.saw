@@ -1,0 +1,25 @@
+// refuses: coro.align-frame-resident at 14:9
+// message: `@align` is not supported on `scratch`: its scope ends before the function suspends
+// message: sawc keeps it in this function's coroutine frame to the end of the function (SL-932)
+// From tests/corpus/align_nonresident_local_in_suspending_function.saw:
+// `scratch`'s scope closes before the suspension, which the spec accepts,
+// but a drop-free local stays resident to the end of the body until MIR
+// marks scope ends (SL-932), so the refusal says why.
+import std.task
+
+func worker() unsafe -> Int {
+    var seen = 0
+    if seen == 0 {
+        @align(64)
+        var scratch: [UInt8; 32] = [0; 32]
+        scratch[0] = 7
+        seen = ((&scratch) as UnsafePointer<UInt8> as Int) % 64
+    }
+    task.yield_now()
+    seen
+}
+
+func main() unsafe {
+    var group = TaskGroup()
+    print(group.spawn(worker()).join())
+}

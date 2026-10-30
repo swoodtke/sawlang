@@ -462,14 +462,28 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 - **Exports.** Each `@export`ed function is a root, defined under its C
   symbol with external linkage, an integer narrower than 32 bits taken and
   returned `signext` or `zeroext` as C does; an `extern` naming the symbol is
-  called with no declaration beside it. An exported static is refused as
-  `backend.not-yet`.
-- **Placement.** The backend emits no `section` and no alignment past a
-  type's own, so every `@section` and `@align` is refused as
-  `backend.not-yet` at the attribute, whatever carries it, rather than
-  dropped. The due programs `section_static`, `section_function`,
-  `align_static`, `align_local` (a `var`) and `align_local_let` pin each
-  position the parser admits.
+  called with no declaration beside it. An exported static is a global under
+  its C symbol with external linkage, emitted whether or not a function reads
+  it; so is a placed one, internal (the probe `export_static`).
+- **Placement.** One funnel, `ll_placement` in
+  `compiler/llvm/src/program.saw`, visits every `@section` and `@align`
+  whatever carries it, and an attribute no carrier claims is a broken
+  invariant, never a dropped attribute. An `@align`ed local's `alloca` and an
+  `@align`ed static's global take the larger of the stated alignment and the
+  type's own, and an all-zero static stays `zeroinitializer`; typecheck has
+  judged the value (`constant.align`), and one the fold leaves to a layout
+  (`sizeof`, `alignof`) is folded against the target here and meets the same
+  judge. A frame-resident local's `@align` is refused by coroutine lowering
+  (`coro.align-frame-resident`). The probes `align_static`, `align_local` (a
+  `var`) and `align_local_let` print each slot's address modulo its
+  alignment. A `@section` puts `section "NAME"` on its static's global or on
+  every define of its function, a generic one's instances and its resume
+  function included, with the linkage the function or static has without it.
+  An empty name is refused (`section.invalid`), and so is, on a Mach-O target
+  (`target_mach_o`), a name that is not `SEGMENT,section` with each part 1
+  to 16 characters, which LLVM would abort on rather than report; an ELF
+  target takes the name verbatim. The probes `section_static` and
+  `section_function` run each position.
 - **Determinism.** Functions are written in item order and globals in first
   use; every symbol is derived from what the item is (`@"saw NAME"`). NAME is
   mono's item name, which no two items share (`compiler/tests/mono/README.md`,
@@ -479,7 +493,7 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
 
 | rule | refuses | due program |
 |---|---|---|
-| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, an exported static, a `@section` on a static or a function, an `@align` on a static or a local, a conditional borrow through a dispatch, a by-value aggregate crossing the C convention (a `UnsafePointer<any Trait>` among them, two words, and its optional), an offload of a variadic extern or of one passing or returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `section_static`, `static_float_leaf` |
+| `backend.not-yet` | what the backend does not lower yet: an operator on anything but an integer, a Bool, a Float, a String, two raw pointers or the memory values compared part by part, a Float operator but `+ - * /`, the comparisons and unary `-`, a slice, a static whose initializer holds a Float or a value the evaluator does not hold, a conditional borrow through a dispatch, a by-value aggregate crossing the C convention (a `UnsafePointer<any Trait>` among them, two words, and its optional), an offload of a variadic extern or of one passing or returning an optional pointer, or on a target whose word is not 64 bits, a pointer cast to or from an integer narrower than a pointer, an unsupported layout, a `main` returning neither `Void` nor `Int`; a constant is refused at its own spelling, inside an aggregate too | `static_float_leaf` |
 
 **Suspension.** The backend's input is coroutine lowering's program
 (`compiler/tests/coro/README.md`), which lowers the frames whose every
@@ -768,8 +782,8 @@ among its prose:
   none is not held to its standard error;
 - `// panics: TEXT`, text its panic line on standard error holds;
 - `// undefined: SYMBOL`, a symbol its link must leave undefined;
-- `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, under
-  its plain or quoted name;
+- `// ll defines: SYMBOL`, a symbol the `.ll` of each build defines, a
+  function or a global, under its plain or quoted name;
 - `// ll omits: SYMBOL`, a symbol the `.ll` of each build names nowhere;
 - `// c helper: NAME.c`, a C file in `probes/` linked into each build, for a
   probe that needs C on the other side of an `extern` or an `@export`. sawc

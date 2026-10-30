@@ -1,0 +1,12 @@
+// probe: stated
+// about: a `let` local's slot is aligned exactly as a `var`'s is, since `@align` is about storage, not mutability (SL-801)
+// stage 0: builds it and prints the same lines; a probe because the Linux Stage 0 records are v0.18.0's and cannot be recorded again from the VM
+// speeds: -O0 -O2
+// prints: 1
+// prints: 0
+func main() unsafe {
+    @align(64)
+    let b = 1
+    print("{}", b)
+    print("{}", ((&b) as UnsafePointer<Int> as Int) % 64)
+}

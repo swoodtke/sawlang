@@ -1,0 +1,10 @@
+// refuses: constant.align at 5:8
+// message: `@align` on the static `BIG` is `8192`, above the largest alignment Saw will request (`4096`)
+// a static's `@align` above one page (spec, Alignment)
+
+@align(8192)
+static BIG: [UInt8; 32] = [0; 32]
+
+func main() {
+    print(BIG[0])
+}

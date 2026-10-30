@@ -1,0 +1,37 @@
+// A riscv32 word probe (compiler/tests/run/riscv32_ir.py): the placement
+// funnel's output at a 32-bit word: an `@align`ed static, zero and seeded,
+// an `@align`ed local, a sectioned static and function, and exported
+// statics, one unread, each read through its address so the global stays.
+
+@align(64)
+static ARENA: [UInt8; 256] = [0; 256]
+
+@align(16)
+static SEEDED: [UInt32; 4] = [1, 2, 3, 4]
+
+@section(".data.placed")
+static PLACED: Int = 5
+
+@export("probe_word_slot")
+static SLOT: Int = 41
+
+@export("probe_word_unread")
+@align(32)
+@section(".data.exported")
+static UNREAD: [UInt16; 8] = [9; 8]
+
+@section(".text.placed")
+func placed(n: Int) -> Int {
+    n + PLACED
+}
+
+@export("probe_placement")
+func probe_placement(n: Int) unsafe -> Int {
+    @align(32)
+    var scratch: [UInt8; 24] = [0; 24]
+    scratch[0] = UInt8.from(truncating: n)
+    let arena = ((&ARENA) as UnsafePointer<UInt8> as Int) % 64
+    let seeded = ((&SEEDED) as UnsafePointer<UInt32> as Int) % 16
+    let local = ((&scratch) as UnsafePointer<UInt8> as Int) % 32
+    arena + seeded + local + placed(n) + SLOT + (SEEDED[1] as Int) + (scratch[0] as Int)
+}

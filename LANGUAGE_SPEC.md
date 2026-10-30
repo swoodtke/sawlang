@@ -14868,8 +14868,8 @@ placement request and never a second way to publish a symbol. Section-name *synt
 `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
 mach-O target is a compile error naming the declaration and the two-part form:
 
-```saw-pending SL-875
-// error-contains: `@section(".vector_table")` is not a valid section on this target:
+```saw-fragment
+// On a mach-O target such as arm64-apple-darwin:
 @section(".vector_table")
 func kernel_entry() -> Int32 { 0 }
 // error: `@section(".vector_table")` is not a valid section on this target:
@@ -14989,7 +14989,8 @@ Two positions refuse it. A binding with no storage — `let _`, or a binding of 
 `Void` value — has nothing to align. And a local that lives in a **coroutine
 frame** rather than on the stack is refused where it is written:
 
-```saw-pending SL-801
+```saw-error
+// error-rule: coro.align-frame-resident
 // error-contains: it lives in this function's coroutine frame
 import std.task.*
 

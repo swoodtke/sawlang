@@ -1920,6 +1920,10 @@ extension TcProgram {
     }
 }
 
+// The largest alignment `@align` may state: one page on every target Saw
+// builds for (spec, Alignment).
+static TC_ALIGN_LIMIT: Int = 4096
+
 // The constant-position funnel.
 extension TcProgram {
     // The constant-position funnel (spec, Compile-Time Evaluation, "The
@@ -1927,14 +1931,17 @@ extension TcProgram {
     // of declaration `d`. It refuses the first sub-expression outside the
     // position's grammar (`static.not-constant`), a static whose value
     // depends on itself (`static.cycle`), a fault the fold meets in `e`
-    // itself, and a `static_assert` whose condition folds to `false`
-    // (`static_assert.failed`). An expression already refused inside is not
-    // judged again, and outside a static's initializer a fold that waits on a
-    // later declaration is judged by `defer_constant`. What the grammar admits
-    // and the fold does not compute (an aggregate, `sizeof`, a const
+    // itself, a `static_assert` whose condition folds to `false`
+    // (`static_assert.failed`), and an `@align` argument that folds to no
+    // alignment (`constant.align`). An expression already refused inside is
+    // not judged again, and outside a static's initializer a fold that waits
+    // on a later declaration is judged by `defer_constant`. What the grammar
+    // admits and the fold does not compute (an aggregate, `sizeof`, a const
     // parameter) is constant and unfolded;
     // `sizeof` and `alignof` of a type code generation lays out are admitted
-    // only in a `static_assert`.
+    // only in a `static_assert`. `message` is a `static_assert`'s message
+    // leaf, and at an `@align` on a local the binding's leaf, which the
+    // refusal names.
     //
     // ENTRY POINTS (check_constant_position):
     //     check_static_body
@@ -1984,6 +1991,12 @@ extension TcProgram {
             }
         }
         let v = self.check_constant_faults(e)
+        if pos == TcConstPosition.Align && v.ok {
+            let why = self.align_refusal(self.align_subject(d, message), v.bits)
+            if why.len() > 0 {
+                self.refuse_in(self.node_module(e), e, "constant.align", why)
+            }
+        }
         if pos == TcConstPosition.Assert && v.ok && v.ty >= 0 && self.is_bool(v.ty) && v.bits == 0 {
             var msg = StringBuilder()
             try! msg.append("static assertion failed")
@@ -2074,8 +2087,13 @@ extension TcProgram {
         self.check_constant_position(c, TcConstPosition.Assert, -1, message)
     }
 
-    // A local's `@align(N)` argument, an integer.
+    // A local's `@align(N)` argument, an integer, on a binding that has a
+    // slot to align: `let _` binds no storage (spec, Alignment).
     func check_align_local(&var self, s: Int) {
+        let local = self.res.last_node_child(s)
+        let leaf = self.res.first_leaf(self.res.first_node_child(local))
+        let m = self.node_module(s)
+        let unbound = leaf >= 0 && self.text(m, leaf).equals("_")
         let n = self.child_count(s)
         var k = 0
         while k < n {
@@ -2085,11 +2103,83 @@ extension TcProgram {
                 if e >= 0 {
                     let t = self.int_type()
                     self.check_static_value(e, t)
-                    self.check_constant_position(e, TcConstPosition.Align, -1, -1)
+                    if unbound {
+                        self.refuse(c, "attribute.align-no-storage",
+                                    "`@align` on `let _` aligns nothing: `_` binds no storage, so there is no slot to align; bind a name, or drop the attribute")
+                    } else {
+                        self.check_constant_position(e, TcConstPosition.Align, -1, leaf)
+                    }
                 }
             }
             k = k + 1
         }
+    }
+
+    // The storage an `@align` argument at constant position judgment
+    // (`d`, `subject`) states the alignment of, as its refusals name it:
+    // static `d`, or the local whose binding leaf is `subject`.
+    func align_subject(&self, d: Int, subject: Int) -> String {
+        var out = StringBuilder()
+        if d >= 0 {
+            try! out.append("the static `")
+            try! out.append(self.res.name_text(self.res.decls[d].name))
+        } else {
+            try! out.append("the local `")
+            if subject >= 0 {
+                try! out.append(self.text(self.node_module(subject), subject))
+            }
+        }
+        try! out.append("`")
+        out.build()
+    }
+
+    // THE ALIGNMENT JUDGE: why `@align(value)` on `subject` (`align_subject`)
+    // states no alignment, or "" when it is a power of two from 1 to 4096,
+    // in Stage 0's words (spec, Alignment). LLVM takes only a power of two,
+    // so a value this passes is one the backend can emit as written.
+    // ENTRY POINTS:
+    //     check_constant_position
+    //     ll_placement
+    public func align_refusal(&self, subject: String, value: Int) -> String {
+        var msg = StringBuilder()
+        try! msg.append("`@align` on ")
+        try! msg.append(subject)
+        if value <= 0 {
+            try! msg.append(" must be a positive power of two, but is ")
+            if value == 0 {
+                try! msg.append("zero: no address is aligned to zero bytes")
+            } else {
+                try! msg.append("negative (`")
+                try! msg.append(value)
+                try! msg.append("`): an alignment counts bytes")
+            }
+            return msg.build()
+        }
+        if value > TC_ALIGN_LIMIT {
+            try! msg.append(" is `")
+            try! msg.append(value)
+            try! msg.append("`, above the largest alignment Saw will request (`")
+            try! msg.append(TC_ALIGN_LIMIT)
+            try! msg.append("`): `")
+            try! msg.append(TC_ALIGN_LIMIT)
+            try! msg.append("` is one page on every target Saw builds for, and a stack slot or an ordinary global cannot honour more")
+            return msg.build()
+        }
+        var below = 1
+        while below * 2 <= value {
+            below = below * 2
+        }
+        if below == value {
+            return ""
+        }
+        try! msg.append(" must be a power of two, but is `")
+        try! msg.append(value)
+        try! msg.append("`: an address is aligned to a power of two, and the nearest are `")
+        try! msg.append(below)
+        try! msg.append("` and `")
+        try! msg.append(below * 2)
+        try! msg.append("`")
+        msg.build()
     }
 
     // A `static_assert` message leaf as the refusal quotes it: the string
@@ -2186,11 +2276,13 @@ extension TcProgram {
     }
 
     // A bare name: a module static whose value is fixed, or a const
-    // parameter, which a raw case's value may not name.
+    // parameter, which neither a raw case's value nor an `@align` argument
+    // may name: an alignment is the declaration's own, the same at every
+    // instance (spec, Alignment).
     func constant_name(&self, e: Int, pos: TcConstPosition) -> Int {
         let leaf = self.res.first_leaf(e)
         let b = self.binding_at(leaf)
-        if b.kind == ResBindKind.TypeParam && pos != TcConstPosition.RawValue {
+        if b.kind == ResBindKind.TypeParam && pos != TcConstPosition.RawValue && pos != TcConstPosition.Align {
             return -1
         }
         if b.kind == ResBindKind.Decl && self.fixed_static(b.decl) && pos != TcConstPosition.RawValue {
@@ -2374,6 +2466,9 @@ extension TcProgram {
         }
         if named && b.kind == ResBindKind.Local {
             return "it names a binding whose value is known only at run time"
+        }
+        if named && pos == TcConstPosition.Align && b.kind == ResBindKind.TypeParam {
+            return "it names a const generic parameter, which has no value until the function is instantiated, and an alignment is fixed by the declaration itself; write a literal or a module static"
         }
         if named && b.kind == ResBindKind.Decl && b.decl >= 0 && self.res.decls[b.decl].kind == ResDeclKind.Static {
             return "it names an `unsafe static var`, whose value belongs to the running program"

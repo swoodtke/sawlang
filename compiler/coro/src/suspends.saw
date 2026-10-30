@@ -34,6 +34,7 @@ import sawtypecheck.typeops.{TcClient}
 // The rules coroutine lowering refuses by.
 public func coro_rules() -> Vector<String> {
     var out = Vector<String>()
+    try! out.push("coro.align-frame-resident")
     try! out.push("coro.blocking-drop-position")
     try! out.push("coro.closure-drop-blocks")
     try! out.push("coro.copy-through-glue")

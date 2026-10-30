@@ -1,0 +1,14 @@
+// probe: stated
+// about: a static's `@align` reaches its global, which its type alone would put on an 8-byte boundary (SL-801)
+// stage 0: builds it and prints the same lines; a probe because the Linux Stage 0 records are v0.18.0's and cannot be recorded again from the VM
+// speeds: -O0 -O2
+// prints: 3
+// prints: 0
+
+@align(64)
+static WIDE: Int = 3
+
+func main() unsafe {
+    print("{}", WIDE)
+    print("{}", ((&WIDE) as UnsafePointer<Int> as Int) % 64)
+}

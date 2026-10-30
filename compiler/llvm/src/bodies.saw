@@ -18,9 +18,9 @@ import sawllvm.module.{LlEmitter, ll_descriptor_symbol, ll_export_symbol, ll_is_
                            ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
-import sawmir.model.{MirBlock, MirCallKind, MirStmt, MirStmtKind, MirTermKind}
+import sawmir.model.{MirBlock, MirCallKind, MirFuncKind, MirStmt, MirStmtKind, MirTermKind}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoProgram}
+import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
 import sawtypecheck.program.{TcProgram}
 
@@ -43,6 +43,27 @@ public func ll_param_name(j: Int) -> String {
 }
 
 extension LlEmitter {
+    // The ` section "NAME"` clause item `k`'s define carries: its function's
+    // `@section`, at every instance of a generic one, and never a closure's
+    // or a default value's written inside it.
+    func item_section(&self, mono: &MonoProgram, k: Int) -> String {
+        let it = mono.items[k]
+        if it.kind != MonoItemKind.Function || it.body < 0 || it.decl < 0 {
+            return ""
+        }
+        if mono.dp.bc.mir.funcs[it.body].kind != MirFuncKind.Body {
+            return ""
+        }
+        let clause = self.section_clause(it.decl)
+        if clause.len() == 0 {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append(" ")
+        try! out.append(clause)
+        out.build()
+    }
+
     // Item `k`'s concrete function, written into the definitions unless the
     // backend refused something in it.
     public func emit_function(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
@@ -113,7 +134,7 @@ extension LlEmitter {
                 try! self.allocas.append(" x i8]")
             }
             try! self.allocas.append(", align ")
-            try! self.allocas.append(l.align)
+            try! self.allocas.append(self.slot_align(node, l.align))
             try! self.allocas.append("\n")
             if j >= 1 && j <= info.param_count && l.kind != TargetKind.Zero {
                 if not first {
@@ -166,6 +187,7 @@ extension LlEmitter {
         self.drive_storage(&var mono, k, &var prelude)
         try! head.append(")")
         try! head.append(ll_function_attributes(""))
+        try! head.append(self.item_section(&mono, k))
         try! head.append(dbg)
         let opening = self.dbg_suffix
         var b = 0
@@ -245,7 +267,7 @@ extension LlEmitter {
                 try! self.allocas.append(" x i8]")
             }
             try! self.allocas.append(", align ")
-            try! self.allocas.append(l.align)
+            try! self.allocas.append(self.slot_align(node, l.align))
             try! self.allocas.append("\n")
             j = j + 1
         }
@@ -335,6 +357,7 @@ extension LlEmitter {
         try! self.defs.append(symbol)
         try! self.defs.append("(ptr %frame, ptr %cx)")
         try! self.defs.append(ll_function_attributes(""))
+        try! self.defs.append(self.item_section(&mono, k))
         try! self.defs.append(dbg)
         try! self.defs.append(" \{\nentry:\n")
         let slots = self.allocas.build()

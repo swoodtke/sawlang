@@ -1,0 +1,137 @@
+// `@align` on a local that lives in a coroutine frame (spec, Alignment): a
+// local whose storage lifetime spans a suspension is a field of the frame,
+// which carries no per-field alignment, so its `@align` is refused where it is
+// written rather than dropped. The refusal is keyed on residency, so an
+// aligned local of a suspending body whose own lifetime spans no suspension
+// stays a stack slot and keeps its alignment.
+//
+// ENTRY POINTS of the frame-alignment rule:
+//   coro_check_frame_alignment
+
+import sawborrowck.program.{BorrowckProgram}
+import sawcoro.program.{CoroProgram, CoroValueKind}
+import sawdrops.program.{DropsProgram}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoProgram}
+import sawparse.grammar.{Alt}
+// For the extension walking a binding statement's children.
+import sawresolve.collect.{res_is_top_level}
+import sawresolve.program.{ResProgram}
+// For the extension giving `node_module`.
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.program.{TcProgram}
+
+// Refuses each frame-resident local of every frame whose `let` or `var`
+// carries `@align` (`coro.align-frame-resident`), at its binding statement,
+// in Stage 0's words.
+public func coro_check_frame_alignment(coro: &var CoroProgram) {
+    let aligned = coro_aligned_bindings(&coro)
+    if aligned.len() == 0 {
+        return
+    }
+    var f = 0
+    while f < coro.frames.len() {
+        let frame = coro.frames[f]
+        f = f + 1
+        let info = coro.mono.dp.bc.mir.funcs[frame.body]
+        var v = 0
+        while v < frame.value_count {
+            let value = coro.values[frame.value_first + v]
+            v = v + 1
+            if value.kind != CoroValueKind.Local || value.local < 0 {
+                continue
+            }
+            let local = coro.mono.dp.bc.mir.locals[info.local_first + value.local]
+            if local.node < 0 {
+                continue
+            }
+            if let statement = aligned.get(local.node) {
+                var msg = StringBuilder()
+                try! msg.append("`@align` is not supported on `")
+                try! msg.append(coro.mono.dp.bc.mir.tc.name_text(local.name))
+                if coro_scope_spans_suspension(&coro, frame.suspend_first, frame.suspend_count, statement) {
+                    try! msg.append("`: it lives in this function's coroutine frame, not on the stack")
+                } else {
+                    try! msg.append("`: its scope ends before the function suspends, but sawc keeps it in this function's coroutine frame to the end of the function (SL-932)")
+                }
+                try! msg.append(", and a frame field cannot carry an alignment yet — move the aligned buffer into a `sync` helper that does not suspend, or hold it in an `@align`ed `static`")
+                coro.refuse(frame.item, statement, "coro.align-frame-resident", msg.build())
+            }
+        }
+    }
+}
+
+// Whether the scope of binding statement `statement` spans one of the
+// suspension points `first ..< first + count`: a suspending call written
+// after the statement inside the smallest block holding it. A drop-free local
+// whose scope spans none is still resident, since its lifetime runs to the
+// end of the body (SL-932), and its refusal says so.
+func coro_scope_spans_suspension(coro: &CoroProgram, first: Int, count: Int, statement: Int) -> Bool {
+    let m = coro.mono.dp.bc.mir.tc.node_module(statement)
+    let at = coro.mono.dp.bc.mir.tc.res.node(statement)
+    var scope_end = -1
+    var scope_size = -1
+    let nodes = coro.mono.dp.bc.mir.tc.res.nodes.len()
+    var id = 0
+    while id < nodes {
+        if coro.mono.dp.bc.mir.tc.has_alt(id, Alt.Stmt_Block) && coro.mono.dp.bc.mir.tc.node_module(id) == m {
+            let n = coro.mono.dp.bc.mir.tc.res.node(id)
+            let size = n.end - n.start
+            if n.start <= at.start && n.end >= at.end && (scope_size < 0 || size < scope_size) {
+                scope_size = size
+                scope_end = n.end
+            }
+        }
+        id = id + 1
+    }
+    var j = 0
+    while j < count {
+        let call = coro.suspends[first + j].call
+        j = j + 1
+        if call < 0 {
+            continue
+        }
+        let node = coro.mono.dp.bc.mir.calls[call].node
+        if node < 0 || coro.mono.dp.bc.mir.tc.node_module(node) != m {
+            continue
+        }
+        let n = coro.mono.dp.bc.mir.tc.res.node(node)
+        if n.start >= at.end && n.end <= scope_end {
+            return true
+        }
+    }
+    false
+}
+
+// By binding leaf, the `let` or `var` statement of every local that carries
+// `@align`.
+func coro_aligned_bindings(coro: &CoroProgram) -> Map<Int, Int> {
+    var out = Map<Int, Int>()
+    let count = coro.mono.dp.bc.mir.tc.res.nodes.len()
+    var id = 0
+    while id < count {
+        if coro.mono.dp.bc.mir.tc.has_alt(id, Alt.Stmt_AttributedLocal) && coro_carries_align(&coro, id) {
+            let statement = coro.mono.dp.bc.mir.tc.res.last_node_child(id)
+            let target = coro.mono.dp.bc.mir.tc.res.first_node_child(statement)
+            let leaf = coro.mono.dp.bc.mir.tc.res.first_leaf(target)
+            if leaf >= 0 {
+                let _ = try! out.insert(leaf, statement)
+            }
+        }
+        id = id + 1
+    }
+    move out
+}
+
+// Whether attributed statement `s` carries `@align`.
+func coro_carries_align(coro: &CoroProgram, s: Int) -> Bool {
+    let n = coro.mono.dp.bc.mir.tc.child_count(s)
+    var k = 0
+    while k < n {
+        if coro.mono.dp.bc.mir.tc.has_alt(coro.mono.dp.bc.mir.tc.child(s, k), Alt.Attr_Attribute_Align) {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}

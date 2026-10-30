@@ -1,0 +1,9 @@
+// refuses: constant.align at 6:12
+// message: `@align` on the local `body` must be a positive power of two, but is zero
+// a local's `@align(0)` (spec, Alignment)
+
+func main() {
+    @align(0)
+    var body: [UInt8; 32] = [0; 32]
+    print(body[0])
+}

@@ -246,13 +246,25 @@ extension LlEmitter {
     // `t`, written once from its evaluated value with every part at the
     // offset the target's layout gives it, or zero-filled for a static with
     // no initializer, whose all-zero value typecheck has already admitted.
-    // Every static is writable storage, so none is a constant.
+    // Every static is writable storage, so none is a constant. An exported
+    // static is defined under its C symbol with external linkage; the
+    // placement funnel's section and alignment go on the global, the
+    // alignment the larger of `@align`'s and the type's, so a zero static
+    // stays `zeroinitializer` whatever it is aligned to.
     // ENTRY POINTS:
     //     place_prefix_addr
-    func static_global(&var self, mono: &var MonoProgram, target: &var Target, d: Int, t: Int, node: Int) -> String {
+    //     llvm_emit_program
+    public func static_global(&var self, mono: &var MonoProgram, target: &var Target, d: Int, t: Int,
+                              node: Int) -> String {
+        let exported = mono.dp.bc.mir.tc.export_symbols.get(d) ?? ""
         var name = StringBuilder()
-        try! name.append("@\"static ")
-        try! name.append(ll_quoted(mono.dp.bc.mir.tc.res.decl_identity(d)))
+        if exported.len() > 0 {
+            try! name.append("@\"")
+            try! name.append(ll_quoted(exported))
+        } else {
+            try! name.append("@\"static ")
+            try! name.append(ll_quoted(mono.dp.bc.mir.tc.res.decl_identity(d)))
+        }
         try! name.append("\"")
         let symbol = name.build()
         if self.static_seen(d) {
@@ -260,9 +272,21 @@ extension LlEmitter {
         }
         let l = self.lay_at(&var mono, &var target, t, node)
         let v = mono.static_values[d]
+        let stated = self.decl_align.get(d) ?? 0
+        let align = if stated > l.align { stated } else { l.align }
+        let section = self.section_clause(d)
+        var placed = StringBuilder()
+        if section.len() > 0 {
+            try! placed.append(", ")
+            try! placed.append(section)
+        }
         var line = StringBuilder()
         try! line.append(symbol)
-        try! line.append(" = internal global ")
+        if exported.len() > 0 {
+            try! line.append(" = global ")
+        } else {
+            try! line.append(" = internal global ")
+        }
         if v.kind == EvalKind.Missing {
             if mono.dp.bc.mir.tc.static_initializer(d) >= 0 {
                 if ll_holds_float(&var mono, &var target, t) {
@@ -274,12 +298,21 @@ extension LlEmitter {
             }
             try! line.append("[")
             try! line.append(l.size)
-            try! line.append(" x i8] zeroinitializer, align ")
-            try! line.append(l.align)
+            try! line.append(" x i8] zeroinitializer")
+            try! line.append(placed.build())
+            try! line.append(", align ")
+            try! line.append(align)
         } else if ll_is_scalar(&l) && (v.kind == EvalKind.Integer || v.kind == EvalKind.Boolean) {
             try! line.append(ll_value_type(&l))
             try! line.append(" ")
             try! line.append(ll_fit_signed(v.bits, l.bits))
+            try! line.append(placed.build())
+            // A scalar's own alignment is LLVM's for its type, so only a
+            // stated one is written.
+            if stated > 0 {
+                try! line.append(", align ")
+                try! line.append(align)
+            }
         } else {
             let c = self.static_part(&var mono, &var target, v, t, node)
             if not c.ok {
@@ -288,8 +321,9 @@ extension LlEmitter {
             try! line.append(c.ty)
             try! line.append(" ")
             try! line.append(c.value)
+            try! line.append(placed.build())
             try! line.append(", align ")
-            try! line.append(l.align)
+            try! line.append(align)
         }
         try! self.globals.append(line.build())
         try! self.globals.append("\n")

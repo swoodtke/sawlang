@@ -1,0 +1,19 @@
+// refuses: coro.align-frame-resident at 11:5
+// message: `@align` is not supported on `scratch`: it lives in this function's coroutine frame
+// message: move the aligned buffer into a `sync` helper that does not suspend
+// From tests/corpus/conformance/N11_align_refuses_frame_resident_local.saw:
+// `scratch` lives across the suspension, so it is a frame field, which
+// carries no alignment of its own.
+import std.task
+
+func worker() -> Int {
+    @align(8)
+    var scratch: [UInt8; 32] = [0; 32]
+    task.yield_now()
+    scratch[0] as Int
+}
+
+func main() {
+    var group = TaskGroup()
+    print(group.spawn(worker()).join())
+}

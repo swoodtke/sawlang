@@ -1,0 +1,11 @@
+// refuses: constant.align at 8:12
+// message: `@align` on the local `body` must be a power of two, but is `24`
+// message: the nearest are `16` and `32`
+// a local's `@align` that is no power of two (spec, Alignment; conformance
+// row N10)
+
+func main() {
+    @align(24)
+    var body: [UInt8; 32] = [0; 32]
+    print(body[0])
+}

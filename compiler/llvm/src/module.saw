@@ -77,6 +77,13 @@ public struct LlEmitter {
     dbg_locs: Map<Int, Int>
     dbg_block_files: Vector<Int>
     dbg_block_scopes: Vector<Int>
+    // The placements the placement funnel recorded (`ll_placement`): the
+    // alignment `@align` states, by binding leaf for a local and by
+    // declaration for a static, and the section `@section` names, by
+    // declaration, escaped for a quoted LLVM string.
+    local_align: Map<Int, Int>
+    decl_align: Map<Int, Int>
+    decl_section: Map<Int, String>
 }
 
 extension LlEmitter: NoCopy {}
@@ -157,7 +164,33 @@ extension LlEmitter {
                   lowering: move lowering, resume: -1, poison_next: 0, poison_end: 0,
                   word: "", word_bits: 0, wide_render: false, debug: false, dbg_optimized: false, dbg_meta: StringBuilder(),
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
-                  dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>())
+                  dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
+                  local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>())
+    }
+
+    // The alignment of a slot of natural alignment `natural`: the larger of
+    // it and what `@align` states on the local whose binding leaf is `node`
+    // (spec, Alignment: the attribute only strengthens).
+    public func slot_align(&self, node: Int, natural: Int) -> Int {
+        if node < 0 {
+            return natural
+        }
+        let stated = self.local_align.get(node) ?? 0
+        if stated > natural { stated } else { natural }
+    }
+
+    // The `section "NAME"` clause of declaration `d`'s global or define, or
+    // "" when it carries no `@section`; a global's clause follows a comma,
+    // a define's a space.
+    public func section_clause(&self, d: Int) -> String {
+        guard let name = self.decl_section.get(d) else {
+            return ""
+        }
+        var out = StringBuilder()
+        try! out.append("section \"")
+        try! out.append(name)
+        try! out.append("\"")
+        out.build()
     }
 }
 

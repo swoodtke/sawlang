@@ -1,8 +1,8 @@
 path	bucket	key	detail
 D21_substituted_never_is_a_value.saw	pass	-	-
 aggregate_copy_is_one_memcpy.saw	pass	-	-
-align_attribute_survives_optimization.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
-align_nonresident_local_in_suspending_function.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
+align_attribute_survives_optimization.saw	pass	-	-
+align_nonresident_local_in_suspending_function.saw	refused	coro coro.align-frame-resident	`@align` is not supported on `scratch`: its scope ends before the function suspends, but sawc keeps it in this function's coroutine frame to the end of the function (SL-932), and a frame field cannot
 alloc_channel_send_reports_oom.saw	stage0-wrong	annotated SL-777	sawc meets its directives
 alloc_channel_taskgroup_reports_oom.saw	pass	-	-
 alloc_collection_literal_panics_named.saw	pass	-	-
@@ -436,10 +436,10 @@ conformance/M42_shared_self_inline_array_element.saw	pass	-	mutability.immutable
 conformance/M43_write_optional_payload_of_let.saw	pass	-	mutability.immutable: this assignment writes `o!.n`, and `o` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `var` takes a new value
 conformance/M44_var_self_call_through_inline_array_element.saw	pass	-	mutability.immutable: this exclusive borrow of `h.cells[0]` would let it be written, and `h` is a `let` binding, which is never written: every binding is initialized where it is declared, so only a `v
 conformance/N05_freestanding_hosted_module.saw	pass	-	import.hosted-only: `std.file` is hosted-only, and the freestanding profile has no operating system under it to provide it; keep this import out of the freestanding build
-conformance/N08_align_local_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
-conformance/N09_align_static_is_honored.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
-conformance/N10_align_rejects_non_power_of_two.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
-conformance/N11_align_refuses_frame_resident_local.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
+conformance/N08_align_local_is_honored.saw	pass	-	-
+conformance/N09_align_static_is_honored.saw	pass	-	-
+conformance/N10_align_rejects_non_power_of_two.saw	pass	-	constant.align: `@align` on the local `body` must be a power of two, but is `24`: an address is aligned to a power of two, and the nearest are `16` and `32`
+conformance/N11_align_refuses_frame_resident_local.saw	pass	-	coro.align-frame-resident: `@align` is not supported on `scratch`: it lives in this function's coroutine frame, not on the stack, and a frame field cannot carry an alignment yet — move the aligned buf
 conformance/O12_iflet_move_binding_released_in_coroutine.saw	pass	-	-
 conformance/O13_wildcard_optional_binding_releases_moved_payload.saw	pass	-	-
 conformance/O14_presence_test_is_tier_independent.saw	refused	resolve import.unknown-module	no module `std.compiler.frame`
@@ -1008,7 +1008,7 @@ erased_result_return.saw	pass	-	-
 erased_result_try.saw	pass	-	-
 error_any_box.saw	pass	-	-
 error_split_conformance.saw	pass	-	-
-errors/align_above_cap.saw	refused	llvm backend.not-yet	`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped
+errors/align_above_cap.saw	pass	-	constant.align: `@align` on the local `body` is `8192`, above the largest alignment Saw will request (`4096`): `4096` is one page on every target Saw builds for, and a stack slot or an ordinary global
 errors/align_non_constant.saw	pass	-	static.not-constant: `width` is not a constant, and an `@align` argument is a constant expression: it names a binding whose value is known only at run time
 errors/align_on_function.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/align_on_function.saw` (syntax.rule.attribute-position), so its declarations are not available
 errors/align_on_struct_field.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/align_on_struct_field.saw` (parse-error), so its declarations are not available
@@ -1280,7 +1280,7 @@ errors/resolve_seam_must_be_blocking.saw	pass	-	extern.blocking-disagree: `__saw
 errors/result_none_tail_needs_an_optional_ok.saw	pass	-	result.discarded: the result of `append` is `Result<Void, std.alloc.AllocError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or write `let _ = ...` to discard
 errors/retired_task_handle_names.saw	pass	-	name.retired: undefined type `TaskHandle`: `TaskHandle<T>` is `Task<T>` (design 242); the cooperative engine owns the `Task` vocabulary, and `Thread<T>` is what `Thread.spawn` hands back
 errors/runtime_provider_bad_signature.saw	pass	-	export.seam-signature: `@export` seam `__saw_rt_clock_monotonic_nanos` does not match the runtime ABI: it is `() -> word`, and runtime/ABI.md freezes it as `() -> i64`; a runtime is a link-time swap,
-errors/section_macho_specifier_error.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
+errors/section_macho_specifier_error.saw	pass	-	section.invalid: `@section(".vector_table")` is not a valid section on this target: mach-O names a section by SEGMENT and section, separated by a comma; write the two-part form — `@section("__TEXT,vec
 errors/semicolon_at_end_of_file.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_end_of_file.saw` (syntax.rule.declaration-separator), so its declarations are not available
 errors/semicolon_at_line_start.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_at_line_start.saw` (syntax.rule.statement-separator), so its declarations are not available
 errors/semicolon_before_closing_brace.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/errors/semicolon_before_closing_brace.saw` (syntax.rule.statement-separator), so its declarations are not available
@@ -1475,14 +1475,14 @@ export_bool_error.saw	pass	-	export.c-abi: `@export` function `flag`: parameter 
 export_duplicate_symbol_error.saw	pass	-	export.duplicate: duplicate `@export` symbol `shared`, already exported by `a`: an unmangled C symbol is unique across the program
 export_duplicate_symbol_with_spawn_error.saw	pass	-	export.duplicate: duplicate `@export` symbol `shared_c_hook`, already exported by `first_hook`: an unmangled C symbol is unique across the program
 export_generic_error.saw	pass	-	export.generic: cannot `@export` the generic function `ident`: a C symbol has no type parameters; export a concrete wrapper instead
-export_in_entry_module_with_spawn.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
+export_in_entry_module_with_spawn.saw	pass	-	-
 export_never_noreturn.saw	pass	-	-
 export_outside_init_error.saw	pass	-	resolve.parse-refused: the parser refuses `tests/corpus/export_outside_init_error.saw` (syntax.decl.refused-export), so its declarations are not available
 export_overload_named_ok.saw	pass	-	-
 export_overload_two_unnamed_error.saw	pass	-	export.duplicate: duplicate `@export` symbol `combine`, already exported by `combine`: an unmangled C symbol is unique across the program
 export_reserved_symbol_error.saw	pass	-	export.reserved: `@export` symbol `saw_thing` collides with a reserved runtime symbol (`main`, `saw_*`, `__saw_*`); choose another with `@export("name")`
 export_roundtrip.saw	pass	-	-
-export_static_section.saw	refused	llvm backend.not-yet	an exported static is not in the backend slice yet
+export_static_section.saw	pass	-	-
 export_static_type_error.saw	pass	-	static.not-constant: `"saw"` is not a constant, and a static's initializer is a constant expression: a `String` is never a constant; state that has to be computed wants `static X: Once<T>`, set once,
 export_string_error.saw	pass	-	export.c-abi: `@export` function `greeting`: its result `String` is not C-ABI-safe: an exported function returns a fixed-width integer, `Int`/`UInt`, `Float`, a pointer, `Void` or `Never`, and never a
 export_struct_byvalue_error.saw	pass	-	export.c-abi: `@export` function `consume`: parameter `p` has type `export_struct_byvalue_error.Point`, which is not C-ABI-safe: an exported signature takes fixed-width integers, `Int`/`UInt`, `Float`
@@ -2267,7 +2267,7 @@ runtime_build_suspending_body_error.saw	pass	-	export.suspends: `@export` functi
 runtime_provider_seams.saw	pass	-	built
 scalar_removed_char_surface.saw	refused	typecheck member.unknown	`String` has no method `chars` this module can see
 scalar_type.saw	pass	-	-
-section_compose.saw	refused	llvm backend.not-yet	`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped
+section_compose.saw	pass	-	-
 self_receiver_pointer_reaches_caller.saw	wrong	stdout differs	line 5: sawc "primitive receiver stays by value: true", Stage 0 "primitive receiver stays by value: false"
 self_type.saw	pass	-	-
 self_type_generic_extension_positions.saw	pass	-	-

@@ -1162,10 +1162,15 @@ def ll_problems(where, ll, header):
             text = fh.read()
     except OSError as e:
         return ["%s: no `.ll` beside the binary: %s" % (where, e)]
-    defines = [line for line in text.split("\n") if line.startswith("define ")]
+    lines = text.split("\n")
+    defines = [line for line in lines if line.startswith("define ")]
+    # A global is defined by a line that opens with its name and an `=`.
+    globals_ = [line for line in lines if line.startswith("@")]
     problems = ["%s: the `.ll` defines no `%s`" % (where, symbol) for symbol in defined
                 if not any(spelled in line for line in defines
-                           for spelled in ("@%s(" % symbol, '@"%s"(' % symbol))]
+                           for spelled in ("@%s(" % symbol, '@"%s"(' % symbol))
+                and not any(line.startswith(spelled) for line in globals_
+                            for spelled in ("@%s = " % symbol, '@"%s" = ' % symbol))]
     problems += ["%s: the `.ll` names `%s`" % (where, symbol) for symbol in omitted if symbol in text]
     return problems
 

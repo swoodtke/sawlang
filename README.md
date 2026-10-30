@@ -889,7 +889,10 @@ Saw is freestanding: the same language targets bare metal.
   symbol with the C calling convention, and it is the only way a Saw
   declaration reaches the linker. Every other definition is emitted with a
   module-mangled symbol and internal linkage, so a top-level `func read(...)`
-  cannot capture libc's `read` for the rest of the program. See
+  cannot capture libc's `read` for the rest of the program. `@export` on a
+  `static` publishes data the same way. `@section("name")` places a function
+  or a static in a named object-file section without publishing it; on a
+  Mach-O target the name must be the two-part `SEGMENT,section` form. See
   [link symbols and linkage](LANGUAGE_SPEC.md#link-symbols-and-linkage).
 - **Stated alignment**: `@align(N)` on a local or a `static` emits the slot at
   an alignment of at least `N` bytes. A `[UInt8; N]` is 1-aligned by ABI, so a

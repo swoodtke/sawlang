@@ -1,0 +1,11 @@
+// refuses: constant.align at 8:12
+// message: `@align` on the local `body` must be a positive power of two, but is negative (`-8`)
+// a local's negative `@align`, folded through a static (spec, Alignment)
+
+static STEP: Int = 8
+
+func main() {
+    @align(0 - STEP)
+    var body: [UInt8; 32] = [0; 32]
+    print(body[0])
+}

@@ -16,14 +16,22 @@ import sawllvm.prims.{LL_FAIL_KINDS, LL_FAIL_PART_SIZE, LL_MESSAGE_LIMIT, LL_PAR
 import sawcoro.lower.{CORO_STATE_START}
 import sawllvm.module.{LlEmitter, LlLowering, ll_bt_table_address, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar,
                        ll_reaches_extern, ll_resume_symbol, ll_symbol, ll_value_type}
+// For the extension writing `static_global`.
+import sawllvm.places.{ll_local_slot}
 import sawllvm.render.{ll_spelled}
 import sawllvm.text.{ll_quoted}
 import sawparse.grammar.{Alt}
+// For the extension walking an attribute's carrier.
+import sawresolve.collect.{res_is_top_level}
 import sawresolve.model.{ResDeclKind}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
-import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawtarget.layout.{Target, TargetKind, TargetLayout, target_mach_o}
+// For the extensions giving the placement funnel's fold and judge.
+import sawtypecheck.bodies.{tc_check_bodies}
+import sawtypecheck.checks.{tc_check_unsafe}
+import sawtypecheck.fold.{TcFold}
 import sawtypecheck.program.{TcProgram, TcSeams}
 import sawtypecheck.typeops.{TcClient}
 
@@ -92,18 +100,22 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         e.defines(exported)
         x = x + 1
     }
+    if ll_placement(&var mono, &var target, &var e) {
+        return ""
+    }
+    // An exported static is a root, and so is a placed one, which a linker
+    // script may keep by its section: each has its global whether or not a
+    // function reads it.
     var s = 0
-    while s < mono.dp.bc.mir.tc.export_symbols.len() {
+    while s < mono.dp.bc.mir.tc.res.decls.len() {
         let symbol = mono.dp.bc.mir.tc.export_symbols.get(s) ?? ""
-        if symbol.len() > 0 && mono.dp.bc.mir.tc.res.decls[s].kind == ResDeclKind.Static {
-            let node = mono.dp.bc.mir.tc.export_nodes[s]
-            mono.refuse(node, "backend.not-yet", "an exported static is not in the backend slice yet")
-            return ""
+        let placed = e.decl_section.get(s) ?? ""
+        if mono.dp.bc.mir.tc.res.decls[s].kind == ResDeclKind.Static && (symbol.len() > 0 || placed.len() > 0) {
+            let node = mono.dp.bc.mir.tc.res.decls[s].node
+            let t = mono.dp.bc.mir.tc.sigs[s].result
+            let _ = e.static_global(&var mono, &var target, s, t, node)
         }
         s = s + 1
-    }
-    if ll_refuse_placement(&var mono) {
-        return ""
     }
     var k = 0
     while k < mono.items.len() {
@@ -507,35 +519,203 @@ func ll_check_provider_seams(mono: &var MonoProgram, e: &LlEmitter) {
     }
 }
 
-// The symbol of item `k`'s descriptor's resume, the function value's code.
-// Refuses every `@section` and `@align` the program writes, and says whether
-// it refused one. The backend emits neither, and a kernel image that relies
-// on where a static or function is placed, or how a static or local is
-// aligned, would otherwise build and be wrong. Every attribute node is
-// visited, whatever declaration or statement carries it, so no position the
-// parser admits can reach emission with its attribute dropped.
+// THE PLACEMENT FUNNEL: every `@section` and `@align` the program writes,
+// visited once whatever declaration or statement carries it, recorded on `e`
+// for the global, define or slot it places (`static_global`, `item_section`,
+// `slot_align`), or refused; says whether it refused one. A kernel image that
+// relies on where a static or function is placed, or how storage is aligned,
+// would otherwise build and be wrong, so an attribute node no carrier claims
+// is a broken invariant, never a dropped attribute. Typecheck has judged
+// every `@align` argument it folds; one the fold leaves to a layout
+// (`sizeof`, `alignof`) is folded here against the target and meets the same
+// judge. A frame-resident local's `@align` is coroutine lowering's refusal,
+// and a section name is judged against the target's object format here.
 //
 // ENTRY POINTS:
 //   llvm_emit_program
-func ll_refuse_placement(mono: &var MonoProgram) -> Bool {
+func ll_placement(mono: &var MonoProgram, target: &var Target, e: &var LlEmitter) -> Bool {
     var refused = false
+    var claimed = Set<Int>()
+    var d = 0
+    while d < mono.dp.bc.mir.tc.res.decls.len() {
+        let kind = mono.dp.bc.mir.tc.res.decls[d].kind
+        if kind == ResDeclKind.Static || kind == ResDeclKind.Func {
+            let a = mono.dp.bc.mir.tc.res.decl_attribute(d, Alt.Attr_Attribute_Align)
+            if a >= 0 {
+                let _ = try! claimed.insert(a)
+                var subject = StringBuilder()
+                try! subject.append("the static `")
+                try! subject.append(mono.dp.bc.mir.tc.res.name_text(mono.dp.bc.mir.tc.res.decls[d].name))
+                try! subject.append("`")
+                let v = ll_align_value(&var mono, &var target, a, subject.build())
+                if v > 0 {
+                    let _ = try! e.decl_align.insert(d, v)
+                } else {
+                    refused = true
+                }
+            }
+            let s = mono.dp.bc.mir.tc.res.decl_attribute(d, Alt.Attr_Attribute_Section)
+            if s >= 0 {
+                let _ = try! claimed.insert(s)
+                let name = ll_section_name(&var mono, target.triple, s)
+                if name.len() > 0 {
+                    let _ = try! e.decl_section.insert(d, ll_quoted(name))
+                } else {
+                    refused = true
+                }
+            }
+        }
+        d = d + 1
+    }
+    var attributes = Vector<Int>()
     let count = mono.dp.bc.mir.tc.res.nodes.len()
     var id = 0
     while id < count {
-        if mono.dp.bc.mir.tc.has_alt(id, Alt.Attr_Attribute_Section) {
-            mono.refuse(id, "backend.not-yet",
-                        "`@section` is not in the backend slice yet: nothing is placed in a named section, so the attribute would be dropped")
-            refused = true
-        } else if mono.dp.bc.mir.tc.has_alt(id, Alt.Attr_Attribute_Align) {
-            mono.refuse(id, "backend.not-yet",
-                        "`@align` is not in the backend slice yet: a static or a local is aligned only as its type asks, so the attribute would be dropped")
-            refused = true
+        if mono.dp.bc.mir.tc.has_alt(id, Alt.Attr_Attribute_Section) || mono.dp.bc.mir.tc.has_alt(id, Alt.Attr_Attribute_Align) {
+            try! attributes.push(id)
+        } else if mono.dp.bc.mir.tc.has_alt(id, Alt.Stmt_AttributedLocal) {
+            let local = mono.dp.bc.mir.tc.res.last_node_child(id)
+            let leaf = mono.dp.bc.mir.tc.res.first_leaf(mono.dp.bc.mir.tc.res.first_node_child(local))
+            let n = mono.dp.bc.mir.tc.child_count(id)
+            var k = 0
+            while k < n {
+                let c = mono.dp.bc.mir.tc.child(id, k)
+                k = k + 1
+                if not mono.dp.bc.mir.tc.has_alt(c, Alt.Attr_Attribute_Align) || leaf < 0 {
+                    continue
+                }
+                let _ = try! claimed.insert(c)
+                var subject = StringBuilder()
+                try! subject.append("the local `")
+                try! subject.append(mono.dp.bc.mir.tc.text(mono.dp.bc.mir.tc.node_module(leaf), leaf))
+                try! subject.append("`")
+                let v = ll_align_value(&var mono, &var target, c, subject.build())
+                if v > 0 {
+                    let _ = try! e.local_align.insert(leaf, v)
+                } else {
+                    refused = true
+                }
+            }
         }
         id = id + 1
+    }
+    var j = 0
+    while j < attributes.len() {
+        let a = attributes[j]
+        j = j + 1
+        if not claimed.contains(a) {
+            try! mono.problems.push("an `@section` or `@align` reached the backend on no declaration or local the placement funnel places")
+        }
     }
     refused
 }
 
+// The alignment `@align` attribute `a` on `subject` states, folded against
+// `target`'s layouts, or 0 when it is refused here.
+func ll_align_value(mono: &var MonoProgram, target: &var Target, a: Int, subject: String) -> Int {
+    let arg = mono.dp.bc.mir.tc.res.first_node_child(a)
+    let measures = mono.dp.bc.mir.tc.layout_measures(arg)
+    mono.dp.bc.mir.tc.measured_nodes = Vector<Int>()
+    mono.dp.bc.mir.tc.measured_values = Vector<Int>()
+    var j = 0
+    while j < measures.len() {
+        let measured = mono.dp.bc.mir.tc.measured_type(measures[j])
+        let l = target.layout(&var mono.dp.bc.mir.tc, measured)
+        try! mono.dp.bc.mir.tc.measured_nodes.push(measures[j])
+        let size = mono.dp.bc.mir.tc.measures_size(measures[j])
+        try! mono.dp.bc.mir.tc.measured_values.push(if size { l.size } else { l.align })
+        j = j + 1
+    }
+    let v = mono.dp.bc.mir.tc.fold_constant(arg)
+    mono.dp.bc.mir.tc.measured_nodes = Vector<Int>()
+    mono.dp.bc.mir.tc.measured_values = Vector<Int>()
+    if not v.ok {
+        try! mono.problems.push("an `@align` argument typecheck admitted does not fold")
+        return 0
+    }
+    let why = mono.dp.bc.mir.tc.align_refusal(subject, v.bits)
+    if why.len() > 0 {
+        mono.refuse(arg, "constant.align", why)
+        return 0
+    }
+    v.bits
+}
+
+// The name `@section` attribute `s` gives, or "" when it is refused for
+// `triple`: an empty name (spec, Attributes), and on a Mach-O target a name
+// that is not `SEGMENT,section` with each part 1 to 16 characters, which LLVM
+// would otherwise abort on rather than report (DF-225f).
+func ll_section_name(mono: &var MonoProgram, triple: String, s: Int) -> String {
+    let m = mono.dp.bc.mir.tc.node_module(s)
+    var name = ""
+    let n = mono.dp.bc.mir.tc.child_count(s)
+    var k = 0
+    while k < n {
+        let c = mono.dp.bc.mir.tc.child(s, k)
+        k = k + 1
+        let text = mono.dp.bc.mir.tc.text(m, c)
+        if mono.dp.bc.mir.tc.is_leaf(c) && text.starts_with("\"") && text.len() >= 2 {
+            name = text.substring(1, text.len() - 1)
+        }
+    }
+    var written = StringBuilder()
+    try! written.append("`@section(\"")
+    try! written.append(name)
+    try! written.append("\")`")
+    let spelled = written.build()
+    if name.len() == 0 {
+        var msg = StringBuilder()
+        try! msg.append(spelled)
+        try! msg.append(" names no section: a section name is not empty")
+        mono.refuse(s, "section.invalid", msg.build())
+        return ""
+    }
+    if not target_mach_o(triple) || ll_mach_o_section(name) {
+        return name
+    }
+    var msg = StringBuilder()
+    try! msg.append(spelled)
+    try! msg.append(" is not a valid section on this target: ")
+    if name.index_of(44).is_some() {
+        try! msg.append("mach-O names a segment and a section of 1 to 16 characters each, separated by a comma")
+        mono.refuse(s, "section.invalid", msg.build())
+        return ""
+    }
+    var bare = name
+    if bare.starts_with(".") {
+        bare = bare.substring(1, bare.len())
+    }
+    try! msg.append("mach-O names a section by SEGMENT and section, separated by a comma; write the two-part form — `@section(\"__TEXT,")
+    try! msg.append(bare)
+    try! msg.append("\")` for code, `@section(\"__DATA,")
+    try! msg.append(bare)
+    try! msg.append("\")` for data")
+    if name.starts_with(".") {
+        try! msg.append(". The bare `")
+        try! msg.append(name)
+        try! msg.append("` spelling is the ELF one, which the freestanding targets take")
+    }
+    mono.refuse(s, "section.invalid", msg.build())
+    ""
+}
+
+// Whether `name` is a Mach-O section specifier: a segment and a section, each
+// 1 to 16 characters, separated by a comma, optionally followed by more
+// comma-separated attributes.
+func ll_mach_o_section(name: String) -> Bool {
+    let first = name.index_of(44)
+    guard let comma = first else {
+        return false
+    }
+    if comma < 1 || comma > 16 {
+        return false
+    }
+    let rest = name.substring(comma + 1, name.len())
+    let end = rest.index_of(44) ?? rest.len()
+    end >= 1 && end <= 16
+}
+
+// The symbol of item `k`'s descriptor's resume, the function value's code.
 func ll_resume_value_symbol(mono: &MonoProgram, k: Int) -> String {
     var out = StringBuilder()
     try! out.append("@\"saw resume value ")

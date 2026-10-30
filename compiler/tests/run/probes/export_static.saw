@@ -1,0 +1,28 @@
+// probe: stated
+// about: an exported static is a global under its C symbol, external, emitted whether or not a function reads it, aligned and placed as its attributes say, and readable from Saw through its name (SL-875)
+// stage 0: builds the program and prints the same lines; the `.ll` symbols are sawc's own
+// speeds: -O0 -O2
+// ll defines: probe_build_id
+// ll defines: probe_vectors
+// ll defines: probe_unread
+// prints: 12345
+// prints: 30
+// prints: 0
+
+@export("probe_build_id")
+static BUILD_ID: Int64 = 12345
+
+@export("probe_vectors")
+@align(64)
+@section("__DATA,__probevec")
+static VECTORS: [UInt32; 4] = [10, 20, 30, 40]
+
+// Read by nothing: an export is a root of its own.
+@export("probe_unread")
+static UNREAD: Int = 9
+
+func main() unsafe {
+    print("{}", BUILD_ID)
+    print("{}", VECTORS[2])
+    print("{}", ((&VECTORS) as UnsafePointer<UInt32> as Int) % 64)
+}

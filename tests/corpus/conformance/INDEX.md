@@ -1097,10 +1097,10 @@ Claim source: spec 10 *No hidden allocations* + 8 *Profiles*; designs 113, 135, 
 | N05 | `--freestanding` rejects a hosted-only std module | `N05_freestanding_hosted_module.saw` | the audit's flags could not enter the freestanding profile at all — `--freestanding` alone rejects this host's Mach-O triple first, so the row proved nothing. Retargeted at `riscv32-unknown-none-elf` |
 | N06 | `@export` of a reserved runtime symbol without `--runtime-build` | `export_reserved_symbol_error.saw` |  |
 | N07 | `@export` of a non-C-ABI type (String by value) | `export_string_error.saw` |  |
-| N08 | `@align(N)` on a local: the slot's address is a multiple of N | `N08_align_local_is_honored.saw` |  |
-| N09 | `@align(N)` on a `static`: the global's address is a multiple of N, and an all-zero one stays zerofill | `N09_align_static_is_honored.saw` |  |
-| N10 | `@align(N)` refuses an N that is not a power of two | `N10_align_rejects_non_power_of_two.saw` |  |
-| N11 | `@align(N)` on a coroutine-frame-resident local refuses cleanly rather than dropping the alignment | `N11_align_refuses_frame_resident_local.saw`, `align_nonresident_local_in_suspending_function.saw` |  |
+| N08 | `@align(N)` on a local: the slot's address is a multiple of N | `N08_align_local_is_honored.saw`; for the self-hosted compiler also `compiler/tests/run/probes/align_local.saw` (a `var`) and `compiler/tests/run/probes/align_local_let.saw` (a `let`) | SL-801 |
+| N09 | `@align(N)` on a `static`: the global's address is a multiple of N, and an all-zero one stays zerofill | `N09_align_static_is_honored.saw`; for the self-hosted compiler also `compiler/tests/run/probes/align_static.saw` | SL-801 |
+| N10 | `@align(N)` refuses an N that is not a power of two | `N10_align_rejects_non_power_of_two.saw`; for the self-hosted compiler also `compiler/tests/typecheck/refuse/constant.align.saw`, with zero, negative and above-4096 values in `constant.align.zero.saw`, `constant.align.negative.saw`, `constant.align.above-cap.saw` (`errors/align_above_cap.saw` in the corpus) | SL-801 |
+| N11 | `@align(N)` on a coroutine-frame-resident local refuses cleanly rather than dropping the alignment | `N11_align_refuses_frame_resident_local.saw`, `align_nonresident_local_in_suspending_function.saw`; for the self-hosted compiler also `compiler/tests/coro/refuse/coro.align-frame-resident.saw` and `.scope-ended.saw` | SL-801 — sawc keeps a drop-free local resident to the end of the body, not its scope (SL-932), so it refuses `align_nonresident_local_in_suspending_function.saw` too, saying why; an alignment is still never dropped |
 
 ## Divergence — a `Never` expression never falls through
 

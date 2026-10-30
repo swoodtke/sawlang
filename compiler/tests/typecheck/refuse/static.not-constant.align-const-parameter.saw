@@ -1,0 +1,13 @@
+// refuses: static.not-constant at 6:12
+// message: it names a const generic parameter, which has no value until the function is instantiated
+// a local's `@align` naming a const parameter, which no instance may decide (spec, Alignment; SL-801 c2)
+
+func aligned<const N: Int>() -> Int {
+    @align(N)
+    var buf: [UInt8; 16] = [0; 16]
+    buf[0] as Int
+}
+
+func main() {
+    print(aligned<32>())
+}

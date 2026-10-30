@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 211 declarations in 18 modules
+# 221 declarations in 19 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -79,7 +79,7 @@ std.float: 14
   method Float._shortest
   method Float.to_bits
 
-std.map: 17
+std.map: 19
   enum MapSlot
   func is_occupied
   func is_tombstone
@@ -87,11 +87,13 @@ std.map: 17
   func value_of
   init Map.init
   method Map.bucket_of
+  method Map.contains_key
   method Map.copy
   method Map.deinit
   method Map.get
   method Map.hash_of
   method Map.insert
+  method Map.len
   method Map.rehash
   method Map.rehash_target
   method Map.table
@@ -125,7 +127,7 @@ std.path: 8
   method Path.parent
   struct Path
 
-std.prelude: 19
+std.prelude: 20
   enum Optional
   enum Result
   func atomic_exchange_word
@@ -136,6 +138,7 @@ std.prelude: 19
   method Atomic.load
   method Atomic.store
   method Hasher.finish
+  method Optional.is_none
   method Optional.is_some
   method UnsafeMutableInterior.ptr
   requirement ExplicitCopy.copy
@@ -174,6 +177,14 @@ std.scalar: 6
   method Scalar.format
   method Scalar.value
   struct Scalar
+
+std.set: 6
+  init Set.init
+  method Set.contains
+  method Set.copy
+  method Set.deinit
+  method Set.insert
+  struct Set
 
 std.string: 28
   extern __saw_rt_alloc
@@ -237,7 +248,7 @@ std.utf8: 4
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 10
+std.vector: 11
   init Vector.init
   method Vector.copy
   method Vector.deinit
@@ -245,6 +256,7 @@ std.vector: 10
   method Vector.grow_target
   method Vector.is_empty
   method Vector.len
+  method Vector.pop
   method Vector.push
   method Vector.reserve_slots
   struct Vector

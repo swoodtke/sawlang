@@ -1,0 +1,10 @@
+// refuses: attribute.align-no-storage at 8:5
+// message: `@align` on `let _` aligns nothing
+// `let _` binds no storage, so it has no slot to align (spec, Alignment)
+
+func one() -> Int { 1 }
+
+func main() {
+    @align(8)
+    let _ = one()
+}

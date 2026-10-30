@@ -1,6 +1,7 @@
 // Coroutine lowering's entry points: a program brought through mono, then
 // each item's frame decided; and the record `sawc coro` prints for it.
 
+import sawcoro.align.{coro_check_frame_alignment}
 import sawcoro.dump.{coro_dump_items, coro_dump_layouts, coro_dump_lowered}
 import sawcoro.drive.{coro_check_drive_sites, coro_lower_drive_sites, coro_refuse_drive_sites}
 import sawcoro.frames.{coro_find_frames}
@@ -56,6 +57,7 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
         coro_refuse_drive_sites(&var coro)
         coro_find_frames(&var coro)
         coro_check_frame_send(&var coro)
+        coro_check_frame_alignment(&var coro)
         coro_check_blocking_drops(&var coro)
         coro_decide_lowering(&var coro)
         coro_refuse_unlowered(&var coro)

@@ -413,8 +413,8 @@ TEST_CASES = [
         # An entry-module `@export` (bare, renamed, and on a static) in a
         # program whose coroutine transform runs.
         "name": "export_with_coroutine",
-        "due": "sawc's backend refuses an exported static (SL-884)",
-        "due_shows": "an exported static is not in the backend slice yet",
+        "due": "a freestanding TaskGroup reaches pthread and executor seams fsrt does not supply (SL-933)",
+        "due_shows": "undefined symbol: pthread_mutex_lock",
         "expect_out": ["fs check bare_export_callable=1",
                        "fs check renamed_export_callable=1",
                        "fs check exported_static_readable=1",
@@ -427,8 +427,6 @@ TEST_CASES = [
         # `@section` plus a fixed address: the OFFSET is the program's claim,
         # the ADDRESS the runner's, and the VALUE says the section was loaded.
         "name": "link_address",
-        "due": "sawc's backend refuses `@section` (SL-875)",
-        "due_shows": "`@section` is not in the backend slice yet",
         "expect_out": ["fs check fsmark_offset=1",
                        "fs value fsmark_address={mark_address}",
                        "fs check fsmark_value=1",

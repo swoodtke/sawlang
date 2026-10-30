@@ -1,0 +1,13 @@
+// probe: stated
+// about: a static's `@section` places its global in the named section, internal since nothing exports it, and the program reads it back (SL-875)
+// stage 0: builds it and prints the same line; a probe because the Linux Stage 0 records are v0.18.0's and cannot be recorded again from the VM
+// speeds: -O0 -O2
+// prints: 7
+// The name is Mach-O's two-part form, which an ELF target takes verbatim.
+
+@section("__DATA,__sawtag")
+static TAGGED: Int = 7
+
+func main() {
+    print("{}", TAGGED)
+}
