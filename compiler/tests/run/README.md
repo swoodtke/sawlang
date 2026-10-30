@@ -837,7 +837,7 @@ omits` lines, and at most one `c helper` line. A probe states one kind, and a li
 its kind does not take fails it, as does a missing one, so no header claims
 what the lane does not check. A custom probe needs an entry in
 `CUSTOM_PROBES`, and every entry there needs its custom probe; the entry
-says why the check cannot be header lines. There are fourteen.
+says why the check cannot be header lines. There are sixteen.
 `memory_volatile_survives_optimization.saw` writes a `Device` view's register
 twice and reads it twice, does the same through a field a `Device` view
 projects, and a `Normal` view's register the same way: its `.ll`, as sawc
@@ -853,6 +853,16 @@ them and leaves libc's `write` undefined; a bare-metal `--runtime` link and
 `runtime_provider_missing_seam.saw` leaves out `__saw_rt_last_raw_code`: with
 `--runtime` it is refused by one `provider.undefined-seam` record naming it,
 nothing written, and with `--runtime -c` its object leaves the seam undefined.
+`cooperative_group_provider.saw` runs a cooperative `TaskGroup` whose tasks
+sleep and pass a message over a channel that is sent to, closed and dropped,
+against the module probe `cooperative_executor_seams.saw`, a single-threaded
+provider of the cooperative executor set and the channel's one-word lock with
+no thread, pthread or offload seam: built
+with `--runtime --no-hidden-alloc` at -O0 and -O2, sawc prints nothing, the
+binary names none of those seams and prints its line.
+`pool_group_provider_refused.saw` makes a `TaskGroup(threads: 2)` against the
+same provider and is refused by `provider.undefined-seam` records alone, one
+naming `__saw_rt_thread_spawn`, with nothing written.
 `freestanding_object.saw` is built with `--freestanding --target
 aarch64-unknown-none-elf` at -O0 and -O2: an ELF64 AArch64 relocatable object
 whose export `nm` reads defined and external in a `.text.` section of its

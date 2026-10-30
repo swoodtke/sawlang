@@ -1,0 +1,40 @@
+// probe: stated
+// about: a thread's first `Channel.receive` whose one-time gate record the allocator refuses returns `Err(Alloc(...))` naming that record, panics nowhere, and the next receive works (SL-933)
+// stage 0: its thread engine's receive is `recv`, which returns the message itself and has no gate record to refuse (SL-933)
+// speeds: -O0 -O2
+// prints: refused: the channel could not allocate memory: allocation of 48 bytes (align 8) failed
+// prints: the queue is untouched: true
+// prints: after the refusal: 7
+// exits: 0
+// The process's first blocked receive installs the record of the channel's
+// gate code before it allocates a gate (std.channel, `install_gate_engine`),
+// and with every allocation refused that record is the one refused: two
+// function values, 48 bytes at alignment 8 on a 64-bit host. Denial is a
+// mode, so it is turned off before anything renders.
+import std.channel.{Channel, ChannelError}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func shown(got: &Result<Int, ChannelError>) -> String {
+    match got {
+        case Ok(_) -> "unexpected: a value",
+        case Err(e) -> "{e}"
+    }
+}
+
+func main() {
+    let ch = try! Channel<Int>()
+    var receiver = try! Thread.spawn { [ch] in
+        __saw_rt_alloc_deny_after(0)
+        let first = ch.receive()
+        __saw_rt_alloc_deny_after(-1)
+        print("refused: {shown(&first)}")
+        print("the queue is untouched: {(try! ch.try_receive()).is_none()}")
+        try! ch.send(7)
+        print("after the refusal: {try! ch.receive()}")
+        0
+    }
+    let _ = receiver.join()
+}

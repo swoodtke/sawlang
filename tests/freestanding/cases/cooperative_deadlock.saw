@@ -1,0 +1,29 @@
+// The deadlock report in a freestanding image (SL-933): a cooperative group's
+// only task receives on a channel nobody sends to and nobody closes, so
+// nothing in the program can run again.
+//
+// The executor's walk finds the program quiescent twice, a nap apart (the nap
+// is `fsrt`'s `__saw_rt_sleep_ns`), and panics. The transcript carries the
+// panic line and the task dump the panic path writes after it, naming the
+// waiting task, its park and the frame it parked in, and the machine stops
+// with `fsrt`'s panic status, 64.
+
+import fscore.*
+import std.channel.{Channel}
+
+func drained(orders: Channel<Int>) -> Int {
+    match orders.receive() {
+        case Ok(order) -> order,
+        case Err(_) -> 0
+    }
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    let orders = try! Channel<Int>()
+    var group = TaskGroup()
+    let waiter = group.spawn(drained(orders.copy()))
+    check("reached_the_join", true)
+    check_value("never_joined", waiter.join(), 0)
+    finish("cooperative_deadlock")
+}

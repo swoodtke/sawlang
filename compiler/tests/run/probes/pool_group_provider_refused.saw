@@ -1,0 +1,18 @@
+// probe: custom
+// about: a `TaskGroup(threads:)` pool against a provider of the cooperative executor set alone is refused before the link, naming the thread seam (SL-933)
+// `cooperative_group_provider.saw` with a pool: the pool's code reaches
+// `__saw_rt_thread_spawn` and the gate seams, which the provider does not
+// define, so `--runtime` refuses the build with a `provider.undefined-seam`
+// record naming `__saw_rt_thread_spawn`, and writes nothing.
+
+import cooperative_executor_seams
+
+func doubled(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    var group = try! TaskGroup(threads: 2)
+    let a = group.spawn(doubled(21))
+    print("joined {}", a.join())
+}

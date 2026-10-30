@@ -1,0 +1,51 @@
+// probe: stated
+// about: the process's first `TaskGroup(threads:)` whose one-time pool record the allocator refuses returns `Err(AllocError)` naming that record, a later one whose lock is refused names the lock, and a pool made after both runs (SL-933)
+// stage 0: its pool is fork-join over a lock allocated at the constructor, with no pool record to refuse (SL-933)
+// speeds: -O0 -O2
+// prints: refused: allocation of 192 bytes (align 8) failed
+// prints: lock refused: allocation of 128 bytes (align 16) failed
+// prints: joined 42
+// The first pool installs the record of the pool's code before it allocates
+// its lock and condition variable (std.taskgroup, `install_pool_engine`):
+// eight function values, 192 bytes at alignment 8 on a 64-bit host. With
+// every allocation refused that record is the one refused, and nothing is
+// installed; with one allowed, the record takes it and the lock's block is
+// refused. A `TaskGroup` is
+// `NoMove`, so each result is matched where the constructor builds it, and
+// denial is turned off before anything renders.
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func doubled(n: Int) -> Int {
+    n * 2
+}
+
+func main() {
+    __saw_rt_alloc_deny_after(0)
+    match TaskGroup(threads: 2) {
+        case Ok(_) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("unexpected: a pool")
+        },
+        case Err(e) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("refused: {e}")
+        }
+    }
+    __saw_rt_alloc_deny_after(1)
+    match TaskGroup(threads: 2) {
+        case Ok(_) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("unexpected: a pool")
+        },
+        case Err(e) -> {
+            __saw_rt_alloc_deny_after(-1)
+            print("lock refused: {e}")
+        }
+    }
+    var pool = try! TaskGroup(threads: 2)
+    let h = pool.spawn(doubled(21))
+    print("joined {}", h.join())
+}

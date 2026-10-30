@@ -1045,6 +1045,42 @@ parked on an idle fd stays parked); the broadcast is over pollers, not frames.
 Close the instance's fds and free it. (Called by the singleton getter on the
 CAS-loser's spare; the process-lifetime instance itself is never destroyed.)
 
+## Freestanding executor set (SL-933)
+
+A freestanding program may run tasks on the cooperative engine
+(LANGUAGE_SPEC, "Profiles"), and its environment then supplies the seams the
+executor reaches, beside the allocation, output and panic seams every program
+reaches: `__saw_rt_thread_executor` and `__saw_rt_set_thread_executor`,
+`__saw_rt_clock_monotonic_nanos`, `__saw_rt_sleep_ns`, and
+`__saw_rt_reactor_create`, `_poll`, `_wake` and `_destroy`. A program that
+uses channels needs `__saw_rt_lock_acquire` and `_release` as well, and
+nothing else. std reaches the pool's code (the thread seams and the gate
+operations above them), a blocked thread's channel gate and the offload seams
+only through function values the code that needs them installs, so a
+cooperative program references none of them.
+
+A single-threaded environment with no interrupt source, the suite's
+`tests/freestanding/rt` among them, writes these bodies:
+
+| seam | body |
+|------|------|
+| `thread_executor`, `set_thread_executor` | one static word, read and stored |
+| `clock_monotonic_nanos` | the board's free-running counter, scaled to nanoseconds |
+| `sleep_ns` | wait until the clock passes the deadline (a spin, or WFI under a timer interrupt) |
+| `reactor_create` | store one static instance's nonzero handle; return `0` |
+| `reactor_poll` | return at once when a wake is pending, clearing it; otherwise wait out `timeout_ms`; with a negative timeout and no wake pending the poll could never return, so it panics |
+| `reactor_wake` | mark a wake pending |
+| `reactor_destroy` | nothing: there is no race to lose on one thread |
+| `lock_acquire`, `lock_release` | set and clear the word; a held word at acquire is a re-entry, which panics |
+
+No descriptor can be armed in such an environment, so `reactor_register` and
+`_unregister` are never reached. A kernel whose timers and devices raise
+interrupts makes the poll its event source instead: it waits for an interrupt
+until the deadline and returns when one has made a task runnable. A runtime
+with no threads implements neither the thread seams nor the gate operations,
+and `TaskGroup(threads:)` or `Thread.spawn` then fails at link, naming the
+missing seam.
+
 ## Threads — spawn/join/detach (designs 21 / 117 / 242)
 
 v1's `__saw_rt_pthread_create`/`__saw_rt_pthread_join` are replaced by
@@ -1146,6 +1182,34 @@ reserves 64. Returns `0`, or `-tag` when the platform refuses (`ENOMEM` and
 >
 > **Amended in sawc 0.16.0 (SL-783):** `EAGAIN` reported `WouldBlock`. Same
 > signature.
+
+### `__saw_rt_pthread_mutex_lock(m: i8*) -> void`
+### `__saw_rt_pthread_mutex_unlock(m: i8*) -> void`
+### `__saw_rt_pthread_mutex_try_lock(m: i8*) -> word  (1 taken / 0 busy)`
+### `__saw_rt_pthread_mutex_destroy(m: i8*) -> void`
+### `__saw_rt_pthread_cond_wait(c: i8*, m: i8*) -> void`
+### `__saw_rt_pthread_cond_broadcast(c: i8*) -> void`
+### `__saw_rt_pthread_cond_destroy(c: i8*) -> void`
+**The operations on an initialized gate (SL-933).** A gate is the mutex and
+condition variable the two inits above made in std's slots: a
+`TaskGroup(threads:)` pool's run-queue lock and its idle workers' condition
+variable, and the gate a thread blocked in `Channel.receive` waits on. std
+reaches them only through these seams, so a program names no host library
+and a provider's check (`provider.undefined-seam`) sees every one it reaches.
+
+`lock` blocks the calling thread until it holds the mutex, and `unlock` gives
+it back. `try_lock` never waits: it returns `1` when it took the mutex and `0`
+when another thread holds it. `cond_wait` releases `m`, waits on `c`, and holds
+`m` again when it returns, which may be with no broadcast; every caller
+re-checks its condition in a loop. `cond_broadcast` wakes every thread waiting
+on `c`. The two destroys run once nothing holds or waits on the object.
+
+None reports a status. Each fails only on an object std did not make, already
+destroyed, or (an unlock, a wait) does not hold, and nothing std could do next
+would be safe, so the hosted bodies abort with a message naming the pthread
+call, as `__saw_rt_offload_take` aborts on a failed join. `EBUSY` from
+`pthread_mutex_trylock` is its `0` answer, not a failure. Hosted bodies: Saw
+(`rt/common/pthread.saw`).
 
 ### `__saw_rt_lock_acquire(state: word*) -> void`
 ### `__saw_rt_lock_release(state: word*) -> void`
@@ -1341,6 +1405,7 @@ a flag bit.
 | SL-896 | `__saw_rt_proc_take_stdout`: one new symbol, handing the capture pipe's read end from the job to the caller, so std drains it on the reactor and a cancel ends the drain. No existing signature moved; `read_stdout` stays |
 | SL-898 | `__saw_rt_proc_spawn` and `__saw_rt_proc_spawn_env` **changed** contract with the same signatures: a program that cannot be executed is the spawn's answer `-(256 + tag)`, carrying exec's errno, where it was a child exiting 127; the child is found on PATH by `execvp`'s rules and executed with `execve`, with no `/bin/sh` fallback; and the child closes every descriptor it inherited but its standard three. SysError tag 24 (`NotExecutable`, `ENOEXEC`). A runtime that keeps the old answer is still correct, as the spawn section says. No symbol, no signature, no renumbering |
 | SL-910 | every descriptor the hosted runtime makes is close-on-exec (files, sockets, accepted connections, pipes, the reactor's own). No symbol, no signature |
+| SL-933 | `__saw_rt_pthread_mutex_{lock,unlock,try_lock,destroy}` and `__saw_rt_pthread_cond_{wait,broadcast,destroy}`: seven new symbols, the operations on the gates std made through the two init seams, which std called as `pthread_*` directly. No existing signature moved |
 
 ## The compiler → executor boundary (design 118)
 
@@ -1456,7 +1521,8 @@ on one side alone.
    repository. The SysError tag space and the negated-word status convention
    are its native `(status, value)` shape.
 4. **kernel / none** — the freestanding profile: the compiler emits these as
-   external declarations only and links no runtime; a kernel supplies the bodies.
+   external declarations only and links no runtime; a kernel supplies the bodies
+   (for a program that runs tasks, the "Freestanding executor set" above).
 
 ## Authoring a runtime in Saw (design 113b)
 
@@ -1467,8 +1533,8 @@ The hosted runtime is **authored in Saw** under `runtime/`, compiled with
 runtime/
   common/       OS-independent bodies: mem.saw (alloc, dealloc, deny_after),
                 sleep.saw, op_budget.saw, thread_executor.saw (the
-                per-thread executor word), pthread.saw (mutex/cond init,
-                thread_join), offload.saw, proc.saw (fork/exec argv spawn,
+                per-thread executor word), pthread.saw (mutex/cond init and
+                operations, thread_join, lock_owner), offload.saw, proc.saw (fork/exec argv spawn,
                 WNOHANG reap, the env_* ops and the environment lock),
                 os_ops.saw (the status-carrying tcp_*/fs_* ops, socket
                 options, resolve_ipv4)

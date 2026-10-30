@@ -29,7 +29,8 @@ extension (`+m,+c`), where sawc's atomics are `__atomic_*` libcalls: the
 object must reference exactly the five routines the spec lists, and
 `hal/riscv32/atomics.c` supplies them, linked into those cases alone. A case
 blocked by a sawc gap is marked `due` in the runner, citing the issue that
-owns the gap, and must fail with that gap's diagnostic until the gap closes.
+owns the gap, and must fail with that gap's diagnostic until the gap closes;
+a gap on one architecture marks that row alone (`due_on`).
 
 `bladepkg/` is the Blade case (`blade build --target T`), which is not run:
 Blade is frozen in v0.18.0's language until its port (SL-661).

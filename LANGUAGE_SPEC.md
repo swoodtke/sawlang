@@ -14616,6 +14616,24 @@ the seams it defines and leaves the rest undefined in its object, for its
 link to supply. `sawc build --runtime-build`, v0.18.0's build of its own
 runtime, is refused, naming `sawc runtime`.
 
+**Tasks run freestanding on the cooperative engine.** A cooperative
+`TaskGroup` is available under the profile: `group.spawn`, `join`,
+`yield_now` and `sleep` inside a task, channels, and `dump_tasks`, with the
+panic path's task dump. The environment supplies the executor seams such a
+program reaches: the executor word (`__saw_rt_thread_executor`,
+`__saw_rt_set_thread_executor`), the clock (`__saw_rt_clock_monotonic_nanos`),
+the thread nap (`__saw_rt_sleep_ns`) and one reactor instance
+(`__saw_rt_reactor_create`, `_poll`, `_wake` and `_destroy`), beside the
+output, allocation and panic seams every program reaches. A program that uses
+channels needs the one-word lock (`__saw_rt_lock_acquire`, `_release`) as
+well, and nothing else. runtime/ABI.md's "Freestanding executor set" gives
+the bodies a single-threaded environment writes. `TaskGroup(threads:)` and
+`Thread.spawn` need the thread seams (`__saw_rt_thread_spawn`, `_join`) and
+the gate seams beside them (`__saw_rt_pthread_*`): an environment with no
+threads defines none of them, and a program that reaches one fails at its
+link, naming the seam. `Task.spawn` and a `blocking` extern stay refused under
+the profile (`spawn.freestanding`, `extern.freestanding-blocking`).
+
 **On aarch64 the freestanding profile turns Advanced SIMD OFF**
 (`-neon,-fp-armv8`, design 172). An AArch64 core traps every SIMD instruction at
 EL1 out of reset — `CPACR_EL1.FPEN` is 0 — and LLVM reaches for `q` registers to

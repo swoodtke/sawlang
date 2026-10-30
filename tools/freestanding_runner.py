@@ -6,7 +6,8 @@
 
 Each RUN case is compiled by sawc (`--freestanding --runtime
 --no-hidden-alloc --target T`, with the suite's three modules through
-`--module-path`), its object's `__atomic_*` references read with `nm`, linked
+`--module-path`), its object's undefined symbols read with `nm` (runtime
+seams, the HAL's symbols and its atomic routines alone), linked
 by ld.lld with a boot stub and a C floor at a fixed address, booted under
 QEMU, and judged by its console transcript and exit status. A REFUSAL case stops at the compile and is judged by sawc's
 diagnostic. A case marked `due` is blocked by a sawc gap and cites the issue
@@ -132,6 +133,13 @@ def expectations(arch):
     }
 
 
+# What a RUN case's object may leave undefined besides its atomic routines:
+# the runtime's seams, which fsrt defines, and what `hal/` defines, the boot
+# stub's `fs_*` hooks and support.c's `mem*` and 64-bit division libcalls.
+HAL_PREFIXES = ("__saw_rt_", "fs_", "mem")
+HAL_LIBCALLS = frozenset({"__udivdi3", "__umoddi3"})
+
+
 def atomic_routines(case, arch):
     """The `__atomic_*` routines a RUN case's object must reference: built
     without native atomics, exactly the five the spec lists at the word's
@@ -214,10 +222,13 @@ def arch_free_problems():
 # a case that is ABOUT a level. `due` marks a case blocked by a sawc gap,
 # citing the issue that owns the gap, and `due_shows` is the gap's own
 # diagnostic: the case must fail saying it, so another failure is not hidden.
+# `due_on` limits the marker to the arches it names, the case's other rows
+# being real ones.
 # `no_atomics` builds the case for the arch's part without native atomics
 # (the arch's `no_atomics` entry), linking the environment's atomic routines;
 # every RUN case's object is read with `nm` first and must reference exactly
-# `atomic_routines`. `no_hidden_alloc: False` withholds `--no-hidden-alloc`
+# `atomic_routines`, and nothing else but runtime seams and the HAL's symbols
+# (`references_problem`). `no_hidden_alloc: False` withholds `--no-hidden-alloc`
 # from a case that is about an allocation the flag refuses.
 #
 # The Blade case (`blade build --target T` over `tests/freestanding/bladepkg`)
@@ -435,14 +446,42 @@ TEST_CASES = [
         # An entry-module `@export` (bare, renamed, and on a static) in a
         # program whose coroutine transform runs.
         "name": "export_with_coroutine",
-        "due": "a freestanding TaskGroup reaches pthread and executor seams fsrt does not supply (SL-933)",
-        "due_shows": "undefined symbol: pthread_mutex_lock",
         "expect_out": ["fs check bare_export_callable=1",
                        "fs check renamed_export_callable=1",
                        "fs check exported_static_readable=1",
                        "fs check coroutine_ran=1",
                        "fs done export_with_coroutine ok"],
         "expect_clean_exit": True,
+    },
+    # --- the cooperative executor ---------------------------------------------
+    {
+        # A cooperative `TaskGroup` on `fsrt`'s executor set: a yielding task
+        # and one asleep on a timer, both joined.
+        "name": "cooperative_group",
+        "expect_out": ["fs check yielding_task_joined=1",
+                       "fs check sleeping_task_joined=1",
+                       "fs check group_empty_after_joins=1",
+                       "fs done cooperative_group ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The deadlock report: the panic line, then the task dump naming the
+        # channel-parked task and its frame, and `fsrt`'s panic status. On
+        # riscv32 the channel's park word is the negated address of a word
+        # above 2^31, which reads as no park.
+        "name": "cooperative_deadlock",
+        "due": "a park word that negates an address above 2^31 names no park on a 32-bit target (SL-939)",
+        "due_on": ["riscv32"],
+        "due_shows": "which names no park",
+        "expect_out": ["fs check reached_the_join=1",
+                       "panic at ",
+                       "deadlock: every task is waiting to receive from a channel",
+                       "saw tasks: 1 live (as-of panic, unsynchronized)",
+                       "task group 1 slot 0 gen 1 channel-parked",
+                       "at cooperative_deadlock.saw:",
+                       " in drained"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
     },
     # --- the linker script ----------------------------------------------------
     {
@@ -700,8 +739,11 @@ def nm_tool(clang):
     return shutil.which("llvm-nm") or "nm"
 
 
-def atomics_problem(case, arch, obj, clang):
-    """None when the object references exactly `atomic_routines`, else why."""
+def references_problem(case, arch, obj, clang):
+    """None when every symbol the object leaves undefined is a runtime seam,
+    a symbol the HAL defines (`HAL_PREFIXES`, `HAL_LIBCALLS`), or one of
+    `atomic_routines`, and it references exactly those routines; else why.
+    A host library's name here is a call past the runtime ABI (SL-933)."""
     code, out = run([nm_tool(clang), "-u", obj], PROBE_TIMEOUT_S)
     if code != 0:
         return "nm cannot read %s: %s" % (obj, out.strip()[:300])
@@ -710,6 +752,11 @@ def atomics_problem(case, arch, obj, clang):
     wanted = atomic_routines(case, arch)
     if referenced != wanted:
         return "the object references the atomic routines %s, not exactly %s" % (sorted(referenced), sorted(wanted))
+    stray = sorted(name for name in found - referenced
+                   if not name.startswith(HAL_PREFIXES) and name not in HAL_LIBCALLS)
+    if stray:
+        return ("the object references %s, which neither the runtime ABI (`__saw_rt_*`) nor the HAL "
+                "(`fs_*`, `mem*`, %s) defines" % (", ".join(stray), ", ".join(sorted(HAL_LIBCALLS))))
     return None
 
 
@@ -770,7 +817,7 @@ def check_run(case, arch, shared, lld, qemu, clang):
         objects.append(shared["no_atomics"])
     try:
         checked(sawc_command(case, arch, obj))
-        problem = atomics_problem(case, arch, obj, clang)
+        problem = references_problem(case, arch, obj, clang)
         if problem:
             return problem
         checked([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
@@ -794,6 +841,16 @@ def check_run(case, arch, shared, lld, qemu, clang):
     return None
 
 
+def case_due(case, arch):
+    """The gap a case's run on `arch` is due on, or None: its `due`, on the
+    arches `due_on` names, or on every arch when it names none."""
+    if not case.get("due"):
+        return None
+    if arch["name"] not in case.get("due_on", (arch["name"],)):
+        return None
+    return case["due"]
+
+
 def run_arch(arch, cases, qemu, clang, lld):
     """(passed, failed, due) for one architecture, each case printed."""
     print("%s  (%s, %s `virt`)" % (arch["name"], arch["triple"], os.path.basename(qemu)), flush=True)
@@ -812,18 +869,19 @@ def run_arch(arch, cases, qemu, clang, lld):
     passed = failed = due = 0
     for i, (case, problem) in enumerate(zip(cases, problems), 1):
         marker = "[%d/%d]" % (i, len(cases))
-        if case.get("due") and problem and case["due_shows"] not in problem:
+        owed = case_due(case, arch)
+        if owed and problem and case["due_shows"] not in problem:
             print("%s FAIL  %s  (due: %s, but it fails without saying %r)"
-                  % (marker, case["name"], case["due"], case["due_shows"]))
+                  % (marker, case["name"], owed, case["due_shows"]))
             for line in problem.splitlines():
                 print("    " + line)
             failed += 1
-        elif case.get("due") and problem:
-            print("%s due   %s  (%s)" % (marker, case["name"], case["due"]))
+        elif owed and problem:
+            print("%s due   %s  (%s)" % (marker, case["name"], owed))
             due += 1
-        elif case.get("due"):
+        elif owed:
             print("%s FAIL  %s  (it passes, so its `due` marker is stale; remove it: %s)"
-                  % (marker, case["name"], case["due"]))
+                  % (marker, case["name"], owed))
             failed += 1
         elif problem is None:
             print("%s ok    %s" % (marker, case["name"]))

@@ -9,9 +9,13 @@
 // prints: the retry was woken: channel is closed
 // prints: the retry made its gate: true
 // The thread's channel is empty and open, so its `receive` must wait, and the
-// wait's first step is allocating its gate. The runtime's deny mode refuses
-// every allocation while it is armed, and nothing else allocates in between,
-// so the second refusal shows the next receive went back to the gate. Denial
+// wait's first step is allocating its gate. The process's first gate is
+// preceded by the one-time record of the channel's gate code, so the deny mode
+// is armed with that one allocation allowed, and the gate's is the first it
+// refuses; `thread_receive_gate_engine_refused.saw` refuses the record itself.
+// The deny mode then refuses every allocation, and nothing else allocates in
+// between, so the second refusal shows the next receive went back to the
+// gate. Denial
 // is a mode, so it is turned off before anything renders (an interpolation
 // allocates). The last wait runs with exactly one allocation allowed: it
 // takes it for its gate, so the allocation after it is refused, and a wait
@@ -38,7 +42,7 @@ func shown(got: &Result<Int, ChannelError>) -> String {
 func main() {
     let ch = try! Channel<Int>()
     var receiver = try! Thread.spawn { [ch] in
-        __saw_rt_alloc_deny_after(0)
+        __saw_rt_alloc_deny_after(1)
         let first = ch.receive()
         let second = ch.receive()
         __saw_rt_alloc_deny_after(-1)

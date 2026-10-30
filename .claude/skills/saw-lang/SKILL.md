@@ -4124,6 +4124,15 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   refused otherwise naming the blocking field. In a generic body `T: Shippable`
   meets `T: Send`. To make a raw-pointer type `Send`, declare `UnsafeSend`
   beside it; conforming to a `Send`-refining trait proves nothing.
+- **A COOPERATIVE `TaskGroup` WORKS FREESTANDING (SL-933)** — `group.spawn`,
+  `join`, `yield_now`, `sleep` in a task, channels, `dump_tasks`. The
+  environment supplies the executor set (the executor word, the clock,
+  `sleep_ns`, one reactor; plus `__saw_rt_lock_acquire`/`_release` for
+  channels; runtime/ABI.md "Freestanding executor set"), and the image names no
+  thread, pthread or offload seam. `TaskGroup(threads:)` and `Thread.spawn`
+  fail at LINK on a threadless environment, naming `__saw_rt_thread_spawn`;
+  `Task.spawn` stays refused. SUSPECT an older build, where every group reached
+  `pthread_mutex_lock` and the thread seams.
 - **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**
   (design 172). An AArch64 core traps Advanced SIMD at EL1 out of reset
   (`CPACR_EL1.FPEN` = 0) and LLVM uses `q` registers to move a struct, so a

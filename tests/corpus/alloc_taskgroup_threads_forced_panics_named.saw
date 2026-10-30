@@ -20,7 +20,8 @@ func main() {
     let a = single.spawn(work(3))
     print(a.join())                     // 6 — the single-threaded engine
 
-    // The run-queue mutex is the first allocation this constructor makes.
+    // The first pool's engine record is the first allocation this
+    // constructor makes, so refusing it is the earliest failure a pool meets.
     __saw_rt_alloc_deny_after(0)
     var pool = try! TaskGroup(threads: 2)
     let b = pool.spawn(work(4))

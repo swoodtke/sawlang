@@ -1,0 +1,35 @@
+// A cooperative `TaskGroup` in a freestanding image (SL-933): the spec's
+// freestanding profile allows one, and the environment supplies the executor
+// set it reaches, which `fsrt` does for one hart.
+//
+// Three claims. A spawned task runs and its handle's `join` takes the result;
+// a task that yields is resumed again by the sweep; and a task asleep on a
+// timer wakes, which takes the clock (`fs_clock_ticks` under the seam) and the
+// reactor's timed poll, whose wait `fsrt` spins out. The image references no
+// thread, pthread or offload seam: the runner's reference check reads the
+// object, and the link would refuse one anyway, since `fsrt` defines none.
+
+import fscore.*
+import std.task.{yield_now}
+
+func counted(n: Int) -> Int {
+    yield_now()
+    yield_now()
+    n + 1
+}
+
+func napped(n: Int) -> Int {
+    sleep(Duration.ms(1))
+    n * 2
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    var group = TaskGroup()
+    let a = group.spawn(counted(40))
+    let b = group.spawn(napped(21))
+    check_value("yielding_task_joined", a.join(), 41)
+    check_value("sleeping_task_joined", b.join(), 42)
+    check_value("group_empty_after_joins", group.count(), 0)
+    finish("cooperative_group")
+}

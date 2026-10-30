@@ -44,16 +44,16 @@ extern "C" {
     // The runtime's one-word lock, zero = unlocked (runtime/ABI.md).
     func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
     func __saw_rt_lock_release(state: UnsafePointer<Int>)
-    // 0, or the negated portable tag of a refused initialization
-    // (runtime/ABI.md).
+    // 0, or the negated portable tag of a refused initialization; the
+    // operations on a made gate have no status (runtime/ABI.md).
     func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<UInt8>) -> Int
     func __saw_rt_pthread_cond_init_default(c: UnsafePointer<UInt8>) -> Int
-    func pthread_mutex_lock(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_mutex_unlock(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_mutex_destroy(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>) -> Int32
-    func pthread_cond_broadcast(c: UnsafePointer<UInt8>) -> Int32
-    func pthread_cond_destroy(c: UnsafePointer<UInt8>) -> Int32
+    func __saw_rt_pthread_mutex_lock(m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_mutex_unlock(m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_mutex_destroy(m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_cond_broadcast(c: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_cond_destroy(c: UnsafePointer<UInt8>)
 }
 
 // The block and every queue node are allocated at this alignment, which no
@@ -308,13 +308,13 @@ extension Channel<T: Send> {
         let gate = try self.open_gate()
         let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
         let waiters = (&block[0].waiters) as UnsafePointer<Int>
-        let _ = pthread_mutex_lock(gate)
+        __saw_rt_pthread_mutex_lock(gate)
         let _ = __saw_atomic_add_i64_seq_cst(waiters, 1)
         while __saw_atomic_load_i64_seq_cst(word) == 0 {
-            let _ = pthread_cond_wait(cond, gate)
+            __saw_rt_pthread_cond_wait(cond, gate)
         }
         let _ = __saw_atomic_add_i64_seq_cst(waiters, -1)
-        let _ = pthread_mutex_unlock(gate)
+        __saw_rt_pthread_mutex_unlock(gate)
         return
     }
 
@@ -325,6 +325,9 @@ extension Channel<T: Send> {
     // tries again.
     func open_gate(&self) unsafe -> Result<UnsafePointer<UInt8>, ChannelError> {
         let block = self.block
+        if not install_gate_engine() {
+            return ChannelError.Alloc(e: AllocError(size: sizeof<GateEngine>(), align: alignof<GateEngine>()))
+        }
         self.lock_queue()
         if (block[0].gate as Int) == 0 {
             let size = 2 * CHANNEL_GATE_SLOT
@@ -344,7 +347,7 @@ extension Channel<T: Send> {
             let cond_status = __saw_rt_pthread_cond_init_default(cond)
             if cond_status != 0 {
                 let failure = SystemError.of("pthread_cond_init", 0 - cond_status)
-                let _ = pthread_mutex_destroy(gate)
+                __saw_rt_pthread_mutex_destroy(gate)
                 GlobalAllocator().dealloc(raw as UnsafePointer<Int8>, size, CHANNEL_ALIGN)
                 self.unlock_queue()
                 return ChannelError.System(e: move failure)
@@ -369,10 +372,11 @@ extension Channel<T: Send> {
             return
         }
         let gate = block[0].gate
-        let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
-        let _ = pthread_mutex_lock(gate)
-        let _ = pthread_cond_broadcast(cond)
-        let _ = pthread_mutex_unlock(gate)
+        let engine = gate_engine(gate)
+        if engine != 0 {
+            let wake = (engine as UnsafePointer<GateEngine>)[0].wake
+            wake(gate)
+        }
     }
 
     // The park word a receiver records: the readiness word's negated address.
@@ -470,6 +474,77 @@ extension Channel<T: Send> {
     }
 }
 
+// The thread-context half of a channel that a task's send, close and drop
+// share: waking the threads blocked on a gate, and destroying the gate. Only
+// a blocked thread's `receive` makes a gate (`open_gate`), and it installs
+// this record first, so a program whose receives all park in tasks links
+// none of the gate seams (SL-933).
+struct GateEngine {
+    wake: (UnsafePointer<UInt8>) unsafe sync -> Void
+    destroy: (UnsafePointer<UInt8>) unsafe sync -> Void
+}
+
+// The address of the one `GateEngine` record, or 0 until the first gate is
+// opened. It is never freed: a channel on any thread may call through it.
+static GATE_ENGINE: Atomic<Int> = Atomic(0)
+
+// Installs the gate engine once per process; false when the allocator
+// refused its record. A losing racer frees its spare.
+func install_gate_engine() unsafe -> Bool {
+    if GATE_ENGINE.load() != 0 {
+        return true
+    }
+    let size = sizeof<GateEngine>()
+    let align = alignof<GateEngine>()
+    guard let raw = GlobalAllocator().alloc(size, align) else {
+        return false
+    }
+    let at = raw as UnsafePointer<GateEngine>
+    at[0] = GateEngine(wake: { gate: UnsafePointer<UInt8> in wake_gate(gate) },
+                       destroy: { gate: UnsafePointer<UInt8> in destroy_gate(gate) })
+    if not GATE_ENGINE.compare_exchange(0, raw as Int) {
+        GlobalAllocator().dealloc(raw, size, align)
+    }
+    true
+}
+
+// THE GATE FUNNEL: the address of the `GateEngine` that serves the gate at
+// `gate`, or 0 when the channel has none, which is every channel no thread
+// has blocked on. Each site that reaches a gate from code a task runs asks
+// here, and reaches the gate seams only through the record it returns. The
+// record is heap-held until a static can hold function values (SL-940).
+//
+// ENTRY POINTS:
+//   Channel.wake_threads
+//   Channel.deinit
+func gate_engine(gate: UnsafePointer<UInt8>) unsafe -> Int {
+    if (gate as Int) == 0 {
+        return 0
+    }
+    let at = GATE_ENGINE.load()
+    if at == 0 {
+        panic("Channel: a gate exists with no gate engine installed")
+    }
+    at
+}
+
+// Wakes every thread waiting on the gate at `gate`, under its mutex.
+func wake_gate(gate: UnsafePointer<UInt8>) unsafe {
+    let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
+    __saw_rt_pthread_mutex_lock(gate)
+    __saw_rt_pthread_cond_broadcast(cond)
+    __saw_rt_pthread_mutex_unlock(gate)
+}
+
+// Destroys and frees the gate at `gate`, once the last handle drops and no
+// thread can wait on it.
+func destroy_gate(gate: UnsafePointer<UInt8>) unsafe {
+    let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
+    __saw_rt_pthread_cond_destroy(cond)
+    __saw_rt_pthread_mutex_destroy(gate)
+    GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, 2 * CHANNEL_GATE_SLOT, CHANNEL_ALIGN)
+}
+
 // Frees a node whose value has been moved out or destroyed.
 func free_node<T>(node: UnsafePointer<ChannelNode<T>>) unsafe {
     GlobalAllocator().dealloc(node as UnsafePointer<Int8>, sizeof<ChannelNode<T>>(), CHANNEL_ALIGN)
@@ -499,11 +574,10 @@ extension Channel<T: Send>: Copy {
                 free_node(node)
             }
             let gate = block[0].gate
-            if (gate as Int) != 0 {
-                let cond = ((gate as Int) + CHANNEL_GATE_SLOT) as UnsafePointer<UInt8>
-                let _ = pthread_cond_destroy(cond)
-                let _ = pthread_mutex_destroy(gate)
-                GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, 2 * CHANNEL_GATE_SLOT, CHANNEL_ALIGN)
+            let engine = gate_engine(gate)
+            if engine != 0 {
+                let destroy = (engine as UnsafePointer<GateEngine>)[0].destroy
+                destroy(gate)
             }
             GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ChannelBlock<T>>(),
                                       CHANNEL_ALIGN)

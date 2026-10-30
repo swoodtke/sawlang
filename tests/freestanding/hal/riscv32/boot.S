@@ -10,15 +10,17 @@
  * The two files are NOT kept in step. sos's grows with the kernel; this one
  * grows only if a case needs something the machine can do and Saw cannot say.
  *
- * The three symbols below are the WHOLE native surface of the suite. Everything
+ * The symbols below are the WHOLE native surface of the suite. Everything
  * above them is Saw:
  *
  *   _start                          the reset target virt.ld places first
  *   fs_console_write(ptr, len)      bytes out of the board's UART
  *   fs_platform_exit(code)          stop the machine carrying `code`
+ *   fs_clock_ticks()                the free-running counter, 64 bits
+ *   fs_clock_frequency()            the rate it counts at, in ticks per second
  *
  * `fsrt` (tests/freestanding/rt/src/lib.saw) is the Saw module that turns the
- * last two into the four frozen `__saw_rt_*` seams.
+ * last four into the frozen `__saw_rt_*` seams.
  */
 
     .equ SIFIVE_TEST,   0x00100000  /* the board's exit device */
@@ -116,6 +118,37 @@ fs_platform_exit:
 .Lstopped:
     wfi
     j       .Lstopped
+
+/* ---- the clock ------------------------------------------------------------ */
+
+/* unsigned long long fs_clock_ticks(void)
+ *
+ * The CLINT's `mtime`, read through its MMIO pair, which M-mode reaches with
+ * no CSR emulation. A 32-bit hart reads the 64-bit count as two halves, so the
+ * high half is read again and the pair retried when it moved, which a carry
+ * out of the low half between the reads would otherwise tear.
+ */
+    .equ CLINT_MTIME,    0x0200BFF8  /* low word; the high word follows */
+    .equ CLINT_HZ,       10000000    /* QEMU `virt`'s timebase, 10 MHz */
+
+    .section .text.clock, "ax", @progbits
+    .globl fs_clock_ticks
+fs_clock_ticks:
+    li      t2, CLINT_MTIME
+.Lretry:
+    lw      a1, 4(t2)
+    lw      a0, 0(t2)
+    lw      t3, 4(t2)
+    bne     a1, t3, .Lretry
+    ret
+
+/* unsigned long long fs_clock_frequency(void) — `virt` exposes the rate only
+ * in its device tree, so the stub states the board's number. */
+    .globl fs_clock_frequency
+fs_clock_frequency:
+    li      a0, CLINT_HZ
+    li      a1, 0
+    ret
 
 /* ---- reservations --------------------------------------------------------- */
 

@@ -21,7 +21,7 @@ alloc_string_no_degradation.saw	refused	typecheck member.unknown	`std.path.Path`
 alloc_string_oom_panic.saw	wrong	stderr differs	line 1: sawc "panic at <std>: String: allocation of 20 bytes (align 16) failed", Stage 0 "panic: string allocation failed"
 alloc_stringbuilder_append_forced_panics_named.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
 alloc_stringbuilder_reports_oom.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.init() [std.stringbuilder]; StringBuilder.init(bytes: UnsafePointer<Int8>, capacity: Int) [std.stringbuilder]
-alloc_taskgroup_threads_forced_panics_named.saw	pass	-	-
+alloc_taskgroup_threads_forced_panics_named.saw	pass	judged by its own directives (edited since its oracle)	-
 alloc_vector_copy_panics.saw	wrong	stderr differs	line 1: sawc "panic at <std>: Vector.copy: allocation of 16 bytes (align 8) failed", Stage 0 "panic at <std>: Vector.copy: allocation of 32 bytes (align 8) failed"
 alloc_vector_push_reports_oom.saw	pass	-	-
 alloc_vector_reports_oom.saw	pass	-	-

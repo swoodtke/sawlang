@@ -1946,6 +1946,76 @@ def check_provider_missing_seam(failures, counts):
     counts["run runtime provider refusals"] = counts.get("run runtime provider refusals", 0) + 1
 
 
+# The cooperative-executor provider probes: a cooperative group built against
+# `cooperative_executor_seams`, which defines no thread, pthread or offload
+# seam, and its pool twin, refused naming the thread seam.
+COOPERATIVE_PROBE = "cooperative_group_provider.saw"
+POOL_REFUSED_PROBE = "pool_group_provider_refused.saw"
+COOPERATIVE_LINE = b"joined 42\n"
+COOPERATIVE_ABSENT_PREFIXES = ("__saw_rt_thread_spawn", "__saw_rt_thread_join", "__saw_rt_pthread_",
+                               "__saw_rt_offload_")
+POOL_REFUSED_SEAM = "__saw_rt_thread_spawn"
+
+
+def check_cooperative_provider(failures, counts):
+    """`probes/cooperative_group_provider.saw`, built with `--runtime
+    --no-hidden-alloc` at -O0 and -O2: sawc prints nothing, which is the
+    provider check finding every seam the program reaches defined, the
+    binary names none of `COOPERATIVE_ABSENT_PREFIXES`, and it prints its
+    line."""
+    probe = os.path.join(PROBES, COOPERATIVE_PROBE)
+    mach_o = "-apple-" in build.clang_triple(TARGET or build.host_triple())
+    for speed in ("-O0", "-O2"):
+        where = "run %s --runtime %s" % (rel(probe), speed)
+        binary = os.path.join(OUT, "cooperative_provider" + speed[1:])
+        r = subprocess.run([build.SAWC, "build", "--runtime", "--no-hidden-alloc", speed, "--std-root", "std"]
+                           + target_flags() + [rel(probe), "-o", binary], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        said = (r.stdout + r.stderr).strip()
+        if r.returncode != 0 or said:
+            failures.append("%s: sawc exits %d: %s" % (where, r.returncode, said[:300]))
+            continue
+        symbols, why = object_symbols(binary, mach_o)
+        if symbols is None:
+            failures.append("%s: nm cannot read the binary: %s" % (where, why))
+            continue
+        named = sorted(s for s in symbols if s.startswith(COOPERATIVE_ABSENT_PREFIXES))
+        if named:
+            failures.append("%s: the binary names %s" % (where, ", ".join(named)))
+            continue
+        code, out, _ = execute(binary)
+        if code != 0 or out != COOPERATIVE_LINE:
+            failures.append("%s: the binary prints %r and exits %s, not %r and 0"
+                            % (where, out[:200], code, COOPERATIVE_LINE))
+            continue
+        counts["run runtime providers linked"] = counts.get("run runtime providers linked", 0) + 1
+
+
+def check_pool_provider_refused(failures, counts):
+    """`probes/pool_group_provider_refused.saw`, a pool against the same
+    provider: `--runtime --no-hidden-alloc` is refused with exit status 1,
+    nothing written, every record a `provider.undefined-seam` one and one of
+    them naming `POOL_REFUSED_SEAM`."""
+    probe = os.path.join(PROBES, POOL_REFUSED_PROBE)
+    where = "run %s --runtime" % rel(probe)
+    out = os.path.join(OUT, "pool_provider_refused")
+    for stale in (out, out + ".ll"):
+        if os.path.exists(stale):
+            os.remove(stale)
+    r = subprocess.run([build.SAWC, "build", "--runtime", "--no-hidden-alloc", "--std-root", "std"] + target_flags()
+                       + [rel(probe), "-o", out], cwd=REPO, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    records = [line.split("\t") for line in r.stdout.split("\n") if line.startswith("ERROR\t")]
+    others = [fields for fields in records if len(fields) != 4 or fields[1] != PROVIDER_RULE]
+    named = [fields for fields in records if len(fields) == 4 and ("`%s`" % POOL_REFUSED_SEAM) in fields[3]]
+    if (r.returncode != 1 or not records or others or not named or os.path.exists(out)
+            or os.path.exists(out + ".ll")):
+        failures.append("%s: not refused by %s records, one naming %s, nothing written: exit %d: %s"
+                        % (where, PROVIDER_RULE, POOL_REFUSED_SEAM, r.returncode,
+                           (r.stdout + r.stderr).strip()[:300]))
+        return
+    counts["run runtime provider refusals"] = counts.get("run runtime provider refusals", 0) + 1
+
+
 # A clang path `SAWC_CLANG` can name that no file is at.
 MISSING_CLANG = "/nonexistent/saw-lane/clang"
 
@@ -2096,7 +2166,9 @@ def check_volatile_accesses(failures, counts):
 # The leak probe's lost block is sized by the allocator. The two object probes
 # are read with `nm` and the ELF header, and the attribute probe's `.ll` is
 # written at several flag sets, none of which is a build and a run. The
-# volatile probe's `.ll` is read before and after clang's optimizer.
+# volatile probe's `.ll` is read before and after clang's optimizer. The
+# provider probes are built with `--runtime`, which no header states, and the
+# cooperative one's binary is read with `nm` for the seams it must not name.
 CUSTOM_PROBES = {
     OBJECT_PROBE: check_object_output,
     ATTRIBUTE_PROBE: check_attribute_groups,
@@ -2105,6 +2177,8 @@ CUSTOM_PROBES = {
     FREESTANDING_PROBE: check_freestanding_object,
     PROVIDER_PROBE: check_runtime_provider,
     PROVIDER_MISSING_PROBE: check_provider_missing_seam,
+    COOPERATIVE_PROBE: check_cooperative_provider,
+    POOL_REFUSED_PROBE: check_pool_provider_refused,
     "executable_path.saw": check_executable_path,
     "leaks_check_sees_a_leak.saw": check_leak_detection,
     "print_lines_stay_whole.saw": check_print_lines,

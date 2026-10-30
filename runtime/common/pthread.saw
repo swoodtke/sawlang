@@ -1,21 +1,35 @@
 // The pthread wrapper seams (design 113b), authored in Saw.
 //
-// Thin wrappers so std never spells a NULL attr pointer. `pthread_t` is
+// Thin wrappers, so std names no host library and a runtime without pthreads
+// supplies the same seams over its own objects. `pthread_t` is
 // treated as an opaque pointer-sized word. `pthread_create` stays in shim.c
 // because it takes a raw C function pointer, which Saw cannot name (DF-113b).
 //
-// Each returns 0 or the negated portable tag. A pthread function returns its
-// error number rather than setting errno, so the number goes through the
-// shim's `__saw_classify_code`, which also stamps it as the raw code.
+// The inits and the join return 0 or the negated portable tag. A pthread
+// function returns its error number rather than setting errno, so the number
+// goes through the shim's `__saw_classify_code`, which also stamps it as the
+// raw code. The operations on a made mutex or condition variable have no
+// status: each fails only on an object std did not make or no longer owns,
+// so a failure aborts, naming the call (`gate_refused`).
 
 extern "C" {
     func pthread_mutex_init(m: UnsafePointer<Int8>, attr: UnsafePointer<Int8>) -> Int32
     func pthread_cond_init(c: UnsafePointer<Int8>, attr: UnsafePointer<Int8>) -> Int32
+    func pthread_mutex_lock(m: UnsafePointer<Int8>) -> Int32
+    func pthread_mutex_unlock(m: UnsafePointer<Int8>) -> Int32
+    func pthread_mutex_trylock(m: UnsafePointer<Int8>) -> Int32
+    func pthread_mutex_destroy(m: UnsafePointer<Int8>) -> Int32
+    func pthread_cond_wait(c: UnsafePointer<Int8>, m: UnsafePointer<Int8>) -> Int32
+    func pthread_cond_broadcast(c: UnsafePointer<Int8>) -> Int32
+    func pthread_cond_destroy(c: UnsafePointer<Int8>) -> Int32
     // pthread_t is pointer-sized on macOS and glibc and is passed BY VALUE; model
     // it as a platform word (`Int`). retval is NULL (we discard the thread result).
     func pthread_join(thread: Int, retval: UnsafePointer<Int8>) -> Int32
     func pthread_self() -> Int
     func __saw_classify_code(code: Int) -> Int
+    // Standard error, unbuffered (shim.c).
+    func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
+    func abort() -> Never
 }
 
 // A pthread function's result as a seam status.
@@ -53,6 +67,106 @@ func rt_pthread_mutex_init_default(m: UnsafePointer<Int8>) unsafe -> Int {
 @export("__saw_rt_pthread_cond_init_default")
 func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) unsafe -> Int {
     init_status(pthread_cond_init(c, 0 as UnsafePointer<Int8>))
+}
+
+// `EBUSY`, which a try-lock answers for a mutex another thread holds. It is
+// 16 on macOS and on Linux, the two hosts this directory serves.
+static EBUSY: Int32 = 16
+
+// The most decimal digits a 32-bit error number takes.
+static CODE_DIGITS: Int = 10
+// The character `0`, which the digits count up from.
+static ZERO_DIGIT: Int = 48
+
+// A pthread operation on a made mutex or condition variable refused with
+// `code`: the object is corrupt, already destroyed, or (for an unlock or a
+// wait) not held by this thread, and nothing std could do next is safe. It
+// writes `saw runtime: CALL refused (error CODE)` to standard error and
+// aborts, as `__saw_rt_offload_take` does, rather than raise a panic from a
+// runtime object that carries no line tables.
+func gate_refused(call: String, code: Int32) unsafe -> Never {
+    let lead = "saw runtime: "
+    let middle = " refused (error "
+    let tail = ")\n"
+    __saw_rt_write_error(lead.c_string()!, lead.len())
+    __saw_rt_write_error(call.c_string()!, call.len())
+    __saw_rt_write_error(middle.c_string()!, middle.len())
+    var digits: [UInt8; CODE_DIGITS] = [0; CODE_DIGITS]
+    let out = (&var digits) as UnsafePointer<UInt8>
+    var rest = code as Int
+    if rest < 0 {
+        rest = 0 - rest
+    }
+    var at = CODE_DIGITS
+    while at == CODE_DIGITS || rest > 0 {
+        at = at - 1
+        out[at] = UInt8.from(truncating: ZERO_DIGIT + rest % 10)
+        rest = rest / 10
+    }
+    __saw_rt_write_error((out as UnsafePointer<Int8>) + at, CODE_DIGITS - at)
+    __saw_rt_write_error(tail.c_string()!, tail.len())
+    abort()
+}
+
+@export("__saw_rt_pthread_mutex_lock")
+func rt_pthread_mutex_lock(m: UnsafePointer<Int8>) unsafe {
+    let code = pthread_mutex_lock(m)
+    if code != (0 as Int32) {
+        gate_refused("pthread_mutex_lock", code)
+    }
+}
+
+@export("__saw_rt_pthread_mutex_unlock")
+func rt_pthread_mutex_unlock(m: UnsafePointer<Int8>) unsafe {
+    let code = pthread_mutex_unlock(m)
+    if code != (0 as Int32) {
+        gate_refused("pthread_mutex_unlock", code)
+    }
+}
+
+// 1 when the mutex is taken, 0 when another thread holds it.
+@export("__saw_rt_pthread_mutex_try_lock")
+func rt_pthread_mutex_try_lock(m: UnsafePointer<Int8>) unsafe -> Int {
+    let code = pthread_mutex_trylock(m)
+    if code == (0 as Int32) {
+        return 1
+    }
+    if code == EBUSY {
+        return 0
+    }
+    gate_refused("pthread_mutex_trylock", code)
+}
+
+@export("__saw_rt_pthread_mutex_destroy")
+func rt_pthread_mutex_destroy(m: UnsafePointer<Int8>) unsafe {
+    let code = pthread_mutex_destroy(m)
+    if code != (0 as Int32) {
+        gate_refused("pthread_mutex_destroy", code)
+    }
+}
+
+@export("__saw_rt_pthread_cond_wait")
+func rt_pthread_cond_wait(c: UnsafePointer<Int8>, m: UnsafePointer<Int8>) unsafe {
+    let code = pthread_cond_wait(c, m)
+    if code != (0 as Int32) {
+        gate_refused("pthread_cond_wait", code)
+    }
+}
+
+@export("__saw_rt_pthread_cond_broadcast")
+func rt_pthread_cond_broadcast(c: UnsafePointer<Int8>) unsafe {
+    let code = pthread_cond_broadcast(c)
+    if code != (0 as Int32) {
+        gate_refused("pthread_cond_broadcast", code)
+    }
+}
+
+@export("__saw_rt_pthread_cond_destroy")
+func rt_pthread_cond_destroy(c: UnsafePointer<Int8>) unsafe {
+    let code = pthread_cond_destroy(c)
+    if code != (0 as Int32) {
+        gate_refused("pthread_cond_destroy", code)
+    }
 }
 
 // Join an OS thread by the handle value `__saw_rt_thread_spawn` stored.

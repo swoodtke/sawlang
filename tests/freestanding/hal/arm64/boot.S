@@ -5,11 +5,13 @@
  * transition, no grant editing. Every case runs at EL1 from `_start` to the exit
  * device. The two files are NOT kept in step.
  *
- * The same three symbols the riscv32 stub exports, for the same reasons:
+ * The same symbols the riscv32 stub exports, for the same reasons:
  *
  *   _start                          the reset target link.ld places first
  *   fs_console_write(ptr, len)      bytes out of the board's UART
  *   fs_platform_exit(code)          stop the machine carrying `code`
+ *   fs_clock_ticks()                the free-running counter, 64 bits
+ *   fs_clock_frequency()            the rate it counts at, in ticks per second
  *
  * WHAT IS NOT STRIPPED, AND WHY: the identity map. With `SCTLR_EL1.M` clear
  * every access at EL1 is Device-nGnRnE, which faults on an UNALIGNED access —
@@ -154,6 +156,28 @@ fs_platform_exit:
 .Lstopped:
     wfi
     b       .Lstopped
+
+/* ---- the clock ------------------------------------------------------------ */
+
+/* unsigned long long fs_clock_ticks(void)
+ *
+ * The generic timer's virtual count. The `isb` keeps the read from being
+ * taken ahead of the code before it, so a loop that reads the clock to bound
+ * a wait sees it advance.
+ */
+    .section .text.clock, "ax", @progbits
+    .globl fs_clock_ticks
+fs_clock_ticks:
+    isb
+    mrs     x0, cntvct_el0
+    ret
+
+/* unsigned long long fs_clock_frequency(void) — the counter's rate, which
+ * firmware (here QEMU) programs into CNTFRQ_EL0 before reset. */
+    .globl fs_clock_frequency
+fs_clock_frequency:
+    mrs     x0, cntfrq_el0
+    ret
 
 /* ---- reservations --------------------------------------------------------- */
 

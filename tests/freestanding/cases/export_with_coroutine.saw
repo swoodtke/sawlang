@@ -17,11 +17,10 @@
 //
 // The concurrency half is `__saw_drive`, design 44's test-only entry: the point
 // is that the transform RUNS at all, not what it computes, so the body is
-// arithmetic whose answer is the same on both targets. A `TaskGroup` would say
-// the same thing and cost more — a group reaches the scheduler, which reaches
-// the reactor and the thread seams, and `tests/freestanding/rt` supplies
-// neither. `__saw_drive` needs only a frame, so it needs only the allocator
-// seam this suite already provides.
+// arithmetic whose answer is the same on both targets. The drive runs on the
+// cooperative executor, so the image links the executor set `fsrt` supplies
+// (the executor word, the clock, the nap and the reactor), and no thread seam:
+// `cases/cooperative_group.saw` is the case about the group itself.
 
 import fscore.*
 import std.task.*

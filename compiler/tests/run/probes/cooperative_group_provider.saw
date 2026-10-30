@@ -1,0 +1,47 @@
+// probe: custom
+// about: a cooperative TaskGroup and its channels link against a provider of the cooperative executor set alone, with no thread, pthread or offload seam (SL-933)
+// Built with `--runtime` against `cooperative_executor_seams`, which defines
+// no `__saw_rt_thread_*`, `__saw_rt_pthread_*` or `__saw_rt_offload_*`
+// seam: the build passes the provider check, which refuses any seam the
+// program reaches and does not define, and the binary prints its line. The
+// tasks yield, sleep, and pass a message over a channel that is sent to,
+// closed and dropped, which are the channel's three paths to a blocked
+// thread's gate. Its twin `pool_group_provider_refused.saw` makes a pool
+// against the same provider and is refused.
+
+import cooperative_executor_seams
+import std.channel.{Channel}
+import std.task.{yield_now}
+
+func settle(n: Int) -> Int {
+    yield_now()
+    sleep(Duration.ms(1))
+    n * 2
+}
+
+func produce(orders: Channel<Int>, n: Int) {
+    try! orders.send(n)
+    try! orders.close()
+}
+
+func consume(orders: Channel<Int>) -> Int {
+    var total = 0
+    var going = true
+    while going {
+        match orders.receive() {
+            case Ok(order) -> { total = total + order },
+            case Err(_) -> { going = false }
+        }
+    }
+    total
+}
+
+func main() {
+    let orders = try! Channel<Int>()
+    var group = TaskGroup()
+    let a = group.spawn(settle(20))
+    let b = group.spawn(consume(orders.copy()))
+    let c = group.spawn(produce(orders.copy(), 2))
+    c.join()
+    print("joined {}", a.join() + b.join())
+}

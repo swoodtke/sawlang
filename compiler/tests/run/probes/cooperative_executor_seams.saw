@@ -1,0 +1,147 @@
+// probe: module
+// about: a single-threaded provider of the seams a cooperative TaskGroup owes, and nothing for threads, pthreads or the offload (SL-933)
+// The set runtime/ABI.md's "Freestanding executor set" names, written over
+// libc for a hosted provider: the output and allocation seams every printing
+// program reaches, the executor word, a clock, the thread nap, one reactor
+// instance and the one-word lock a channel takes. The clock is virtual, advanced by each nap and each poll's
+// timeout, since one thread has nothing that could end a wait early but a
+// wake made before it. `cooperative_group_provider.saw` and
+// `pool_group_provider_refused.saw` build against it.
+
+extern "C" {
+    func write(fd: Int32, bytes: UnsafePointer<Int8>, count: UInt) -> Int
+    func malloc(size: UInt) -> UnsafePointer<Int8>
+    func free(block: UnsafePointer<Int8>)
+    func abort() -> Never
+}
+
+static STANDARD_OUTPUT: Int32 = 1
+static STANDARD_ERROR: Int32 = 2
+static NANOS_PER_MILLI: Int64 = 1_000_000
+// The one reactor instance's handle: any nonzero word.
+static REACTOR_HANDLE: Int = 1
+
+// The executor word, the virtual clock and the reactor's pending wake. One
+// thread runs the program and nothing interrupts it, so no access races.
+unsafe static var EXECUTOR: Int = 0
+unsafe static var NOW: Int64 = 0
+unsafe static var WOKEN: Bool = false
+
+@export("__saw_rt_alloc")
+func provided_alloc(size: UInt, align: UInt) unsafe -> UnsafePointer<Int8> {
+    malloc(size)
+}
+
+@export("__saw_rt_dealloc")
+func provided_dealloc(block: UnsafePointer<Int8>, size: UInt, align: UInt) unsafe {
+    free(block)
+}
+
+@export("__saw_rt_write_line")
+func provided_write_line(parts: UnsafePointer<UInt>, count: Int) unsafe -> Int {
+    var i = 0
+    while i < count {
+        let _ = write(STANDARD_OUTPUT, parts[2 * i] as UnsafePointer<Int8>, parts[2 * i + 1])
+        i = i + 1
+    }
+    let newline = "\n"
+    let _ = write(STANDARD_OUTPUT, newline.c_string()!, 1)
+    0
+}
+
+@export("__saw_rt_write")
+func provided_write(bytes: UnsafePointer<Int8>, length: UInt) unsafe -> Int {
+    let _ = write(STANDARD_OUTPUT, bytes, length)
+    0
+}
+
+@export("__saw_rt_write_error")
+func provided_write_error(bytes: UnsafePointer<Int8>, length: UInt) unsafe {
+    let _ = write(STANDARD_ERROR, bytes, length)
+}
+
+@export("__saw_rt_output_lock")
+func provided_output_lock() {
+}
+
+@export("__saw_rt_output_unlock")
+func provided_output_unlock() {
+}
+
+@export("__saw_rt_panic")
+func provided_panic(message: UnsafePointer<Int8>, length: UInt) unsafe -> Never {
+    let _ = write(STANDARD_ERROR, message, length)
+    abort()
+}
+
+@export("__saw_rt_last_raw_code")
+func provided_last_raw_code() -> Int {
+    0
+}
+
+@export("__saw_rt_thread_executor")
+func provided_thread_executor() unsafe -> Int {
+    EXECUTOR
+}
+
+@export("__saw_rt_set_thread_executor")
+func provided_set_thread_executor(record: Int) unsafe -> Int {
+    EXECUTOR = record
+    0
+}
+
+@export("__saw_rt_clock_monotonic_nanos")
+func provided_clock() unsafe -> Int64 {
+    NOW
+}
+
+@export("__saw_rt_sleep_ns")
+func provided_sleep(ns: UInt64) unsafe {
+    NOW = NOW + (ns as Int64)
+}
+
+@export("__saw_rt_reactor_create")
+func provided_reactor_create(r_out: UnsafePointer<Int>) unsafe -> Int {
+    r_out[0] = REACTOR_HANDLE
+    0
+}
+
+@export("__saw_rt_reactor_destroy")
+func provided_reactor_destroy(r: Int) {
+}
+
+@export("__saw_rt_reactor_wake")
+func provided_reactor_wake(r: Int) unsafe {
+    WOKEN = true
+}
+
+// Returns at once after a wake; otherwise waits out the timeout, and an
+// unbounded wait with nothing pending could never end, so it panics.
+@export("__saw_rt_reactor_poll")
+func provided_reactor_poll(r: Int, timeout_ms: Int, count_out: UnsafePointer<Int>) unsafe -> Int {
+    count_out[0] = 0
+    if WOKEN {
+        WOKEN = false
+        return 0
+    }
+    if timeout_ms < 0 {
+        panic("reactor: an unbounded poll with no wake pending would wait forever")
+    }
+    NOW = NOW + (timeout_ms as Int64) * NANOS_PER_MILLI
+    0
+}
+
+// The one-word lock, zero unlocked. One thread can never see a lock another
+// holds, so a held one is a re-entry, and it panics rather than wait forever.
+@export("__saw_rt_lock_acquire")
+func provided_lock_acquire(state: UnsafePointer<Int>) unsafe {
+    if state[0] != 0 {
+        panic("lock: taken again by the thread that holds it")
+    }
+    state[0] = 1
+}
+
+@export("__saw_rt_lock_release")
+func provided_lock_release(state: UnsafePointer<Int>) unsafe {
+    state[0] = 0
+}

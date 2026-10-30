@@ -20,17 +20,18 @@ import std.systemerror.{SystemError}
 // A pool's run-queue lock and its idle workers' condition variable. Both live
 // in one block the group owns, each in a conservative slot: `pthread_mutex_t`
 // is 64 bytes at most on the hosted targets, and `pthread_cond_t` 48
-// (runtime/ABI.md).
+// (runtime/ABI.md). Every operation on them is a runtime seam, and only the
+// try-lock answers: 1 taken, 0 busy.
 extern "C" {
     func __saw_rt_pthread_mutex_init_default(m: UnsafePointer<UInt8>) -> Int
     func __saw_rt_pthread_cond_init_default(c: UnsafePointer<UInt8>) -> Int
-    func pthread_mutex_lock(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_mutex_unlock(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_mutex_trylock(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_mutex_destroy(m: UnsafePointer<UInt8>) -> Int32
-    func pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>) -> Int32
-    func pthread_cond_broadcast(c: UnsafePointer<UInt8>) -> Int32
-    func pthread_cond_destroy(c: UnsafePointer<UInt8>) -> Int32
+    func __saw_rt_pthread_mutex_lock(m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_mutex_unlock(m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_mutex_try_lock(m: UnsafePointer<UInt8>) -> Int
+    func __saw_rt_pthread_mutex_destroy(m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_cond_wait(c: UnsafePointer<UInt8>, m: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_cond_broadcast(c: UnsafePointer<UInt8>)
+    func __saw_rt_pthread_cond_destroy(c: UnsafePointer<UInt8>)
 }
 
 static QUEUE_GATE_SLOT: Int = 64
@@ -160,7 +161,44 @@ public func __saw_exec_offload_park(job: Int) -> Int {
     if job % 4 != 0 {
         panic("executor: offload job {} is not aligned to 4, so no park word can name it", job)
     }
+    install_offload_check()
     0 - job - 2
+}
+
+// The address of a never-freed `(Int) sync -> Bool` function value, the
+// completion check `park_wakes` asks of an offload park, or 0 until the first
+// offload park installs it. Reached only through that install, so a program
+// that never offloads references no offload seam (SL-933).
+static OFFLOAD_CHECK: Atomic<Int> = Atomic(0)
+
+// Installs the offload park's completion check, once per process, ahead of
+// the first park word that names a job. A refused allocation panics, as every
+// executor allocation an offload park makes does.
+func install_offload_check() unsafe {
+    if OFFLOAD_CHECK.load() != 0 {
+        return
+    }
+    let size = sizeof<(Int) sync -> Bool>()
+    let align = alignof<(Int) sync -> Bool>()
+    let raw = exec_alloc(size, align, "an offloaded call")
+    let at = raw as UnsafePointer<(Int) sync -> Bool>
+    at[0] = { job: Int in __saw_exec_offload_done(job) }
+    if not OFFLOAD_CHECK.compare_exchange(0, raw as Int) {
+        GlobalAllocator().dealloc(raw, size, align)
+    }
+}
+
+// Whether offload job `job`'s C call has returned, through the installed
+// check. An offload park word is recorded only after the install, so a word
+// that names a job with no check installed was never made by a park. The
+// check is heap-held until a static can hold function values (SL-940).
+func offload_finished(job: Int) unsafe -> Bool {
+    let at = OFFLOAD_CHECK.load()
+    if at == 0 {
+        panic("executor: a park word names offload job {}, and no offload park was made", job)
+    }
+    let check = (at as UnsafePointer<(Int) sync -> Bool>)[0]
+    check(job)
 }
 
 // The offload job an offload park word `park` names.
@@ -529,12 +567,16 @@ extension TaskGroup {
     /// tasks run alongside the thread that owns the group, in parallel, so
     /// every value a spawned frame carries must be `Send`. `threads: 1` or
     /// less is the cooperative engine, exactly as `TaskGroup()` is. Returns
-    /// `Err(AllocError)` if the pool's lock cannot be allocated. A worker
+    /// `Err(AllocError)` if the pool's lock cannot be allocated, or, for the
+    /// process's first pool, the record of the pool's code. A worker
     /// thread the operating system refuses panics at the first spawn, naming
     /// the error.
     public init(threads: Int) unsafe -> Result<TaskGroup, AllocError> {
         if threads <= 1 {
             return TaskGroup()
+        }
+        if not install_pool_engine() {
+            return AllocError(size: sizeof<PoolEngine>(), align: alignof<PoolEngine>())
         }
         let size = QUEUE_GATE_SLOT * 2
         guard let raw = GlobalAllocator().alloc(size, QUEUE_GATE_ALIGN) else {
@@ -561,11 +603,99 @@ extension TaskGroup {
     /// plus those whose cancel address `cancel_addr` handed out, which are
     /// never reused.
     public func count(&self) -> Int {
-        if self.lock == 0 {
+        if self.engine() == 0 {
             return self.slots.len() - self.free.len()
         }
         queue_count(&self)
     }
+
+    // THE ENGINE FUNNEL: the address of the `PoolEngine` this group runs on,
+    // or 0 for the cooperative engine. Every site that decides between the
+    // two engines asks here, and a pool's branch reaches pool code only
+    // through the record this returns, so a program that makes no pool
+    // references none of it. The record is heap-held, installed by the first
+    // pool, until a static can hold function values (SL-940).
+    //
+    // ENTRY POINTS:
+    //   TaskGroup.count
+    //   lock_queue
+    //   unlock_queue
+    //   TaskGroup.deinit (its retire and its gate's destroy)
+    //   TaskGroup.enqueue
+    //   should_stop
+    //   sweep_passes
+    //   idle
+    //   record_parks
+    //   waits_drive
+    //   Task.check_home_thread
+    //   Task.join
+    //   Task.cancel
+    //   dump_record
+    func engine(&self) -> Int {
+        if self.lock == 0 {
+            return 0
+        }
+        let at = POOL_ENGINE.load()
+        if at == 0 {
+            panic("TaskGroup: a pool runs with no pool engine installed")
+        }
+        at
+    }
+}
+
+// The pool's half of every site the two engines share, as function values:
+// the code that takes a pool's mutex, waits on its condition variable, starts
+// its workers and joins them. Each site calls them only from a pool's branch,
+// so the thread and gate seams this code reaches are linked only into a
+// program that makes a pool (SL-933).
+struct PoolEngine {
+    lock: (UnsafePointer<TaskGroup>) unsafe sync -> Void
+    unlock: (UnsafePointer<TaskGroup>) unsafe sync -> Void
+    walk_take: (UnsafePointer<TaskGroup>) unsafe sync -> WalkLock
+    walk_give: (UnsafePointer<TaskGroup>) unsafe sync -> Void
+    enqueue: (UnsafePointer<TaskGroup>, UnsafePointer<UInt8>, UnsafePointer<TaskCell>, Bool) unsafe sync -> TaskTicket
+    await_task: (UnsafePointer<TaskGroup>, Int, Int) unsafe sync -> Void
+    retire: (UnsafePointer<TaskGroup>) unsafe sync -> Void
+    destroy_gate: (UnsafePointer<UInt8>) unsafe sync -> Void
+}
+
+// The address of the one `PoolEngine` record, or 0 until the first
+// `TaskGroup(threads:)` installs it. It is never freed: a pool on any thread
+// may call through it at any time.
+static POOL_ENGINE: Atomic<Int> = Atomic(0)
+
+// Installs the pool engine once per process; false when the allocator
+// refused its record. A losing racer frees its spare.
+func install_pool_engine() unsafe -> Bool {
+    if POOL_ENGINE.load() != 0 {
+        return true
+    }
+    let size = sizeof<PoolEngine>()
+    let align = alignof<PoolEngine>()
+    guard let raw = GlobalAllocator().alloc(size, align) else {
+        return false
+    }
+    let at = raw as UnsafePointer<PoolEngine>
+    at[0] = PoolEngine(lock: { g: UnsafePointer<TaskGroup> in pool_lock(g) },
+                       unlock: { g: UnsafePointer<TaskGroup> in pool_unlock(g) },
+                       walk_take: { g: UnsafePointer<TaskGroup> in walk_take_pool(g) },
+                       walk_give: { g: UnsafePointer<TaskGroup> in walk_give_pool(g) },
+                       enqueue: { g: UnsafePointer<TaskGroup>, frame: UnsafePointer<UInt8>,
+                                  cell: UnsafePointer<TaskCell>, owned: Bool in
+                                      enqueue_pooled(g, frame, cell, owned) },
+                       await_task: { g: UnsafePointer<TaskGroup>, slot: Int, generation: Int in
+                                         await_task(g, slot, generation) },
+                       retire: { g: UnsafePointer<TaskGroup> in retire_pool(g) },
+                       destroy_gate: { gate: UnsafePointer<UInt8> in destroy_pool_gate(gate) })
+    if not POOL_ENGINE.compare_exchange(0, raw as Int) {
+        GlobalAllocator().dealloc(raw, size, align)
+    }
+    true
+}
+
+// The pool engine record at `at`, which `TaskGroup.engine` answered.
+func pool_engine(at: Int) unsafe -> UnsafePointer<PoolEngine> {
+    at as UnsafePointer<PoolEngine>
 }
 
 // A pool's `count`, read under its lock.
@@ -623,21 +753,35 @@ func queue_cond(at: UnsafePointer<TaskGroup>) unsafe -> UnsafePointer<UInt8> {
 //   Task.detach
 //   Task.deinit
 func lock_queue(at: UnsafePointer<TaskGroup>) unsafe {
-    if at[0].lock != 0 {
-        let _ = pthread_mutex_lock(queue_mutex(at))
-        store_word((&at[0].holder) as UnsafePointer<Int>, __saw_rt_thread_executor())
+    let pool = at[0].engine()
+    if pool != 0 {
+        let take = pool_engine(pool)[0].lock
+        take(at)
     } else if at[0].owner != 0 {
         latch_take(at[0].owner as UnsafePointer<ExecutorRecord>)
     }
 }
 
 func unlock_queue(at: UnsafePointer<TaskGroup>) unsafe {
-    if at[0].lock != 0 {
-        store_word((&at[0].holder) as UnsafePointer<Int>, 0)
-        let _ = pthread_mutex_unlock(queue_mutex(at))
+    let pool = at[0].engine()
+    if pool != 0 {
+        let give = pool_engine(pool)[0].unlock
+        give(at)
     } else if at[0].owner != 0 {
         latch_give(at[0].owner as UnsafePointer<ExecutorRecord>)
     }
+}
+
+// A pool's half of `lock_queue` and `unlock_queue`: its mutex, and the holder
+// word the panic path's dump reads.
+func pool_lock(at: UnsafePointer<TaskGroup>) unsafe {
+    __saw_rt_pthread_mutex_lock(queue_mutex(at))
+    store_word((&at[0].holder) as UnsafePointer<Int>, __saw_rt_thread_executor())
+}
+
+func pool_unlock(at: UnsafePointer<TaskGroup>) unsafe {
+    store_word((&at[0].holder) as UnsafePointer<Int>, 0)
+    __saw_rt_pthread_mutex_unlock(queue_mutex(at))
 }
 
 // The group's teardown is its structured join: every live task is driven to
@@ -658,10 +802,11 @@ func unlock_queue(at: UnsafePointer<TaskGroup>) unsafe {
 // drains first (`drain_pool`), as the cooperative branch's join does.
 extension TaskGroup: NoCopy {
     public func deinit(&var self) unsafe {
-        if self.lock != 0 {
+        let pool = self.engine()
+        if pool != 0 {
             let at = (&self) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
-            drain_pool(at)
-            shutdown_crew(at)
+            let retire = pool_engine(pool)[0].retire
+            retire(at)
         } else if self.registered {
             let me = (&self) as UnsafePointer<TaskGroup> as Int
             if group_on_this_stack(me as UnsafePointer<TaskGroup>, -1) {
@@ -675,14 +820,26 @@ extension TaskGroup: NoCopy {
         check_no_outstanding(&self)
         self.unregister()
         self.release_slots()
-        if self.lock != 0 {
-            // Every worker has joined, so nothing waits on either.
-            let gate = self.lock as UnsafePointer<UInt8>
-            let _ = pthread_cond_destroy(gate + QUEUE_GATE_SLOT)
-            let _ = pthread_mutex_destroy(gate)
-            GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, QUEUE_GATE_SLOT * 2, QUEUE_GATE_ALIGN)
+        if pool != 0 {
+            let destroy = pool_engine(pool)[0].destroy_gate
+            destroy(self.lock as UnsafePointer<UInt8>)
         }
     }
+}
+
+// A pool's half of its teardown's join: the workers finish every live task,
+// driven for where the wait drives, and are joined.
+func retire_pool(at: UnsafePointer<TaskGroup>) unsafe {
+    drain_pool(at)
+    shutdown_crew(at)
+}
+
+// Frees a pool's lock and condition variable, once every worker has joined,
+// so nothing waits on either.
+func destroy_pool_gate(gate: UnsafePointer<UInt8>) unsafe {
+    __saw_rt_pthread_cond_destroy(gate + QUEUE_GATE_SLOT)
+    __saw_rt_pthread_mutex_destroy(gate)
+    GlobalAllocator().dealloc(gate as UnsafePointer<Int8>, QUEUE_GATE_SLOT * 2, QUEUE_GATE_ALIGN)
 }
 
 // A group may be destroyed only once every `group.spawn` handle to it has let
@@ -874,7 +1031,7 @@ func walk_give(record: UnsafePointer<ExecutorRecord>) unsafe {
 func walk_take_pool(g: UnsafePointer<TaskGroup>) unsafe -> WalkLock {
     var tries = 0
     while tries < WALK_SPINS {
-        if pthread_mutex_trylock(queue_mutex(g)) == 0 {
+        if __saw_rt_pthread_mutex_try_lock(queue_mutex(g)) == 1 {
             store_word((&g[0].holder) as UnsafePointer<Int>, __saw_rt_thread_executor())
             return WalkLock.Taken
         }
@@ -889,7 +1046,7 @@ func walk_take_pool(g: UnsafePointer<TaskGroup>) unsafe -> WalkLock {
 
 func walk_give_pool(g: UnsafePointer<TaskGroup>) unsafe {
     store_word((&g[0].holder) as UnsafePointer<Int>, 0)
-    let _ = pthread_mutex_unlock(queue_mutex(g))
+    __saw_rt_pthread_mutex_unlock(queue_mutex(g))
 }
 
 // Counts one finished resume on `record`, the resuming thread's own.
@@ -1230,7 +1387,8 @@ extension TaskGroup {
         register(&var self)
         let cell = new_cell(descriptor)
         let at = (&self) as UnsafePointer<TaskGroup> as Int as UnsafePointer<TaskGroup>
-        if self.lock == 0 {
+        let pool = self.engine()
+        if pool == 0 {
             // Under the latch: a growth frees the old `slots` buffer, which a
             // walk on another thread may be reading.
             var g = at
@@ -1239,7 +1397,8 @@ extension TaskGroup {
             unlock_queue(at)
             return ticket
         }
-        enqueue_pooled(at, frame, cell, owned)
+        let put = pool_engine(pool)[0].enqueue
+        put(at, frame, cell, owned)
     }
 }
 
@@ -1270,7 +1429,7 @@ func enqueue_pooled(at: UnsafePointer<TaskGroup>, frame: UnsafePointer<UInt8>, c
 // is blocked in the reactor's poll instead, which the caller then pokes once
 // the lock is released.
 func queue_changed(at: UnsafePointer<TaskGroup>) unsafe -> Bool {
-    let _ = pthread_cond_broadcast(queue_cond(at))
+    __saw_rt_pthread_cond_broadcast(queue_cond(at))
     at[0].pollers > 0
 }
 
@@ -1441,7 +1600,7 @@ func park_wakes(cx: UnsafePointer<TaskContext>) unsafe -> Bool {
         return __saw_atomic_load_i64_seq_cst(joined_word(park)) < 0
     }
     if reason == ParkReason.Offload {
-        return __saw_exec_offload_done(offload_job(park))
+        return offload_finished(offload_job(park))
     }
     if reason == ParkReason.Ready || cx[0].cancel[0] {
         return true
@@ -1665,7 +1824,7 @@ func should_stop(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
     var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        if g[0].lock == 0 && g[0].has_live() {
+        if g[0].engine() == 0 && g[0].has_live() {
             return false
         }
         cur = g[0].next
@@ -1706,7 +1865,7 @@ func sweep_passes(term_group: Int, term_slot: Int, term_gen: Int, waiter: Int,
         while cur != 0 {
             let g = cur as UnsafePointer<TaskGroup>
             var i = 0
-            while g[0].lock == 0 && i < g[0].slots.len() {
+            while g[0].engine() == 0 && i < g[0].slots.len() {
                 if g[0].runnable(i) {
                     resume_slot(g, i, record)
                     resumed = true
@@ -1771,7 +1930,7 @@ func idle(waiter: Int, record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
         var i = 0
-        while g[0].lock == 0 && i < g[0].slots.len() {
+        while g[0].engine() == 0 && i < g[0].slots.len() {
             let s = g[0].slots[i]
             if not s.done && not s.active {
                 let cell = g[0].cell_at(i)
@@ -1974,13 +2133,17 @@ func record_parks(record: UnsafePointer<ExecutorRecord>, walker: Int) unsafe -> 
     var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        let pooled = g[0].lock != 0
-        if pooled && walk_take_pool(g) != WalkLock.Taken {
-            return RecordParks.Runs
+        let pool = g[0].engine()
+        if pool != 0 {
+            let take = pool_engine(pool)[0].walk_take
+            if take(g) != WalkLock.Taken {
+                return RecordParks.Runs
+            }
         }
         let found = group_parks(g, walker)
-        if pooled {
-            walk_give_pool(g)
+        if pool != 0 {
+            let give = pool_engine(pool)[0].walk_give
+            give(g)
         }
         if found == RecordParks.Runs {
             return RecordParks.Runs
@@ -2290,7 +2453,7 @@ func waits_drive(record: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
     var cur = load_word((&record[0].groups) as UnsafePointer<Int>)
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
-        if g[0].lock == 0 && g[0].has_live() {
+        if g[0].engine() == 0 && g[0].has_live() {
             return true
         }
         cur = g[0].next
@@ -2453,7 +2616,7 @@ func await_task(at: UnsafePointer<TaskGroup>, slot: Int, generation: Int) unsafe
     enter_executor(record)
     lock_queue(at)
     while not at[0].stale(slot, generation) && not at[0].is_done(slot) {
-        let _ = pthread_cond_wait(queue_cond(at), queue_mutex(at))
+        __saw_rt_pthread_cond_wait(queue_cond(at), queue_mutex(at))
     }
     unlock_queue(at)
     leave_executor(record)
@@ -2520,7 +2683,7 @@ func worker_turn(at: UnsafePointer<TaskGroup>, record: UnsafePointer<ExecutorRec
     if not waits && not channel {
         // Nothing live, or only frames a peer is resuming: a spawn, the
         // teardown and every resume's outcome broadcast.
-        let _ = pthread_cond_wait(queue_cond(at), queue_mutex(at))
+        __saw_rt_pthread_cond_wait(queue_cond(at), queue_mutex(at))
         return true
     }
     // A writer pokes only a reactor that exists, so a channel wait publishes
@@ -2947,7 +3110,7 @@ extension Task<T> {
     //   Task.deinit
     func check_home_thread(&self, what: String, verb: String) unsafe {
         let g = self.group
-        if g[0].lock == 0 && g[0].owner != __saw_rt_thread_executor() {
+        if g[0].engine() == 0 && g[0].owner != __saw_rt_thread_executor() {
             panic("{}: this task belongs to another thread's group; {} a task on the thread that spawned it", what,
                   verb)
         }
@@ -2998,7 +3161,8 @@ extension Task<T> {
             panic("Task.join: this task's result was already joined")
         }
         var g = self.group
-        if g[0].lock == 0 {
+        let pool = g[0].engine()
+        if pool == 0 {
             if g[0].stale(self.slot, self.generation) {
                 panic("Task.join: this task's result was already joined")
             }
@@ -3010,7 +3174,8 @@ extension Task<T> {
             }
             exec_run(g as Int, self.slot, self.generation)
         } else {
-            await_task(g, self.slot, self.generation)
+            let wait = pool_engine(pool)[0].await_task
+            wait(g, self.slot, self.generation)
         }
         // Each refusal gives the lock back first, so the panic's dump reads
         // this thread's groups.
@@ -3077,7 +3242,7 @@ extension Task<T> {
         unlock_queue(g)
         // A pool's worker may be waiting in the reactor's poll for this very
         // park; the cooperative engine reads the word at its next look.
-        if g[0].lock != 0 {
+        if g[0].engine() != 0 {
             poke_reactor()
         }
     }
@@ -3376,13 +3541,16 @@ func dump_record(sink: &var DumpSink, table: UnsafePointer<UInt8>, record: Unsaf
             let g = cur as UnsafePointer<TaskGroup>
             if cur != entry {
                 number = number + 1
-                if g[0].lock == 0 {
+                let engine = g[0].engine()
+                if engine == 0 {
                     live = live + dump_group(&var sink, table, g, number, emit)
                 } else {
-                    let pool = walk_take_pool(g)
+                    let take = pool_engine(engine)[0].walk_take
+                    let pool = take(g)
                     if pool == WalkLock.Taken {
                         live = live + dump_group(&var sink, table, g, number, emit)
-                        walk_give_pool(g)
+                        let give = pool_engine(engine)[0].walk_give
+                        give(g)
                     } else if pool == WalkLock.Busy && retry {
                         again = true
                     } else if emit {
