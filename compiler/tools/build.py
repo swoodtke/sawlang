@@ -78,7 +78,7 @@ SEED_DRIVER = "sawc.ll.xz"
 # The runtime manifest's name as the seed's own driver reads it beside its
 # binary, which is the pinned commit's spelling, not this tree's: a seed bump
 # that changes it changes this, and `seed.py check` fails until it does.
-SEED_RUNTIME_MANIFEST = "sawc2-runtime.txt"
+SEED_RUNTIME_MANIFEST = "sawc-runtime.txt"
 SEED_CACHE = os.path.join(BUILD_DIR, "seed")
 # The blob host serves a file at its lowercase hex SHA-256, publicly, and never
 # changes or deletes one; the variable names a mirror instead. The cache holds
@@ -690,10 +690,12 @@ def seed_blob(entry, fresh=False):
 
 def seed_key(triple, clang):
     """What the seed of `triple` built with `clang` is a function of: the
-    manifest's digests of its files, the C shim, the recipe, the target and
-    the clang. It reads no seed file, so a cached seed needs no network."""
+    manifest's digests of its files, the C shim, the recipe, the runtime
+    manifest's name, the target and the clang. It reads no seed file, so a
+    cached seed needs no network."""
     digest = hashlib.sha256()
     digest.update(SEED_RECIPE)
+    digest.update(SEED_RUNTIME_MANIFEST.encode("utf-8") + b"\0")
     for entry in seed_entries(triple):
         digest.update(("%s/%s\0" % (entry.triple, entry.name)).encode("utf-8") + bytes.fromhex(entry.sha256))
     digest.update(os.path.relpath(SHIM_C, REPO).encode("utf-8") + b"\0")
