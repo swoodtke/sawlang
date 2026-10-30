@@ -1,0 +1,28 @@
+(Module float_conversions
+  (declarations
+    (func conversions 6:6 private (signature (params (f Float owned) (n Int owned) (u UInt64 owned)) -> Int) (summary body (suspends no) (sync-callable yes))))
+  (members)
+  (views)
+  (conformances)
+  (copy-tier)
+  (bodies
+    (conversions 6:6
+      (7:9-7:10 BindingName Int8 place temp)
+      (7:13-7:22 Cast Int8 value temp)
+      (7:13-7:14 Name Float place copy)
+      (8:9-8:10 BindingName Float place temp)
+      (8:13-8:23 Cast Float value temp)
+      (8:13-8:14 Name Int place copy)
+      (9:9-9:10 BindingName UInt64? place temp)
+      (9:13-9:27 Call.paren UInt64? value temp (conversion from (owner UInt64)))
+      (9:25-9:26 Name Float place copy)
+      (10:9-10:10 BindingName Float? place temp)
+      (10:13-10:26 Call.paren Float? value temp (conversion from (owner Float)))
+      (10:24-10:25 Name Int place copy)
+      (11:9-11:10 BindingName Float? place temp)
+      (11:13-11:26 Call.paren Float? value temp (conversion from (owner Float)))
+      (11:24-11:25 Name UInt64 place copy)
+      (12:9-12:10 BindingName Float place temp)
+      (12:13-12:32 Call.paren Float value temp (call std.float.Float.from(bits: UInt64) (owner Float)))
+      (12:30-12:31 Name UInt64 place copy)
+      (13:5-13:6 Name Int place copy))))

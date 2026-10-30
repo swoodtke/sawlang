@@ -1,0 +1,8 @@
+// refuses: operator.undefined at 6:24
+// message: `Float.from` converts an integer, and this is `Float`
+// `Float.from` converts an integer alone (SL-927)
+
+func main() {
+    let x = Float.from(1.5)
+    print(x ?? 0.0)
+}

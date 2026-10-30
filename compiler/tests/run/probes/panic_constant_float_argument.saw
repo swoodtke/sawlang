@@ -1,0 +1,12 @@
+// probe: panics
+// about: a constant Float format argument of `panic` renders in a program that renders no other Float (SL-927)
+// stage 0: not run; the probe pins the rendering mono roots for a constant argument
+// speeds: -O0 -O2
+// panics: bad 6.5
+
+func main() {
+    let n = 3
+    if n == 3 {
+        panic("bad {}", 6.5)
+    }
+}

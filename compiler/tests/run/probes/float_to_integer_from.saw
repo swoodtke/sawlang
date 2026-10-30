@@ -1,0 +1,105 @@
+// probe: stated
+// about: `T.from(f)` is `None` exactly where `f as T` panics, at every integer width: NaN, the infinities and a truncated value out of range (SL-927)
+// stage 0: not run; the Float conversion rule is SL-927's, which v0.18.0 predates
+// speeds: -O0 -O2
+// prints: Int8 127.5 Some 127
+// prints: Int8 128.0 None
+// prints: Int8 -128.9 Some -128
+// prints: Int8 -129.0 None
+// prints: Int8 nan None
+// prints: Int8 inf None
+// prints: Int8 -inf None
+// prints: UInt8 -0.9 Some 0
+// prints: UInt8 -1.0 None
+// prints: UInt8 255.5 Some 255
+// prints: UInt8 256.0 None
+// prints: Int16 32767.5 Some 32767
+// prints: Int16 32768.0 None
+// prints: Int16 -32769.0 None
+// prints: UInt16 65535.5 Some 65535
+// prints: UInt16 65536.0 None
+// prints: Int32 2147483647.5 Some 2147483647
+// prints: Int32 2147483648.0 None
+// prints: Int32 -2147483648.5 Some -2147483648
+// prints: Int32 -2147483649.0 None
+// prints: UInt32 4294967295.5 Some 4294967295
+// prints: UInt32 4294967296.0 None
+// prints: Int64 9223372036854775807.0 None
+// prints: Int64 2^63 None
+// prints: Int64 below 2^63 Some 9223372036854774784
+// prints: Int64 -2^63 Some -9223372036854775808
+// prints: Int64 nan None
+// prints: Int 2^63 None
+// prints: Int -0.0 Some 0
+// prints: Int inf None
+// prints: UInt64 2^64 None
+// prints: UInt64 18446744073709551615.0 None
+// prints: UInt64 below 2^64 Some 18446744073709549568
+// prints: UInt64 2^63 Some 9223372036854775808
+// prints: UInt64 -0.9 Some 0
+// prints: UInt64 -1.0 None
+// prints: UInt 2^64 None
+// prints: UInt -inf None
+// prints: Int8 constant 300.0 None
+// prints: UInt constant -1.0 None
+// prints: Int constant 2.5 Some 2
+// `9223372036854775807.0` and `18446744073709551615.0` are the doubles 2^63
+// and 2^64, which their widths do not hold.
+
+func held(v: Float) -> Float {
+    v
+}
+
+func show<T: Printable>(label: String, v: T?) {
+    if let x = v {
+        print("{} Some {}", label, x)
+    } else {
+        print("{} None", label)
+    }
+}
+
+func main() {
+    let nan = Float.from(bits: 0x7FF8_0000_0000_0000)
+    let inf = Float.from(bits: 0x7FF0_0000_0000_0000)
+    show(label: "Int8 127.5", v: Int8.from(held(v: 127.5)))
+    show(label: "Int8 128.0", v: Int8.from(held(v: 128.0)))
+    show(label: "Int8 -128.9", v: Int8.from(held(v: -128.9)))
+    show(label: "Int8 -129.0", v: Int8.from(held(v: -129.0)))
+    show(label: "Int8 nan", v: Int8.from(nan))
+    show(label: "Int8 inf", v: Int8.from(inf))
+    show(label: "Int8 -inf", v: Int8.from(-inf))
+    show(label: "UInt8 -0.9", v: UInt8.from(held(v: -0.9)))
+    show(label: "UInt8 -1.0", v: UInt8.from(held(v: -1.0)))
+    show(label: "UInt8 255.5", v: UInt8.from(held(v: 255.5)))
+    show(label: "UInt8 256.0", v: UInt8.from(held(v: 256.0)))
+    show(label: "Int16 32767.5", v: Int16.from(held(v: 32767.5)))
+    show(label: "Int16 32768.0", v: Int16.from(held(v: 32768.0)))
+    show(label: "Int16 -32769.0", v: Int16.from(held(v: -32769.0)))
+    show(label: "UInt16 65535.5", v: UInt16.from(held(v: 65535.5)))
+    show(label: "UInt16 65536.0", v: UInt16.from(held(v: 65536.0)))
+    show(label: "Int32 2147483647.5", v: Int32.from(held(v: 2147483647.5)))
+    show(label: "Int32 2147483648.0", v: Int32.from(held(v: 2147483648.0)))
+    show(label: "Int32 -2147483648.5", v: Int32.from(held(v: -2147483648.5)))
+    show(label: "Int32 -2147483649.0", v: Int32.from(held(v: -2147483649.0)))
+    show(label: "UInt32 4294967295.5", v: UInt32.from(held(v: 4294967295.5)))
+    show(label: "UInt32 4294967296.0", v: UInt32.from(held(v: 4294967296.0)))
+    show(label: "Int64 9223372036854775807.0", v: Int64.from(held(v: 9223372036854775807.0)))
+    show(label: "Int64 2^63", v: Int64.from(held(v: 9223372036854775808.0)))
+    show(label: "Int64 below 2^63", v: Int64.from(held(v: 9223372036854774784.0)))
+    show(label: "Int64 -2^63", v: Int64.from(held(v: -9223372036854775808.0)))
+    show(label: "Int64 nan", v: Int64.from(nan))
+    show(label: "Int 2^63", v: Int.from(held(v: 9223372036854775808.0)))
+    show(label: "Int -0.0", v: Int.from(held(v: -0.0)))
+    show(label: "Int inf", v: Int.from(inf))
+    show(label: "UInt64 2^64", v: UInt64.from(held(v: 18446744073709551616.0)))
+    show(label: "UInt64 18446744073709551615.0", v: UInt64.from(held(v: 18446744073709551615.0)))
+    show(label: "UInt64 below 2^64", v: UInt64.from(held(v: 18446744073709549568.0)))
+    show(label: "UInt64 2^63", v: UInt64.from(held(v: 9223372036854775808.0)))
+    show(label: "UInt64 -0.9", v: UInt64.from(held(v: -0.9)))
+    show(label: "UInt64 -1.0", v: UInt64.from(held(v: -1.0)))
+    show(label: "UInt 2^64", v: UInt.from(held(v: 18446744073709551616.0)))
+    show(label: "UInt -inf", v: UInt.from(-inf))
+    show(label: "Int8 constant 300.0", v: Int8.from(300.0))
+    show(label: "UInt constant -1.0", v: UInt.from(-1.0))
+    show(label: "Int constant 2.5", v: Int.from(2.5))
+}

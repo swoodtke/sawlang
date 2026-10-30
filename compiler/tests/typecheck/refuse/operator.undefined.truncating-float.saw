@@ -1,0 +1,9 @@
+// refuses: operator.undefined at 7:34
+// message: an integer's `from(truncating:)` converts an integer, and this is `Float`
+// `from(truncating:)` keeps an integer's low bits, so a Float has none to keep (SL-927)
+
+func main() {
+    let f = 3.7
+    let x = Int.from(truncating: f)
+    print(x)
+}

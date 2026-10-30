@@ -1,0 +1,14 @@
+// Float <-> integer conversions (SL-927): `as` both ways, an integer's `from`
+// of a Float, and `Float.from` of an integer, each a conversion typed `T?`.
+// An unlabeled `Float.from` of a `UInt64` is the conversion, never std's
+// `Float.from(bits:)`, which only the label reaches.
+
+func conversions(f: Float, n: Int, u: UInt64) -> Int {
+    let a = f as Int8
+    let b = n as Float
+    let c = UInt64.from(f)
+    let d = Float.from(n)
+    let e = Float.from(u)
+    let g = Float.from(bits: u)
+    n
+}

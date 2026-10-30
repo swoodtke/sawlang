@@ -1006,6 +1006,12 @@ extension MonoProgram {
         if rv.kind == MirRvalueKind.Binary && rv.count == 2 {
             self.resolve_string_comparison(k, &rv, stmt.node)
         }
+        if rv.kind == MirRvalueKind.Cast && rv.count == 1 {
+            let from = self.dp.bc.mir.operands[self.dp.bc.mir.lists[rv.first]].ty
+            if self.dp.bc.mir.tc.is_float(from) && not self.dp.bc.mir.tc.is_float(rv.ty) {
+                let _ = self.need_float_render(k, from, stmt.node)
+            }
+        }
     }
 
     // A builtin comparison of Strings compares their bytes through the String
@@ -1770,6 +1776,9 @@ extension MonoProgram {
             let op = self.dp.bc.mir.operands[o]
             a = a + 1
             if op.kind == MirOperandKind.Const {
+                if op.const_kind == MirConstKind.Float && not self.need_float_render(k, op.ty, info.node) {
+                    return
+                }
                 continue
             }
             var t = op.ty
@@ -1808,6 +1817,20 @@ extension MonoProgram {
             return false
         }
         self.render_of(k, t, node) >= 0
+    }
+
+    // THE FLOAT-RENDER FUNNEL: the fixed rendering of Float `t` at a position
+    // where the backend renders a Float that no operand's type hands to
+    // `need_fixed_render` on its own: a constant Float format argument, which
+    // the format check otherwise passes over as a constant, and a Float to
+    // integer `as`, whose panic names the value (SL-927). An interpolated
+    // Float, constant or not, already reaches the render funnel. False when
+    // the rendering is refused.
+    // ENTRY POINTS:
+    //     check_format_arguments
+    //     resolve_stmt
+    func need_float_render(&var self, k: Int, t: Int, node: Int) -> Bool {
+        self.need_fixed_render(k, t, node)
     }
 
     // An interpolation builds a String through the growable builder: its

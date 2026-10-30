@@ -1,0 +1,15 @@
+// probe: panics
+// about: a constant `9223372036854775807.0 as Int64` panics at -O2 too, so clang folds no guard away, and renders no other Float (SL-927)
+// stage 0: not run; the Float conversion rule is SL-927's, which v0.18.0 predates
+// speeds: -O0 -O2
+// prints: before
+// panics: cast to Int64 out of range: 9.223372036854776e+18
+// `Int64.max` has no double: the literal is 2^63, which `Int64` does not
+// hold, so the guard's top is strict. The typecheck fold holds no Float, so
+// the constant takes the run-time check (SL-937).
+
+func main() {
+    print("before")
+    let n = 9223372036854775807.0 as Int64
+    print("unreachable {}", n)
+}

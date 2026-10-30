@@ -1,0 +1,16 @@
+// probe: stated
+// about: a constant Float format argument renders in a program that renders no other Float (SL-927)
+// stage 0: not run; the probe pins the rendering mono roots for a constant argument
+// speeds: -O0 -O2
+// prints: 1.5
+// prints: 2.25
+// prints: x 7 y -0.5
+// Mono passes a constant format argument over as one the backend writes as
+// it is, but a Float constant renders through `Printable.format` like a
+// Float local, so its rendering is rooted by the argument itself.
+
+func main() {
+    print(1.5)
+    print("{}", 2.25)
+    print("x {} y {}", 7, -0.5)
+}

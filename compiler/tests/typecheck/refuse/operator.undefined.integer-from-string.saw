@@ -1,0 +1,8 @@
+// refuses: operator.undefined at 6:22
+// message: an integer's `from` converts an integer or a Float, and this is `String`
+// an integer's `from` takes a number (SL-927)
+
+func main() {
+    let x = Int.from("12")
+    print(x ?? 0)
+}

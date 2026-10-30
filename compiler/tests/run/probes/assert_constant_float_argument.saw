@@ -1,0 +1,10 @@
+// probe: panics
+// about: a constant Float format argument of a failed `assert` renders in a program that renders no other Float (SL-927)
+// stage 0: not run; the probe pins the rendering mono roots for a constant argument
+// speeds: -O0 -O2
+// panics: assertion failed: want 8.25
+
+func main() {
+    let n = 3
+    assert(n == 4, "want {}", 8.25)
+}

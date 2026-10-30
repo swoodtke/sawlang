@@ -7568,6 +7568,9 @@ readmit plausible-looking corruption at sites that meant to convert.
 | Identity (`Int` → `Int`) | no | nothing |
 | Narrowing (`Int` → `UInt8`, `Int64` → `Int32`) | yes | one compare + branch |
 | Sign change at or above the source width (`Int` → `UInt`) | yes | one compare + branch |
+| Integer → `Float` (`n as Float`) | no | one `sitofp`/`uitofp` |
+| `Float` → any integer (`f as Int8`, `f as UInt64`) | yes | two compares + branch, then `fptosi`/`fptoui` |
+| `Float.from(n)` | yes | the conversion, its round trip and a compare |
 
 Total pairs emit exactly what they emitted before the rule existed: a check
 there could only ever be true. A checked pair costs one compare and a branch —
@@ -7607,7 +7610,51 @@ constant, which is where a wrong constant is a typo the compiler can catch.
 - **Distinct type aliases.** Projection resolves to the underlying first, then
   these rules apply, so an alias narrows exactly as its underlying does.
 - **Pointer and address casts** are unaffected; see "Address casts".
-- **Float** conversions are unchanged.
+- **Float** conversions follow the same split; see "Float conversions"
+  below.
+
+#### Float conversions
+
+A `Float` converts to and from every integer width with the same two
+spellings: `as` panics where the value has no answer, `from` returns `None`
+there. There is no `from(truncating:)` for a Float.
+
+```saw-body
+let f = 300.75
+
+let a = f as Int                // 300 — truncated toward zero
+let b = f as UInt8              // panics: 300 has no UInt8 value
+let c = UInt8.from(f)           // None
+let d = Int.from(-0.9)          // Some(0)
+
+let big = 9007199254740993      // 2^53 + 1
+let e = big as Float            // 9007199254740992.0 — the nearest Float
+let g = Float.from(big)         // None: no Float holds it exactly
+```
+
+- **`f as Int8` truncates toward zero, then checks.** It panics on NaN, on
+  either infinity, and on a value whose truncation `Int8` cannot hold:
+  `panic at FILE:LINE: cast to Int8 out of range: 128.0`. The truncated value
+  is the one checked, so a value is in range when it lies strictly between
+  `min - 1` and `max + 1`: `127.5 as Int8` is 127, `128.0 as Int8` panics,
+  and `-0.9 as UInt` is 0 while `-1.0 as UInt` panics. At 64 bits the top is
+  2^63 (`Int64`, `Int`) or 2^64 (`UInt64`, `UInt`), and the bound is strict,
+  because `Int64.max` and `UInt64.max` have no `Float`: the literal
+  `9223372036854775807.0` is the `Float` 2^63, so `9223372036854775807.0 as
+  Int64` panics.
+- **`Int8.from(f)` returns `Int8?`.** `None` exactly where `as` panics.
+- **`n as Float` always succeeds.** Every integer is within `Float`'s range,
+  so the cast only rounds, to nearest with ties to even, once the magnitude
+  passes 2^53.
+- **`Float.from(n)` returns `Float?`.** `None` when the integer has no exact
+  `Float`, so a caller can detect the rounding `as` would do:
+  `Float.from(9007199254740992)` (2^53) is `Some`, and `Float.from(UInt64.max)`
+  is `None`. `Float.from` takes one unlabeled integer; `Float.from(bits:)`, the
+  bit-pattern reinterpretation, needs its label.
+
+A Float operand written as a constant takes the run-time check: the constant
+folder holds no `Float` value yet, so `1000.0 as UInt8` builds and panics
+where its integer twin is a compile error (SL-937).
 
 ### Integer Width Agreement
 
@@ -8642,7 +8689,7 @@ pure Saw, correctly rounded, and available without an import.
 | `Float.to_string() -> String` | the shortest decimal that reads back as the value |
 | `StringBuilder.append(value: Float) -> Result<Void, AllocError>` | the same text, written into a builder |
 | `String.to_float() -> Float?` | the nearest `Float` to the whole string, or `None` |
-| `Float.to_bits() -> UInt64` / `Float.from(bits:) -> Float` | the IEEE 754 bit pattern, reinterpreted |
+| `Float.to_bits() -> UInt64` / `Float.from(bits:) -> Float` | the IEEE 754 bit pattern, reinterpreted; the label is required, since the unlabeled `Float.from(n)` is the numeric conversion ("Float conversions") |
 | `Float.is_nan()` / `is_finite()` / `is_infinite()` | classification |
 
 **Formatting is shortest round-trip.** The text a `Float` renders as parses

@@ -1,0 +1,19 @@
+// probe: panics
+// about: `f as Int64` panics on 2^63, the double `Int64.max` rounds to, naming the value, so no out-of-range `fptosi`/`fptoui` runs (SL-927)
+// stage 0: not run; the Float conversion rule is SL-927's, which v0.18.0 predates
+// speeds: -O0 -O2
+// prints: before
+// panics: cast to Int64 out of range: 9.223372036854776e+18
+// The program renders no other Float, so the panic's rendering is rooted by
+// the cast alone.
+
+func held(v: Float) -> Float {
+    v
+}
+
+func main() {
+    let f = held(v: 9223372036854775808.0)
+    print("before")
+    let n = f as Int64
+    print("unreachable {}", n)
+}

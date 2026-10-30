@@ -8169,6 +8169,12 @@ extension TcProgram {
             if self.is_integer(t) {
                 return self.integer_from(e, t, &args)
             }
+            // Only the unlabeled form is the conversion: the lenient label
+            // model would otherwise hand an unlabeled `UInt64` to
+            // `from(bits:)`, which reinterprets the bits.
+            if self.is_float(t) && args.values.len() == 1 && args.labels[0] < 0 {
+                return self.float_from(e, t, &args)
+            }
             let d = self.nominal_decl(t)
             if self.is_enum_decl(d) && self.sigs[d].result >= 0 {
                 return self.raw_from(e, d, t, &args)
@@ -8783,9 +8789,9 @@ extension TcProgram {
     }
 
     // `T.from(x)`, the checked conversion to `T?`, and `T.from(truncating:
-    // x)`, which keeps the low bits: integer `T`, integer `x` (design 170).
-    // The argument takes no expectation, since out of range is what `from`
-    // answers.
+    // x)`, which keeps the low bits: integer `T`, integer `x` (design 170),
+    // and for `from` alone a Float `x` too. The argument takes no
+    // expectation, since out of range is what `from` answers.
     func integer_from(&var self, e: Int, t: Int, args: &TcArgs) -> Int {
         let truncating_name = self.res.intern("truncating")
         var truncating = false
@@ -8804,8 +8810,10 @@ extension TcProgram {
             let _ = self.expr(v, TC_WANT_NONE)
             self.consume(v)
             let vt = self.through_refs(v)
-            if not self.has_error(vt) && not self.is_integer(vt) {
-                self.refuse_operand(v, "an integer's `from` converts an integer", vt)
+            if truncating && not self.has_error(vt) && not self.is_integer(vt) {
+                self.refuse_operand(v, "an integer's `from(truncating:)` converts an integer", vt)
+            } else if not self.has_error(vt) && not self.is_numeric(vt) {
+                self.refuse_operand(v, "an integer's `from` converts an integer or a Float", vt)
             }
         }
         let spelling = if truncating { "from(truncating:)" } else { "from" }
@@ -8817,6 +8825,26 @@ extension TcProgram {
         if truncating {
             return self.set_type(e, t, false)
         }
+        let opt = self.mk_optional(t)
+        self.set_type(e, opt, false)
+    }
+
+    // `Float.from(x)`: integer `x` as a `Float?`, `None` when the integer has
+    // no exact Float (SL-927). The argument takes no expectation, as an
+    // integer's `from` does.
+    func float_from(&var self, e: Int, t: Int, args: &TcArgs) -> Int {
+        let v = args.values[0]
+        let _ = self.expr(v, TC_WANT_NONE)
+        self.consume(v)
+        let vt = self.through_refs(v)
+        if not self.has_error(vt) && not self.is_integer(vt) {
+            self.refuse_operand(v, "`Float.from` converts an integer", vt)
+        }
+        self.record_builtin(e, -1, TcRole.Conversion, "from")
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.owner = t
+        self.calls[at] = c
         let opt = self.mk_optional(t)
         self.set_type(e, opt, false)
     }

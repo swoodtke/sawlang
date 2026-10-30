@@ -1790,6 +1790,8 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   reinterpret a byte — write `UInt8.from(truncating:)` / `Int8.from(truncating:)`.
   That is the `Int8`↔`Byte` idiom wherever C `char` storage meets a byte value,
   and inside std it is confined to two funnels per file (see BYTE below).
+  A Float source or target takes `as` and `from` the same way, never
+  `from(truncating:)`: see the FLOAT ↔ TEXT note (SL-927).
   A raw-backed enum's `e as Backing` stays TOTAL; narrowing BELOW the backing
   takes the ordinary rule. An alias projects to its underlying first, then these
   rules apply. Saturating is deliberately not offered.
@@ -5008,8 +5010,16 @@ construct in the owner and lend `&driver` down.
   `print("{}", 1.0)` wrote `1`, `0.1 + 0.2` printed `0.3` in both, and
   `to_float` was a naive accumulation its own doc comment called not correctly
   rounded. Freestanding refused a float `print` outright; it does not now.
-  STILL MISSING: any `Int` -> `Float` conversion (`Float.from(n)`, `n as Float`
-  are all errors), so a small-integer fast path has to be hand-written.
+  Float <-> integer (SL-927) takes the integer conversions' two spellings:
+  `f as Int8` TRUNCATES toward zero and PANICS on NaN, an infinity, or a
+  truncated value the width cannot hold (`127.5 as Int8` is 127, `-0.9 as UInt`
+  is 0, `-1.0 as UInt` and `9223372036854775807.0 as Int64` panic — that
+  literal IS 2^63); `Int8.from(f) -> Int8?` is `None` exactly there. `n as
+  Float` always succeeds, rounding past 2^53; `Float.from(n) -> Float?` is
+  `None` when `n` has no exact Float (`Float.from(2^53 + 1)`). No
+  `from(truncating:)` takes a Float. `Float.from(x)` UNLABELED is the
+  conversion and only `Float.from(bits:)` reinterprets, so never drop that
+  label. A constant operand panics at run time, not compile time (SL-937).
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
   `Command` spawns a real ARGV — no shell, ever (design 122): one `arg(..)` call
   is exactly one argv element, so spaces, quotes, `;`, `*` and `$VAR` inside an

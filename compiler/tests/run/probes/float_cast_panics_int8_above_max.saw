@@ -1,0 +1,19 @@
+// probe: panics
+// about: `f as Int8` panics on `Int8.max + 1`, naming the value, so no out-of-range `fptosi`/`fptoui` runs (SL-927)
+// stage 0: not run; the Float conversion rule is SL-927's, which v0.18.0 predates
+// speeds: -O0 -O2
+// prints: before
+// panics: cast to Int8 out of range: 128.0
+// The program renders no other Float, so the panic's rendering is rooted by
+// the cast alone.
+
+func held(v: Float) -> Float {
+    v
+}
+
+func main() {
+    let f = held(v: 128.0)
+    print("before")
+    let n = f as Int8
+    print("unreachable {}", n)
+}

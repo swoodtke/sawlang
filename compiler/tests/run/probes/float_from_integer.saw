@@ -1,0 +1,84 @@
+// probe: stated
+// about: `Float.from(i)` is `None` exactly when the integer has no exact Float, at every width, and `i as Float` rounds to nearest; an unlabeled `UInt64` converts, never reinterprets (SL-927)
+// stage 0: not run; the Float conversion rule is SL-927's, which v0.18.0 predates
+// speeds: -O0 -O2
+// prints: Int8 -128 Some -128.0
+// prints: Int8 127 Some 127.0
+// prints: UInt8 255 Some 255.0
+// prints: Int16 -32768 Some -32768.0
+// prints: UInt16 65535 Some 65535.0
+// prints: Int32 -2147483648 Some -2147483648.0
+// prints: UInt32 4294967295 Some 4294967295.0
+// prints: Int 2^53 Some 9007199254740992.0
+// prints: Int 2^53+1 None
+// prints: Int -2^53 Some -9007199254740992.0
+// prints: Int -(2^53+1) None
+// prints: Int.max None
+// prints: Int64 max None
+// prints: Int64 min Some -9.223372036854776e+18
+// prints: Int64 below 2^63 Some 9.223372036854775e+18
+// prints: UInt64 max None
+// prints: UInt.max None
+// prints: UInt64 2^63 Some 9.223372036854776e+18
+// prints: UInt64 below 2^64 Some 1.844674407370955e+19
+// prints: UInt64 one's bits Some 4.6071824188000174e+18
+// prints: from(bits:) 1.0
+// prints: Int constant 2^53+1 None
+// prints: as 2^53+1 9007199254740992.0
+// prints: as 2^53+3 9007199254740996.0
+// prints: as Int64.max 9.223372036854776e+18
+// prints: as Int64.min -9.223372036854776e+18
+// prints: as UInt64.max 1.8446744073709552e+19
+// prints: as Int8 -128 -128.0
+// prints: as UInt8 200 200.0
+// prints: as Byte 65 65.0
+// The exactness test converts and converts back; `Int64.max` and
+// `UInt64.max` round up to 2^63 and 2^64, which the way back must not reach.
+// `as` rounds ties to even, so 2^53+1 is 2^53 and 2^53+3 is 2^53+4.
+
+func show<T: Printable>(label: String, v: T?) {
+    if let x = v {
+        print("{} Some {}", label, x)
+    } else {
+        print("{} None", label)
+    }
+}
+
+func main() {
+    let two53: Int = 9007199254740992
+    let bits: UInt64 = 4607182418800017408
+    show(label: "Int8 -128", v: Float.from(Int8.min))
+    show(label: "Int8 127", v: Float.from(Int8.max))
+    show(label: "UInt8 255", v: Float.from(UInt8.max))
+    show(label: "Int16 -32768", v: Float.from(Int16.min))
+    show(label: "UInt16 65535", v: Float.from(UInt16.max))
+    show(label: "Int32 -2147483648", v: Float.from(Int32.min))
+    show(label: "UInt32 4294967295", v: Float.from(UInt32.max))
+    show(label: "Int 2^53", v: Float.from(two53))
+    show(label: "Int 2^53+1", v: Float.from(two53 + 1))
+    show(label: "Int -2^53", v: Float.from(0 - two53))
+    show(label: "Int -(2^53+1)", v: Float.from(0 - two53 - 1))
+    show(label: "Int.max", v: Float.from(Int.max))
+    show(label: "Int64 max", v: Float.from(Int64.max))
+    show(label: "Int64 min", v: Float.from(Int64.min))
+    show(label: "Int64 below 2^63", v: Float.from(Int64.max - 1023))
+    show(label: "UInt64 max", v: Float.from(UInt64.max))
+    show(label: "UInt.max", v: Float.from(UInt.max))
+    let half: UInt64 = 9223372036854775808
+    show(label: "UInt64 2^63", v: Float.from(half))
+    show(label: "UInt64 below 2^64", v: Float.from(UInt64.max - 2047))
+    show(label: "UInt64 one's bits", v: Float.from(bits))
+    print("from(bits:) {}", Float.from(bits: bits))
+    show(label: "Int constant 2^53+1", v: Float.from(9007199254740993))
+    print("as 2^53+1 {}", (two53 + 1) as Float)
+    print("as 2^53+3 {}", (two53 + 3) as Float)
+    print("as Int64.max {}", Int64.max as Float)
+    print("as Int64.min {}", Int64.min as Float)
+    print("as UInt64.max {}", UInt64.max as Float)
+    let small: Int8 = -128
+    let byte: UInt8 = 200
+    let letter: Byte = 65
+    print("as Int8 -128 {}", small as Float)
+    print("as UInt8 200 {}", byte as Float)
+    print("as Byte 65 {}", letter as Float)
+}

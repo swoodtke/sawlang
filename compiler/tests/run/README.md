@@ -288,12 +288,13 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   can lose its value checks that it fits and names the value; a forced payload
   checks its case. Each panics with Stage 0's wording, `panic at FILE:LINE:
   REASON` (design 122), through the panic sink.
-- **Partial conversions.** An integer's `from` and a raw-backed enum's
-  `from(raw:)` are one funnel, `partial_into` in `compiler/llvm/src/ops.saw`,
+- **Partial conversions.** An integer's `from`, `Float.from` and a raw-backed
+  enum's `from(raw:)` are one funnel, `partial_into` in `compiler/llvm/src/ops.saw`,
   each writing `Some` of the value or `None`. The spelling picks the test,
   never the payload's layout, since a raw-backed enum is laid out as its
   backing integer: `from` is present when the value's round trip through the
-  target is itself and no sign is lost; `from(raw:)` when a `switch` over the
+  target is itself and no sign is lost (a Float on either side: "Floats",
+  below); `from(raw:)` when a `switch` over the
   enum's case tags, the ones a `match` compares, finds the value widened as a
   stored tag is (`tag_word` in `compiler/llvm/src/places.saw`). The switch is
   exact, so a gap between declared values, a negative raw and either extreme
@@ -372,7 +373,23 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   `fneg`, so `-x` of `0.0` is `-0.0`. The comparisons are `fcmp oeq`, `une`,
   `olt`, `ole`, `ogt` and `oge`, so every one involving a NaN is false but
   `!=`. `float_constants`, `float_operators` and `float_equality` pin each
-  constant position, operator and value class. A Float's synthesized hooks
+  constant position, operator and value class. `n as Float` is `sitofp` or
+  `uitofp`. `f as T` into an integer checks `f` against the open interval
+  (min - 1, max + 1), each bound an exact double (`float_in_range` in
+  `compiler/llvm/src/ops.saw`: at 64 bits the top is 2^63 or 2^64, strict,
+  and the signed bottom `f >= min`), so NaN and the infinities fail too, and
+  only then runs `fptosi`/`fptoui`, whose out-of-range result is poison; a
+  failure panics `cast to T out of range: ` and the Float rendered as a format
+  argument is, whose rendering mono roots for the cast (`need_float_render`,
+  which also roots a constant Float format argument's). In `partial_into`,
+  `T.from(f)` is that test with an out-of-range `f` replaced by `0.0` before
+  the truncation, and `Float.from(n)` converts, converts back through the same
+  guard and compares (SL-927). `float_to_integer_cast`,
+  `float_to_integer_from`, `float_from_integer`, the `float_cast_panics_*`
+  probes (one per failing class, a constant among them, each in a program
+  rendering no other Float) and `print_constant_float`,
+  `panic_constant_float_argument` and `assert_constant_float_argument` pin
+  them at -O0 and -O2. A Float's synthesized hooks
   (`compiler/tests/mono/README.md`, "Member glue") answer as Stage 0's:
   `float_hook_copy`, `float_hook_equals`, `float_hook_compare` and
   `float_hook_hash` pin each over the two zeros, a NaN and the infinities,
