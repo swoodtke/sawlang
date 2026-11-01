@@ -287,6 +287,9 @@ public struct TcProgram {
     // `borrows` member (SL:borrowing §12.4); -1 outside them.
     lend_head: Int
     place_wanted: Int
+    // The optional chain a `None` comparison is testing, which reads its top
+    // for the tag alone rather than copying it out; -1 outside one.
+    presence_chain: Int
     known: TcKnown
     // The module and declaration being built, and what `Self` and the
     // enclosing extension are there.
@@ -643,7 +646,7 @@ public func tc_program(res: ResProgram, target: TcTarget) -> TcProgram {
                       member_count: move counts, tiers: Vector<TcTier>(),
                       obligations: Vector<TcObligation>(), obligations_checked: -1, func_nodes: Vector<Int>(), keep_escaping: false,
                       diags: Vector<TcDiag>(), warnings: Vector<TcWarning>(), lend_tops: Vector<Int>(),
-                      lend_heads: Vector<Bool>(), chosen_pair: -1, lend_head: -1, place_wanted: -1, known: known, current: -1, current_decl: -1,
+                      lend_heads: Vector<Bool>(), chosen_pair: -1, lend_head: -1, place_wanted: -1, presence_chain: -1, known: known, current: -1, current_decl: -1,
                       current_trait: -1, current_ext: -1, current_self: -1, current_test: false,
                       error_type: -1,
                       walks: tc_memo(), holds: tc_memo(), skipped: Vector<Int>(), string_positions: Vector<Int>(),

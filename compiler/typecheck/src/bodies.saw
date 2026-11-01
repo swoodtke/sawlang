@@ -3490,6 +3490,36 @@ extension TcProgram {
         self.has_alt(e, Alt.Expr_None)
     }
 
+    // THE NONE-COMPARISON FUNNEL: comparison `e`, an `==` or `!=` with the
+    // `None` literal on exactly one side, gives the other operand (a child of
+    // `e`, maybe parenthesized), or -1. When that operand is an Optional the
+    // comparison is a presence test (spec, Equality): it needs no
+    // `Equatable` of the payload and reads the tag alone, so the operand is
+    // borrowed and neither copied nor moved, a chain's top included.
+    //
+    // ENTRY POINTS (none_compared):
+    //     compare_expr
+    //     whole_optional_use
+    //     MirProgram.presence_operand
+    public func none_compared(&self, e: Int) -> Int {
+        if not self.has_alt(e, Alt.Expr_Compare_Pair) {
+            return -1
+        }
+        let m = self.node_module(e)
+        let op = self.text(m, self.res.first_leaf(e))
+        if not op.equals("==") && not op.equals("!=") {
+            return -1
+        }
+        let left = self.res.first_node_child(e)
+        let right = self.res.last_node_child(e)
+        let none_left = self.is_none_literal(self.unparen(left))
+        let none_right = self.is_none_literal(self.unparen(right))
+        if none_left == none_right {
+            return -1
+        }
+        if none_right { left } else { right }
+    }
+
     // An interpolated string, whose segments are formatted: each is
     // Printable or a primitive, and is borrowed.
     func interpolation(&var self, e: Int) -> Int {
@@ -3796,7 +3826,9 @@ extension TcProgram {
     // on the path where every hop is present, and `None` where one is absent:
     // `U?`, or the top's own type when that is already an Optional, never
     // `U??`. A final field is copied out, so it must copy silently whatever
-    // the base (spec, Optionals, "a final FIELD projection copies its value").
+    // the base (spec, Optionals, "a final FIELD projection copies its value"),
+    // unless the chain is a `None` comparison's tested operand, which reads
+    // the top's tag in place (`presence_chain`).
     //
     // ENTRY POINTS (optional_chain):
     //     expr
@@ -3817,14 +3849,17 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         let field = self.has_alt(top, Alt.Expr_Member) || self.has_alt(top, Alt.Expr_OptionalMember)
-        if field && not self.copies_silently(ft) {
+        if e == self.presence_chain {
+            self.set_use(top, TcUse.Borrow)
+        } else if field && not self.copies_silently(ft) {
             let u = self.by_value_use(top)
             self.set_use(top, u)
             self.refuse_chain_field(top, ft)
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
+        } else {
+            self.consume(top)
         }
-        self.consume(top)
         let t = if self.is_optional(ft) { ft } else { self.mk_optional(ft) }
         self.set_type(e, t, false)
     }
@@ -4576,26 +4611,39 @@ extension TcProgram {
     // `a == b` and the other comparisons. The operand that types itself
     // goes first, and the other expects its type (the funnel's mixed-operand
     // entry); both are borrowed, since a comparison's operands are references.
+    // A `None` comparison of an Optional is a presence test, which asks
+    // nothing of the payload (`none_compared`).
     func compare_expr(&var self, e: Int) -> Int {
         let left = self.res.first_node_child(e)
         let right = self.res.last_node_child(e)
         let spelling = self.operators_text(e)
         var t = -1
+        let tested = self.none_compared(e)
+        let saved = self.presence_chain
+        if tested >= 0 {
+            self.presence_chain = self.unparen(tested)
+        }
         let left_peer = self.needs_expectation(left)
         let right_peer = self.needs_expectation(right)
         if left_peer && not right_peer {
             let _ = self.expr(right, TC_WANT_NONE)
             t = self.through_refs(right)
+            self.presence_chain = saved
             let _ = self.check_compared(left, t)
         } else {
             let _ = self.expr(left, TC_WANT_NONE)
             t = self.through_refs(left)
+            self.presence_chain = saved
             let _ = self.check_compared(right, t)
         }
         self.set_use(left, TcUse.Borrow)
         self.set_use(right, TcUse.Borrow)
         let b = self.bool_type()
         if self.has_error(t) {
+            return self.set_type(e, b, false)
+        }
+        if tested >= 0 && self.is_optional(t) {
+            self.record_builtin(e, -1, TcRole.BuiltinOperator, spelling)
             return self.set_type(e, b, false)
         }
         let equality = spelling.equals("==") || spelling.equals("!=")
@@ -12560,7 +12608,7 @@ extension TcProgram {
     // alone, at every copy tier; any other read copies the place out as an
     // Optional, so its payload must copy silently. A spelled `.copy()` is
     // `check_builtin_copy`'s, and a by-value read the transfer checks'. MIR
-    // lowers what it accepts (`lent_presence`, `lent_optional_copy`).
+    // lowers what it accepts (`presence_test`, `lent_optional_copy`).
     //
     // ENTRY POINTS (`whole_optional_use`, by the place's consumer):
     //     a method's receiver: `is_some`/`is_none` test, an exclusive one writes, a shared one reads
@@ -12635,12 +12683,7 @@ extension TcProgram {
             return TcWholeUse.Referenced
         }
         if self.has_alt(p, Alt.Expr_Compare_Pair) {
-            let left = self.res.first_node_child(p)
-            let other = if left == q { self.res.last_node_child(p) } else { left }
-            let m = self.node_module(p)
-            let op = self.text(m, self.res.first_leaf(p))
-            let equality = op.equals("==") || op.equals("!=")
-            if equality && self.is_none_literal(self.unparen(other)) {
+            if self.none_compared(p) == q {
                 return TcWholeUse.Presence
             }
             return TcWholeUse.Compared

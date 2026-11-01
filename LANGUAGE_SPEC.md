@@ -8157,6 +8157,12 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   struct/enum whose fields/payloads are `T?` or `[T; N]` (with `T: Equatable`)
   conforms; auto-conformance is still trivial-only. A genuinely non-Equatable
   member remains a clean error at the comparison site.
+- **Comparing an `Optional` with the `None` literal is a presence test**
+  (`x == None`, `x != None`, either order). It needs no `Equatable` on the
+  payload, reads only whether a value is present, and neither copies nor moves
+  the payload, whatever spells `x`: a local, a field, a call's result, a
+  conditional lend, an optional chain, or a `T?` in a generic body with `T`
+  unbounded. Comparing two `Optional` values still needs `T: Equatable`.
 - `a == b` on a conforming user type lowers to its `equals`; primitives keep
   direct `icmp`/`fcmp`. `!=` is always the negation of `==`. `String ==` is
   content equality. **Float keeps IEEE semantics** — `NaN != NaN`.

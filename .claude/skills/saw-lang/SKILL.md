@@ -2066,7 +2066,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   Comparable requires Equatable (no auto, so EVERY Comparable conformance is
   written and every derived one is marked). Hashable mirrors Equatable.
   Printable: hand-written `format` (no synthesis).
-  A derived `Equatable`/`Comparable`/`Hashable` over a member that does not conform compiles until something reaches it (`==`, `<`, a `Map` key, a bound, an Optional's `== None`), and the error, `synthesize.unmet-member`, lands at that use naming the member and its type (SL-941).
+  A derived `Equatable`/`Comparable`/`Hashable` over a member that does not conform compiles until something reaches it (`==`, `<`, a `Map` key, a bound, an Optional's `==` against another Optional), and the error, `synthesize.unmet-member`, lands at that use naming the member and its type (SL-941).
 - **`Self` works in an extension signature, at every position and on a GENERIC
   extension too** (DF-216f, DF-216r): a parameter, a return, and nested in
   either (`&Self`, `Self?`, `Vector<Self>`, `(Self, Int)`). Inside
@@ -4881,6 +4881,13 @@ construct in the owner and lend `&driver` down.
   until the `}` and it is `loan.window-root` ("`x` now holds `m.find(&k)`'s
   place for this block…"). Copy it out first, `let x = m.find(&k)`, or move
   the root's use out of the block.
+- **`x == None` is a presence test, and needs no `Equatable`** (SL-945). So are
+  `x != None`, `None == x` and `None != x`: they read the tag alone, on any
+  Optional and any spelling of `x` (a local, a field, a call, a lend, a chain,
+  a `T?` with `T` unbounded), and neither copy nor move the payload, so a
+  `File?` or a `Vector<Int>?` compares with `None` as an `Int?` does. Comparing
+  two Optionals (`x == y`, or `x == v` with `v` a payload) still needs
+  `T: Equatable`.
 - **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
   `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
   `case Empty` or `case Occupied(_)` look at the discriminant through the

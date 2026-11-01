@@ -1,0 +1,669 @@
+// probe: stated
+// about: comparing an Optional with the `None` literal (`x == None`, `x != None`, `None == x`, `None != x`) is a presence test: it needs no `Equatable` on the payload, reads the tag alone, and neither copies nor moves the payload, on every spelling of `x` (SL-945)
+// stage 0: refuses a `borrows` call written without `borrow`
+// speeds: -O0 -O2
+// leaks: none
+// prints: local int false true false true | true false true false
+// prints: local plain false true false true | true false true false
+// prints:   after p
+// prints: local unmet false true false true | true false true false
+// prints: local nocopy false true false true | true false true false
+// prints:   after 4
+// prints: drop res 4
+// prints: local explicit false true false true | true false true false
+// prints:   after 5
+// prints: drop dup 5
+// prints: field int false true false true | true false true false
+// prints: field plain false true false true | true false true false
+// prints:   after p
+// prints: field unmet false true false true | true false true false
+// prints: field nocopy false true false true | true false true false
+// prints:   after 9
+// prints: drop res 9
+// prints: field explicit false true false true | true false true false
+// prints:   after 10
+// prints: drop dup 10
+// prints: call int false true false true | true false true false
+// prints: call plain false true false true | true false true false
+// prints: call unmet false true false true | true false true false
+// prints: call nocopy false true false true | true false true false
+// prints: drop res 14
+// prints: drop res 14
+// prints: drop res 14
+// prints: drop res 14
+// prints: call explicit false true false true | true false true false
+// prints: drop dup 15
+// prints: drop dup 15
+// prints: drop dup 15
+// prints: drop dup 15
+// prints: lend int false true false true | true false true false
+// prints: lend plain false true false true | true false true false
+// prints:   after p
+// prints: lend unmet false true false true | true false true false
+// prints: lend nocopy false true false true | true false true false
+// prints:   after 19
+// prints: drop res 19
+// prints: lend explicit false true false true | true false true false
+// prints:   after 20
+// prints: drop dup 20
+// prints: chain int false true false true | true false true false
+// prints: chain plain false true false true | true false true false
+// prints:   after p
+// prints: chain unmet false true false true | true false true false
+// prints: chain nocopy false true false true | true false true false
+// prints:   after 24
+// prints: drop res 24
+// prints: chain explicit false true false true | true false true false
+// prints:   after 25
+// prints: drop dup 25
+// prints: nested int false true false true | true false true false
+// prints: nested plain false true false true | true false true false
+// prints: nested unmet false true false true | true false true false
+// prints: nested nocopy false true false true | true false true false
+// prints: nested explicit false true false true | true false true false
+// prints: generic int false true false true | true false true false
+// prints: generic plain false true false true | true false true false
+// prints:   after p
+// prints: generic unmet false true false true | true false true false
+// prints: generic nocopy false true false true | true false true false
+// prints:   after 34
+// prints: drop res 34
+// prints: generic explicit false true false true | true false true false
+// prints:   after 35
+// prints: drop dup 35
+// prints: suspend int false true false true | true false true false
+// prints: suspend plain false true false true | true false true false
+// prints: suspend unmet false true false true | true false true false
+// prints: suspend nocopy false true false true | true false true false
+// prints: drop res 39
+// prints: drop res 39
+// prints: drop res 39
+// prints: drop res 39
+// prints: suspend explicit false true false true | true false true false
+// prints: drop dup 40
+// prints: drop dup 40
+// prints: drop dup 40
+// prints: drop dup 40
+// prints: local positions true true false true
+// prints:   after 41
+// prints: drop res 41
+// prints: field positions true true false true
+// prints:   after 42
+// prints: drop res 42
+// prints: drop res 43
+// prints: drop res 43
+// prints: drop res 43
+// prints: drop res 43
+// prints: drop res 43
+// prints: call positions true true false true
+// prints: lend positions true true false true
+// prints:   after 44
+// prints: drop res 44
+// prints: chain positions true true false true
+// prints:   after 45
+// prints: drop res 45
+// prints: nested positions true true false true
+// prints: generic positions true true false true
+// prints:   after 47
+// prints: drop res 47
+// prints: drop res 48
+// prints: drop res 48
+// prints: drop res 48
+// prints: drop res 48
+// prints: drop res 48
+// prints: suspend positions true true false true
+// prints: pin field false true
+// prints: pin payload false true
+
+import std.task.*
+
+// No `Equatable` at all.
+struct Plain {
+    s: String
+}
+
+enum Opaque {
+    case Some(n: Int),
+    case Other
+}
+
+// A derived `Equatable` over a member that does not conform, at a field and
+// at a case's payload: nothing here reaches it.
+struct Holder {
+    x: Opaque
+}
+
+@synthesize
+extension Holder: Equatable {}
+
+enum Boxed {
+    case Full(x: Opaque),
+    case Empty
+}
+
+@synthesize
+extension Boxed: Equatable {}
+
+struct Res {
+    id: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("drop res {}", self.id)
+    }
+}
+
+// A copy would print.
+struct Dup {
+    id: Int
+}
+
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup {
+        print("copy dup {}", self.id)
+        Dup(id: self.id)
+    }
+
+    func deinit(&var self) {
+        print("drop dup {}", self.id)
+    }
+}
+
+struct Field<T> {
+    f: T?
+}
+
+extension Field<T>: NoCopy {}
+
+func give<T>(v: T?) -> T? {
+    v
+}
+
+func slow<T>(v: T?) -> T? {
+    yield_now()
+    v
+}
+
+func generic_row<T>(label: String, x: &T?, y: &T?) {
+    print("{} {} {} {} {} | {} {} {} {}", label, x == None, x != None, None == x, None != x,
+          y == None, y != None, None == y, None != y)
+}
+
+func row_local_int() {
+    let x: Int? = 5
+    let y: Int? = None
+    print("local int {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_local_plain() {
+    let x: Plain? = Plain(s: "p")
+    let y: Plain? = None
+    print("local plain {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+    print("  after {}", x!.s)
+}
+
+func row_local_unmet() {
+    let x: Holder? = Holder(x: Opaque.Other)
+    let y: Holder? = None
+    print("local unmet {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_local_nocopy() {
+    let x: Res? = Res(id: 4)
+    let y: Res? = None
+    print("local nocopy {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+    print("  after {}", x!.id)
+}
+
+func row_local_explicit() {
+    let x: Dup? = Dup(id: 5)
+    let y: Dup? = None
+    print("local explicit {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+    print("  after {}", x!.id)
+}
+
+func row_field_int() {
+    let s = Field<Int>(f: 5)
+    let e = Field<Int>(f: None)
+    print("field int {} {} {} {} | {} {} {} {}", s.f == None, s.f != None, None == s.f, None != s.f, e.f == None, e.f != None, None == e.f, None != e.f)
+}
+
+func row_field_plain() {
+    let s = Field<Plain>(f: Plain(s: "p"))
+    let e = Field<Plain>(f: None)
+    print("field plain {} {} {} {} | {} {} {} {}", s.f == None, s.f != None, None == s.f, None != s.f, e.f == None, e.f != None, None == e.f, None != e.f)
+    print("  after {}", s.f!.s)
+}
+
+func row_field_unmet() {
+    let s = Field<Holder>(f: Holder(x: Opaque.Other))
+    let e = Field<Holder>(f: None)
+    print("field unmet {} {} {} {} | {} {} {} {}", s.f == None, s.f != None, None == s.f, None != s.f, e.f == None, e.f != None, None == e.f, None != e.f)
+}
+
+func row_field_nocopy() {
+    let s = Field<Res>(f: Res(id: 9))
+    let e = Field<Res>(f: None)
+    print("field nocopy {} {} {} {} | {} {} {} {}", s.f == None, s.f != None, None == s.f, None != s.f, e.f == None, e.f != None, None == e.f, None != e.f)
+    print("  after {}", s.f!.id)
+}
+
+func row_field_explicit() {
+    let s = Field<Dup>(f: Dup(id: 10))
+    let e = Field<Dup>(f: None)
+    print("field explicit {} {} {} {} | {} {} {} {}", s.f == None, s.f != None, None == s.f, None != s.f, e.f == None, e.f != None, None == e.f, None != e.f)
+    print("  after {}", s.f!.id)
+}
+
+func row_call_int() {
+    print("call int {} {} {} {} | {} {} {} {}", give<Int>(5) == None, give<Int>(5) != None, None == give<Int>(5), None != give<Int>(5), give<Int>(None) == None, give<Int>(None) != None, None == give<Int>(None), None != give<Int>(None))
+}
+
+func row_call_plain() {
+    print("call plain {} {} {} {} | {} {} {} {}", give<Plain>(Plain(s: "p")) == None, give<Plain>(Plain(s: "p")) != None, None == give<Plain>(Plain(s: "p")), None != give<Plain>(Plain(s: "p")), give<Plain>(None) == None, give<Plain>(None) != None, None == give<Plain>(None), None != give<Plain>(None))
+}
+
+func row_call_unmet() {
+    print("call unmet {} {} {} {} | {} {} {} {}", give<Holder>(Holder(x: Opaque.Other)) == None, give<Holder>(Holder(x: Opaque.Other)) != None, None == give<Holder>(Holder(x: Opaque.Other)), None != give<Holder>(Holder(x: Opaque.Other)), give<Holder>(None) == None, give<Holder>(None) != None, None == give<Holder>(None), None != give<Holder>(None))
+}
+
+func row_call_nocopy() {
+    print("call nocopy {} {} {} {} | {} {} {} {}", give<Res>(Res(id: 14)) == None, give<Res>(Res(id: 14)) != None, None == give<Res>(Res(id: 14)), None != give<Res>(Res(id: 14)), give<Res>(None) == None, give<Res>(None) != None, None == give<Res>(None), None != give<Res>(None))
+}
+
+func row_call_explicit() {
+    print("call explicit {} {} {} {} | {} {} {} {}", give<Dup>(Dup(id: 15)) == None, give<Dup>(Dup(id: 15)) != None, None == give<Dup>(Dup(id: 15)), None != give<Dup>(Dup(id: 15)), give<Dup>(None) == None, give<Dup>(None) != None, None == give<Dup>(None), None != give<Dup>(None))
+}
+
+func row_lend_int() {
+    var v = Vector<Int>()
+    try! v.push(5)
+    print("lend int {} {} {} {} | {} {} {} {}", v.find(0) == None, v.find(0) != None, None == v.find(0), None != v.find(0), v.find(9) == None, v.find(9) != None, None == v.find(9), None != v.find(9))
+}
+
+func row_lend_plain() {
+    var v = Vector<Plain>()
+    try! v.push(Plain(s: "p"))
+    print("lend plain {} {} {} {} | {} {} {} {}", v.find(0) == None, v.find(0) != None, None == v.find(0), None != v.find(0), v.find(9) == None, v.find(9) != None, None == v.find(9), None != v.find(9))
+    print("  after {}", v[0].s)
+}
+
+func row_lend_unmet() {
+    var v = Vector<Holder>()
+    try! v.push(Holder(x: Opaque.Other))
+    print("lend unmet {} {} {} {} | {} {} {} {}", v.find(0) == None, v.find(0) != None, None == v.find(0), None != v.find(0), v.find(9) == None, v.find(9) != None, None == v.find(9), None != v.find(9))
+}
+
+func row_lend_nocopy() {
+    var v = Vector<Res>()
+    try! v.push(Res(id: 19))
+    print("lend nocopy {} {} {} {} | {} {} {} {}", v.find(0) == None, v.find(0) != None, None == v.find(0), None != v.find(0), v.find(9) == None, v.find(9) != None, None == v.find(9), None != v.find(9))
+    print("  after {}", v[0].id)
+}
+
+func row_lend_explicit() {
+    var v = Vector<Dup>()
+    try! v.push(Dup(id: 20))
+    print("lend explicit {} {} {} {} | {} {} {} {}", v.find(0) == None, v.find(0) != None, None == v.find(0), None != v.find(0), v.find(9) == None, v.find(9) != None, None == v.find(9), None != v.find(9))
+    print("  after {}", v[0].id)
+}
+
+func row_chain_int() {
+    let a: Field<Int>? = Field<Int>(f: 5)
+    let n: Field<Int>? = None
+    print("chain int {} {} {} {} | {} {} {} {}", a?.f == None, a?.f != None, None == a?.f, None != a?.f, n?.f == None, n?.f != None, None == n?.f, None != n?.f)
+}
+
+func row_chain_plain() {
+    let a: Field<Plain>? = Field<Plain>(f: Plain(s: "p"))
+    let n: Field<Plain>? = None
+    print("chain plain {} {} {} {} | {} {} {} {}", a?.f == None, a?.f != None, None == a?.f, None != a?.f, n?.f == None, n?.f != None, None == n?.f, None != n?.f)
+    print("  after {}", a!.f!.s)
+}
+
+func row_chain_unmet() {
+    let a: Field<Holder>? = Field<Holder>(f: Holder(x: Opaque.Other))
+    let n: Field<Holder>? = None
+    print("chain unmet {} {} {} {} | {} {} {} {}", a?.f == None, a?.f != None, None == a?.f, None != a?.f, n?.f == None, n?.f != None, None == n?.f, None != n?.f)
+}
+
+func row_chain_nocopy() {
+    let a: Field<Res>? = Field<Res>(f: Res(id: 24))
+    let n: Field<Res>? = None
+    print("chain nocopy {} {} {} {} | {} {} {} {}", a?.f == None, a?.f != None, None == a?.f, None != a?.f, n?.f == None, n?.f != None, None == n?.f, None != n?.f)
+    print("  after {}", a!.f!.id)
+}
+
+func row_chain_explicit() {
+    let a: Field<Dup>? = Field<Dup>(f: Dup(id: 25))
+    let n: Field<Dup>? = None
+    print("chain explicit {} {} {} {} | {} {} {} {}", a?.f == None, a?.f != None, None == a?.f, None != a?.f, n?.f == None, n?.f != None, None == n?.f, None != n?.f)
+    print("  after {}", a!.f!.id)
+}
+
+func row_nested_int() {
+    let x: Int?? = Optional<Int?>.Some(value: None)
+    let y: Int?? = None
+    print("nested int {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_nested_plain() {
+    let x: Plain?? = Optional<Plain?>.Some(value: None)
+    let y: Plain?? = None
+    print("nested plain {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_nested_unmet() {
+    let x: Holder?? = Optional<Holder?>.Some(value: None)
+    let y: Holder?? = None
+    print("nested unmet {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_nested_nocopy() {
+    let x: Res?? = Optional<Res?>.Some(value: None)
+    let y: Res?? = None
+    print("nested nocopy {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_nested_explicit() {
+    let x: Dup?? = Optional<Dup?>.Some(value: None)
+    let y: Dup?? = None
+    print("nested explicit {} {} {} {} | {} {} {} {}", x == None, x != None, None == x, None != x, y == None, y != None, None == y, None != y)
+}
+
+func row_generic_int() {
+    let x: Int? = 5
+    let y: Int? = None
+    generic_row("generic int", &x, &y)
+}
+
+func row_generic_plain() {
+    let x: Plain? = Plain(s: "p")
+    let y: Plain? = None
+    generic_row("generic plain", &x, &y)
+    print("  after {}", x!.s)
+}
+
+func row_generic_unmet() {
+    let x: Holder? = Holder(x: Opaque.Other)
+    let y: Holder? = None
+    generic_row("generic unmet", &x, &y)
+}
+
+func row_generic_nocopy() {
+    let x: Res? = Res(id: 34)
+    let y: Res? = None
+    generic_row("generic nocopy", &x, &y)
+    print("  after {}", x!.id)
+}
+
+func row_generic_explicit() {
+    let x: Dup? = Dup(id: 35)
+    let y: Dup? = None
+    generic_row("generic explicit", &x, &y)
+    print("  after {}", x!.id)
+}
+
+func row_suspend_int() {
+    print("suspend int {} {} {} {} | {} {} {} {}", slow<Int>(5) == None, slow<Int>(5) != None, None == slow<Int>(5), None != slow<Int>(5), slow<Int>(None) == None, slow<Int>(None) != None, None == slow<Int>(None), None != slow<Int>(None))
+}
+
+func row_suspend_plain() {
+    print("suspend plain {} {} {} {} | {} {} {} {}", slow<Plain>(Plain(s: "p")) == None, slow<Plain>(Plain(s: "p")) != None, None == slow<Plain>(Plain(s: "p")), None != slow<Plain>(Plain(s: "p")), slow<Plain>(None) == None, slow<Plain>(None) != None, None == slow<Plain>(None), None != slow<Plain>(None))
+}
+
+func row_suspend_unmet() {
+    print("suspend unmet {} {} {} {} | {} {} {} {}", slow<Holder>(Holder(x: Opaque.Other)) == None, slow<Holder>(Holder(x: Opaque.Other)) != None, None == slow<Holder>(Holder(x: Opaque.Other)), None != slow<Holder>(Holder(x: Opaque.Other)), slow<Holder>(None) == None, slow<Holder>(None) != None, None == slow<Holder>(None), None != slow<Holder>(None))
+}
+
+func row_suspend_nocopy() {
+    print("suspend nocopy {} {} {} {} | {} {} {} {}", slow<Res>(Res(id: 39)) == None, slow<Res>(Res(id: 39)) != None, None == slow<Res>(Res(id: 39)), None != slow<Res>(Res(id: 39)), slow<Res>(None) == None, slow<Res>(None) != None, None == slow<Res>(None), None != slow<Res>(None))
+}
+
+func row_suspend_explicit() {
+    print("suspend explicit {} {} {} {} | {} {} {} {}", slow<Dup>(Dup(id: 40)) == None, slow<Dup>(Dup(id: 40)) != None, None == slow<Dup>(Dup(id: 40)), None != slow<Dup>(Dup(id: 40)), slow<Dup>(None) == None, slow<Dup>(None) != None, None == slow<Dup>(None), None != slow<Dup>(None))
+}
+
+func positions_local() {
+    let x: Res? = Res(id: 41)
+    let y: Res? = None
+    var i = false
+    if x == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while x != None {
+        w = true
+        break
+    }
+    guard x != None else {
+        print("local positions: guard failed")
+        return
+    }
+    let b = x == None
+    print("local positions {} {} {} {}", i, w, b, true && x != None)
+    print("  after {}", x!.id)
+}
+
+func positions_field() {
+    let s = Field<Res>(f: Res(id: 42))
+    let e = Field<Res>(f: None)
+    var i = false
+    if s.f == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while s.f != None {
+        w = true
+        break
+    }
+    guard s.f != None else {
+        print("field positions: guard failed")
+        return
+    }
+    let b = s.f == None
+    print("field positions {} {} {} {}", i, w, b, true && s.f != None)
+    print("  after {}", s.f!.id)
+}
+
+func positions_call() {
+    var i = false
+    if give<Res>(Res(id: 43)) == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while give<Res>(Res(id: 43)) != None {
+        w = true
+        break
+    }
+    guard give<Res>(Res(id: 43)) != None else {
+        print("call positions: guard failed")
+        return
+    }
+    let b = give<Res>(Res(id: 43)) == None
+    print("call positions {} {} {} {}", i, w, b, true && give<Res>(Res(id: 43)) != None)
+}
+
+func positions_lend() {
+    var v = Vector<Res>()
+    try! v.push(Res(id: 44))
+    var i = false
+    if v.find(0) == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while v.find(0) != None {
+        w = true
+        break
+    }
+    guard v.find(0) != None else {
+        print("lend positions: guard failed")
+        return
+    }
+    let b = v.find(0) == None
+    print("lend positions {} {} {} {}", i, w, b, true && v.find(0) != None)
+    print("  after {}", v[0].id)
+}
+
+func positions_chain() {
+    let a: Field<Res>? = Field<Res>(f: Res(id: 45))
+    let n: Field<Res>? = None
+    var i = false
+    if a?.f == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while a?.f != None {
+        w = true
+        break
+    }
+    guard a?.f != None else {
+        print("chain positions: guard failed")
+        return
+    }
+    let b = a?.f == None
+    print("chain positions {} {} {} {}", i, w, b, true && a?.f != None)
+    print("  after {}", a!.f!.id)
+}
+
+func positions_nested() {
+    let x: Res?? = Optional<Res?>.Some(value: None)
+    let y: Res?? = None
+    var i = false
+    if x == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while x != None {
+        w = true
+        break
+    }
+    guard x != None else {
+        print("nested positions: guard failed")
+        return
+    }
+    let b = x == None
+    print("nested positions {} {} {} {}", i, w, b, true && x != None)
+}
+
+func generic_positions<T>(x: &T?) {
+    var i = false
+    if x == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while x != None {
+        w = true
+        break
+    }
+    guard x != None else {
+        print("generic positions: guard failed")
+        return
+    }
+    let b = x == None
+    print("generic positions {} {} {} {}", i, w, b, true && x != None)
+}
+
+func positions_generic() {
+    let x: Res? = Res(id: 47)
+    generic_positions(&x)
+    print("  after {}", x!.id)
+}
+
+func positions_suspend() {
+    var i = false
+    if slow<Res>(Res(id: 48)) == None {
+        i = false
+    } else {
+        i = true
+    }
+    var w = false
+    while slow<Res>(Res(id: 48)) != None {
+        w = true
+        break
+    }
+    guard slow<Res>(Res(id: 48)) != None else {
+        print("suspend positions: guard failed")
+        return
+    }
+    let b = slow<Res>(Res(id: 48)) == None
+    print("suspend positions {} {} {} {}", i, w, b, true && slow<Res>(Res(id: 48)) != None)
+}
+
+func row_unmet_field_pin() {
+    let a: Holder? = Holder(x: Opaque.Other)
+    print("pin field {} {}", a == None, a != None)
+}
+
+func row_unmet_payload_pin() {
+    let a: Boxed? = Boxed.Full(x: Opaque.Other)
+    print("pin payload {} {}", a == None, a != None)
+}
+
+func main() {
+    row_local_int()
+    row_local_plain()
+    row_local_unmet()
+    row_local_nocopy()
+    row_local_explicit()
+    row_field_int()
+    row_field_plain()
+    row_field_unmet()
+    row_field_nocopy()
+    row_field_explicit()
+    row_call_int()
+    row_call_plain()
+    row_call_unmet()
+    row_call_nocopy()
+    row_call_explicit()
+    row_lend_int()
+    row_lend_plain()
+    row_lend_unmet()
+    row_lend_nocopy()
+    row_lend_explicit()
+    row_chain_int()
+    row_chain_plain()
+    row_chain_unmet()
+    row_chain_nocopy()
+    row_chain_explicit()
+    row_nested_int()
+    row_nested_plain()
+    row_nested_unmet()
+    row_nested_nocopy()
+    row_nested_explicit()
+    row_generic_int()
+    row_generic_plain()
+    row_generic_unmet()
+    row_generic_nocopy()
+    row_generic_explicit()
+    row_suspend_int()
+    row_suspend_plain()
+    row_suspend_unmet()
+    row_suspend_nocopy()
+    row_suspend_explicit()
+    positions_local()
+    positions_field()
+    positions_call()
+    positions_lend()
+    positions_chain()
+    positions_nested()
+    positions_generic()
+    positions_suspend()
+    row_unmet_field_pin()
+    row_unmet_payload_pin()
+}

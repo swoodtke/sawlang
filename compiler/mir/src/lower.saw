@@ -2666,23 +2666,55 @@ extension MirProgram {
         self.chains[n - 1] = c
     }
 
+    // `e` of an optional chain as a value of its type (`optional_chain_run`).
+    func optional_chain_val(&var self, e: Int) -> MirVal {
+        self.optional_chain_run(e, false, false)
+    }
+
+    // `e` of an optional chain tested for presence, `is_some` when `some`, as
+    // a `Bool` operand (`optional_chain_run`).
+    func chain_presence(&var self, e: Int, some: Bool) -> Int {
+        let v = self.optional_chain_run(e, true, some)
+        self.op_move(v.place)
+    }
+
     // THE OPTIONAL-CHAIN FUNNEL: run `e` of an optional chain as a value of
     // its type, `U?`: the top on the path where every hop is present, wrapped
     // in `Some` unless its type is already the chain's, and `None` where a
     // hop leaves the chain. The windows the chain opened close once its value
     // is read; its temporaries are its statement's (spec, Temporaries).
+    // With `presence` the chain is a `None` comparison's operand instead, and
+    // its value is the `Bool` that tests it, `is_some` when `some`: the top's
+    // own tag where the top is the chain's Optional, read in place and never
+    // copied out, else present; where a hop leaves the chain, absent.
     //
-    // ENTRY POINTS (optional_chain_val):
-    //     lower_val_at
-    func optional_chain_val(&var self, e: Int) -> MirVal {
-        let t = self.tc.expr_types[e]
+    // ENTRY POINTS (optional_chain_run):
+    //     optional_chain_val (lower_val_at)
+    //     chain_presence (comparison)
+    func optional_chain_run(&var self, e: Int, presence: Bool, some: Bool) -> MirVal {
+        let chain_type = self.tc.expr_types[e]
+        let b = self.tc.bool_type()
+        let t = if presence { b } else { chain_type }
         let top = self.tc.res.first_node_child(e)
         let result = self.new_temp(t)
         let exit = self.new_block()
         let join = self.new_block()
         let mark = self.scope.len()
         try! self.chains.push(MirChain(exit: exit, depth: self.scope_marks.len(), mark: mark, reached: false))
-        let o = self.operand(top)
+        var o = -1
+        if not presence {
+            o = self.operand(top)
+        } else if self.tc.final_type(top) == chain_type {
+            var steps = Vector<MirStep>()
+            self.prepare(top, &var steps)
+            o = self.presence_test(&steps, some)
+        } else {
+            var steps = Vector<MirStep>()
+            self.prepare(top, &var steps)
+            let _ = self.realize_all(&steps)
+            let yes = if some { "true" } else { "false" }
+            o = self.op_const(MirConstKind.Bool, yes, b)
+        }
         let n = self.chains.len()
         let c = self.chains[n - 1]
         var kept = Vector<MirChain>()
@@ -2693,14 +2725,14 @@ extension MirProgram {
         }
         self.chains = move kept
         if self.live() {
-            if self.tc.final_type(top) == t {
+            if presence || self.tc.final_type(top) == t {
                 let rv = self.rv_use(o)
                 self.assign_local(result, rv)
             } else {
                 var ops = Vector<Int>()
                 try! ops.push(o)
-                let some = self.optional_case("Some")
-                let rv = self.rv_aggregate(MirAggregate.Case, some, t, &ops)
+                let case_some = self.optional_case("Some")
+                let rv = self.rv_aggregate(MirAggregate.Case, case_some, t, &ops)
                 self.assign_local(result, rv)
             }
             self.close_windows_since(mark)
@@ -2708,8 +2740,14 @@ extension MirProgram {
         }
         if c.reached {
             self.enter(exit)
-            let none = self.none_value(t)
-            let rv = self.rv_use(none)
+            var absent = -1
+            if presence {
+                let no = if some { "false" } else { "true" }
+                absent = self.op_const(MirConstKind.Bool, no, b)
+            } else {
+                absent = self.none_value(t)
+            }
+            let rv = self.rv_use(absent)
             self.assign_local(result, rv)
             self.goto(join)
         }
@@ -3442,7 +3480,7 @@ extension MirProgram {
         self.op_move(v.place)
     }
 
-    // A plan a read takes whole, of which `realize_read` and `lent_presence`
+    // A plan a read takes whole, of which `realize_read` and `presence_test`
     // need to know whether it ends on a conditional lend's optional place:
     // its last step a window of an accessor that lends `&T?`, or a root
     // bound to such a place by a `borrow` binding.
@@ -3529,20 +3567,21 @@ extension MirProgram {
         MirVal(place: self.place_local(result), fresh: true)
     }
 
-    // A presence test of the optional place plan `steps` ends on, `is_some`
-    // when `some` and `is_none` otherwise, as a `Bool` operand: the tag
-    // alone is read, so it holds at every copy tier (SL:borrowing §2.4). A
+    // A presence test of the optional place plan `steps` ends on, a
+    // conditional lend's or any other, `is_some` when `some` and `is_none`
+    // otherwise, as a `Bool` operand: the tag alone is read, so it holds at
+    // every copy tier and copies or moves nothing (SL:borrowing §2.4). A
     // window the plan's last step opens closes on its present edge.
     // ENTRY POINTS:
     //     function_call (`is_some()`, `is_none()`)
     //     builtin_call (the builtin `is_some()`, `is_none()`)
     //     comparison (`== None`, `!= None`)
-    func lent_presence(&var self, steps: &Vector<MirStep>, some: Bool) -> Int {
+    //     optional_chain_run (a chain's `== None`, `!= None`)
+    func presence_test(&var self, steps: &Vector<MirStep>, some: Bool) -> Int {
         let n = steps.len()
         let b = self.tc.bool_type()
-        if n == 0 || not self.ends_on_lent_optional(&steps) {
-            let at = if n > 0 { steps[n - 1].node } else { -1 }
-            self.missing(at, "a presence test names no conditional lend's place")
+        if n == 0 {
+            self.missing(-1, "a presence test names no place")
             return self.dead_operand(b)
         }
         let result = self.new_temp(b)
@@ -3551,7 +3590,7 @@ extension MirProgram {
         let no = if some { "false" } else { "true" }
         let last = steps[n - 1]
         var absent = -1
-        if last.kind == MIR_STEP_WINDOW {
+        if last.kind == MIR_STEP_WINDOW && self.ends_on_lent_optional(&steps) {
             let receiver = self.realize(&steps, n - 1)
             let opened = self.window_open(last.node, receiver, last.index == 1, last.first, last.count, true)
             if not self.live() {
@@ -3560,7 +3599,11 @@ extension MirProgram {
             self.close_window(opened.window)
             absent = opened.absent
         } else {
-            let p = self.realize_optional(&steps)
+            var p = self.realize_optional(&steps)
+            while self.place_referent(p) >= 0 {
+                let inner = self.place_referent(p)
+                p = self.project(p, MirProjKind.Deref, -1, -1, inner)
+            }
             let present = self.new_block()
             absent = self.new_block()
             var cases = Vector<Int>()
@@ -3587,7 +3630,7 @@ extension MirProgram {
     }
 
     // Whether expression `e` names a conditional lend's optional place whole,
-    // whose presence `lent_presence` tests: a conditional lend's call, or a
+    // whose presence `presence_test` tests: a conditional lend's call, or a
     // `borrow` binding of one.
     func names_lent_optional(&self, e: Int) -> Bool {
         let x = self.tc.unparen(e)
@@ -3629,7 +3672,7 @@ extension MirProgram {
     func receiver_presence(&var self, base: Int, which: Int) -> Int {
         var steps = Vector<MirStep>()
         self.prepare_base(base, &var steps)
-        self.lent_presence(&steps, which == 1)
+        self.presence_test(&steps, which == 1)
     }
 
     // A setitem's store of `value`: a declared `[]=` called with the keys and
@@ -4520,9 +4563,9 @@ extension MirProgram {
         self.close_scope()
     }
 
-    // `a == b` and the other comparisons: a builtin operator over borrowed
-    // operands, or a declared `equals` or `compare` called with both by
-    // reference.
+    // `a == b` and the other comparisons: a `None` comparison's presence
+    // test, a builtin operator over borrowed operands, or a declared `equals`
+    // or `compare` called with both by reference.
     func comparison(&var self, e: Int) -> Int {
         let left = self.tc.res.first_node_child(e)
         let right = self.tc.res.last_node_child(e)
@@ -4530,13 +4573,18 @@ extension MirProgram {
         let op_leaf = self.tc.res.first_leaf(e)
         let op = self.tc.text(m, op_leaf)
         let t = self.tc.expr_types[e]
-        if op.equals("==") || op.equals("!=") {
-            let tested = self.presence_operand(left, right)
-            if tested >= 0 {
-                var steps = Vector<MirStep>()
-                self.prepare_base(tested, &var steps)
-                return self.lent_presence(&steps, op.equals("!="))
+        let tested = self.presence_operand(e)
+        if tested >= 0 {
+            let some = op.equals("!=")
+            if self.tc.res.nodes[tested].shape == NodeShape.OptionalChain {
+                return self.chain_presence(tested, some)
             }
+            let mark = self.scope.len()
+            var steps = Vector<MirStep>()
+            self.prepare_base(tested, &var steps)
+            let o = self.presence_test(&steps, some)
+            self.close_argument_windows(mark)
+            return o
         }
         let at = self.tc.call_at[e]
         if at < 0 {
@@ -4562,19 +4610,20 @@ extension MirProgram {
         o
     }
 
-    // The operand of an equality between `left` and `right` that names a
-    // conditional lend's optional place while the other is `None`, or -1:
-    // that comparison tests presence alone.
-    func presence_operand(&self, left: Int, right: Int) -> Int {
-        let l = self.tc.unparen(left)
-        let r = self.tc.unparen(right)
-        if self.tc.has_alt(r, Alt.Expr_None) && self.names_lent_optional(l) {
-            return l
+    // The Optional operand, unparenthesized, of comparison `e` when it
+    // tests presence alone, a `None` comparison typecheck answered with no
+    // `equals` (`none_compared`), or -1.
+    func presence_operand(&self, e: Int) -> Int {
+        let tested = self.tc.none_compared(e)
+        let at = self.tc.call_at[e]
+        if tested < 0 || at < 0 || self.tc.calls[at].role != TcRole.BuiltinOperator {
+            return -1
         }
-        if self.tc.has_alt(l, Alt.Expr_None) && self.names_lent_optional(r) {
-            return r
+        let read = self.tc.final_type(tested)
+        if not self.tc.is_optional(read) {
+            return -1
         }
-        -1
+        self.tc.unparen(tested)
     }
 
     // A comparison a declared `equals` or `compare` answers: `!=` negates
