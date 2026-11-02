@@ -1,0 +1,17 @@
+// refuses: effect.suspending-value at 15:27
+// a function whose body calls a `blocking` extern, taken as a value (SL-950)
+// message: `naps` may suspend (`naps` → blocking extern `usleep`)
+
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func naps(n: Int) -> Int {
+    let _ = usleep(1)
+    n
+}
+
+func main() {
+    let f: (Int) -> Int = naps
+    print(f(3))
+}

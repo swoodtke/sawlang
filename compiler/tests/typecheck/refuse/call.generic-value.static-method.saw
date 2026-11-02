@@ -1,0 +1,14 @@
+// refuses: call.generic-value at 12:32
+// a generic type's `static` method named as a value: nothing picks the type's arguments (SL-950)
+// message: `Wrap.count` is a `static` method of a generic type, and it is no single value
+
+struct Wrap<T> { held: T }
+
+extension Wrap<T> {
+    static func count(n: Int) sync -> Int { n + 1 }
+}
+
+func main() {
+    let f: (Int) sync -> Int = Wrap.count
+    print(f(3))
+}

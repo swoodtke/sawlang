@@ -1,0 +1,14 @@
+// refuses: effect.suspending-value at 12:30
+// a suspending function as an Optional's payload (SL-950)
+
+import std.task.*
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func main() {
+    let o: ((Int) -> Int)? = slow
+    if let f = o { print(f(3)) }
+}

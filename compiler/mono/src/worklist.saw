@@ -681,7 +681,7 @@ extension MonoProgram {
         let info = self.dp.bc.mir.operands[o]
         if info.kind == MirOperandKind.Const && info.const_kind == MirConstKind.Function {
             let d = self.dp.bc.mir.function_target(info.text)
-            if d >= 0 && self.dp.bc.mir.tc.is_func_pointer(info.ty) {
+            if d >= 0 {
                 let _ = self.need_address(k, d, -1, node)
             }
             return
@@ -692,13 +692,13 @@ extension MonoProgram {
         let _ = self.glue_of(info.ty, MONO_KEY_COPY, k, node)
     }
 
-    // THE CODE-ADDRESS FUNNEL: the item a `FuncPointer`'s code is, first
-    // reached from item `k` at `node`: named function `decl`'s body, an
-    // extern `decl`'s C symbol, or with
-    // `decl` -1 the coerced literal whose body is MIR function `body`, which
-    // only a static's value names, so it takes no arguments. A function is
-    // reached only where a body names it or reads a static that does, so a
-    // program that never reads such a static links none of its code.
+    // THE CODE-ADDRESS FUNNEL: the item a `FuncPointer`'s code or a named
+    // function value's is, first reached from item `k` at `node`: named
+    // function `decl`'s body, an extern `decl`'s C symbol, or with `decl` -1
+    // the coerced literal whose body is MIR function `body`, which only a
+    // static's value names, so it takes no arguments. A function is reached
+    // only where a body names it or reads a static that does, so a program
+    // that never reads such a static links none of its code.
     // ENTRY POINTS:
     //     need_operand
     //     reach_static

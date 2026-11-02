@@ -112,6 +112,52 @@ extension TcProgram {
         self.check_declared_requirements()
         self.check_entry_root()
         self.check_blocking_declarations()
+        self.check_function_values()
+    }
+
+    // Each named function taken as a function value (`function_value`), once
+    // the summaries say what its body does. A call through a function value
+    // is never a suspension point (`join_closure`'s premise) and has no frame
+    // to park one in, so a function whose body may suspend is never a value
+    // until Saw has heap-allocated frames; and one that blocks its thread by
+    // inference is refused as a declared `blocking` one is, since the call is
+    // made wherever the value goes, a task included.
+    func check_function_values(&var self) {
+        var k = 0
+        while k < self.function_values.len() {
+            let e = self.function_values[k]
+            k = k + 1
+            let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+            let d = if at >= 0 { self.calls[at].target } else { -1 }
+            if d < 0 || not self.is_function_decl(d) || self.declares_blocking(d) {
+                continue
+            }
+            let m = self.node_module(e)
+            let name = self.res.name_text(self.res.decls[d].name)
+            if self.blocks_thread(d) {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(name)
+                try! msg.append("` blocks its thread")
+                self.append_block_reason(&var msg, d)
+                try! msg.append(", and a function that blocks is never a value: a call through a function value has no context to choose a body by, and is made wherever the value goes, a task included. Call it by name")
+                self.refuse_in(m, e, "effect.blocking-value", msg.build())
+                continue
+            }
+            if self.summaries[d].suspends {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(name)
+                try! msg.append("` may suspend (")
+                if self.res.decls[d].kind == ResDeclKind.Extern {
+                    try! msg.append("a `blocking` extern, which a task runs on a worker thread while it parks")
+                } else {
+                    try! msg.append(self.suspend_chain(d))
+                }
+                try! msg.append("), and a function that may suspend is never a value until Saw has heap-allocated frames: a call through a function value has no frame to park a suspension in, as a closure body has none. Call it by name, or call it first and pass its result")
+                self.refuse_in(m, e, "effect.suspending-value", msg.build())
+            }
+        }
     }
 
     // THE SYNC-FORMAT CHECK, its declaration half: a written `Printable.format`

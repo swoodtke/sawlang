@@ -1,0 +1,11 @@
+// refuses: call.ambiguous at 9:27
+// two overloads of the expected function type, which only their labels tell apart (SL-950)
+// message: `pick` names 2 functions of type `(Int) -> Int`, which only their labels tell apart, and a function value names exactly one
+
+func pick(a: Int) -> Int { a }
+func pick(b: Int) -> Int { b * 2 }
+
+func main() {
+    let f: (Int) -> Int = pick
+    print(f(3))
+}

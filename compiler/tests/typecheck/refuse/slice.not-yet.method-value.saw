@@ -1,0 +1,15 @@
+// refuses: slice.not-yet at 13:27
+// a method named as a value, through an instance or its type: methods are not first-class values (spec, Consuming receivers; SL-950)
+// message: `syntax.expr.member` is not in the bootstrap slice yet
+
+struct Counter { n: Int }
+
+extension Counter {
+    func plus(&self, k: Int) -> Int { self.n + k }
+}
+
+func main() {
+    let c = Counter(n: 1)
+    let f: (Int) -> Int = c.plus
+    print(f(2))
+}

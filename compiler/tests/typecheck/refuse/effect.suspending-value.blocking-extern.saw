@@ -1,0 +1,12 @@
+// refuses: effect.suspending-value at 10:32
+// a `blocking` extern, which a task offloads while it parks, taken as a value (SL-950)
+// message: `usleep` may suspend (a `blocking` extern, which a task runs on a worker thread while it parks)
+
+extern "C" {
+    blocking func usleep(us: UInt32) -> Int32
+}
+
+func main() {
+    let f: (UInt32) -> Int32 = usleep
+    print(f(1))
+}

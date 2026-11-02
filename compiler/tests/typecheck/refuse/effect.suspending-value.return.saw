@@ -1,0 +1,16 @@
+// refuses: effect.suspending-value at 11:31
+// a suspending function returned as a function value (SL-950)
+
+import std.task.*
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func pick() -> (Int) -> Int { slow }
+
+func main() {
+    let f = pick()
+    print(f(3))
+}

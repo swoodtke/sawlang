@@ -1,0 +1,17 @@
+// refuses: effect.blocking-value at 11:34
+// a function that blocks its thread by inference, not declared `blocking`, taken as a value a task then calls (SL-950)
+// message: `relays` blocks its thread (`relays` → `waits` (blocking)), and a function that blocks is never a value
+
+func waits(n: Int) blocking -> Int { n }
+
+func relays(n: Int) -> Int { waits(n) }
+
+func apply(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func work(n: Int) -> Int { apply(relays, n) }
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(work(3))
+    print(h.join())
+}

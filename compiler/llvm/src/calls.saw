@@ -9,7 +9,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_SIGNED_WIDE,
                       LL_PART_UNSIGNED, LL_PART_UNSIGNED_WIDE, LlParts, ll_part_wide, ll_parts_push}
-import sawllvm.module.{LlEmitter, ll_code_thunk_symbol, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_code_thunk_symbol, ll_is_scalar, ll_symbol, ll_value_thunk_symbol, ll_value_type}
 import sawllvm.closures.{ll_dealloc_declaration}
 // For the extension writing `debug_artificial`.
 import sawllvm.debug.{LL_DEBUG_FIRST}
@@ -396,6 +396,248 @@ extension LlEmitter {
         self.call_convention(&var mono, &var target, code, shape.b, &params, &none, &info, "", true)
     }
 
+    // The thunks `named_value_into` owed, each defined once: under the
+    // closure convention, whose environment parameter a named function has
+    // no use for, calling the item's own code. A thunk is defined after
+    // every function, so it takes the emitter's per-function state afresh.
+    public func emit_value_thunks(&var self, mono: &var MonoProgram, target: &var Target) {
+        var k = 0
+        while k < self.value_thunks.len() {
+            let item = self.value_thunks[k]
+            k = k + 1
+            self.body = StringBuilder()
+            self.allocas = StringBuilder()
+            self.temps = 0
+            self.labels = 0
+            self.refused = false
+            self.dbg_suffix = ""
+            if mono.items[item].kind == MonoItemKind.Extern {
+                self.emit_extern_value_thunk(&var mono, &var target, item)
+            } else {
+                self.emit_value_thunk(&var mono, &var target, item)
+            }
+        }
+    }
+
+    // The head of item `k`'s value thunk, returning `ret` (of type `rt`) and
+    // taking `params`, as `value_call` calls a function value: the result's
+    // slot first when it is in memory, the environment, then each parameter
+    // that has a size, a scalar as itself and anything else by address,
+    // named `%p1` on by its position. Ends at the entry label.
+    func value_thunk_head(&var self, mono: &MonoProgram, k: Int, ret: &TargetLayout, params: &Vector<TargetLayout>,
+                          out: &var StringBuilder) {
+        try! out.append("define internal ")
+        if ll_is_scalar(&ret) {
+            try! out.append(ll_value_type(&ret))
+        } else {
+            try! out.append("void")
+        }
+        try! out.append(" ")
+        try! out.append(ll_value_thunk_symbol(&mono, k))
+        try! out.append("(")
+        if ret.kind == TargetKind.Memory {
+            try! out.append("ptr %ret, ")
+        }
+        try! out.append("ptr %env")
+        var j = 0
+        while j < params.len() {
+            let l = params[j]
+            j = j + 1
+            if l.kind == TargetKind.Zero {
+                continue
+            }
+            try! out.append(", ")
+            try! out.append(if ll_is_scalar(&l) { ll_value_type(&l) } else { "ptr" })
+            try! out.append(" %p")
+            try! out.append(j)
+        }
+        try! out.append(")")
+        try! out.append(ll_function_attributes(""))
+        try! out.append(" \{\nentry:\n")
+    }
+
+    // The value thunk of item `k`, a function with a body: its parameters
+    // passed on as an item call passes them (`item_call`).
+    func emit_value_thunk(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
+        let info = mono.dp.bc.mir.funcs[mono.items[k].body]
+        let rt = mono.dp.bc.mir.locals[info.local_first].ty
+        let rl = self.lay_at(&var mono, &var target, rt, -1)
+        var params = Vector<TargetLayout>()
+        var j = 1
+        while j <= info.param_count {
+            let t = mono.dp.bc.mir.locals[info.local_first + j].ty
+            try! params.push(self.lay_at(&var mono, &var target, t, -1))
+            j = j + 1
+        }
+        var text = StringBuilder()
+        self.value_thunk_head(&mono, k, &rl, &params, &var text)
+        var call = StringBuilder()
+        if ll_is_scalar(&rl) {
+            try! call.append("  %r = call ")
+            try! call.append(ll_value_type(&rl))
+        } else {
+            try! call.append("  call void")
+        }
+        try! call.append(" ")
+        try! call.append(self.plain_symbol(&var mono, k))
+        try! call.append("(")
+        var first = true
+        if rl.kind == TargetKind.Memory {
+            try! call.append("ptr %ret")
+            first = false
+        }
+        j = 0
+        while j < params.len() {
+            let l = params[j]
+            j = j + 1
+            if l.kind == TargetKind.Zero {
+                continue
+            }
+            if not first {
+                try! call.append(", ")
+            }
+            first = false
+            try! call.append(if ll_is_scalar(&l) { ll_value_type(&l) } else { "ptr" })
+            try! call.append(" %p")
+            try! call.append(j)
+        }
+        try! call.append(")\n")
+        try! text.append(call.build())
+        if ll_is_scalar(&rl) {
+            try! text.append("  ret ")
+            try! text.append(ll_value_type(&rl))
+            try! text.append(" %r\n\}\n\n")
+        } else {
+            try! text.append("  ret void\n\}\n\n")
+        }
+        let defined = self.debug_artificial(&mono, text.build())
+        try! self.defs.append(defined)
+    }
+
+    // The value thunk of extern item `k`: each parameter passed to the C
+    // function by its class, as `extern_call` passes an argument (an
+    // optional pointer as its payload or null), its result taken back the
+    // same way, and a variadic extern called with no extra arguments.
+    func emit_extern_value_thunk(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
+        let d = mono.items[k].decl
+        let sig = self.extern_signature(&var mono, &var target, d, -1)
+        if not sig.ok {
+            return
+        }
+        let s = mono.dp.bc.mir.tc.sigs[d]
+        var types = Vector<Int>()
+        var params = Vector<TargetLayout>()
+        var j = 0
+        while j < s.param_count {
+            let t = mono.dp.bc.mir.tc.params[s.param_first + j].ty
+            try! types.push(t)
+            try! params.push(self.lay_at(&var mono, &var target, t, -1))
+            j = j + 1
+        }
+        let rt = if s.result >= 0 { s.result } else { mono.dp.bc.mir.tc.prim(mono.dp.bc.mir.tc.known.void_type) }
+        let rl = self.lay_at(&var mono, &var target, rt, -1)
+        var text = StringBuilder()
+        self.value_thunk_head(&mono, k, &rl, &params, &var text)
+        var args = StringBuilder()
+        j = 0
+        while j < sig.params.len() {
+            var param = StringBuilder()
+            try! param.append("%p")
+            try! param.append(j + 1)
+            let name = param.build()
+            let nullable = sig.classes[j] == TargetCClass.NullablePointer
+            let v = if nullable { self.nullable_payload(&var mono, &var target, name, types[j]) } else { name }
+            if j > 0 {
+                try! args.append(", ")
+            }
+            try! args.append(sig.spelled[j])
+            try! args.append(" ")
+            try! args.append(v)
+            j = j + 1
+        }
+        self.declare_extern(&sig, sig.declared)
+        var call = StringBuilder()
+        try! call.append("call ")
+        if sig.ret_extension.len() > 0 {
+            try! call.append(sig.ret_extension)
+            try! call.append(" ")
+        }
+        try! call.append(sig.ret_type)
+        if sig.variadic {
+            try! call.append(" (")
+            try! call.append(sig.types)
+            if sig.params.len() > 0 {
+                try! call.append(", ")
+            }
+            try! call.append("...)")
+        }
+        try! call.append(" @")
+        try! call.append(sig.name)
+        try! call.append("(")
+        try! call.append(args.build())
+        try! call.append(")")
+        var tail = StringBuilder()
+        if sig.ret_type.equals("void") {
+            self.put(call.build())
+            if mono.dp.bc.mir.tc.is_never(rt) {
+                try! tail.append("  unreachable\n\}\n\n")
+            } else {
+                try! tail.append("  ret void\n\}\n\n")
+            }
+        } else if sig.result_class == TargetCClass.Direct {
+            let v = self.assign(call.build())
+            try! tail.append("  ret ")
+            try! tail.append(sig.ret_type)
+            try! tail.append(" ")
+            try! tail.append(v)
+            try! tail.append("\n\}\n\n")
+        } else {
+            // An optional pointer comes back nullable and is returned in
+            // memory, as an Optional is.
+            let v = self.assign(call.build())
+            var cmp = StringBuilder()
+            try! cmp.append("icmp ne ptr ")
+            try! cmp.append(v)
+            try! cmp.append(", null")
+            let present = self.assign(cmp.build())
+            let flag = self.to_bool(present)
+            self.store("i8", flag, "%ret")
+            let some = target.present_case(&var mono.dp.bc.mir.tc, rt)
+            let off = target.payload_offset(&var mono.dp.bc.mir.tc, rt, some.decl, 0)
+            let at = self.offset_addr("%ret", off)
+            self.store("ptr", v, at)
+            try! tail.append("  ret void\n\}\n\n")
+        }
+        try! text.append(self.allocas.build())
+        try! text.append(self.body.build())
+        try! text.append(tail.build())
+        let defined = self.debug_artificial(&mono, text.build())
+        try! self.defs.append(defined)
+    }
+
+    // The payload of the optional pointer of type `t` at address `addr`, or
+    // null when it is absent, as `c_argument` reads one.
+    func nullable_payload(&var self, mono: &var MonoProgram, target: &var Target, addr: String, t: Int) -> String {
+        let some = target.present_case(&var mono.dp.bc.mir.tc, t)
+        let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, some.decl, 0)
+        let flag = self.load("i8", addr)
+        var test = StringBuilder()
+        try! test.append("icmp eq i8 ")
+        try! test.append(flag)
+        try! test.append(", ")
+        try! test.append(some.tag)
+        let present = self.assign(test.build())
+        let at = self.offset_addr(addr, off)
+        let payload = self.load("ptr", at)
+        var pick = StringBuilder()
+        try! pick.append("select i1 ")
+        try! pick.append(present)
+        try! pick.append(", ptr ")
+        try! pick.append(payload)
+        try! pick.append(", ptr null")
+        self.assign(pick.build())
+    }
+
     // What `function_address` owed: each thunk defined once, under C's
     // convention, the narrow integers extended, calling the item's own code;
     // and each extern it named declared, as its calls declare it.
@@ -628,24 +870,7 @@ extension LlEmitter {
             return self.operand_value(&var mono, &var target, o, node)
         }
         let addr = self.operand_addr(&var mono, &var target, o, t, node)
-        let some = target.present_case(&var mono.dp.bc.mir.tc, t)
-        let off = target.payload_offset(&var mono.dp.bc.mir.tc, t, some.decl, 0)
-        let flag = self.load("i8", addr)
-        var test = StringBuilder()
-        try! test.append("icmp eq i8 ")
-        try! test.append(flag)
-        try! test.append(", ")
-        try! test.append(some.tag)
-        let present = self.assign(test.build())
-        let at = self.offset_addr(addr, off)
-        let payload = self.load("ptr", at)
-        var pick = StringBuilder()
-        try! pick.append("select i1 ")
-        try! pick.append(present)
-        try! pick.append(", ptr ")
-        try! pick.append(payload)
-        try! pick.append(", ptr null")
-        self.assign(pick.build())
+        self.nullable_payload(&var mono, &var target, addr, t)
     }
 
     // An extern call by the C convention (`c_class`): scalars direct, with a

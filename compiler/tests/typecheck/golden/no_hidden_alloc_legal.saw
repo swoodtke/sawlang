@@ -2,9 +2,10 @@
 // Every legal cell of `--no-hidden-alloc`'s matrix (spec, No hidden
 // allocations): format arguments to `print`, `panic` and `assert`; a capturing
 // closure passed straight to the call that runs it; an escaping closure that
-// captures nothing; a user Printable through the format-argument spelling; and
-// the allocations the source names (`Vector.push`, a collection literal, a
-// spawn, a written `Box<any Error>`). The program checks clean.
+// captures nothing; a named function's value; a user Printable through the
+// format-argument spelling; and the allocations the source names
+// (`Vector.push`, a collection literal, a spawn, a written `Box<any Error>`).
+// The program checks clean.
 
 struct Point { x: Int, y: Int }
 
@@ -40,7 +41,27 @@ func work(n: Int) -> Int {
     n * n
 }
 
+// A named function's value carries no environment, so it allocates nothing
+// in any position (SL-950).
+struct Job { run: (Int) sync -> Int }
+
+func tripled(m: Int) sync -> Int {
+    m * 3
+}
+
+func pick() -> (Int) sync -> Int {
+    tripled
+}
+
+func apply(f: (Int) sync -> Int, m: Int) -> Int {
+    f(m)
+}
+
 func main() {
+    let named: (Int) sync -> Int = tripled
+    let job = Job(run: tripled)
+    let picked = pick()
+    print("{} {} {} {}", named(1), job.run(2), apply(tripled, 3), picked(4))
     let n = 7
     print("n = {}", n)
     assert(n > 0, "n was {}", n)

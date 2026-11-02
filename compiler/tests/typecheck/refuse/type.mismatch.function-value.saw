@@ -1,0 +1,12 @@
+// refuses: type.mismatch at 9:32
+// a function value's parameter types are matched exactly, and a function not declared `sync` is no `sync` value (SL-950)
+// message: expected `(Int) sync -> Int`, the type of the annotated binding, and found `(Int) sendable -> Int`
+
+func doubled(n: Int) -> Int { n * 2 }
+func halved(n: Int) sync -> Int { n / 2 }
+
+func main() {
+    let f: (Int) sync -> Int = doubled
+    let g: (Int32) sync -> Int = halved
+    print(f(3) + g(4))
+}

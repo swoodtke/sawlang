@@ -1,0 +1,15 @@
+// refuses: effect.suspending-value at 14:17
+// a suspending function passed where a parameter of function type is expected (SL-950)
+
+import std.task.*
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func apply(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func main() {
+    print(apply(slow, 3))
+}

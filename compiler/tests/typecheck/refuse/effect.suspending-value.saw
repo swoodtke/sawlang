@@ -1,0 +1,17 @@
+// refuses: effect.suspending-value at 15:27
+// a function whose body may suspend, transitively, taken as a value in an annotated `let`: a call through the value has no frame to park in (SL-950)
+// message: `middle` may suspend (`middle` → `leaf` → `yield_now` (parks the task)), and a function that may suspend is never a value until Saw has heap-allocated frames: a call through a function value has no frame to park a suspension in, as a closure body has none. Call it by name, or call it first and pass its result
+
+import std.task.*
+
+func leaf(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func middle(n: Int) -> Int { leaf(n) * 2 }
+
+func main() {
+    let f: (Int) -> Int = middle
+    print(f(3))
+}

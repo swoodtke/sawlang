@@ -176,8 +176,10 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         h = h + 1
     }
     // Once every function and static is written, so are the function
-    // pointers that need a thunk under C's convention.
+    // pointers that need a thunk under C's convention, and the named
+    // functions' values, each called through a thunk under the closure one.
     e.emit_code_thunks(&var mono, &var target)
+    e.emit_value_thunks(&var mono, &var target)
     if profile.defines_every_seam() && not object {
         ll_check_provider_seams(&var mono, &e)
     }

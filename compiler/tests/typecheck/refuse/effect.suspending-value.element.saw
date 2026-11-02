@@ -1,0 +1,17 @@
+// refuses: effect.suspending-value at 15:43
+// a suspending function as a collection literal's element, beside a sync one (SL-950)
+
+import std.task.*
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func quick(n: Int) sync -> Int { n }
+
+func main() {
+    let ok: Vector<(Int) -> Int> = [quick]
+    let v: Vector<(Int) -> Int> = [quick, slow]
+    print(ok.len() + v.len())
+}

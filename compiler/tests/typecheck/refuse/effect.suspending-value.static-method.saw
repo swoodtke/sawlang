@@ -1,0 +1,19 @@
+// refuses: effect.suspending-value at 17:27
+// a type's `static` method whose body may suspend, named on the type as a value (SL-950)
+// message: `slow` may suspend (`Math.slow` → `yield_now` (parks the task))
+
+import std.task.*
+
+struct Math { unit: Int }
+
+extension Math {
+    static func slow(n: Int) -> Int {
+        yield_now()
+        n
+    }
+}
+
+func main() {
+    let f: (Int) -> Int = Math.slow
+    print(f(3))
+}

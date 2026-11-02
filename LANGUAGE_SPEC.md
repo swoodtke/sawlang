@@ -10455,8 +10455,15 @@ block (a pair's default may meet one), and neither may a copy-policy
 is inferred. A `deinit` blocks only when it is declared `blocking`, and then
 the values it drops follow the rules below. A closure body may not block, as it may not suspend; a
 `Thread.spawn` body is the exception, being thread context. A `blocking`
-function cannot be taken as a function value, and a function type takes no
-`blocking`; a pair taken as a value is its default. An `extern` declaration
+function cannot be taken as a function value, nor can one that blocks by
+inference, and a function type takes no `blocking`; a pair taken as a value
+is its default. A function whose body may suspend cannot be taken as a
+function value either, until Saw has heap-allocated frames (the design that
+dispatch to a suspending body and suspending recursion wait on): a call
+through a function value has no frame to park a suspension in, for the reason
+a closure body may not suspend. A `blocking` extern counts, since a task
+offloads it and parks. The refusal names the function and its path to the
+suspension. An `extern` declaration
 keeps its prefix spelling, `blocking func` inside the `extern` block (see
 [Blocking externs and the offload](#blocking-externs-and-the-offload)).
 
@@ -14818,6 +14825,31 @@ has a function type and may carry an environment beside its code.
 `FuncPointer<F>` is the bare code address for the cases that need one with no
 environment (a C callback, a loader's entry point, a static table), and
 nothing more.
+
+A named function, free or a type's `static` method (`Math.negate`), is the
+function value with no environment, so it stands wherever its function type is
+expected, as a closure does: a `let`, an argument, a field, a `return`, a
+collection element, and a `FuncPointer` as below. Building it allocates
+nothing. Its parameter and result types must be the expected type's exactly,
+and an overloaded name takes the one overload that fits. The value is `sync`
+only when the declaration says `sync`, or is an `extern "C"` function that is
+not `blocking` (an extern promises promptness), and a `sync` function also
+fits the type without the word. A generic function is no value, since nothing picks its
+type arguments (nor is a generic type's `static` method), a method with a
+receiver is none, and neither is a function that may suspend or block (see
+[Where `blocking` is written](#where-blocking-is-written)).
+
+```saw
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func apply(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func main() {
+    print(apply(doubled, 4))              // prints: 8
+    let twice: (Int) sync -> Int = doubled
+    print(twice(5))                       // prints: 10
+}
+```
 
 `F` is a function type and it must be `sync`. A suspending body runs out of a
 frame, and a bare address has nowhere to keep one, so a suspending `F` is a

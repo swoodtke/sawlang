@@ -7,7 +7,7 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts,
                          ll_parts_push}
 import sawllvm.module.{LlEmitter, ll_bare_code, ll_code_thunk_symbol, ll_export_symbol, ll_is_scalar, ll_symbol,
-                          ll_value_type}
+                          ll_value_thunk_symbol, ll_value_type}
 import sawllvm.text.{ll_double_constant, ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
@@ -564,16 +564,46 @@ extension LlEmitter {
     }
 
     // A named function written as a `FuncPointer`: its code's address
-    // (`function_address`). A plain function value is three words, which
-    // this slice does not build.
+    // (`function_address`). A function value of a function type is three
+    // words in memory, written by `named_value_into`, never read as a scalar.
     func named_code(&var self, mono: &var MonoProgram, target: &var Target, op: &MirOperand, node: Int) -> String {
         let d = mono.dp.bc.mir.function_target(op.text)
         let item = if d >= 0 { mono.address_item(d, -1) } else { -1 }
         if not mono.dp.bc.mir.tc.is_func_pointer(op.ty) || item < 0 {
-            self.refuse_here(&var mono, node, "a memory constant is not in the backend slice yet")
+            try! mono.problems.push("a named function's value read as a scalar or naming code mono did not reach")
             return "null"
         }
         self.function_address(&var mono, &var target, item, node)
+    }
+
+    // A named function's value of a function type written into `dest`: a
+    // closure value whose code is the thunk through which it calls the
+    // function under the closure convention (`emit_value_thunks`), with no
+    // environment and no release, so copying or dropping it does nothing and
+    // building it allocates nothing.
+    func named_value_into(&var self, mono: &var MonoProgram, target: &var Target, op: &MirOperand, dest: String) {
+        let d = mono.dp.bc.mir.function_target(op.text)
+        let item = if d >= 0 { mono.address_item(d, -1) } else { -1 }
+        if item < 0 {
+            try! mono.problems.push("a named function's value names code mono did not reach")
+            return
+        }
+        var seen = false
+        var j = 0
+        while j < self.value_thunks.len() {
+            if self.value_thunks[j] == item {
+                seen = true
+            }
+            j = j + 1
+        }
+        if not seen {
+            try! self.value_thunks.push(item)
+        }
+        self.store("ptr", ll_value_thunk_symbol(&mono, item), dest)
+        let env_at = self.offset_addr(dest, target.closure_env_offset())
+        self.store("ptr", "null", env_at)
+        let release_at = self.offset_addr(dest, target.closure_release_offset())
+        self.store("ptr", "null", release_at)
     }
 
     // A scalar constant's spelling at its layout.
@@ -647,6 +677,10 @@ extension LlEmitter {
                 return
             }
             if op.const_kind == MirConstKind.Unit || l.kind == TargetKind.Zero {
+                return
+            }
+            if op.const_kind == MirConstKind.Function && not mono.dp.bc.mir.tc.is_func_pointer(op.ty) {
+                self.named_value_into(&var mono, &var target, &op, dest)
                 return
             }
             if op.const_kind == MirConstKind.Function {

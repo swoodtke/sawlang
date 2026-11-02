@@ -1,0 +1,16 @@
+// refuses: effect.suspending-value at 14:19
+// a suspending function as a generic argument, its type parameter inferred as the function type (SL-950)
+
+import std.task.*
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func ident<T>(x: T) -> T { x }
+
+func main() {
+    let f = ident(slow)
+    print(f(3))
+}

@@ -4803,6 +4803,16 @@ construct in the owner and lend `&driver` down.
   is the order an assignment already had). Before that it was refused with a
   copy error and `self.n += 10` was the workaround, so distrust the long form in
   an older build.
+- **A named function is a function value** (SL-950): `apply(doubled, 4)`,
+  `let f: (Int) -> Int = doubled`, `Math.negate` (a `static` method), a field,
+  a `return`, an element; no environment, nothing allocated, an overload
+  picked by the expected type.
+  GOTCHA: one whose body may suspend or block is refused at the use
+  (`effect.suspending-value` / `effect.blocking-value`: a call through a value
+  has no frame to park in), and so is a generic one; it is `sync` only when
+  DECLARED `sync`, and a `sync` one also fits the plain type. Methods are not
+  values. Older builds died in the backend (`a memory constant is not in the
+  backend slice yet`).
 - `guard` must exit (return/break/continue/panic).
 - Shadowing footgun (design 100/107): naming an inner binding after an outer one
   is an ERROR unless the inner DERIVES from the outer (its initializer mentions the

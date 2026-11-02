@@ -1,0 +1,10 @@
+// refuses: call.generic-value at 8:32
+// a generic function taken as a value: no type arguments pick its one compiled body (SL-950)
+// message: `ident` is a generic function, and a generic function is no single value: a function value calls one compiled body, and nothing here writes the type arguments that would pick one. Call it inside a closure, where its arguments pick them
+
+func ident<T>(x: T) sync -> T { x }
+
+func main() {
+    let f: (Int) sync -> Int = ident
+    print(f(3))
+}

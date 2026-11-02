@@ -1,0 +1,16 @@
+// refuses: effect.suspending-value at 14:22
+// a suspending function as a struct field's initializer (SL-950)
+
+import std.task.*
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+struct Job { run: (Int) -> Int }
+
+func main() {
+    let j = Job(run: slow)
+    print(j.run(3))
+}

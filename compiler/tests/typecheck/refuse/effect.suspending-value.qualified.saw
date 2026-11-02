@@ -1,0 +1,10 @@
+// refuses: effect.suspending-value at 8:25
+// a std function that parks, named through its module's qualifier (SL-950)
+// message: `yield_now` may suspend (`yield_now` (parks the task))
+
+import std.task
+
+func main() {
+    let f: () -> Void = task.yield_now
+    f()
+}

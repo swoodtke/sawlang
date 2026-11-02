@@ -1,0 +1,12 @@
+// refuses: call.value-signature at 10:32
+// an overload set none of whose non-generic members has the expected function type, a generic overload beside them (SL-950)
+// message: `scale` names 3 functions, and none is a `(Int) sync -> Int`: a function value's parameter and result types are matched exactly, and a generic overload is no one compiled body
+
+func scale(n: Int32) sync -> Int { 1 }
+func scale(s: String) sync -> Int { s.len() }
+func scale<T>(x: T, by: Int) sync -> Int { by }
+
+func main() {
+    let f: (Int) sync -> Int = scale
+    print(f(3))
+}

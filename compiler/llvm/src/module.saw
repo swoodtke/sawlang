@@ -96,6 +96,10 @@ public struct LlEmitter {
     // The extern items a `FuncPointer` names, each declared once the
     // functions are (`emit_code_thunks`).
     code_externs: Vector<Int>
+    // The items a named function's value reaches through a thunk under the
+    // closure convention (`named_value_into`), each defined once the
+    // functions are (`emit_value_thunks`).
+    value_thunks: Vector<Int>
 }
 
 extension LlEmitter: NoCopy {}
@@ -178,7 +182,8 @@ extension LlEmitter {
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
                   local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>(),
-                  features: "", code_thunks: Vector<Int>(), code_externs: Vector<Int>())
+                  features: "", code_thunks: Vector<Int>(), code_externs: Vector<Int>(),
+                  value_thunks: Vector<Int>())
     }
 
     // The alignment of a slot of natural alignment `natural`: the larger of
@@ -421,6 +426,17 @@ public func ll_export_symbol(mono: &MonoProgram, k: Int) -> String {
 public func ll_code_thunk_symbol(mono: &MonoProgram, k: Int) -> String {
     var out = StringBuilder()
     try! out.append("@\"saw code address ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+// The symbol of the thunk under the closure convention, its environment
+// first, through which a named function's value calls item `k`
+// (`named_value_into`).
+public func ll_value_thunk_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw function value ")
     try! out.append(ll_quoted(mono.item_name(k)))
     try! out.append("\"")
     out.build()

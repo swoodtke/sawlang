@@ -36,7 +36,7 @@ import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
+import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE, TC_FLAG_BLOCKING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcConstUse, TcHeadKind, TcLend, TcMember, TcParam,
                                TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
@@ -3672,7 +3672,7 @@ extension TcProgram {
     }
 
     // THE FUNCTION-POINTER COERCION: expression `e`, a closure literal or a
-    // function's name (`leaf`, bound by `b`), where a position expects `fp`,
+    // function's name (`leaf`, naming `cands`), where a position expects `fp`,
     // a `FuncPointer<F>`. A literal is typed against `F`, which makes its body
     // a `sync` context, and is noted so that a capture is refused once
     // captures settle (`check_func_pointer_literals`): it is emitted under
@@ -3684,7 +3684,7 @@ extension TcProgram {
     // ENTRY POINTS:
     //     closure_typed
     //     function_value
-    func func_pointer_value(&var self, e: Int, leaf: Int, b: ResBinding, fp: Int) -> Int {
+    func func_pointer_value(&var self, e: Int, leaf: Int, cands: &Vector<Int>, fp: Int) -> Int {
         let f = self.arg_of(fp, 0)
         let callable = self.kind_of(f) == TcKind.Func
         if self.has_alt(e, Alt.Expr_Closure) {
@@ -3704,7 +3704,7 @@ extension TcProgram {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
         }
-        let d = self.func_pointer_source(e, leaf, b, f)
+        let d = self.func_pointer_source(e, leaf, &cands, f)
         if d < 0 {
             let poisoned = self.error_type
             return self.set_type(e, poisoned, false)
@@ -3714,14 +3714,13 @@ extension TcProgram {
         self.set_type(e, fp, false)
     }
 
-    // The function name `leaf` (bound by `b`) gives a `FuncPointer<f>`:
+    // The function name `leaf` (naming `cands`) gives a `FuncPointer<f>`:
     // the one overload whose signature is `f`'s, non-generic, not `blocking`
     // (a pair's default stands for the pair) and declared `sync`; -1 once
     // refused.
-    func func_pointer_source(&var self, e: Int, leaf: Int, b: ResBinding, f: Int) -> Int {
+    func func_pointer_source(&var self, e: Int, leaf: Int, cands: &Vector<Int>, f: Int) -> Int {
         let m = self.current
         let name = self.text(m, leaf)
-        let cands = self.free_candidates(b)
         var matched = Vector<Int>()
         var generic = -1
         var k = 0
@@ -3868,44 +3867,168 @@ extension TcProgram {
         result == info.b
     }
 
-    // A function named as a value: the one function of its name, as a
-    // function type, or a `FuncPointer` where a position expects one.
+    // The function type a position expecting `want` takes, peeled of the
+    // optionals the position wraps, or -1 when it expects none.
+    func function_type_wanted(&self, want: Int) -> Int {
+        if want < 0 {
+            return -1
+        }
+        var w = want
+        while self.is_optional(w) {
+            w = self.arg_of(w, 0)
+        }
+        if self.kind_of(w) == TcKind.Func {
+            return w
+        }
+        -1
+    }
+
+    // A free function's name `leaf`, bound by `b`, taken as a value at `e`
+    // (`function_value_among`).
     func function_value(&var self, e: Int, leaf: Int, b: ResBinding, want: Int) -> Int {
+        let cands = self.free_candidates(b)
+        self.function_value_among(e, leaf, &cands, want)
+    }
+
+    // THE FUNCTION-VALUE FUNNEL: name `leaf`, naming the free functions or a
+    // type's `static` methods `cands`, taken as a value at `e`, where the
+    // position expects `want`: a `FuncPointer` is
+    // SL-940's coercion (`func_pointer_value`); anything else is a closure
+    // value with no environment, whose code is the one function the name
+    // selects (`function_value_source`). It is typed at the position's
+    // function type when its parameter and result types are that type's
+    // exactly and that type asks no `sync` the declaration does not make
+    // (`function_value_type`), and at its own signature's otherwise, for the
+    // position's conversion to judge. Whether its body may suspend or block is
+    // known only once the summaries are, so each site is judged then
+    // (`check_function_values`).
+    // ENTRY POINTS:
+    //     function_value
+    //     static_member
+    func function_value_among(&var self, e: Int, leaf: Int, cands: &Vector<Int>, want: Int) -> Int {
         let fp = self.func_pointer_wanted(want)
         if fp >= 0 {
-            return self.func_pointer_value(e, leaf, b, fp)
+            return self.func_pointer_value(e, leaf, &cands, fp)
         }
-        let cands = self.free_candidates(b)
-        if cands.len() != 1 {
-            let m = self.current
+        let ft = self.function_type_wanted(want)
+        let d = self.function_value_source(e, leaf, &cands, ft)
+        if d < 0 {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let t = self.function_value_type(d, ft)
+        let none = Vector<Int>()
+        let _ = self.record_call(e, d, TcRole.Value, -1, &none)
+        if not tc_contains(&self.function_values, e) {
+            try! self.function_values.push(e)
+        }
+        self.set_type(e, t, false)
+    }
+
+    // The function the name `leaf` (naming `cands`) takes as a value where
+    // the position expects function type `ft` (-1 for none): its one
+    // function, or among several the one non-generic overload whose
+    // parameter and result types are `ft`'s exactly. -1 once refused: a
+    // `blocking` function, which is never a value, and a generic one, which
+    // is no one compiled body.
+    func function_value_source(&var self, e: Int, leaf: Int, cands: &Vector<Int>, ft: Int) -> Int {
+        let m = self.current
+        let name = self.text(m, leaf)
+        var d = -1
+        if cands.len() == 1 {
+            d = cands[0]
+        } else if ft >= 0 && cands.len() > 1 {
+            var matched = Vector<Int>()
+            var k = 0
+            while k < cands.len() {
+                let c = cands[k]
+                k = k + 1
+                if self.res.decls[c].kind == ResDeclKind.BuiltinFunc {
+                    continue
+                }
+                self.build_decl(c)
+                if self.sigs[c].generic_count == 0 && self.signature_is(c, ft) {
+                    try! matched.push(c)
+                }
+            }
+            if matched.len() == 0 {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(name)
+                try! msg.append("` names ")
+                try! msg.append(cands.len())
+                try! msg.append(" functions, and none is a `")
+                try! msg.append(self.type_text(ft))
+                try! msg.append("`: a function value's parameter and result types are matched exactly, and a generic overload is no one compiled body")
+                self.refuse(e, "call.value-signature", msg.build())
+                return -1
+            }
+            if matched.len() > 1 {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(name)
+                try! msg.append("` names ")
+                try! msg.append(matched.len())
+                try! msg.append(" functions of type `")
+                try! msg.append(self.type_text(ft))
+                try! msg.append("`, which only their labels tell apart, and a function value names exactly one")
+                self.refuse(e, "call.ambiguous", msg.build())
+                return -1
+            }
+            d = matched[0]
+        } else {
             var msg = StringBuilder()
             try! msg.append("`")
-            try! msg.append(self.text(m, leaf))
+            try! msg.append(name)
             try! msg.append("` names ")
             try! msg.append(cands.len())
             try! msg.append(" functions; a function value names exactly one")
             self.refuse(e, "call.ambiguous", msg.build())
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+            return -1
         }
-        let d = cands[0]
         self.build_decl(d)
-        let s = self.sigs[d]
-        let info = self.res.decls[d]
         if self.declares_blocking(d) {
-            let m = self.current
             var msg = StringBuilder()
             try! msg.append("`")
-            try! msg.append(self.text(m, leaf))
+            try! msg.append(name)
             try! msg.append("` is `blocking`, and a `blocking` function is never a value: a call through a function value has no context to choose a body by, and is made wherever the value goes, a task included. Call it by name")
             self.refuse(e, "effect.blocking-value", msg.build())
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+            return -1
         }
-        if s.generic_count > 0 || info.kind == ResDeclKind.BuiltinFunc {
+        if self.res.decls[d].kind == ResDeclKind.BuiltinFunc {
             self.not_in_slice(e, Alt.Expr_Name)
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+            return -1
+        }
+        if self.sigs[d].generic_count > 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` is a generic function, and a generic function is no single value: a function value calls one compiled body, and nothing here writes the type arguments that would pick one. Call it inside a closure, where its arguments pick them")
+            self.refuse(e, "call.generic-value", msg.build())
+            return -1
+        }
+        d
+    }
+
+    // The type of function `d`'s value where the position expects function
+    // type `ft` (-1 for none): `ft` itself when `d`'s parameter and result
+    // types are `ft`'s and `ft` asks no `sync` the declaration does not make,
+    // since a declared `sync` body is checked never to suspend and a value
+    // with no environment is `sendable` and may escape; else the type its
+    // signature reads, `sendable` (spec, Sendable function types).
+    func function_value_type(&var self, d: Int, ft: Int) -> Int {
+        let s = self.sigs[d]
+        // An extern that is not `blocking` promises promptness, so it is
+        // `sync` by its declaration, as a `FuncPointer` source takes it.
+        let prompt_extern = self.res.decls[d].kind == ResDeclKind.Extern && not self.blocks_by_declaration(d)
+        let effects = if prompt_extern { s.effects | TC_EFFECT_SYNC } else { s.effects }
+        if ft >= 0 && self.signature_is(d, ft) {
+            let asks = self.types.ty(ft).a
+            let met = TC_EFFECT_SYNC | TC_EFFECT_SENDABLE | TC_EFFECT_ESCAPING | TC_EFFECT_UNSAFE
+            let sync_met = (asks & TC_EFFECT_SYNC) == 0 || (effects & TC_EFFECT_SYNC) != 0
+            if (asks & ~met) == 0 && sync_met {
+                return ft
+            }
         }
         var params = Vector<Int>()
         var k = 0
@@ -3914,11 +4037,7 @@ extension TcProgram {
             try! params.push(p.ty)
             k = k + 1
         }
-        // A named function captures nothing, so its value is `sendable`.
-        let t = self.mk_func(&params, s.result, s.effects | TC_EFFECT_SENDABLE)
-        let none = Vector<Int>()
-        let _ = self.record_call(e, d, TcRole.Value, -1, &none)
-        self.set_type(e, t, false)
+        self.mk_func(&params, s.result, effects | TC_EFFECT_SENDABLE)
     }
 
     // `self`: the receiver, a place of the enclosing type.
@@ -4007,7 +4126,7 @@ extension TcProgram {
         }
         let type_decl = self.type_named_by(base)
         if type_decl >= 0 {
-            return self.static_member(e, type_decl, leaf)
+            return self.static_member(e, type_decl, leaf, want)
         }
         let bt = self.expr(base, TC_WANT_NONE)
         self.set_use(base, TcUse.Project)
@@ -4244,9 +4363,11 @@ extension TcProgram {
         return -1
     }
 
-    // `Type.name` that is no case: a builtin integer's `max` or `min`; a
-    // static method named without its call is outside the slice.
-    func static_member(&var self, e: Int, d: Int, leaf: Int) -> Int {
+    // `Type.name` that is no case, where the position expects `want`: a
+    // builtin integer's `max` or `min`, or a non-generic type's `static`
+    // method named as a value (`function_value_among`); a method with a
+    // receiver named without its call is outside the slice.
+    func static_member(&var self, e: Int, d: Int, leaf: Int, want: Int) -> Int {
         let m = self.current
         let text = self.text(m, leaf)
         let t = self.prim_or_self(d)
@@ -4256,6 +4377,33 @@ extension TcProgram {
         let name = self.res.intern(text)
         let in_test = self.current_test
         let found = self.members_in_phase(d, name, m, in_test)
+        var statics = Vector<Int>()
+        var k = 0
+        while k < found.len() {
+            let f = self.members[found[k]].decl
+            k = k + 1
+            if self.res.decls[f].kind == ResDeclKind.Method {
+                self.build_decl(f)
+                if self.sigs[f].receiver == TcReceiver.Absent {
+                    try! statics.push(f)
+                }
+            }
+        }
+        // A type's `static` methods are named functions; a method with a
+        // receiver is no first-class value (spec, Consuming receivers).
+        if statics.len() > 0 {
+            self.build_decl(d)
+            if self.sigs[d].generic_count > 0 {
+                var msg = StringBuilder()
+                try! msg.append("`")
+                try! msg.append(self.text(m, e))
+                try! msg.append("` is a `static` method of a generic type, and it is no single value: a function value calls one compiled body, and nothing here writes the type arguments that would pick one. Call it inside a closure, where its arguments pick them")
+                self.refuse(e, "call.generic-value", msg.build())
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, false)
+            }
+            return self.function_value_among(e, leaf, &statics, want)
+        }
         if found.len() > 0 {
             self.not_in_slice(e, Alt.Expr_Member)
         } else {
@@ -6280,8 +6428,8 @@ extension TcProgram {
     func closure_typed(&var self, e: Int, want: Int, open_result: Bool) -> Int {
         let fp = self.func_pointer_wanted(want)
         if fp >= 0 {
-            let none = ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
-            return self.func_pointer_value(e, -1, none, fp)
+            let none = Vector<Int>()
+            return self.func_pointer_value(e, -1, &none, fp)
         }
         var fwant = -1
         if want >= 0 {

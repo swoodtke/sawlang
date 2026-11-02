@@ -1,0 +1,209 @@
+// probe: stated
+// about: a named function as an ordinary function value, a closure value with no environment: a `sync` one at a `sync` and a plain type, and one not declared `sync` at a plain type; an overload the expected type selects; a struct's and an enum's `static` method, as a value and as a `FuncPointer`, a static's included; an `extern "C"` function, at a `sync` type too, an optional pointer either way; in an annotated and an inferred `let`, a user and a std argument, a field, a `return`, a `Vector` and a `Map` element, an Optional payload, a generic argument and onward through a parameter; at `sendable`, `escaping` and `unsafe` types; narrow-integer, aggregate and `String` signatures; called through a local, a field in place, after a move, a copy, in a driven body and in a task of each kind of group (SL-950)
+// stage 0: refuses a named function where a function type is expected, so it cannot build this
+// speeds: -O0 -O2
+// leaks: none
+// prints: let 6 6 6
+// prints: argument 8 9
+// prints: std 6 2 4 12 3 2 1
+// prints: field 10 10
+// prints: return 6 4
+// prints: vector 50 50
+// prints: map 15
+// prints: optional 14
+// prints: generic 16
+// prints: onward 10
+// prints: static -3 8 -5 -6
+// prints: static pointer -7 -8 -9
+// prints: overload 6 4
+// prints: extern 3 2 true true true
+// prints: narrow -100
+// prints: aggregate 5 10 15 hi saw
+// prints: sendable 6 8
+// prints: escaping 12
+// prints: unsafe 42
+// prints: moved 18
+// prints: copied 2 4 6
+// prints: driven 10 12
+// prints: group 42
+// prints: threads 42
+
+import std.task.*
+
+extern "C" {
+    func abs(n: Int32) -> Int32
+    func time(t: UnsafePointer<Int>?) -> Int
+    func getenv(name: UnsafePointer<UInt8>) -> UnsafePointer<UInt8>?
+}
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func tripled(n: Int) sync -> Int { n * 3 }
+
+func plain_doubled(n: Int) -> Int { n * 2 }
+
+func doubled_ref(n: &Int) -> Int { n * 2 }
+
+static SEEN: Atomic<Int>
+
+func note(n: &Int) { let _ = SEEN.fetch_add(n) }
+
+func descending(a: &Int, b: &Int) -> Ordering { b.compare(&a) }
+
+func scale(n: Int) sync -> Int { n * 2 }
+
+func scale(n: Int, by: Int) sync -> Int { n * by }
+
+func scale(s: String) sync -> Int { s.len() }
+
+func widen(b: UInt8, s: Int16) sync -> Int32 { (b as Int32) + (s as Int32) }
+
+struct Triple { a: Int, b: Int, c: Int }
+
+func make(n: Int) sync -> Triple { Triple(a: n, b: n * 2, c: n * 3) }
+
+func greet(name: String) -> String { "hi {name}" }
+
+func first(p: UnsafePointer<Int>) unsafe sync -> Int { p[0] }
+
+struct Math { unit: Int }
+
+extension Math {
+    static func negate(n: Int) sync -> Int { 0 - n }
+    static func scale(n: Int) sync -> Int { n * 4 }
+    static func scale(s: String) sync -> Int { s.len() }
+}
+
+enum Sign { case Plus, case Minus }
+
+extension Sign {
+    static func flip(n: Int) sync -> Int { 0 - n }
+}
+
+static NEGATE: FuncPointer<(Int) sync -> Int> = Math.negate
+
+func call_pointer(p: FuncPointer<(Int) sync -> Int>, n: Int) -> Int { p(n) }
+
+struct Job { run: (Int) sync -> Int, tag: Int }
+
+struct Shared { run: (Int) sync sendable -> Int }
+
+func apply(f: (Int) sync -> Int, n: Int) -> Int { f(n) }
+
+func apply_plain(f: (Int) -> Int, n: Int) -> Int { f(n) }
+
+func relay(f: (Int) -> Int) -> Int { apply_plain(f, 2) + apply_plain(f, 3) }
+
+func pick(three: Bool) -> (Int) sync -> Int {
+    if three { return tripled }
+    doubled
+}
+
+func ident<T>(x: T) -> T { x }
+
+func keep(f: (Int) sync escaping -> Int) -> (Int) sync -> Int { f }
+
+func work(f: (Int) sync sendable -> Int, n: Int) -> Int {
+    yield_now()
+    f(n)
+}
+
+func positions() {
+    let f: (Int) sync -> Int = doubled
+    let g: (Int) -> Int = doubled
+    let h = doubled
+    print("let {} {} {}", f(3), g(3), h(3))
+    print("argument {} {}", apply(doubled, 4), apply_plain(tripled, 3))
+    var v: Vector<Int> = [3, 1, 2]
+    let w = try! v.map(doubled_ref)
+    w.each(note)
+    v.sort_by(descending)
+    print("std {} {} {} {} {} {} {}", w[0], w[1], w[2], SEEN.load(), v[0], v[1], v[2])
+    let j = Job(run: doubled, tag: 1)
+    print("field {} {}", j.run(5), j.tag * 10)
+    let three = pick(true)
+    let two = pick(false)
+    print("return {} {}", three(2), two(2))
+    var pushed = Vector<(Int) sync -> Int>()
+    try! pushed.push(doubled)
+    try! pushed.push(tripled)
+    let literal: Vector<(Int) sync -> Int> = [doubled, tripled]
+    print("vector {} {}", pushed[0](10) + pushed[1](10), literal[0](10) + literal[1](10))
+    var m = Map<String, (Int) sync -> Int>()
+    let _ = try! m.insert("d", doubled)
+    let _ = try! m.insert("t", tripled)
+    if let found = m.get("t") { print("map {}", found(5)) }
+    let o: ((Int) sync -> Int)? = doubled
+    if let got = o { print("optional {}", got(7)) }
+    let through = ident(doubled)
+    print("generic {}", through(8))
+    print("onward {}", relay(plain_doubled))
+    let neg: (Int) sync -> Int = Math.negate
+    let quad: (Int) -> Int = Math.scale
+    let held = Job(run: Sign.flip, tag: 0)
+    print("static {} {} {} {}", neg(3), quad(2), apply(Math.negate, 5), held.run(6))
+    let pointer: FuncPointer<(Int) sync -> Int> = Sign.flip
+    print("static pointer {} {} {}", pointer(7), call_pointer(Math.negate, 8), NEGATE(9))
+}
+
+func signatures() unsafe {
+    let one: (Int) sync -> Int = scale
+    let other: (String) sync -> Int = scale
+    print("overload {} {}", one(3), other("abcd"))
+    let a: (Int32) -> Int32 = abs
+    let prompt: (Int32) sync -> Int32 = abs
+    let clock: (UnsafePointer<Int>?) unsafe -> Int = time
+    var slot = 0
+    let now = clock((&slot) as UnsafePointer<Int>)
+    let lookup: (UnsafePointer<UInt8>) unsafe -> UnsafePointer<UInt8>? = getenv
+    let unset = "SAW_SURELY_UNSET_VARIABLE_950"
+    var absent = false
+    if let p = unset.c_string() { absent = lookup(p as UnsafePointer<UInt8>).is_none() }
+    print("extern {} {} {} {} {}", a(-3), prompt(-2), clock(None) > 0, now == slot, absent)
+    print("narrow {}", apply_narrow(widen))
+    let mk: (Int) sync -> Triple = make
+    let t = mk(5)
+    let gr: (String) -> String = greet
+    print("aggregate {} {} {} {}", t.a, t.b, t.c, gr("saw"))
+    let s: (Int) sync sendable -> Int = doubled
+    let held = Shared(run: doubled)
+    print("sendable {} {}", s(3), held.run(4))
+    let kept = keep(doubled)
+    print("escaping {}", kept(6))
+    var x = 41
+    let rd: (UnsafePointer<Int>) unsafe sync -> Int = first
+    print("unsafe {}", rd((&x) as UnsafePointer<Int>) + 1)
+}
+
+func apply_narrow(f: (UInt8, Int16) sync -> Int32) -> Int32 { f(200, -300) }
+
+func calls() {
+    let f: (Int) sync -> Int = doubled
+    let g = move f
+    print("moved {}", g(9))
+    let j = Job(run: doubled, tag: 1)
+    let k = j
+    let r = j.run
+    print("copied {} {} {}", j.run(1), k.run(2), r(3))
+}
+
+func driven() {
+    let f: (Int) -> Int = doubled
+    yield_now()
+    let a = f(5)
+    yield_now()
+    print("driven {} {}", a, apply_plain(doubled, 6))
+}
+
+func main() unsafe {
+    positions()
+    signatures()
+    calls()
+    driven()
+    var group = TaskGroup()
+    let h = group.spawn(work(doubled, 21))
+    print("group {}", h.join())
+    var pool = try! TaskGroup(threads: 2)
+    let p = pool.spawn(work(doubled, 21))
+    print("threads {}", p.join())
+}
