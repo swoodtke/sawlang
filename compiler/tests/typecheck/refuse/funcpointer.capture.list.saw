@@ -1,0 +1,12 @@
+// refuses: funcpointer.capture at 11:17
+// the same capture spelled in a capture list, refused on the same terms
+// message: may capture nothing, but this one captures `bias`
+
+func takes(p: FuncPointer<(Int) sync -> Int>) -> Int {
+    p(1)
+}
+
+func main() {
+    let bias = 7
+    print(takes({ [bias] n in n + bias }))
+}

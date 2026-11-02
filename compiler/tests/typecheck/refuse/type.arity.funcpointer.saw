@@ -1,0 +1,10 @@
+// refuses: type.arity at 5:17
+// a `FuncPointer` written with two type arguments
+// message: `FuncPointer` takes exactly one type argument
+
+func install(p: FuncPointer<(Int) sync -> Int, Int>) {
+}
+
+func main() {
+    print(0)
+}

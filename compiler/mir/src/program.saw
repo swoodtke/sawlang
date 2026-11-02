@@ -108,6 +108,9 @@ public struct MirProgram {
     pending_parents: Vector<Int>
     // How many closures each declaration's bodies hold so far.
     closure_counts: ResIndex
+    // (spelling of a `Function` constant, 0) -> the declaration it names
+    // (`function_constant`); a `FuncPointer`'s address is that function's.
+    function_targets: ResIndex
     // Windows a statement-form `borrow` opened, closed when its statement
     // ends or its value is copied out.
     statement_windows: Vector<Int>
@@ -152,6 +155,18 @@ public struct MirProgram {
 extension MirProgram: NoCopy {}
 
 extension MirProgram {
+    // The declaration a `Function` constant spelled `text` names, or -1.
+    public func function_target(&self, text: Int) -> Int {
+        if text < 0 {
+            return -1
+        }
+        let at = self.function_targets.first(text, 0)
+        if at < 0 {
+            return -1
+        }
+        self.function_targets.value(at)
+    }
+
     // Whether the windows of accessor `decl` close by running nothing: it
     // lends a borrowing struct, so its whole body runs at the open and it
     // has no epilogue (split.saw, `register_producer`).
@@ -220,7 +235,7 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), catches: Vector<MirCatch>(),
                chains: Vector<MirChain>(), leaf_local: move leaf_local,
                touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
-               pending_parents: Vector<Int>(), closure_counts: ResIndex(),
+               pending_parents: Vector<Int>(), closure_counts: ResIndex(), function_targets: ResIndex(),
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
                leftover_parts: Vector<Int>(), release_fields: Vector<Int>(), release_types: Vector<Int>(),
                aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,

@@ -4244,8 +4244,9 @@ sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
 (documented rule) — a Saw struct can mirror a C struct for FFI.
 - **`FuncPointer<F>` IS the callback/entry-point type (design 226)** — one word,
   the address of code whose signature is `F`, and exactly a C function pointer
-  at the ABI. Functions are still NOT first-class values (DF-172a is open);
-  this is the typed hole. `F` must be a function type and must be **`sync`** (a
+  at the ABI. A function value (a named function, a closure) has a function type
+  and may carry an environment; this is the bare address for the cases that
+  want none. `F` must be a function type and must be **`sync`** (a
   suspending body needs a frame a bare address cannot carry), refused AT the
   type wherever one is written. A **SAFE** type — construction is closed, so an
   API receiving one owes no `unsafe`, it copies bitwise and `Send`/`Sync`
@@ -4269,16 +4270,22 @@ sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
   trigger, for a callback arriving from C and a loader reading an entry PC.
   A C callback's `F` names raw pointers, so it carries `unsafe` by design 136's
   rule while the `FuncPointer` stays safe:
-  ```saw-pending SL-828
+  ```saw
   extern "C" {
       func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
                  compar: FuncPointer<(UnsafeConstPointer<Int32>,
                                       UnsafeConstPointer<Int32>) unsafe sync -> Int32>)
   }
   ```
-  ONE GOTCHA LEFT. **DF-226c**: form 2 takes a BARE name, not `mod.f`, so a
-  cross-module source needs the selective import (`import mod.{handler}`)
-  rather than the whole-module one.
+  **THE STATIC TABLE IS THE IDIOM (sawc, SL-940)**: a struct of `FuncPointer`
+  fields as a `static` (or `unsafe static var`), built from named functions and
+  literals, costs no allocation and no startup code, and a function only such a
+  static names is linked only when something reads the static. A boot hook is
+  an OPTIONAL field of a bare `unsafe static var` (`None` at zero, assigned at
+  boot); a bare `FuncPointer` has no valid zero. `p.address() -> UInt` is the
+  SAFE inverse of `from_raw` (a thread entry passed to a syscall as a word).
+  Form 2 takes `mod.f` as well as a bare `f` in sawc (Stage 0's DF-226c), and a
+  non-`blocking` `extern "C"` function too, its C symbol the address.
   **A CLOSURE BODY'S RETURN POSITIONS TAKE THE EXPECTED TYPE (DF-226a, fixed
   Aug 17)** — so an `Int32`-returning comparator writes `-1`, not `-1i32`, and
   the no-suffix-where-an-expected-type-is-in-force idiom holds inside a closure

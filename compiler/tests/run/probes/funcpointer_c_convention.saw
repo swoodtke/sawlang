@@ -1,0 +1,30 @@
+// probe: stated
+// about: a `FuncPointer` crosses C's convention both ways at narrow integer types: C calls a coerced literal and a named function (reached through a thunk that extends as C does) with narrow arguments and reads their narrow results, and Saw calls a C function C handed it (SL-940)
+// stage 0: does not extend a function pointer's narrow integers as C does, so its output is no oracle
+// speeds: -O0 -O2
+// c helper: funcpointer_c_convention.c
+// prints: literal i8 -127
+// prints: named i8 1
+// prints: named u16 65535
+// prints: from C -10
+
+extern "C" {
+    func probe_fp_call_i8(cb: FuncPointer<(Int8) sync -> Int8>, wide: Int64) -> Int64
+    func probe_fp_call_u16(cb: FuncPointer<(UInt16) sync -> UInt16>, wide: Int64) -> Int64
+    func probe_fp_c_twice() -> FuncPointer<(Int8) sync -> Int8>
+}
+
+func negated(v: Int8) sync -> Int8 { 0 - v }
+
+func less_one(v: UInt16) sync -> UInt16 { v &- 1 }
+
+func main() {
+    // 0x180 cut to an `Int8` is -128; the literal adds one.
+    print("literal i8 {}", probe_fp_call_i8({ v in v + 1 }, 0x180))
+    // 0x1FF cut is -1, negated to 1.
+    print("named i8 {}", probe_fp_call_i8(negated, 0x1FF))
+    // 0x1_0000 cut to a `UInt16` is 0, which wraps to 65535.
+    print("named u16 {}", probe_fp_call_u16(less_one, 0x1_0000))
+    let twice = probe_fp_c_twice()
+    print("from C {}", twice(-5))
+}

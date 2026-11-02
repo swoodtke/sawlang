@@ -448,7 +448,8 @@ extension TcProgram {
     // THE NOMINAL-TYPE FUNNEL: every nominal type is formed here, written,
     // inferred or substituted, so an `Atomic<X>` at an `X` other than `Int`
     // is noted here for the atomic role's refusal (SL:open-questions D38),
-    // and every `UnsafeMemory<T, Use>` for the view rules.
+    // every `UnsafeMemory<T, Use>` for the view rules, and every
+    // `FuncPointer<F>` for its signature rule.
     // ENTRY POINTS:
     //     void_type
     //     prim
@@ -486,7 +487,23 @@ extension TcProgram {
         if d >= 0 && d == self.known.unsafe_memory {
             self.note_memory_view(t)
         }
+        if d >= 0 && d == self.known.func_pointer {
+            self.note_func_pointer(t)
+        }
         t
+    }
+
+    // Notes function pointer type `t` for the signature rule, once.
+    func note_func_pointer(&var self, t: Int) {
+        var k = 0
+        while k < self.func_pointer_types.len() {
+            if self.func_pointer_types[k] == t {
+                return
+            }
+            k = k + 1
+        }
+        try! self.func_pointer_types.push(t)
+        try! self.func_pointer_reported.push(false)
     }
 
     // Notes view type `t` for the view rules, once.
@@ -667,6 +684,8 @@ extension TcProgram {
         var out = Vector<String>()
         if d == self.known.optional || d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
             try! out.push("T")
+        } else if d == self.known.func_pointer {
+            try! out.push("F")
         } else if d == self.known.result {
             try! out.push("T")
             try! out.push("E")
@@ -1937,6 +1956,15 @@ extension TcProgram {
         var msg = StringBuilder()
         try! msg.append("`")
         try! msg.append(self.text(m, leaf))
+        if d == self.known.func_pointer {
+            // The one argument is the signature; there is no second one for a
+            // calling convention to ride in.
+            try! msg.append("` takes exactly one type argument, its function type, and ")
+            try! msg.append(written)
+            try! msg.append(" are written")
+            self.refuse(leaf, "type.arity", msg.build())
+            return
+        }
         try! msg.append("` takes ")
         if required == s.generic_count {
             try! msg.append(s.generic_count)

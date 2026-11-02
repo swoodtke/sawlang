@@ -1,0 +1,16 @@
+// refuses: funcpointer.not-sync at 12:47
+// a named function that suspends, in a static's initializer
+// message: `slow` is not declared `sync`
+
+import std.task.{yield_now}
+
+func slow(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+static HOOK: FuncPointer<(Int) sync -> Int> = slow
+
+func main() {
+    print(0)
+}

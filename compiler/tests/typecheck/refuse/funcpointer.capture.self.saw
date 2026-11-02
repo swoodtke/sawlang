@@ -1,0 +1,17 @@
+// refuses: funcpointer.capture at 11:9
+// a method's `self`, named by a coerced literal's body, is a capture too
+// message: may capture nothing, but this one captures `self`
+
+struct Counter {
+    n: Int,
+}
+
+extension Counter {
+    func bump(&self) -> FuncPointer<(Int) sync -> Int> {
+        { x in x + self.n }
+    }
+}
+
+func main() {
+    print(0)
+}

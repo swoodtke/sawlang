@@ -1,0 +1,10 @@
+// refuses: funcpointer.signature at 8:45
+// a named function whose result type is not the `FuncPointer`'s: the match is exact
+// message: no declaration of `wrong` has signature `(Int) sync -> Int`
+
+func wrong(n: Int) sync -> Bool { n > 0 }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = wrong
+    print(0)
+}

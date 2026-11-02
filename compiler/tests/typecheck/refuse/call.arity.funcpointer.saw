@@ -1,0 +1,8 @@
+// refuses: call.arity at 7:11
+// a call through a `FuncPointer` passing more arguments than its signature takes
+// message: this function pointer takes 1 argument(s), but 2 were given
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+    print(p(1, 2))
+}

@@ -1,0 +1,12 @@
+// refuses: slice.not-yet at 10:85
+// an `extern "C"` function whose signature holds an optional pointer, which crosses C as a nullable one that a call through a function pointer does not make yet
+// message: an `extern` whose signature holds an optional pointer, taken as a `FuncPointer` (SL-828)
+
+extern "C" {
+    func getenv(name: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
+}
+
+func main() {
+    let p: FuncPointer<(UnsafePointer<Int8>) unsafe sync -> UnsafePointer<Int8>?> = getenv
+    print(0)
+}

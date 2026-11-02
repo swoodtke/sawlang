@@ -1,0 +1,11 @@
+// refuses: funcpointer.source at 9:45
+// a function value, which may carry an environment, where a `FuncPointer` is expected
+// message: a `FuncPointer` is built from a closure literal or a named `sync` function
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func main() {
+    let f: (Int) sync -> Int = doubled
+    let p: FuncPointer<(Int) sync -> Int> = f
+    print(0)
+}

@@ -368,6 +368,23 @@ TEST_CASES = [
                        "fs done module_compose ok"],
         "expect_clean_exit": True,
     },
+    {
+        # A `FuncPointer` table in a `static`, called through in place, the
+        # boot hook an optional field of a bare `unsafe static var`, and a
+        # pointer's `address()` round trip through `from_raw` (SL-940).
+        "name": "func_pointer_table",
+        "expect_out": ["fs check table_run=1",
+                       "fs check table_alt=1",
+                       "fs check table_zero=1",
+                       "fs check hook_before_boot=1",
+                       "fs check hook_after_boot=1",
+                       "fs check address_nonzero=1",
+                       "fs check address_round_trip=1",
+                       "fs check thread_entry_nonzero=1",
+                       "fs check thread_entry_stable=1",
+                       "fs done func_pointer_table ok"],
+        "expect_clean_exit": True,
+    },
     # --- the runtime provider -------------------------------------------------
     {
         # The seams REACHED by a running program: the line writer, alloc and

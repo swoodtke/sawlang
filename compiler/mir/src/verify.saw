@@ -1836,7 +1836,8 @@ extension MirProgram {
         }
     }
 
-    // A function value's call: each argument its type's parameter.
+    // A function value's call: each argument its type's parameter, a
+    // `FuncPointer<F>`'s those of `F`.
     func verify_value_arguments(&var self, f: Int, c: &MirCall, out: &var Vector<String>) {
         if c.callee < 0 {
             return
@@ -1844,6 +1845,9 @@ extension MirProgram {
         var ft = self.operands[c.callee].ty
         if self.tc.kind_of(ft) == TcKind.Ref {
             ft = self.tc.referent(ft)
+        }
+        if self.tc.is_func_pointer(ft) {
+            ft = self.tc.arg_of(ft, 0)
         }
         if self.tc.kind_of(ft) != TcKind.Func {
             self.problem(f, &var out, "a function value's call calls a value of no function type")

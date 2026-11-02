@@ -534,7 +534,12 @@ lives across a suspension, and the borrow check holds the closure value,
 wherever it is passed, a spawn's root included, to a loan of it. An escaping
 closure, a `Thread.spawn` brace, whose site moves the environment to the heap,
 and a closure that captures nothing are the aggregate of their captures. A
-closure's body reads its captures out of its environment, `_1`, at entry. An escaping closure's
+literal coerced to a `FuncPointer` captures nothing and is that aggregate at
+the `FuncPointer` type, and its body has no environment: its parameters are
+`_1` onward (`lower_closure`). A function named as a `FuncPointer` is a
+`Function` constant at that type, whose declaration `function_target`
+answers. A closure's body reads its captures out of its environment, `_1`,
+at entry. An escaping closure's
 environment is shared by every copy of the closure and released once, at its
 last owner (spec, Escaping-closure heap environments), so a call never takes
 ownership out of it (`load_owned_capture`, SL-475), and neither does a call of

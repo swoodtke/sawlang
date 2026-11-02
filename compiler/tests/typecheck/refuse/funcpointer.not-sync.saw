@@ -1,0 +1,14 @@
+// refuses: funcpointer.not-sync at 12:23
+// a named function not declared `sync`, in a struct field initializer, though its body never suspends
+// message: is not declared `sync`, so it cannot be a `FuncPointer`
+
+struct Slot {
+    run: FuncPointer<(Int) sync -> Int>,
+}
+
+func plain(n: Int) -> Int { n }
+
+func main() {
+    let s = Slot(run: plain)
+    print(0)
+}

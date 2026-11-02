@@ -13,8 +13,8 @@ import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModuleKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.declarations.{tc_build_signatures}
-import sawtypecheck.model.{TC_EFFECT_CONSUMES, TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT, TC_FLAG_WRITTEN_RETURN, TcParam,
-                               TcReceiver, TcSig, TcStatus, TcStatusKind}
+import sawtypecheck.model.{TC_EFFECT_CONSUMES, TC_EFFECT_SYNC, TC_EFFECT_UNSAFE, TC_FLAG_UNSAFE_STRUCT,
+                               TC_FLAG_WRITTEN_RETURN, TcParam, TcReceiver, TcSig, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -1453,6 +1453,12 @@ extension TcProgram {
         if info.kind == TcKind.Nominal && self.is_unsafe_decl(info.decl) {
             return t
         }
+        // A function pointer is safe whatever its signature names: every one
+        // is verified code of that signature, and its `F` says `unsafe` for
+        // itself (spec, Function pointers).
+        if info.kind == TcKind.Nominal && info.decl >= 0 && info.decl == self.known.func_pointer {
+            return -1
+        }
         if info.kind == TcKind.Ref || info.kind == TcKind.Slice || info.kind == TcKind.Array || info.kind == TcKind.Func {
             let inner = self.unsafe_named_in(info.b, &var seen)
             if inner >= 0 {
@@ -1662,6 +1668,82 @@ public func tc_check_memory_views(p: &var TcProgram) {
             p.refuse_memory_view(at, t, rule)
             p.memory_reported[k - 1] = true
         }
+    }
+}
+
+// The function pointer's signature rule (spec, Function pointers): each
+// `FuncPointer<F>` the program forms (`func_pointer_types`) is refused once,
+// where a position first carries exactly it, or else where one first carries
+// a type holding it. One an instantiation forms at no function type holds no
+// value a construction form builds, and its generic body cannot call it
+// (`call_function_value`).
+public func tc_check_func_pointer_types(p: &var TcProgram) {
+    var k = 0
+    while k < p.func_pointer_types.len() {
+        let t = p.func_pointer_types[k]
+        k = k + 1
+        if p.func_pointer_reported[k - 1] {
+            continue
+        }
+        let why = p.func_pointer_rule(t)
+        if why.len() == 0 {
+            continue
+        }
+        var at = tc_first_carrier(&var p, false, t, true)
+        if at < 0 {
+            at = tc_first_carrier(&var p, true, t, true)
+        }
+        if at < 0 {
+            at = tc_first_carrier(&var p, false, t, false)
+        }
+        if at < 0 {
+            at = tc_first_carrier(&var p, true, t, false)
+        }
+        if at >= 0 {
+            let m = p.node_module(at)
+            p.refuse_in(m, at, why, p.func_pointer_message(t, why))
+            p.func_pointer_reported[k - 1] = true
+        }
+    }
+}
+
+extension TcProgram {
+    // The rule function pointer type `t` breaks, or "" when its `F` is a
+    // `sync` function type: a bare code address has no frame for a
+    // suspending body to run out of. An `F` that is a type parameter is no
+    // signature yet, and breaks no rule here.
+    public func func_pointer_rule(&self, t: Int) -> String {
+        if self.has_error(t) || self.nominal_args(t).len() != 1 {
+            return ""
+        }
+        let f = self.types.arg(t, 0)
+        let info = self.types.ty(f)
+        if info.kind == TcKind.Param || info.kind == TcKind.SelfType || info.kind == TcKind.Projection {
+            return ""
+        }
+        if info.kind != TcKind.Func {
+            return "funcpointer.not-function"
+        }
+        if (info.a & TC_EFFECT_SYNC) == 0 {
+            return "funcpointer.suspending"
+        }
+        ""
+    }
+
+    // The refusal of function pointer type `t` by `rule`.
+    public func func_pointer_message(&self, t: Int, rule: String) -> String {
+        let f = self.types.arg(t, 0)
+        var msg = StringBuilder()
+        if rule.equals("funcpointer.not-function") {
+            try! msg.append("`FuncPointer`'s type argument must be a function type, but `")
+            try! msg.append(self.type_text(f))
+            try! msg.append("` is not")
+        } else {
+            try! msg.append("`FuncPointer`'s type argument must be `sync`, but `")
+            try! msg.append(self.type_text(f))
+            try! msg.append("` may suspend")
+        }
+        msg.build()
     }
 }
 

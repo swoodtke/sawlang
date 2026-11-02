@@ -14,6 +14,8 @@ import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_const
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.arith.{TcFault, tc_arith_text}
+// For the extension spelling `target_text`.
+import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
@@ -98,8 +100,8 @@ extension EvalProgram {
 
     // A value as the dump writes it: an integer in decimal, `true`, `false`,
     // a case's identity, an aggregate's parts in order (`TYPE { a, b }` for
-    // a struct, `[a, b]` for an array, `[v; N]` for a repeat), or the fault
-    // that left none.
+    // a struct, `[a, b]` for an array, `[v; N]` for a repeat), a function
+    // pointer's code (`address of F`), or the fault that left none.
     public func value_text(&self, mir: &MirProgram, v: &EvalValue) -> String {
         match v.kind {
             case Aggregate -> {
@@ -140,6 +142,16 @@ extension EvalProgram {
             case Boolean -> if v.bits != 0 { "true" } else { "false" },
             case Case -> mir.tc.res.decl_identity(v.decl),
             case Unit -> "()",
+            case Address -> {
+                var out = StringBuilder()
+                try! out.append("address of ")
+                if v.decl >= 0 {
+                    try! out.append(mir.tc.target_text(v.decl))
+                } else {
+                    try! out.append(mir.func_name(v.bits))
+                }
+                out.build()
+            },
             case Cell -> {
                 var out = StringBuilder()
                 try! out.append(mir.tc.type_text(v.ty))

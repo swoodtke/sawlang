@@ -7,6 +7,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
+import saweval.program.{EvalKind, EvalValue}
 import sawmir.model.{MirAggregate, MirBlock, MirCall, MirCallKind, MirConstKind, MirDriveForm, MirFunc, MirFuncKind,
                          MirLocal, MirOperand, MirOperandKind, MirPlace, MirProj, MirProjKind, MirRvalue,
                          MirRvalueKind, MirStmt, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind, MirWindow}
@@ -60,7 +61,7 @@ public func mono_rules() -> Vector<String> {
 // ENTRY POINTS:
 //     resolve_call
 func mono_builtin_supported(name: String) -> Bool {
-    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name) || name.equals("Thread.spawn") || mono_memory_accessor(name)
+    name.equals("print") || name.equals("panic") || name.equals("assert") || name.equals("init") || name.equals("len") || name.equals("swap") || name.equals("copy") || name.equals("sizeof") || name.equals("alignof") || name.equals("__saw_atomic_add_i64") || name.equals("__saw_atomic_sub_i64_release") || name.equals("__saw_atomic_fence_acquire") || name.equals("__saw_atomic_load_i64_relaxed") || mono_seq_cst_atomic(name) || mono_test_suspension(name) || name.equals("Thread.spawn") || mono_memory_accessor(name) || name.equals("func_pointer_address")
 }
 
 // A view's accessors, which the backend lowers by the view's concrete type
@@ -184,6 +185,11 @@ extension MonoProgram {
                 if k >= 0 {
                     try! self.export_items.push(k)
                 }
+            }
+            // An exported static has its global whether or not a body reads
+            // it, so the code its value names is reached here.
+            if symbol.len() > 0 && self.dp.bc.mir.tc.res.decls[d].kind == ResDeclKind.Static {
+                self.reach_static(-1, d, self.dp.bc.mir.tc.res.decls[d].node)
             }
             d = d + 1
         }
@@ -673,10 +679,83 @@ extension MonoProgram {
             return
         }
         let info = self.dp.bc.mir.operands[o]
+        if info.kind == MirOperandKind.Const && info.const_kind == MirConstKind.Function {
+            let d = self.dp.bc.mir.function_target(info.text)
+            if d >= 0 && self.dp.bc.mir.tc.is_func_pointer(info.ty) {
+                let _ = self.need_address(k, d, -1, node)
+            }
+            return
+        }
         if info.kind != MirOperandKind.Copy || mono_copies_bitwise(&var self.dp.bc.mir.tc, info.ty) {
             return
         }
         let _ = self.glue_of(info.ty, MONO_KEY_COPY, k, node)
+    }
+
+    // THE CODE-ADDRESS FUNNEL: the item a `FuncPointer`'s code is, first
+    // reached from item `k` at `node`: named function `decl`'s body, an
+    // extern `decl`'s C symbol, or with
+    // `decl` -1 the coerced literal whose body is MIR function `body`, which
+    // only a static's value names, so it takes no arguments. A function is
+    // reached only where a body names it or reads a static that does, so a
+    // program that never reads such a static links none of its code.
+    // ENTRY POINTS:
+    //     need_operand
+    //     reach_static
+    func need_address(&var self, k: Int, decl: Int, body: Int, node: Int) -> Int {
+        let known = self.address_item(decl, body)
+        if known >= 0 {
+            return known
+        }
+        let none = Vector<Int>()
+        let no_inst = Vector<Int>()
+        var item = -1
+        if decl >= 0 && self.dp.bc.mir.tc.res.decls[decl].kind == ResDeclKind.Extern {
+            // An extern's address is its C symbol.
+            item = self.extern_item(k, decl)
+            self.address_items.add(decl, 0, item)
+        } else if decl >= 0 {
+            item = self.role_item(decl, k, node)
+            if item >= 0 {
+                self.address_items.add(decl, 0, item)
+            }
+        } else if body >= 0 {
+            item = self.function_item(body, -1, &none, -1, &no_inst, -1, k, node, MONO_KEY_FUNCTION)
+            if item >= 0 {
+                self.address_items.add(body, 1, item)
+            }
+        }
+        if item < 0 {
+            try! self.problems.push("a function pointer names code with no lowered body")
+        }
+        item
+    }
+
+    // A body of item `k` reads static `d` at `node`: the code each
+    // `FuncPointer` in its value names is reached, once.
+    func reach_static(&var self, k: Int, d: Int, node: Int) {
+        if d < 0 || d >= self.static_values.len() || self.address_items.first(d, 2) >= 0 {
+            return
+        }
+        self.address_items.add(d, 2, 1)
+        let v = self.static_values[d]
+        self.reach_addresses(k, v, node)
+    }
+
+    func reach_addresses(&var self, k: Int, v: EvalValue, node: Int) {
+        if v.kind == EvalKind.Address {
+            let _ = self.need_address(k, v.decl, v.bits, node)
+        } else if v.kind == EvalKind.Aggregate {
+            var j = 0
+            while j < v.count {
+                let part = self.static_parts[v.bits + j]
+                self.reach_addresses(k, part, node)
+                j = j + 1
+            }
+        } else if v.kind == EvalKind.Repeat {
+            let part = self.static_parts[v.bits]
+            self.reach_addresses(k, part, node)
+        }
     }
 
     // A spelled `.copy()` no declaration writes, in item `k`: a copy of its
@@ -798,6 +877,10 @@ extension MonoProgram {
         let at = self.dp.bc.mir.places.len()
         try! self.dp.bc.mir.places.push(MirPlace(local: info.local, static_decl: info.static_decl, first: first,
                                                  count: info.count, ty: ty))
+        if info.static_decl >= 0 {
+            let node = self.items[k].origin_node
+            self.reach_static(k, info.static_decl, node)
+        }
         at
     }
 

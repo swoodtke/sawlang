@@ -14813,8 +14813,11 @@ extern "C" {
 **Status: implemented.** `FuncPointer<F>` is the address of compiled code whose
 signature is `F`. It is one machine word with no environment beside it, so it
 is exactly a C function pointer at the ABI: a callback C can call, and an entry
-point a loader can jump to. Functions are not first-class values in Saw. This
-type covers the two cases that need one anyway, and nothing more.
+point a loader can jump to. A function value, a named function or a closure,
+has a function type and may carry an environment beside its code.
+`FuncPointer<F>` is the bare code address for the cases that need one with no
+environment (a C callback, a loader's entry point, a static table), and
+nothing more.
 
 `F` is a function type and it must be `sync`. A suspending body runs out of a
 frame, and a bare address has nowhere to keep one, so a suspending `F` is a
@@ -14841,7 +14844,7 @@ cannot dangle. It copies bitwise, and `Send`/`Sync` derive.
 expected. The literal is emitted under `F`'s own ABI, with no environment
 parameter, so it allocates nothing:
 
-```saw-pending SL-828
+```saw-body
 let doubler: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
 print("{doubler(21)}")                  // prints: 42
 ```
@@ -14850,7 +14853,8 @@ The literal may capture nothing, and what counts as a capture is what the body
 names — an enclosing local, or a method's `self`, whether or not a capture list
 mentions it:
 
-```saw-pending SL-828
+```saw-error
+// error-rule: funcpointer.capture
 // error-contains: a closure coerced to `FuncPointer` may capture nothing, but this
 func make(bias: Int) -> FuncPointer<(Int) sync -> Int> {
     { n in n + bias }
@@ -14864,7 +14868,7 @@ through the argument parameter instead, or read it from a `static`.
 
 **Form 2: a named function**, non-generic and declared `sync`:
 
-```saw-pending SL-828
+```saw-body
 func doubled(n: Int) sync -> Int { n * 2 }
 
 let f: FuncPointer<(Int) sync -> Int> = doubled
@@ -14875,12 +14879,31 @@ conversions. When the name carries several overloads, the `FuncPointer` type
 selects among them. A generic function is refused: a `FuncPointer` names one
 compiled body, and a generic names a family.
 
-Both forms work in every position that supplies an expected type: a call
-argument, an annotated `let`, a struct field initializer, a `return`, and a
-`static` initializer. The last is what lets a dispatch table be a `static` —
-the address is a link-time constant, so the table costs no startup code.
+An `extern "C"` function that is not `blocking` is a named function of this
+form too, its signature matched the same way and its C symbol the address,
+so C code can be handed to C:
 
-```saw-pending SL-828
+```saw
+extern "C" {
+    func strcmp(a: UnsafeConstPointer<Int8>, b: UnsafeConstPointer<Int8>) -> Int32
+    func sort_names(names: UnsafePointer<UnsafeConstPointer<Int8>>, count: UInt,
+                    compare: FuncPointer<(UnsafeConstPointer<Int8>,
+                                          UnsafeConstPointer<Int8>) unsafe sync -> Int32>)
+}
+
+func sort(names: UnsafePointer<UnsafeConstPointer<Int8>>, count: UInt) unsafe {
+    sort_names(names, count, strcmp)
+}
+```
+
+Both forms work in every position that supplies an expected type: a call
+argument, an annotated `let`, a struct field initializer, a `return`, an
+assignment, and a `static` or `unsafe static var` initializer. The last is
+what lets a dispatch table be a `static` — the address is a link-time
+constant, so the table costs no startup code, and a function only a static
+names is linked only when something reads that static.
+
+```saw
 struct Handler {
     code: Int32,
     run: FuncPointer<(Int) sync -> Int>,
@@ -14906,16 +14929,32 @@ reading an entry PC. It takes a raw pointer, so it is `unsafe` by the ordinary
 rule, and the caller owes the promise that the address is a function of
 signature `F`:
 
-```saw-pending SL-828
+```saw
 func entry_at(pc: Int) unsafe -> FuncPointer<(UInt) sync -> Never> {
     FuncPointer<(UInt) sync -> Never>.from_raw(pc as UnsafePointer<UInt8>)
 }
 ```
 
+**`address()` is `from_raw`'s inverse**: the code address as a `UInt`, for an
+interface that takes an entry point as a word, such as a call that creates a
+thread at it. Reading the address is no access through it, so the member is
+safe, and `from_raw` stays the one `unsafe` member. Two pointers built from one
+named function hold one address:
+
+```saw-body
+func worker(arg: UInt) sync -> Never {
+    while { }
+}
+
+let entry: FuncPointer<(UInt) sync -> Never> = worker
+let again: FuncPointer<(UInt) sync -> Never> = worker
+print(entry.address() == again.address())     // prints: true
+```
+
 A C function taking a callback declares it with the `FuncPointer` type, and
 either construction form crosses:
 
-```saw-pending SL-828
+```saw
 extern "C" {
     func qsort(base: UnsafePointer<Int32>, nmemb: UInt, size: UInt,
                compar: FuncPointer<(UnsafeConstPointer<Int32>,

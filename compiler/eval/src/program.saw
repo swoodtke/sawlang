@@ -17,7 +17,9 @@ import sawtypecheck.program.{TcProgram}
 // An aggregate's parts live in `EvalProgram.parts`: a struct's construction
 // (`decl` the struct) or a fixed array's literal (`decl` -1) is the run of
 // `count` parts from `bits`, in field or index order, and `[v; N]` is the one
-// part at `bits`, `count` times.
+// part at `bits`, `count` times. An `Address` is a `FuncPointer`'s code: named
+// function `decl`'s, or with `decl` -1 the coerced literal whose body is MIR
+// function `bits`; it is immortal and opaque, a link-time constant.
 public enum EvalKind {
     case Integer,
     case Boolean,
@@ -26,6 +28,7 @@ public enum EvalKind {
     case Cell,
     case Aggregate,
     case Repeat,
+    case Address,
     case Missing
 }
 

@@ -1,0 +1,12 @@
+// refuses: funcpointer.signature at 10:45
+// an `extern "C"` function whose signature is not the `FuncPointer`'s: its parameter is an `Int32`, not an `Int`
+// message: no declaration of `abs` has signature `(Int) sync -> Int`
+
+extern "C" {
+    func abs(v: Int32) -> Int32
+}
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = abs
+    print(0)
+}

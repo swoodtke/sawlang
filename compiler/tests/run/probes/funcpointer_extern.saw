@@ -1,0 +1,53 @@
+// probe: stated
+// about: a plain `extern "C"` function is a `FuncPointer`'s second construction form, its own C symbol the address: libc's `strcmp` called through the pointer from Saw and handed to C that calls it back, and a `free`-shaped `(UnsafePointer<UInt8>) unsafe sync -> Void` taken from `free`, called from Saw and from C, so nothing leaks (SL-940)
+// stage 0: does not take an `extern` function as a `FuncPointer`, so it cannot build this
+// speeds: -O0 -O2
+// c helper: funcpointer_extern.c
+// leaks: none
+// prints: from Saw -1 0 1
+// prints: from C -1 0 1
+// prints: released from Saw
+// prints: released from C 1
+
+extern "C" {
+    func strcmp(a: UnsafeConstPointer<Int8>, b: UnsafeConstPointer<Int8>) -> Int32
+    func free(p: UnsafePointer<UInt8>)
+    func probe_fp_compare_with(cmp: FuncPointer<(UnsafeConstPointer<Int8>, UnsafeConstPointer<Int8>) unsafe sync -> Int32>,
+                               a: UnsafeConstPointer<Int8>, b: UnsafeConstPointer<Int8>) -> Int64
+    func probe_fp_block() -> UnsafePointer<UInt8>
+    func probe_fp_release_with(release: FuncPointer<(UnsafePointer<UInt8>) unsafe sync -> Void>) -> Int64
+}
+
+// -1, 0 or 1, the sign of a comparison C answers with any magnitude.
+func sign(v: Int32) -> Int {
+    if v < 0 { -1 } else if v > 0 { 1 } else { 0 }
+}
+
+func compare_from_saw(cmp: FuncPointer<(UnsafeConstPointer<Int8>, UnsafeConstPointer<Int8>) unsafe sync -> Int32>,
+                      a: &[Int8; 3], b: &[Int8; 3]) unsafe -> Int {
+    sign(cmp(a as UnsafeConstPointer<Int8>, b as UnsafeConstPointer<Int8>))
+}
+
+func compare_from_c(cmp: FuncPointer<(UnsafeConstPointer<Int8>, UnsafeConstPointer<Int8>) unsafe sync -> Int32>,
+                    a: &[Int8; 3], b: &[Int8; 3]) unsafe -> Int64 {
+    probe_fp_compare_with(cmp, a as UnsafeConstPointer<Int8>, b as UnsafeConstPointer<Int8>)
+}
+
+func release_from_saw(release: FuncPointer<(UnsafePointer<UInt8>) unsafe sync -> Void>) unsafe {
+    release(probe_fp_block())
+}
+
+func main() {
+    let cmp: FuncPointer<(UnsafeConstPointer<Int8>, UnsafeConstPointer<Int8>) unsafe sync -> Int32> = strcmp
+    let ab: [Int8; 3] = [97, 98, 0]
+    let ac: [Int8; 3] = [97, 99, 0]
+    print("from Saw {} {} {}", compare_from_saw(cmp, &ab, &ac), compare_from_saw(cmp, &ab, &ab),
+          compare_from_saw(cmp, &ac, &ab))
+    print("from C {} {} {}", compare_from_c(cmp, &ab, &ac), compare_from_c(cmp, &ab, &ab),
+          compare_from_c(cmp, &ac, &ab))
+
+    let release: FuncPointer<(UnsafePointer<UInt8>) unsafe sync -> Void> = free
+    release_from_saw(release)
+    print("released from Saw")
+    print("released from C {}", probe_fp_release_with(release))
+}

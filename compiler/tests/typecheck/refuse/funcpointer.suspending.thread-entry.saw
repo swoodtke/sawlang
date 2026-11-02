@@ -1,0 +1,12 @@
+// refuses: funcpointer.suspending at 10:12
+// a thread entry's `FuncPointer` that does not say `sync`, written as an annotated `let`'s type
+// message: `FuncPointer`'s type argument must be `sync`, but `(UInt) -> Never` may suspend
+
+func entry(arg: UInt) sync -> Never {
+    while { }
+}
+
+func main() {
+    let e: FuncPointer<(UInt) -> Never> = entry
+    print(0)
+}

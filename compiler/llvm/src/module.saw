@@ -9,10 +9,12 @@ import sawcoro.bttable.{coro_bt_frame_index, coro_bt_table, coro_bt_with_word_bi
 import sawllvm.attributes.{ll_function_attributes}
 import sawcoro.program.{CoroDriveSite, CoroPoint, CoroPoison, CoroProgram, CoroResume}
 import sawllvm.text.{ll_c_string, ll_quoted}
-import sawmir.model.{MirDiag}
+import sawmir.model.{MirDiag, MirFuncKind}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
+// For the extension answering `is_func_pointer`.
+import sawtypecheck.typeops.{TcClient}
 
 // The output being assembled, and the state of the function being written.
 public struct LlEmitter {
@@ -87,6 +89,13 @@ public struct LlEmitter {
     // The effective subtarget features the module is compiled for, which
     // decide whether a Float method is its instruction (`float_method_intrinsic`).
     features: String
+    // The items a `FuncPointer` reaches through a thunk under C's convention
+    // (`function_address`), each defined once the functions are
+    // (`emit_code_thunks`).
+    code_thunks: Vector<Int>
+    // The extern items a `FuncPointer` names, each declared once the
+    // functions are (`emit_code_thunks`).
+    code_externs: Vector<Int>
 }
 
 extension LlEmitter: NoCopy {}
@@ -169,7 +178,7 @@ extension LlEmitter {
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
                   local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>(),
-                  features: "")
+                  features: "", code_thunks: Vector<Int>(), code_externs: Vector<Int>())
     }
 
     // The alignment of a slot of natural alignment `natural`: the larger of
@@ -405,6 +414,31 @@ public func ll_export_symbol(mono: &MonoProgram, k: Int) -> String {
         j = j + 1
     }
     ""
+}
+
+// The symbol of the thunk under C's convention through which a `FuncPointer`
+// reaches item `k` (`function_address`).
+public func ll_code_thunk_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw code address ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+// Whether item `k` is the body of a closure literal coerced to a
+// `FuncPointer`: bare code under its signature's C convention, with no
+// environment parameter.
+public func ll_bare_code(mono: &MonoProgram, k: Int) -> Bool {
+    let it = mono.items[k]
+    if it.kind != MonoItemKind.Function || it.source < 0 {
+        return false
+    }
+    let f = mono.dp.bc.mir.funcs[it.source]
+    if f.kind != MirFuncKind.Closure || f.root < 0 {
+        return false
+    }
+    mono.dp.bc.mir.tc.is_func_pointer(mono.dp.bc.mir.tc.expr_types[f.root])
 }
 
 extension LlEmitter {

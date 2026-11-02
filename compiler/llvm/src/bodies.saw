@@ -14,7 +14,7 @@ import sawllvm.calls.{ll_block}
 import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawcoro.lower.{CORO_POLL_PENDING, CORO_POLL_READY, CORO_STATE_DONE, CORO_STATE_START}
 import sawcoro.program.{CoroPoint, CoroPointKind, CoroPoisonAt, CoroResume}
-import sawllvm.module.{LlEmitter, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol,
+import sawllvm.module.{LlEmitter, ll_bare_code, ll_descriptor_symbol, ll_export_symbol, ll_is_scalar, ll_resume_symbol, ll_symbol,
                            ll_value_type}
 import sawllvm.ops.{ll_lossless}
 import sawllvm.places.{ll_local_slot}
@@ -92,8 +92,10 @@ extension LlEmitter {
         let ret = self.lay_at(&var mono, &var target, ret_type, -1)
         self.sret = ret.kind == TargetKind.Memory
         // An export is defined under its C symbol with external linkage, and
-        // takes and returns its narrow integers extended as C does.
+        // takes and returns its narrow integers extended as C does; so does a
+        // literal coerced to a `FuncPointer`, which C may call.
         let exported = ll_export_symbol(&mono, k).len() > 0
+        let c_abi = exported || ll_bare_code(&mono, k)
         var head = StringBuilder()
         if exported {
             try! head.append("define ")
@@ -101,7 +103,7 @@ extension LlEmitter {
             try! head.append("define internal ")
         }
         if ll_is_scalar(&ret) {
-            if exported {
+            if c_abi {
                 let widened = self.c_extension(&mono, &target, ret_type, &ret)
                 if widened.len() > 0 {
                     try! head.append(widened)
@@ -147,7 +149,7 @@ extension LlEmitter {
                 let name = ll_param_name(j)
                 if ll_is_scalar(&l) {
                     try! head.append(ll_value_type(&l))
-                    let widened = if exported { self.c_extension(&mono, &target, t, &l) } else { "" }
+                    let widened = if c_abi { self.c_extension(&mono, &target, t, &l) } else { "" }
                     if widened.len() > 0 {
                         try! head.append(" ")
                         try! head.append(widened)

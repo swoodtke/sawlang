@@ -586,7 +586,11 @@ extension MirProgram {
     // at entry, its parameters, and its statements (spec, Closures).
     func lower_closure(&var self, e: Int, parent: Int, ordinal: Int) {
         let m = self.tc.node_module(e)
-        let ft = self.tc.expr_types[e]
+        // A literal coerced to a `FuncPointer<F>` is `F`'s own function: its
+        // parameters as written and no environment, since it captures nothing
+        // (`func_pointer_value`).
+        let bare = self.tc.is_func_pointer(self.tc.expr_types[e])
+        let ft = if bare { self.tc.arg_of(self.tc.expr_types[e], 0) } else { self.tc.expr_types[e] }
         let result = self.tc.types.ty(ft).b
         let p = self.funcs[parent]
         self.begin_function(MirFuncKind.Closure, m, p.decl, e, -1, parent, ordinal, p.owner, result)
@@ -598,7 +602,7 @@ extension MirProgram {
         }
         let k = self.tc.closure_index.value(at)
         let first = self.tc.capture_first[k]
-        let count = self.tc.capture_count[k]
+        let count = if bare { 0 } else { self.tc.capture_count[k] }
         let elements = self.closure_env_elements(k)
         var takes = Vector<Bool>()
         var j = 0
@@ -613,7 +617,7 @@ extension MirProgram {
         let f = self.cur
         let thread = self.thread_body(f)
         let env_type = if thread { env_tuple } else { self.tc.mk_ref(false, env_tuple) }
-        let env = self.new_local(env_type, MirLocalKind.Env, -1, -1)
+        let env = if bare { -1 } else { self.new_local(env_type, MirLocalKind.Env, -1, -1) }
         let n = self.tc.child_count(e)
         j = 0
         while j < n {
@@ -2187,7 +2191,12 @@ extension MirProgram {
         }
         let target = self.tc.calls[at].target
         let text = self.tc.target_text(target)
-        self.op_const(MirConstKind.Function, text, t)
+        let o = self.op_const(MirConstKind.Function, text, t)
+        let id = self.operands[o].text
+        if self.function_targets.first(id, 0) < 0 {
+            self.function_targets.add(id, 0, target)
+        }
+        o
     }
 
     // `E.Case` or `.Case` with no payload: the case, of the enum type its

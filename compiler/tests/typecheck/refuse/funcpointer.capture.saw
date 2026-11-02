@@ -1,0 +1,12 @@
+// refuses: funcpointer.capture at 7:5
+// a closure coerced to `FuncPointer` whose body names an enclosing local
+// message: a closure coerced to `FuncPointer` may capture nothing, but this one captures `bias`
+
+func make() -> FuncPointer<(Int) sync -> Int> {
+    let bias = 7
+    { n in n + bias }
+}
+
+func main() {
+    print(0)
+}

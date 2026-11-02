@@ -1,0 +1,11 @@
+// refuses: call.arity at 6:5
+// `from_raw` with no address
+// message: `from_raw` takes one argument, the address
+
+func forge() unsafe -> FuncPointer<(Int) sync -> Int> {
+    FuncPointer<(Int) sync -> Int>.from_raw()
+}
+
+func main() {
+    print(0)
+}

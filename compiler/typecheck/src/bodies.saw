@@ -36,7 +36,7 @@ import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
 import sawtypecheck.fold.{TcFold}
 import sawtypecheck.infer.{TcSolve, tc_solve}
 import sawtypecheck.members.{tc_build_members}
-import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
+import sawtypecheck.model.{TC_ANY_DEPTH, TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_CONSUMES, TC_EFFECT_ESCAPING, TC_EFFECT_SENDABLE, TC_EFFECT_SYNC, TC_FLAG_BLOCKING, TC_FLAG_STATIC, TC_FLAG_UNSAFE_VAR, TC_FLAG_VARIADIC,
                                TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcAdjust, TcAdjustKind, TcAllowance, TcCall, TcCapture, TcCaptureBlock, TcConstPosition, TcConstUse, TcHeadKind, TcLend, TcMember, TcParam,
                                TcPendingConstant, TcReceiver, TcRelocation, TcRole, TcSig, TcSource, TcStaticTyping, TcUse}
 import sawtypecheck.overloads.{tc_check_redeclarations}
@@ -156,6 +156,7 @@ extension TcProgram {
         self.check_zero_inits()
         self.settle_places()
         self.settle_captures()
+        self.check_func_pointer_literals()
         self.check_thread_braces()
         self.check_task_spawn_environments()
     }
@@ -1757,9 +1758,8 @@ extension TcProgram {
         let how = self.coerce(e, from, slot, allow)
         self.take(e, borrowed)
         if how == TC_FIT_NONE {
-            let fp = self.known.func_pointer
-            if fp >= 0 && self.is_nominal_of(slot, fp) && self.kind_of(from) == TcKind.Func {
-                self.not_yet(e, "a function passed as a `FuncPointer`")
+            if self.func_pointer_wanted(slot) >= 0 && self.kind_of(from) == TcKind.Func {
+                self.refuse_function_value_as_pointer(e, from)
                 return from
             }
             self.refuse_mismatch(e, from, slot, pos, allow)
@@ -1771,6 +1771,16 @@ extension TcProgram {
         }
         self.check_slot_constant(e)
         slot
+    }
+
+    // A function value `e`, of function type `t`, where a `FuncPointer` is
+    // expected: only the two construction forms build one.
+    func refuse_function_value_as_pointer(&var self, e: Int, t: Int) {
+        var msg = StringBuilder()
+        try! msg.append("a `FuncPointer` is built from a closure literal or a named `sync` function, and this is a value of function type `")
+        try! msg.append(self.type_text(t))
+        try! msg.append("`, which may carry an environment a code address has no room for: write the closure or the function's name here")
+        self.refuse(e, "funcpointer.source", msg.build())
     }
 
     // An expression an integer slot takes: a bare literal, or its negation,
@@ -2248,12 +2258,27 @@ extension TcProgram {
             },
             case Expr_Array -> if aggregate { self.constant_parts(e, pos, d) } else { e },
             case Expr_Repeat -> if aggregate { self.constant_parts(e, pos, d) } else { e },
-            case Expr_Name -> self.constant_name(e, pos),
-            case Expr_Member -> self.constant_member(e, pos, d),
+            case Expr_Closure -> if aggregate && self.is_code_address(e) { -1 } else { e },
+            case Expr_Name -> if aggregate && self.is_code_address(e) { -1 } else { self.constant_name(e, pos) },
+            case Expr_Member -> if aggregate && self.is_code_address(e) { -1 } else { self.constant_member(e, pos, d) },
             case Expr_ImplicitMember -> self.constant_member(e, pos, d),
             case Expr_Call_Paren -> self.constant_call(e, pos, d),
             case _ -> e
         }
+    }
+
+    // Whether `e` is one of a `FuncPointer`'s two construction forms, a
+    // coerced closure literal or a function's name: the address of code, a
+    // link-time constant (spec, Function pointers).
+    func is_code_address(&self, e: Int) -> Bool {
+        if not self.is_func_pointer(self.expr_types[e]) {
+            return false
+        }
+        if self.has_alt(e, Alt.Expr_Closure) {
+            return true
+        }
+        let at = if e < self.call_at.len() { self.call_at[e] } else { -1 }
+        at >= 0 && self.calls[at].role == TcRole.Value && self.calls[at].target >= 0
     }
 
     // The first offender among `e`'s expression children, or -1; a type
@@ -3594,8 +3619,8 @@ extension TcProgram {
                 let poisoned = self.error_type
                 self.set_type(e, poisoned, false)
             },
-            case Overload -> self.function_value(e, leaf, b),
-            case Overloads -> self.function_value(e, leaf, b),
+            case Overload -> self.function_value(e, leaf, b, want),
+            case Overloads -> self.function_value(e, leaf, b, want),
             case TypeParam -> {
                 // A const parameter is a value of its declared type wherever
                 // an expression wants one (design 148).
@@ -3629,9 +3654,227 @@ extension TcProgram {
         }
     }
 
+    // The `FuncPointer` type a position expecting `want` builds, peeled of
+    // the optionals the position wraps, or -1 when it expects none.
+    func func_pointer_wanted(&self, want: Int) -> Int {
+        let fp = self.known.func_pointer
+        if fp < 0 || want < 0 {
+            return -1
+        }
+        var w = want
+        while self.is_optional(w) {
+            w = self.arg_of(w, 0)
+        }
+        if self.is_nominal_of(w, fp) {
+            return w
+        }
+        -1
+    }
+
+    // THE FUNCTION-POINTER COERCION: expression `e`, a closure literal or a
+    // function's name (`leaf`, bound by `b`), where a position expects `fp`,
+    // a `FuncPointer<F>`. A literal is typed against `F`, which makes its body
+    // a `sync` context, and is noted so that a capture is refused once
+    // captures settle (`check_func_pointer_literals`): it is emitted under
+    // `F`'s own signature with no environment. A name selects the one
+    // non-generic overload whose parameter and result types are `F`'s
+    // exactly, which is never `blocking`: a function declared `sync`, or a
+    // plain `extern "C"` function, its C symbol the address. Either way `e` is
+    // a `FuncPointer<F>`, and the position's conversion wraps it.
+    // ENTRY POINTS:
+    //     closure_typed
+    //     function_value
+    func func_pointer_value(&var self, e: Int, leaf: Int, b: ResBinding, fp: Int) -> Int {
+        let f = self.arg_of(fp, 0)
+        let callable = self.kind_of(f) == TcKind.Func
+        if self.has_alt(e, Alt.Expr_Closure) {
+            if not callable {
+                // `F` itself is refused where the type is written.
+                let _ = self.closure_typed(e, TC_WANT_NONE, false)
+                let poisoned = self.error_type
+                self.expr_types[e] = poisoned
+                return poisoned
+            }
+            let _ = self.closure_typed(e, f, false)
+            try! self.func_pointer_literals.push(e)
+            self.expr_types[e] = fp
+            return fp
+        }
+        if not callable {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let d = self.func_pointer_source(e, leaf, b, f)
+        if d < 0 {
+            let poisoned = self.error_type
+            return self.set_type(e, poisoned, false)
+        }
+        let none = Vector<Int>()
+        let _ = self.record_call(e, d, TcRole.Value, -1, &none)
+        self.set_type(e, fp, false)
+    }
+
+    // The function name `leaf` (bound by `b`) gives a `FuncPointer<f>`:
+    // the one overload whose signature is `f`'s, non-generic, not `blocking`
+    // (a pair's default stands for the pair) and declared `sync`; -1 once
+    // refused.
+    func func_pointer_source(&var self, e: Int, leaf: Int, b: ResBinding, f: Int) -> Int {
+        let m = self.current
+        let name = self.text(m, leaf)
+        let cands = self.free_candidates(b)
+        var matched = Vector<Int>()
+        var generic = -1
+        var k = 0
+        while k < cands.len() {
+            let d = cands[k]
+            k = k + 1
+            if self.res.decls[d].kind == ResDeclKind.BuiltinFunc {
+                continue
+            }
+            self.build_decl(d)
+            if self.sigs[d].generic_count > 0 {
+                generic = d
+                continue
+            }
+            if self.signature_is(d, f) {
+                try! matched.push(d)
+            }
+        }
+        if matched.len() == 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            if generic >= 0 && cands.len() == 1 {
+                try! msg.append("` is a generic function, and a generic function has no single address: a `FuncPointer` names one compiled body, and nothing here writes the type arguments that would pick one")
+                self.refuse(e, "funcpointer.generic", msg.build())
+                return -1
+            }
+            try! msg.append("` names no function a `FuncPointer<")
+            try! msg.append(self.type_text(f))
+            try! msg.append(">` can hold: no declaration of `")
+            try! msg.append(name)
+            try! msg.append("` has signature `")
+            try! msg.append(self.type_text(f))
+            try! msg.append("`, and a function pointer's signature is matched exactly, parameter and result types alike")
+            if generic >= 0 {
+                try! msg.append(" (a generic overload has no single address)")
+            }
+            self.refuse(e, "funcpointer.signature", msg.build())
+            return -1
+        }
+        // A pair taken as a value is its default (spec, Blocking functions).
+        var plain = Vector<Int>()
+        var j = 0
+        while j < matched.len() {
+            if not self.blocks_by_declaration(matched[j]) {
+                try! plain.push(matched[j])
+            }
+            j = j + 1
+        }
+        if plain.len() == 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` is `blocking`, and a `blocking` function cannot be taken as a function value: a call through a `FuncPointer` has no context to choose a body by, and is made wherever the pointer goes, a task included. Call it by name")
+            self.refuse(e, "funcpointer.blocking", msg.build())
+            return -1
+        }
+        matched = move plain
+        if matched.len() > 1 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` names ")
+            try! msg.append(matched.len())
+            try! msg.append(" functions of signature `")
+            try! msg.append(self.type_text(f))
+            try! msg.append("`, which only their labels tell apart, and a `FuncPointer` names exactly one")
+            self.refuse(e, "call.ambiguous", msg.build())
+            return -1
+        }
+        let d = matched[0]
+        if self.res.decls[d].kind == ResDeclKind.Extern {
+            return self.func_pointer_extern(e, &name, d)
+        }
+        if (self.sigs[d].effects & TC_EFFECT_SYNC) == 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` is not declared `sync`, so it cannot be a `FuncPointer`: a code address has no frame for a suspending body to run out of, and only a declared `sync` body is checked never to suspend. Declare it `func ")
+            try! msg.append(name)
+            try! msg.append("(...) sync`")
+            self.refuse(e, "funcpointer.not-sync", msg.build())
+            return -1
+        }
+        d
+    }
+
+    // Whether declaration `d` says `blocking`: a function's effect slot, or
+    // an extern's prefix.
+    func blocks_by_declaration(&self, d: Int) -> Bool {
+        if self.declares_blocking(d) {
+            return true
+        }
+        self.res.decls[d].kind == ResDeclKind.Extern && (self.sigs[d].flags & TC_FLAG_BLOCKING) != 0
+    }
+
+    // A non-`blocking` `extern "C"` function `d`, named `name`, whose
+    // signature is the pointer's: its own C symbol is the address. An extern
+    // promises promptness, so it is `sync` by its declaration. A variadic
+    // one has no fixed signature to be called under, and an optional pointer
+    // crosses C as a nullable one, which a call through a function pointer
+    // does not make yet; both are refused. Returns `d`, or -1 once refused.
+    func func_pointer_extern(&var self, e: Int, name: &String, d: Int) -> Int {
+        let s = self.sigs[d]
+        if (s.flags & TC_FLAG_VARIADIC) != 0 {
+            var msg = StringBuilder()
+            try! msg.append("`")
+            try! msg.append(name)
+            try! msg.append("` is a variadic `extern`, and a function pointer is called under a fixed signature, which C's variadic convention is not")
+            self.refuse(e, "funcpointer.signature", msg.build())
+            return -1
+        }
+        var optional = s.result >= 0 && self.is_optional(s.result)
+        var k = 0
+        while k < s.param_count {
+            if self.is_optional(self.params[s.param_first + k].ty) {
+                optional = true
+            }
+            k = k + 1
+        }
+        if optional {
+            self.not_yet(e, "an `extern` whose signature holds an optional pointer, taken as a `FuncPointer` (SL-828),")
+            return -1
+        }
+        d
+    }
+
+    // Whether function `d`'s parameter and result types are function type
+    // `f`'s, in order; labels, a redundant `unsafe` and `sync` aside.
+    func signature_is(&var self, d: Int, f: Int) -> Bool {
+        let s = self.sigs[d]
+        let info = self.types.ty(f)
+        if s.receiver != TcReceiver.Absent || s.param_count != info.count {
+            return false
+        }
+        var k = 0
+        while k < s.param_count {
+            if self.params[s.param_first + k].ty != self.types.arg(f, k) {
+                return false
+            }
+            k = k + 1
+        }
+        let result = if s.result >= 0 { s.result } else { self.void_type() }
+        result == info.b
+    }
+
     // A function named as a value: the one function of its name, as a
-    // function type.
-    func function_value(&var self, e: Int, leaf: Int, b: ResBinding) -> Int {
+    // function type, or a `FuncPointer` where a position expects one.
+    func function_value(&var self, e: Int, leaf: Int, b: ResBinding, want: Int) -> Int {
+        let fp = self.func_pointer_wanted(want)
+        if fp >= 0 {
+            return self.func_pointer_value(e, leaf, b, fp)
+        }
         let cands = self.free_candidates(b)
         if cands.len() != 1 {
             let m = self.current
@@ -3756,7 +3999,7 @@ extension TcProgram {
             return self.set_type(e, poisoned, false)
         }
         if lb.kind == ResBindKind.Overload || lb.kind == ResBindKind.Overloads {
-            return self.function_value(e, leaf, lb)
+            return self.function_value(e, leaf, lb, want)
         }
         if lb.kind == ResBindKind.Error {
             let poisoned = self.error_type
@@ -6035,11 +6278,10 @@ extension TcProgram {
     // effects are known and its result is not, so the tail gives it, as when
     // inference has solved a parameter's function type all but its result.
     func closure_typed(&var self, e: Int, want: Int, open_result: Bool) -> Int {
-        let fp = self.known.func_pointer
-        if fp >= 0 && want >= 0 && self.is_nominal_of(want, fp) {
-            self.not_yet(e, "a closure where a `FuncPointer` is expected")
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+        let fp = self.func_pointer_wanted(want)
+        if fp >= 0 {
+            let none = ResBinding(kind: ResBindKind.Unbound, module: -1, decl: -1, name: -1, node: -1)
+            return self.func_pointer_value(e, -1, none, fp)
         }
         var fwant = -1
         if want >= 0 {
@@ -7454,6 +7696,9 @@ extension TcProgram {
         if self.is_memory_view(t) && tc_memory_accessor(&text) {
             return self.memory_access(e, base, inner, t, &text, &args)
         }
+        if self.is_func_pointer(t) && text.equals("address") {
+            return self.func_pointer_address(e, base, inner, t, &args)
+        }
         var cands = Vector<TcCand>()
         self.method_candidates(&var cands, t, name, false)
         let field = self.function_field(t, name)
@@ -7752,7 +7997,7 @@ extension TcProgram {
     }
 
     // The field named `name` of type `t` this module sees whose type is a
-    // function type, or -1.
+    // function type or a `FuncPointer`, or -1.
     func function_field(&var self, t: Int, name: Int) -> Int {
         let d = self.nominal_decl(t)
         if d < 0 {
@@ -7770,7 +8015,8 @@ extension TcProgram {
                 continue
             }
             let ft = self.field_type(t, member.decl)
-            if self.kind_of(ft) == TcKind.Func {
+            let pointer = self.known.func_pointer >= 0 && self.is_nominal_of(ft, self.known.func_pointer)
+            if self.kind_of(ft) == TcKind.Func || pointer {
                 return member.decl
             }
         }
@@ -8227,6 +8473,9 @@ extension TcProgram {
             if self.is_enum_decl(d) && self.sigs[d].result >= 0 {
                 return self.raw_from(e, d, t, &args)
             }
+        }
+        if text.equals("from_raw") && self.known.func_pointer >= 0 && self.is_nominal_of(t, self.known.func_pointer) {
+            return self.func_pointer_from_raw(e, t, &args)
         }
         var cands = Vector<TcCand>()
         self.method_candidates(&var cands, t, name, true)
@@ -8919,6 +9168,55 @@ extension TcProgram {
         self.calls[at] = c
         let opt = self.mk_optional(t)
         self.set_type(e, opt, false)
+    }
+
+    // `FuncPointer<F>.from_raw(addr)`, the one member that forges a function
+    // pointer: from an address nothing verified, which a raw pointer
+    // carries, so a caller is `unsafe` by the ordinary trigger and owes the
+    // promise that `addr` is a function of signature `F` (spec, Function
+    // pointers). A conversion of the pointer's word, at type `t`.
+    func func_pointer_from_raw(&var self, e: Int, t: Int, args: &TcArgs) -> Int {
+        let addr_name = self.res.intern("addr")
+        if args.values.len() != 1 {
+            self.refuse(e, "call.arity", "`from_raw` takes one argument, the address: `from_raw(addr: UnsafePointer<UInt8>)`")
+            self.type_args_alone(&args)
+        } else {
+            if args.labels[0] >= 0 && args.labels[0] != addr_name {
+                self.refuse(args.values[0], "call.label", "`from_raw` takes its address unlabeled or as `addr:`")
+            }
+            var pointee = Vector<Int>()
+            try! pointee.push(self.prim(self.known.uint8))
+            let raw = self.mk_nominal(self.known.unsafe_pointer, &pointee)
+            self.check_argument(args.values[0], raw)
+        }
+        let none = Vector<Int>()
+        let _ = self.record_call(e, self.known.func_pointer, TcRole.Conversion, t, &none)
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.spelling = self.res.intern("from_raw")
+        self.calls[at] = c
+        self.set_type(e, t, false)
+    }
+
+    // `p.address()` at `e`, `t` the `FuncPointer` the receiver `base` holds:
+    // the code address as a `UInt`, `from_raw`'s inverse. A safe member: an
+    // address read is no access through it (spec, Function pointers).
+    func func_pointer_address(&var self, e: Int, base: Int, inner: Int, t: Int, args: &TcArgs) -> Int {
+        if inner >= 0 {
+            self.add_adjust(base, TcAdjustKind.Deref, inner)
+        }
+        self.consume(base)
+        if args.values.len() != 0 {
+            self.refuse(e, "call.arity", "`address()` takes no arguments")
+            self.type_args_alone(&args)
+        }
+        self.record_builtin(e, -1, TcRole.Builtin, "func_pointer_address")
+        let at = self.call_at[e]
+        var c = self.calls[at]
+        c.owner = t
+        self.calls[at] = c
+        let word = self.prim(self.known.uint)
+        self.set_type(e, word, false)
     }
 
     // `UnsafeMutableInterior(v)` and `Atomic(v)`: the cell, or the atomic word
@@ -10180,12 +10478,29 @@ extension TcProgram {
 
     // The call of `callee`, a value of type `t` already typed: its
     // arguments by position against the function type's parameters.
-    func call_function_value(&var self, e: Int, callee: Int, t: Int, args: &TcArgs) -> Int {
+    // A `FuncPointer<F>` is called as a value of `F` is: the record's owner
+    // is `F`, so every reading of a value call sees its `sync` signature.
+    func call_function_value(&var self, e: Int, callee: Int, value_type: Int, args: &TcArgs) -> Int {
         let fp = self.known.func_pointer
-        if fp >= 0 && self.is_nominal_of(t, fp) {
-            self.not_yet(e, "calling a `FuncPointer`")
-            let poisoned = self.error_type
-            return self.set_type(e, poisoned, false)
+        let pointer = fp >= 0 && self.is_nominal_of(value_type, fp)
+        var t = value_type
+        if pointer {
+            t = self.arg_of(value_type, 0)
+            if self.kind_of(t) != TcKind.Func {
+                // An `F` that is no function type is refused where the type
+                // is written; one a type parameter stands for has no
+                // signature to call under until an instantiation gives one.
+                if not self.has_error(t) && self.func_pointer_rule(value_type).len() == 0 {
+                    var msg = StringBuilder()
+                    try! msg.append("this is called, and it is a `")
+                    try! msg.append(self.type_text(value_type))
+                    try! msg.append("`, whose signature a type parameter stands for: a function pointer is called under a function type it names")
+                    self.refuse(callee, "call.not-callable", msg.build())
+                }
+                self.type_args_alone(&args)
+                let poisoned = self.error_type
+                return self.set_type(e, poisoned, false)
+            }
         }
         if self.has_error(t) {
             self.type_args_alone(&args)
@@ -10221,11 +10536,19 @@ extension TcProgram {
         }
         if args.values.len() != info.count {
             var msg = StringBuilder()
-            try! msg.append("this function value takes ")
-            try! msg.append(info.count)
-            try! msg.append(" arguments, and ")
-            try! msg.append(args.values.len())
-            try! msg.append(" are passed")
+            if pointer {
+                try! msg.append("this function pointer takes ")
+                try! msg.append(info.count)
+                try! msg.append(" argument(s), but ")
+                try! msg.append(args.values.len())
+                try! msg.append(" were given")
+            } else {
+                try! msg.append("this function value takes ")
+                try! msg.append(info.count)
+                try! msg.append(" arguments, and ")
+                try! msg.append(args.values.len())
+                try! msg.append(" are passed")
+            }
             self.refuse(e, "call.arity", msg.build())
         }
         let none = Vector<Int>()
@@ -13744,7 +14067,11 @@ extension TcProgram {
             let first = self.captures.len()
             try! self.capture_first.push(first)
             self.current = self.node_module(e)
-            let escapes = self.closure_escapes(e, &parents)
+            // A literal coerced to a `FuncPointer` has no environment to
+            // escape with; any capture it has is refused whole
+            // (`check_func_pointer_literals`).
+            let bare = tc_contains(&self.func_pointer_literals, e)
+            let escapes = not bare && self.closure_escapes(e, &parents)
             try! self.closure_escaping.push(escapes)
             self.collect_captures(e, d, escapes)
             let count = self.captures.len() - first
@@ -13755,6 +14082,43 @@ extension TcProgram {
                 self.refuse_hidden_allocation(e, TcHiddenAlloc.Environment, -1)
             }
             k = k + 1
+        }
+    }
+
+    // Each closure literal coerced to a `FuncPointer`, once its captures are
+    // settled: it captures nothing, since it is emitted with no environment
+    // for a captured value to travel in. What counts is what the body names,
+    // a capture list or not, and a method's `self` among them.
+    func check_func_pointer_literals(&var self) {
+        var k = 0
+        while k < self.func_pointer_literals.len() {
+            let e = self.func_pointer_literals[k]
+            k = k + 1
+            let found = self.closure_index.first(e, 0)
+            if found < 0 {
+                continue
+            }
+            let ordinal = self.closure_index.value(found)
+            let first = self.capture_first[ordinal]
+            let count = self.capture_count[ordinal]
+            if count == 0 {
+                continue
+            }
+            self.current = self.node_module(e)
+            var msg = StringBuilder()
+            try! msg.append("a closure coerced to `FuncPointer` may capture nothing, but this one captures ")
+            var j = 0
+            while j < count {
+                if j > 0 {
+                    try! msg.append(", ")
+                }
+                try! msg.append("`")
+                try! msg.append(self.capture_name(self.captures[first + j].binding))
+                try! msg.append("`")
+                j = j + 1
+            }
+            try! msg.append(": a code address has no environment for a captured value to travel in, so pass the state through a parameter, or read it from a `static`")
+            self.refuse(e, "funcpointer.capture", msg.build())
         }
     }
 

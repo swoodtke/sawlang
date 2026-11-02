@@ -1,0 +1,12 @@
+// refuses: funcpointer.signature at 10:70
+// a variadic `extern "C"` function, which has no fixed signature to be called under through a pointer
+// message: is a variadic `extern`, and a function pointer is called under a fixed signature
+
+extern "C" {
+    func printf(format: UnsafePointer<Int8>, ...) -> Int32
+}
+
+func main() {
+    let p: FuncPointer<(UnsafePointer<Int8>) unsafe sync -> Int32> = printf
+    print(0)
+}

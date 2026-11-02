@@ -1,0 +1,10 @@
+// refuses: funcpointer.generic at 8:45
+// a generic function named where a `FuncPointer` is expected: it has no single address
+// message: is a generic function, and a generic function has no single address
+
+func idn<T>(v: T) sync -> T { v }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = idn
+    print(0)
+}

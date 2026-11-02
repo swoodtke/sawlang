@@ -1,0 +1,11 @@
+// refuses: funcpointer.suspending at 6:14
+// a `FuncPointer` whose function type may suspend, written as a field's type
+// message: `FuncPointer`'s type argument must be `sync`, but `(Int) -> Int` may suspend
+
+struct Table {
+    handler: FuncPointer<(Int) -> Int>,
+}
+
+func main() {
+    print(0)
+}

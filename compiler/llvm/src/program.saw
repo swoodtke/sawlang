@@ -7,6 +7,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
+import sawllvm.calls.{ll_block}
 import sawllvm.closures.{ll_env_lead}
 import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawllvm.erased.{ll_drop_nothing}
@@ -174,6 +175,9 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         try! e.defs.append(defined)
         h = h + 1
     }
+    // Once every function and static is written, so are the function
+    // pointers that need a thunk under C's convention.
+    e.emit_code_thunks(&var mono, &var target)
     if profile.defines_every_seam() && not object {
         ll_check_provider_seams(&var mono, &e)
     }

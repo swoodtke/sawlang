@@ -31,6 +31,12 @@ public func res_declare_synthetic_builtins(p: &var ResProgram) {
     p.builtin_type("Never")
     p.builtin_type("UnsafePointer")
     p.builtin_type("UnsafeConstPointer")
+    if p.std_new {
+        // A code address of signature `F`: no Saw source can declare a type
+        // whose values are compiled bodies (spec, Function pointers). Stage
+        // 0's std declares it in `builtin.saw`.
+        p.builtin_type("FuncPointer")
+    }
     if not p.std_new {
         // A pattern names Optional's cases, `Some(v)` and `None`, though no
         // expression constructs a `Some`.

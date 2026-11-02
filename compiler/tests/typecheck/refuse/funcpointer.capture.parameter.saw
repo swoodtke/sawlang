@@ -1,0 +1,12 @@
+// refuses: funcpointer.capture at 6:45
+// a coerced literal at an annotated `let` that names the enclosing function's parameter
+// message: may capture nothing, but this one captures `scale`
+
+func table(scale: Int) -> Int {
+    let p: FuncPointer<(Int) sync -> Int> = { n in n * scale }
+    p(2)
+}
+
+func main() {
+    print(0)
+}

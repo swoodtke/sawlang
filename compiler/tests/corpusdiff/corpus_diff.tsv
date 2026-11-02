@@ -482,10 +482,10 @@ conformance/U27_unsafe_body_via_safe_trait_call.saw	pass	-	unsafe.undeclared: `S
 conformance/U28_pointer_place_read_needs_move.saw	pass	-	transfer.implicit-copy: this reads a place of type `U28_pointer_place_read_needs_move.Res`, which is NoCopy, by value: only a Copy type copies silently; a binding that only borrows has nothing to move
 conformance/U29_pointer_place_move_out.saw	refused	typecheck slice.not-yet	`syntax.expr.move-deref.name` is not in the bootstrap slice yet
 conformance/U30_generic_instantiation_unsafe_signature.saw	wrong	accepts a refusal test	`idn` is not declared `unsafe`, but this instantiation's signature names a value of unsafe type (`UnsafePointer<Int8>`)
-conformance/U31_funcpointer_zero_capture_coercion.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-conformance/U32_funcpointer_capture_local_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-conformance/U33_funcpointer_capture_list_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-conformance/U34_funcpointer_capture_self_error.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
+conformance/U31_funcpointer_zero_capture_coercion.saw	pass	-	-
+conformance/U32_funcpointer_capture_local_error.saw	pass	-	funcpointer.capture: a closure coerced to `FuncPointer` may capture nothing, but this one captures `bias`: a code address has no environment for a captured value to travel in, so pass the state throug
+conformance/U33_funcpointer_capture_list_error.saw	pass	-	funcpointer.capture: a closure coerced to `FuncPointer` may capture nothing, but this one captures `bias`: a code address has no environment for a captured value to travel in, so pass the state throug
+conformance/U34_funcpointer_capture_self_error.saw	pass	-	funcpointer.capture: a closure coerced to `FuncPointer` may capture nothing, but this one captures `self`: a code address has no environment for a captured value to travel in, so pass the state throug
 conformance/V04_move_out_of_ref.saw	pass	-	transfer.move-from-borrow: cannot move out of `x`: it is a reference, which borrows storage its caller owns and ends; read or borrow it instead, or give the owner a move-out (`take()` on an optional,
 conformance/V100_bounded_copy_at_the_auto_tier_retains.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/V101_copy_family_carries_the_tier.saw	pass	judged by its own directives (edited since its oracle)	-
@@ -1039,7 +1039,7 @@ errors/borrowing_producer_stores_no_borrow.saw	pass	-	borrowing.containment: `ot
 errors/borrowing_struct_alias_compositions.saw	pass	-	borrowing.containment: the borrowing struct `borrowing_struct_alias_compositions.It` is stored in a field: it carries a loan, and lives only where a `borrows` function lends it, the head of a `borrow`
 errors/borrowing_struct_exclusive_field.saw	pass	judged by its own directives (edited since its oracle)	type.reference-position: a borrowing struct's field holds `&T` or `&var T`, which `lends self` fills, and `&[Int]` is a slice, which no `lends self` makes: hold a reference to the collection and read
 errors/borrowing_struct_origin.saw	pass	-	lends.origin: `lends self.items` lends a projection of the receiver, and `lends self` is the only spelling: the window a `borrows` call opens charges its receiver's root, and a projection (`lends self
-errors/borrowing_struct_type_positions.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
+errors/borrowing_struct_type_positions.saw	pass	-	conformance.signature: `CallableChain.next` does not meet `Iterator.next`, as `CallableChain` conforms to `Iterator` needs: its result type differs
 errors/borrowing_struct_value_positions.saw	pass	-	borrowing.containment: `b.iter()` lends a borrowing struct, which lives only as long as a block. Loop over it with `for x in b.iter() { … }`, or name it with `borrow let it = b.iter() { … }`
 errors/borrows_bare_return_type.saw	pass	judged by its own directives (edited since its oracle)	borrows.result: `Grid.at` is declared `borrows`, and lends `borrows_bare_return_type.Cell`: a `borrows` function lends a place (`&T`, `&var T`), a slice, an optional of either, or a borrowing struct
 errors/borrows_body_never_lends.saw	pass	-	lend.missing: this path through the `borrows` body of `at` ends without lending; an accessor whose lend is not conditional lends on every path, and returns no value
@@ -1134,14 +1134,14 @@ errors/forwarding_capture_escaping.saw	refused	resolve slice.not-yet	`syntax.exp
 errors/forwarding_return.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/forwarding_store_field.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
 errors/freestanding_macho_target_rejected.saw	pass	-	driver.freestanding-mach-o: `--freestanding` cannot target the Mach-O triple `arm64-apple-darwin`: the freestanding profile writes an ELF object, each function in a section of its own, and Mach-O name
-errors/funcpointer226_arg_arity.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_arg_not_function.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_arg_suspending.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_call_arity.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_effect_slot.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_named_generic.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_named_not_sync.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-errors/funcpointer226_named_signature_mismatch.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
+errors/funcpointer226_arg_arity.saw	pass	-	type.arity: `FuncPointer` takes exactly one type argument, its function type, and 2 are written
+errors/funcpointer226_arg_not_function.saw	pass	-	funcpointer.not-function: `FuncPointer`'s type argument must be a function type, but `Int` is not
+errors/funcpointer226_arg_suspending.saw	pass	-	funcpointer.suspending: `FuncPointer`'s type argument must be `sync`, but `(Int) -> Int` may suspend
+errors/funcpointer226_call_arity.saw	pass	-	call.arity: this function pointer takes 1 argument(s), but 2 were given
+errors/funcpointer226_effect_slot.saw	pass	-	unsafe.function-type: the function type `(UnsafePointer<UInt8>) sync -> Int` names an unsafe type (`UnsafePointer<UInt8>`) but its effect slot does not say `unsafe`
+errors/funcpointer226_named_generic.saw	pass	-	funcpointer.generic: `idn` is a generic function, and a generic function has no single address: a `FuncPointer` names one compiled body, and nothing here writes the type arguments that would pick one
+errors/funcpointer226_named_not_sync.saw	pass	-	funcpointer.not-sync: `plain` is not declared `sync`, so it cannot be a `FuncPointer`: a code address has no frame for a suspending body to run out of, and only a declared `sync` body is checked never
+errors/funcpointer226_named_signature_mismatch.saw	pass	-	funcpointer.signature: `wrong` names no function a `FuncPointer<(Int) sync -> Int>` can hold: no declaration of `wrong` has signature `(Int) sync -> Int`, and a function pointer's signature is matched
 errors/generic_body_unbound_method.saw	refused	typecheck member.unknown	`T` has no method `frobnicate` this module can see
 errors/generic_body_wrong_return.saw	pass	-	type.mismatch: expected `Int`, the type of the function's result, which the body's last expression is, and found `Bool`
 errors/generic_bound_call_borrow_spelling.saw	pass	-	type.mismatch: this expects `&T`, and `b` read here is its referent's value: forward the reference with its sigil, `&b`, as the parameter spells it
@@ -1603,13 +1603,13 @@ forwarding_transfer_drops_once_driven.saw	pass	-	-
 free_function_never_shadows_a_runtime_symbol.saw	refused	typecheck type.try	`try` propagates a `std.systemerror.SystemError`, and this body's error type is `std.net.IoError`
 freestanding_aarch64_no_simd.saw	pass	-	built
 freestanding_seams_extern_no_runtime.saw	pass	-	built
-funcpointer226_call.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer226_coercion_positions.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer226_composites.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer226_ffi_qsort.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer226_no_hidden_alloc.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer226_type.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
-funcpointer_call_in_a_driven_body.saw	refused	resolve name.undefined	cannot find `FuncPointer` in scope
+funcpointer226_call.saw	refused	resolve slice.not-yet	`syntax.expr.shorthand-param` is not in the bootstrap slice yet
+funcpointer226_coercion_positions.saw	pass	-	-
+funcpointer226_composites.saw	pass	-	-
+funcpointer226_ffi_qsort.saw	pass	-	-
+funcpointer226_no_hidden_alloc.saw	pass	-	-
+funcpointer226_type.saw	stage0-wrong	Stage 0 does not build it (unannotated)	sawc meets its directives
+funcpointer_call_in_a_driven_body.saw	pass	judged by its own directives (edited since its oracle)	-
 generic_body_honors_copy_tier.saw	pass	-	copy.requirement: `twice` requires `T` to be Copy, as its body binds `x` twice on one path, at tests/corpus/generic_body_honors_copy_tier.saw:32:18 and 33:18, with nothing written, and `generic_body_h
 generic_body_try_survives_a_second_instantiation.saw	pass	-	-
 generic_bound_call_associated_param_defers.saw	refused	typecheck type.mismatch	expected `T.Item`, the type of the parameter, and found `Int`

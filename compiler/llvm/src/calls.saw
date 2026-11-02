@@ -9,7 +9,7 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_SIGNED_WIDE,
                       LL_PART_UNSIGNED, LL_PART_UNSIGNED_WIDE, LlParts, ll_part_wide, ll_parts_push}
-import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_code_thunk_symbol, ll_is_scalar, ll_symbol, ll_value_type}
 import sawllvm.closures.{ll_dealloc_declaration}
 // For the extension writing `debug_artificial`.
 import sawllvm.debug.{LL_DEBUG_FIRST}
@@ -252,6 +252,14 @@ extension LlEmitter {
     // result into `into` when that is not empty, else into its destination.
     func call_with(&var self, mono: &var MonoProgram, target: &var Target, callee: String, result: Int,
                    params: &Vector<Int>, leading: &Vector<String>, info: &MirCall, into: String) {
+        self.call_convention(&var mono, &var target, callee, result, &params, &leading, &info, into, false)
+    }
+
+    // `call_with` under Saw's convention, or with `c_abi` C's, which extends
+    // a narrow integer argument and result as `c_extension` says.
+    func call_convention(&var self, mono: &var MonoProgram, target: &var Target, callee: String, result: Int,
+                         params: &Vector<Int>, leading: &Vector<String>, info: &MirCall, into: String,
+                         c_abi: Bool) {
         let node = info.node
         let ret = self.lay_at(&var mono, &var target, result, node)
         var args = StringBuilder()
@@ -294,6 +302,11 @@ extension LlEmitter {
             if ll_is_scalar(&pl) {
                 let v = self.operand_value(&var mono, &var target, o, node)
                 try! args.append(ll_value_type(&pl))
+                let widened = if c_abi { self.c_extension(&mono, &target, pt, &pl) } else { "" }
+                if widened.len() > 0 {
+                    try! args.append(" ")
+                    try! args.append(widened)
+                }
                 try! args.append(" ")
                 try! args.append(v)
             } else {
@@ -305,6 +318,11 @@ extension LlEmitter {
         var call = StringBuilder()
         try! call.append("call ")
         if ll_is_scalar(&ret) {
+            let widened = if c_abi { self.c_extension(&mono, &target, result, &ret) } else { "" }
+            if widened.len() > 0 {
+                try! call.append(widened)
+                try! call.append(" ")
+            }
             try! call.append(ll_value_type(&ret))
         } else {
             try! call.append("void")
@@ -331,6 +349,10 @@ extension LlEmitter {
         let node = info.node
         let callee = mono.dp.bc.mir.operands[info.callee]
         let fty = callee.ty
+        if mono.dp.bc.mir.tc.is_func_pointer(fty) {
+            self.pointer_call(&var mono, &var target, &info)
+            return
+        }
         var addr = ""
         if callee.kind == MirOperandKind.Const {
             addr = self.operand_addr(&var mono, &var target, info.callee, fty, node)
@@ -353,6 +375,122 @@ extension LlEmitter {
         try! env_arg.append(env)
         try! leading.push(env_arg.build())
         self.call_with(&var mono, &var target, code, shape.b, &params, &leading, &info, "")
+    }
+
+    // A call through a `FuncPointer<F>`: its one word is the code, called
+    // with no environment and, over scalars, under `F`'s C convention, so a
+    // pointer C hands back and one Saw built are called alike
+    // (`function_address`).
+    func pointer_call(&var self, mono: &var MonoProgram, target: &var Target, info: &MirCall) {
+        let node = info.node
+        let code = self.operand_value(&var mono, &var target, info.callee, node)
+        let fty = mono.dp.bc.mir.tc.arg_of(mono.dp.bc.mir.operands[info.callee].ty, 0)
+        let shape = mono.dp.bc.mir.tc.types.ty(fty)
+        var params = Vector<Int>()
+        var k = 0
+        while k < shape.count {
+            try! params.push(mono.dp.bc.mir.tc.types.arg(fty, k))
+            k = k + 1
+        }
+        let none = Vector<String>()
+        self.call_convention(&var mono, &var target, code, shape.b, &params, &none, &info, "", true)
+    }
+
+    // What `function_address` owed: each thunk defined once, under C's
+    // convention, the narrow integers extended, calling the item's own code;
+    // and each extern it named declared, as its calls declare it.
+    public func emit_code_thunks(&var self, mono: &var MonoProgram, target: &var Target) {
+        var k = 0
+        while k < self.code_thunks.len() {
+            self.emit_code_thunk(&var mono, &var target, self.code_thunks[k])
+            k = k + 1
+        }
+        k = 0
+        while k < self.code_externs.len() {
+            let d = mono.items[self.code_externs[k]].decl
+            let sig = self.extern_signature(&var mono, &var target, d, -1)
+            if sig.ok {
+                self.declare_extern(&sig, sig.declared)
+            }
+            k = k + 1
+        }
+    }
+
+    // The thunk of item `k`, through which a `FuncPointer` reaches it.
+    func emit_code_thunk(&var self, mono: &var MonoProgram, target: &var Target, k: Int) {
+        let code = self.plain_symbol(&var mono, k)
+        let name = ll_code_thunk_symbol(&mono, k)
+        let info = mono.dp.bc.mir.funcs[mono.items[k].body]
+        let rt = mono.dp.bc.mir.locals[info.local_first].ty
+        let rl = self.lay_at(&var mono, &var target, rt, -1)
+        var head = StringBuilder()
+        var call = StringBuilder()
+        try! head.append("define internal ")
+        if ll_is_scalar(&rl) {
+            let widened = self.c_extension(&mono, &target, rt, &rl)
+            if widened.len() > 0 {
+                try! head.append(widened)
+                try! head.append(" ")
+            }
+            try! head.append(ll_value_type(&rl))
+            try! call.append("  %r = call ")
+            try! call.append(ll_value_type(&rl))
+        } else {
+            try! head.append("void")
+            try! call.append("  call void")
+        }
+        try! head.append(" ")
+        try! head.append(name)
+        try! head.append("(")
+        try! call.append(" ")
+        try! call.append(code)
+        try! call.append("(")
+        var first = true
+        if rl.kind == TargetKind.Memory {
+            try! head.append("ptr %ret")
+            try! call.append("ptr %ret")
+            first = false
+        }
+        var j = 1
+        while j <= info.param_count {
+            let t = mono.dp.bc.mir.locals[info.local_first + j].ty
+            let l = self.lay_at(&var mono, &var target, t, -1)
+            j = j + 1
+            if l.kind == TargetKind.Zero {
+                continue
+            }
+            if not first {
+                try! head.append(", ")
+                try! call.append(", ")
+            }
+            first = false
+            let ty = if ll_is_scalar(&l) { ll_value_type(&l) } else { "ptr" }
+            try! head.append(ty)
+            try! call.append(ty)
+            let widened = if ll_is_scalar(&l) { self.c_extension(&mono, &target, t, &l) } else { "" }
+            if widened.len() > 0 {
+                try! head.append(" ")
+                try! head.append(widened)
+            }
+            try! head.append(" %p")
+            try! head.append(j)
+            try! call.append(" %p")
+            try! call.append(j)
+        }
+        try! head.append(")")
+        try! head.append(ll_function_attributes(""))
+        try! head.append(" \{\nentry:\n")
+        try! call.append(")\n")
+        try! head.append(call.build())
+        if ll_is_scalar(&rl) {
+            try! head.append("  ret ")
+            try! head.append(ll_value_type(&rl))
+            try! head.append(" %r\n\}\n\n")
+        } else {
+            try! head.append("  ret void\n\}\n\n")
+        }
+        let defined = self.debug_artificial(&mono, head.build())
+        try! self.defs.append(defined)
     }
 
     // A dispatch through `any Trait`: the function in the receiver's vtable
@@ -1108,6 +1246,16 @@ extension LlEmitter {
             self.builtin_copy(&var mono, &var target, &info)
         } else if name.starts_with("memory_") {
             self.memory_access(&var mono, &var target, &info, &name)
+        } else if name.equals("func_pointer_address") {
+            // The pointer's one word, read as the integer it is.
+            let o = mono.dp.bc.mir.lists[info.arg_first]
+            let code = self.operand_value(&var mono, &var target, o, node)
+            let word = self.word
+            let address = self.assign(ll_pointer_cast("ptrtoint", "ptr", code, word))
+            if info.dest >= 0 {
+                let dest = self.place_addr(&var mono, &var target, info.dest, node)
+                self.store(word, address, dest)
+            }
         } else if name.equals("__saw_suspend") || name.equals("__saw_test_suspend") {
             // Coroutine lowering replaces every call of either in a lowered
             // frame, and refuses the frames it does not lower.

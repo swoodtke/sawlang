@@ -43,7 +43,10 @@ operands' type through `sawtypecheck.arith`, the rule typecheck's fold
 follows too. A static also holds the aggregates its initializer builds out
 of those (spec, statics tier 2): a struct's construction, a fixed array's
 literal, `[v; N]`, `Atomic(<int>)` as a part, and an earlier static as a
-whole part, an alias's construction keeping its parts. It holds no Float
+whole part, an alias's construction keeping its parts. A `FuncPointer` is a
+function's address, from a named function or a coerced closure literal, an
+opaque constant it neither compares nor folds, which the backend writes as
+the code's symbol (`function_address` in interp.saw). It holds no Float
 value yet (SL-722). Calls, loops, tuples, a case carrying a payload, references and
 every other construct are outside it.
 
@@ -76,7 +79,8 @@ starts with `FILE<TAB>path` and holds, in order:
   constant. NAME is its MIR function's (`static`, `raw`, `align`,
   `static_assert`). VALUE is an integer in decimal, an unsigned one past
   `Int.max` included, `true` or `false`, a case's identity, an atomic as
-  `TYPE(WORD)`, or an aggregate's parts in order: `TYPE { A, B }` for a
+  `TYPE(WORD)`, a function pointer as `address of F`, F the function as a
+  MIR dump names it, or an aggregate's parts in order: `TYPE { A, B }` for a
   struct, `[A, B]` for an array literal and `[A; N]` for a repeat.
 
 The exit code is 1 when any program has a refusal or an `INVARIANT` line, 2 on

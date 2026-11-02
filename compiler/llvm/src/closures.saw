@@ -49,6 +49,12 @@ extension LlEmitter {
             self.refuse_here(&var mono, node, "a closure whose body mono did not reach")
             return
         }
+        // A literal coerced to a `FuncPointer` is one word, its code.
+        if mono.dp.bc.mir.tc.is_func_pointer(rv.ty) {
+            let address = self.function_address(&var mono, &var target, item, node)
+            self.store("ptr", address, dest)
+            return
+        }
         let code = self.plain_symbol(&var mono, item)
         var env = "null"
         var release = "null"

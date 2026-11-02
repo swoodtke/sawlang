@@ -6,12 +6,13 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts,
                          ll_parts_push}
-import sawllvm.module.{LlEmitter, ll_is_scalar, ll_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_bare_code, ll_code_thunk_symbol, ll_export_symbol, ll_is_scalar, ll_symbol,
+                          ll_value_type}
 import sawllvm.text.{ll_double_constant, ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MONO_KEY_COPY, MonoProgram}
+import sawmono.program.{MONO_KEY_COPY, MonoItemKind, MonoProgram}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 import saweval.program.{EvalKind, EvalValue}
@@ -345,6 +346,17 @@ extension LlEmitter {
             case Integer -> ll_word_constant(l.size, v.bits),
             case Boolean -> ll_word_constant(l.size, v.bits),
             case Cell -> ll_word_constant(l.size, v.bits),
+            case Address -> {
+                // A `FuncPointer`: the address of the code mono reached from
+                // the read of this static (`reach_static`).
+                let item = mono.address_item(v.decl, v.bits)
+                if item < 0 {
+                    self.refuse_here(&var mono, node, "a static holding a function pointer that no read of the static reached")
+                    return LlConstant(ty: "", value: "", zero: true, ok: false)
+                }
+                let code = self.function_address(&var mono, &var target, item, node)
+                LlConstant(ty: "ptr", value: code, zero: false, ok: true)
+            },
             case Case -> {
                 let c = target.case_of(&var mono.dp.bc.mir.tc, t, v.decl)
                 if c.decl < 0 || l.tag_bytes <= 0 {
@@ -448,6 +460,9 @@ extension LlEmitter {
     public func operand_value(&var self, mono: &var MonoProgram, target: &var Target, o: Int, node: Int) -> String {
         let op = mono.dp.bc.mir.operands[o]
         let l = self.lay_at(&var mono, &var target, op.ty, node)
+        if op.kind == MirOperandKind.Const && op.const_kind == MirConstKind.Function {
+            return self.named_code(&var mono, &var target, &op, node)
+        }
         if op.kind == MirOperandKind.Const {
             return self.const_value(&var mono, &op, &l, node)
         }
@@ -473,6 +488,92 @@ extension LlEmitter {
             return self.operand_value(&var mono, &var target, o, node)
         }
         self.place_addr(&var mono, &var target, op.place, node)
+    }
+
+    // THE CODE-ADDRESS FUNNEL: the address a `FuncPointer` holds for item
+    // `k`'s code, which a call through it calls under its signature's C
+    // convention with no environment (`pointer_call`). An extern is its C
+    // symbol, under C's convention by definition, so it takes no thunk. An
+    // export and a coerced literal's body are defined under that convention
+    // already; any
+    // other function is under Saw's, which over scalars differs from C's
+    // only in extending a narrow integer, so one whose signature has such an
+    // integer is reached through a thunk under C's that calls it
+    // (`emit_code_thunks`). An aggregate travels by address under both
+    // calls through a pointer and its target, so the two still agree.
+    // ENTRY POINTS:
+    //     closure_into
+    //     named_code
+    //     static_part
+    public func function_address(&var self, mono: &var MonoProgram, target: &var Target, k: Int,
+                                 node: Int) -> String {
+        if mono.items[k].kind == MonoItemKind.Extern {
+            // An extern is C's own code at its own symbol, declared once the
+            // functions are written (`emit_code_thunks`).
+            var seen = false
+            var j = 0
+            while j < self.code_externs.len() {
+                if self.code_externs[j] == k {
+                    seen = true
+                }
+                j = j + 1
+            }
+            if not seen {
+                try! self.code_externs.push(k)
+            }
+            var symbol = StringBuilder()
+            try! symbol.append("@")
+            try! symbol.append(mono.dp.bc.mir.tc.res.name_text(mono.dp.bc.mir.tc.res.decls[mono.items[k].decl].name))
+            return symbol.build()
+        }
+        let code = self.plain_symbol(&var mono, k)
+        if ll_export_symbol(&mono, k).len() > 0 || ll_bare_code(&mono, k) {
+            return code
+        }
+        let f = mono.items[k].body
+        if f < 0 {
+            try! mono.problems.push("a function pointer names an item with no body")
+            return code
+        }
+        let info = mono.dp.bc.mir.funcs[f]
+        var narrow = false
+        var j = 0
+        while j <= info.param_count {
+            let t = mono.dp.bc.mir.locals[info.local_first + j].ty
+            let l = self.lay_at(&var mono, &var target, t, node)
+            if l.kind == TargetKind.Int && l.bits < 32 && target.c_extends_narrow() {
+                narrow = true
+            }
+            j = j + 1
+        }
+        if not narrow {
+            return code
+        }
+        var seen = false
+        j = 0
+        while j < self.code_thunks.len() {
+            if self.code_thunks[j] == k {
+                seen = true
+            }
+            j = j + 1
+        }
+        if not seen {
+            try! self.code_thunks.push(k)
+        }
+        ll_code_thunk_symbol(&mono, k)
+    }
+
+    // A named function written as a `FuncPointer`: its code's address
+    // (`function_address`). A plain function value is three words, which
+    // this slice does not build.
+    func named_code(&var self, mono: &var MonoProgram, target: &var Target, op: &MirOperand, node: Int) -> String {
+        let d = mono.dp.bc.mir.function_target(op.text)
+        let item = if d >= 0 { mono.address_item(d, -1) } else { -1 }
+        if not mono.dp.bc.mir.tc.is_func_pointer(op.ty) || item < 0 {
+            self.refuse_here(&var mono, node, "a memory constant is not in the backend slice yet")
+            return "null"
+        }
+        self.function_address(&var mono, &var target, item, node)
     }
 
     // A scalar constant's spelling at its layout.
@@ -546,6 +647,11 @@ extension LlEmitter {
                 return
             }
             if op.const_kind == MirConstKind.Unit || l.kind == TargetKind.Zero {
+                return
+            }
+            if op.const_kind == MirConstKind.Function {
+                let code = self.named_code(&var mono, &var target, &op, node)
+                self.store("ptr", code, dest)
                 return
             }
             if not ll_is_scalar(&l) {

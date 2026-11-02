@@ -1,0 +1,159 @@
+// probe: stated
+// about: `FuncPointer<F>`'s position matrix: a zero-capture literal, a named `sync` function and an overload selected by `F`, each in an argument, an annotated `let`, a field, a `return`, a `static` and an `unsafe static var` initializer and assignment; called through a local, a parameter, a field in place and a static's field; `address()` and its `from_raw` round trip, and a thread entry's `(UInt) sync -> Never` address; and a boot hook held as an optional field of an `unsafe static var` (SL-940)
+// stage 0: has no `FuncPointer.address()`, so it cannot build this
+// speeds: -O0 -O2
+// prints: argument 21 14 35
+// prints: let 21 14 35
+// prints: field 21 14 35
+// prints: return 21 14 35
+// prints: static 21 14 35
+// prints: unsafe static var 21 14 35
+// prints: assigned 70
+// prints: in place 42
+// prints: static field 42 8
+// prints: address nonzero true
+// prints: same function same address true
+// prints: round trip 18
+// prints: thread entry nonzero true
+// prints: thread entry stable true
+// prints: hook before -1
+// prints: hook after 7
+// prints: table 44
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func scaled(n: Int) sync -> Int { n * 5 }
+
+func scaled(s: String) sync -> Int { s.len() }
+
+func seven() sync -> Int { 7 }
+
+// A thread's entry, as sawos's `thread_create` takes one: it never returns,
+// so this probe takes its address and never calls it.
+func thread_entry(arg: UInt) sync -> Never {
+    while { }
+}
+
+func call(p: FuncPointer<(Int) sync -> Int>) -> Int { p(7) }
+
+struct Slot {
+    run: FuncPointer<(Int) sync -> Int>,
+}
+
+func literal_returned() -> FuncPointer<(Int) sync -> Int> {
+    { n in n * 3 }
+}
+
+func named_returned() -> FuncPointer<(Int) sync -> Int> {
+    doubled
+}
+
+func overload_returned() -> FuncPointer<(Int) sync -> Int> {
+    scaled
+}
+
+static LITERAL: FuncPointer<(Int) sync -> Int> = { n in n * 3 }
+static NAMED: FuncPointer<(Int) sync -> Int> = doubled
+static OVERLOAD: FuncPointer<(Int) sync -> Int> = scaled
+
+unsafe static var VAR_LITERAL: FuncPointer<(Int) sync -> Int> = { n in n * 3 }
+unsafe static var VAR_NAMED: FuncPointer<(Int) sync -> Int> = doubled
+unsafe static var VAR_OVERLOAD: FuncPointer<(Int) sync -> Int> = scaled
+
+struct Handler {
+    code: Int32,
+    run: FuncPointer<(Int) sync -> Int>,
+}
+
+static HANDLER: Handler = Handler(code: 7, run: { n in n + 1 })
+
+// The boot hook: an optional field, so the bare static is all-zero and its
+// hook `None` until something installs one.
+struct Hooks {
+    tick: FuncPointer<() sync -> Int>?,
+}
+
+unsafe static var HOOKS: Hooks
+
+struct Ops {
+    run: FuncPointer<(Int) sync -> Int>,
+    zero: FuncPointer<() sync -> Int>,
+}
+
+static TABLE: Ops = Ops(run: doubled, zero: { 4 })
+
+func vars() unsafe -> String {
+    let a = VAR_LITERAL
+    let b = VAR_NAMED
+    let c = VAR_OVERLOAD
+    "{a(7)} {b(7)} {c(7)}"
+}
+
+func assign() unsafe -> Int {
+    VAR_NAMED = scaled
+    let p = VAR_NAMED
+    p(14)
+}
+
+func fire() unsafe -> Int {
+    if let t = HOOKS.tick { t() } else { -1 }
+}
+
+func install() unsafe {
+    HOOKS.tick = seven
+}
+
+func forge(address: UInt) unsafe -> FuncPointer<(Int) sync -> Int> {
+    FuncPointer<(Int) sync -> Int>.from_raw(address as UnsafePointer<UInt8>)
+}
+
+func main() {
+    print("argument {} {} {}", call({ n in n * 3 }), call(doubled), call(scaled))
+
+    let a: FuncPointer<(Int) sync -> Int> = { n in n * 3 }
+    let b: FuncPointer<(Int) sync -> Int> = doubled
+    let c: FuncPointer<(Int) sync -> Int> = scaled
+    print("let {} {} {}", a(7), b(7), c(7))
+
+    let sa = Slot(run: { n in n * 3 })
+    let sb = Slot(run: doubled)
+    let sc = Slot(run: scaled)
+    let ra = sa.run
+    let rb = sb.run
+    let rc = sc.run
+    print("field {} {} {}", ra(7), rb(7), rc(7))
+
+    let la = literal_returned()
+    let lb = named_returned()
+    let lc = overload_returned()
+    print("return {} {} {}", la(7), lb(7), lc(7))
+
+    let ta = LITERAL
+    let tb = NAMED
+    let tc = OVERLOAD
+    print("static {} {} {}", ta(7), tb(7), tc(7))
+
+    print("unsafe static var {}", vars())
+    print("assigned {}", assign())
+
+    let h = Handler(code: 7, run: { n in n + 1 })
+    print("in place {}", h.run(41))
+    print("static field {} {}", HANDLER.run(41), HANDLER.code + 1)
+
+    let p: FuncPointer<(Int) sync -> Int> = doubled
+    let q: FuncPointer<(Int) sync -> Int> = doubled
+    print("address nonzero {}", p.address() != 0)
+    print("same function same address {}", p.address() == q.address())
+    let back = forge(p.address())
+    print("round trip {}", back(9))
+    let entry: FuncPointer<(UInt) sync -> Never> = thread_entry
+    let again: FuncPointer<(UInt) sync -> Never> = thread_entry
+    print("thread entry nonzero {}", entry.address() != 0)
+    print("thread entry stable {}", entry.address() == again.address())
+
+    print("hook before {}", fire())
+    install()
+    print("hook after {}", fire())
+
+    print("table {}", TABLE.run(20) + TABLE.zero())
+}

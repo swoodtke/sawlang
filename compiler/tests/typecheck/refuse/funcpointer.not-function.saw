@@ -1,0 +1,10 @@
+// refuses: funcpointer.not-function at 5:17
+// a `FuncPointer` whose type argument is no function type, written as a parameter's type
+// message: `FuncPointer`'s type argument must be a function type, but `Int` is not
+
+func install(p: FuncPointer<Int>) {
+}
+
+func main() {
+    print(0)
+}

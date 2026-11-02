@@ -1,0 +1,13 @@
+// refuses: funcpointer.signature at 12:16
+// an overload set none of whose members has the `FuncPointer`'s parameter types, passed as an argument
+// message: no declaration of `scaled` has signature `(Int) sync -> Int`
+
+func scaled(n: Int32) sync -> Int { 1 }
+
+func scaled(s: String) sync -> Int { s.len() }
+
+func call(p: FuncPointer<(Int) sync -> Int>) -> Int { p(7) }
+
+func main() {
+    print(call(scaled))
+}

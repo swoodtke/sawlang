@@ -1,0 +1,13 @@
+// refuses: static.zero-invalid at 9:19
+// a bare `unsafe static var` whose struct holds a `FuncPointer`, which has no valid zero
+// message: is never null: a zero one would name no function
+
+struct Ops {
+    run: FuncPointer<(Int) sync -> Int>,
+}
+
+unsafe static var OPS: Ops
+
+func main() {
+    print(0)
+}

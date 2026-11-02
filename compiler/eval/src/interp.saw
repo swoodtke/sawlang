@@ -316,8 +316,27 @@ extension EvalProgram {
                 }
                 self.not_yet(&mir, f, "a source location")
             },
+            case Function -> {
+                let d = mir.function_target(info.text)
+                if d < 0 || not mir.tc.is_func_pointer(t) {
+                    return self.not_yet(&mir, f, "a function value")
+                }
+                self.function_address(d, -1, t)
+            },
             case _ -> self.not_yet(&mir, f, "a constant of a type the evaluator does not hold")
         }
+    }
+
+    // THE FUNCTION-ADDRESS FUNNEL: a `FuncPointer<F>` in a constant, of type
+    // `t`: the code of named function `decl`, or with `decl` -1 of the
+    // coerced literal whose body is MIR function `body`. The value is opaque
+    // and immortal, a link-time constant the backend writes as the code's
+    // address; nothing the evaluator does reads, compares or folds it.
+    // ENTRY POINTS:
+    //     constant
+    //     aggregate
+    func function_address(&self, decl: Int, body: Int, t: Int) -> EvalValue {
+        EvalValue(kind: EvalKind.Address, bits: body, ty: t, decl: decl, count: 0, fault: TcFault.Clean)
     }
 
     // A builtin binary operator: arithmetic, bit and shift operators at the
@@ -528,6 +547,15 @@ extension EvalProgram {
                 self.parts_of(&mir, f, &rv, &locals, decl)
             },
             case Array -> self.parts_of(&mir, f, &rv, &locals, -1),
+            case Closure -> {
+                // Only a literal coerced to a `FuncPointer` is a constant: it
+                // has no environment.
+                let at = mir.func_of.first(rv.decl, 0)
+                if not mir.tc.is_func_pointer(rv.ty) || rv.count != 0 || at < 0 {
+                    return self.not_yet(&mir, f, "a closure")
+                }
+                self.function_address(-1, mir.func_of.value(at), rv.ty)
+            },
             case Tuple -> self.not_yet(&mir, f, "a tuple"),
             case _ -> self.not_yet(&mir, f, "an aggregate")
         }

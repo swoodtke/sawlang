@@ -1,0 +1,16 @@
+// refuses: funcpointer.blocking at 14:45
+// a `blocking` function named where a `FuncPointer` is expected: it cannot be taken as a function value, and `sync` is no way out for it
+// message: `settle` is `blocking`, and a `blocking` function cannot be taken as a function value: a call through a `FuncPointer` has no context to choose a body by, and is made wherever the pointer goes, a task included. Call it by name
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func settle(ms: Int) blocking -> Int {
+    __saw_rt_blocking_sleep(ms)
+}
+
+func main() blocking {
+    let p: FuncPointer<(Int) sync -> Int> = settle
+    print(0)
+}

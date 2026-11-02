@@ -92,6 +92,11 @@ public struct MonoProgram {
     call_items: Vector<Int>
     // By concrete rvalue: the item a closure construction's body is, or -1.
     closure_items: Vector<Int>
+    // A `FuncPointer`'s code: (declaration, 0) for a named function and
+    // (closure body, 1) for a coerced literal in a static -> its item; and
+    // (static, 2) once a body's read of that static has reached the code its
+    // value names (`reach_static`).
+    address_items: ResIndex
     // The first function index that is a concrete copy.
     concrete_first: Int
     // Refusals (`mono.not-yet`, `mono.depth`) and broken invariants.
@@ -245,7 +250,8 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
         k = k + 1
     }
     MonoProgram(dp: move dp, items: Vector<MonoItem>(), item_types: Vector<Int>(), by_key: ResIndex(),
-                call_items: Vector<Int>(), closure_items: Vector<Int>(), concrete_first: first,
+                call_items: Vector<Int>(), closure_items: Vector<Int>(), address_items: ResIndex(),
+                concrete_first: first,
                 diags: Vector<MirDiag>(), problems: Vector<String>(), static_values: move values,
                 static_parts: Vector<EvalValue>(), main_item: -1, panic_item: -1, literal_item: -1, bytes_item: -1,
                 length_item: -1, exec_item: -1, prints: false, print_failure_item: -1,
@@ -403,6 +409,16 @@ extension MonoProgram {
             return -1
         }
         self.closure_items[r]
+    }
+
+    // The item a `FuncPointer`'s code is: named function `decl`'s, or with
+    // `decl` -1 closure body `body`'s; -1 when mono reached none.
+    public func address_item(&self, decl: Int, body: Int) -> Int {
+        let at = if decl >= 0 { self.address_items.first(decl, 0) } else { self.address_items.first(body, 1) }
+        if at < 0 {
+            return -1
+        }
+        self.address_items.value(at)
     }
 
     // The glue item of `kind` (MONO_KEY_DROP or MONO_KEY_COPY) made for type

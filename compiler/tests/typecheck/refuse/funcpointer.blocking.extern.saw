@@ -1,0 +1,12 @@
+// refuses: funcpointer.blocking at 10:45
+// a `blocking` extern named where a `FuncPointer` is expected, refused as a `blocking` function is
+// message: `__saw_rt_blocking_sleep` is `blocking`, and a `blocking` function cannot be taken as a function value
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = __saw_rt_blocking_sleep
+    print(0)
+}

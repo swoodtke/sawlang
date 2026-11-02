@@ -1,0 +1,63 @@
+// A `FuncPointer` dispatch table in a `static`, the operations-table shape a
+// kernel's drivers and std's op tables take (SL-940): built from named `sync`
+// functions and a coerced literal, a link-time constant with no startup code
+// and no allocation (`--no-hidden-alloc`), and called through in place. The
+// boot hook beside it is sawos's shape: an optional field of an `unsafe static
+// var` with no initializer, `None` at reset until boot installs it. And a
+// pointer's `address()` is a nonzero word that `from_raw` turns back into a
+// pointer that calls the same code, and a thread entry's is a stable one.
+
+import fscore.*
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func tripled(n: Int) sync -> Int { n * 3 }
+
+func boot_tick() sync -> Int { 7 }
+
+// A thread's entry, as sawos's `thread_create` takes one: its address is
+// what the syscall carries, and nothing here calls it.
+func thread_entry(arg: UInt) sync -> Never {
+    while { }
+}
+
+struct Ops {
+    run: FuncPointer<(Int) sync -> Int>,
+    alt: FuncPointer<(Int) sync -> Int>,
+    zero: FuncPointer<() sync -> Int>,
+}
+
+static OPS: Ops = Ops(run: doubled, alt: tripled, zero: { 4 })
+
+struct Hooks {
+    tick: FuncPointer<() sync -> Int>?,
+}
+
+unsafe static var HOOKS: Hooks
+
+func fire() unsafe -> Int {
+    if let t = HOOKS.tick { t() } else { -1 }
+}
+
+func forge(address: UInt) unsafe -> FuncPointer<(Int) sync -> Int> {
+    FuncPointer<(Int) sync -> Int>.from_raw(address as UnsafePointer<UInt8>)
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_value("table_run", OPS.run(20), 40)
+    check_value("table_alt", OPS.alt(5), 15)
+    check_value("table_zero", OPS.zero(), 4)
+    check_value("hook_before_boot", fire(), -1)
+    HOOKS.tick = boot_tick
+    check_value("hook_after_boot", fire(), 7)
+    let p = OPS.run
+    check("address_nonzero", p.address() != 0)
+    let back = forge(p.address())
+    check_value("address_round_trip", back(9), 18)
+    let entry: FuncPointer<(UInt) sync -> Never> = thread_entry
+    let again: FuncPointer<(UInt) sync -> Never> = thread_entry
+    check("thread_entry_nonzero", entry.address() != 0)
+    check("thread_entry_stable", entry.address() == again.address())
+    finish("func_pointer_table")
+}

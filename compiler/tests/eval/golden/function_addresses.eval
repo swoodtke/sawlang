@@ -1,0 +1,7 @@
+module function_addresses
+static function_addresses.NAMED: FuncPointer<(Int) sync -> Int> = address of function_addresses.doubled(n: Int)
+static function_addresses.LITERAL: FuncPointer<(Int) sync -> Int> = address of closure#0 of static function_addresses.LITERAL
+static function_addresses.TABLE: function_addresses.Ops = function_addresses.Ops { address of function_addresses.doubled(n: Int), address of closure#0 of static function_addresses.TABLE, 7 }
+static function_addresses.SPARE: function_addresses.Ops = function_addresses.Ops { address of function_addresses.doubled(n: Int), address of closure#0 of static function_addresses.TABLE, 7 }
+static function_addresses.ROW: [FuncPointer<(Int) sync -> Int>; 2] = [address of function_addresses.doubled(n: Int); 2]
+static function_addresses.HOOK: FuncPointer<(Int) sync -> Int> = address of function_addresses.doubled(n: Int)

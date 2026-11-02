@@ -1,0 +1,16 @@
+// refuses: call.not-callable at 11:5
+// a call through a `FuncPointer<F>` whose `F` a type parameter stands for, which names no signature to call under
+// message: whose signature a type parameter stands for
+
+struct Wrap<F> {
+    p: FuncPointer<F>,
+}
+
+func run<F>(w: Wrap<F>) -> Int {
+    let q = w.p
+    q(1)
+}
+
+func main() {
+    print(0)
+}

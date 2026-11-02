@@ -1,0 +1,22 @@
+// A `FuncPointer` in a static: a named function's code and a coerced
+// literal's, alone, in a struct of them, repeated in an array, and as an
+// earlier static named whole (spec, Function pointers).
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+struct Ops {
+    run: FuncPointer<(Int) sync -> Int>,
+    zero: FuncPointer<() sync -> Int>,
+    code: Int32,
+}
+
+static NAMED: FuncPointer<(Int) sync -> Int> = doubled
+static LITERAL: FuncPointer<(Int) sync -> Int> = { n in n + 1 }
+static TABLE: Ops = Ops(run: doubled, zero: { 4 }, code: 7)
+static SPARE: Ops = TABLE
+static ROW: [FuncPointer<(Int) sync -> Int>; 2] = [doubled; 2]
+unsafe static var HOOK: FuncPointer<(Int) sync -> Int> = doubled
+
+func main() {
+    print("{}", NAMED(1) + LITERAL(1) + TABLE.run(1) + SPARE.zero())
+}

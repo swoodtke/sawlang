@@ -445,8 +445,22 @@ description's (`compiler/tests/mono/README.md`, "Layouts").
   it, zero bytes between, so no LLVM layout rule moves a part (an integer, a
   `Bool`, an atomic's word and a case's tag each an integer of its size, a
   struct and an array their parts in order, a part no byte of which is set
-  `zeroinitializer`, which costs the image nothing); and a static with no
-  initializer as `zeroinitializer` of its size, at its alignment.
+  `zeroinitializer`, which costs the image nothing, and a `FuncPointer` its
+  code's symbol, `function_address`'s answer); and a static with no
+  initializer as `zeroinitializer` of its size, at its alignment. Mono
+  reaches the code a static's `FuncPointer`s name only from a body that
+  reads the static (`reach_static`), so the probe `funcpointer_static_reach`
+  pins a table no body reads emitting none of its code.
+- **Function pointers.** A `FuncPointer<F>` is one `ptr`, called with no
+  environment under `F`'s C convention (`pointer_call`): a narrow integer
+  argument and result carry C's extension, as an export's do, and an
+  aggregate travels by address as it does in any Saw call. A coerced
+  literal's body is defined under that convention; a named function whose
+  signature has a narrow integer is reached through a thunk that is
+  (`emit_code_thunks`), and any other directly. `address()` is the word
+  `ptrtoint` reads, and `from_raw` the pointer it is handed. The probes
+  `funcpointer_positions` and `funcpointer_c_convention` (a C helper calling
+  back, and handing Saw a C function) pin them.
   `static_aggregates`, `static_zerofill`, `static_imported`,
   `static_var_mutated`, `static_large_table`, `lock_statics` and the probe
   `static_alias_construction` pin the kinds, element types and positions

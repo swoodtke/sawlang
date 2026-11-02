@@ -946,8 +946,8 @@ Every body construct in the slice, and how it is typed:
 | a default of a type parameter's type that is no literal and no `None` | `slice.not-yet` (generic-default) |
 | a `??` whose fallback is wider than the optional's payload | `slice.not-yet` (coalesce-wider) |
 | constructing a builtin type no declaration writes an `init` for; `Atomic(v)`, `UnsafeMutableInterior(v)` and `UnsafeMemory<T, U>(a)` are their lang roles' positional constructions | `slice.not-yet`, under Stage 0's std only; no fixture runs under that root |
-| calling a `FuncPointer`, a function or closure where one is expected | `slice.not-yet`, under Stage 0's std only, the one declaring `FuncPointer`; no fixture runs under that root |
 | downcasting an erased box, `b.is<T>()` and `b.take<T>()` | `slice.not-yet` (erased-box-downcast) |
+| an `extern "C"` function whose signature holds an optional pointer, taken as a `FuncPointer` (SL-828) | `slice.not-yet` (funcpointer-optional-extern) |
 
 ## The summary and check position matrices
 
@@ -1633,7 +1633,7 @@ its fixit.
 |---|---|
 | `type.not-a-type` | a type position that names something not a type: a case, a module, a function; a trait, with the hint `any Trait` |
 | `type.not-a-trait` | a bound, a trait's parent or a conformance that names something not a trait |
-| `type.arity` | more type arguments than parameters, fewer than those with no default, arguments on a type parameter or `Self`, an extension renaming a different number of parameters than its type has |
+| `type.arity` | more type arguments than parameters, fewer than those with no default, arguments on a type parameter or `Self`, an extension renaming a different number of parameters than its type has; a `FuncPointer` takes exactly one, its function type (`.funcpointer`) |
 | `type.argument-kind` | a type for a const parameter, a value for a type parameter |
 | `type.const-parameter` | a const parameter declared with a type that is no primitive integer type, `Bool`, `String`, a struct, or a distinct alias even of an integer (`Byte`, a user `type Small = UInt16`), whose message names the type the alias stands for; refused at its declaration whether or not anything instantiates it (spec, Const generics; SL-548: bare, `.string`, `.alias`) |
 | `type.bound` | a type argument, or a default, that does not satisfy its parameter's bound, for every kind of type, primitives included (design 109); a member of a bounded extension or conformance on a receiver whose arguments do not meet its bounds, and the builtin `copy()` reaching a type parameter no bound makes `ExplicitCopy` (SL-463) |
@@ -1702,11 +1702,11 @@ its fixit.
 | `type.try` | a `try` propagating out of a body that returns no Result, or into one whose error type does not take its error |
 | `member.unknown` | a field or method the type does not have, or this module does not see; a specialized extension's member on another instantiation or in a generic body (SL-740); the builtin `copy()` on a NoCopy value |
 | `member.through-pointer` | a method a `Box`'s or an `Arc`'s payload declares and the pointer does not, called on the pointer: a pointer forwards nothing, so the message names `borrow b.value().m(…)`, and for a `&var self` one `borrow var` on a box, or a lock or `unique()` on an `Arc`; every receiver mode, through a box (`&self` bare, `.var-self`, `.consumes`, a `borrows` accessor `.borrows`, a `&Box` parameter `.reference`, a `String` payload `.string`) and an `Arc` (`.arc`, `.arc-var-self`, `.arc-consumes`, `Mutex.lock` `.arc-borrows`) (SL-712) |
-| `call.arity` | too many arguments, a missing one, a case built without its payload |
+| `call.arity` | too many arguments, a missing one, a case built without its payload; a call through a `FuncPointer` (`.funcpointer`) and `from_raw` (`.from-raw`) with the wrong number |
 | `call.label` | a label no parameter has, one naming a parameter behind the last bound, a repeated label |
-| `call.ambiguous` | overloads the arguments fit equally, named; a bare integer literal over integer overloads with no `Int` one, or preferring `Int` in a different overload at each argument (spec, Overloading, tie-break 4: `.literal-no-int`, `.literal-crossed`) |
+| `call.ambiguous` | overloads the arguments fit equally, named; a bare integer literal over integer overloads with no `Int` one, or preferring `Int` in a different overload at each argument (spec, Overloading, tie-break 4: `.literal-no-int`, `.literal-crossed`); a name where a `FuncPointer` is expected whose overloads of its signature only labels tell apart (`.funcpointer`) |
 | `call.no-match` | no overload the arguments fit, each named; a struct's construction that an override this module does not see takes (`.hidden-override`, SL-648) |
-| `call.not-callable` | a call of a value that is no function |
+| `call.not-callable` | a call of a value that is no function; of a `FuncPointer<F>` whose `F` a type parameter stands for (`.funcpointer-parameter`) |
 | `call.field-method-ambiguous` | `h.f(x)` where `f` names both a field holding a function and a method this module sees, with the fix-it `let g = h.f; g(x)` (D16) |
 | `infer.failed` | a type argument nothing determines or two arguments disagree on; `None` or an empty literal with nothing expected, though not one whose slot holds a type already refused, which adopts the error type |
 | `implicit-member.no-type` | an implicit member where nothing expects a type, with the `Enum.Case` fix-it |
@@ -1723,6 +1723,14 @@ its fixit.
 | `capture.escaping-borrow` | a borrow of the enclosing frame, `[&x]`, `[&var x]`, a reference parameter or `self`, captured by a closure that escapes: anything but one passed straight to a parameter whose function type does not say `escaping` (spec, Capturing `self` and reference parameters) |
 | `capture.exclusive-self` | `[&var self]` in a method whose receiver is `&self` |
 | `capture.sendable` | a closure whose type says `sendable`, written at its position, with a capture that does not prove `Send` and `Sync` by the capture rule (`capture_blocks_sendable`), naming it: an owned capture that is not `Send` (bare), a borrow whose referent is not `Sync` (`.borrow`), a returned closure (`.return`). A closure whose type is inferred is `sendable` only when its captures prove it, so the refusal comes at the use instead: `type.bound.closure-capture` names the capture at a `Send` bound, and `type.mismatch.sendable` refuses an unmarked value where the word is expected (SL-795) |
+| `funcpointer.not-function` | a `FuncPointer<F>` whose `F` is no function type, wherever one is written or formed (spec, Function pointers) |
+| `funcpointer.suspending` | a `FuncPointer<F>` whose `F` does not say `sync`, in the spec's words (`.thread-entry`: a `(UInt) -> Never`) |
+| `funcpointer.capture` | a closure literal coerced to a `FuncPointer` whose body names an enclosing binding: a local, through a capture list or not (`.list`), a parameter (`.parameter`), a method's `self` (`.self`) |
+| `funcpointer.generic` | a generic function named where a `FuncPointer` is expected: it has no single address |
+| `funcpointer.signature` | a function named where a `FuncPointer<F>` is expected with no non-generic overload whose parameter and result types are `F`'s exactly (`.overloads`, an `extern "C"` one `.extern`); a variadic extern, which has no fixed signature to be called under (`.variadic`) |
+| `funcpointer.not-sync` | the one matching function, not declared `sync`, whether or not its body suspends (`.suspending`) |
+| `funcpointer.blocking` | a `blocking` function named where a `FuncPointer` is expected, which cannot be taken as a function value, a `blocking` extern included (`.extern`); a pair's default stands for the pair, and a plain `extern "C"` function is Form 2, its C symbol the address |
+| `funcpointer.source` | a value of function type where a `FuncPointer` is expected: only a closure literal or a function's name builds one |
 | `subscript.role` | a subscript of a type that declares no `[]`, or a role it declares and derives no accessor for (SL:borrowing §5.2) |
 | `pattern.case-mismatch` | a lone name resolve took for a case none of whose candidates is a case of the matched type, naming the case and suggesting the rename (D13) |
 | `format.slot-count` | a format string whose `{}` slots and arguments differ in number, or a formatted message that is no literal |
@@ -1901,7 +1909,8 @@ prelude, unbound under Stage 0's. `golden/zero_init` is abbreviated `z.` and
 | a `String`, directly or as a conditional `ZeroInit`'s argument | refused: a `String` owns its bytes | `static.zero-invalid`, `static.zero-invalid.conditional` |
 | an enum with a payload case | refused | `static.zero-invalid.payload-enum` |
 | a raw-backed enum with no case of value 0 | refused: zero is a value no case names | `static.zero-invalid.raw-enum` |
-| a function value; a `FuncPointer` (Stage 0's root, the std that declares it, which no fixture runs under) | refused: a zero one names no function | `static.zero-invalid.function` |
+| a function value; a `FuncPointer`, here a struct's field | refused: a zero one names no function | `static.zero-invalid.function`, `.funcpointer` |
+| an optional `FuncPointer` field, the boot hook's shape | accepted: its zero is `None` | `compiler/tests/run/probes/funcpointer_positions.saw` |
 | a struct with an override, at any depth | refused, naming the override | the override matrix above |
 | a reference | refused where it is written, never a second time | `type.reference-position.static` |
 | `ZeroInit` on a struct with an override | refused at the declaration | `zeroinit.override` |

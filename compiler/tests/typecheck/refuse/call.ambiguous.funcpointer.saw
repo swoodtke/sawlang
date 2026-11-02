@@ -1,0 +1,12 @@
+// refuses: call.ambiguous at 10:45
+// two overloads only their labels tell apart, both of the `FuncPointer`'s signature
+// message: which only their labels tell apart, and a `FuncPointer` names exactly one
+
+func pick(a: Int) sync -> Int { a }
+
+func pick(b: Int) sync -> Int { b + 1 }
+
+func main() {
+    let p: FuncPointer<(Int) sync -> Int> = pick
+    print(0)
+}

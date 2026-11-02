@@ -1,0 +1,26 @@
+// probe: stated
+// about: a function a static's `FuncPointer` names is reached only through a read of that static: the read table's named function and coerced literal are defined, the unread table's are named nowhere in the module, so a program that never reaches a table links none of its code (SL-940)
+// stage 0: names its symbols its own way, so what sawc's module defines has no oracle there
+// speeds: -O0 -O2
+// ll defines: saw funcpointer_static_reach.reached_named(n: Int)
+// ll defines: saw closure#0 of static funcpointer_static_reach.REACHED
+// ll omits: saw funcpointer_static_reach.unreached_named(n: Int)
+// ll omits: saw closure#0 of static funcpointer_static_reach.UNREACHED
+// ll omits: static funcpointer_static_reach.UNREACHED
+// prints: reached 2 20
+
+func reached_named(n: Int) sync -> Int { n + 1 }
+
+func unreached_named(n: Int) sync -> Int { n + 2 }
+
+struct Ops {
+    run: FuncPointer<(Int) sync -> Int>,
+    other: FuncPointer<(Int) sync -> Int>,
+}
+
+static REACHED: Ops = Ops(run: reached_named, other: { n in n * 10 })
+static UNREACHED: Ops = Ops(run: unreached_named, other: { n in n * 20 })
+
+func main() {
+    print("reached {} {}", REACHED.run(1), REACHED.other(2))
+}
