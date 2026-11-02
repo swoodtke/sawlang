@@ -459,6 +459,32 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # The 64-bit serialization data model on a bare machine: Int64/UInt64
+        # round-trip whole through a slot and through std.json's text, and a
+        # value past the platform Int (or past 64 bits) is OutOfRange, never
+        # a panic. Every check is the same line on every target.
+        "name": "serialize_int64",
+        "expect_out": ["fs check int64_max_round_trip=1",
+                       "fs check int64_min_round_trip=1",
+                       "fs check uint64_max_round_trip=1",
+                       "fs check int_reads_small=1",
+                       "fs check int_reads_int_min=1",
+                       "fs check int_reads_int64_max=1",
+                       "fs check int_reads_int64_min=1",
+                       "fs check uint_reads_small=1",
+                       "fs check uint_reads_uint_max=1",
+                       "fs check uint_reads_uint64_max=1",
+                       "fs check int32_reads_just_over=1",
+                       "fs check int32_reads_min=1",
+                       "fs check json_int64_max_round_trip=1",
+                       "fs check json_int64_min_round_trip=1",
+                       "fs check json_uint64_max_round_trip=1",
+                       "fs check json_uint64_past_range=1",
+                       "fs check json_int64_past_range=1",
+                       "fs done serialize_int64 ok"],
+        "expect_clean_exit": True,
+    },
+    {
         # Every Float operation as a soft-float call: at -O0 nothing folds, so
         # each of the spec's routines runs, from `hal/compiler-rt/`, and the
         # object's references are held to the spec's list.

@@ -4,7 +4,7 @@
 // speeds: -O0 -O2
 // prints: level 3
 import std.serialize
-import std.json.{EncodeError}
+import std.serialize.{EncodeError}
 
 struct Encoder {
     level: Int

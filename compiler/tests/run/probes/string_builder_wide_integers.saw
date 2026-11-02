@@ -1,0 +1,53 @@
+// probe: stated
+// about: StringBuilder.append renders Int64, UInt64 and UInt at their full range, and a bare literal still picks the platform Int overload (SL-833)
+// stage 0: has no append(value: UInt64)
+// speeds: -O0 -O2
+// leaks: none
+// prints: literals: 5 -5 0
+// prints: int64: -9223372036854775808 9223372036854775807 0 -1 1234567890123
+// prints: uint64: 0 18446744073709551615 9223372036854775808 4294967296
+// prints: uint: 0 18446744073709551615 12345
+
+func main() {
+    var literals = StringBuilder()
+    try! literals.append("literals: ")
+    try! literals.append(5)
+    try! literals.append(" ")
+    try! literals.append(-5)
+    try! literals.append(" ")
+    try! literals.append(0)
+    print("{}", literals.build())
+
+    var signed = StringBuilder()
+    try! signed.append("int64: ")
+    try! signed.append(Int64.min)
+    try! signed.append(" ")
+    try! signed.append(Int64.max)
+    try! signed.append(" ")
+    try! signed.append(0 as Int64)
+    try! signed.append(" ")
+    try! signed.append(-1 as Int64)
+    try! signed.append(" ")
+    try! signed.append(1_234_567_890_123 as Int64)
+    print("{}", signed.build())
+
+    var unsigned = StringBuilder()
+    try! unsigned.append("uint64: ")
+    try! unsigned.append(0 as UInt64)
+    try! unsigned.append(" ")
+    try! unsigned.append(UInt64.max)
+    try! unsigned.append(" ")
+    try! unsigned.append(9_223_372_036_854_775_808u64)
+    try! unsigned.append(" ")
+    try! unsigned.append(4_294_967_296 as UInt64)
+    print("{}", unsigned.build())
+
+    var platform = StringBuilder()
+    try! platform.append("uint: ")
+    try! platform.append(0 as UInt)
+    try! platform.append(" ")
+    try! platform.append(UInt.max)
+    try! platform.append(" ")
+    try! platform.append(12345 as UInt)
+    print("{}", platform.build())
+}

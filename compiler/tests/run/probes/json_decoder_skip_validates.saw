@@ -1,0 +1,128 @@
+// probe: stated
+// about: JsonDecoder.skip validates the value it passes, agreeing with JsonValue.parse on every malformed and well-formed input, and a deep skip is TooDeep (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: [1,[1,,2]] -> decode error at byte 6: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 6: the bytes are not a well-formed item
+// prints: [1,tru] -> decode error at byte 3: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 3: the bytes are not a well-formed item
+// prints: [1,nul] -> decode error at byte 3: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 3: the bytes are not a well-formed item
+// prints: [1,01] -> decode error at byte 4: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 4: the bytes are not a well-formed item
+// prints: [1,-] -> decode error at byte 3: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 3: the bytes are not a well-formed item
+// prints: [1,1.] -> decode error at byte 5: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 5: the bytes are not a well-formed item
+// prints: [1,"\q"] -> decode error at byte 4: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 4: the bytes are not a well-formed item
+// prints: [1,{"a" 1}] -> decode error at byte 8: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 8: the bytes are not a well-formed item
+// prints: [1,{1:2}] -> decode error at byte 4: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 4: the bytes are not a well-formed item
+// prints: [1,[}] -> decode error at byte 4: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 4: the bytes are not a well-formed item
+// prints: [1,[1,]] -> decode error at byte 6: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 6: the bytes are not a well-formed item
+// prints: [1,@#$] -> decode error at byte 3: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 3: the bytes are not a well-formed item
+// prints: [1,[1,2]] -> ok 1
+// prints:   parse: ok
+// prints: [1,{"a":[true,null]}] -> ok 1
+// prints:   parse: ok
+// prints: [1,"xé"] -> ok 1
+// prints:   parse: ok
+// prints: [1,-0.5e3] -> ok 1
+// prints:   parse: ok
+// prints: [1,[]] -> ok 1
+// prints:   parse: ok
+// prints: [1,{}] -> ok 1
+// prints:   parse: ok
+// prints: [1,[[],{}]] -> ok 1
+// prints:   parse: ok
+// prints: [1,{"a":{}}] -> ok 1
+// prints:   parse: ok
+// prints: [1, [ ] ] -> ok 1
+// prints:   parse: ok
+// prints: [1,[] -> decode error at byte 5: the input ended in the middle of an item
+// prints:   parse: decode error at byte 5: the input ended in the middle of an item
+// prints: [1,{"a":}] -> decode error at byte 8: the bytes are not a well-formed item
+// prints:   parse: decode error at byte 8: the bytes are not a well-formed item
+// prints: deep skip: decode error at byte 64: nesting is deeper than the decoder allows
+// prints:   parse: decode error at byte 64: nesting is deeper than the decoder allows
+import std.json.{JsonDecoder, JsonValue}
+import std.serialize.{DecodeError, Decoder}
+
+func verdict(text: String) {
+    match JsonValue.parse(text) {
+        case Ok(_) -> print("  parse: ok"),
+        case Err(e) -> print("  parse: {}", e)
+    }
+}
+
+func read_record(dec: &var JsonDecoder) -> Result<Int64, DecodeError> {
+    try dec.expect_array(2)
+    let first = try dec.read_int()
+    try dec.skip()
+    try dec.finish()
+    return first
+}
+
+func check(text: String) {
+    var dec = try! JsonDecoder.open(text: text)
+    match read_record(&var dec) {
+        case Ok(n) -> print("{} -> ok {}", text, n),
+        case Err(e) -> print("{} -> {}", text, e)
+    }
+    verdict(text)
+}
+
+func deep(levels: Int) -> String {
+    var s = StringBuilder()
+    var i = 0
+    while i < levels {
+        try! s.append("[")
+        i = i + 1
+    }
+    i = 0
+    while i < levels {
+        try! s.append("]")
+        i = i + 1
+    }
+    return s.build()
+}
+
+func main() {
+    check("[1,[1,,2]]")
+    check("[1,tru]")
+    check("[1,nul]")
+    check("[1,01]")
+    check("[1,-]")
+    check("[1,1.]")
+    check("[1,\"\\q\"]")
+    check("[1,\{\"a\" 1\}]")
+    check("[1,\{1:2\}]")
+    check("[1,[}]")
+    check("[1,[1,]]")
+    check("[1,@#$]")
+    check("[1,[1,2]]")
+    check("[1,\{\"a\":[true,null]\}]")
+    check("[1,\"xé\"]")
+    check("[1,-0.5e3]")
+    check("[1,[]]")
+    check("[1,\{\}]")
+    check("[1,[[],\{\}]]")
+    check("[1,\{\"a\":\{\}\}]")
+    check("[1, [ ] ]")
+    check("[1,[]")
+    check("[1,\{\"a\":\}]")
+
+    let too_deep = deep(70)
+    var dec = try! JsonDecoder.open(text: too_deep)
+    match dec.skip() {
+        case Ok(_) -> print("deep skip: ok"),
+        case Err(e) -> print("deep skip: {}", e)
+    }
+    verdict(too_deep)
+}

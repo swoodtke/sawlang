@@ -1,0 +1,213 @@
+// SL-833: the library's integer conformances on a 32-bit target. A wire value
+// wider than the platform Int is OutOfRange for Int and UInt, never a panic,
+// and Int64 and UInt64 round-trip whole, through a bare slot and through
+// std.json's text.
+import fscore.*
+import std.json.{JsonDecoder, JsonEncoder}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
+
+// An encoder and decoder over one integer slot.
+struct Slot {
+    signed: Int64
+    unsigned: UInt64
+    is_signed: Bool
+}
+
+extension Slot: NoCopy {}
+
+extension Slot: Encoder {
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        self.unsigned = v
+        self.is_signed = false
+        return
+    }
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
+        self.signed = v
+        self.is_signed = true
+        return
+    }
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func write_null(&var self) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        return EncodeError(fault: EncodeFault.Unsupported)
+    }
+}
+
+extension Slot: Decoder {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
+        return self.unsigned
+    }
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
+        return self.signed
+    }
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: 0, fault: DecodeFault.Unsupported)
+    }
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        return false
+    }
+    func offset(&self) sync -> Int {
+        0
+    }
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        return
+    }
+}
+
+func fresh() -> Slot {
+    Slot(signed: 0, unsigned: 0, is_signed: false)
+}
+
+// 1 when the read came back as the written value, 2 when OutOfRange, else 0.
+func int64_round_trip(value: Int64) -> Int {
+    var slot = fresh()
+    try! value.serialize(to: &var slot)
+    match Int64.deserialize(from: &var slot) {
+        case Ok(back) -> { if back == value { return 1 }; return 0 },
+        case Err(_) -> { return 0 }
+    }
+}
+
+func uint64_round_trip(value: UInt64) -> Int {
+    var slot = fresh()
+    try! value.serialize(to: &var slot)
+    match UInt64.deserialize(from: &var slot) {
+        case Ok(back) -> { if back == value { return 1 }; return 0 },
+        case Err(_) -> { return 0 }
+    }
+}
+
+// What reading `wire` as a platform Int gives: 1 for the same value, 2 for
+// OutOfRange, 0 for anything else.
+func read_as_int(wire: Int64) -> Int {
+    var slot = fresh()
+    try! wire.serialize(to: &var slot)
+    match Int.deserialize(from: &var slot) {
+        case Ok(back) -> { if (back as Int64) == wire { return 1 }; return 0 },
+        case Err(e) -> { if e.fault == DecodeFault.OutOfRange { return 2 }; return 0 }
+    }
+}
+
+func read_as_uint(wire: UInt64) -> Int {
+    var slot = fresh()
+    try! wire.serialize(to: &var slot)
+    match UInt.deserialize(from: &var slot) {
+        case Ok(back) -> { if (back as UInt64) == wire { return 1 }; return 0 },
+        case Err(e) -> { if e.fault == DecodeFault.OutOfRange { return 2 }; return 0 }
+    }
+}
+
+func read_as_int32(wire: Int64) -> Int {
+    var slot = fresh()
+    try! wire.serialize(to: &var slot)
+    match Int32.deserialize(from: &var slot) {
+        case Ok(_) -> { return 1 },
+        case Err(e) -> { if e.fault == DecodeFault.OutOfRange { return 2 }; return 0 }
+    }
+}
+
+// The text form: 1 when `value` writes as JSON and reads back whole.
+func json_int64_round_trip(value: Int64) -> Int {
+    var enc = JsonEncoder()
+    try! value.serialize(to: &var enc)
+    let text = try! enc.finish()
+    var dec = try! JsonDecoder.open(text: text)
+    match Int64.deserialize(from: &var dec) {
+        case Ok(back) -> { if back == value { return 1 }; return 0 },
+        case Err(_) -> { return 0 }
+    }
+}
+
+func json_uint64_round_trip(value: UInt64) -> Int {
+    var enc = JsonEncoder()
+    try! value.serialize(to: &var enc)
+    let text = try! enc.finish()
+    var dec = try! JsonDecoder.open(text: text)
+    match UInt64.deserialize(from: &var dec) {
+        case Ok(back) -> { if back == value { return 1 }; return 0 },
+        case Err(_) -> { return 0 }
+    }
+}
+
+// 2 when the text is OutOfRange for the type, else 0.
+func json_uint64_past_range() -> Int {
+    var dec = try! JsonDecoder.open(text: "18446744073709551616")
+    match UInt64.deserialize(from: &var dec) {
+        case Ok(_) -> { return 0 },
+        case Err(e) -> { if e.fault == DecodeFault.OutOfRange { return 2 }; return 0 }
+    }
+}
+
+func json_int64_past_range() -> Int {
+    var dec = try! JsonDecoder.open(text: "-9223372036854775809")
+    match Int64.deserialize(from: &var dec) {
+        case Ok(_) -> { return 0 },
+        case Err(e) -> { if e.fault == DecodeFault.OutOfRange { return 2 }; return 0 }
+    }
+}
+
+// A read of a value wider than the platform Int is OutOfRange (2) on a 32-bit
+// target and whole (1) on a 64-bit one; every check below is the same line on
+// both.
+func wide_read() -> Int {
+    if sizeof<Int>() == 8 {
+        return 1
+    }
+    return 2
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_value("int64_max_round_trip", int64_round_trip(Int64.max), 1)
+    check_value("int64_min_round_trip", int64_round_trip(Int64.min), 1)
+    check_value("uint64_max_round_trip", uint64_round_trip(UInt64.max), 1)
+    check_value("int_reads_small", read_as_int(1234), 1)
+    check_value("int_reads_int_min", read_as_int(Int.min as Int64), 1)
+    check_value("int_reads_int64_max", read_as_int(Int64.max), wide_read())
+    check_value("int_reads_int64_min", read_as_int(Int64.min), wide_read())
+    check_value("uint_reads_small", read_as_uint(1234), 1)
+    check_value("uint_reads_uint_max", read_as_uint(UInt.max as UInt64), 1)
+    check_value("uint_reads_uint64_max", read_as_uint(UInt64.max), wide_read())
+    check_value("int32_reads_just_over", read_as_int32(0x8000_0000), 2)
+    check_value("int32_reads_min", read_as_int32(Int32.min as Int64), 1)
+    check_value("json_int64_max_round_trip", json_int64_round_trip(Int64.max), 1)
+    check_value("json_int64_min_round_trip", json_int64_round_trip(Int64.min), 1)
+    check_value("json_uint64_max_round_trip", json_uint64_round_trip(UInt64.max), 1)
+    check_value("json_uint64_past_range", json_uint64_past_range(), 2)
+    check_value("json_int64_past_range", json_int64_past_range(), 2)
+    finish("serialize_int64")
+}

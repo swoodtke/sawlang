@@ -9,8 +9,7 @@
 // prints: pair x 9 2
 // prints: a2 a0 i0
 // prints: refused: decode error at byte 3: the item is not of the expected type
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
 
 // One token per item: a kind letter and its text. `Tape` is both sides of the
 // seam, so a probe writes a value into it and reads the value back.

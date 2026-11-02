@@ -1,0 +1,157 @@
+// probe: stated
+// about: JsonEncoder reports an item past a container's declared count, an item after the top-level value, and a finish with nothing written as CountMismatch (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: over: error encode error: an array or map got a different number of items than it declared
+// prints: outer: error encode error: an array or map got a different number of items than it declared
+// prints: nothing: error encode error: an array or map got a different number of items than it declared
+// prints: two scalars: error encode error: an array or map got a different number of items than it declared
+// prints: exact: ok [1,2]
+// prints: empty: ok []
+// prints: nested pair: ok [[1],[2]]
+// prints: scalar: ok 7
+import std.json.{JsonEncoder}
+import std.serialize.{EncodeError, Encoder}
+
+func show(label: String, r: Result<String, EncodeError>) {
+    match r {
+        case Ok(t) -> print("{}: ok {}", label, t),
+        case Err(e) -> print("{}: error {}", label, e)
+    }
+}
+
+func run(label: String, r: Result<Void, EncodeError>, enc: &JsonEncoder) {
+    match r {
+        case Ok(_) -> show(label, enc.finish()),
+        case Err(e) -> print("{}: error {}", label, e)
+    }
+}
+
+struct Over {
+    n: Int
+}
+
+extension Over: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(1)
+        try to.write_int(1)
+        try to.write_int(99)
+        return
+    }
+}
+
+struct Inner {
+    n: Int
+}
+
+extension Inner: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(2)
+        try to.write_int(1)
+        try to.write_int(2)
+        try to.write_int(3)
+        return
+    }
+}
+
+struct Outer {
+    inner: Inner
+}
+
+extension Outer: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(2)
+        try self.inner.serialize(to: &var to)
+        try to.write_bool(true)
+        return
+    }
+}
+
+struct Nothing {
+    n: Int
+}
+
+extension Nothing: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        return
+    }
+}
+
+struct Exact {
+    n: Int
+}
+
+extension Exact: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(2)
+        try to.write_int(1)
+        try to.write_int(2)
+        return
+    }
+}
+
+struct Empty {
+    n: Int
+}
+
+extension Empty: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(0)
+        return
+    }
+}
+
+struct Pair {
+    n: Int
+}
+
+extension Pair: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(2)
+        try to.begin_array(1)
+        try to.write_int(1)
+        try to.begin_array(1)
+        try to.write_int(2)
+        return
+    }
+}
+
+func main() {
+    var a = JsonEncoder()
+    let ra = Over(n: 0).serialize(to: &var a)
+    run("over", ra, &a)
+
+    var b = JsonEncoder()
+    let rb = Outer(inner: Inner(n: 0)).serialize(to: &var b)
+    run("outer", rb, &b)
+
+    var c = JsonEncoder()
+    let rc = Nothing(n: 0).serialize(to: &var c)
+    run("nothing", rc, &c)
+
+    var d = JsonEncoder()
+    var second: Result<Void, EncodeError> = d.write_int(1)
+    match second {
+        case Ok(_) -> {},
+        case Err(e) -> print("first: error {}", e)
+    }
+    second = d.write_int(2)
+    run("two scalars", second, &d)
+
+    var e = JsonEncoder()
+    let re = Exact(n: 0).serialize(to: &var e)
+    run("exact", re, &e)
+
+    var f = JsonEncoder()
+    let rf = Empty(n: 0).serialize(to: &var f)
+    run("empty", rf, &f)
+
+    var g = JsonEncoder()
+    let rg = Pair(n: 0).serialize(to: &var g)
+    run("nested pair", rg, &g)
+
+    var h = JsonEncoder()
+    let rh = h.write_int(7)
+    run("scalar", rh, &h)
+}

@@ -839,7 +839,7 @@ d249_prelude_gate_over_a_std_free_function.saw	pass	-	name.not-in-prelude: `dump
 d249_selective_import_binds_whole_overload_set.saw	pass	-	-
 d249_selective_import_of_one_twin.saw	pass	-	-
 d249_std_json_and_cbor_both_name_encode.saw	refused	resolve import.unknown-module	no module `std.cbor`
-d249_std_selective_import_of_a_two_owner_name.saw	refused	resolve import.unknown-symbol	`encode` is not defined in `std.json`
+d249_std_selective_import_of_a_two_owner_name.saw	pass	-	-
 data_advanced.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
 data_cow_self_append.saw	pass	-	-
 data_cow_slice.saw	pass	-	-
@@ -1743,11 +1743,11 @@ iterator_generic_type.saw	pass	-	-
 iterator_simple.saw	pass	-	-
 iterator_string.saw	pass	-	-
 iterator_struct.saw	pass	-	-
-json_escape_grid.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
-json_map_keys.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
-json_number_edges.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
-json_roundtrip_struct.saw	refused	resolve import.unknown-symbol	`JsonEncoder` is not defined in `std.json`
-json_structural_reject.saw	refused	resolve import.unknown-symbol	`JsonDecoder` is not defined in `std.json`
+json_escape_grid.saw	pass	-	-
+json_map_keys.saw	pass	judged by its own directives (edited since its oracle)	-
+json_number_edges.saw	pass	-	-
+json_roundtrip_struct.saw	pass	judged by its own directives (edited since its oracle)	-
+json_structural_reject.saw	pass	-	-
 json_value_accessors.saw	pass	judged by its own directives (edited since its oracle)	-
 json_value_deinit.saw	pass	judged by its own directives (edited since its oracle)	-
 json_value_escape_grid.saw	pass	-	-
@@ -2103,7 +2103,7 @@ overload_decl_ambiguous_error.saw	pass	-	overload.indistinguishable: `f(x: U)` i
 overload_effects_sync.saw	pass	-	-
 overload_effects_sync_error.saw	pass	-	effect.sync: `caller` is declared `sync`, and it calls `work`, which may suspend
 overload_exact_vs_optional.saw	pass	-	-
-overload_int_uint_exact.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(value: Float) [st
+overload_int_uint_exact.saw	pass	-	-
 overload_method_and_static.saw	pass	-	-
 overload_same_arity_dispatch.saw	pass	-	-
 overload_set_reaches_qualified_enum.saw	pass	-	-
@@ -2276,8 +2276,8 @@ self_type_in_generic_extension.saw	pass	-	-
 self_type_signature_positions.saw	pass	-	-
 semicolon_joins_statements_on_one_line.saw	pass	judged by its own directives (edited since its oracle)	-
 send_sync_bounds.saw	pass	-	-
-serde169_derived.saw	refused	resolve name.not-in-prelude	`Encoder` is not in the prelude and must be imported: `import std.serialize.{Encoder}` selects it
-serde169_hand_written.saw	refused	resolve name.not-in-prelude	`Encoder` is not in the prelude and must be imported: `import std.serialize.{Encoder}` selects it
+serde169_derived.saw	pass	judged by its own directives (edited since its oracle)	-
+serde169_hand_written.saw	pass	judged by its own directives (edited since its oracle)	-
 set_algebra.saw	pass	-	-
 set_algebra_owning_balance.saw	pass	-	-
 set_basic.saw	pass	-	-
@@ -2397,7 +2397,7 @@ string_to_float.saw	pass	-	-
 string_to_int.saw	pass	-	-
 string_to_int_radix.saw	pass	-	-
 string_withcstring.saw	refused	typecheck infer.failed	this closure parameter has no type: write one, as `x: Int`, or pass the closure where a function type is expected
-stringbuilder_append_int_alloc_free.saw	refused	typecheck call.no-match	no candidate takes these arguments; the candidates are StringBuilder.append(s: String) [std.stringbuilder]; StringBuilder.append(value: Int) [std.stringbuilder]; StringBuilder.append(value: Float) [st
+stringbuilder_append_int_alloc_free.saw	pass	-	-
 stringbuilder_append_scalar.saw	pass	-	-
 stringbuilder_build_append.saw	pass	-	-
 stringbuilder_fixed.saw	pass	-	-

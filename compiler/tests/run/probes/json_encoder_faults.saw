@@ -1,0 +1,103 @@
+// probe: stated
+// about: JsonEncoder reports TooDeep, CountMismatch and Unsupported as faults, and a hand-conformed struct round-trips through JsonEncoder and JsonDecoder (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: depth: ok
+// prints: depth: ok
+// prints: depth: encode error: nesting is deeper than the encoder allows
+// prints: negative count: encode error: an array or map got a different number of items than it declared
+// prints: unopened: ok
+// prints: unfinished: encode error: an array or map got a different number of items than it declared
+// prints: bytes: encode error: the value has no representation in this format
+// prints: byte: encode error: the value has no representation in this format
+// prints: integer key: ok
+// prints: integer key: encode error: the value has no representation in this format
+// prints: text: [8080,"api",true]
+// prints: back: 8080 api true
+// prints: trailing: decode error at byte 18: bytes remain after the top-level item
+import std.json.{JsonDecoder, JsonEncoder}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
+
+func report(label: String, r: Result<Void, EncodeError>) {
+    match r {
+        case Ok(_) -> print("{}: ok", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func open_array(enc: &var any Encoder, count: Int) -> Result<Void, EncodeError> {
+    enc.begin_array(count)
+}
+
+func nest(enc: &var any Encoder, label: String) {
+    report(label, enc.begin_array(1))
+}
+
+struct Endpoint {
+    port: Int
+    name: String
+    secure: Bool
+}
+
+extension Endpoint: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_array(3)
+        try to.write_int(self.port as Int64)
+        try to.write_text(self.name)
+        try to.write_bool(self.secure)
+        return
+    }
+}
+
+extension Endpoint: Deserialize {
+    static func deserialize(from: &var any Decoder) sync -> Result<Endpoint, DecodeError> {
+        try from.expect_array(3)
+        let port = try from.read_int_range(Int.min as Int64, Int.max as Int64)
+        let name = try from.read_text()
+        let secure = try from.read_bool()
+        return Endpoint(port: port as Int, name: name, secure: secure)
+    }
+}
+
+func main() {
+    var shallow = JsonEncoder(max_depth: 2)
+    nest(&var shallow, "depth")
+    nest(&var shallow, "depth")
+    nest(&var shallow, "depth")
+
+    var negative = JsonEncoder()
+    report("negative count", open_array(&var negative, -1))
+
+    var open = JsonEncoder()
+    report("unopened", open_array(&var open, 2))
+    match open.finish() {
+        case Ok(t) -> print("unfinished: accepted {}", t),
+        case Err(e) -> print("unfinished: {}", e)
+    }
+
+    var raw = JsonEncoder()
+    report("bytes", raw.begin_bytes(3))
+    report("byte", raw.write_byte(7))
+
+    var keyed = JsonEncoder()
+    report("integer key", keyed.begin_map(1))
+    report("integer key", keyed.write_int(1))
+
+    let ep = Endpoint(port: 8080, name: "api", secure: true)
+    var enc = JsonEncoder()
+    try! ep.serialize(to: &var enc)
+    let text = try! enc.finish()
+    print("text: {}", text)
+    var dec = try! JsonDecoder.open(text: text)
+    let back = try! Endpoint.deserialize(from: &var dec)
+    try! dec.finish()
+    print("back: {} {} {}", back.port, back.name, back.secure)
+
+    var extra = try! JsonDecoder.open(text: "[8080,\"api\",true] 1")
+    let again = try! Endpoint.deserialize(from: &var extra)
+    match extra.finish() {
+        case Ok(_) -> print("trailing: accepted {}", again.port),
+        case Err(e) -> print("trailing: {}", e)
+    }
+}

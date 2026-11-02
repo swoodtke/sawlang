@@ -2,8 +2,7 @@
 // The library's integer conformances and a hand-written one check clean for a
 // 32-bit target, where `Int` is narrower than the wire's 64-bit data model:
 // `Int` and `UInt` read through the range checks, `Int64` and `UInt64` whole.
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, EncodeError}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
 
 struct Sample {
     id: UInt

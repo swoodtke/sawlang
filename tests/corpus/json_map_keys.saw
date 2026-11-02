@@ -14,6 +14,7 @@
 // non_string_key_wire: decode error at byte 1: the bytes are not a well-formed item
 
 import std.json.{JsonEncoder, JsonDecoder}
+import std.serialize.{Decoder, DecodeError, DecodeFault, Encoder, EncodeError, EncodeFault}
 
 struct Bag {
     m: Map<String, Int>
@@ -24,22 +25,16 @@ extension Bag: NoCopy {}
 extension Bag: Serialize {
     func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
         try to.begin_map(self.m.len())
-        var first_err: EncodeError? = None
-        self.m.each({ [&var to, &var first_err] k, v in
-            if first_err.is_some() {
-                return
-            }
-            match to.write_text(k) {
-                case Ok(_) -> {},
-                case Err(e) -> { first_err = e; return }
-            }
-            match to.write_int(v) {
-                case Ok(_) -> {},
-                case Err(e) -> { first_err = e }
-            }
-        })
-        if let e = first_err {
-            return e
+        let keys = match self.m.keys() {
+            case Ok(k) -> move k,
+            case Err(_) -> { return EncodeError(fault: EncodeFault.Alloc) }
+        }
+        var i = 0
+        while i < keys.len() {
+            let k = keys[i]
+            try to.write_text(k)
+            try to.write_int(self.m.get(k) ?? 0)
+            i = i + 1
         }
         return
     }

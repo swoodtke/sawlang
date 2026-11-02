@@ -67,22 +67,22 @@ fn derived_bodies.main() -> Void {
     }
 }
 
-fn derived derived_bodies.Entry std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.json.EncodeError> {
-    let _0: Result<Void, std.json.EncodeError>;  // return
+fn derived derived_bodies.Entry std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.serialize.EncodeError> {
+    let _0: Result<Void, std.serialize.EncodeError>;  // return
     let _1: &derived_bodies.Entry;  // self
     let _2: &var any std.serialize.Encoder;  // param to
     let _3: &var any std.serialize.Encoder;
-    let _4: Result<Void, std.json.EncodeError>;
+    let _4: Result<Void, std.serialize.EncodeError>;
     let _5: &String;
     let _6: &var any std.serialize.Encoder;
-    let _7: Result<Void, std.json.EncodeError>;
+    let _7: Result<Void, std.serialize.EncodeError>;
     let _8: &Int;
     let _9: &var any std.serialize.Encoder;
-    let _10: Result<Void, std.json.EncodeError>;
+    let _10: Result<Void, std.serialize.EncodeError>;
     let _11: &Bool;
     let _12: &var any std.serialize.Encoder;
-    let _13: Result<Void, std.json.EncodeError>;
-    let _14: Result<Void, std.json.EncodeError>;
+    let _13: Result<Void, std.serialize.EncodeError>;
+    let _14: Result<Void, std.serialize.EncodeError>;
 
     bb0: {
         _3 = ref(exclusive, (*_2));
@@ -101,7 +101,7 @@ fn derived derived_bodies.Entry std.serialize.Serialize.serialize(to: &var any s
     }
 
     bb3: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_4 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_4 as Err).0);
         drop(_4);
         return;
     }
@@ -118,7 +118,7 @@ fn derived derived_bodies.Entry std.serialize.Serialize.serialize(to: &var any s
     }
 
     bb6: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_7 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_7 as Err).0);
         drop(_7);
         return;
     }
@@ -135,7 +135,7 @@ fn derived derived_bodies.Entry std.serialize.Serialize.serialize(to: &var any s
     }
 
     bb9: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_10 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_10 as Err).0);
         drop(_10);
         return;
     }
@@ -146,35 +146,35 @@ fn derived derived_bodies.Entry std.serialize.Serialize.serialize(to: &var any s
 
     bb11: {
         drop(_13);
-        _14 = Result<Void, std.json.EncodeError>::Ok(const (): Void);
+        _14 = Result<Void, std.serialize.EncodeError>::Ok(const (): Void);
         _0 = move _14;
         return;
     }
 
     bb12: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_13 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_13 as Err).0);
         drop(_13);
         return;
     }
 }
 
-fn derived derived_bodies.Entry std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Entry, std.json.DecodeError> {
-    let _0: Result<derived_bodies.Entry, std.json.DecodeError>;  // return
+fn derived derived_bodies.Entry std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Entry, std.serialize.DecodeError> {
+    let _0: Result<derived_bodies.Entry, std.serialize.DecodeError>;  // return
     let _1: &var any std.serialize.Decoder;  // param from
     let _2: &var any std.serialize.Decoder;
-    let _3: Result<Void, std.json.DecodeError>;
+    let _3: Result<Void, std.serialize.DecodeError>;
     let _4: String;  // name
     let _5: &var any std.serialize.Decoder;
-    let _6: Result<String, std.json.DecodeError>;
+    let _6: Result<String, std.serialize.DecodeError>;
     let _7: String;
     let _8: Int;  // count
     let _9: &var any std.serialize.Decoder;
-    let _10: Result<Int, std.json.DecodeError>;
+    let _10: Result<Int, std.serialize.DecodeError>;
     let _11: Bool;  // flag
     let _12: &var any std.serialize.Decoder;
-    let _13: Result<Bool, std.json.DecodeError>;
+    let _13: Result<Bool, std.serialize.DecodeError>;
     let _14: derived_bodies.Entry;
-    let _15: Result<derived_bodies.Entry, std.json.DecodeError>;
+    let _15: Result<derived_bodies.Entry, std.serialize.DecodeError>;
 
     bb0: {
         _2 = ref(exclusive, (*_1));
@@ -192,7 +192,7 @@ fn derived derived_bodies.Entry std.serialize.Deserialize.deserialize(from: &var
     }
 
     bb3: {
-        _0 = Result<derived_bodies.Entry, std.json.DecodeError>::Err(copy (_3 as Err).0);
+        _0 = Result<derived_bodies.Entry, std.serialize.DecodeError>::Err(copy (_3 as Err).0);
         drop(_3);
         return;
     }
@@ -209,7 +209,7 @@ fn derived derived_bodies.Entry std.serialize.Deserialize.deserialize(from: &var
     }
 
     bb6: {
-        _0 = Result<derived_bodies.Entry, std.json.DecodeError>::Err(copy (_6 as Err).0);
+        _0 = Result<derived_bodies.Entry, std.serialize.DecodeError>::Err(copy (_6 as Err).0);
         drop(_6);
         return;
     }
@@ -226,7 +226,7 @@ fn derived derived_bodies.Entry std.serialize.Deserialize.deserialize(from: &var
     }
 
     bb9: {
-        _0 = Result<derived_bodies.Entry, std.json.DecodeError>::Err(copy (_10 as Err).0);
+        _0 = Result<derived_bodies.Entry, std.serialize.DecodeError>::Err(copy (_10 as Err).0);
         drop(_10);
         drop(_4);
         return;
@@ -240,30 +240,30 @@ fn derived derived_bodies.Entry std.serialize.Deserialize.deserialize(from: &var
         _11 = copy (_13 as Ok).0;
         drop(_13);
         _14 = derived_bodies.Entry { name: move _4, count: move _8, flag: move _11 };
-        _15 = Result<derived_bodies.Entry, std.json.DecodeError>::Ok(move _14);
+        _15 = Result<derived_bodies.Entry, std.serialize.DecodeError>::Ok(move _14);
         _0 = move _15;
         drop(_4);
         return;
     }
 
     bb12: {
-        _0 = Result<derived_bodies.Entry, std.json.DecodeError>::Err(copy (_13 as Err).0);
+        _0 = Result<derived_bodies.Entry, std.serialize.DecodeError>::Err(copy (_13 as Err).0);
         drop(_13);
         drop(_4);
         return;
     }
 }
 
-fn derived derived_bodies.Wrap std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.json.EncodeError> {
-    let _0: Result<Void, std.json.EncodeError>;  // return
+fn derived derived_bodies.Wrap std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.serialize.EncodeError> {
+    let _0: Result<Void, std.serialize.EncodeError>;  // return
     let _1: &derived_bodies.Wrap<T>;  // self
     let _2: &var any std.serialize.Encoder;  // param to
     let _3: &var any std.serialize.Encoder;
-    let _4: Result<Void, std.json.EncodeError>;
+    let _4: Result<Void, std.serialize.EncodeError>;
     let _5: &T;
     let _6: &var any std.serialize.Encoder;
-    let _7: Result<Void, std.json.EncodeError>;
-    let _8: Result<Void, std.json.EncodeError>;
+    let _7: Result<Void, std.serialize.EncodeError>;
+    let _8: Result<Void, std.serialize.EncodeError>;
 
     bb0: {
         _3 = ref(exclusive, (*_2));
@@ -282,7 +282,7 @@ fn derived derived_bodies.Wrap std.serialize.Serialize.serialize(to: &var any st
     }
 
     bb3: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_4 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_4 as Err).0);
         drop(_4);
         return;
     }
@@ -293,29 +293,29 @@ fn derived derived_bodies.Wrap std.serialize.Serialize.serialize(to: &var any st
 
     bb5: {
         drop(_7);
-        _8 = Result<Void, std.json.EncodeError>::Ok(const (): Void);
+        _8 = Result<Void, std.serialize.EncodeError>::Ok(const (): Void);
         _0 = move _8;
         return;
     }
 
     bb6: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_7 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_7 as Err).0);
         drop(_7);
         return;
     }
 }
 
-fn derived derived_bodies.Wrap std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Wrap<T>, std.json.DecodeError> {
-    let _0: Result<derived_bodies.Wrap<T>, std.json.DecodeError>;  // return
+fn derived derived_bodies.Wrap std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Wrap<T>, std.serialize.DecodeError> {
+    let _0: Result<derived_bodies.Wrap<T>, std.serialize.DecodeError>;  // return
     let _1: &var any std.serialize.Decoder;  // param from
     let _2: &var any std.serialize.Decoder;
-    let _3: Result<Void, std.json.DecodeError>;
+    let _3: Result<Void, std.serialize.DecodeError>;
     let _4: T;  // value
     let _5: &var any std.serialize.Decoder;
-    let _6: Result<T, std.json.DecodeError>;
+    let _6: Result<T, std.serialize.DecodeError>;
     let _7: T;
     let _8: derived_bodies.Wrap<T>;
-    let _9: Result<derived_bodies.Wrap<T>, std.json.DecodeError>;
+    let _9: Result<derived_bodies.Wrap<T>, std.serialize.DecodeError>;
 
     bb0: {
         _2 = ref(exclusive, (*_1));
@@ -333,7 +333,7 @@ fn derived derived_bodies.Wrap std.serialize.Deserialize.deserialize(from: &var 
     }
 
     bb3: {
-        _0 = Result<derived_bodies.Wrap<T>, std.json.DecodeError>::Err(copy (_3 as Err).0);
+        _0 = Result<derived_bodies.Wrap<T>, std.serialize.DecodeError>::Err(copy (_3 as Err).0);
         drop(_3);
         return;
     }
@@ -346,33 +346,33 @@ fn derived derived_bodies.Wrap std.serialize.Deserialize.deserialize(from: &var 
         _7 = move (_6 as Ok).0;
         _4 = move _7;
         _8 = derived_bodies.Wrap<T> { value: move _4 };
-        _9 = Result<derived_bodies.Wrap<T>, std.json.DecodeError>::Ok(move _8);
+        _9 = Result<derived_bodies.Wrap<T>, std.serialize.DecodeError>::Ok(move _8);
         _0 = move _9;
         drop(_4);
         return;
     }
 
     bb6: {
-        _0 = Result<derived_bodies.Wrap<T>, std.json.DecodeError>::Err(copy (_6 as Err).0);
+        _0 = Result<derived_bodies.Wrap<T>, std.serialize.DecodeError>::Err(copy (_6 as Err).0);
         drop(_6);
         return;
     }
 }
 
-fn derived derived_bodies.Clamped std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Clamped, std.json.DecodeError> {
-    let _0: Result<derived_bodies.Clamped, std.json.DecodeError>;  // return
+fn derived derived_bodies.Clamped std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Clamped, std.serialize.DecodeError> {
+    let _0: Result<derived_bodies.Clamped, std.serialize.DecodeError>;  // return
     let _1: &var any std.serialize.Decoder;  // param from
     let _2: &var any std.serialize.Decoder;
-    let _3: Result<Void, std.json.DecodeError>;
+    let _3: Result<Void, std.serialize.DecodeError>;
     let _4: UInt8;  // level
     let _5: &var any std.serialize.Decoder;
-    let _6: Result<UInt8, std.json.DecodeError>;
+    let _6: Result<UInt8, std.serialize.DecodeError>;
     let _7: String;  // tag
     let _8: &var any std.serialize.Decoder;
-    let _9: Result<String, std.json.DecodeError>;
+    let _9: Result<String, std.serialize.DecodeError>;
     let _10: String;
     let _11: derived_bodies.Clamped;
-    let _12: Result<derived_bodies.Clamped, std.json.DecodeError>;
+    let _12: Result<derived_bodies.Clamped, std.serialize.DecodeError>;
 
     bb0: {
         _2 = ref(exclusive, (*_1));
@@ -390,7 +390,7 @@ fn derived derived_bodies.Clamped std.serialize.Deserialize.deserialize(from: &v
     }
 
     bb3: {
-        _0 = Result<derived_bodies.Clamped, std.json.DecodeError>::Err(copy (_3 as Err).0);
+        _0 = Result<derived_bodies.Clamped, std.serialize.DecodeError>::Err(copy (_3 as Err).0);
         drop(_3);
         return;
     }
@@ -407,7 +407,7 @@ fn derived derived_bodies.Clamped std.serialize.Deserialize.deserialize(from: &v
     }
 
     bb6: {
-        _0 = Result<derived_bodies.Clamped, std.json.DecodeError>::Err(copy (_6 as Err).0);
+        _0 = Result<derived_bodies.Clamped, std.serialize.DecodeError>::Err(copy (_6 as Err).0);
         drop(_6);
         return;
     }
@@ -423,28 +423,28 @@ fn derived derived_bodies.Clamped std.serialize.Deserialize.deserialize(from: &v
     }
 
     bb9: {
-        _0 = Result<derived_bodies.Clamped, std.json.DecodeError>::Err(copy (_9 as Err).0);
+        _0 = Result<derived_bodies.Clamped, std.serialize.DecodeError>::Err(copy (_9 as Err).0);
         drop(_9);
         return;
     }
 
     bb10: {
-        _12 = Result<derived_bodies.Clamped, std.json.DecodeError>::Ok(move _11);
+        _12 = Result<derived_bodies.Clamped, std.serialize.DecodeError>::Ok(move _11);
         _0 = move _12;
         drop(_7);
         return;
     }
 }
 
-fn derived derived_bodies.Kind std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.json.EncodeError> {
-    let _0: Result<Void, std.json.EncodeError>;  // return
+fn derived derived_bodies.Kind std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.serialize.EncodeError> {
+    let _0: Result<Void, std.serialize.EncodeError>;  // return
     let _1: &derived_bodies.Kind;  // self
     let _2: &var any std.serialize.Encoder;  // param to
     let _3: UInt8;
     let _4: UInt64;
     let _5: &var any std.serialize.Encoder;
-    let _6: Result<Void, std.json.EncodeError>;
-    let _7: Result<Void, std.json.EncodeError>;
+    let _6: Result<Void, std.serialize.EncodeError>;
+    let _7: Result<Void, std.serialize.EncodeError>;
 
     bb0: {
         _3 = cast(copy (*_1) as UInt8);
@@ -459,33 +459,33 @@ fn derived derived_bodies.Kind std.serialize.Serialize.serialize(to: &var any st
 
     bb2: {
         drop(_6);
-        _7 = Result<Void, std.json.EncodeError>::Ok(const (): Void);
+        _7 = Result<Void, std.serialize.EncodeError>::Ok(const (): Void);
         _0 = move _7;
         return;
     }
 
     bb3: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_6 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_6 as Err).0);
         drop(_6);
         return;
     }
 }
 
-fn derived derived_bodies.Kind std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Kind, std.json.DecodeError> {
-    let _0: Result<derived_bodies.Kind, std.json.DecodeError>;  // return
+fn derived derived_bodies.Kind std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Kind, std.serialize.DecodeError> {
+    let _0: Result<derived_bodies.Kind, std.serialize.DecodeError>;  // return
     let _1: &var any std.serialize.Decoder;  // param from
     let _2: &any std.serialize.Decoder;
     let _3: Int;
     let _4: UInt64;
     let _5: &var any std.serialize.Decoder;
-    let _6: Result<UInt64, std.json.DecodeError>;
+    let _6: Result<UInt64, std.serialize.DecodeError>;
     let _7: UInt64;
     let _8: UInt8;
     let _9: derived_bodies.Kind?;
-    let _10: std.json.DecodeFault;
-    let _11: std.json.DecodeError;
-    let _12: Result<derived_bodies.Kind, std.json.DecodeError>;
-    let _13: Result<derived_bodies.Kind, std.json.DecodeError>;
+    let _10: std.serialize.DecodeFault;
+    let _11: std.serialize.DecodeError;
+    let _12: Result<derived_bodies.Kind, std.serialize.DecodeError>;
+    let _13: Result<derived_bodies.Kind, std.serialize.DecodeError>;
 
     bb0: {
         _2 = ref(shared, (*_1));
@@ -511,35 +511,35 @@ fn derived derived_bodies.Kind std.serialize.Deserialize.deserialize(from: &var 
     }
 
     bb4: {
-        _0 = Result<derived_bodies.Kind, std.json.DecodeError>::Err(copy (_6 as Err).0);
+        _0 = Result<derived_bodies.Kind, std.serialize.DecodeError>::Err(copy (_6 as Err).0);
         drop(_6);
         return;
     }
 
     bb5: {
-        _13 = Result<derived_bodies.Kind, std.json.DecodeError>::Ok(copy (_9 as Some).0);
+        _13 = Result<derived_bodies.Kind, std.serialize.DecodeError>::Ok(copy (_9 as Some).0);
         _0 = move _13;
         return;
     }
 
     bb6: {
-        _10 = std.json.DecodeFault::UnknownCase;
-        _11 = std.json.DecodeError { offset: copy _3, fault: move _10 };
-        _12 = Result<derived_bodies.Kind, std.json.DecodeError>::Err(move _11);
+        _10 = std.serialize.DecodeFault::UnknownCase;
+        _11 = std.serialize.DecodeError { offset: copy _3, fault: move _10 };
+        _12 = Result<derived_bodies.Kind, std.serialize.DecodeError>::Err(move _11);
         _0 = move _12;
         return;
     }
 }
 
-fn derived derived_bodies.Step std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.json.EncodeError> {
-    let _0: Result<Void, std.json.EncodeError>;  // return
+fn derived derived_bodies.Step std.serialize.Serialize.serialize(to: &var any std.serialize.Encoder) -> Result<Void, std.serialize.EncodeError> {
+    let _0: Result<Void, std.serialize.EncodeError>;  // return
     let _1: &derived_bodies.Step;  // self
     let _2: &var any std.serialize.Encoder;  // param to
     let _3: Int32;
     let _4: Int64;
     let _5: &var any std.serialize.Encoder;
-    let _6: Result<Void, std.json.EncodeError>;
-    let _7: Result<Void, std.json.EncodeError>;
+    let _6: Result<Void, std.serialize.EncodeError>;
+    let _7: Result<Void, std.serialize.EncodeError>;
 
     bb0: {
         _3 = cast(copy (*_1) as Int32);
@@ -554,34 +554,34 @@ fn derived derived_bodies.Step std.serialize.Serialize.serialize(to: &var any st
 
     bb2: {
         drop(_6);
-        _7 = Result<Void, std.json.EncodeError>::Ok(const (): Void);
+        _7 = Result<Void, std.serialize.EncodeError>::Ok(const (): Void);
         _0 = move _7;
         return;
     }
 
     bb3: {
-        _0 = Result<Void, std.json.EncodeError>::Err(copy (_6 as Err).0);
+        _0 = Result<Void, std.serialize.EncodeError>::Err(copy (_6 as Err).0);
         drop(_6);
         return;
     }
 }
 
-fn derived derived_bodies.Step std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Step, std.json.DecodeError> {
-    let _0: Result<derived_bodies.Step, std.json.DecodeError>;  // return
+fn derived derived_bodies.Step std.serialize.Deserialize.deserialize(from: &var any std.serialize.Decoder) -> Result<derived_bodies.Step, std.serialize.DecodeError> {
+    let _0: Result<derived_bodies.Step, std.serialize.DecodeError>;  // return
     let _1: &var any std.serialize.Decoder;  // param from
     let _2: &any std.serialize.Decoder;
     let _3: Int;
     let _4: Int64;
     let _5: Int64;
     let _6: &var any std.serialize.Decoder;
-    let _7: Result<Int64, std.json.DecodeError>;
+    let _7: Result<Int64, std.serialize.DecodeError>;
     let _8: Int64;
     let _9: Int32;
     let _10: derived_bodies.Step?;
-    let _11: std.json.DecodeFault;
-    let _12: std.json.DecodeError;
-    let _13: Result<derived_bodies.Step, std.json.DecodeError>;
-    let _14: Result<derived_bodies.Step, std.json.DecodeError>;
+    let _11: std.serialize.DecodeFault;
+    let _12: std.serialize.DecodeError;
+    let _13: Result<derived_bodies.Step, std.serialize.DecodeError>;
+    let _14: Result<derived_bodies.Step, std.serialize.DecodeError>;
 
     bb0: {
         _2 = ref(shared, (*_1));
@@ -608,21 +608,21 @@ fn derived derived_bodies.Step std.serialize.Deserialize.deserialize(from: &var 
     }
 
     bb4: {
-        _0 = Result<derived_bodies.Step, std.json.DecodeError>::Err(copy (_7 as Err).0);
+        _0 = Result<derived_bodies.Step, std.serialize.DecodeError>::Err(copy (_7 as Err).0);
         drop(_7);
         return;
     }
 
     bb5: {
-        _14 = Result<derived_bodies.Step, std.json.DecodeError>::Ok(copy (_10 as Some).0);
+        _14 = Result<derived_bodies.Step, std.serialize.DecodeError>::Ok(copy (_10 as Some).0);
         _0 = move _14;
         return;
     }
 
     bb6: {
-        _11 = std.json.DecodeFault::UnknownCase;
-        _12 = std.json.DecodeError { offset: copy _3, fault: move _11 };
-        _13 = Result<derived_bodies.Step, std.json.DecodeError>::Err(move _12);
+        _11 = std.serialize.DecodeFault::UnknownCase;
+        _12 = std.serialize.DecodeError { offset: copy _3, fault: move _11 };
+        _13 = Result<derived_bodies.Step, std.serialize.DecodeError>::Err(move _12);
         _0 = move _13;
         return;
     }

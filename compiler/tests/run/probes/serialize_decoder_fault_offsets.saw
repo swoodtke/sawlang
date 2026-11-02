@@ -1,0 +1,202 @@
+// probe: stated
+// about: a derived `deserialize` through a fallible `init` is `InitFailed` at the item's start, and a negative array count from a decoder is `Malformed` in `Vector.deserialize` and in `expect_array` (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: ports: 8080 8081
+// prints: refused: decode error at byte 3: the type's init refused the decoded fields
+// prints: ints: 1 2 3
+// prints: refused: decode error at byte 0: the bytes are not a well-formed item
+// prints: refused: decode error at byte 3: the bytes are not a well-formed item
+// prints: refused: decode error at byte 0: the bytes are not a well-formed item
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
+
+// One token per item: a kind letter and its text. `Tape` is a decoder over
+// space-separated tokens; its `offset` is the token index.
+static KIND_INT: Byte = 0x69
+static KIND_UINT: Byte = 0x75
+static KIND_BOOL: Byte = 0x62
+static KIND_NULL: Byte = 0x6E
+static KIND_TEXT: Byte = 0x74
+static KIND_ARRAY: Byte = 0x61
+static KIND_MAP: Byte = 0x6D
+
+struct Tape {
+    items: Vector<String>
+    at: Int
+}
+
+extension Tape: NoCopy {}
+
+extension Tape {
+    func peek(&self) sync -> Result<String, DecodeError> {
+        guard let tok = self.items.get(self.at) else {
+            return DecodeError(offset: self.at, fault: DecodeFault.Truncated)
+        }
+        return tok
+    }
+
+    // The next token's text after its kind letter, or TypeMismatch at the
+    // token's own position.
+    func take(&var self, kind: Byte) sync -> Result<String, DecodeError> {
+        let tok = try self.peek()
+        if tok.byte_at(0) != kind {
+            return DecodeError(offset: self.at, fault: DecodeFault.TypeMismatch)
+        }
+        self.at = self.at + 1
+        return tok.substring(1, tok.len())
+    }
+}
+
+extension Tape: Decoder {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_UINT)
+        guard let v = text.to_uint() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v as UInt64
+    }
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_INT)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v as Int64
+    }
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        let text = try self.take(KIND_BOOL)
+        return text == "1"
+    }
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.take(KIND_NULL)
+        return
+    }
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        self.take(KIND_TEXT)
+    }
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
+        return DecodeError(offset: self.at, fault: DecodeFault.Unsupported)
+    }
+    // Hands the count back as the token says it, negative included.
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_ARRAY)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v
+    }
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        let at = self.at
+        let text = try self.take(KIND_MAP)
+        guard let v = text.to_int() else {
+            return DecodeError(offset: at, fault: DecodeFault.Malformed)
+        }
+        return v
+    }
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        let tok = try self.peek()
+        return tok.byte_at(0) == KIND_NULL
+    }
+    func offset(&self) sync -> Int {
+        self.at
+    }
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        let _ = try self.peek()
+        self.at = self.at + 1
+        return
+    }
+}
+
+func tape_from(text: String) -> Tape {
+    Tape(items: try! text.split(" "), at: 0)
+}
+
+enum PortError {
+    case Reserved(number: Int)
+}
+
+struct Port {
+    number: Int
+}
+
+// An `init` matching the fields overrides the construction, and this one can
+// refuse.
+extension Port {
+    init(number: Int) -> Result<Port, PortError> {
+        if number < 1024 {
+            return PortError.Reserved(number: number)
+        }
+        return Port(number: number)
+    }
+}
+
+@synthesize
+extension Port: Deserialize {}
+
+func read_ports(text: String) {
+    var tape = tape_from(text)
+    match Vector<Port>.deserialize(from: &var tape) {
+        case Ok(ports) -> {
+            var line = StringBuilder()
+            try! line.append("ports:")
+            var i = 0
+            while i < ports.len() {
+                try! line.append(" ")
+                try! line.append(ports[i].number)
+                i = i + 1
+            }
+            print("{}", line.build())
+        },
+        case Err(e) -> print("refused: {}", e)
+    }
+}
+
+func read_ints(text: String) {
+    var tape = tape_from(text)
+    match Vector<Int>.deserialize(from: &var tape) {
+        case Ok(v) -> {
+            var line = StringBuilder()
+            try! line.append("ints:")
+            var i = 0
+            while i < v.len() {
+                try! line.append(" ")
+                try! line.append(v[i])
+                i = i + 1
+            }
+            print("{}", line.build())
+        },
+        case Err(e) -> print("refused: {}", e)
+    }
+}
+
+func read_nested(text: String) {
+    var tape = tape_from(text)
+    match Vector<Vector<Int>>.deserialize(from: &var tape) {
+        case Ok(v) -> print("nested: {}", v.len()),
+        case Err(e) -> print("refused: {}", e)
+    }
+}
+
+// A derived struct opens its array with `expect_array`.
+func read_port(text: String) {
+    var tape = tape_from(text)
+    match Port.deserialize(from: &var tape) {
+        case Ok(p) -> print("port: {}", p.number),
+        case Err(e) -> print("refused: {}", e)
+    }
+}
+
+func main() {
+    read_ports("a2 a1 i8080 a1 i8081")
+    read_ports("a2 a1 i8080 a1 i80")
+    read_ints("a3 i1 i2 i3")
+    read_ints("a-5 i1")
+    read_nested("a2 a1 i1 a-5")
+    read_port("a-1")
+}

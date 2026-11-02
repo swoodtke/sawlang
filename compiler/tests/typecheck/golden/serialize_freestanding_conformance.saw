@@ -1,8 +1,7 @@
 // flags: --std-root std --freestanding
 // A hand-written Serialize and Deserialize check clean under the freestanding
 // profile: every signature is `sync` and nothing in them needs the hosted std.
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, EncodeError}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
 
 struct Reading {
     channel: Int

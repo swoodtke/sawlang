@@ -10,8 +10,7 @@
 // fields, and the Decoder's defaults (`expect_array`, `read_int_range`) run on
 // the user's own decoder. `Ints` replays a list of integers; `Count` counts the
 // items it is handed.
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, DecodeFault, EncodeError}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, Encoder}
 
 struct Point {
     x: Int

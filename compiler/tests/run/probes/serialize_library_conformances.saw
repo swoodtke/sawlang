@@ -41,8 +41,7 @@
 // A token tape is both sides of the seam: a value is written into it and read
 // back. An integer outside a narrow type is OutOfRange at the byte after the
 // item, and never a trap. The Int64 and UInt64 extremes round-trip whole.
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
 
 // One token per item: a kind letter and its text. `Tape` is both sides of the
 // seam, so a probe writes a value into it and reads the value back.

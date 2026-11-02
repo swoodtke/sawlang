@@ -9,6 +9,7 @@
 // port=443 secure=true name=api
 
 import std.data.{Data}
+import std.serialize.{Decoder, DecodeError, DecodeFault, Encoder, EncodeError, EncodeFault}
 
 struct Endpoint {
     port: Int
@@ -54,11 +55,11 @@ extension ByteEncoder {
 }
 
 extension ByteEncoder: Encoder {
-    func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError> {
-        self.write_int(v as Int)
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        self.write_int(v as Int64)
     }
 
-    func write_int(&var self, v: Int) sync -> Result<Void, EncodeError> {
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
         if v < 0 || v > 65535 {
             return EncodeError(fault: EncodeFault.Unsupported)
         }
@@ -146,16 +147,16 @@ extension ByteDecoder {
 }
 
 extension ByteDecoder: Decoder {
-    func read_uint(&var self) sync -> Result<UInt, DecodeError> {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
         let v = try self.read_int()
-        return v as UInt
+        return v as UInt64
     }
 
-    func read_int(&var self) sync -> Result<Int, DecodeError> {
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
         try self.expect_tag(TAG_INT)
         let hi = try self.next()
         let lo = try self.next()
-        return ((hi as Int) << 8) | (lo as Int)
+        return (((hi as Int) << 8) | (lo as Int)) as Int64
     }
 
     func read_bool(&var self) sync -> Result<Bool, DecodeError> {

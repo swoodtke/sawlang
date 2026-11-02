@@ -1,0 +1,52 @@
+// probe: stated
+// about: std.json carries Int64 and UInt64 at their full range through its encoder and decoder, and a value past 64 bits is OutOfRange (SL-833)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: signed text: [-9223372036854775808,9223372036854775807,0]
+// prints: signed back: -9223372036854775808 9223372036854775807 0
+// prints: unsigned text: [0,18446744073709551615]
+// prints: unsigned back: 0 18446744073709551615
+// prints: unsigned past 64 bits: decode error at byte 0: the value does not fit the destination type
+// prints: signed past 64 bits: decode error at byte 0: the value does not fit the destination type
+// prints: signed at the minimum: -9223372036854775808
+import std.json.{JsonDecoder, JsonEncoder, encode}
+
+func main() {
+    var signed = Vector<Int64>()
+    try! signed.push(Int64.min)
+    try! signed.push(Int64.max)
+    try! signed.push(0)
+    let signed_text = try! encode(&signed)
+    print("signed text: {}", signed_text)
+    var signed_dec = try! JsonDecoder.open(text: signed_text)
+    let signed_back = try! Vector<Int64>.deserialize(from: &var signed_dec)
+    try! signed_dec.finish()
+    print("signed back: {} {} {}", signed_back[0], signed_back[1], signed_back[2])
+
+    var unsigned = Vector<UInt64>()
+    try! unsigned.push(0)
+    try! unsigned.push(UInt64.max)
+    let unsigned_text = try! encode(&unsigned)
+    print("unsigned text: {}", unsigned_text)
+    var unsigned_dec = try! JsonDecoder.open(text: unsigned_text)
+    let unsigned_back = try! Vector<UInt64>.deserialize(from: &var unsigned_dec)
+    try! unsigned_dec.finish()
+    print("unsigned back: {} {}", unsigned_back[0], unsigned_back[1])
+
+    var wide_u = try! JsonDecoder.open(text: "18446744073709551616")
+    match UInt64.deserialize(from: &var wide_u) {
+        case Ok(v) -> print("unsigned past 64 bits accepted: {}", v),
+        case Err(e) -> print("unsigned past 64 bits: {}", e)
+    }
+    var wide_i = try! JsonDecoder.open(text: "-9223372036854775809")
+    match Int64.deserialize(from: &var wide_i) {
+        case Ok(v) -> print("signed past 64 bits accepted: {}", v),
+        case Err(e) -> print("signed past 64 bits: {}", e)
+    }
+    var low = try! JsonDecoder.open(text: "-9223372036854775808")
+    match Int64.deserialize(from: &var low) {
+        case Ok(v) -> print("signed at the minimum: {}", v),
+        case Err(e) -> print("signed at the minimum refused: {}", e)
+    }
+}

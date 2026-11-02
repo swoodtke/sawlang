@@ -16,8 +16,7 @@
 // prints: refused: decode error at byte 0: the item is not of the expected type
 // prints: first 7
 // prints: refused: decode error at byte 2: no case of the enum carries that raw value
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
 
 // One token per item: a kind letter and its text. `Tape` is both sides of the
 // seam, so a probe writes a value into it and reads the value back.

@@ -512,8 +512,8 @@ elaboration and the copy hook each find one body.
 The declaration-site rule is **per module**. A free function is identified by
 (defining module, name), the way a type is, so two modules may hold same-named
 functions of the same shape; neither module knows the other exists.
-`std.json.encode` and `std.cbor.encode` are the pair planned for the standard
-library (both pending SL-596; neither is declared yet). Which one a call means is decided where the call is written:
+`std.json.encode` and `std.cbor.encode` are the pair the standard library
+names (`std.json` declares its half; `std.cbor` is pending SL-938). Which one a call means is decided where the call is written:
 
 - A **qualified** call takes exactly the named module's declarations —
   `json.encode(&value)` is json's, whatever `std.cbor` declares.
@@ -5736,7 +5736,7 @@ local it names is *borrowed*, never copied — which is what lets a move-only
 value be handed to something reached through a place:
 
 ```saw-fragment
-var enc = CborEncoder()             // NoCopy, built right here (std.cbor, pending SL-596)
+var enc = CborEncoder()             // NoCopy, built right here (std.cbor, pending SL-938)
 var i = 0
 while i < entries.len() {
     try entries[i].serialize(to: &var enc)     // lent, not copied
@@ -8336,15 +8336,16 @@ trait Hashable {            // requires Equatable
 
 ### Serialization (`Serialize`, `Deserialize`, `Encoder`, `Decoder`)
 
-**Status: partly implemented (SL-833).** `std/serialize.saw` declares
-`Serialize`, `Deserialize`, `Encoder` and `Decoder`, with the library's
-conformances for every integer width, `Bool`, `String`, `Optional` and
-`Vector`, and `@synthesize` derives both directions as described below. Only
-`Serialize` and `Deserialize` are prelude-visible; `Encoder` and `Decoder`
-need `import std.serialize`. `EncodeError`, `EncodeFault`, `DecodeError` and
-`DecodeFault` are still declared in `std/json.saw`, and no format implements
-the seam yet. The rest of this section is the target design
-(`designs/169-serialize-cbor.md`) where it says more. A value writes itself into an `any Encoder`
+**Status: implemented (SL-833), except `std.cbor`, which is pending SL-938.**
+`std/serialize.saw` declares `Serialize`, `Deserialize`, `Encoder`, `Decoder`
+and the four error types `EncodeError`, `EncodeFault`, `DecodeError` and
+`DecodeFault`, with the library's conformances for every integer width,
+`Bool`, `String`, `Optional` and `Vector`, and `@synthesize` derives both
+directions as described below. Only `Serialize` and `Deserialize` are
+prelude-visible; the rest need `import std.serialize`. `std.json` implements
+the seam (`JsonEncoder`, `JsonDecoder`, `encode`). The rest of this section
+is the target design (`designs/169-serialize-cbor.md`) where it says more.
+A value writes itself into an `any Encoder`
 and reads itself back out of an `any Decoder`. The traits name a data model;
 the concrete format decides the bytes. All four are present in the
 freestanding profile.
@@ -8375,14 +8376,19 @@ trait Deserialize {
   `begin_map(count:)` open an item of exactly that length and are followed by
   exactly that many items; `begin_bytes(count:)` opens a byte string filled by
   that many `write_byte` calls. Miscounting is `CountMismatch`, not a silently
-  short item.
-- **Every serde signature is `sync`.** Serialization writes into a buffer, so it
+  short item. On the read side, a decoder that reports a negative count to
+  `Vector.deserialize` or `Decoder.expect_array` gets
+  `DecodeError(offset: <where the item started>, fault: .Malformed)`, never an
+  empty array.
+- **Every serialization signature is `sync`.** Serialization writes into a buffer, so it
   is suspension-free by contract, and the effect is what lets a value serialize
   inside a `borrows(sync)` window such as a lock's, or in a kernel. A conformer that
   wants to do I/O writes into a buffer first and sends the buffer afterwards.
 - **`@synthesize` derives both directions structurally.** The walk emits every
   stored field, `private` ones included, in declaration order as one array; it
-  covers the integer types, `Bool`, `String`, `Optional` (absent becomes null),
+  covers the integer types, `Bool`, `String`, `Optional` (absent becomes null;
+  an `Optional` whose payload is itself an `Optional` does not round-trip,
+  since `Some(None)` writes the same null as `None` and reads back as `None`),
   `Vector`, raw-backed enums, and any member that itself conforms, a type
   parameter through the extension's bound included. A member outside that set
   is a clean error at the derivation, naming the field and its type, with the
@@ -8400,8 +8406,8 @@ trait Deserialize {
   ```
   A **raw-backed enum** derives from the design-145 idiom: out through the
   case's raw value, back through the partial `E.from(raw:)`. A raw value no case
-  carries is data, not a trap — it becomes `UnknownCase` at the byte it was read
-  at. The raw value travels at the wire's 64 bits of the backing's signedness:
+  carries is data, not a trap — it becomes `UnknownCase` at the offset where the
+  item started. The raw value travels at the wire's 64 bits of the backing's signedness:
   an unsigned backing through `write_uint` and `read_uint_max`, a signed one
   through `write_int` and `read_int_range`, each read bounded by the backing's
   range. An enum with **no** raw backing, or with a payload case, is refused,
@@ -8410,12 +8416,9 @@ trait Deserialize {
   overrides the construction*) is built through that `init`. When the
   override fails, `deserialize` returns
   `DecodeError(offset: <where the item started>, fault: .InitFailed)`, the
-  case `InitFailed = 13`, "the type's init refused the decoded fields". It
+  case `InitFailed = 14`, "the type's init refused the decoded fields". It
   allocates nothing and does not carry the `init`'s own error, which a
-  caller who needs it gets by writing `deserialize` by hand. **Status:** an
-  infallible override is implemented; `DecodeFault` declares no `InitFailed`
-  case yet (SL-833), so a derivation through a fallible override is refused by
-  name until it does.
+  caller who needs it gets by writing `deserialize` by hand.
   Unlike the Equatable/Comparable/Hashable derivations, which the backend emits
   from the field layout, these two are lowered as an ordinary body before the
   borrow check and drop elaboration, which judge it as they judge user code: a
@@ -8430,7 +8433,7 @@ trait Deserialize {
 
 ### `std.cbor` — the concrete format
 
-**Status: pending SL-596, not implemented.** There is no `std/cbor.saw`, so
+**Status: pending SL-938, not implemented.** There is no `std/cbor.saw`, so
 `CborEncoder`, `CborDecoder` and `encode` do not exist; what follows is the
 target API (`designs/169-serialize-cbor.md`).
 CBOR (RFC 8949) restricted to its **deterministic encoding** profile. The wire
@@ -8490,10 +8493,11 @@ names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
   parameter yet (DF-169e), so a value is read back through its own type,
   `LockEntry.deserialize(from: &var dec)`.
 
-### `std.json` — the tree, and the format to come
+### `std.json` — the tree, and the format
 
-**Status: partly implemented** (`std/json.saw`, `std/JSON.md`). The tree half
-exists; the `Encoder`/`Decoder` half is pending SL-596, with `std.serde`.
+**Status: implemented** (`std/json.saw`, `std/JSON.md`). `JsonEncoder`,
+`JsonDecoder` and `encode` are the format's half of the `std.serialize` seam;
+`JsonValue` is the tree half.
 
 `JsonValue` is a recursive enum, `ExplicitCopy` (`copy()` is deep):
 `Null`, `Bool(value:)`, `Number(value: Int)`, `Float(value:)`, `Text(value:)`,
@@ -8510,12 +8514,19 @@ A number token that is integral and fits `Int` is a `Number`; any other is a
   `None` for any other case.
 - `as_array()` and `as_object()` lend their container in place
   (`borrows -> &var T?`).
-- `EncodeError`, `EncodeFault`, `DecodeError` and `DecodeFault`, each with
-  `describe()` (the fault enums) or `format(into:)` (the errors), which move to
-  `std.serde` with it.
-
-Pending, and not in the tree: `JsonEncoder`, `JsonDecoder` and the one-call
-`encode`, which sit on the `Serialize` seam above.
+- `JsonEncoder` writes compact text into a growable buffer; `finish()` returns
+  the text, or `CountMismatch` while an array or object is still owed items.
+  `max_depth` (default 64) bounds nesting, and a deeper container is
+  `TooDeep`. A byte string and a map key that is not text are `Unsupported`.
+- `JsonDecoder.open(text:max_depth:max_size:)` reads one value at a time;
+  `begin_array` and `begin_map` count their items with a bounded, non-recursive
+  lookahead, and every byte is validated when a typed read reaches it.
+  `finish()` is `TrailingBytes` when anything but whitespace follows the value.
+  Integers read and write at 64 bits on every target; a number past the
+  destination type's range is `OutOfRange`.
+- `encode<T: Serialize>(value:)` is the one-call write and is `sync`.
+- `EncodeError`, `EncodeFault`, `DecodeError` and `DecodeFault` are
+  `std.serialize`'s, shared with `std.cbor`.
 
 ### `Vector.each` / `map` / `fold` / `each_indexed`
 
@@ -13758,7 +13769,7 @@ Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `SpinLock`, `Once`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
 design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf),
-`CborEncoder`/`CborDecoder` (std.cbor, pending SL-596), `SlabHead` and the slab free
+`CborEncoder`/`CborDecoder` (std.cbor, pending SL-938), `SlabHead` and the slab free
 functions (std.slab), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without an import of its module. A bare reference to one is a
@@ -14417,12 +14428,11 @@ need one of the three [import forms](#imports).
 | `std.json` | `JsonEncoder`, `JsonDecoder`, `JsonValue`, `encode` | no |
 | `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
-The `std.serialize`, `std.cbor` and `std.json` rows describe the target surface.
-`std/serialize.saw` declares the four traits and the library's conformances;
-`std/cbor.saw` does not exist (SL-596). Of the `std.json` row only `JsonValue`
-is declared today, and `std/json.saw` also declares `EncodeError`,
-`DecodeError` and their fault enums until `std.serialize` holds them.
-`JsonEncoder`, `JsonDecoder` and `encode` are pending SL-833.
+The `std.serialize` and `std.json` rows are implemented: `std/serialize.saw`
+declares the four traits, the four error types and the library's conformances,
+and `std/json.saw` declares `JsonValue`, `JsonEncoder`, `JsonDecoder` and
+`encode`. The `std.cbor` row describes the target surface; `std/cbor.saw` does
+not exist (SL-938).
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 `async`/`await`. The NAMESPACE is the engine.

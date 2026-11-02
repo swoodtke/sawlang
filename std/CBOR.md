@@ -1,11 +1,11 @@
 # The `std.cbor` wire profile — FROZEN
 
-**Status: not implemented in this tree.** There is no `std/cbor.saw` and no
-`std/serde.saw`, so `CborEncoder`, `CborDecoder`, `encode` and the
-`Serialize`/`Deserialize`/`Encoder`/`Decoder` traits do not exist yet. The
-only pieces present are the error types `EncodeError`/`DecodeError` and their
-fault enums, which `std/json.saw` declares until `std.serde` exists. This
-document is the target wire contract; the port is SL-596. `tools/sawcbor.py`
+**Status: not implemented in this tree.** There is no `std/cbor.saw`, so
+`CborEncoder`, `CborDecoder` and `encode` do not exist yet. The
+`Serialize`/`Deserialize`/`Encoder`/`Decoder` traits and the error types
+`EncodeError`/`DecodeError` with their fault enums are in `std/serialize.saw`
+(`std.serialize`). This document is the target wire contract; the port is
+SL-938. `tools/sawcbor.py`
 and the vectors under `tests/cbor_vectors/` are held to the text below, not to
 a Saw implementation.
 

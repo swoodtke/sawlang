@@ -7,14 +7,107 @@
 //!
 //! A struct is written as one array of its stored fields in declaration
 //! order, so there are no field names on the wire. Conformances are written
-//! by hand today; the `@synthesize` derivation of that shape is not built yet.
+//! by hand or derived with `@synthesize`.
 //!
-//! Only `Serialize` and `Deserialize` are prelude-visible. `Encoder` and
-//! `Decoder` need `import std.serialize`, which keeps those names free for
-//! user code. The error types are `std.json`'s until they move here. Nothing
-//! here allocates, so a kernel can serialize into its own buffer.
+//! Only `Serialize` and `Deserialize` are prelude-visible. `Encoder`,
+//! `Decoder` and the four error types need `import std.serialize`, which
+//! keeps those names free for user code. Nothing here allocates, so a kernel
+//! can serialize into its own buffer.
 
-import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+// =============================================================================
+// Faults
+// =============================================================================
+
+/// What stopped a value from being written out.
+public enum EncodeFault: UInt8 {
+    case BufferFull = 1,
+    case TooDeep = 2,
+    case CountMismatch = 3,
+    case Unsupported = 4,
+    case Alloc = 5
+}
+
+extension EncodeFault {
+    /// Returns a one-line description of the fault.
+    public func describe(&self) -> String {
+        match self {
+            case BufferFull -> "the output buffer is full",
+            case TooDeep -> "nesting is deeper than the encoder allows",
+            case CountMismatch -> "an array or map got a different number of items than it declared",
+            case Unsupported -> "the value has no representation in this format",
+            case Alloc -> "the encoder could not allocate memory"
+        }
+    }
+}
+
+/// A failure raised while encoding.
+public struct EncodeError {
+    fault: EncodeFault
+}
+
+extension EncodeError: Error {
+    /// Writes `encode error: ` and the fault's description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("encode error: ")
+        try! into.append(self.fault.describe())
+    }
+}
+
+/// What stopped a value from being read back.
+public enum DecodeFault: UInt8 {
+    case Truncated = 1,
+    case Malformed = 2,
+    case TypeMismatch = 3,
+    case TooDeep = 4,
+    case TooLarge = 5,
+    case TooManyItems = 6,
+    case NotCanonical = 7,
+    case Unsupported = 8,
+    case TrailingBytes = 9,
+    case OutOfRange = 10,
+    case UnknownCase = 11,
+    case CountMismatch = 12,
+    case Alloc = 13,
+    case InitFailed = 14
+}
+
+extension DecodeFault {
+    /// Returns a one-line description of the fault.
+    public func describe(&self) -> String {
+        match self {
+            case Truncated -> "the input ended in the middle of an item",
+            case Malformed -> "the bytes are not a well-formed item",
+            case TypeMismatch -> "the item is not of the expected type",
+            case TooDeep -> "nesting is deeper than the decoder allows",
+            case TooLarge -> "the input is larger than the decoder allows",
+            case TooManyItems -> "the input holds more items than the decoder allows",
+            case NotCanonical -> "the item is not in the deterministic encoding",
+            case Unsupported -> "the item has no representation in this language",
+            case TrailingBytes -> "bytes remain after the top-level item",
+            case OutOfRange -> "the value does not fit the destination type",
+            case UnknownCase -> "no case of the enum carries that raw value",
+            case CountMismatch -> "the array or map holds a different number of items than expected",
+            case Alloc -> "the decoder could not allocate memory",
+            case InitFailed -> "the type's init refused the decoded fields"
+        }
+    }
+}
+
+/// A failure raised while decoding, at the byte offset where it was found.
+public struct DecodeError {
+    offset: Int
+    fault: DecodeFault
+}
+
+extension DecodeError: Error {
+    /// Writes `decode error at byte N: ` and the fault's description.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append("decode error at byte ")
+        try! into.append(self.offset)
+        try! into.append(": ")
+        try! into.append(self.fault.describe())
+    }
+}
 
 // =============================================================================
 // The seam
@@ -99,7 +192,11 @@ public trait Decoder {
 
     /// Opens an array and checks it holds exactly `count` items.
     func expect_array(&var self, count: Int) sync -> Result<Void, DecodeError> {
+        let start = self.offset()
         let n = try self.begin_array()
+        if n < 0 {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
         if n != count {
             return DecodeError(offset: self.offset(), fault: DecodeFault.CountMismatch)
         }
@@ -352,7 +449,11 @@ extension Vector<T: Serialize, A: Allocator = GlobalAllocator>: Serialize {
 
 extension Vector<T: Deserialize, A: Allocator = GlobalAllocator>: Deserialize {
     public static func deserialize(from: &var any Decoder) sync -> Result<Vector<T, A>, DecodeError> {
+        let start = from.offset()
         let n = try from.begin_array()
+        if n < 0 {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
         var out = Vector<T, A>()
         var i = 0
         while i < n {

@@ -8,9 +8,10 @@
 // kind=Release port=443 name=api tag=none
 // deps=2 first=toml/0.1.0
 // narrow=-7/200
-// unknown enum case rejected: 3
+// unknown enum case rejected: 0
 
 import std.data.{Data}
+import std.serialize.{Decoder, DecodeError, DecodeFault, Encoder, EncodeError, EncodeFault}
 
 enum Track: UInt8 {
     case Debug = 0,
@@ -74,15 +75,15 @@ extension MiniEncoder {
 }
 
 extension MiniEncoder: Encoder {
-    func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError> {
-        self.write_int(v as Int)
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        self.write_int(v as Int64)
     }
 
-    func write_int(&var self, v: Int) sync -> Result<Void, EncodeError> {
-        if v < -INT_BIAS || v > 65535 {
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
+        if v < (-INT_BIAS) as Int64 || v > 65535 {
             return EncodeError(fault: EncodeFault.Unsupported)
         }
-        let biased = v + INT_BIAS
+        let biased = (v as Int) + INT_BIAS
         try! self.out.push(TAG_INT)
         try! self.out.push(((biased >> 8) & 255) as UInt8)
         try! self.out.push((biased & 255) as UInt8)
@@ -176,19 +177,19 @@ extension MiniDecoder {
 }
 
 extension MiniDecoder: Decoder {
-    func read_uint(&var self) sync -> Result<UInt, DecodeError> {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
         let v = try self.read_int()
         if v < 0 {
             return self.fault(DecodeFault.OutOfRange)
         }
-        return v as UInt
+        return v as UInt64
     }
 
-    func read_int(&var self) sync -> Result<Int, DecodeError> {
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
         try self.expect_tag(TAG_INT)
         let hi = try self.next()
         let lo = try self.next()
-        return (((hi as Int) << 8) | (lo as Int)) - INT_BIAS
+        return ((((hi as Int) << 8) | (lo as Int)) - INT_BIAS) as Int64
     }
 
     func read_bool(&var self) sync -> Result<Bool, DecodeError> {
@@ -291,7 +292,7 @@ func main() {
     }
 
     // A raw value no case carries is DATA, not a trap: it becomes a DecodeError
-    // naming the byte it was read at (design 145's `from(raw:)` is partial).
+    // naming the offset where the item started (design 145's `from(raw:)` is partial).
     var bad = MiniEncoder()
     let _ = bad.write_int(11)
     var baddec = MiniDecoder(input: bad.bytes())

@@ -9,8 +9,7 @@
 // prints: 1 false x t 0  -1 127 65535
 // prints: refused: decode error at byte 10: the value does not fit the destination type
 // prints: refused: decode error at byte 1: the array or map holds a different number of items than expected
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
 
 // One token per item: a kind letter and its text. `Tape` is both sides of the
 // seam, so a probe writes a value into it and reads the value back.

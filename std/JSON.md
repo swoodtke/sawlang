@@ -1,13 +1,13 @@
 # `std.json` — JSON over the `Encoder`/`Decoder` seam
 
-**Status: partly implemented.** `std/json.saw` declares `JsonValue` with
+**Status: implemented.** `std/json.saw` declares `JsonValue` with
 `parse(text:max_depth:max_size:)`, `to_json_string`, `is_null`, `as_bool`,
-`as_int`, `as_float`, `as_text`, `as_array` and `as_object`, plus the error
-types `EncodeError`, `EncodeFault`, `DecodeError` and `DecodeFault` (each with
-`describe` or `format`). Everything else below is the target API, pending
-SL-596: `JsonEncoder`, `JsonDecoder`, `encode`, the `Serialize`, `Deserialize`,
-`Encoder` and `Decoder` traits (`std/serde.saw` does not exist), and the
-`std.cbor` comparisons. The body also names `JsonValue._write`, which is
+`as_int`, `as_float`, `as_text`, `as_array` and `as_object`, plus
+`JsonEncoder`, `JsonDecoder` and `encode`. The `Serialize`, `Deserialize`,
+`Encoder` and `Decoder` traits and the error types `EncodeError`,
+`EncodeFault`, `DecodeError` and `DecodeFault` (each with `describe` or
+`format`) are in `std/serialize.saw`. The `std.cbor` comparisons are the
+target API, pending SL-938. The body also names `JsonValue._write`, which is
 internal, and `as_number`, `member` and `element`, which `std.json` does not
 declare and this document says it will not.
 
@@ -15,7 +15,7 @@ This document is the contract for `std/json.saw`, on the same terms
 `std/CBOR.md` is the contract for v0.18.0's `sawc/std/cbor.saw`.
 
 Base format: **JSON, RFC 8259**. `JsonEncoder` is an `Encoder`
-(`std.serde`) and `JsonDecoder` is a `Decoder`, so any `Serialize`/
+(`std.serialize`) and `JsonDecoder` is a `Decoder`, so any `Serialize`/
 `Deserialize` value travels over them:
 
 ```saw
@@ -157,10 +157,11 @@ reject a fraction- or exponent-shaped JSON number token as
 `DecodeFault.TypeMismatch` — it parses as a well-formed number, just not an
 INTEGRAL one, which is the only shape either method can produce.
 
-`JsonValue` is not bound by that: it reaches `JsonEncoder`'s own
-`write_float` and `JsonDecoder`'s own `float_span`, neither of which is a
-trait requirement. A tree is text in and text out, so nothing about it waits
-on a wire encoding.
+`JsonValue` is not bound by that: it never goes through the seam. Its
+`Float` case is written by the module's internal text writer, which refuses a
+NaN or an infinity as `EncodeFault.Unsupported`, and read by the module's
+internal number scanner, whose token is converted with `String.to_float`.
+A tree is text in and text out, so nothing about it waits on a wire encoding.
 
 **No byte strings.** `begin_bytes`/`write_byte` and their decode twins are
 `EncodeFault.Unsupported` / `DecodeFault.Unsupported` unconditionally —

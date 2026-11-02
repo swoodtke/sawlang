@@ -139,6 +139,30 @@ extension StringBuilder {
         self.append_decimal(value)
     }
 
+    /// Appends the decimal rendering of `value`.
+    public func append(&var self, value: UInt) -> Result<Void, AllocError> {
+        let wide = (Int.max as UInt)
+        if value <= wide {
+            return self.append_decimal(value as Int)
+        }
+        try self.append_decimal((value / 10) as Int)
+        self.append_decimal((value % 10) as Int)
+    }
+
+    /// Appends the decimal rendering of `value`, at 64 bits on every target.
+    public func append(&var self, value: Int64) -> Result<Void, AllocError> {
+        let bits = UInt64.from(truncating: value)
+        if value < 0 {
+            return self.append_decimal_wide(true, 0 &- bits)
+        }
+        self.append_decimal_wide(false, bits)
+    }
+
+    /// Appends the decimal rendering of `value`, at 64 bits on every target.
+    public func append(&var self, value: UInt64) -> Result<Void, AllocError> {
+        self.append_decimal_wide(false, value)
+    }
+
     /// Appends the shortest decimal text that reads back as `value`.
     ///
     /// This is the one float formatter: every position that shows a `Float`
@@ -161,6 +185,33 @@ extension StringBuilder {
     /// `Err(AllocError)` when a growable builder cannot grow.
     public func append(&var self, value: Float) -> Result<Void, AllocError> {
         float_append(into: &var self, value: value)
+    }
+
+    // The 64-bit twin of `append_decimal`: the magnitude is an unsigned 64-bit
+    // value, so a 32-bit target renders `Int64.min` and `UInt64.max` too.
+    func append_decimal_wide(&var self, negative: Bool, magnitude: UInt64) unsafe -> Result<Void, AllocError> {
+        var digits = 1
+        var scale: UInt64 = 1
+        var probe = magnitude
+        while probe >= 10 {
+            probe = probe / 10
+            scale = scale * 10
+            digits = digits + 1
+        }
+        let sign = if negative { 1 } else { 0 }
+        let needed = self.length + sign + digits + 1
+        if not self.reserve_bytes(needed) && not self.fixed {
+            return AllocError(size: self.grow_target(needed), align: 1)
+        }
+        if negative {
+            self.place_byte(MINUS_SIGN)
+        }
+        while scale > 0 {
+            let digit = ((magnitude / scale) % 10) as Int
+            self.place_byte(ASCII_ZERO + digit)
+            scale = scale / 10
+        }
+        return
     }
 
     func append_decimal(&var self, value: Int) unsafe -> Result<Void, AllocError> {

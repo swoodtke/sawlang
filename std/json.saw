@@ -18,6 +18,13 @@
 //! buffer is the `Alloc` fault. A string's text and a fractional number's
 //! digits become `String`s, and the String layer panics on a refused
 //! allocation, so those two refusals panic.
+//!
+//! `JsonEncoder` and `JsonDecoder` are the format's half of the
+//! `std.serialize` seam: a `Serialize` value writes itself into the one and a
+//! `Deserialize` value reads itself out of the other. A struct is an array of
+//! its fields, so there are no field names in the text.
+
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
 
 // The token layer (`JsonReader`, `JsonWriter`) knows nothing of the tree, so
 // a streaming encoder and decoder can sit on the same two types.
@@ -69,111 +76,6 @@ static SURROGATE_SPAN: Int = 0x400
 
 // How deeply `to_json_string` nests arrays and objects: `parse`'s default.
 static WRITE_DEPTH: Int = 64
-
-// =============================================================================
-// Faults
-// =============================================================================
-
-/// What stopped a value from being written out.
-///
-/// `std.serde` will hold this type, beside the encoder seam every format
-/// shares.
-public enum EncodeFault: UInt8 {
-    case BufferFull = 1,
-    case TooDeep = 2,
-    case CountMismatch = 3,
-    case Unsupported = 4,
-    case Alloc = 5
-}
-
-extension EncodeFault {
-    /// Returns a one-line description of the fault.
-    public func describe(&self) -> String {
-        match self {
-            case BufferFull -> "the output buffer is full",
-            case TooDeep -> "nesting is deeper than the encoder allows",
-            case CountMismatch -> "an array or map got a different number of items than it declared",
-            case Unsupported -> "the value has no representation in this format",
-            case Alloc -> "the encoder could not allocate memory"
-        }
-    }
-}
-
-/// A failure raised while encoding.
-///
-/// `std.serde` will hold this type, beside the encoder seam every format
-/// shares.
-public struct EncodeError {
-    fault: EncodeFault
-}
-
-extension EncodeError: Error {
-    /// Writes `encode error: ` and the fault's description.
-    public func format(&self, into: &var StringBuilder) {
-        try! into.append("encode error: ")
-        try! into.append(self.fault.describe())
-    }
-}
-
-/// What stopped a value from being read back.
-///
-/// `std.serde` will hold this type, beside the decoder seam every format
-/// shares.
-public enum DecodeFault: UInt8 {
-    case Truncated = 1,
-    case Malformed = 2,
-    case TypeMismatch = 3,
-    case TooDeep = 4,
-    case TooLarge = 5,
-    case TooManyItems = 6,
-    case NotCanonical = 7,
-    case Unsupported = 8,
-    case TrailingBytes = 9,
-    case OutOfRange = 10,
-    case UnknownCase = 11,
-    case CountMismatch = 12,
-    case Alloc = 13
-}
-
-extension DecodeFault {
-    /// Returns a one-line description of the fault.
-    public func describe(&self) -> String {
-        match self {
-            case Truncated -> "the input ended in the middle of an item",
-            case Malformed -> "the bytes are not a well-formed item",
-            case TypeMismatch -> "the item is not of the expected type",
-            case TooDeep -> "nesting is deeper than the decoder allows",
-            case TooLarge -> "the input is larger than the decoder allows",
-            case TooManyItems -> "the input holds more items than the decoder allows",
-            case NotCanonical -> "the item is not in the deterministic encoding",
-            case Unsupported -> "the item has no representation in this language",
-            case TrailingBytes -> "bytes remain after the top-level item",
-            case OutOfRange -> "the value does not fit the destination type",
-            case UnknownCase -> "no case of the enum carries that raw value",
-            case CountMismatch -> "the array or map holds a different number of items than expected",
-            case Alloc -> "the decoder could not allocate memory"
-        }
-    }
-}
-
-/// A failure raised while decoding, at the byte offset where it was found.
-///
-/// `std.serde` will hold this type, beside the decoder seam every format
-/// shares.
-public struct DecodeError {
-    offset: Int
-    fault: DecodeFault
-}
-
-extension DecodeError: Error {
-    /// Writes `decode error at byte N: ` and the fault's description.
-    public func format(&self, into: &var StringBuilder) {
-        try! into.append("decode error at byte ")
-        try! into.append(self.offset)
-        try! into.append(": ")
-        try! into.append(self.fault.describe())
-    }
-}
 
 // =============================================================================
 // The token layer
@@ -555,6 +457,43 @@ extension JsonReader {
         }
         0 - acc
     }
+
+    // `integer` at 64 bits on every target, for the decoder seam. The
+    // magnitude accumulates unsigned, so a 32-bit target needs only the
+    // unsigned 64-bit division its environment supplies.
+    func integer64(&self, start: Int, end: Int) -> Int64? {
+        var i = start
+        let negative = self.at(i) == BYTE_MINUS
+        if negative {
+            i = i + 1
+        }
+        var acc: UInt64 = 0
+        let max_tenth = UInt64.max / 10
+        while i < end {
+            let d = (self.at(i) - BYTE_ZERO) as UInt64
+            if acc > max_tenth {
+                return None
+            }
+            let m = acc * 10
+            if m > UInt64.max - d {
+                return None
+            }
+            acc = m + d
+            i = i + 1
+        }
+        // The magnitude of `Int64.min`, which has no positive twin.
+        let min_magnitude: UInt64 = 0x8000_0000_0000_0000
+        if negative {
+            if acc > min_magnitude {
+                return None
+            }
+            return Int64.from(truncating: 0 &- acc)
+        }
+        if acc >= min_magnitude {
+            return None
+        }
+        acc as Int64
+    }
 }
 
 func is_digit(b: Int) -> Bool {
@@ -913,4 +852,604 @@ func json_encoded_keys(r: Result<Vector<String>, AllocError>) -> Result<Vector<S
         case Ok(keys) -> move keys,
         case Err(_) -> EncodeError(fault: EncodeFault.Alloc)
     }
+}
+
+
+// =============================================================================
+// The seam: `JsonEncoder` and `JsonDecoder`
+// =============================================================================
+
+// One open array or object being written. `remaining` counts the items still
+// owed, two per pair in an object (key, then value); `wrote_any` says whether
+// the next item needs a separator before it.
+struct JsonLevel {
+    remaining: Int
+    is_map: Bool
+    wrote_any: Bool
+}
+
+/// An `Encoder` that writes compact JSON text into a growable buffer.
+///
+/// A struct is written as an array of its fields. A map key that is not text,
+/// and any byte string, is `EncodeFault.Unsupported`. `finish` returns the
+/// text once every array and object is closed.
+public struct JsonEncoder {
+    private writer: JsonWriter
+    private levels: Vector<JsonLevel>
+    // Set once the top-level value is complete, so a further item is a
+    // miscount instead of landing past the outermost close.
+    private done: Bool
+}
+
+extension JsonEncoder: NoCopy {}
+
+extension JsonEncoder {
+    /// Creates an encoder over an empty buffer.
+    ///
+    /// `max_depth` bounds how deeply arrays and objects nest; a deeper
+    /// `begin_array` or `begin_map` is `EncodeFault.TooDeep`.
+    public init(max_depth: Int = 64) -> JsonEncoder {
+        JsonEncoder(writer: JsonWriter(max_depth: max_depth), levels: Vector<JsonLevel>(), done: false)
+    }
+
+    /// Returns the encoded text, or `CountMismatch` while an array or object
+    /// is still owed items, or when no value was written.
+    public func finish(&self) -> Result<String, EncodeError> {
+        if self.levels.len() > 0 || not self.done {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        return self.writer.out.build()
+    }
+
+    // The separator the level's position needs, and "a map key is text",
+    // checked here so it holds for every `write_*`.
+    func before_item(&var self, is_text: Bool) -> Result<Void, EncodeError> {
+        let n = self.levels.len()
+        if n == 0 {
+            if self.done {
+                return EncodeError(fault: EncodeFault.CountMismatch)
+            }
+            return
+        }
+        let last = n - 1
+        let is_map = self.levels[last].is_map
+        let at_key = is_map && (self.levels[last].remaining % 2) == 0
+        if at_key && not is_text {
+            return EncodeError(fault: EncodeFault.Unsupported)
+        }
+        if self.levels[last].wrote_any {
+            if is_map && not at_key {
+                try self.writer.byte(BYTE_COLON)
+            } else {
+                try self.writer.byte(BYTE_COMMA)
+            }
+        }
+        self.levels[last].wrote_any = true
+        return
+    }
+
+    // Charges the item just written, closing every level it completes.
+    func charge(&var self) -> Result<Void, EncodeError> {
+        while self.levels.len() > 0 {
+            let last = self.levels.len() - 1
+            let rem = self.levels[last].remaining - 1
+            self.levels[last].remaining = rem
+            if rem > 0 {
+                return
+            }
+            let is_map = self.levels[last].is_map
+            let _ = self.levels.pop()
+            if is_map {
+                try self.writer.close(BYTE_RIGHT_BRACE)
+            } else {
+                try self.writer.close(BYTE_RIGHT_BRACKET)
+            }
+        }
+        self.done = true
+        return
+    }
+
+    func open_container(&var self, is_map: Bool, count: Int) -> Result<Void, EncodeError> {
+        if count < 0 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        try self.before_item(false)
+        let opener = if is_map { BYTE_LEFT_BRACE } else { BYTE_LEFT_BRACKET }
+        let closer = if is_map { BYTE_RIGHT_BRACE } else { BYTE_RIGHT_BRACKET }
+        try self.writer.open(opener)
+        if count == 0 {
+            try self.writer.close(closer)
+            return self.charge()
+        }
+        let owed = if is_map { count * 2 } else { count }
+        json_encoded(self.levels.push(JsonLevel(remaining: owed, is_map: is_map, wrote_any: false)))
+    }
+}
+
+extension JsonEncoder: Encoder {
+    func write_uint(&var self, v: UInt64) sync -> Result<Void, EncodeError> {
+        try self.before_item(false)
+        try json_encoded(self.writer.out.append(v))
+        self.charge()
+    }
+
+    func write_int(&var self, v: Int64) sync -> Result<Void, EncodeError> {
+        try self.before_item(false)
+        try json_encoded(self.writer.out.append(v))
+        self.charge()
+    }
+
+    func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
+        try self.before_item(false)
+        if v {
+            try self.writer.text("true")
+        } else {
+            try self.writer.text("false")
+        }
+        self.charge()
+    }
+
+    func write_null(&var self) sync -> Result<Void, EncodeError> {
+        try self.before_item(false)
+        try self.writer.text("null")
+        self.charge()
+    }
+
+    func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
+        try self.before_item(true)
+        try self.writer.string(&v)
+        self.charge()
+    }
+
+    // JSON has no byte-string type, and this module invents no encoding for
+    // one.
+    func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        EncodeError(fault: EncodeFault.Unsupported)
+    }
+
+    func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        EncodeError(fault: EncodeFault.Unsupported)
+    }
+
+    func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        self.open_container(false, count)
+    }
+
+    func begin_map(&var self, count: Int) sync -> Result<Void, EncodeError> {
+        if count > Int.max / 2 {
+            return EncodeError(fault: EncodeFault.CountMismatch)
+        }
+        self.open_container(true, count)
+    }
+}
+
+// The decoder's twin of `JsonLevel`. `sep_taken` makes `before_value`
+// idempotent per item, since `at_null` peeks past the separator and a typed
+// read of the same item follows it.
+struct JsonDecoderLevel {
+    remaining: Int
+    is_map: Bool
+    read_any: Bool
+    sep_taken: Bool
+}
+
+/// A `Decoder` over JSON text.
+///
+/// `begin_array` and `begin_map` count their container's items with a
+/// bounded lookahead that never recurses, and every byte is validated when a
+/// typed read reaches it. `finish` refuses anything but whitespace after the
+/// top-level value.
+public struct JsonDecoder {
+    private reader: JsonReader
+    private levels: Vector<JsonDecoderLevel>
+}
+
+extension JsonDecoder: NoCopy {}
+
+extension JsonDecoder {
+    /// Opens `text` for reading, positioned at its first token.
+    ///
+    /// `max_depth` bounds how deeply arrays and objects nest, and `max_size`
+    /// the text's length in bytes (`TooLarge` at offset 0).
+    public static func open(text: String, max_depth: Int = 64,
+                            max_size: Int = 16_777_216) -> Result<JsonDecoder, DecodeError> {
+        let n = text.len()
+        if n > max_size {
+            return DecodeError(offset: 0, fault: DecodeFault.TooLarge)
+        }
+        let reader = JsonReader(input: text, pos: 0, len: n, depth: 0, max_depth: max_depth)
+        return JsonDecoder(reader: reader, levels: Vector<JsonDecoderLevel>())
+    }
+
+    /// Returns `Ok` when only whitespace follows the value read so far, else
+    /// `TrailingBytes`.
+    public func finish(&var self) -> Result<Void, DecodeError> {
+        self.reader.skip_whitespace()
+        if self.reader.pos != self.reader.len {
+            return self.reader.fault(DecodeFault.TrailingBytes)
+        }
+        return
+    }
+
+    func before_value(&var self) -> Result<Void, DecodeError> {
+        self.reader.skip_whitespace()
+        let n = self.levels.len()
+        if n == 0 {
+            return
+        }
+        let last = n - 1
+        if self.levels[last].sep_taken {
+            return
+        }
+        let is_map = self.levels[last].is_map
+        let at_key = is_map && (self.levels[last].remaining % 2) == 0
+        if self.levels[last].read_any {
+            guard let b = self.reader.peek() else {
+                return self.reader.fault(DecodeFault.Truncated)
+            }
+            let separator = if is_map && not at_key { BYTE_COLON } else { BYTE_COMMA }
+            if b != separator {
+                return self.reader.fault(DecodeFault.Malformed)
+            }
+            self.reader.pos = self.reader.pos + 1
+            self.reader.skip_whitespace()
+        }
+        if at_key && not self.reader.peek_is(BYTE_QUOTE) {
+            return self.reader.unexpected()
+        }
+        self.levels[last].read_any = true
+        self.levels[last].sep_taken = true
+        return
+    }
+
+    // Charges the value just read, consuming the closer of every level it
+    // completes.
+    func charge(&var self) -> Result<Void, DecodeError> {
+        while self.levels.len() > 0 {
+            let last = self.levels.len() - 1
+            let rem = self.levels[last].remaining - 1
+            self.levels[last].remaining = rem
+            if rem > 0 {
+                self.levels[last].sep_taken = false
+                return
+            }
+            self.reader.skip_whitespace()
+            let closer = if self.levels[last].is_map { BYTE_RIGHT_BRACE } else { BYTE_RIGHT_BRACKET }
+            if not self.reader.peek_is(closer) {
+                return self.reader.unexpected()
+            }
+            self.reader.pos = self.reader.pos + 1
+            let _ = self.levels.pop()
+        }
+        return
+    }
+
+    // The offset just past the value at `start`, found structurally:
+    // brackets and strings are matched, nothing else is validated. `budget`
+    // is how many levels it may still open.
+    func skip_value(&self, start: Int, budget: Int) -> Result<Int, DecodeError> {
+        let n = self.reader.len
+        if start >= n {
+            return DecodeError(offset: start, fault: DecodeFault.Truncated)
+        }
+        let first = self.reader.at(start)
+        if first == BYTE_QUOTE {
+            return self.skip_string(start)
+        }
+        if first == BYTE_LEFT_BRACKET || first == BYTE_LEFT_BRACE {
+            if budget <= 0 {
+                return DecodeError(offset: start, fault: DecodeFault.TooDeep)
+            }
+            var depth = 1
+            var pos = start + 1
+            while depth > 0 {
+                if pos >= n {
+                    return DecodeError(offset: pos, fault: DecodeFault.Truncated)
+                }
+                let b = self.reader.at(pos)
+                if b == BYTE_QUOTE {
+                    pos = try self.skip_string(pos)
+                    continue
+                }
+                if b == BYTE_LEFT_BRACKET || b == BYTE_LEFT_BRACE {
+                    depth = depth + 1
+                    if depth > budget {
+                        return DecodeError(offset: pos, fault: DecodeFault.TooDeep)
+                    }
+                } else if b == BYTE_RIGHT_BRACKET || b == BYTE_RIGHT_BRACE {
+                    depth = depth - 1
+                }
+                pos = pos + 1
+            }
+            return pos
+        }
+        var pos = start
+        while pos < n {
+            let b = self.reader.at(pos)
+            if b == BYTE_COMMA || b == BYTE_RIGHT_BRACKET || b == BYTE_RIGHT_BRACE || b == BYTE_COLON || b == BYTE_SPACE || b == BYTE_TAB || b == BYTE_NEWLINE || b == BYTE_RETURN {
+                break
+            }
+            pos = pos + 1
+        }
+        if pos == start {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        return pos
+    }
+
+    // Past a string literal at its opening quote. Two bytes past every `\` is
+    // sound for `\uXXXX` too: no hex digit is `"` or `\`.
+    func skip_string(&self, start: Int) -> Result<Int, DecodeError> {
+        var pos = start + 1
+        while pos < self.reader.len {
+            let b = self.reader.at(pos)
+            if b == BYTE_QUOTE {
+                return pos + 1
+            }
+            if b == BYTE_BACKSLASH {
+                pos = pos + 2
+            } else {
+                pos = pos + 1
+            }
+        }
+        DecodeError(offset: start, fault: DecodeFault.Truncated)
+    }
+
+    func skip_whitespace_from(&self, at: Int) -> Int {
+        var p = at
+        while p < self.reader.len {
+            let b = self.reader.at(p)
+            if b != BYTE_SPACE && b != BYTE_TAB && b != BYTE_NEWLINE && b != BYTE_RETURN {
+                return p
+            }
+            p = p + 1
+        }
+        p
+    }
+
+    // The item count of a non-empty container whose opener is consumed, its
+    // first item at `at`. Moves nothing: the typed reads walk the same bytes.
+    func count_items(&self, at: Int, is_map: Bool, budget: Int) -> Result<Int, DecodeError> {
+        let n = self.reader.len
+        let closer = if is_map { BYTE_RIGHT_BRACE } else { BYTE_RIGHT_BRACKET }
+        var pos = at
+        var count = 0
+        while {
+            if is_map {
+                if pos >= n {
+                    return DecodeError(offset: pos, fault: DecodeFault.Truncated)
+                }
+                if self.reader.at(pos) != BYTE_QUOTE {
+                    return DecodeError(offset: pos, fault: DecodeFault.Malformed)
+                }
+                pos = self.skip_whitespace_from(try self.skip_string(pos))
+                if pos >= n {
+                    return DecodeError(offset: pos, fault: DecodeFault.Truncated)
+                }
+                if self.reader.at(pos) != BYTE_COLON {
+                    return DecodeError(offset: pos, fault: DecodeFault.Malformed)
+                }
+                pos = self.skip_whitespace_from(pos + 1)
+            }
+            pos = self.skip_whitespace_from(try self.skip_value(pos, budget))
+            count = count + 1
+            if pos >= n {
+                return DecodeError(offset: pos, fault: DecodeFault.Truncated)
+            }
+            let d = self.reader.at(pos)
+            if d == closer {
+                return count
+            }
+            if d != BYTE_COMMA {
+                return DecodeError(offset: pos, fault: DecodeFault.Malformed)
+            }
+            pos = self.skip_whitespace_from(pos + 1)
+        }
+    }
+
+    func open_container(&var self, is_map: Bool) -> Result<Int, DecodeError> {
+        try self.before_value()
+        let opener = if is_map { BYTE_LEFT_BRACE } else { BYTE_LEFT_BRACKET }
+        let closer = if is_map { BYTE_RIGHT_BRACE } else { BYTE_RIGHT_BRACKET }
+        guard let b = self.reader.peek() else {
+            return self.reader.fault(DecodeFault.Truncated)
+        }
+        if b != opener {
+            return self.reader.fault(DecodeFault.TypeMismatch)
+        }
+        self.reader.pos = self.reader.pos + 1
+        self.reader.skip_whitespace()
+        if self.reader.peek_is(closer) {
+            self.reader.pos = self.reader.pos + 1
+            try self.charge()
+            return 0
+        }
+        let depth = self.levels.len()
+        if depth >= self.reader.max_depth {
+            return self.reader.fault(DecodeFault.TooDeep)
+        }
+        let count = try self.count_items(self.reader.pos, is_map, self.reader.max_depth - depth - 1)
+        let owed = if is_map { count * 2 } else { count }
+        let level = JsonDecoderLevel(remaining: owed, is_map: is_map, read_any: false, sep_taken: false)
+        try json_decoded(self.levels.push(level), self.reader.pos)
+        return count
+    }
+
+    // A number token's start and whether it is float-shaped, past it.
+    func scan_number(&var self) -> Result<Bool, DecodeError> {
+        guard let b = self.reader.peek() else {
+            return self.reader.fault(DecodeFault.Truncated)
+        }
+        if b != BYTE_MINUS && not is_digit(b) {
+            return self.reader.fault(DecodeFault.TypeMismatch)
+        }
+        self.reader.number()
+    }
+
+    // The unsigned integral token in `start..<end`, or `None` past `UInt`.
+    func unsigned(&self, start: Int, end: Int) -> UInt64? {
+        var acc: UInt64 = 0
+        let max_tenth = UInt64.max / 10
+        var i = start
+        while i < end {
+            let d = (self.reader.at(i) - BYTE_ZERO) as UInt64
+            if acc > max_tenth {
+                return None
+            }
+            let m = acc * 10
+            if m > UInt64.max - d {
+                return None
+            }
+            acc = m + d
+            i = i + 1
+        }
+        acc
+    }
+}
+
+extension JsonDecoder: Decoder {
+    func read_uint(&var self) sync -> Result<UInt64, DecodeError> {
+        try self.before_value()
+        let start = self.reader.pos
+        if self.reader.peek_is(BYTE_MINUS) {
+            return self.reader.fault(DecodeFault.OutOfRange)
+        }
+        let is_float = try self.scan_number()
+        if is_float {
+            return DecodeError(offset: start, fault: DecodeFault.TypeMismatch)
+        }
+        guard let v = self.unsigned(start, self.reader.pos) else {
+            return DecodeError(offset: start, fault: DecodeFault.OutOfRange)
+        }
+        try self.charge()
+        return v
+    }
+
+    func read_int(&var self) sync -> Result<Int64, DecodeError> {
+        try self.before_value()
+        let start = self.reader.pos
+        let is_float = try self.scan_number()
+        if is_float {
+            return DecodeError(offset: start, fault: DecodeFault.TypeMismatch)
+        }
+        guard let v = self.reader.integer64(start, self.reader.pos) else {
+            return DecodeError(offset: start, fault: DecodeFault.OutOfRange)
+        }
+        try self.charge()
+        return v
+    }
+
+    func read_bool(&var self) sync -> Result<Bool, DecodeError> {
+        try self.before_value()
+        if self.reader.peek_is(BYTE_LOWER_T) {
+            try self.reader.literal("true")
+            try self.charge()
+            return true
+        }
+        if self.reader.peek_is(BYTE_LOWER_F) {
+            try self.reader.literal("false")
+            try self.charge()
+            return false
+        }
+        self.reader.fault(DecodeFault.TypeMismatch)
+    }
+
+    func read_null(&var self) sync -> Result<Void, DecodeError> {
+        try self.before_value()
+        if not self.reader.peek_is(BYTE_LOWER_N) {
+            return self.reader.fault(DecodeFault.TypeMismatch)
+        }
+        try self.reader.literal("null")
+        self.charge()
+    }
+
+    func read_text(&var self) sync -> Result<String, DecodeError> {
+        try self.before_value()
+        if not self.reader.peek_is(BYTE_QUOTE) {
+            return self.reader.fault(DecodeFault.TypeMismatch)
+        }
+        let s = try self.reader.string()
+        try self.charge()
+        return s
+    }
+
+    // JSON has no byte-string type.
+    func begin_bytes(&var self) sync -> Result<Int, DecodeError> {
+        self.reader.fault(DecodeFault.Unsupported)
+    }
+
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
+        self.reader.fault(DecodeFault.Unsupported)
+    }
+
+    func begin_array(&var self) sync -> Result<Int, DecodeError> {
+        self.open_container(false)
+    }
+
+    func begin_map(&var self) sync -> Result<Int, DecodeError> {
+        self.open_container(true)
+    }
+
+    func at_null(&var self) sync -> Result<Bool, DecodeError> {
+        try self.before_value()
+        return self.reader.peek_is(BYTE_LOWER_N)
+    }
+
+    func offset(&self) sync -> Int {
+        self.reader.pos
+    }
+
+    // Validates what it passes, since no typed read ever reaches it: every
+    // scalar goes through the reader that a typed read uses, and every
+    // container opens a level, so the depth bound holds.
+    func skip(&var self) sync -> Result<Void, DecodeError> {
+        let base = self.levels.len()
+        try self.skip_step()
+        while self.levels.len() > base {
+            try self.skip_step()
+        }
+        return
+    }
+}
+
+extension JsonDecoder {
+    // One scalar, or the opener of one container, at the reader's position.
+    func skip_step(&var self) -> Result<Void, DecodeError> {
+        try self.before_value()
+        guard let b = self.reader.peek() else {
+            return self.reader.fault(DecodeFault.Truncated)
+        }
+        if b == BYTE_LEFT_BRACKET {
+            let _ = try self.open_container(false)
+            return
+        }
+        if b == BYTE_LEFT_BRACE {
+            let _ = try self.open_container(true)
+            return
+        }
+        if b == BYTE_QUOTE {
+            let _ = try self.reader.string()
+        } else if b == BYTE_LOWER_T {
+            try self.reader.literal("true")
+        } else if b == BYTE_LOWER_F {
+            try self.reader.literal("false")
+        } else if b == BYTE_LOWER_N {
+            try self.reader.literal("null")
+        } else if b == BYTE_MINUS || is_digit(b) {
+            let _ = try self.reader.number()
+        } else {
+            return self.reader.fault(DecodeFault.Malformed)
+        }
+        return self.charge()
+    }
+}
+
+/// Encodes `value` and returns its JSON text.
+///
+/// `std.cbor` declares an `encode` of its own; `json.encode(&value)` names
+/// this one.
+public func encode<T: Serialize>(value: &T) sync -> Result<String, EncodeError> {
+    var enc = JsonEncoder()
+    try value.serialize(to: &var enc)
+    return enc.finish()
 }

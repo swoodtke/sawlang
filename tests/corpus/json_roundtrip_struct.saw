@@ -15,6 +15,7 @@
 // track release -> 7 -> Release
 
 import std.json.{JsonEncoder, JsonDecoder}
+import std.serialize.{EncodeError}
 
 struct Inner {
     host: String

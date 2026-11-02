@@ -291,7 +291,7 @@ trait here. Mono reaches a body by its type and requirement (`derived_target`).
 | an `init` that overrides the construction, its parameters in another order | derived_bodies `Clamped` |
 | an unsigned raw backing: `write_uint`, `read_uint_max` | derived_bodies `Kind` |
 | a signed raw backing: `write_int`, `read_int_range` | derived_bodies `Step` |
-| a fallible override, whose `InitFailed` the vocabulary does not declare | refuse `derived-fallible-init` |
+| a fallible override, whose refusal is `DecodeFault.InitFailed` at the item's start | run probe `serialize_decoder_fault_offsets` |
 
 ## The position matrices
 

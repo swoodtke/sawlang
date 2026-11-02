@@ -6,8 +6,7 @@
 // prints: a2 i21 tlab
 // prints: lab 21
 // prints: cold -273
-import std.serialize.{Decoder, Encoder}
-import std.json.{DecodeError, DecodeFault, EncodeError, EncodeFault}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, EncodeFault, Encoder}
 
 // One token per item: a kind letter and its text. `Tape` is both sides of the
 // seam, so a probe writes a value into it and reads the value back.

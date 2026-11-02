@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 221 declarations in 19 modules
+# 222 declarations in 19 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -216,11 +216,12 @@ std.string: 28
   struct String
   struct Utf8Error
 
-std.stringbuilder: 16
+std.stringbuilder: 17
   init StringBuilder.init
   method StringBuilder.append
   method StringBuilder.append_byte
   method StringBuilder.append_decimal
+  method StringBuilder.append_decimal_wide
   method StringBuilder.append_scalar_bytes
   method StringBuilder.append_text
   method StringBuilder.build
