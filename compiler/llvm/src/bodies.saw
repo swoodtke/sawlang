@@ -7,7 +7,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.attributes.{ll_function_attributes, ll_param_attributes}
+import sawllvm.attributes.{ll_builtin_export, ll_function_attributes, ll_param_attributes}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.calls.{ll_block}
 // For the extension writing `debug_begin`.
@@ -93,11 +93,15 @@ extension LlEmitter {
         self.sret = ret.kind == TargetKind.Memory
         // An export is defined under its C symbol with external linkage, and
         // takes and returns its narrow integers extended as C does; so does a
-        // literal coerced to a `FuncPointer`, which C may call.
+        // literal coerced to a `FuncPointer`, which C may call. A builtin
+        // export's linkage is weak.
         let exported = ll_export_symbol(&mono, k).len() > 0
         let c_abi = exported || ll_bare_code(&mono, k)
+        let builtin = self.builtins.get(k) ?? false
         var head = StringBuilder()
-        if exported {
+        if exported && ll_builtin_export(&mono, k) {
+            try! head.append("define weak ")
+        } else if exported {
             try! head.append("define ")
         } else {
             try! head.append("define internal ")
@@ -191,7 +195,7 @@ extension LlEmitter {
         }
         self.drive_storage(&var mono, k, &var prelude)
         try! head.append(")")
-        try! head.append(ll_function_attributes(""))
+        try! head.append(ll_function_attributes("", builtin: builtin))
         try! head.append(self.item_section(&mono, k))
         try! head.append(dbg)
         let opening = self.dbg_suffix

@@ -666,18 +666,21 @@ extension LlEmitter {
     }
 
     // A shift whose count is checked against the left operand's width; the
-    // count is compared unsigned at its own width before it is narrowed.
+    // count is compared unsigned at its own width before it is narrowed. A
+    // count `ll_constant_shift_count` vouches for carries no check.
     func shift(&var self, mono: &var MonoProgram, target: &var Target, op: String, signed: Bool, bits: Int,
                x: String, y: String, count_bits: Int, node: Int) -> String {
-        var cmp = StringBuilder()
-        try! cmp.append("icmp uge i")
-        try! cmp.append(count_bits)
-        try! cmp.append(" ")
-        try! cmp.append(y)
-        try! cmp.append(", ")
-        try! cmp.append(bits)
-        let out_of_range = self.assign(cmp.build())
-        self.check_bit(&var mono, out_of_range, node, LL_FAIL_SHIFT)
+        if not ll_constant_shift_count(&y, bits) {
+            var cmp = StringBuilder()
+            try! cmp.append("icmp uge i")
+            try! cmp.append(count_bits)
+            try! cmp.append(" ")
+            try! cmp.append(y)
+            try! cmp.append(", ")
+            try! cmp.append(bits)
+            let out_of_range = self.assign(cmp.build())
+            self.check_bit(&var mono, out_of_range, node, LL_FAIL_SHIFT)
+        }
         let amount = self.int_convert(y, count_bits, bits, false)
         var ty = StringBuilder()
         try! ty.append("i")
@@ -1212,6 +1215,32 @@ public func ll_pointer_cast(word: String, from: String, x: String, to: String) -
     try! text.append(" to ")
     try! text.append(to)
     text.build()
+}
+
+// THE CONSTANT SHIFT COUNT: whether `count`, a shift count's LLVM spelling, is
+// an integer constant in 0 up to `bits`, the shifted width. Such a shift can
+// never fault, so it carries no range check: a constant count out of range is
+// a compile error (spec, Constant expressions), and a const generic count,
+// which mono writes as its value, keeps its check when its value is out of
+// range. A count read from anything but a constant keeps its check.
+// ENTRY POINTS:
+//     LlEmitter.shift
+public func ll_constant_shift_count(count: &String, bits: Int) -> Bool {
+    let n = count.len()
+    if n == 0 || n > 4 {
+        return false
+    }
+    var value = 0
+    var k = 0
+    while k < n {
+        let digit = (count.byte_at(k) as Int) - 48
+        if digit < 0 || digit > 9 {
+            return false
+        }
+        value = value * 10 + digit
+        k = k + 1
+    }
+    value < bits
 }
 
 func ll_signed_min(bits: Int) -> String {

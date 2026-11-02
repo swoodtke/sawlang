@@ -11,8 +11,8 @@
 // The `Int64` arithmetic at the bottom is DF-158c's class: on a 32-bit target a
 // 64-bit value is a register pair, and the shifts, the widening and the compare
 // are all code the 64-bit host never emits for itself. 64-bit DIVISION is here
-// too, because the libcalls it reaches on a 32-bit target are exactly what
-// `tests/freestanding/hal/support.c` exists to supply. What is deliberately NOT
+// too, because on a 32-bit target it reaches libcalls, which the object
+// defines itself (`std/builtins/integer.saw`). What is deliberately NOT
 // exercised is 64-bit CHECKED MULTIPLICATION, whose overflow intrinsic can
 // reach a compiler-rt entry that file does not carry — a row for whoever wants
 // it, with the libcall to write first.
@@ -61,7 +61,7 @@ func fs_main() {
 
     // 64-bit DIVISION: a single instruction on one target and a
     // BACKEND-EMITTED LIBCALL (`__udivdi3`, `__umoddi3`) on the other, which no
-    // source names and `tests/freestanding/hal/support.c` supplies. The
+    // source names and the object defines weakly. The
     // asymmetry is the hazard — a missing libcall is an undefined symbol at
     // link rather than a wrong answer at run time, which is the failure mode
     // this row keeps honest.

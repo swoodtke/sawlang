@@ -1,0 +1,12 @@
+// A program's own `memset` whose fill loop is another module's function.
+// "no-builtins" reaches only the routine's own module, so the imported loop
+// can still become a `memset` call, inlined into the routine as a call of
+// itself: `builtin_lowering.py` pins where it does (SL-948).
+
+import builtin_fill
+
+@export("memset")
+func memset(dst: UnsafePointer<UInt8>, c: Int32, n: UInt) unsafe -> UnsafePointer<UInt8> {
+    builtin_fill.fill(dst, UInt8.from(truncating: c), Int.from(truncating: n))
+    dst
+}

@@ -43,6 +43,9 @@ sys.path.insert(0, os.path.join(COMPILER, "tools"))
 
 import build  # noqa: E402
 
+sys.path.insert(0, HERE)
+import builtin_lowering  # noqa: E402
+
 TRIPLE = "riscv32-unknown-none-elf"
 WORD_BYTES = 4
 PROBES = os.path.join(HERE, "riscv32")
@@ -90,9 +93,19 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
+def std_builtin(function):
+    """Whether `function`, a define's symbol as `i64_problems` reads it, is one
+    of std's builtin routines or a function of their modules, which a
+    freestanding module defines and which work on 64-bit values by nature
+    (`builtin_lowering.STD_ROUTINES`; SL-948)."""
+    name = function.strip('"')
+    return name.startswith("saw std.builtins.") or name in builtin_lowering.STD_ROUTINES[TRIPLE]
+
+
 def i64_problems(where, ll):
     """Each line of `ll` spelling `i64` that no `ALLOWLIST` rule admits, read
-    with its metadata attachments (`, !dbg !N`) left off."""
+    with its metadata attachments (`, !dbg !N`) left off, outside std's
+    builtin routines (`std_builtin`)."""
     tags = set()
     problems = []
     function = "<module>"
@@ -101,7 +114,7 @@ def i64_problems(where, ll):
         if _DEFINE.match(line):
             function = line.split("@", 1)[1].split("(", 1)[0] if "@" in line else line
             tags = set()
-        if not _I64.search(line):
+        if not _I64.search(line) or std_builtin(function):
             continue
         m = _TAG_WIDEN.match(line)
         if m:

@@ -1,0 +1,18 @@
+// A program's own `memset` whose fill loop sits in a helper with an ordinary
+// name. LLVM turns the loop into a `memset` call and inlines the helper into
+// the routine, so unless the helper carries "no-builtins" too the routine calls
+// itself: `builtin_lowering.py` holds that it does not (SL-948).
+
+func fill_bytes(dst: UnsafePointer<UInt8>, byte: UInt8, count: Int) unsafe {
+    var i = 0
+    while i < count {
+        dst[i] = byte
+        i = i &+ 1
+    }
+}
+
+@export("memset")
+func memset(dst: UnsafePointer<UInt8>, c: Int32, n: UInt) unsafe -> UnsafePointer<UInt8> {
+    fill_bytes(dst, UInt8.from(truncating: c), Int.from(truncating: n))
+    dst
+}

@@ -2,9 +2,11 @@
 // about an argument that LLVM can use, written after its parameter's type, and
 // what the target asks of every function, written after the parameter list.
 
-import sawmir.model.{MirFuncKind}
-import sawmono.program.{MonoProgram}
+import sawmir.model.{MirFuncKind, MirTermKind}
+import sawmono.program.{MonoItemKind, MonoProgram}
+import sawresolve.model.{ResModuleKind}
 import sawtarget.layout.{Target}
+import sawtypecheck.program.{TcProgram}
 // For the extension writing `is_cell_carrying`.
 import sawtypecheck.tier.{tc_max}
 import sawtypecheck.typeops.{TcClient}
@@ -38,11 +40,126 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
     "noalias"
 }
 
+// THE BUILTIN FUNNEL: by item, whether it is a builtin, a function LLVM must
+// not lower into a call of a C library routine. One is a builtin when its
+// function is in a builtins module (`ll_builtins_module`), when it is a
+// builtin export (`ll_builtin_export`), or when a builtin export of its own
+// module reaches it through direct calls. LLVM recognises a copy or fill loop
+// as `memcpy`/`memset`, in the routine or in a helper inlined into it, so each
+// of these carries `"no-builtins"`; a function of another module that a
+// builtin export reaches carries nothing (SL-948).
+//
+// ENTRY POINTS:
+//   llvm_emit_program
+public func ll_builtin_items(mono: &MonoProgram) -> Vector<Bool> {
+    var marked = Vector<Bool>()
+    var pending = Vector<Int>()
+    var k = 0
+    while k < mono.items.len() {
+        let seed = ll_function_module(&mono, k) >= 0 && ll_builtin_export(&mono, k)
+        let whole = ll_builtins_module(&mono.dp.bc.mir.tc, ll_function_module(&mono, k))
+        try! marked.push(seed || whole)
+        if seed {
+            try! pending.push(k)
+        }
+        k = k + 1
+    }
+    while let caller = pending.pop() {
+        let home = ll_function_module(&mono, caller)
+        let info = mono.dp.bc.mir.funcs[mono.items[caller].body]
+        var b = 0
+        while b < info.block_count {
+            let block = mono.dp.bc.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let callee = mono.call_item(block.call)
+            if callee < 0 || marked[callee] || ll_function_module(&mono, callee) != home {
+                continue
+            }
+            marked[callee] = true
+            try! pending.push(callee)
+        }
+    }
+    move marked
+}
+
+// Whether any item of `items`, `ll_builtin_items`'s answer, is a builtin, so
+// the module's last lines carry the builtins' attribute group.
+public func ll_any_builtin(items: &Vector<Bool>) -> Bool {
+    var k = 0
+    while k < items.len() {
+        if items[k] {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
+// Whether item `k` is a builtin export: exported from a builtins module, or
+// exported under a name LLVM's own libcalls use (`ll_builtin_symbol`), whatever
+// module declares it. A builtin export is defined `weak`, so an environment's
+// own definition of the name wins at the link.
+public func ll_builtin_export(mono: &MonoProgram, k: Int) -> Bool {
+    let it = mono.items[k]
+    if it.kind != MonoItemKind.Function || it.decl < 0 {
+        return false
+    }
+    let symbol = mono.dp.bc.mir.tc.export_symbols.get(it.decl) ?? ""
+    if symbol.len() == 0 {
+        return false
+    }
+    ll_builtin_symbol(&symbol) || ll_builtins_module(&mono.dp.bc.mir.tc, ll_function_module(&mono, k))
+}
+
+// The module whose source item `k`'s function is, or -1 for an item with no
+// function body.
+func ll_function_module(mono: &MonoProgram, k: Int) -> Int {
+    let it = mono.items[k]
+    if it.kind != MonoItemKind.Function || it.body < 0 {
+        return -1
+    }
+    mono.dp.bc.mir.funcs[it.body].module
+}
+
+// Whether module `m` is a builtins module: a std module under
+// `std.builtins.`, which only `--freestanding` loads.
+public func ll_builtins_module(tc: &TcProgram, m: Int) -> Bool {
+    if m < 0 {
+        return false
+    }
+    tc.res.module(m).kind == ResModuleKind.Std && tc.res.module_name(m).starts_with("std.builtins.")
+}
+
+// Whether `symbol` is a C routine LLVM emits calls to on its own: the memory
+// routines, the 64-bit integer helpers of a 32-bit word, and the soft-float
+// routines of a target with no FPU.
+public func ll_builtin_symbol(symbol: &String) -> Bool {
+    let names = ["memcpy", "memset", "memmove",
+                 "__divdi3", "__moddi3", "__udivdi3", "__umoddi3", "__ashldi3", "__ashrdi3", "__lshrdi3",
+                 "__adddf3", "__subdf3", "__muldf3", "__divdf3",
+                 "__eqdf2", "__nedf2", "__ltdf2", "__ledf2", "__gtdf2", "__gedf2", "__unorddf2",
+                 "__fixdfsi", "__fixdfdi", "__fixunsdfsi", "__fixunsdfdi",
+                 "__floatsidf", "__floatdidf", "__floatunsidf", "__floatundidf"]
+    var k = 0
+    while k < names.len() {
+        if symbol.equals(names[k]) {
+            return true
+        }
+        k = k + 1
+    }
+    false
+}
+
 // What closes the signature of every function the module defines: the
-// attributes `extra` names, then the module's one attribute group, which
-// carries the target's frame pointer policy and, in a sanitizing build,
-// `sanitize_address`. A define that bypasses it keeps no frame pointer and
-// goes uninstrumented; the run lane checks that every define names the group.
+// attributes `extra` names, then the module's attribute group, which carries
+// the target's frame pointer policy and, in a sanitizing build,
+// `sanitize_address`. A `builtin` (`ll_builtin_items`) names the builtins' group
+// instead, which adds `"no-builtins"`. A define that bypasses it keeps no
+// frame pointer and goes uninstrumented; the run lane checks that every define
+// names a group.
 //
 // ENTRY POINTS:
 //   LlEmitter.emit_function
@@ -54,14 +171,14 @@ public func ll_param_attributes(mono: &var MonoProgram, k: Int, j: Int, t: Int) 
 //   ll_frame_resume_helper
 //   ll_helpers
 //   ll_fail_helpers
-public func ll_function_attributes(extra: String) -> String {
+public func ll_function_attributes(extra: String, builtin: Bool = false) -> String {
     var out = StringBuilder()
     if extra.len() > 0 {
         try! out.append(" ")
         try! out.append(extra)
     }
     try! out.append(" ")
-    try! out.append(ll_function_group())
+    try! out.append(if builtin { ll_builtin_group() } else { ll_function_group() })
     out.build()
 }
 
@@ -73,40 +190,56 @@ public func ll_function_attributes(extra: String) -> String {
 // it is handed as IR, and `minsize` is what turns on the machine outliner.
 // Under `--sanitize address` (`sanitize`) it carries `sanitize_address`, the
 // attribute clang's AddressSanitizer instruments a function by, so every
-// function the module defines is instrumented.
+// function the module defines is instrumented. When the module defines a
+// builtin (`builtins`), the builtins' group follows it: the same attributes
+// and `"no-builtins"`.
 //
 // ENTRY POINTS:
 //   llvm_emit_program
-public func ll_function_attribute_group(target: &Target, sanitize: Bool, speed: String, features: String) -> String {
+public func ll_function_attribute_group(target: &Target, sanitize: Bool, speed: String, features: String,
+                                        builtins: Bool = false) -> String {
     let policy = match target.frame_pointer() {
         case Omitted -> "none",
         case NonLeaf -> "non-leaf",
         case All -> "all"
     }
+    var body = StringBuilder()
+    try! body.append(" = \{ \"frame-pointer\"=\"")
+    try! body.append(policy)
+    try! body.append("\"")
+    if features.len() > 0 {
+        try! body.append(" \"target-features\"=\"")
+        try! body.append(features)
+        try! body.append("\"")
+    }
+    if speed.equals("-Os") || speed.equals("-Oz") {
+        try! body.append(" optsize")
+    }
+    if speed.equals("-Oz") {
+        try! body.append(" minsize")
+    }
+    if sanitize {
+        try! body.append(" sanitize_address")
+    }
+    let shared = body.build()
     var out = StringBuilder()
     try! out.append("attributes ")
     try! out.append(ll_function_group())
-    try! out.append(" = \{ \"frame-pointer\"=\"")
-    try! out.append(policy)
-    try! out.append("\"")
-    if features.len() > 0 {
-        try! out.append(" \"target-features\"=\"")
-        try! out.append(features)
-        try! out.append("\"")
-    }
-    if speed.equals("-Os") || speed.equals("-Oz") {
-        try! out.append(" optsize")
-    }
-    if speed.equals("-Oz") {
-        try! out.append(" minsize")
-    }
-    if sanitize {
-        try! out.append(" sanitize_address")
-    }
+    try! out.append(shared)
     try! out.append(" \}")
+    if builtins {
+        try! out.append("\nattributes ")
+        try! out.append(ll_builtin_group())
+        try! out.append(shared)
+        try! out.append(" \"no-builtins\" \}")
+    }
     out.build()
 }
 
 func ll_function_group() -> String {
     "#0"
+}
+
+func ll_builtin_group() -> String {
+    "#1"
 }

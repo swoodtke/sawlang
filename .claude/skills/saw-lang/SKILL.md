@@ -4140,6 +4140,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   fail at LINK on a threadless environment, naming `__saw_rt_thread_spawn`;
   `Task.spawn` stays refused. SUSPECT an older build, where every group reached
   `pthread_mutex_lock` and the thread seams.
+- **A freestanding object defines `memcpy`/`memset`/`memmove` (and riscv32's 64-bit integer helpers) itself, weakly** (SL-948): the environment owes none of them, its own definition wins, a program's own `@export("memcpy")` replaces std's, and `+forced-atomics` is refused.
 - **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**
   (design 172). An AArch64 core traps Advanced SIMD at EL1 out of reset
   (`CPACR_EL1.FPEN` = 0) and LLVM uses `q` registers to move a struct, so a

@@ -1,0 +1,18 @@
+// std's 64-bit integer helpers on a 32-bit word, each run on
+// `integer_vectors.saw`'s rows. The runner builds it at -O0 and, as
+// `integer_helpers_optimized`, at -O2 (SL-948).
+
+import fscore.*
+import integer_vectors.{shift_misses, signed_division_misses, unsigned_division_misses}
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_value("udivdi3_vectors", unsigned_division_misses(false), 0)
+    check_value("umoddi3_vectors", unsigned_division_misses(true), 0)
+    check_value("divdi3_vectors", signed_division_misses(false), 0)
+    check_value("moddi3_vectors", signed_division_misses(true), 0)
+    check_value("ashldi3_vectors", shift_misses(0), 0)
+    check_value("lshrdi3_vectors", shift_misses(1), 0)
+    check_value("ashrdi3_vectors", shift_misses(2), 0)
+    finish("integer_helpers")
+}

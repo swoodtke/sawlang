@@ -362,28 +362,30 @@ extension ResProgram {
     // is `real`, loaded and collected unless a module holds that file already.
     // A module's identity is its file, so every spelling that reaches one file
     // reaches one module (LANGUAGE_SPEC, Package Structure); a new module is
-    // named `name`. Returns its index, available or not.
+    // named `name`. Returns its index, available or not. A module that is not
+    // `listed` is left out of the by-name table, so no import path finds it.
     //
     // ENTRY POINTS:
     //     std_module
+    //     load_builtins_modules
     //     load_entry
     //     load_import
     public func module_for_file(&var self, path: String, real: String, name: String,
-                                kind: ResModuleKind, package: String) -> Int {
+                                kind: ResModuleKind, package: String, listed: Bool = true) -> Int {
         let known = self.module_of_file(&real)
         if known >= 0 {
             return known
         }
         let key = self.intern(name)
-        let m = self.new_module(key, path, real, kind, package)
+        let m = self.new_module(key, path, real, kind, package, listed)
         self.read_module(m, path)
         m
     }
 
     // Adds module `key`, read from `path`, whose real path is `real`, with
-    // nothing in it yet.
+    // nothing in it yet; a `listed` one is found by its name.
     func new_module(&var self, key: Int, path: String, real: String, kind: ResModuleKind,
-                    package: String) -> Int {
+                    package: String, listed: Bool = true) -> Int {
         let m = self.modules.len()
         // The new std's modules are compiled whole; Stage 0's std is read for
         // its interface only, since sawc never compiles its bodies.
@@ -398,7 +400,9 @@ extension ResProgram {
                                          dir: dir, available: false, interface_only: interface,
                                          node_base: 0, node_count: 0, root: -1, line_base: 0,
                                          line_count: 0, decl_first: first, decl_count: 0))
-        self.by_name.add(0, key, m)
+        if listed {
+            self.by_name.add(0, key, m)
+        }
         self.by_file.add(0, real_key, m)
         m
     }
@@ -611,6 +615,31 @@ extension ResProgram {
         self.std_module("time")
         self.std_module("vector")
         self.std_module("compiler.frame")
+    }
+
+    // The std builtins modules `paths` names, each `std.<path>` at
+    // `<std root>/<path>.saw`, under the new std only. Each is unlisted: its
+    // routines are reached by the calls LLVM emits, by their C symbols, and an
+    // import naming one finds no module, so no program can name what is in it
+    // (SL-948).
+    public func load_builtins_modules(&var self, paths: &Vector<String>) {
+        if not self.std_new {
+            return
+        }
+        var k = 0
+        while k < paths.len() {
+            let path = paths.get(k) ?? ""
+            k = k + 1
+            var identity = StringBuilder()
+            try! identity.append("std.")
+            try! identity.append(path)
+            var rel = StringBuilder()
+            try! rel.append(res_dots_to_slashes(&path))
+            try! rel.append(".saw")
+            let file = self.std_file(rel.build())
+            let real = res_real_path(&file)
+            let _ = self.module_for_file(file, real, identity.build(), ResModuleKind.Std, "std", listed: false)
+        }
     }
 
     // `rel` under the std root.

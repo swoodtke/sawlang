@@ -1,0 +1,174 @@
+//! The 64-bit integer helpers LLVM calls on a 32-bit word: `__divdi3`,
+//! `__moddi3`, `__udivdi3` and `__umoddi3` for division and remainder, and
+//! `__ashldi3`, `__ashrdi3` and `__lshrdi3` for a shift by a variable count,
+//! which LLVM calls when it optimises for size. A freestanding compile for a
+//! 32-bit target loads this module, and no program can import it. Each helper
+//! is defined weak, so an environment's own definition wins at the link.
+
+// A helper never uses the operation it defines, since LLVM would compile that
+// operation into a call of the helper itself: the division is shift and
+// subtract, and the shifts work on 32-bit halves, whose variable shifts are
+// instructions. A 32-bit shift by a variable count is written as a constant
+// shift per bit of the count, so it has no range check. All arithmetic wraps,
+// so no path reaches the panic helpers, which call `memcpy`. A function here
+// calls no function of another module: the run lane's builtin check reads every
+// relocation in the object to hold that.
+//
+// Sawc checks every `/` and `%` for a zero divisor, and every signed one for
+// `Int64.min / -1`, and panics before the helper is reached. Called directly, a
+// zero divisor gives an all-ones unsigned quotient and a zero remainder, the
+// freestanding convention an environment's own helpers follow too, so
+// `__divdi3(x, 0)` is -1 for a non-negative `x` and 1 for a negative one; and
+// `__divdi3(Int64.min, -1)` wraps to `Int64.min`.
+
+// The quotient of `n` by `d`, or the `remainder`, one bit at a time from the
+// top.
+func divided(n: UInt64, d: UInt64, remainder: Bool) -> UInt64 {
+    if d == 0 {
+        return if remainder { 0 } else { UInt64.max }
+    }
+    var rest = n
+    var quotient: UInt64 = 0
+    var partial: UInt64 = 0
+    var i = 0
+    while i < 64 {
+        // The partial remainder is below `d`, but doubling it can carry out of
+        // 64 bits when `d` is above 2^63; a carried bit makes it at least `d`.
+        let carry = partial >> 63
+        partial = (partial << 1) | (rest >> 63)
+        rest = rest << 1
+        quotient = quotient << 1
+        if carry != 0 || partial >= d {
+            partial = partial &- d
+            quotient = quotient | 1
+        }
+        i = i &+ 1
+    }
+    if remainder { partial } else { quotient }
+}
+
+// The magnitude of `v`, which for `Int64.min` is 2^63.
+func magnitude(v: Int64) -> UInt64 {
+    let bits = UInt64.from(truncating: v)
+    if v < 0 { 0 &- bits } else { bits }
+}
+
+@export("__udivdi3")
+func __udivdi3(n: UInt64, d: UInt64) -> UInt64 {
+    divided(n, d, false)
+}
+
+@export("__umoddi3")
+func __umoddi3(n: UInt64, d: UInt64) -> UInt64 {
+    divided(n, d, true)
+}
+
+// The quotient truncates toward zero, as C's does.
+@export("__divdi3")
+func __divdi3(n: Int64, d: Int64) -> Int64 {
+    let q = divided(magnitude(n), magnitude(d), false)
+    let negative = (n < 0) != (d < 0)
+    Int64.from(truncating: if negative { 0 &- q } else { q })
+}
+
+// The remainder takes the dividend's sign, as C's does.
+@export("__moddi3")
+func __moddi3(n: Int64, d: Int64) -> Int64 {
+    let r = divided(magnitude(n), magnitude(d), true)
+    Int64.from(truncating: if n < 0 { 0 &- r } else { r })
+}
+
+func high_word(v: UInt64) -> UInt32 {
+    UInt32.from(truncating: v >> 32)
+}
+
+func low_word(v: UInt64) -> UInt32 {
+    UInt32.from(truncating: v)
+}
+
+func joined(high: UInt32, low: UInt32) -> UInt64 {
+    ((high as UInt64) << 32) | (low as UInt64)
+}
+
+// `v << n` for `n` in 0...31.
+func shifted_left(v: UInt32, n: Int32) -> UInt32 {
+    var out = v
+    if (n & 16) != 0 { out = out << 16 }
+    if (n & 8) != 0 { out = out << 8 }
+    if (n & 4) != 0 { out = out << 4 }
+    if (n & 2) != 0 { out = out << 2 }
+    if (n & 1) != 0 { out = out << 1 }
+    out
+}
+
+// `v >> n` for `n` in 0...31, zero-filling.
+func shifted_right(v: UInt32, n: Int32) -> UInt32 {
+    var out = v
+    if (n & 16) != 0 { out = out >> 16 }
+    if (n & 8) != 0 { out = out >> 8 }
+    if (n & 4) != 0 { out = out >> 4 }
+    if (n & 2) != 0 { out = out >> 2 }
+    if (n & 1) != 0 { out = out >> 1 }
+    out
+}
+
+// `v >> n` for `n` in 0...31, copying the sign bit.
+func shifted_right_signed(v: Int32, n: Int32) -> Int32 {
+    var out = v
+    if (n & 16) != 0 { out = out >> 16 }
+    if (n & 8) != 0 { out = out >> 8 }
+    if (n & 4) != 0 { out = out >> 4 }
+    if (n & 2) != 0 { out = out >> 2 }
+    if (n & 1) != 0 { out = out >> 1 }
+    out
+}
+
+// `a << b`, for `b` in 0...63.
+@export("__ashldi3")
+func __ashldi3(a: UInt64, b: Int32) -> UInt64 {
+    let n = b & 63
+    if n == 0 {
+        return a
+    }
+    let high = high_word(a)
+    let low = low_word(a)
+    if n >= 32 {
+        return joined(shifted_left(low, n &- 32), 0)
+    }
+    joined(shifted_left(high, n) | shifted_right(low, 32 &- n), shifted_left(low, n))
+}
+
+// `a >> b`, zero-filling, for `b` in 0...63.
+@export("__lshrdi3")
+func __lshrdi3(a: UInt64, b: Int32) -> UInt64 {
+    let n = b & 63
+    if n == 0 {
+        return a
+    }
+    let high = high_word(a)
+    let low = low_word(a)
+    if n >= 32 {
+        return joined(0, shifted_right(high, n &- 32))
+    }
+    joined(shifted_right(high, n), shifted_right(low, n) | shifted_left(high, 32 &- n))
+}
+
+// `a >> b`, copying the sign bit, for `b` in 0...63.
+@export("__ashrdi3")
+func __ashrdi3(a: Int64, b: Int32) -> Int64 {
+    let n = b & 63
+    if n == 0 {
+        return a
+    }
+    let bits = UInt64.from(truncating: a)
+    let high = high_word(bits)
+    let low = low_word(bits)
+    let signed_high = Int32.from(truncating: high)
+    if n >= 32 {
+        let fill = UInt32.from(truncating: signed_high >> 31)
+        let moved = UInt32.from(truncating: shifted_right_signed(signed_high, n &- 32))
+        return Int64.from(truncating: joined(fill, moved))
+    }
+    let top = UInt32.from(truncating: shifted_right_signed(signed_high, n))
+    Int64.from(truncating: joined(top, shifted_right(low, n) | shifted_left(high, 32 &- n)))
+}

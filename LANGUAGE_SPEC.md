@@ -2992,8 +2992,8 @@ whole (508 bytes of message); see [Panic](#panic-for-unrecoverable-errors).
 
 An integer argument renders at its own width, not the platform's. `Int64` and
 `UInt64` print all 64 bits on a 32-bit target, where the digit loop may lower
-to the 64-bit division libcalls (`__udivdi3`, `__umoddi3`), which the
-environment then supplies; every narrower type extends to the platform word
+to the 64-bit division libcalls (`__udivdi3`, `__umoddi3`), which a
+freestanding object defines itself (Profiles); every narrower type extends to the platform word
 and renders there, with no 64-bit division at all. `print(v)`, `print("{}", v)` and a panic message that names `v`
 produce the same bytes at every width.
 
@@ -14631,6 +14631,23 @@ programs may use `core` and the `alloc`-layer types (`String`, `Vector`, `Map`,
 hosted-only modules (`File`, `process` (`Command`), `Env`, `Directory`, `time`,
 `net`, `signal`) are unavailable: importing one is refused at the import
 (`import.hosted-only`). See `designs/19-freestanding-profile.md` for the full design.
+
+A freestanding object defines the C routines LLVM calls on its own, so the
+environment does not supply them: `memcpy`, `memset` and `memmove` on every
+target, and on a 32-bit word the 64-bit integer helpers `__divdi3`,
+`__moddi3`, `__udivdi3` and `__umoddi3` (64-bit division and remainder) and
+`__ashldi3`, `__ashrdi3` and `__lshrdi3` (64-bit shifts by a variable count,
+which LLVM calls at `-Oz`). std writes them in Saw, and only a freestanding
+compile includes them, so a hosted program takes them from the C library as
+before; no program can import them. Each is a weak definition, so an
+environment that links its own definition of one of these names wins, and a
+program that `@export`s one of the names itself replaces std's in its object.
+Such a routine, and every function of its module it calls, is compiled so
+that LLVM never turns a copy or fill loop in it into a call of the routine
+itself. A zero divisor or `Int64.min / -1` never reaches a helper: Saw's own
+checks panic first. `--target-features` that turns on `forced-atomics` is
+refused, since LLVM then calls `__sync_*` routines that no environment is
+told to supply.
 
 On a target with no floating-point unit (aarch64 under the freestanding
 default `-fp-armv8`, riscv32 without `F`/`D`), the environment also supplies

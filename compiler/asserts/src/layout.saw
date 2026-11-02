@@ -5,7 +5,7 @@
 // typecheck ends, in every mode; mono checks one over a type parameter per
 // instantiation (`mono_check_layout_asserts`).
 
-import sawtarget.layout.{Target}
+import sawtarget.layout.{Target, target_builtins_modules}
 import sawtypecheck.api.{typecheck_program}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_atomic_widths}
@@ -27,8 +27,12 @@ public func asserts_typecheck_program(path: String, std_root: String, names: &Ve
                                       dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                                       freestanding: Bool = false, provider: Bool = false,
                                       no_hidden_alloc: Bool = false) -> TcProgram {
+    // The builtins modules are chosen here, above both target and typecheck,
+    // since the target description depends on typecheck.
+    let builtins = target_builtins_modules(target.triple, freestanding)
     var p = typecheck_program(path, std_root, &names, &dirs, target: target, runtime: runtime,
-                              freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc)
+                              freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc,
+                              builtins: move builtins)
     asserts_check_concrete(&var p)
     asserts_check_view_addresses(&var p)
     move p

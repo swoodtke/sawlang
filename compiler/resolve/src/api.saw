@@ -24,11 +24,12 @@ public struct ResolveOptions {
 }
 
 // Resolves the program whose entry file is `path`, with each of `names`
-// mapped to the package directory beside it in `dirs`. Collection happens as
-// each module loads, then imports, bodies and the rules that need every
-// module.
+// mapped to the package directory beside it in `dirs`, and with the std
+// builtins modules `builtins` names (`target_builtins_modules`) loaded after
+// std's own. Collection happens as each module loads, then imports, bodies and
+// the rules that need every module.
 public func resolve_program(path: String, std_root: String, names: &Vector<String>,
-                            dirs: &Vector<String>) -> ResProgram {
+                            dirs: &Vector<String>, builtins: Vector<String> = Vector<String>()) -> ResProgram {
     var p = res_program(std_root)
     var k = 0
     while k < names.len() {
@@ -38,6 +39,7 @@ public func resolve_program(path: String, std_root: String, names: &Vector<Strin
     p.detect_std_layout()
     p.load_builtin()
     p.load_std_modules()
+    p.load_builtins_modules(&builtins)
     p.bind_lang_items()
     res_declare_prelude(&var p)
     p.index_gated_std()

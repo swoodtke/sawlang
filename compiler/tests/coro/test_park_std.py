@@ -40,7 +40,11 @@ def run():
         def slow_copy(a, b, **kw):
             time.sleep(0.02)
             return shutil.copy2(a, b, **kw)
-        return real_copytree(src, dst, *args, copy_function=slow_copy, **kwargs)
+        # copytree recurses into a subdirectory with `copy_function` passed
+        # positionally, the third argument after `src` and `dst`.
+        if len(args) < 3 and "copy_function" not in kwargs:
+            kwargs["copy_function"] = slow_copy
+        return real_copytree(src, dst, *args, **kwargs)
 
     results = {}
 

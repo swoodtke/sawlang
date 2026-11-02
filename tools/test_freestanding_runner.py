@@ -13,7 +13,8 @@ Homebrew, so nothing is built or booted.
 
 It also holds each arch's `soft_float` list equal to the routines
 LANGUAGE_SPEC.md's Profiles paragraph names, which is the list the runner
-checks every case object against.
+checks every case object against, and recomputes every row of
+`cases/integer_vectors.saw`, the integer helpers' vectors, from its operands.
 """
 import os
 import re
@@ -116,6 +117,63 @@ def soft_float_problems():
     return problems
 
 
+VECTORS = os.path.join(freestanding_runner.CASES_DIR, "integer_vectors.saw")
+_MASK = (1 << 64) - 1
+
+
+def _signed(v):
+    v &= _MASK
+    return v - (1 << 64) if v >> 63 else v
+
+
+def _unsigned_answer(n, d):
+    """C's quotient and remainder, and the helpers' answer for a zero divisor:
+    an all-ones quotient and a zero remainder."""
+    return (_MASK, 0) if d == 0 else (n // d, n % d)
+
+
+def _signed_answer(n, d):
+    """C's truncating quotient and dividend-signed remainder, at 64 bits; the
+    helpers' zero-divisor answer; and `Int64.min / -1` wrapped."""
+    if d == 0:
+        return (-1 if n >= 0 else 1), 0
+    q = abs(n) // abs(d)
+    q = -q if (n < 0) != (d < 0) else q
+    return _signed(q), _signed(n - q * d)
+
+
+def _rows(text, name, width):
+    """The rows of `integer_vectors.saw`'s table `name`, `width` numbers each."""
+    found = re.search(r"static %s: \[\w+; \d \* \w+\] = \[(.*?)\n\]" % name, text, re.S)
+    if not found:
+        return None
+    numbers = [int(t.replace("_", ""), 0) for t in re.findall(r"-?(?:0x[0-9A-Fa-f_]+|[0-9_]+)", found.group(1))]
+    return [numbers[k:k + width] for k in range(0, len(numbers), width)]
+
+
+def vector_problems():
+    """Why a row of `cases/integer_vectors.saw` disagrees with the answer
+    computed here, or []: each table holds as many rows as its count says."""
+    with open(VECTORS, encoding="utf-8") as fh:
+        text = fh.read()
+    problems = []
+    tables = (("UNSIGNED_DIVISION", 4, lambda r: list(_unsigned_answer(r[0], r[1]))),
+              ("SIGNED_DIVISION", 4, lambda r: list(_signed_answer(r[0], r[1]))),
+              ("SHIFTS", 5, lambda r: [(r[0] << r[1]) & _MASK, r[0] >> r[1], (_signed(r[0]) >> r[1]) & _MASK]))
+    for name, width, answer in tables:
+        rows = _rows(text, name, width)
+        count = re.search(r"static %s_ROWS: Int = (\d+)" % (name if name != "SHIFTS" else "SHIFT"), text)
+        if rows is None or count is None or len(rows) != int(count.group(1)) or any(len(r) != width for r in rows):
+            problems.append("%s: the table %s does not hold its stated count of %d-number rows"
+                            % (os.path.relpath(VECTORS, REPO), name, width))
+            continue
+        for k, row in enumerate(rows):
+            if row[2:] != answer(row):
+                problems.append("%s: %s row %d is %r, and the answer computed here is %r"
+                                % (os.path.relpath(VECTORS, REPO), name, k, row[2:], answer(row)))
+    return problems
+
+
 def main():
     real, _ = build.pick_clang(ARCHES[0]["triple"], None)
     if real is not None and not all(build.clang_capable(real, a["triple"]) for a in ARCHES):
@@ -139,9 +197,10 @@ def main():
         if not skipped and "SKIPPED" in said:
             failures.append("%s: says it SKIPPED: %s" % (name, said.strip()[:400]))
     failures += soft_float_problems()
+    failures += vector_problems()
     for failure in failures:
         print(failure)
-    print("freestanding runner: %s: %d stub cases, the soft-float list"
+    print("freestanding runner: %s: %d stub cases, the soft-float list, the integer helpers' vectors"
           % ("FAIL (%d)" % len(failures) if failures else "ok", ran))
     return 1 if failures else 0
 

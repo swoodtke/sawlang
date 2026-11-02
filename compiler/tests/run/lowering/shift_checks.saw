@@ -1,0 +1,9 @@
+// A shift by a constant count and one by a variable count: at -O0 the first
+// carries no range check and the second keeps its call to `__saw_fail_shift`
+// (`ll_constant_shift_count`; `builtin_lowering.py`).
+
+@export("shift_by_constant")
+func shift_by_constant(a: UInt64) -> UInt64 { (a << 3) | (a >> 63) }
+
+@export("shift_by_variable")
+func shift_by_variable(a: UInt64, n: Int) -> UInt64 { a << n }

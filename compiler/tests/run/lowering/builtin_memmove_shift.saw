@@ -1,0 +1,13 @@
+// A program's own `memmove` whose loop shifts one buffer up by a byte, which
+// LLVM's loop-idiom pass recognises as a `memmove`: `builtin_lowering.py`
+// holds that the routine does not call itself (SL-948).
+
+@export("memmove")
+func memmove(buf: UnsafePointer<UInt8>, unused: UnsafePointer<UInt8>, n: UInt) unsafe -> UnsafePointer<UInt8> {
+    var i = Int.from(truncating: n)
+    while i > 0 {
+        buf[i] = buf[i &- 1]
+        i = i &- 1
+    }
+    buf
+}

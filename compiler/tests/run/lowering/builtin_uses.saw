@@ -1,0 +1,33 @@
+// What makes LLVM call each of std's builtin routines: 64-bit division and
+// remainder, signed and unsigned, and 64-bit shifts by a variable count, which
+// call the integer helpers on a 32-bit word; a copy and a zeroing of a value
+// bigger than a word, which call `memcpy` and `memset`. Built freestanding, the
+// object defines std's routines itself: `builtin_lowering.py` reads it (SL-948).
+
+struct Wide {
+    a: UInt64, b: UInt64, c: UInt64, d: UInt64,
+    e: UInt64, f: UInt64, g: UInt64, h: UInt64
+}
+
+@export("builtin_divide")
+func builtin_divide(a: UInt64, b: UInt64) -> UInt64 { (a / b) &+ (a % b) }
+
+@export("builtin_signed_divide")
+func builtin_signed_divide(a: Int64, b: Int64) -> Int64 { (a / b) &+ (a % b) }
+
+@export("builtin_shift")
+func builtin_shift(a: UInt64, s: Int64, n: Int) -> UInt64 {
+    (a << n) | (a >> n) | UInt64.from(truncating: s >> n)
+}
+
+@export("builtin_copy")
+func builtin_copy(from: UnsafePointer<Wide>, to: UnsafePointer<Wide>) unsafe {
+    to[0] = from[0]
+}
+
+@export("builtin_zero")
+func builtin_zero(i: Int) -> UInt8 {
+    var buf: [UInt8; 1024] = [0; 1024]
+    buf[i] = 1
+    buf[i + 1]
+}

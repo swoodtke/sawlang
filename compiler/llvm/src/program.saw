@@ -5,7 +5,7 @@
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.attributes.{ll_function_attribute_group, ll_function_attributes}
+import sawllvm.attributes.{ll_any_builtin, ll_builtin_items, ll_function_attribute_group, ll_function_attributes}
 import sawllvm.bodies.{ll_param_name}
 import sawllvm.calls.{ll_block}
 import sawllvm.closures.{ll_env_lead}
@@ -49,6 +49,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
                               module_triple: String, debug: Bool, features: String = "",
                               object: Bool = false) -> String {
     var e = LlEmitter(lowering: move lowering)
+    e.builtins = ll_builtin_items(&mono)
     e.debug = debug
     e.features = features
     e.dbg_optimized = not speed.equals("-O0")
@@ -224,7 +225,8 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
         }
     }
     try! out.append("\n\n")
-    try! out.append(ll_function_attribute_group(&target, e.lowering.sanitize, speed, features))
+    try! out.append(ll_function_attribute_group(&target, e.lowering.sanitize, speed, features,
+                                                builtins: ll_any_builtin(&e.builtins)))
     let metadata = e.debug_metadata(&mono)
     try! out.append(metadata)
     out.build()

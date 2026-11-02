@@ -62,6 +62,10 @@ run of it, built against its own std.
 - std.numeric's Float methods are their LLVM intrinsic exactly where the
   target funnel's matrix says, and no target's object for them calls a C
   math library function at -O0 or -O2 (`float_lowering.py`);
+- a freestanding object defines std's builtin routines weakly, a program's
+  own export of one's name replaces std's, and no builtin routine reaches a
+  call of itself at any level on either bare-metal target
+  (`builtin_lowering.py`);
 - each `probes/NAME.saw` states in its leading comment lines how it is held
   (README.md, "Probes"): `// probe: stated` is built by sawc alone at its
   `// speeds:` with nothing printed and prints exactly its `// prints:` lines,
@@ -121,6 +125,7 @@ import gate_jobs  # noqa: E402
 import oracle  # noqa: E402
 
 sys.path.insert(0, HERE)
+import builtin_lowering  # noqa: E402
 import float_lowering  # noqa: E402
 import riscv32_ir  # noqa: E402
 
@@ -1803,8 +1808,16 @@ def check_freestanding_object(failures, counts):
                             "--target", BARE_METAL_TARGET] + flags + [rel(probe)], cwd=REPO, capture_output=True,
                            text=True, timeout=BUILD_TIMEOUT)
         groups = [line for line in r.stdout.split("\n") if line.startswith("attributes #")]
-        if r.returncode != 0 or len(groups) != 1 or want not in groups[0] or (unwanted and unwanted in groups[0]):
-            failures.append("%s: exit %d, attribute groups %r, not one holding %s%s"
+        # A module defining a builtin routine carries the builtins' group
+        # beside `#0`: the same attributes and "no-builtins" (SL-948).
+        builtins = any(line.startswith("define ") and re.search(r"\)[^(]*#1\b", line)
+                       for line in r.stdout.split("\n"))
+        twin = [groups[0].replace("attributes #0 =", "attributes #1 =", 1).replace(" }", ' "no-builtins" }')
+                ] if groups and builtins else []
+        if (r.returncode != 0 or len(groups) < 1 or not groups[0].startswith("attributes #0 =")
+                or groups[1:] != twin or want not in groups[0] or (unwanted and unwanted in groups[0])):
+            failures.append("%s: exit %d, attribute groups %r, not one holding %s%s, and its \"no-builtins\" "
+                            "twin when the module defines a builtin"
                             % (where, r.returncode, groups, want, " alone" if unwanted else ""))
         else:
             counts["run freestanding feature groups"] = counts.get("run freestanding feature groups", 0) + 1
@@ -2086,13 +2099,19 @@ ATTRIBUTE_GROUPS = (
 )
 # A feature string the IR cannot carry as written, refused as a usage error.
 ATTRIBUTE_REFUSED = '+a"b'
+# A feature string turning on `forced-atomics`, which has LLVM call `__sync_*`
+# routines no environment supplies: refused as a usage error, and a later
+# `-forced-atomics` turns it off again (SL-948).
+FORCED_ATOMICS_REFUSED = "+m,+forced-atomics,+c"
+FORCED_ATOMICS_OFF = "+m,+forced-atomics,-forced-atomics"
 
 
 def check_attribute_groups(failures, counts):
     """`probes/attribute_group_levels.saw`'s `.ll` for the pinned target, at
     each `ATTRIBUTE_GROUPS` row: its one `attributes #0` line is the row's,
     and every define names a group carrying the frame pointer. A feature
-    string holding a quote is refused with exit status 2."""
+    string holding a quote, or turning `forced-atomics` on, is refused with
+    exit status 2."""
     probe = os.path.join(PROBES, ATTRIBUTE_PROBE)
     for flags, want in ATTRIBUTE_GROUPS:
         where = "run %s %s" % (rel(probe), " ".join(flags) or "(no flags)")
@@ -2118,6 +2137,20 @@ def check_attribute_groups(failures, counts):
                         % (where, r.returncode, (r.stdout + r.stderr).strip()[:300]))
     else:
         counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
+    for features, refused in ((FORCED_ATOMICS_REFUSED, True), (FORCED_ATOMICS_OFF, False)):
+        where = "run %s --target-features %s" % (rel(probe), features)
+        r = subprocess.run([build.SAWC, "build", "--emit-ll", "--target", PINNED_TARGET, "--std-root", "std",
+                            "--target-features", features, rel(probe)], cwd=REPO, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        said = r.stdout + r.stderr
+        if refused and (r.returncode != 2 or "attributes #" in r.stdout or "`forced-atomics`" not in said):
+            failures.append("%s: exits %d, not 2 naming `forced-atomics` with nothing written: %s"
+                            % (where, r.returncode, said.strip()[:300]))
+        elif not refused and r.returncode != 0:
+            failures.append("%s: exits %d, not 0: the last mention turns it off: %s"
+                            % (where, r.returncode, said.strip()[:300]))
+        else:
+            counts["run attribute groups pinned"] = counts.get("run attribute groups pinned", 0) + 1
 
 
 VOLATILE_PROBE = "memory_volatile_survives_optimization.saw"
@@ -2261,6 +2294,7 @@ def run(names=None, write=False):
         check_clang_choice(failures, counts)
         riscv32_ir.check(failures, counts)
         float_lowering.check(failures, counts)
+        builtin_lowering.check(failures, counts)
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
         check_long_accessor(failures, counts)

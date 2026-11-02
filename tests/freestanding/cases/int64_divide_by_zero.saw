@@ -1,0 +1,16 @@
+// A signed 64-bit division by zero panics at Saw's own check, before the
+// division reaches `__divdi3` on a 32-bit word, so the helper's answer for a
+// zero divisor is never what a program sees (SL-948).
+
+import fscore.*
+
+// Read at run time, so the zero is no constant the compile could refuse.
+unsafe static var DIVISOR: Int64 = 0
+
+@export("fs_main")
+func fs_main() unsafe {
+    let dividend: Int64 = 0x7_0000_0001
+    check("reached_the_division", true)
+    report_wide("quotient", dividend / DIVISOR)
+    finish("int64_divide_by_zero")
+}

@@ -156,11 +156,12 @@ def expectations(arch):
 
 
 # What a RUN case's object may leave undefined besides its atomic routines:
-# the runtime's seams, which fsrt defines, and what `hal/` defines, the boot
-# stub's `fs_*` hooks, support.c's `mem*` and 64-bit division libcalls, and
-# the arch's `soft_float` routines from `hal/compiler-rt/`.
-HAL_PREFIXES = ("__saw_rt_", "fs_", "mem")
-HAL_LIBCALLS = frozenset({"__udivdi3", "__umoddi3"})
+# the runtime's seams, which fsrt defines, the boot stub's `fs_*` hooks, and
+# the arch's `soft_float` routines from `hal/compiler-rt/`. The memory
+# routines and the 64-bit integer helpers are not here: sawc's freestanding
+# object defines them itself, weakly, so one it leaves undefined is a stray
+# (SL-948). support.c still defines them, and its strong definitions win.
+HAL_PREFIXES = ("__saw_rt_", "fs_")
 
 # A name shaped like a compiler-rt floating-point builtin: an operation on a
 # float mode (`__adddf3`, `__unorddf2`, `__extendsfdf2`), a float-to-integer
@@ -251,7 +252,8 @@ def arch_free_problems():
 # `--runtime` and `modules: False` the `--module-path` arguments, which is how
 # the two provider refusals isolate what they are about. `arches` limits a
 # case to the architectures it is about. `extra_flags` appends sawc flags for
-# a case that is ABOUT a level. `due` marks a case blocked by a sawc gap,
+# a case that is ABOUT a level, and `source` names the case file another case
+# holds, built again at another level. `due` marks a case blocked by a sawc gap,
 # citing the issue that owns the gap, and `due_shows` is the gap's own
 # diagnostic: the case must fail saying it, so another failure is not hidden.
 # `due_on` limits the marker to the arches it names, the case's other rows
@@ -278,6 +280,13 @@ FLOAT_METHOD_CHECKS = ["fs check %s=1" % claim for claim in (
     "sqrt_two", "sqrt_square", "sqrt_negative_zero", "sqrt_negative", "sqrt_subnormal", "sqrt_infinity",
     "min_zeros", "min_zeros_reversed", "min_quiet_nan", "min_signalling_nan", "min_two_nans",
     "max_zeros", "max_zeros_reversed", "max_signalling_nan", "max_ordered")]
+
+# The checks `integer_helpers` prints at each level, in order.
+INTEGER_HELPER_CHECKS = ["fs check %s_vectors=1" % helper for helper in (
+    "udivdi3", "umoddi3", "divdi3", "moddi3", "ashldi3", "lshrdi3", "ashrdi3")]
+
+# The checks `int64_operators` prints at each level, in order.
+INT64_OPERATOR_CHECKS = ["fs check %s_operator_rows=1" % kind for kind in ("signed", "unsigned", "shift")]
 
 TEST_CASES = [
     {
@@ -744,6 +753,60 @@ TEST_CASES = [
                        "fs done wide_hash_format ok"],
         "expect_clean_exit": True,
     },
+    # --- the builtin routines -------------------------------------------------
+    {
+        # std's 64-bit integer helpers, each called by its C symbol on
+        # host-computed rows, at -O0 and, below, at -O2 (SL-948).
+        "name": "integer_helpers",
+        "extra_flags": ["-O0"],
+        "arches": ["riscv32"],
+        "expect_out": INTEGER_HELPER_CHECKS + ["fs done integer_helpers ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "integer_helpers_optimized",
+        "source": "integer_helpers",
+        "extra_flags": ["-O2"],
+        "arches": ["riscv32"],
+        "expect_out": INTEGER_HELPER_CHECKS + ["fs done integer_helpers ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # 64-bit `/`, `%` and variable shifts through the operators: on riscv32
+        # the object calls the integer helpers it defines, and leaves none of
+        # them undefined (SL-947).
+        "name": "int64_operators",
+        "expect_out": INT64_OPERATOR_CHECKS + ["fs done int64_operators ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The same at -Oz, where the shifts become helper calls too.
+        "name": "int64_operators_size",
+        "source": "int64_operators",
+        "extra_flags": ["-Oz"],
+        "arches": ["riscv32"],
+        "expect_out": INT64_OPERATOR_CHECKS + ["fs done int64_operators ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # Saw's divide-by-zero check fires before the division reaches a
+        # helper, and ends the machine with `fsrt`'s panic status.
+        "name": "int64_divide_by_zero",
+        "expect_out": ["fs check reached_the_division=1",
+                       "panic at int64_divide_by_zero.saw:",
+                       "division by zero"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
+    },
+    {
+        # `Int64.min / -1` likewise, at Saw's overflow check.
+        "name": "int64_divide_overflow",
+        "expect_out": ["fs check reached_the_division=1",
+                       "panic at int64_divide_overflow.saw:",
+                       "integer overflow"],
+        "expect_clean_exit": False,
+        "expect_status": 64,
+    },
     # --- atomics --------------------------------------------------------------
     {
         # The word's atomics where the target has them: `Atomic<Int>`, a
@@ -971,10 +1034,11 @@ def nm_tool(clang):
 
 def references_problem(case, arch, obj, clang):
     """None when every symbol the object leaves undefined is a runtime seam,
-    a symbol the HAL defines (`HAL_PREFIXES`, `HAL_LIBCALLS`, the arch's
-    `soft_float`), or one of `atomic_routines`, and it references exactly
-    those atomic routines; else why. A host library's name here is a call past
-    the runtime ABI (SL-933)."""
+    a symbol the HAL defines (`HAL_PREFIXES`, the arch's `soft_float`), or
+    one of `atomic_routines`, and it references exactly those atomic routines;
+    else why. A routine the object defines itself, as it does the memory
+    routines and the 64-bit integer helpers, is not undefined there. A host
+    library's name here is a call past the runtime ABI (SL-933)."""
     code, out = run([nm_tool(clang), "-u", obj], PROBE_TIMEOUT_S)
     if code != 0:
         return "nm cannot read %s: %s" % (obj, out.strip()[:300])
@@ -989,17 +1053,16 @@ def references_problem(case, arch, obj, clang):
         return ("the object references the soft-float routine(s) %s, which the spec's list for %s "
                 "(LANGUAGE_SPEC.md, Profiles) does not name" % (", ".join(unlisted), arch["name"]))
     stray = sorted(name for name in found - referenced - arch["soft_float"]
-                   if not name.startswith(HAL_PREFIXES) and name not in HAL_LIBCALLS)
+                   if not name.startswith(HAL_PREFIXES))
     if stray:
-        return ("the object references %s, which neither the runtime ABI (`__saw_rt_*`) nor the HAL "
-                "(`fs_*`, `mem*`, %s, the soft-float routines) defines"
-                % (", ".join(stray), ", ".join(sorted(HAL_LIBCALLS))))
+        return ("the object references %s, which neither the runtime ABI (`__saw_rt_*`), the HAL "
+                "(`fs_*`, the soft-float routines) nor the object itself defines" % ", ".join(stray))
     return None
 
 
 def sawc_command(case, arch, obj):
     """The compile a case asks for: the flags are half of what is under test."""
-    cmd = [build.SAWC, "build", os.path.join(CASES_DIR, case["name"] + ".saw"), "-o", obj,
+    cmd = [build.SAWC, "build", os.path.join(CASES_DIR, case.get("source", case["name"]) + ".saw"), "-o", obj,
            "--freestanding", "--target", arch["triple"]]
     if case.get("no_hidden_alloc", True):
         cmd.append("--no-hidden-alloc")

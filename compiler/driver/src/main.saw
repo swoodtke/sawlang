@@ -65,8 +65,8 @@ import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
 import sawresolve.api.{ResolveOptions, resolve_record}
-import sawtarget.layout.{target_bare_metal, target_clang_triple, target_effective_features, target_front_end,
-                         target_known, target_mach_o, target_triples}
+import sawtarget.layout.{TargetFeatureState, target_bare_metal, target_clang_triple, target_effective_features,
+                         target_feature_state, target_front_end, target_known, target_mach_o, target_triples}
 import sawtypecheck.program.{TcTarget}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
@@ -831,7 +831,8 @@ func driver_object_arguments(triple: String, speed: String, sanitize: Bool, free
 // Whether `features`, the operand of `--target-features`, is a feature list
 // the module's attribute group can carry as written: letters, digits and
 // `+-,._` alone, which also keeps a quote from ending the attribute's
-// string. One that is not is a usage error, printed first.
+// string, and one that leaves `forced-atomics` off. One that is not is a usage
+// error, printed first.
 func driver_features_ok(features: String) -> Bool {
     var k = 0
     while k < features.len() {
@@ -844,6 +845,12 @@ func driver_features_ok(features: String) -> Bool {
             return false
         }
         k = k + 1
+    }
+    // `forced-atomics` has LLVM call `__sync_*` routines, which no
+    // environment is told to supply (SL-948).
+    if target_feature_state(features, "forced-atomics") == TargetFeatureState.On {
+        print("sawc build: --target-features turns on `forced-atomics`, which has LLVM call `__sync_*` routines for the word's atomics, and no environment is told to supply those: without `+a`, sawc's output calls the five `__atomic_*_4` routines the environment supplies (LANGUAGE_SPEC.md, Profiles), so leave `forced-atomics` off")
+        return false
     }
     true
 }

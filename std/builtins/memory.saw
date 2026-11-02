@@ -1,0 +1,63 @@
+//! The C memory routines a freestanding object calls: `memcpy`, `memset` and
+//! `memmove`. The compiler calls them to copy and zero values, and LLVM turns
+//! copy and fill loops into them, so a program with no C library needs them
+//! from somewhere. Only a freestanding compile loads this module, and no
+//! program can import it. Each routine is defined weak, so an environment's
+//! own definition wins at the link.
+
+// Every function here is compiled with LLVM's "no-builtins", so none of these
+// loops turns into a call of the routine it implements. Each body copies one
+// byte at a time and never copies or zeroes a value bigger than a word, which
+// is the other way the compiler inserts a `memcpy`, and uses wrapping
+// arithmetic, so no path reaches the panic helpers, which call `memcpy`
+// themselves. A function here calls no function of another module: the run
+// lane's builtin check reads every relocation in the object to hold that.
+
+// Copies `n` bytes from `src` to `dst`, which do not overlap, and returns
+// `dst`.
+@export("memcpy")
+func memcpy(dst: UnsafePointer<UInt8>, src: UnsafePointer<UInt8>, n: UInt) unsafe -> UnsafePointer<UInt8> {
+    let count = Int.from(truncating: n)
+    var i = 0
+    while i < count {
+        dst[i] = src[i]
+        i = i &+ 1
+    }
+    dst
+}
+
+// Writes the low byte of `c` into each of the `n` bytes at `dst`, and returns
+// `dst`.
+@export("memset")
+func memset(dst: UnsafePointer<UInt8>, c: Int32, n: UInt) unsafe -> UnsafePointer<UInt8> {
+    let count = Int.from(truncating: n)
+    let byte = UInt8.from(truncating: c)
+    var i = 0
+    while i < count {
+        dst[i] = byte
+        i = i &+ 1
+    }
+    dst
+}
+
+// Copies `n` bytes from `src` to `dst`, which may overlap, and returns `dst`.
+// A destination below the source is copied upward and any other downward, so
+// no byte is read after the copy has written over it.
+@export("memmove")
+func memmove(dst: UnsafePointer<UInt8>, src: UnsafePointer<UInt8>, n: UInt) unsafe -> UnsafePointer<UInt8> {
+    let count = Int.from(truncating: n)
+    if (dst as UInt) < (src as UInt) {
+        var i = 0
+        while i < count {
+            dst[i] = src[i]
+            i = i &+ 1
+        }
+    } else {
+        var i = count
+        while i > 0 {
+            i = i &- 1
+            dst[i] = src[i]
+        }
+    }
+    dst
+}

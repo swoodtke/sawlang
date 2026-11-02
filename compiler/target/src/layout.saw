@@ -270,6 +270,27 @@ public func target_float_instruction(method: TargetFloatMethod, triple: String, 
     false
 }
 
+// THE BUILTINS FUNNEL: the std builtins modules a compile for `triple` loads,
+// each named by its path under the std root (`builtins.memory` is
+// `std/builtins/memory.saw`). They hold the routines LLVM emits calls to on its
+// own, which a hosted program takes from the C library, so only a
+// `freestanding` compile loads any: the memory routines on every target, and
+// the 64-bit integer helpers where the word is 32 bits, the one place LLVM
+// calls them (SL-948).
+// ENTRY POINTS:
+//     asserts_typecheck_program
+public func target_builtins_modules(triple: String, freestanding: Bool) -> Vector<String> {
+    var out = Vector<String>()
+    if not freestanding {
+        return move out
+    }
+    try! out.push("builtins.memory")
+    if target_word_bytes(triple) == 4 {
+        try! out.push("builtins.integer")
+    }
+    move out
+}
+
 // THE FRONT END'S TARGET: the record typecheck and every stage after it read
 // (`TcTarget`) for `triple` compiled with the effective subtarget features
 // `features`, its word from `target_word_bytes` and its atomics from

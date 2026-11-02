@@ -4,7 +4,7 @@
 // runtime/ABI.md, `runtimeabi.saw` (design 149).
 
 import sawparse.grammar.{Alt}
-import sawresolve.model.{ResDeclKind}
+import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.program.{TcProgram, TcSeams}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows}
@@ -359,11 +359,24 @@ extension TcProgram {
     }
 
     // Whether no earlier declaration exports `symbol`: an unmangled C symbol
-    // is unique across the program.
+    // is unique across the program. THE BUILTIN YIELD: where one of the two is
+    // a routine of std's builtins modules and the other the program's own
+    // export, std's routine yields, its symbol dropped from the record so mono
+    // roots and the backend defines only the program's; two program exports
+    // of one symbol, or two of std's, stay a duplicate (SL-948).
+    // ENTRY POINTS:
+    //     TcProgram.record_export
     func export_unique(&var self, d: Int, attr: Int, symbol: String) -> Bool {
         var e = 0
         while e < d {
             let other = self.export_symbols.get(e) ?? ""
+            let std_yields = self.builtin_routine(e) && self.program_declaration(d)
+            if other.equals(symbol) && (std_yields || (self.builtin_routine(d) && self.program_declaration(e))) {
+                let yielding = if std_yields { e } else { d }
+                self.export_symbols[yielding] = ""
+                self.export_nodes[yielding] = -1
+                return yielding == e
+            }
             if other.equals(symbol) {
                 let first = self.res.decls[e]
                 let m = self.res.decls[d].module
@@ -379,6 +392,21 @@ extension TcProgram {
             e = e + 1
         }
         true
+    }
+}
+
+extension TcProgram {
+    // Whether declaration `d` is in one of std's builtins modules, which only a
+    // freestanding compile loads (`target_builtins_modules`).
+    func builtin_routine(&self, d: Int) -> Bool {
+        let m = self.res.decls[d].module
+        self.res.module(m).kind == ResModuleKind.Std && self.res.module_name(m).starts_with("std.builtins.")
+    }
+
+    // Whether declaration `d` is the program's own, in no std module.
+    func program_declaration(&self, d: Int) -> Bool {
+        let kind = self.res.module(self.res.decls[d].module).kind
+        kind != ResModuleKind.Std && kind != ResModuleKind.Builtin
     }
 }
 

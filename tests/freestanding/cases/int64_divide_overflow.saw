@@ -1,0 +1,15 @@
+// `Int64.min / -1` panics at Saw's own check, before the division reaches
+// `__divdi3` on a 32-bit word, where it would wrap (SL-948).
+
+import fscore.*
+
+// Read at run time, so the operands are no constants the compile could refuse.
+unsafe static var DIVIDEND: Int64 = Int64.min
+unsafe static var DIVISOR: Int64 = -1
+
+@export("fs_main")
+func fs_main() unsafe {
+    check("reached_the_division", true)
+    report_wide("quotient", DIVIDEND / DIVISOR)
+    finish("int64_divide_overflow")
+}

@@ -1,0 +1,10 @@
+// The fill loop `builtin_cross_module.saw`'s `memset` imports: a function of
+// another module, which "no-builtins" does not reach (SL-948).
+
+public func fill(dst: UnsafePointer<UInt8>, byte: UInt8, count: Int) unsafe {
+    var i = 0
+    while i < count {
+        dst[i] = byte
+        i = i &+ 1
+    }
+}

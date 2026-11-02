@@ -1,0 +1,96 @@
+// 64-bit `/`, `%` and shifts by a variable count, signed and unsigned, through
+// Saw's operators on `integer_vectors.saw`'s rows. On a 32-bit word the
+// division calls `__divdi3`, `__moddi3`, `__udivdi3` and `__umoddi3`, and at
+// -Oz the shifts call `__ashldi3`, `__ashrdi3` and `__lshrdi3`; the object
+// defines each itself, so it leaves none undefined (SL-947). The runner builds
+// it at the suite's level and, as `int64_operators_size`, at -Oz.
+
+import fscore.*
+import integer_vectors.{SHIFTS, SHIFT_ROWS, SIGNED_DIVISION, SIGNED_DIVISION_ROWS, UNSIGNED_DIVISION,
+                        UNSIGNED_DIVISION_ROWS}
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_value("signed_operator_rows", signed_misses(), 0)
+    check_value("unsigned_operator_rows", unsigned_misses(), 0)
+    check_value("shift_operator_rows", shift_misses(), 0)
+    finish("int64_operators")
+}
+
+@export("int64_quotient")
+func int64_quotient(n: Int64, d: Int64) -> Int64 { n / d }
+
+@export("int64_remainder")
+func int64_remainder(n: Int64, d: Int64) -> Int64 { n % d }
+
+@export("uint64_quotient")
+func uint64_quotient(n: UInt64, d: UInt64) -> UInt64 { n / d }
+
+@export("uint64_remainder")
+func uint64_remainder(n: UInt64, d: UInt64) -> UInt64 { n % d }
+
+@export("uint64_shift_left")
+func uint64_shift_left(v: UInt64, n: Int) -> UInt64 { v << n }
+
+@export("uint64_shift_right")
+func uint64_shift_right(v: UInt64, n: Int) -> UInt64 { v >> n }
+
+@export("int64_shift_right")
+func int64_shift_right(v: Int64, n: Int) -> Int64 { v >> n }
+
+// The signed rows the operators get wrong, past the ones Saw's own checks
+// refuse at run time: a zero divisor, and `Int64.min / -1`.
+func signed_misses() -> Int {
+    var misses = 0
+    var row = 0
+    while row < SIGNED_DIVISION_ROWS {
+        let n = SIGNED_DIVISION[4 * row]
+        let d = SIGNED_DIVISION[4 * row + 1]
+        if d != 0 && not (n == Int64.min && d == -1) {
+            if int64_quotient(n, d) != SIGNED_DIVISION[4 * row + 2] ||
+               int64_remainder(n, d) != SIGNED_DIVISION[4 * row + 3] {
+                print("fs miss signed operator row {}", row)
+                misses = misses + 1
+            }
+        }
+        row = row + 1
+    }
+    misses
+}
+
+// The unsigned rows with a divisor the operators get wrong.
+func unsigned_misses() -> Int {
+    var misses = 0
+    var row = 0
+    while row < UNSIGNED_DIVISION_ROWS {
+        let n = UNSIGNED_DIVISION[4 * row]
+        let d = UNSIGNED_DIVISION[4 * row + 1]
+        if d != 0 {
+            if uint64_quotient(n, d) != UNSIGNED_DIVISION[4 * row + 2] ||
+               uint64_remainder(n, d) != UNSIGNED_DIVISION[4 * row + 3] {
+                print("fs miss unsigned operator row {}", row)
+                misses = misses + 1
+            }
+        }
+        row = row + 1
+    }
+    misses
+}
+
+// The shift rows the operators get wrong.
+func shift_misses() -> Int {
+    var misses = 0
+    var row = 0
+    while row < SHIFT_ROWS {
+        let v = SHIFTS[5 * row]
+        let n = Int.from(truncating: SHIFTS[5 * row + 1])
+        let signed = UInt64.from(truncating: int64_shift_right(Int64.from(truncating: v), n))
+        if uint64_shift_left(v, n) != SHIFTS[5 * row + 2] || uint64_shift_right(v, n) != SHIFTS[5 * row + 3] ||
+           signed != SHIFTS[5 * row + 4] {
+            print("fs miss shift operator row {}", row)
+            misses = misses + 1
+        }
+        row = row + 1
+    }
+    misses
+}

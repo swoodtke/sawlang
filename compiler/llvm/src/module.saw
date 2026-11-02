@@ -100,6 +100,9 @@ public struct LlEmitter {
     // closure convention (`named_value_into`), each defined once the
     // functions are (`emit_value_thunks`).
     value_thunks: Vector<Int>
+    // By item, whether it is a builtin (`ll_builtin_items`): set once per
+    // program (`llvm_emit_program`).
+    builtins: Vector<Bool>
 }
 
 extension LlEmitter: NoCopy {}
@@ -183,7 +186,7 @@ extension LlEmitter {
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
                   local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>(),
                   features: "", code_thunks: Vector<Int>(), code_externs: Vector<Int>(),
-                  value_thunks: Vector<Int>())
+                  value_thunks: Vector<Int>(), builtins: Vector<Bool>())
     }
 
     // The alignment of a slot of natural alignment `natural`: the larger of
