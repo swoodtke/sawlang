@@ -5,19 +5,212 @@
 //! here, so an overflow panics with `panic at FILE:LINE:` instead of wrapping.
 //!
 //! Methods on `Float`: absolute value, rounding, square root, minimum and
-//! maximum. They follow IEEE 754, so a NaN goes through them rather than
-//! panicking, and each lowers to the C math library's function of the same
-//! job.
+//! maximum. Each is exact: `floor`, `ceil` and `round` give the IEEE 754
+//! integral value, keeping a zero result's sign, and `sqrt` is correctly
+//! rounded. A NaN goes through them rather than panicking, and a NaN result's
+//! sign and payload are unspecified, except under `abs`. `min` and `max` are
+//! IEEE 754's minimumNumber and maximumNumber. The bodies are integer
+//! arithmetic on the bit pattern and reference no C library, so they work
+//! freestanding; where the target has an instruction for a method, the
+//! compiler emits that instead, with the same results.
 
-// libm. A non-Apple link names it with `-lm`; on Apple it is part of libSystem.
-extern "C" {
-    func fabs(x: Float) -> Float
-    func floor(x: Float) -> Float
-    func ceil(x: Float) -> Float
-    func round(x: Float) -> Float
-    func sqrt(x: Float) -> Float
-    func fmin(a: Float, b: Float) -> Float
-    func fmax(a: Float, b: Float) -> Float
+static NUMERIC_SIGN: UInt64 = 0x8000_0000_0000_0000
+static NUMERIC_EXPONENT_FIELD: UInt64 = 0x7FF0_0000_0000_0000
+static NUMERIC_MANTISSA: UInt64 = 0x000F_FFFF_FFFF_FFFF
+static NUMERIC_QUIET: UInt64 = 0x0008_0000_0000_0000
+static NUMERIC_IMPLICIT_BIT: UInt64 = 0x0010_0000_0000_0000
+static NUMERIC_ONE: UInt64 = 0x3FF0_0000_0000_0000
+static NUMERIC_DEFAULT_NAN: UInt64 = 0x7FF8_0000_0000_0000
+static NUMERIC_MANTISSA_BITS: Int = 52
+static NUMERIC_EXPONENT_BIAS: Int = 1023
+static NUMERIC_EXPONENT_MAX: UInt64 = 0x7FF
+
+func numeric_is_nan(bits: UInt64) -> Bool {
+    (bits & ~NUMERIC_SIGN) > NUMERIC_EXPONENT_FIELD
+}
+
+// The unbiased exponent: -1023 for a zero or a subnormal, 1024 for an
+// infinity or a NaN.
+func numeric_exponent(bits: UInt64) -> Int {
+    ((bits >> NUMERIC_MANTISSA_BITS) & NUMERIC_EXPONENT_MAX) as Int - NUMERIC_EXPONENT_BIAS
+}
+
+// A key whose unsigned order is the numeric order of non-NaN patterns, with
+// -0.0 just below 0.0.
+func numeric_order_key(bits: UInt64) -> UInt64 {
+    if (bits & NUMERIC_SIGN) != 0 { ~bits } else { bits | NUMERIC_SIGN }
+}
+
+// `bits` rounded to an integral value: toward negative infinity when `up` is
+// false, toward positive infinity when it is true.
+func numeric_integral(bits: UInt64, up: Bool) -> UInt64 {
+    let e = numeric_exponent(bits)
+    if e >= NUMERIC_MANTISSA_BITS {
+        // Already integral, an infinity, or a NaN, which comes back quiet.
+        return if numeric_is_nan(bits) { bits | NUMERIC_QUIET } else { bits }
+    }
+    let negative = (bits & NUMERIC_SIGN) != 0
+    if e < 0 {
+        if (bits & ~NUMERIC_SIGN) == 0 {
+            return bits
+        }
+        // Strictly between -1 and 1: the result is a zero of the operand's
+        // sign or a one, whichever side the rounding direction picks.
+        if negative == up {
+            return bits & NUMERIC_SIGN
+        }
+        return (bits & NUMERIC_SIGN) | NUMERIC_ONE
+    }
+    let fraction = NUMERIC_MANTISSA >> e
+    if (bits & fraction) == 0 {
+        return bits
+    }
+    // Rounding the magnitude up carries into the exponent where it must.
+    let away = if negative != up { bits + fraction + 1 } else { bits }
+    away & ~fraction
+}
+
+extension Float {
+    /// Returns the absolute value: the receiver with its sign bit cleared.
+    ///
+    /// `(-0.0).abs()` is `0.0`. A NaN's payload is kept, so only its sign
+    /// changes.
+    public func abs(&self) -> Float {
+        Float.from(bits: self.to_bits() & ~NUMERIC_SIGN)
+    }
+
+    /// Returns the largest integral value not greater than the receiver.
+    ///
+    /// A zero result keeps the receiver's sign: `(-0.5).floor()` is `-1.0`
+    /// and `(0.5).floor()` is `0.0`.
+    public func floor(&self) -> Float {
+        Float.from(bits: numeric_integral(self.to_bits(), false))
+    }
+
+    /// Returns the smallest integral value not less than the receiver.
+    ///
+    /// A zero result keeps the receiver's sign: `(-0.5).ceil()` is `-0.0`.
+    public func ceil(&self) -> Float {
+        Float.from(bits: numeric_integral(self.to_bits(), true))
+    }
+
+    /// Returns the nearest integral value, rounding a half away from zero.
+    ///
+    /// `(2.5).round()` is `3.0`, `(-2.5).round()` is `-3.0`, and a zero
+    /// result keeps the receiver's sign: `(-0.4).round()` is `-0.0`.
+    public func round(&self) -> Float {
+        let bits = self.to_bits()
+        let e = numeric_exponent(bits)
+        if e >= NUMERIC_MANTISSA_BITS {
+            return if numeric_is_nan(bits) { Float.from(bits: bits | NUMERIC_QUIET) } else { self }
+        }
+        if e < -1 {
+            return Float.from(bits: bits & NUMERIC_SIGN)
+        }
+        if e == -1 {
+            return Float.from(bits: (bits & NUMERIC_SIGN) | NUMERIC_ONE)
+        }
+        let fraction = NUMERIC_MANTISSA >> e
+        if (bits & fraction) == 0 {
+            return self
+        }
+        // Adding half an integral step to the magnitude, then truncating,
+        // rounds a tie away from zero.
+        let half = (fraction + 1) >> 1
+        Float.from(bits: (bits + half) & ~fraction)
+    }
+
+    /// Returns the square root, correctly rounded.
+    ///
+    /// `(-0.0).sqrt()` is `-0.0`, and any other negative receiver gives a
+    /// NaN.
+    public func sqrt(&self) -> Float {
+        let bits = self.to_bits()
+        if numeric_is_nan(bits) {
+            return Float.from(bits: bits | NUMERIC_QUIET)
+        }
+        if (bits & ~NUMERIC_SIGN) == 0 || bits == NUMERIC_EXPONENT_FIELD {
+            return self
+        }
+        if (bits & NUMERIC_SIGN) != 0 {
+            return Float.from(bits: NUMERIC_DEFAULT_NAN)
+        }
+        // A subnormal is normalized first, so the significand always holds
+        // its implicit bit.
+        var field = ((bits >> NUMERIC_MANTISSA_BITS) & NUMERIC_EXPONENT_MAX) as Int
+        var significand = bits & NUMERIC_MANTISSA
+        if field == 0 {
+            field = 1
+            while (significand & NUMERIC_IMPLICIT_BIT) == 0 {
+                significand = significand << 1
+                field = field - 1
+            }
+        } else {
+            significand = significand | NUMERIC_IMPLICIT_BIT
+        }
+        var e = field - NUMERIC_EXPONENT_BIAS
+        if (e & 1) != 0 {
+            significand = significand << 1
+            e = e - 1
+        }
+        // The bit-at-a-time integer square root (fdlibm's e_sqrt.c, on one
+        // 64-bit word) finds 54 bits of the root. A square root of a Float is
+        // never a rounding tie, so the 54th bit and a nonzero remainder
+        // decide the rounding.
+        var remainder = significand << 1
+        var root: UInt64 = 0
+        var partial: UInt64 = 0
+        var bit: UInt64 = 1 << 53
+        while bit != 0 {
+            let trial = partial + bit
+            if trial <= remainder {
+                partial = trial + bit
+                remainder = remainder - trial
+                root = root + bit
+            }
+            remainder = remainder << 1
+            bit = bit >> 1
+        }
+        if remainder != 0 {
+            root = root + (root & 1)
+        }
+        let result_field = (e / 2 + NUMERIC_EXPONENT_BIAS - 1) as UInt64
+        Float.from(bits: (result_field << NUMERIC_MANTISSA_BITS) + (root >> 1))
+    }
+
+    /// Returns the smaller of the receiver and `other`.
+    ///
+    /// `-0.0` orders below `0.0`, so `(0.0).min(-0.0)` is `-0.0`. A NaN, a
+    /// signalling one included, counts as missing: when one of the two is a
+    /// NaN the other is returned, and two NaNs give a NaN.
+    public func min(&self, other: Float) -> Float {
+        let a = self.to_bits()
+        let b = other.to_bits()
+        if numeric_is_nan(a) {
+            return other
+        }
+        if numeric_is_nan(b) {
+            return self
+        }
+        if numeric_order_key(a) <= numeric_order_key(b) { self } else { other }
+    }
+
+    /// Returns the larger of the receiver and `other`.
+    ///
+    /// `0.0` orders above `-0.0`, so `(-0.0).max(0.0)` is `0.0`. A NaN, a
+    /// signalling one included, counts as missing: when one of the two is a
+    /// NaN the other is returned, and two NaNs give a NaN.
+    public func max(&self, other: Float) -> Float {
+        let a = self.to_bits()
+        let b = other.to_bits()
+        if numeric_is_nan(a) {
+            return other
+        }
+        if numeric_is_nan(b) {
+            return self
+        }
+        if numeric_order_key(a) >= numeric_order_key(b) { self } else { other }
+    }
 }
 
 extension Int {
@@ -103,52 +296,5 @@ extension Int {
         } else {
             0
         }
-    }
-}
-
-extension Float {
-    /// Returns the absolute value: the receiver with its sign bit cleared.
-    ///
-    /// `(-0.0).abs()` is `0.0`, and a NaN stays a NaN.
-    public func abs(&self) -> Float {
-        fabs(self)
-    }
-
-    /// Returns the largest integral value not greater than the receiver.
-    public func floor(&self) -> Float {
-        floor(self)
-    }
-
-    /// Returns the smallest integral value not less than the receiver.
-    public func ceil(&self) -> Float {
-        ceil(self)
-    }
-
-    /// Returns the nearest integral value, rounding a half away from zero.
-    ///
-    /// `(2.5).round()` is `3.0` and `(-2.5).round()` is `-3.0`.
-    public func round(&self) -> Float {
-        round(self)
-    }
-
-    /// Returns the square root, correctly rounded.
-    ///
-    /// A negative receiver other than `-0.0` gives a NaN.
-    public func sqrt(&self) -> Float {
-        sqrt(self)
-    }
-
-    /// Returns the smaller of the receiver and `other`.
-    ///
-    /// When exactly one of the two is a NaN, the other is returned.
-    public func min(&self, other: Float) -> Float {
-        fmin(self, other)
-    }
-
-    /// Returns the larger of the receiver and `other`.
-    ///
-    /// When exactly one of the two is a NaN, the other is returned.
-    public func max(&self, other: Float) -> Float {
-        fmax(self, other)
     }
 }

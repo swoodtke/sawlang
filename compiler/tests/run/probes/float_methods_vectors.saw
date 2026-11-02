@@ -1,0 +1,103 @@
+// probe: stated
+// about: std.numeric's Float methods meet `float_methods.tsv` bit for bit, whether the target lowers a method to its instruction or to its Saw body (SL-944)
+// stage 0: not run; its std calls libm, whose `fmin`/`fmax` quiet a signalling NaN where the ruling returns the other operand
+// speeds: -O0 -O2
+// prints: float methods: 21166 cases, 0 mismatches
+// Every line of the vectors, each mismatch printed before the count. A NaN
+// result's sign and payload are unspecified, so an expected NaN is met by
+// any NaN, except under `abs`, which clears the sign bit and nothing else.
+//
+// The lane runs a probe in `.build/run-lane`, two levels below the repo root,
+// so the file is named from there.
+
+import std.file.{File}
+import std.path.{Path}
+
+static SIGN: UInt64 = 0x8000_0000_0000_0000
+static EXPONENT: UInt64 = 0x7FF0_0000_0000_0000
+
+func read_text(p: Path) -> String {
+    var f = try! File.open(p)
+    let bytes = try! f.read()
+    // The vectors are generated ASCII, so a UTF-8 fault is a broken checkout.
+    try! bytes.to_string()
+}
+
+func is_nan_bits(b: UInt64) -> Bool {
+    (b & ~SIGN) > EXPONENT
+}
+
+func bits_of(hex: String) -> UInt64 {
+    guard let v = hex.to_uint(16) else {
+        panic("unreadable bits: {}", hex)
+    }
+    v as UInt64
+}
+
+func pattern(b: UInt64) -> Float {
+    Float.from(bits: b)
+}
+
+// The method's result on the line's operands, or None for a method the file
+// should not name.
+func apply(method: String, a: UInt64, b: UInt64) -> UInt64? {
+    let x = pattern(a)
+    if method.equals("abs") {
+        return x.abs().to_bits()
+    }
+    if method.equals("floor") {
+        return x.floor().to_bits()
+    }
+    if method.equals("ceil") {
+        return x.ceil().to_bits()
+    }
+    if method.equals("round") {
+        return x.round().to_bits()
+    }
+    if method.equals("sqrt") {
+        return x.sqrt().to_bits()
+    }
+    if method.equals("min") {
+        return x.min(pattern(b)).to_bits()
+    }
+    if method.equals("max") {
+        return x.max(pattern(b)).to_bits()
+    }
+    None
+}
+
+func main() {
+    let text = read_text(Path(s: "../../compiler/tests/run/float_methods.tsv"))
+    let lines = try! text.split("\n")
+    var checked = 0
+    var bad = 0
+    for line in lines.iter() {
+        if line.len() == 0 || line.starts_with("#") {
+            continue
+        }
+        let fields = try! line.split("\t")
+        let method = fields[0]
+        let binary = method.equals("min") || method.equals("max")
+        let operands = if binary { 2 } else { 1 }
+        if fields.len() < operands + 2 {
+            print("malformed line: {}", line)
+            bad = bad + 1
+            continue
+        }
+        let a = bits_of(fields[1])
+        let b = if binary { bits_of(fields[2]) } else { 0 }
+        let want = bits_of(fields[operands + 1])
+        guard let got = apply(method, a, b) else {
+            print("unknown method: {}", line)
+            bad = bad + 1
+            continue
+        }
+        checked = checked + 1
+        let met = if is_nan_bits(want) && not method.equals("abs") { is_nan_bits(got) } else { got == want }
+        if not met {
+            bad = bad + 1
+            print("MISMATCH {}: got {}", line, got)
+        }
+    }
+    print("float methods: {} cases, {} mismatches", checked, bad)
+}

@@ -49,6 +49,7 @@ public func llvm_emit_program(mono: &var MonoProgram, target: &var Target, lower
                               object: Bool = false) -> String {
     var e = LlEmitter(lowering: move lowering)
     e.debug = debug
+    e.features = features
     e.dbg_optimized = not speed.equals("-O0")
     e.dbg_count = LL_DEBUG_FIRST
     // The integer type of a word, as `word_type` spells it for `Int`.

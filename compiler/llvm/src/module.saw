@@ -84,6 +84,9 @@ public struct LlEmitter {
     local_align: Map<Int, Int>
     decl_align: Map<Int, Int>
     decl_section: Map<Int, String>
+    // The effective subtarget features the module is compiled for, which
+    // decide whether a Float method is its instruction (`float_method_intrinsic`).
+    features: String
 }
 
 extension LlEmitter: NoCopy {}
@@ -165,7 +168,8 @@ extension LlEmitter {
                   word: "", word_bits: 0, wide_render: false, debug: false, dbg_optimized: false, dbg_meta: StringBuilder(),
                   dbg_count: 0, dbg_files: Vector<Int>(), dbg_scope: -1, dbg_scope_file: -1, dbg_suffix: "",
                   dbg_locs: Map<Int, Int>(), dbg_block_files: Vector<Int>(), dbg_block_scopes: Vector<Int>(),
-                  local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>())
+                  local_align: Map<Int, Int>(), decl_align: Map<Int, Int>(), decl_section: Map<Int, String>(),
+                  features: "")
     }
 
     // The alignment of a slot of natural alignment `natural`: the larger of

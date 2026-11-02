@@ -20,6 +20,11 @@ run/
   frame_pointers.saw  a program defining one function of each kind, whose defines the lane checks
   probes/        programs held to what their own headers state ("Probes")
   modules/       packages a program imports as `modules.NAME`, never run alone
+  float_methods.tsv  std.numeric's Float methods as bit patterns, which
+                 `probes/float_methods_vectors.saw` checks ("Float method vectors")
+  float_methods_vectors.py  writes float_methods.tsv from macOS arm64's libm
+  float_lowering.py  the float-instruction check ("The float-instruction check")
+  lowering/      the program that check emits for each target
 ```
 
 ## `sawc build`
@@ -68,7 +73,8 @@ sources.
 `clang -target TRIPLE SPEED [-fsanitize=address] -x ir OUT.ll -x none RUNTIME... [-lm] -o OUT`,
 blocking until clang exits. `-lm` is there for a Linux target only, since
 glibc keeps the math functions in libm, apart from libc, while macOS's
-libSystem carries them. A refusal prints its record (as `sawc coro
+libSystem carries them. A program's own `extern` math calls need it
+(`libm_link.saw`); std's Float methods call none. A refusal prints its record (as `sawc coro
 --check` prints one), writes nothing and exits 1; a failure to write the
 `.ll` or to start clang prints why and exits 1; otherwise the exit status
 is clang's. The `.ll` is written unbuffered and closed explicitly, and clang
@@ -648,6 +654,7 @@ what Stage 0 is no oracle for.
   `borrow` block;
 - every program of `probes/` is held to what its header states (below);
 - every program of `riscv32/` holds the riscv32 word check (below);
+- std.numeric's Float methods hold the float-instruction check (below);
 - no record under `stage0/` names a program that is gone.
 
 Stage 0 is the oracle: a difference is a sawc bug until shown otherwise
@@ -680,6 +687,37 @@ once with `+m,+a,+c`:
 When no clang compiles IR for riscv32, there is no record and the object half
 is skipped, its reason in the lane's counts; a capable clang with no record
 fails. The `i64` half always runs.
+
+### The float-instruction check
+
+std.numeric's seven Float methods are Saw bodies, and the backend defines one
+as its LLVM intrinsic where the target funnel (`target_float_instruction`,
+compiler/target/src/layout.saw) says the intrinsic is an instruction there.
+`float_lowering.py` emits `lowering/float_methods.saw` with `sawc build -c
+--emit-ll` for each cell of the funnel's matrix (a target and its features)
+and holds it to two things:
+
+- each method's definition is the one intrinsic call exactly where the
+  matrix says, and the Saw body everywhere else;
+- the module, compiled at -O0 and -O2 with the clang `build.choose_clang`
+  picks for the target, leaves no C math library function and no `llvm.*`
+  name undefined. A clang that does not know an intrinsic compiles a call to
+  it as a call to a function of that name, which is what this catches.
+
+Two injected riscv32 modules, `llvm.floor.f64` with no `D` and an intrinsic
+no LLVM knows, must each be reported, so the refusal is pinned. A target no
+clang here compiles for is skipped, saying so.
+
+### Float method vectors
+
+`float_methods.tsv` holds one line per case: the method, its operand bit
+patterns and the expected result's, in hex. `float_methods_vectors.py` writes
+it from macOS arm64's libm, held first to an independent derivation of the
+methods' rules; where libm breaks a rule (`fmin`/`fmax` beside a signalling
+NaN) the rule's result is written and the line notes libm's. An expected NaN
+is met by any NaN, except under `abs`. `probes/float_methods_vectors.saw`
+checks every line at -O0 and -O2, so it runs on each host and target the lane
+does, intrinsic or Saw body.
 
 ## Line tables
 

@@ -1,0 +1,71 @@
+// The float-instruction funnel, one row per (target, features) cell: which of
+// std.numeric's seven Float methods the backend defines as their LLVM
+// intrinsic, every other one being std's Saw body (SL-944). The run lane's
+// float-instruction check compiles each cell's intrinsics with the clang
+// build.py chooses and refuses a libcall where a row here says instruction.
+import sawtarget.layout.{TargetFeatureState, TargetFloatMethod, target_feature_state, target_float_instruction,
+                         target_native_atomics}
+
+// Each method's answer for one cell, as seven letters in `abs floor ceil
+// round sqrt min max` order: `i` for the intrinsic, `s` for the Saw body.
+func cell(triple: String, features: String) -> String {
+    let methods: [TargetFloatMethod; 7] = [TargetFloatMethod.Abs, TargetFloatMethod.Floor, TargetFloatMethod.Ceil,
+                                           TargetFloatMethod.Round, TargetFloatMethod.Sqrt, TargetFloatMethod.Min,
+                                           TargetFloatMethod.Max]
+    var out = StringBuilder()
+    var k = 0
+    while k < 7 {
+        try! out.append(if target_float_instruction(methods[k], triple, features) { "i" } else { "s" })
+        k = k + 1
+    }
+    out.build()
+}
+
+func row(triple: String, features: String, want: String) {
+    let got = cell(triple, features)
+    assert(got.equals(want), "{} [{}]: {} where the matrix says {}", triple, features, got, want)
+}
+
+func main() {
+    // min/max are the Saw body on every target: their intrinsics need LLVM 20
+    // or newer.
+
+    // AArch64: the FP unit has the other five; the freestanding default has
+    // only `abs`.
+    row("arm64-apple-darwin", "", "iiiiiss")
+    row("aarch64-unknown-linux-gnu", "", "iiiiiss")
+    row("aarch64-unknown-none-elf", "-neon,-fp-armv8", "issssss")
+    row("aarch64-unknown-none-elf", "+neon,+fp-armv8", "iiiiiss")
+    row("aarch64-unknown-none-elf", "+fp-armv8", "iiiiiss")
+    row("aarch64-unknown-none-elf", "-neon", "iiiiiss")
+    row("aarch64-unknown-none-elf", "+neon,+fp-armv8,-fp-armv8", "issssss")
+
+    // riscv32: the base ISA has only `abs`; `D` the square root; `Zfa` the
+    // rounding.
+    row("riscv32-unknown-none-elf", "+m,+a,+c", "issssss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f", "issssss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f,+d", "isssiss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+d", "isssiss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f,+d,+zfa", "iiiiiss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+zfa", "issssss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-f", "issssss")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-d", "issssss")
+
+    // x86_64: the square root everywhere; ROUNDSD with SSE4.1.
+    row("x86_64-unknown-linux-gnu", "", "isssiss")
+    row("x86_64-unknown-linux-gnu", "+sse4.1", "iiiiiss")
+    row("x86_64-unknown-linux-gnu", "+sse4.1,-sse4.1", "isssiss")
+
+    // The feature reader the funnel and the atomics question share.
+    assert(target_feature_state("+m,+a,+c", "a") == TargetFeatureState.On, "+a is on")
+    assert(target_feature_state("+m,-a", "a") == TargetFeatureState.Off, "-a is off")
+    assert(target_feature_state("a", "a") == TargetFeatureState.On, "a bare name is on")
+    assert(target_feature_state("+a,-a,+a", "a") == TargetFeatureState.On, "the last mention wins")
+    assert(target_feature_state("+zfa", "a") == TargetFeatureState.Unnamed, "zfa is not a")
+    assert(target_feature_state("", "d") == TargetFeatureState.Unnamed, "an empty list names nothing")
+    assert(target_native_atomics("riscv32-unknown-none-elf", "+m,+a,+c"), "riscv32 +a has atomics")
+    assert(not target_native_atomics("riscv32-unknown-none-elf", "+m,+c"), "riscv32 without +a has none")
+    assert(not target_native_atomics("riscv32-unknown-none-elf", "+a,-a"), "a later -a wins")
+    assert(target_native_atomics("aarch64-unknown-none-elf", "-neon,-fp-armv8"), "aarch64 always has atomics")
+    print("float instructions: ok")
+}

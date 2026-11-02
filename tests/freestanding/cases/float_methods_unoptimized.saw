@@ -1,0 +1,74 @@
+// `float_methods.saw` built at -O0, where no call is inlined or folded, so
+// each method's Saw body runs as a call of its own and the object names
+// whatever that call needs. Both cases hold the same checks; keep them equal
+// (SL-944).
+
+import fscore.*
+
+static NEGATIVE_ZERO: UInt64 = 0x8000_0000_0000_0000
+static SIGNALLING_NAN: UInt64 = 0x7FF0_0000_0000_0001
+static NEGATIVE_QUIET_NAN: UInt64 = 0xFFF8_0000_0000_0123
+static POSITIVE_QUIET_NAN: UInt64 = 0x7FF8_0000_0000_0123
+static LEAST_SUBNORMAL: UInt64 = 0x0000_0000_0000_0001
+// 2^52 - 0.5, the largest Float with a fraction.
+static LAST_HALF: UInt64 = 0x432F_FFFF_FFFF_FFFF
+
+@export("fs_main")
+func fs_main() unsafe {
+    let negative_zero = Float.from(bits: NEGATIVE_ZERO)
+    let snan = Float.from(bits: SIGNALLING_NAN)
+
+    check("abs_negative", same(abs_of(-2.5), 2.5))
+    check("abs_negative_zero", same(abs_of(negative_zero), 0.0))
+    check("abs_nan_sign_only",
+          abs_of(Float.from(bits: NEGATIVE_QUIET_NAN)).to_bits() == POSITIVE_QUIET_NAN)
+
+    check("floor_fraction", same(floor_of(2.7), 2.0))
+    check("floor_negative", same(floor_of(-2.7), -3.0))
+    check("floor_negative_half", same(floor_of(-0.5), -1.0))
+    check("floor_half", same(floor_of(0.5), 0.0))
+    check("floor_negative_zero", same(floor_of(negative_zero), negative_zero))
+    check("floor_last_half", same(floor_of(Float.from(bits: LAST_HALF)), 4503599627370495.0))
+    check("floor_nan", floor_of(snan).is_nan())
+
+    check("ceil_fraction", same(ceil_of(2.1), 3.0))
+    check("ceil_negative", same(ceil_of(-2.1), -2.0))
+    check("ceil_negative_half", same(ceil_of(-0.5), negative_zero))
+
+    check("round_tie_up", same(round_of(2.5), 3.0))
+    check("round_tie_down", same(round_of(-2.5), -3.0))
+    check("round_negative_small", same(round_of(-0.4), negative_zero))
+    check("round_below_half", same(round_of(0.49999999999999994), 0.0))
+    check("round_last_half", same(round_of(Float.from(bits: LAST_HALF)), 4503599627370496.0))
+
+    check("sqrt_two", same(sqrt_of(2.0), 1.4142135623730951))
+    check("sqrt_square", same(sqrt_of(16.0), 4.0))
+    check("sqrt_negative_zero", same(sqrt_of(negative_zero), negative_zero))
+    check("sqrt_negative", sqrt_of(-1.0).is_nan())
+    check("sqrt_subnormal", sqrt_of(Float.from(bits: LEAST_SUBNORMAL)).to_bits() == 0x1E60_0000_0000_0000)
+    check("sqrt_infinity", same(sqrt_of(1.0 / 0.0), 1.0 / 0.0))
+
+    check("min_zeros", same(min_of(negative_zero, 0.0), negative_zero))
+    check("min_zeros_reversed", same(min_of(0.0, negative_zero), negative_zero))
+    check("min_quiet_nan", same(min_of(0.0 / 0.0, 1.0), 1.0))
+    check("min_signalling_nan", same(min_of(1.0, snan), 1.0))
+    check("min_two_nans", min_of(snan, 0.0 / 0.0).is_nan())
+    check("max_zeros", same(max_of(negative_zero, 0.0), 0.0))
+    check("max_zeros_reversed", same(max_of(0.0, negative_zero), 0.0))
+    check("max_signalling_nan", same(max_of(snan, 2.0), 2.0))
+    check("max_ordered", same(max_of(-3.0, 2.0), 2.0))
+    finish("float_methods_unoptimized")
+}
+
+// Bit for bit, so the two zeros differ.
+func same(got: Float, want: Float) -> Bool {
+    got.to_bits() == want.to_bits()
+}
+
+func abs_of(x: Float) -> Float { x.abs() }
+func floor_of(x: Float) -> Float { x.floor() }
+func ceil_of(x: Float) -> Float { x.ceil() }
+func round_of(x: Float) -> Float { x.round() }
+func sqrt_of(x: Float) -> Float { x.sqrt() }
+func min_of(a: Float, b: Float) -> Float { a.min(b) }
+func max_of(a: Float, b: Float) -> Float { a.max(b) }

@@ -1,0 +1,25 @@
+// probe: stated
+// about: a program's own Float extension methods named like std.numeric's keep their bodies where std's become instructions (SL-944)
+// stage 0: runs it alike, but its std calls libm, so a recorded run says nothing about the backend's hook
+// speeds: -O0 -O2
+// prints: 9.0
+// prints: 7.0
+// prints: 2.0
+// prints: -1.0
+// The backend defines std.numeric's `floor` and `min` as their intrinsics on
+// this host. The hook is keyed on std's declarations, so these methods, one
+// sharing `floor`'s name and one sharing `min`'s, run their own bodies,
+// beside std's own methods on the same receiver.
+
+extension Float {
+    func floor(&self, by: Float) -> Float { by }
+    func min(&self, other: Float, unless: Float) -> Float { unless }
+}
+
+func main() {
+    let x = 2.5
+    print(x.floor(by: 9.0))
+    print(x.min(1.0, unless: 7.0))
+    print(x.floor())
+    print(x.min(-1.0))
+}

@@ -8707,10 +8707,29 @@ methods are called with ordinary `value.method(...)` syntax.
   exceeds `high`), `pow(exp:)` (**checked**: a result outside `Int` panics; a
   negative exponent **panics**, since there is no integer result),
   `is_even()` / `is_odd()`, `signum()` (−1 / 0 / 1).
-- `extension Float`: `abs()`, `floor()`, `ceil()`, `round()` (half away from
-  zero), `sqrt()`, `min(other:)` / `max(other:)`. These lower to the libm math
-  functions and follow **IEEE** semantics — a `NaN` propagates, and `min`/`max`
-  with one `NaN` operand return the non-`NaN` one. `std.float` adds the text
+- `extension Float`: `abs()`, `floor()`, `ceil()`, `round()`, `sqrt()`,
+  `min(other:)` / `max(other:)`. Each result is exact, and none panics:
+  - `abs` clears the sign bit and nothing else, so a `NaN` keeps its payload
+    and `(-0.0).abs()` is `0.0`.
+  - `floor`, `ceil` and `round` give the IEEE 754 integral value, and a zero
+    result keeps the operand's sign: `(-0.5).floor()` is `-1.0`,
+    `(-0.5).ceil()` is `-0.0`, `(-0.4).round()` is `-0.0`. `round` rounds a
+    half away from zero, so `(2.5).round()` is `3.0` and `(-2.5).round()` is
+    `-3.0`.
+  - `sqrt` is correctly rounded. `(-0.0).sqrt()` is `-0.0`, and any other
+    negative operand gives a `NaN`.
+  - `min` and `max` are IEEE 754-2019's minimumNumber and maximumNumber.
+    `-0.0` orders below `0.0`, so `(0.0).min(-0.0)` and `(-0.0).min(0.0)`
+    are both `-0.0` and `max` of either pair is `0.0`. A `NaN`, a signalling
+    one included, counts as missing: with one `NaN` operand they return the
+    other operand, and two `NaN`s give a `NaN`.
+  - Apart from `abs`, a `NaN` result's sign and payload are unspecified: the
+    result is a `NaN` and nothing more is promised.
+
+  The methods reference no C library. std writes each one in Saw over the
+  value's bit pattern, and where the target has an instruction for a method
+  that meets these rules (an FP unit's rounding or square root, say), the
+  compiler emits the instruction instead. `std.float` adds the text
   conversions and the bit-level accessors (below).
 
 ### Float ↔ text (`std.float`)
@@ -14614,7 +14633,10 @@ the soft-float routines `sawc`'s output can reference, exactly `__adddf3`,
 `__fixunsdfsi`, `__fixunsdfdi`, `__floatsidf`, `__floatdidf`,
 `__floatunsidf` and `__floatundidf`, which compiler-rt's builtins provide.
 The list is the same on both targets: `Float` arithmetic, its comparisons and
-`is_nan`, and its conversions to and from every integer width. On aarch64
+`is_nan`, and its conversions to and from every integer width. std's `Float`
+methods (`abs`, `floor`, `ceil`, `round`, `sqrt`, `min`, `max`) reach no
+floating-point routine outside this list and no C math library function, so
+a freestanding environment owes nothing more for them. On aarch64
 each routine takes and returns a `double` in general registers, so the
 environment builds them, and any C that passes `sawc`'s code a `Float`, for
 the soft-float ABI (clang's `-mgeneral-regs-only -mabi=aapcs-soft`).

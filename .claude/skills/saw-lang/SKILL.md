@@ -3755,9 +3755,11 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `std.numeric` and `std.float` declare no public top-level name — only
   methods on builtin types (`Float.sqrt`, `Float.abs`), which every module
   sees — so there is nothing to import there either and `import std.float` is
-  not a thing to write. `String.to_float` and `StringBuilder.append(value:
-  Float)` live with their receivers (std.string, std.stringbuilder), so they
-  need no import either; `Float`'s text comes from its `Printable` `format`
+  not a thing to write. `Float.min`/`max` are IEEE 754-2019's
+  minimumNumber/maximumNumber: `-0.0` orders below `0.0`, and a NaN operand
+  (signalling too) yields the other one. `String.to_float` and
+  `StringBuilder.append(value: Float)` live with their receivers (std.string,
+  std.stringbuilder), so they need no import either; `Float`'s text comes from its `Printable` `format`
   (`print(f)`, `"{f}"`, `f.to_string()`).
   IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),

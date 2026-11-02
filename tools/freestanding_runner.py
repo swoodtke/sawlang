@@ -266,6 +266,17 @@ def arch_free_problems():
 # is not run: Blade is frozen in v0.18.0's language and sawc cannot build it
 # until its port (SL-661).
 
+# The checks `float_methods` and its -O0 twin print, in order.
+FLOAT_METHOD_CHECKS = ["fs check %s=1" % claim for claim in (
+    "abs_negative", "abs_negative_zero", "abs_nan_sign_only",
+    "floor_fraction", "floor_negative", "floor_negative_half", "floor_half", "floor_negative_zero",
+    "floor_last_half", "floor_nan",
+    "ceil_fraction", "ceil_negative", "ceil_negative_half",
+    "round_tie_up", "round_tie_down", "round_negative_small", "round_below_half", "round_last_half",
+    "sqrt_two", "sqrt_square", "sqrt_negative_zero", "sqrt_negative", "sqrt_subnormal", "sqrt_infinity",
+    "min_zeros", "min_zeros_reversed", "min_quiet_nan", "min_signalling_nan", "min_two_nans",
+    "max_zeros", "max_zeros_reversed", "max_signalling_nan", "max_ordered")]
+
 TEST_CASES = [
     {
         # The floor. If this is red nothing else here means anything.
@@ -569,6 +580,20 @@ TEST_CASES = [
                        "fs check exact_u64_absent=1",
                        "fs check exact_i32_present=1",
                        "fs done soft_float ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # std.numeric's Float methods as their Saw bodies, with no libm: a
+        # libm name the object references is a stray (SL-944).
+        "name": "float_methods",
+        "expect_out": FLOAT_METHOD_CHECKS + ["fs done float_methods ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # The same checks at -O0, where every method is a call.
+        "name": "float_methods_unoptimized",
+        "extra_flags": ["-O0"],
+        "expect_out": FLOAT_METHOD_CHECKS + ["fs done float_methods_unoptimized ok"],
         "expect_clean_exit": True,
     },
     {

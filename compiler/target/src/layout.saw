@@ -163,26 +163,10 @@ public func target_native_atomics(triple: String, features: String) -> Bool {
     if not triple.starts_with("riscv") {
         return true
     }
-    var verdict = -1
-    var start = 0
-    let n = features.len()
-    var k = 0
-    while k <= n {
-        if k == n || (features.byte_at(k) as Int) == 44 {
-            // A feature string holds no whitespace: `driver_features_ok`
-            // admits only letters, digits and `+-,._`.
-            let one = features.substring(start, k)
-            if one.equals("+a") || one.equals("a") {
-                verdict = 1
-            } else if one.equals("-a") {
-                verdict = 0
-            }
-            start = k + 1
-        }
-        k = k + 1
-    }
-    if verdict >= 0 {
-        return verdict == 1
+    match target_feature_state(features, "a") {
+        case On -> { return true },
+        case Off -> { return false },
+        case Unnamed -> {}
     }
     let dash = triple.index_of(45) ?? triple.len()
     let arch = triple.substring(0, dash)
@@ -191,6 +175,99 @@ public func target_native_atomics(triple: String, features: String) -> Bool {
         isa = isa.substring(2, isa.len())
     }
     isa.contains("a") || isa.contains("g")
+}
+
+// What a subtarget feature list says about one feature.
+public enum TargetFeatureState {
+    case On,
+    case Off,
+    case Unnamed
+}
+
+// Whether the subtarget feature list `features` turns feature `name` on or
+// off, or names it nowhere. The last mention wins, as LLVM reads the list; a
+// bare `name` turns it on. Implied features are not followed: `+avx` names
+// nothing about `sse4.1` here.
+public func target_feature_state(features: String, name: String) -> TargetFeatureState {
+    var state = TargetFeatureState.Unnamed
+    var start = 0
+    let n = features.len()
+    var k = 0
+    while k <= n {
+        if k == n || (features.byte_at(k) as Int) == 44 {
+            // A feature string holds no whitespace: `driver_features_ok`
+            // admits only letters, digits and `+-,._`.
+            let one = features.substring(start, k)
+            if one.len() > 0 {
+                let sign = one.byte_at(0) as Int
+                let bare = if sign == 43 || sign == 45 { one.substring(1, one.len()) } else { one }
+                if bare.equals(name) {
+                    state = if sign == 45 { TargetFeatureState.Off } else { TargetFeatureState.On }
+                }
+            }
+            start = k + 1
+        }
+        k = k + 1
+    }
+    state
+}
+
+// A Float method of std.numeric that LLVM has an intrinsic for.
+public enum TargetFloatMethod {
+    case Abs,
+    case Floor,
+    case Ceil,
+    case Round,
+    case Sqrt,
+    case Min,
+    case Max
+}
+
+// THE FLOAT-INSTRUCTION FUNNEL: whether `method`'s LLVM intrinsic is an
+// instruction on `triple` compiled with the effective subtarget features
+// `features`, so the backend may define the method as that one intrinsic
+// call; else it emits std's Saw body (SL-944). A yes means the intrinsic
+// lowers inline, with no libcall, and meets std.numeric's rules, with the
+// clang build.py chooses for the triple; a cell nobody has shown both for is
+// a no. `Min` and `Max` are a no on every target: `llvm.minimumnum` and
+// `llvm.maximumnum`, the intrinsics that are their rule, do not exist before
+// LLVM 20, and Apple clang's x86 lowering of them orders -0.0 above 0.0.
+// ENTRY POINTS:
+//     LlEmitter.float_method_intrinsic
+public func target_float_instruction(method: TargetFloatMethod, triple: String, features: String) -> Bool {
+    // A sign-bit mask on every target, FP unit or none.
+    if method == TargetFloatMethod.Abs {
+        return true
+    }
+    if method == TargetFloatMethod.Min || method == TargetFloatMethod.Max {
+        return false
+    }
+    if triple.starts_with("aarch64") || triple.starts_with("arm64") {
+        // The FP unit has the other four; the freestanding default turns it
+        // off.
+        return target_feature_state(features, "fp-armv8") != TargetFeatureState.Off
+    }
+    if triple.starts_with("riscv") {
+        // `D` has the square root; the rounding instructions are `Zfa`'s. A
+        // `-f` anywhere is read as turning `D` off, which it does when it
+        // follows `+d`.
+        let f = target_feature_state(features, "f")
+        if target_feature_state(features, "d") != TargetFeatureState.On || f == TargetFeatureState.Off {
+            return false
+        }
+        return method == TargetFloatMethod.Sqrt || target_feature_state(features, "zfa") == TargetFeatureState.On
+    }
+    if triple.starts_with("x86_64") {
+        // SSE2 has the square root; ROUNDSD is SSE4.1's.
+        return match method {
+            case Sqrt -> true,
+            case Floor -> target_feature_state(features, "sse4.1") == TargetFeatureState.On,
+            case Ceil -> target_feature_state(features, "sse4.1") == TargetFeatureState.On,
+            case Round -> target_feature_state(features, "sse4.1") == TargetFeatureState.On,
+            case _ -> false
+        }
+    }
+    false
 }
 
 // THE FRONT END'S TARGET: the record typecheck and every stage after it read

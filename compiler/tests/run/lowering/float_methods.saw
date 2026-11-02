@@ -1,0 +1,25 @@
+// Each of std.numeric's seven Float methods behind an export, so an object
+// built for any target holds each method's definition: the module
+// `float_lowering.py` reads to see which methods became their LLVM intrinsic
+// and compiles to see that none left a C library call behind (SL-944).
+
+@export("float_abs")
+func float_abs(x: Float) -> Float { x.abs() }
+
+@export("float_floor")
+func float_floor(x: Float) -> Float { x.floor() }
+
+@export("float_ceil")
+func float_ceil(x: Float) -> Float { x.ceil() }
+
+@export("float_round")
+func float_round(x: Float) -> Float { x.round() }
+
+@export("float_sqrt")
+func float_sqrt(x: Float) -> Float { x.sqrt() }
+
+@export("float_min")
+func float_min(a: Float, b: Float) -> Float { a.min(b) }
+
+@export("float_max")
+func float_max(a: Float, b: Float) -> Float { a.max(b) }

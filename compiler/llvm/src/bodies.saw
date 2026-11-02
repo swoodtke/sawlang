@@ -21,8 +21,11 @@ import sawllvm.places.{ll_local_slot}
 import sawmir.model.{MirBlock, MirCallKind, MirFuncKind, MirStmt, MirStmtKind, MirTermKind}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram}
-import sawtarget.layout.{Target, TargetKind, TargetLayout}
+import sawresolve.model.{ResDeclKind, ResModuleKind}
+import sawtarget.layout.{Target, TargetFloatMethod, TargetKind, TargetLayout, target_float_instruction}
 import sawtypecheck.program.{TcProgram}
+// For `TcProgram.ext_head_decl`, which names the type a Float method extends.
+import sawtypecheck.signatures.{TcContext}
 
 // Label `word.STATE` of a resume function's state `state`.
 func ll_state_label(word: String, state: Int) -> String {
@@ -190,19 +193,24 @@ extension LlEmitter {
         try! head.append(self.item_section(&mono, k))
         try! head.append(dbg)
         let opening = self.dbg_suffix
-        var b = 0
-        while b < info.block_count {
-            let block = mono.dp.bc.mir.blocks[info.block_first + b]
-            self.put_label(ll_block(b))
-            var s = block.first
-            while s >= 0 {
-                let stmt = mono.dp.bc.mir.stmts[s]
-                self.statement(&var mono, &var target, &stmt)
-                s = stmt.next
+        let intrinsic = self.float_method_intrinsic(&var mono, &var target, k)
+        if intrinsic.len() > 0 {
+            self.float_method_body(&var mono, &var target, intrinsic)
+        } else {
+            var b = 0
+            while b < info.block_count {
+                let block = mono.dp.bc.mir.blocks[info.block_first + b]
+                self.put_label(ll_block(b))
+                var s = block.first
+                while s >= 0 {
+                    let stmt = mono.dp.bc.mir.stmts[s]
+                    self.statement(&var mono, &var target, &stmt)
+                    s = stmt.next
+                }
+                self.debug_at(&mono, block.term_node, block.term_closing)
+                self.block_end(&var mono, &var target, &block)
+                b = b + 1
             }
-            self.debug_at(&mono, block.term_node, block.term_closing)
-            self.block_end(&var mono, &var target, &block)
-            b = b + 1
         }
         self.debug_end()
         if self.refused {
@@ -219,6 +227,108 @@ extension LlEmitter {
         let blocks = self.body.build()
         try! self.defs.append(blocks)
         try! self.defs.append("\}\n\n")
+    }
+
+    // THE FLOAT-METHOD HOOK: the LLVM intrinsic item `k`'s body is the one
+    // call of, or "" for an item emitted from its MIR. It is an intrinsic only
+    // for one of std.numeric's seven Float methods (`ll_float_method`) on a
+    // target whose instruction for it the target funnel vouches for
+    // (`target_float_instruction`); everywhere else the method is its Saw
+    // body (SL-944).
+    // ENTRY POINTS:
+    //     LlEmitter.emit_function
+    func float_method_intrinsic(&var self, mono: &var MonoProgram, target: &var Target, k: Int) -> String {
+        let it = mono.items[k]
+        if it.kind != MonoItemKind.Function || it.body < 0 || it.decl < 0 {
+            return ""
+        }
+        let info = mono.dp.bc.mir.funcs[it.body]
+        if info.kind != MirFuncKind.Body {
+            return ""
+        }
+        guard let method = ll_float_method(&mono.dp.bc.mir.tc, it.decl) else {
+            return ""
+        }
+        if not target_float_instruction(method, target.triple, self.features) {
+            return ""
+        }
+        // The shape the body below writes: a Float result, and a receiver
+        // and an operand that are each a Float or a reference to one.
+        let arity = if method == TargetFloatMethod.Min || method == TargetFloatMethod.Max { 2 } else { 1 }
+        if info.param_count != arity {
+            return ""
+        }
+        let result_type = self.local_type(&mono, 0)
+        if self.lay_at(&var mono, &var target, result_type, -1).kind != TargetKind.Float {
+            return ""
+        }
+        var j = 1
+        while j <= arity {
+            let t = self.local_type(&mono, j)
+            let kind = self.lay_at(&var mono, &var target, t, -1).kind
+            if kind != TargetKind.Float && kind != TargetKind.Pointer {
+                return ""
+            }
+            j = j + 1
+        }
+        ll_float_intrinsic_name(method)
+    }
+
+    // The body of a Float method defined as `intrinsic`: each parameter read
+    // from its slot, through the reference when it is one, then the call.
+    func float_method_body(&var self, mono: &var MonoProgram, target: &var Target, intrinsic: String) {
+        let info = mono.dp.bc.mir.funcs[self.current]
+        self.put_label(ll_block(0))
+        var args = StringBuilder()
+        var types = StringBuilder()
+        var j = 1
+        while j <= info.param_count {
+            let slot = ll_local_slot(j)
+            var from = slot
+            let t = self.local_type(&mono, j)
+            if self.lay_at(&var mono, &var target, t, -1).kind == TargetKind.Pointer {
+                from = self.fresh()
+                var load = StringBuilder()
+                try! load.append(from)
+                try! load.append(" = load ptr, ptr ")
+                try! load.append(slot)
+                self.put(load.build())
+            }
+            let value = self.fresh()
+            var read = StringBuilder()
+            try! read.append(value)
+            try! read.append(" = load double, ptr ")
+            try! read.append(from)
+            self.put(read.build())
+            if j > 1 {
+                try! args.append(", ")
+                try! types.append(", ")
+            }
+            try! args.append("double ")
+            try! args.append(value)
+            try! types.append("double")
+            j = j + 1
+        }
+        var declaration = StringBuilder()
+        try! declaration.append("declare double @")
+        try! declaration.append(intrinsic)
+        try! declaration.append("(")
+        try! declaration.append(types.build())
+        try! declaration.append(")")
+        self.declare(intrinsic, declaration.build())
+        let result = self.fresh()
+        var call = StringBuilder()
+        try! call.append(result)
+        try! call.append(" = call double @")
+        try! call.append(intrinsic)
+        try! call.append("(")
+        try! call.append(args.build())
+        try! call.append(")")
+        self.put(call.build())
+        var ret = StringBuilder()
+        try! ret.append("ret double ")
+        try! ret.append(result)
+        self.put(ret.build())
     }
 
     // Item `k`'s resume function, `i32 (ptr %frame, ptr %cx)` (SL:coroutines
@@ -639,5 +749,71 @@ extension LlEmitter {
                 self.rvalue_into(&var mono, &var target, stmt.rvalue, dest, stmt.node)
             }
         }
+    }
+}
+
+// THE FLOAT-METHOD IDENTITY: which of std.numeric's seven Float methods
+// declaration `d` is, or None. Keyed on the declaration itself, a method of an
+// `extension Float` in the std module `std.numeric`, so a program's own Float
+// extension method of the same name is never one. A lang role cannot name
+// these: the lang table binds a module's top-level names, and an extension's
+// members are not among them.
+// ENTRY POINTS:
+//     LlEmitter.float_method_intrinsic
+public func ll_float_method(tc: &TcProgram, d: Int) -> TargetFloatMethod? {
+    if d < 0 {
+        return None
+    }
+    let decl = tc.res.decls[d]
+    if decl.kind != ResDeclKind.Method || decl.parent < 0 || tc.res.decls[decl.parent].kind != ResDeclKind.Extension {
+        return None
+    }
+    let home = tc.res.module(decl.module)
+    if home.kind != ResModuleKind.Std || not tc.res.module_name(decl.module).equals("std.numeric") {
+        return None
+    }
+    let extended = tc.ext_head_decl(decl.parent)
+    if extended < 0 || tc.res.decls[extended].kind != ResDeclKind.Primitive {
+        return None
+    }
+    if not tc.res.name_text(tc.res.decls[extended].name).equals("Float") {
+        return None
+    }
+    let name = tc.res.name_text(decl.name)
+    if name.equals("abs") {
+        return TargetFloatMethod.Abs
+    }
+    if name.equals("floor") {
+        return TargetFloatMethod.Floor
+    }
+    if name.equals("ceil") {
+        return TargetFloatMethod.Ceil
+    }
+    if name.equals("round") {
+        return TargetFloatMethod.Round
+    }
+    if name.equals("sqrt") {
+        return TargetFloatMethod.Sqrt
+    }
+    if name.equals("min") {
+        return TargetFloatMethod.Min
+    }
+    if name.equals("max") {
+        return TargetFloatMethod.Max
+    }
+    None
+}
+
+// The f64 intrinsic `method` is defined as. `min` and `max` are IEEE 754-2019's
+// minimumNumber and maximumNumber, which `llvm.minnum` is not on every target.
+func ll_float_intrinsic_name(method: TargetFloatMethod) -> String {
+    match method {
+        case Abs -> "llvm.fabs.f64",
+        case Floor -> "llvm.floor.f64",
+        case Ceil -> "llvm.ceil.f64",
+        case Round -> "llvm.round.f64",
+        case Sqrt -> "llvm.sqrt.f64",
+        case Min -> "llvm.minimumnum.f64",
+        case Max -> "llvm.maximumnum.f64"
     }
 }
