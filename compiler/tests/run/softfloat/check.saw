@@ -1,0 +1,139 @@
+// The soft-float vectors run on std's routines, hosted: `std/builtins/float.saw`
+// compiled into this program as a module of its own (the lane maps it with
+// `--module-path softfloat=std/builtins`) and each routine called by its C
+// symbol, so every row runs the routine rather than the host's FP unit. Each
+// result is compiler-rt's bit for bit, except that a NaN Float result is any
+// NaN (`vectors.txt` and its generator beside this file; SL-948).
+//
+//     check VECTORS     # prints each mismatch, then the counts; exits 1 on any
+
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+import softfloat.float
+
+extern "C" {
+    func __adddf3(a: UInt64, b: UInt64) -> UInt64
+    func __subdf3(a: UInt64, b: UInt64) -> UInt64
+    func __muldf3(a: UInt64, b: UInt64) -> UInt64
+    func __divdf3(a: UInt64, b: UInt64) -> UInt64
+    func __eqdf2(a: UInt64, b: UInt64) -> Int32
+    func __nedf2(a: UInt64, b: UInt64) -> Int32
+    func __ltdf2(a: UInt64, b: UInt64) -> Int32
+    func __ledf2(a: UInt64, b: UInt64) -> Int32
+    func __gtdf2(a: UInt64, b: UInt64) -> Int32
+    func __gedf2(a: UInt64, b: UInt64) -> Int32
+    func __unorddf2(a: UInt64, b: UInt64) -> Int32
+    func __fixdfsi(a: UInt64) -> Int32
+    func __fixdfdi(a: UInt64) -> Int64
+    func __fixunsdfsi(a: UInt64) -> UInt32
+    func __fixunsdfdi(a: UInt64) -> UInt64
+    func __floatsidf(a: Int32) -> UInt64
+    func __floatdidf(a: Int64) -> UInt64
+    func __floatunsidf(a: UInt32) -> UInt64
+    func __floatundidf(a: UInt64) -> UInt64
+}
+
+func is_nan(bits: UInt64) -> Bool {
+    (bits & 0x7FFF_FFFF_FFFF_FFFF) > 0x7FF0_0000_0000_0000
+}
+
+func hex(field: String) -> UInt64 {
+    (field.to_uint(16) ?? panic("not a hex word: {}", field)) as UInt64
+}
+
+func decimal(field: String) -> Int64 {
+    (field.to_int() ?? panic("not a decimal integer: {}", field)) as Int64
+}
+
+func unsigned(field: String) -> UInt64 {
+    (field.to_uint() ?? panic("not an unsigned integer: {}", field)) as UInt64
+}
+
+// Counts each routine's rows and misses, printing each miss with its line.
+struct Tally {
+    rows: Int
+    misses: Int
+}
+
+extension Tally {
+    // A Float result: bit for bit, or any NaN for a NaN.
+    func float(&var self, line: Int, name: String, got: UInt64, want: UInt64) {
+        self.rows = self.rows + 1
+        if got == want || (is_nan(want) && is_nan(got)) {
+            return
+        }
+        self.misses = self.misses + 1
+        print("miss line {} {}: got {} want {}", line, name, got, want)
+    }
+
+    // An integer result, exactly.
+    func integer(&var self, line: Int, name: String, got: Int64, want: Int64) {
+        self.rows = self.rows + 1
+        if got == want {
+            return
+        }
+        self.misses = self.misses + 1
+        print("miss line {} {}: got {} want {}", line, name, got, want)
+    }
+}
+
+func binary(t: &var Tally, line: Int, f: &Vector<String>) {
+    let a = hex(f[1])
+    let b = hex(f[2])
+    t.float(line, "__adddf3", __adddf3(a, b), hex(f[3]))
+    t.float(line, "__subdf3", __subdf3(a, b), hex(f[4]))
+    t.float(line, "__muldf3", __muldf3(a, b), hex(f[5]))
+    t.float(line, "__divdf3", __divdf3(a, b), hex(f[6]))
+    t.integer(line, "__eqdf2", __eqdf2(a, b) as Int64, decimal(f[7]))
+    t.integer(line, "__nedf2", __nedf2(a, b) as Int64, decimal(f[8]))
+    t.integer(line, "__ltdf2", __ltdf2(a, b) as Int64, decimal(f[9]))
+    t.integer(line, "__ledf2", __ledf2(a, b) as Int64, decimal(f[10]))
+    t.integer(line, "__gtdf2", __gtdf2(a, b) as Int64, decimal(f[11]))
+    t.integer(line, "__gedf2", __gedf2(a, b) as Int64, decimal(f[12]))
+    t.integer(line, "__unorddf2", __unorddf2(a, b) as Int64, decimal(f[13]))
+}
+
+func to_integer(t: &var Tally, line: Int, f: &Vector<String>) {
+    let a = hex(f[1])
+    t.integer(line, "__fixdfsi", __fixdfsi(a) as Int64, decimal(f[2]))
+    t.integer(line, "__fixdfdi", __fixdfdi(a), decimal(f[3]))
+    t.integer(line, "__fixunsdfsi", __fixunsdfsi(a) as Int64, decimal(f[4]))
+    t.integer(line, "__fixunsdfdi", Int64.from(truncating: __fixunsdfdi(a)), Int64.from(truncating: unsigned(f[5])))
+}
+
+func to_float(t: &var Tally, line: Int, f: &Vector<String>) {
+    let x = hex(f[1])
+    t.float(line, "__floatsidf", __floatsidf(Int32.from(truncating: x)), hex(f[2]))
+    t.float(line, "__floatdidf", __floatdidf(Int64.from(truncating: x)), hex(f[3]))
+    t.float(line, "__floatunsidf", __floatunsidf(UInt32.from(truncating: x)), hex(f[4]))
+    t.float(line, "__floatundidf", __floatundidf(x), hex(f[5]))
+}
+
+func main() -> Int {
+    let path = (try! Env.argument(1)) ?? panic("usage: check VECTORS")
+    var file = try! File.open(Path(s: path))
+    let text = try! (try! file.read()).to_string()
+    let lines = try! text.split("\n")
+    var t = Tally(rows: 0, misses: 0)
+    var k = 0
+    while k < lines.len() {
+        let line = lines[k]
+        k = k + 1
+        if line.len() == 0 {
+            continue
+        }
+        let f = try! line.split(" ")
+        if f[0].equals("B") && f.len() == 14 {
+            binary(&var t, k, &f)
+        } else if f[0].equals("F") && f.len() == 6 {
+            to_integer(&var t, k, &f)
+        } else if f[0].equals("I") && f.len() == 6 {
+            to_float(&var t, k, &f)
+        } else {
+            panic("malformed vectors line {}: {}", k, line)
+        }
+    }
+    print("soft-float vectors: {} lines, {} results, {} misses", lines.len() - 1, t.rows, t.misses)
+    if t.misses == 0 { 0 } else { 1 }
+}

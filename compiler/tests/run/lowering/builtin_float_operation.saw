@@ -1,0 +1,9 @@
+// The builtin check's negative control: a program's own `__muldf3` written
+// with a Float `+`. On a target with no FP unit LLVM lowers the `+` into a
+// call of `__adddf3`, a soft-float routine, which a soft-float routine must
+// never reach: `builtin_lowering.py` requires the check to report it (SL-948).
+
+@export("__muldf3")
+func product(a: UInt64, b: UInt64) -> UInt64 {
+    (Float.from(bits: a) + Float.from(bits: b)).to_bits()
+}

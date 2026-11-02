@@ -242,19 +242,15 @@ public func target_float_instruction(method: TargetFloatMethod, triple: String, 
     if method == TargetFloatMethod.Min || method == TargetFloatMethod.Max {
         return false
     }
+    if not target_float_unit(triple, features) {
+        return false
+    }
     if triple.starts_with("aarch64") || triple.starts_with("arm64") {
-        // The FP unit has the other four; the freestanding default turns it
-        // off.
-        return target_feature_state(features, "fp-armv8") != TargetFeatureState.Off
+        // The FP unit has the other four.
+        return true
     }
     if triple.starts_with("riscv") {
-        // `D` has the square root; the rounding instructions are `Zfa`'s. A
-        // `-f` anywhere is read as turning `D` off, which it does when it
-        // follows `+d`.
-        let f = target_feature_state(features, "f")
-        if target_feature_state(features, "d") != TargetFeatureState.On || f == TargetFeatureState.Off {
-            return false
-        }
+        // `D` has the square root; the rounding instructions are `Zfa`'s.
         return method == TargetFloatMethod.Sqrt || target_feature_state(features, "zfa") == TargetFeatureState.On
     }
     if triple.starts_with("x86_64") {
@@ -270,16 +266,38 @@ public func target_float_instruction(method: TargetFloatMethod, triple: String, 
     false
 }
 
+// THE FPU FUNNEL: whether `triple`, compiled with the effective subtarget
+// features `features`, has a floating-point unit for `Float`, so LLVM lowers
+// its arithmetic, comparisons and conversions to instructions rather than
+// calls of the soft-float routines. aarch64's FP unit is `fp-armv8`, which the
+// freestanding default turns off; riscv32's is `D`, and a `-f` anywhere is
+// read as turning `D` off, which it does when it follows `+d`; x86_64 always
+// has SSE2. Any other triple is read as having none.
+// ENTRY POINTS:
+//     target_float_instruction
+//     target_front_end
+public func target_float_unit(triple: String, features: String) -> Bool {
+    if triple.starts_with("aarch64") || triple.starts_with("arm64") {
+        return target_feature_state(features, "fp-armv8") != TargetFeatureState.Off
+    }
+    if triple.starts_with("riscv") {
+        return target_feature_state(features, "d") == TargetFeatureState.On &&
+            target_feature_state(features, "f") != TargetFeatureState.Off
+    }
+    triple.starts_with("x86_64")
+}
+
 // THE BUILTINS FUNNEL: the std builtins modules a compile for `triple` loads,
 // each named by its path under the std root (`builtins.memory` is
 // `std/builtins/memory.saw`). They hold the routines LLVM emits calls to on its
 // own, which a hosted program takes from the C library, so only a
-// `freestanding` compile loads any: the memory routines on every target, and
-// the 64-bit integer helpers where the word is 32 bits, the one place LLVM
-// calls them (SL-948).
+// `freestanding` compile loads any: the memory routines on every target, the
+// 64-bit integer helpers where the word is 32 bits, the one place LLVM calls
+// them, and the soft-float routines where the target has no `float_unit`
+// (`target_float_unit`) (SL-948).
 // ENTRY POINTS:
 //     asserts_typecheck_program
-public func target_builtins_modules(triple: String, freestanding: Bool) -> Vector<String> {
+public func target_builtins_modules(triple: String, freestanding: Bool, float_unit: Bool) -> Vector<String> {
     var out = Vector<String>()
     if not freestanding {
         return move out
@@ -288,13 +306,17 @@ public func target_builtins_modules(triple: String, freestanding: Bool) -> Vecto
     if target_word_bytes(triple) == 4 {
         try! out.push("builtins.integer")
     }
+    if not float_unit {
+        try! out.push("builtins.float")
+    }
     move out
 }
 
 // THE FRONT END'S TARGET: the record typecheck and every stage after it read
 // (`TcTarget`) for `triple` compiled with the effective subtarget features
-// `features`, its word from `target_word_bytes` and its atomics from
-// `target_native_atomics`. The one constructor of the record.
+// `features`, its word from `target_word_bytes`, its atomics from
+// `target_native_atomics` and its FP unit from `target_float_unit`. The one
+// constructor of the record.
 // ENTRY POINTS:
 //     driver_build
 //     driver_resolve
@@ -304,7 +326,7 @@ public func target_builtins_modules(triple: String, freestanding: Bool) -> Vecto
 //     llvm_build_exporting
 public func target_front_end(triple: String, features: String) -> TcTarget {
     TcTarget(triple: triple, word_bits: target_word_bytes(triple) * 8,
-             atomics: target_native_atomics(triple, features))
+             atomics: target_native_atomics(triple, features), float_unit: target_float_unit(triple, features))
 }
 
 // Whether `triple`'s objects are Mach-O, whose section names carry a segment.

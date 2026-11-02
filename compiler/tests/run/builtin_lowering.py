@@ -10,11 +10,18 @@ built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`) and aarch64, at
 `llvm-objdump`:
 
 - `builtin_uses.saw`'s object defines std's routines, each `W` (`STD_ROUTINES`:
-  the memory routines on both arches, the 64-bit integer helpers on riscv32),
-  and every function a routine reaches through relocations carries
-  `"no-builtins"` in the object's `.ll`, is a machine-outlined fragment (whose
-  relocations are followed), or is one of std's `__saw_fail_*` panic helpers,
-  which a correct routine never calls; no routine reaches its own symbol;
+  the memory routines and the soft-float routines on both arches, neither
+  having an FP unit, and the 64-bit integer helpers on riscv32), and every
+  function a routine reaches through relocations carries `"no-builtins"` in
+  the object's `.ll`, is a machine-outlined fragment (whose relocations are
+  followed), or is one of std's `__saw_fail_*` panic helpers, which a correct
+  routine never calls; no routine reaches its own symbol; and a soft-float
+  routine reaches no soft-float routine at all, its own symbol included, and
+  no `__saw_fail_*` helper, either of which means it used a Float operation
+  or a checked one;
+- `builtin_float_operation.saw`'s own `__muldf3`, written with a Float `+`, is
+  reported as reaching `__adddf3` at -O0 and -O2 on both arches, so the check
+  sees what it is for;
 - `builtin_memset_helper.saw` and `builtin_memmove_shift.saw`, a program's own
   `memset` and `memmove`, reach themselves at no level and are `W`, the
   object's one definition of the name, with std's other memory routines
@@ -27,7 +34,11 @@ built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`) and aarch64, at
   what it is for;
 - `builtin_uses.saw` built for the host defines none of the routines, and
   `shift_checks.saw`'s -O0 module checks the variable shift's count and not the
-  constant one's (`ll_constant_shift_count`).
+  constant one's (`ll_constant_shift_count`);
+- the soft-float routines, `std/builtins/float.saw` built for the host as a
+  module of `softfloat/check.saw` at -O0 and -O2, give compiler-rt's result on
+  every row of `softfloat/vectors.txt` (a NaN result any NaN), and a copy of
+  the vectors with one result changed is reported as exactly one miss.
 
 A target whose clang record is absent because no clang here compiles IR for it
 is skipped, and says why; a capable clang with no record fails.
@@ -50,17 +61,21 @@ LOWERING = os.path.join(HERE, "lowering")
 OUT = os.path.join(REPO, ".build", "builtin-lowering")
 TIMEOUT = 600
 LEVELS = ("-O0", "-O1", "-O2", "-Os", "-Oz")
-# std's routines: the memory and integer names of sawc's builtin name set
-# (`ll_builtin_symbol`, compiler/llvm/src/attributes.saw), which also holds the
-# soft-float routines.
+# std's routines: sawc's builtin name set (`ll_builtin_symbol`,
+# compiler/llvm/src/attributes.saw).
 MEMORY = ("memcpy", "memset", "memmove")
 INTEGER = ("__divdi3", "__moddi3", "__udivdi3", "__umoddi3", "__ashldi3", "__ashrdi3", "__lshrdi3")
+FLOAT = ("__adddf3", "__subdf3", "__muldf3", "__divdf3", "__eqdf2", "__nedf2", "__ltdf2", "__ledf2", "__gtdf2",
+         "__gedf2", "__unorddf2", "__fixdfsi", "__fixdfdi", "__fixunsdfsi", "__fixunsdfdi", "__floatsidf",
+         "__floatdidf", "__floatunsidf", "__floatundidf")
 # (triple, `--target-features` or None for the freestanding default, the
 # routines std defines there).
 ARCHES = (
-    ("riscv32-unknown-none-elf", "+m,+a,+c", MEMORY + INTEGER),
-    ("aarch64-unknown-none-elf", None, MEMORY),
+    ("riscv32-unknown-none-elf", "+m,+a,+c", MEMORY + INTEGER + FLOAT),
+    ("aarch64-unknown-none-elf", None, MEMORY + FLOAT),
 )
+SOFTFLOAT = os.path.join(HERE, "softfloat")
+FLOAT_MODULE = os.path.join(REPO, "std", "builtins", "float.saw")
 STD_ROUTINES = {triple: routines for triple, _, routines in ARCHES}
 # The levels at which `builtin_cross_module.saw`'s `memset` reaches itself:
 # LLVM turns the imported loop into a `memset` call before inlining it, and
@@ -208,6 +223,26 @@ def reach_problems(routine, graph, marked):
     return problems
 
 
+def float_reach_problems(routine, graph):
+    """Why soft-float `routine` may have used a Float operation or a checked
+    one: a path to any soft-float routine, its own symbol included, or to a
+    `__saw_fail_*` panic helper; empty when there is none."""
+    problems = []
+    seen = {routine}
+    pending = [(routine, [routine])]
+    while pending:
+        name, path = pending.pop()
+        for callee in sorted(graph.get(name, ())):
+            if callee in FLOAT or callee.startswith("__saw_fail"):
+                problems.append("reaches %s: %s" % (callee, " -> ".join(path + [callee])))
+                continue
+            if callee in seen:
+                continue
+            seen.add(callee)
+            pending.append((callee, path + [callee]))
+    return problems
+
+
 def read(tools, obj, ll):
     objdump, nm = tools
     symbols = text_symbols(nm, obj)
@@ -221,11 +256,11 @@ def check_std_routines(failures, counts, triple, features, tools, level):
         failures.append("%s: %s" % (where, why))
         return
     symbols, graph, marked = read(tools, obj, ll)
-    for routine in sorted(set(MEMORY + INTEGER)):
+    for routine in sorted(set(MEMORY + INTEGER + FLOAT)):
         wanted = routine in STD_ROUTINES[triple]
         if not wanted:
             if routine in symbols:
-                failures.append("%s: the object defines %s, which std defines only on a 32-bit word"
+                failures.append("%s: the object defines %s, which std does not define for this target"
                                 % (where, routine))
             continue
         if symbols.get(routine) != "W":
@@ -233,6 +268,8 @@ def check_std_routines(failures, counts, triple, features, tools, level):
                             % (where, routine, symbols.get(routine)))
             continue
         problems = reach_problems(routine, graph, marked)
+        if routine in FLOAT:
+            problems += float_reach_problems(routine, graph)
         failures.extend("%s: %s %s" % (where, routine, p) for p in problems)
         if not problems:
             counts["run builtin lowering std routines checked"] = \
@@ -337,6 +374,79 @@ def check_sees_a_self_call(failures, counts, clang, tools):
         counts.get("run builtin lowering injected self-calls caught", 0) + 1
 
 
+def check_float_operation_seen(failures, counts, triple, features, tools, level):
+    """The check catches what it is for: `builtin_float_operation.saw`'s own
+    `__muldf3`, whose Float `+` LLVM lowers into a call of `__adddf3`, is
+    reported as reaching it."""
+    where = "run builtin lowering builtin_float_operation.saw %s %s" % (triple, level)
+    obj, ll, why = sawc_object("builtin_float_operation.saw", triple, features, level,
+                               "float_operation_%s%s" % (triple, level))
+    if obj is None:
+        failures.append("%s: %s" % (where, why))
+        return
+    symbols, graph, _ = read(tools, obj, ll)
+    problems = float_reach_problems("__muldf3", graph)
+    if not any(p.startswith("reaches __adddf3") for p in problems):
+        failures.append("%s: the Float `+` in `__muldf3` is not reported as reaching __adddf3 (%s)"
+                        % (where, problems or "nothing reported"))
+        return
+    counts["run builtin lowering Float operations caught"] = \
+        counts.get("run builtin lowering Float operations caught", 0) + 1
+
+
+def soft_float_check(failures, where, vectors, level, exe):
+    """(misses, the summary line) of `softfloat/check.saw`'s binary `exe` run on
+    `vectors`, or None after recording why it did not run."""
+    r = subprocess.run([exe, vectors], cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+    lines = r.stdout.strip().splitlines()
+    found = re.match(r"soft-float vectors: \d+ lines, (\d+) results, (\d+) misses$", lines[-1] if lines else "")
+    if found is None or int(found.group(1)) == 0 or r.returncode != (1 if int(found.group(2)) else 0):
+        failures.append("%s %s: exit %d, %s" % (where, level, r.returncode,
+                                               (r.stdout + r.stderr).strip()[-600:] or "no output"))
+        return None
+    return int(found.group(2)), lines[-1]
+
+
+def check_soft_float_vectors(failures, counts):
+    """The soft-float routines, built for the host, on every row of
+    `softfloat/vectors.txt` at -O0 and -O2, and on a copy whose first `B`
+    line's sum is changed, which is exactly one miss. std's file is copied
+    under the build directory and mapped as package `softfloat`, since a path
+    into std reaches std's files only as std's own modules."""
+    where = "run builtin lowering softfloat/check.saw"
+    module = os.path.join(OUT, "softfloat")
+    os.makedirs(module, exist_ok=True)
+    shutil.copyfile(FLOAT_MODULE, os.path.join(module, "float.saw"))
+    vectors = os.path.join(SOFTFLOAT, "vectors.txt")
+    with open(vectors) as fh:
+        rows = fh.read().splitlines()
+    first = next(k for k, line in enumerate(rows) if line.startswith("B "))
+    fields = rows[first].split()
+    fields[3] = "%016x" % (int(fields[3], 16) ^ 1)
+    rows[first] = " ".join(fields)
+    changed = os.path.join(OUT, "vectors_changed.txt")
+    with open(changed, "w") as fh:
+        fh.write("\n".join(rows) + "\n")
+    for level in ("-O0", "-O2"):
+        exe = os.path.join(OUT, "softfloat_check%s" % level)
+        r = subprocess.run([build.SAWC, "build", level, "-g0", "--std-root", "std", "--module-path",
+                            "softfloat=%s" % rel(module), rel(os.path.join(SOFTFLOAT, "check.saw")), "-o", exe],
+                           cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
+        if r.returncode != 0:
+            failures.append("%s %s: sawc builds nothing: %s" % (where, level, (r.stdout + r.stderr).strip()[:300]))
+            continue
+        clean = soft_float_check(failures, where, rel(vectors), level, exe)
+        control = soft_float_check(failures, where + " on the changed copy", rel(changed), level, exe)
+        if clean is None or control is None:
+            continue
+        if clean[0] != 0 or control[0] != 1:
+            failures.append("%s %s: %d misses on the vectors and %d on the changed copy, not 0 and 1: %s"
+                            % (where, level, clean[0], control[0], clean[1]))
+            continue
+        counts["run builtin lowering soft-float vector runs"] = \
+            counts.get("run builtin lowering soft-float vector runs", 0) + 1
+
+
 def check_hosted(failures, counts):
     """`builtin_uses.saw` for the host defines none of the routines: a hosted
     program takes them from the C library."""
@@ -350,7 +460,7 @@ def check_hosted(failures, counts):
     defined = set()
     for line in r.stdout.splitlines():
         found = _DEFINE.match(line)
-        if found and (found.group(1) or found.group(2)) in MEMORY + INTEGER:
+        if found and (found.group(1) or found.group(2)) in MEMORY + INTEGER + FLOAT:
             defined.add(found.group(1) or found.group(2))
     if defined or '"no-builtins"' in r.stdout:
         failures.append("%s: the module defines %s" % (where, ", ".join(sorted(defined)) or "a no-builtins group"))
@@ -393,6 +503,7 @@ def check_shift_checks(failures, counts, triple, features):
 
 def check(failures, counts):
     check_hosted(failures, counts)
+    check_soft_float_vectors(failures, counts)
     for triple, features, _ in ARCHES:
         check_shift_checks(failures, counts, triple, features)
         clang, skip, problem = record_clang(triple)
@@ -413,6 +524,8 @@ def check(failures, counts):
             check_std_routines(failures, counts, triple, features, tools, level)
             check_program_routines(failures, counts, triple, features, tools, level)
             check_cross_module(failures, counts, triple, features, tools, level)
+        for level in ("-O0", "-O2"):
+            check_float_operation_seen(failures, counts, triple, features, tools, level)
         if triple == ARCHES[0][0]:
             check_sees_a_self_call(failures, counts, clang, tools)
 

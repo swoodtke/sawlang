@@ -34,14 +34,19 @@ blocked by a sawc gap is marked `due` in the runner, citing the issue that
 owns the gap, and must fail with that gap's diagnostic until the gap closes;
 a gap on one architecture marks that row alone (`due_on`).
 
-Each case object defines `memcpy`, `memset`, `memmove` and, on riscv32, the
-64-bit integer helpers itself, weakly (the spec's Profiles), so the object
-leaves none of them undefined. `hal/support.c` still defines the memory
-routines, `__udivdi3` and `__umoddi3`, and its strong definitions win at the
-link. `integer_helpers` runs each helper on the rows of
-`cases/integer_vectors.saw`, which `tools/test_freestanding_runner.py`
-recomputes on the host; `int64_operators` reaches them through Saw's
-operators at the suite's level and at `-Oz`.
+Each case object defines `memcpy`, `memset`, `memmove`, on riscv32 the
+64-bit integer helpers, and on both targets, neither of which has an FP unit
+here, the soft-float routines itself, weakly (the spec's Profiles), so the
+object leaves none of them undefined and the link carries no C library for
+them. `hal/support.c` still defines the memory routines, `__udivdi3` and
+`__umoddi3`, and its strong definitions win at the link. `integer_helpers`
+runs each helper on the rows of `cases/integer_vectors.saw`, which
+`tools/test_freestanding_runner.py` recomputes on the host; `int64_operators`
+reaches them through Saw's operators at the suite's level and at `-Oz`.
+`soft_float_vectors` runs each soft-float routine on the operands of
+`compiler/tests/run/softfloat/vectors.txt`, compiler-rt's answers, and
+checks each routine's checksum against the vectors'; `soft_float` reaches
+them through Saw's `Float` operations.
 
 `bladepkg/` is the Blade case (`blade build --target T`): the runner builds
 Blade with sawc, then builds the package through it.

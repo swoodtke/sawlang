@@ -1,0 +1,316 @@
+// std's soft-float routines on the bare machine, each called by its C symbol
+// on the operands of `compiler/tests/run/softfloat/vectors.txt`, made here
+// again in its generator's order (`oracle.c` there: the same edges, the same
+// SplitMix64 draws). Each routine's results fold into a checksum, a NaN Float
+// result counted as the quiet NaN since its bits are unspecified, and each
+// checksum must equal the vectors' own, which
+// `tools/test_freestanding_runner.py` holds `CHECKSUMS` to. The runner builds
+// it at -O0 and, as `soft_float_vectors_optimized`, at -O2 (SL-948).
+
+import fscore.*
+
+extern "C" {
+    func __adddf3(a: UInt64, b: UInt64) -> UInt64
+    func __subdf3(a: UInt64, b: UInt64) -> UInt64
+    func __muldf3(a: UInt64, b: UInt64) -> UInt64
+    func __divdf3(a: UInt64, b: UInt64) -> UInt64
+    func __eqdf2(a: UInt64, b: UInt64) -> Int32
+    func __nedf2(a: UInt64, b: UInt64) -> Int32
+    func __ltdf2(a: UInt64, b: UInt64) -> Int32
+    func __ledf2(a: UInt64, b: UInt64) -> Int32
+    func __gtdf2(a: UInt64, b: UInt64) -> Int32
+    func __gedf2(a: UInt64, b: UInt64) -> Int32
+    func __unorddf2(a: UInt64, b: UInt64) -> Int32
+    func __fixdfsi(a: UInt64) -> Int32
+    func __fixdfdi(a: UInt64) -> Int64
+    func __fixunsdfsi(a: UInt64) -> UInt32
+    func __fixunsdfdi(a: UInt64) -> UInt64
+    func __floatsidf(a: Int32) -> UInt64
+    func __floatdidf(a: Int64) -> UInt64
+    func __floatunsidf(a: UInt32) -> UInt64
+    func __floatundidf(a: UInt64) -> UInt64
+}
+
+static SIGN: UInt64 = 1 << 63
+static ABS: UInt64 = (1 << 63) - 1
+static SIGNIFICAND: UInt64 = (1 << 52) - 1
+static QNAN: UInt64 = 0x7FF8_0000_0000_0000
+static FNV_OFFSET: UInt64 = 0xCBF2_9CE4_8422_2325
+static FNV_PRIME: UInt64 = 0x100_0000_01B3
+
+static EDGE_COUNT: Int = 24
+static EDGES: [UInt64; EDGE_COUNT] = [
+    0x0000_0000_0000_0000, 0x0000_0000_0000_0001, 0x0000_0000_0000_0002, 0x0000_0000_0000_0003,
+    0x000F_FFFF_FFFF_FFFF, 0x0008_0000_0000_0000, 0x0010_0000_0000_0000, 0x0010_0000_0000_0001,
+    0x3FF0_0000_0000_0000, 0x3FF0_0000_0000_0001, 0x3FF8_0000_0000_0000, 0x3FEF_FFFF_FFFF_FFFF,
+    0x4330_0000_0000_0000, 0x4340_0000_0000_0000, 0x3CA0_0000_0000_0000, 0x7FEF_FFFF_FFFF_FFFF,
+    0x7FE0_0000_0000_0000, 0x7FF0_0000_0000_0000, 0x7FF8_0000_0000_0000, 0x7FF8_0000_0000_0042,
+    0x7FF0_0000_0000_0001, 0x7FF4_0000_0000_0000, 0x4000_0000_0000_0000, 0x3FE0_0000_0000_0000]
+
+static CONVERSION_EDGE_COUNT: Int = 13
+static CONVERSION_EDGES: [UInt64; CONVERSION_EDGE_COUNT] = [
+    0x41DF_FFFF_FFC0_0000, 0x41DF_FFFF_FFE0_0000, 0x41E0_0000_0000_0000, 0x41E0_0000_0010_0000,
+    0x41EF_FFFF_FFE0_0000, 0x41F0_0000_0000_0000, 0x43DF_FFFF_FFFF_FFFF, 0x43E0_0000_0000_0000,
+    0x43EF_FFFF_FFFF_FFFF, 0x43F0_0000_0000_0000, 0x4330_0000_0000_0001, 0x4320_0000_0000_0001,
+    0x41E0_0000_0020_0000]
+
+static INTEGER_EDGE_COUNT: Int = 24
+static INTEGER_EDGES: [UInt64; INTEGER_EDGE_COUNT] = [
+    0x0000_0000_0000_0000, 0x0000_0000_0000_0001, 0x0000_0000_0000_0002, 0x0000_0000_0000_0003,
+    0x0000_0000_7FFF_FFFF, 0x0000_0000_8000_0000, 0x0000_0000_FFFF_FFFF, 0x0000_0001_0000_0000,
+    0x001F_FFFF_FFFF_FFFF, 0x0020_0000_0000_0000, 0x0020_0000_0000_0001, 0x0020_0000_0000_0002,
+    0x0020_0000_0000_0003, 0x0040_0000_0000_0002, 0x0040_0000_0000_0006, 0x7FFF_FFFF_FFFF_FFFF,
+    0x8000_0000_0000_0000, 0x8000_0000_0000_0001, 0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_F800,
+    0xFFFF_FFFF_FFFF_FC00, 0xFFFF_FFFF_FFFF_FBFF, 0x8000_0000_0000_0400, 0x8000_0000_0000_0C00]
+
+static UNIFORM_DRAWS: Int = 300
+static NEAR_DRAWS: Int = 300
+static SHORT_DRAWS: Int = 300
+static TINY_DRAWS: Int = 200
+static TOP_DRAWS: Int = 200
+static UNDERFLOW_DRAWS: Int = 150
+static TO_INTEGER_DRAWS: Int = 1500
+static TO_FLOAT_DRAWS: Int = 1500
+
+// Each routine's checksum over the vectors, in this order: the binary
+// routines, the float-to-integer ones, the integer-to-float ones.
+static ROUTINE_COUNT: Int = 19
+static CHECKSUMS: [UInt64; ROUTINE_COUNT] = [
+    0xD5DB_C3C2_3AC3_B778, 0xB6EE_0BA5_C943_49FB, 0x81C6_E4C7_8323_ACB8, 0xA7BA_29A9_B21B_7C2E,
+    0x44FC_FFFC_FDAD_3897, 0x44FC_FFFC_FDAD_3897, 0x44FC_FFFC_FDAD_3897, 0x44FC_FFFC_FDAD_3897,
+    0x1FFF_7540_3ABD_CFBD, 0x1FFF_7540_3ABD_CFBD, 0x86B7_2815_B2AC_30DE, 0x8339_AEF4_E3E3_3BB7,
+    0xB1F0_7FD0_2D69_EFAF, 0x3C22_6DBE_EA67_0EAC, 0x7978_C0F9_B468_E561, 0xE7EC_4DCD_783C_5C95,
+    0x4161_D803_2B36_4AD6, 0xDC20_7DC4_AE9C_5C95, 0x9C05_748D_538E_BC33]
+
+// The vectors' draws: SplitMix64 from the generator's seed.
+struct Draws {
+    state: UInt64
+}
+
+extension Draws {
+    func next(&var self) -> UInt64 {
+        self.state = self.state &+ 0x9E37_79B9_7F4A_7C15
+        var z = self.state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        z ^ (z >> 31)
+    }
+
+    // A value of biased exponent `exponent` (its low 11 bits), with a drawn
+    // sign and then a drawn significand.
+    func operand(&var self, exponent: UInt64) -> UInt64 {
+        let sign = self.next() & SIGN
+        let significand = self.next() & SIGNIFICAND
+        sign | ((exponent & 0x7FF) << 52) | significand
+    }
+
+    // `value` with its significand cut to at most its top 26 bits.
+    func shortened(&var self, value: UInt64) -> UInt64 {
+        let kept = self.next() % 27
+        let one: UInt64 = 1
+        value & ~((one << (52 - kept)) - 1)
+    }
+
+    func short_operand(&var self) -> UInt64 {
+        let exponent = 1023 - 32 + self.next() % 64
+        let value = self.operand(exponent)
+        self.shortened(value)
+    }
+}
+
+// The routines' checksums, folding as the vectors are met.
+struct Sums {
+    words: [UInt64; ROUTINE_COUNT]
+}
+
+extension Sums {
+    func fold(&var self, routine: Int, word: UInt64) {
+        self.words[routine] = (self.words[routine] ^ word) &* FNV_PRIME
+    }
+
+    func fold_float(&var self, routine: Int, bits: UInt64) {
+        self.fold(routine, if (bits & ABS) > 0x7FF0_0000_0000_0000 { QNAN } else { bits })
+    }
+
+    func fold_signed(&var self, routine: Int, value: Int64) {
+        self.fold(routine, UInt64.from(truncating: value))
+    }
+
+    func binary(&var self, a: UInt64, b: UInt64) {
+        self.fold_float(0, __adddf3(a, b))
+        self.fold_float(1, __subdf3(a, b))
+        self.fold_float(2, __muldf3(a, b))
+        self.fold_float(3, __divdf3(a, b))
+        self.fold_signed(4, __eqdf2(a, b) as Int64)
+        self.fold_signed(5, __nedf2(a, b) as Int64)
+        self.fold_signed(6, __ltdf2(a, b) as Int64)
+        self.fold_signed(7, __ledf2(a, b) as Int64)
+        self.fold_signed(8, __gtdf2(a, b) as Int64)
+        self.fold_signed(9, __gedf2(a, b) as Int64)
+        self.fold_signed(10, __unorddf2(a, b) as Int64)
+    }
+
+    func to_integer(&var self, a: UInt64) {
+        self.fold_signed(11, __fixdfsi(a) as Int64)
+        self.fold_signed(12, __fixdfdi(a))
+        self.fold(13, __fixunsdfsi(a) as UInt64)
+        self.fold(14, __fixunsdfdi(a))
+    }
+
+    func to_float(&var self, x: UInt64) {
+        self.fold_float(15, __floatsidf(Int32.from(truncating: x)))
+        self.fold_float(16, __floatdidf(Int64.from(truncating: x)))
+        self.fold_float(17, __floatunsidf(UInt32.from(truncating: x)))
+        self.fold_float(18, __floatundidf(x))
+    }
+
+    // A pair whose product's exponent, or for a `quotient` whose quotient's,
+    // lands around the subnormal boundary; `cut` as the generator's.
+    func underflowing(&var self, d: &var Draws, quotient: Bool, cut: Int) {
+        let e1 = 1 + d.next() % 1023
+        let apart = d.next() % 66
+        let e2 = if quotient { e1 &+ 1023 &- 5 &+ apart } else { 1023 &+ 5 &- e1 &- apart }
+        var a = d.operand(e1)
+        var b = d.operand(e2)
+        if cut == 1 {
+            a = d.shortened(a)
+            b = d.shortened(b)
+        }
+        if cut == 2 {
+            a = d.shortened(a)
+            b = (b & ~SIGNIFICAND) | 1
+        }
+        self.binary(a, b)
+    }
+}
+
+// The `i`th of the edges at both signs, positive first.
+func edge(i: Int) -> UInt64 {
+    EDGES[i / 2] | (if i % 2 == 1 { SIGN } else { 0 })
+}
+
+func binaries(sums: &var Sums, d: &var Draws) {
+    var i = 0
+    while i < 2 * EDGE_COUNT {
+        var j = 0
+        while j < 2 * EDGE_COUNT {
+            sums.binary(edge(i), edge(j))
+            j = j + 1
+        }
+        i = i + 1
+    }
+    var k = 0
+    while k < UNIFORM_DRAWS {
+        let a = d.next()
+        sums.binary(a, d.next())
+        k = k + 1
+    }
+    k = 0
+    while k < NEAR_DRAWS {
+        let a = d.next()
+        let apart = (d.next() % 66) << 52
+        let sign = d.next() & SIGN
+        let low = d.next() & 0xFF
+        sums.binary(a, (((a & ABS) &- apart) & ABS) ^ sign ^ low)
+        k = k + 1
+    }
+    k = 0
+    while k < SHORT_DRAWS {
+        let a = d.short_operand()
+        sums.binary(a, d.short_operand())
+        k = k + 1
+    }
+    k = 0
+    while k < TINY_DRAWS {
+        let a = d.next() & 0x801F_FFFF_FFFF_FFFF
+        sums.binary(a, d.next() & 0x801F_FFFF_FFFF_FFFF)
+        k = k + 1
+    }
+    k = 0
+    while k < TOP_DRAWS {
+        let a = 0x7FE0_0000_0000_0000 | (d.next() & 0x800F_FFFF_FFFF_FFFF)
+        sums.binary(a, 0x7C00_0000_0000_0000 | (d.next() & 0x83FF_FFFF_FFFF_FFFF))
+        k = k + 1
+    }
+    k = 0
+    while k < UNDERFLOW_DRAWS {
+        sums.underflowing(&var d, false, 0)
+        sums.underflowing(&var d, false, 1)
+        sums.underflowing(&var d, false, 2)
+        sums.underflowing(&var d, true, 0)
+        sums.underflowing(&var d, true, 1)
+        sums.underflowing(&var d, true, 2)
+        k = k + 1
+    }
+}
+
+func conversions(sums: &var Sums, d: &var Draws) {
+    var i = 0
+    while i < 2 * EDGE_COUNT {
+        sums.to_integer(edge(i))
+        i = i + 1
+    }
+    i = 0
+    while i < 2 * CONVERSION_EDGE_COUNT {
+        sums.to_integer(CONVERSION_EDGES[i / 2] | (if i % 2 == 1 { SIGN } else { 0 }))
+        i = i + 1
+    }
+    var k = 0
+    while k < TO_INTEGER_DRAWS {
+        let exponent = 1023 - 2 + d.next() % 68
+        sums.to_integer(d.operand(exponent))
+        k = k + 1
+    }
+    i = 0
+    while i < 2 * INTEGER_EDGE_COUNT {
+        let x = INTEGER_EDGES[i / 2]
+        sums.to_float(if i % 2 == 1 { 0 &- x } else { x })
+        i = i + 1
+    }
+    k = 0
+    while k < TO_FLOAT_DRAWS {
+        let bits = d.next()
+        let magnitude = bits >> (d.next() % 64)
+        let negate = d.next() & 1
+        sums.to_float(if negate != 0 { 0 &- magnitude } else { magnitude })
+        k = k + 1
+    }
+}
+
+// One routine's checksum against the vectors', printing the one it got when
+// they differ.
+func held(claim: String, sums: &Sums, routine: Int) unsafe {
+    let got = sums.words[routine]
+    if got != CHECKSUMS[routine] {
+        print("fs value {}_checksum={}", claim, got)
+    }
+    check(claim, got == CHECKSUMS[routine])
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    var d = Draws(state: 948)
+    var sums = Sums(words: [FNV_OFFSET; ROUTINE_COUNT])
+    binaries(&var sums, &var d)
+    conversions(&var sums, &var d)
+    held("adddf3_vectors", &sums, 0)
+    held("subdf3_vectors", &sums, 1)
+    held("muldf3_vectors", &sums, 2)
+    held("divdf3_vectors", &sums, 3)
+    held("eqdf2_vectors", &sums, 4)
+    held("nedf2_vectors", &sums, 5)
+    held("ltdf2_vectors", &sums, 6)
+    held("ledf2_vectors", &sums, 7)
+    held("gtdf2_vectors", &sums, 8)
+    held("gedf2_vectors", &sums, 9)
+    held("unorddf2_vectors", &sums, 10)
+    held("fixdfsi_vectors", &sums, 11)
+    held("fixdfdi_vectors", &sums, 12)
+    held("fixunsdfsi_vectors", &sums, 13)
+    held("fixunsdfdi_vectors", &sums, 14)
+    held("floatsidf_vectors", &sums, 15)
+    held("floatdidf_vectors", &sums, 16)
+    held("floatunsidf_vectors", &sums, 17)
+    held("floatundidf_vectors", &sums, 18)
+    finish("soft_float_vectors")
+}

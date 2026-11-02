@@ -1,8 +1,10 @@
 // What makes LLVM call each of std's builtin routines: 64-bit division and
 // remainder, signed and unsigned, and 64-bit shifts by a variable count, which
 // call the integer helpers on a 32-bit word; a copy and a zeroing of a value
-// bigger than a word, which call `memcpy` and `memset`. Built freestanding, the
-// object defines std's routines itself: `builtin_lowering.py` reads it (SL-948).
+// bigger than a word, which call `memcpy` and `memset`; and Float arithmetic,
+// a comparison and the conversions, which call the soft-float routines on a
+// target with no FP unit. Built freestanding, the object defines std's routines
+// itself: `builtin_lowering.py` reads it (SL-948).
 
 struct Wide {
     a: UInt64, b: UInt64, c: UInt64, d: UInt64,
@@ -30,4 +32,10 @@ func builtin_zero(i: Int) -> UInt8 {
     var buf: [UInt8; 1024] = [0; 1024]
     buf[i] = 1
     buf[i + 1]
+}
+
+@export("builtin_float")
+func builtin_float(a: Float, b: Float, n: Int64) -> Float {
+    let sum = (a + b) * (a - b) / b
+    if sum < a { n as Float } else { Float.from(bits: UInt64.from(truncating: n)) }
 }

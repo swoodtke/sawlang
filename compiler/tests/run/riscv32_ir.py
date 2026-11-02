@@ -93,13 +93,17 @@ def rel(path):
     return os.path.relpath(path, REPO)
 
 
-def std_builtin(function):
-    """Whether `function`, a define's symbol as `i64_problems` reads it, is one
-    of std's builtin routines or a function of their modules, which a
-    freestanding module defines and which work on 64-bit values by nature
-    (`builtin_lowering.STD_ROUTINES`; SL-948)."""
-    name = function.strip('"')
-    return name.startswith("saw std.builtins.") or name in builtin_lowering.STD_ROUTINES[TRIPLE]
+def std_builtin(symbol):
+    """Whether `symbol`, a define's or a global's as `i64_problems` reads it,
+    is one of std's builtin routines or a function or static of their
+    modules, which a freestanding module defines and which work on 64-bit
+    values by nature (`builtin_lowering.STD_ROUTINES`; SL-948)."""
+    name = symbol.strip('"')
+    return (name.startswith(("saw std.builtins.", "static std.builtins."))
+            or name in builtin_lowering.STD_ROUTINES[TRIPLE])
+
+
+_GLOBAL = re.compile(r'^@("[^"]+"|[\w.$]+) = ')
 
 
 def i64_problems(where, ll):
@@ -115,6 +119,9 @@ def i64_problems(where, ll):
             function = line.split("@", 1)[1].split("(", 1)[0] if "@" in line else line
             tags = set()
         if not _I64.search(line) or std_builtin(function):
+            continue
+        found = _GLOBAL.match(line)
+        if found and std_builtin(found.group(1)):
             continue
         m = _TAG_WIDEN.match(line)
         if m:

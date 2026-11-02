@@ -1526,9 +1526,10 @@ on one side alone.
 4. **kernel / none** — the freestanding profile: the compiler emits these as
    external declarations only and links no runtime; a kernel supplies the bodies
    (for a program that runs tasks, the "Freestanding executor set" above).
-   The object itself defines `memcpy`, `memset`, `memmove` and, on a 32-bit
-   word, the 64-bit integer helpers, each weakly, so a kernel need not supply
-   them and its own definition wins when it does (LANGUAGE_SPEC.md, Profiles).
+   The object itself defines `memcpy`, `memset`, `memmove`, on a 32-bit word
+   the 64-bit integer helpers, and on a target with no floating-point unit the
+   soft-float routines, each weakly, so a kernel need not supply them and its
+   own definition wins when it does (LANGUAGE_SPEC.md, Profiles).
 
 ## Authoring a runtime in Saw (design 113b)
 

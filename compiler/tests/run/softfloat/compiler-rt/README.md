@@ -1,10 +1,11 @@
 # compiler-rt soft-float builtins
 
-The soft-float routines LANGUAGE_SPEC.md's Profiles section says a
-freestanding environment supplies on a target with no floating-point unit,
-taken from LLVM's compiler-rt so the suite's images link them the way a kernel
-would. `tools/freestanding_runner.py` compiles each `.c` file here for the
-case's architecture and links the objects beside `../support.c`.
+The oracle for std's soft-float routines (`std/builtins/float.saw`): LLVM's
+compiler-rt implementations of the routines LANGUAGE_SPEC.md's Profiles
+section says a freestanding object defines on a target with no floating-point
+unit. `../generate.py` compiles each `.c` file here for the host, on
+compiler-rt's integer-only path (`-D__SOFTFP__`), and writes their answers to
+`../vectors.txt`. Nothing links them into a program.
 
 ## Source
 
@@ -14,9 +15,8 @@ case's architecture and links the objects beside `../support.c`.
 - License: `LICENSE.TXT`, compiler-rt's own (Apache-2.0 WITH LLVM-exception,
   sawlang's license too)
 
-The tag matches the Homebrew LLVM clang the runner picks for riscv32
-(23.1.3). The files are plain C, and every clang the runner may pick compiles
-them.
+The tag matches the Homebrew LLVM clang the freestanding runner picks for
+riscv32 (23.1.3). The files are plain C, and the host's clang compiles them.
 
 The files are unmodified. To update them, fetch the same names from a new tag
 and change this file's tag and commit.

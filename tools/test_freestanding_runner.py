@@ -11,10 +11,13 @@ no usable clang. Each case runs the runner's `--tools` decision with stub tools
 first on a PATH that holds no real ones, with `HOMEBREW_PREFIX` naming no
 Homebrew, so nothing is built or booted.
 
-It also holds each arch's `soft_float` list equal to the routines
-LANGUAGE_SPEC.md's Profiles paragraph names, which is the list the runner
-checks every case object against, and recomputes every row of
-`cases/integer_vectors.saw`, the integer helpers' vectors, from its operands.
+It also holds the runner's soft-float list, the routines a case object
+defines itself, equal to the routines LANGUAGE_SPEC.md's Profiles paragraph
+names; requires the symbol check to refuse an object that leaves a
+soft-float routine undefined; recomputes every row of
+`cases/integer_vectors.saw`, the integer helpers' vectors, from its operands;
+and holds `cases/soft_float_vectors.saw`'s `CHECKSUMS` equal to the checksums
+of `compiler/tests/run/softfloat/vectors.txt`, in the runner's order.
 """
 import os
 import re
@@ -29,6 +32,9 @@ sys.path.insert(0, HERE)
 
 import build  # noqa: E402
 import freestanding_runner  # noqa: E402
+
+sys.path.insert(0, os.path.join(REPO, "compiler", "tests", "run", "softfloat"))
+import generate as softfloat_vectors  # noqa: E402
 
 RUNNER = os.path.join(HERE, "freestanding_runner.py")
 OUT = os.path.join(build.BUILD_DIR, "test-freestanding-runner")
@@ -101,20 +107,55 @@ SOFT_FLOAT_PARAGRAPH = "On a target with no floating-point unit"
 
 
 def soft_float_problems():
-    """Why the runner's `soft_float` lists differ from the spec's, or []."""
+    """Why the runner's soft-float list differs from the spec's, or why the
+    symbol check lets an object leave a soft-float routine undefined, or []."""
     with open(SPEC, encoding="utf-8") as fh:
         paragraphs = [" ".join(p.split()) for p in fh.read().split("\n\n")]
     found = [p for p in paragraphs if p.startswith(SOFT_FLOAT_PARAGRAPH)]
     if len(found) != 1:
         return ["LANGUAGE_SPEC.md has %d paragraphs opening %r, not one" % (len(found), SOFT_FLOAT_PARAGRAPH)]
     spec = set(re.findall(r"`(__\w+)`", found[0]))
+    runner = set(freestanding_runner.SOFT_FLOAT_ROUTINES)
     problems = []
-    for arch in freestanding_runner.ARCHES:
-        if arch["soft_float"] != spec:
-            problems.append("%s: the runner's soft_float list differs from the spec's: only the runner has %s, "
-                            "only the spec has %s" % (arch["name"], sorted(arch["soft_float"] - spec),
-                                                      sorted(spec - arch["soft_float"])))
+    if runner != spec:
+        problems.append("the runner's soft-float list differs from the spec's: only the runner has %s, only the "
+                        "spec has %s" % (sorted(runner - spec), sorted(spec - runner)))
+    case = {"name": "stub"}
+    for arch in ARCHES:
+        seams = {"__saw_rt_write", "fs_console_write"}
+        if freestanding_runner.undefined_problem(case, arch, seams) is not None:
+            problems.append("%s: the symbol check refuses an object leaving only seams undefined" % arch["name"])
+        for name in ("__adddf3", "__floatundidf", "__extendsfdf2"):
+            said = freestanding_runner.undefined_problem(case, arch, seams | {name})
+            if said is None or name not in said:
+                problems.append("%s: the symbol check lets an object leave %s undefined (%s)"
+                                % (arch["name"], name, said))
     return problems
+
+
+SOFT_FLOAT_CASE = os.path.join(freestanding_runner.CASES_DIR, "soft_float_vectors.saw")
+
+
+def checksum_problems():
+    """Why `cases/soft_float_vectors.saw`'s `CHECKSUMS` differ from the
+    soft-float vectors' own checksums, in the runner's order, or []."""
+    with open(SOFT_FLOAT_CASE, encoding="utf-8") as fh:
+        text = fh.read()
+    found = re.search(r"static CHECKSUMS: \[UInt64; ROUTINE_COUNT\] = \[(.*?)\]", text, re.S)
+    if not found:
+        return ["%s: no CHECKSUMS table" % os.path.relpath(SOFT_FLOAT_CASE, REPO)]
+    stated = [int(t.replace("_", ""), 16) for t in re.findall(r"0x([0-9A-Fa-f_]+)", found.group(1))]
+    with open(softfloat_vectors.VECTORS, encoding="utf-8") as fh:
+        sums = softfloat_vectors.checksums(fh.read())
+    order = [routine[2:] for routine in freestanding_runner.SOFT_FLOAT_ROUTINES]
+    if sorted(order) != sorted(sums):
+        return ["the runner's soft-float routines %s are not the vectors' %s" % (order, sorted(sums))]
+    want = [sums[name] for name in order]
+    if stated != want:
+        return ["%s: CHECKSUMS %s, and the vectors' checksums in the runner's order are %s"
+                % (os.path.relpath(SOFT_FLOAT_CASE, REPO), ["0x%016X" % v for v in stated],
+                   ["0x%016X" % v for v in want])]
+    return []
 
 
 VECTORS = os.path.join(freestanding_runner.CASES_DIR, "integer_vectors.saw")
@@ -198,10 +239,11 @@ def main():
             failures.append("%s: says it SKIPPED: %s" % (name, said.strip()[:400]))
     failures += soft_float_problems()
     failures += vector_problems()
+    failures += checksum_problems()
     for failure in failures:
         print(failure)
-    print("freestanding runner: %s: %d stub cases, the soft-float list, the integer helpers' vectors"
-          % ("FAIL (%d)" % len(failures) if failures else "ok", ran))
+    print("freestanding runner: %s: %d stub cases, the soft-float list and symbol check, the integer helpers' "
+          "vectors, the soft-float checksums" % ("FAIL (%d)" % len(failures) if failures else "ok", ran))
     return 1 if failures else 0
 
 

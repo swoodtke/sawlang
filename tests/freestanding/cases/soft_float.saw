@@ -1,12 +1,13 @@
-// Every Float operation the language has, run where each one is a call into
-// the environment's soft-float routines (SL-929).
+// Every Float operation the language has, run where each one is a call of a
+// soft-float routine (SL-929).
 //
 // On a target with no floating-point unit (aarch64 under the freestanding
-// default `-fp-armv8`, riscv32 without `F`/`D`), the backend lowers each Float
-// operation to a compiler-rt builtin (`__adddf3`, `__ltdf2`, `__fixdfsi`, ...)
-// that the image links from `hal/compiler-rt/`. The runner builds this case at
-// `-O0`, and every operand reaches its operation through a function parameter,
-// so no operation folds away and each routine runs.
+// default `-fp-armv8`, riscv32 without `D`), the backend lowers each Float
+// operation to a call of a soft-float routine (`__adddf3`, `__ltdf2`,
+// `__fixdfsi`, ...), which the object defines itself from
+// `std/builtins/float.saw` (SL-948). The runner builds this case at `-O0`, and
+// every operand reaches its operation through a function parameter, so no
+// operation folds away and each routine runs.
 //
 // Each result is printed and the runner matches the text; a comparison is a
 // `check`. The formatter is integer arithmetic over the value's bits, so the

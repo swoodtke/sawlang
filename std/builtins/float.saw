@@ -1,0 +1,588 @@
+//! The soft-float routines LLVM calls for `Float` on a target with no
+//! floating-point unit: `__adddf3`, `__subdf3`, `__muldf3` and `__divdf3` for
+//! arithmetic, `__eqdf2`, `__nedf2`, `__ltdf2`, `__ledf2`, `__gtdf2`,
+//! `__gedf2` and `__unorddf2` for comparison, and `__fixdfsi`, `__fixdfdi`,
+//! `__fixunsdfsi`, `__fixunsdfdi`, `__floatsidf`, `__floatdidf`,
+//! `__floatunsidf` and `__floatundidf` for conversion. A freestanding compile
+//! for such a target loads this module, and no program can import it. Each
+//! routine is defined weak, so an environment's own definition wins at the
+//! link.
+
+// Each routine takes and returns a `double` as its bit pattern, a `UInt64`,
+// which is where both targets' soft-float conventions pass one: the integer
+// registers, as a 64-bit integer. A comparison answers a C `int`, `Int32` on
+// both.
+//
+// A routine never uses a `Float` operation, since LLVM would compile it into a
+// call of a routine here. Every shift by a variable count goes through
+// `shifted_left` or `shifted_right`, a constant shift per bit of the count, so
+// it has no range check and never becomes a call of a 64-bit shift helper on a
+// 32-bit word. All arithmetic wraps, so no path reaches the panic helpers,
+// which call `memcpy`. A function here calls no function of another module:
+// the run lane's builtin check reads every relocation in the object to hold
+// that.
+//
+// The results are compiler-rt's, bit for bit, except the bits of a NaN result,
+// which the language leaves unspecified: round to nearest, ties to even,
+// subnormal results rounded once, an overflow an infinity of the result's
+// sign. A conversion to an integer truncates toward zero; one whose value has
+// no 32- or 64-bit representation follows compiler-rt's integer-only path,
+// which saturates by the operand's sign once the exponent reaches the width
+// (a NaN included), and wraps the magnitude to the width below that. Saw's own
+// conversions check the range first, so only C reaches those inputs.
+
+static SIGNIFICAND_BITS: Int = 52
+static EXPONENT_BIAS: Int = 1023
+static MAX_EXPONENT: Int = 0x7FF
+static SIGN_BIT: UInt64 = 1 << 63
+static ABS_MASK: UInt64 = (1 << 63) - 1
+static IMPLICIT_BIT: UInt64 = 1 << 52
+static SIGNIFICAND_MASK: UInt64 = (1 << 52) - 1
+static INF_REP: UInt64 = 0x7FF0_0000_0000_0000
+static QUIET_BIT: UInt64 = 1 << 51
+static QNAN_REP: UInt64 = 0x7FF8_0000_0000_0000
+
+// ---- shifts, counts and the wide product ------------------------------------
+
+// `v << n` for `n` in 0...63, and 0 for a larger `n`.
+func shifted_left(v: UInt64, n: Int) -> UInt64 {
+    if n >= 64 {
+        return 0
+    }
+    var out = v
+    if (n & 32) != 0 { out = out << 32 }
+    if (n & 16) != 0 { out = out << 16 }
+    if (n & 8) != 0 { out = out << 8 }
+    if (n & 4) != 0 { out = out << 4 }
+    if (n & 2) != 0 { out = out << 2 }
+    if (n & 1) != 0 { out = out << 1 }
+    out
+}
+
+// `v >> n`, zero-filling, for `n` in 0...63, and 0 for a larger `n`.
+func shifted_right(v: UInt64, n: Int) -> UInt64 {
+    if n >= 64 {
+        return 0
+    }
+    var out = v
+    if (n & 32) != 0 { out = out >> 32 }
+    if (n & 16) != 0 { out = out >> 16 }
+    if (n & 8) != 0 { out = out >> 8 }
+    if (n & 4) != 0 { out = out >> 4 }
+    if (n & 2) != 0 { out = out >> 2 }
+    if (n & 1) != 0 { out = out >> 1 }
+    out
+}
+
+// `v >> n` with every bit shifted out ORed into the lowest, the sticky bit
+// that keeps rounding exact; `n` is at least 0, and past 63 only the sticky
+// bit is left.
+func shifted_right_sticky(v: UInt64, n: Int) -> UInt64 {
+    if n == 0 {
+        return v
+    }
+    if n >= 64 {
+        return if v != 0 { 1 } else { 0 }
+    }
+    let lost = v & (shifted_left(1, n) &- 1)
+    let sticky: UInt64 = if lost != 0 { 1 } else { 0 }
+    shifted_right(v, n) | sticky
+}
+
+// The leading zeros of `v`, 64 for zero.
+func leading_zeros(v: UInt64) -> Int {
+    if v == 0 {
+        return 64
+    }
+    var n = 0
+    var x = v
+    if (x >> 32) == 0 {
+        n = n &+ 32
+        x = x << 32
+    }
+    if (x >> 48) == 0 {
+        n = n &+ 16
+        x = x << 16
+    }
+    if (x >> 56) == 0 {
+        n = n &+ 8
+        x = x << 8
+    }
+    if (x >> 60) == 0 {
+        n = n &+ 4
+        x = x << 4
+    }
+    if (x >> 62) == 0 {
+        n = n &+ 2
+        x = x << 2
+    }
+    if (x >> 63) == 0 {
+        n = n &+ 1
+    }
+    n
+}
+
+// A subnormal's significand moved up to the implicit bit, and the biased
+// exponent that leaves its value unchanged.
+func normalize(significand: &var UInt64) -> Int {
+    let shift = leading_zeros(significand) &- leading_zeros(IMPLICIT_BIT)
+    significand = shifted_left(significand, shift)
+    1 &- shift
+}
+
+// The biased exponent field of `rep`.
+func exponent_of(rep: UInt64) -> Int {
+    Int.from(truncating: (rep >> 52) & 0x7FF)
+}
+
+// The 128-bit product of `a` and `b`, as its `high` and `low` words, from
+// four products of 32-bit halves.
+func wide_multiply(a: UInt64, b: UInt64, high: &var UInt64, low: &var UInt64) {
+    let a_low = a & 0xFFFF_FFFF
+    let a_high = a >> 32
+    let b_low = b & 0xFFFF_FFFF
+    let b_high = b >> 32
+    let low_low = a_low &* b_low
+    let low_high = a_low &* b_high
+    let high_low = a_high &* b_low
+    let high_high = a_high &* b_high
+    let middle = (low_low >> 32) &+ (low_high & 0xFFFF_FFFF) &+ (high_low & 0xFFFF_FFFF)
+    low = (low_low & 0xFFFF_FFFF) | (middle << 32)
+    high = (middle >> 32) &+ (low_high >> 32) &+ (high_low >> 32) &+ high_high
+}
+
+// The rounding every arithmetic routine ends with: `significand` holds the
+// result with its implicit bit at bit 55 and three bits below the last kept
+// one (round, guard, sticky), `exponent` is the biased exponent it would
+// carry. An exponent past the largest is an infinity, one at or below zero a
+// subnormal shifted down with its sticky bits, and the three low bits round
+// to nearest, ties to even; a carry out of the significand bumps the exponent,
+// up to an infinity when it must.
+func rounded(significand: UInt64, exponent: Int, sign: UInt64) -> UInt64 {
+    if exponent >= MAX_EXPONENT {
+        return INF_REP | sign
+    }
+    var sig = significand
+    var exp = exponent
+    if exp <= 0 {
+        sig = shifted_right_sticky(sig, 1 &- exp)
+        exp = 0
+    }
+    let round_guard_sticky = sig & 7
+    var result = (sig >> 3) & SIGNIFICAND_MASK
+    result = result | (UInt64.from(truncating: exp) << 52)
+    result = result | sign
+    if round_guard_sticky > 4 {
+        result = result &+ 1
+    }
+    if round_guard_sticky == 4 {
+        result = result &+ (result & 1)
+    }
+    result
+}
+
+// ---- arithmetic -------------------------------------------------------------
+
+// `a + b`: the operands aligned to the larger one's exponent with three spare
+// bits and a sticky bit, added or subtracted by sign, renormalized, rounded.
+func added(a: UInt64, b: UInt64) -> UInt64 {
+    let a_abs = a & ABS_MASK
+    let b_abs = b & ABS_MASK
+    // A zero, an infinity or a NaN on either side: a magnitude whose value
+    // less one is at least `INF_REP` less one.
+    if (a_abs &- 1) >= (INF_REP &- 1) || (b_abs &- 1) >= (INF_REP &- 1) {
+        if a_abs > INF_REP {
+            return a | QUIET_BIT
+        }
+        if b_abs > INF_REP {
+            return b | QUIET_BIT
+        }
+        if a_abs == INF_REP {
+            if (a ^ b) == SIGN_BIT {
+                return QNAN_REP
+            }
+            return a
+        }
+        if b_abs == INF_REP {
+            return b
+        }
+        if a_abs == 0 {
+            if b_abs == 0 {
+                return a & b
+            }
+            return b
+        }
+        if b_abs == 0 {
+            return a
+        }
+    }
+    let swap = b_abs > a_abs
+    let big = if swap { b } else { a }
+    let small = if swap { a } else { b }
+    var big_exp = exponent_of(big)
+    var small_exp = exponent_of(small)
+    var big_sig = big & SIGNIFICAND_MASK
+    var small_sig = small & SIGNIFICAND_MASK
+    if big_exp == 0 {
+        big_exp = normalize(&var big_sig)
+    }
+    if small_exp == 0 {
+        small_exp = normalize(&var small_sig)
+    }
+    let sign = big & SIGN_BIT
+    let subtraction = ((big ^ small) & SIGN_BIT) != 0
+    big_sig = (big_sig | IMPLICIT_BIT) << 3
+    small_sig = shifted_right_sticky((small_sig | IMPLICIT_BIT) << 3, big_exp &- small_exp)
+    if subtraction {
+        big_sig = big_sig &- small_sig
+        if big_sig == 0 {
+            return 0
+        }
+        if big_sig < (IMPLICIT_BIT << 3) {
+            let shift = leading_zeros(big_sig) &- leading_zeros(IMPLICIT_BIT << 3)
+            big_sig = shifted_left(big_sig, shift)
+            big_exp = big_exp &- shift
+        }
+    } else {
+        big_sig = big_sig &+ small_sig
+        if (big_sig & (IMPLICIT_BIT << 4)) != 0 {
+            big_sig = (big_sig >> 1) | (big_sig & 1)
+            big_exp = big_exp &+ 1
+        }
+    }
+    rounded(big_sig, big_exp, sign)
+}
+
+@export("__adddf3")
+func __adddf3(a: UInt64, b: UInt64) -> UInt64 {
+    added(a, b)
+}
+
+@export("__subdf3")
+func __subdf3(a: UInt64, b: UInt64) -> UInt64 {
+    added(a, b ^ SIGN_BIT)
+}
+
+// `a * b`: the 106-bit product of the significands, normalized, its low word
+// folded into the round and sticky bits.
+@export("__muldf3")
+func __muldf3(a: UInt64, b: UInt64) -> UInt64 {
+    let a_exp = exponent_of(a)
+    let b_exp = exponent_of(b)
+    let sign = (a ^ b) & SIGN_BIT
+    var a_sig = a & SIGNIFICAND_MASK
+    var b_sig = b & SIGNIFICAND_MASK
+    var scale = 0
+    // A zero, a subnormal, an infinity or a NaN on either side: an exponent
+    // field of 0 or `MAX_EXPONENT`.
+    if a_exp == 0 || a_exp == MAX_EXPONENT || b_exp == 0 || b_exp == MAX_EXPONENT {
+        let a_abs = a & ABS_MASK
+        let b_abs = b & ABS_MASK
+        if a_abs > INF_REP {
+            return a | QUIET_BIT
+        }
+        if b_abs > INF_REP {
+            return b | QUIET_BIT
+        }
+        if a_abs == INF_REP {
+            return if b_abs != 0 { a_abs | sign } else { QNAN_REP }
+        }
+        if b_abs == INF_REP {
+            return if a_abs != 0 { b_abs | sign } else { QNAN_REP }
+        }
+        if a_abs == 0 || b_abs == 0 {
+            return sign
+        }
+        if a_abs < IMPLICIT_BIT {
+            scale = scale &+ normalize(&var a_sig)
+        }
+        if b_abs < IMPLICIT_BIT {
+            scale = scale &+ normalize(&var b_sig)
+        }
+    }
+    a_sig = a_sig | IMPLICIT_BIT
+    b_sig = b_sig | IMPLICIT_BIT
+    var high: UInt64 = 0
+    var low: UInt64 = 0
+    wide_multiply(a_sig, b_sig << 11, &var high, &var low)
+    var exponent = a_exp &+ b_exp &- EXPONENT_BIAS &+ scale
+    if (high & IMPLICIT_BIT) != 0 {
+        exponent = exponent &+ 1
+    } else {
+        high = (high << 1) | (low >> 63)
+        low = low << 1
+    }
+    if exponent >= MAX_EXPONENT {
+        return INF_REP | sign
+    }
+    if exponent <= 0 {
+        let shift = 1 &- exponent
+        if shift >= 64 {
+            return sign
+        }
+        // `shift` is 1...63: the low word keeps the bits the high word sheds,
+        // with what it sheds itself as the sticky bit.
+        let sticky: UInt64 = if shifted_left(low, 64 &- shift) != 0 { 1 } else { 0 }
+        low = shifted_left(high, 64 &- shift) | shifted_right(low, shift) | sticky
+        high = shifted_right(high, shift)
+    } else {
+        high = (high & SIGNIFICAND_MASK) | (UInt64.from(truncating: exponent) << 52)
+    }
+    high = high | sign
+    if low > SIGN_BIT {
+        high = high &+ 1
+    }
+    if low == SIGN_BIT {
+        high = high &+ (high & 1)
+    }
+    high
+}
+
+// `a / b`: the significands divided one bit at a time into a 55-bit quotient,
+// whose remainder is the sticky bit, then rounded as a sum is.
+@export("__divdf3")
+func __divdf3(a: UInt64, b: UInt64) -> UInt64 {
+    let a_abs = a & ABS_MASK
+    let b_abs = b & ABS_MASK
+    let sign = (a ^ b) & SIGN_BIT
+    if a_abs > INF_REP {
+        return a | QUIET_BIT
+    }
+    if b_abs > INF_REP {
+        return b | QUIET_BIT
+    }
+    if a_abs == INF_REP {
+        return if b_abs == INF_REP { QNAN_REP } else { INF_REP | sign }
+    }
+    if b_abs == INF_REP {
+        return sign
+    }
+    if a_abs == 0 {
+        return if b_abs == 0 { QNAN_REP } else { sign }
+    }
+    if b_abs == 0 {
+        return INF_REP | sign
+    }
+    var a_exp = exponent_of(a)
+    var b_exp = exponent_of(b)
+    var a_sig = a & SIGNIFICAND_MASK
+    var b_sig = b & SIGNIFICAND_MASK
+    if a_exp == 0 {
+        a_exp = normalize(&var a_sig)
+    }
+    if b_exp == 0 {
+        b_exp = normalize(&var b_sig)
+    }
+    a_sig = a_sig | IMPLICIT_BIT
+    b_sig = b_sig | IMPLICIT_BIT
+    // The quotient's leading bit is its first: the dividend is at least the
+    // divisor and below twice it.
+    if a_sig < b_sig {
+        a_sig = a_sig << 1
+        a_exp = a_exp &- 1
+    }
+    var partial = a_sig
+    var quotient: UInt64 = 0
+    var i = 0
+    while i < 55 {
+        quotient = quotient << 1
+        if partial >= b_sig {
+            partial = partial &- b_sig
+            quotient = quotient | 1
+        }
+        partial = partial << 1
+        i = i &+ 1
+    }
+    let sticky: UInt64 = if partial != 0 { 1 } else { 0 }
+    rounded((quotient << 1) | sticky, a_exp &- b_exp &+ EXPONENT_BIAS, sign)
+}
+
+// ---- comparison -------------------------------------------------------------
+
+// -1, 0 or 1 as `a` is below, equal to or above `b`, and `unordered` when
+// either is a NaN. Both zeros are equal; otherwise the bit patterns order as
+// signed integers, reversed when both are negative.
+func compared(a: UInt64, b: UInt64, unordered: Int32) -> Int32 {
+    let a_abs = a & ABS_MASK
+    let b_abs = b & ABS_MASK
+    if a_abs > INF_REP || b_abs > INF_REP {
+        return unordered
+    }
+    if (a_abs | b_abs) == 0 {
+        return 0
+    }
+    let a_int = Int64.from(truncating: a)
+    let b_int = Int64.from(truncating: b)
+    if (a_int & b_int) >= 0 {
+        if a_int < b_int { return -1 }
+        if a_int == b_int { return 0 }
+        return 1
+    }
+    if a_int > b_int { return -1 }
+    if a_int == b_int { return 0 }
+    1
+}
+
+// `__eqdf2`, `__nedf2`, `__ltdf2` and `__ledf2` are one routine in compiler-rt,
+// answering 1 for a NaN; `__gtdf2` and `__gedf2` are another, answering -1.
+
+@export("__eqdf2")
+func __eqdf2(a: UInt64, b: UInt64) -> Int32 {
+    compared(a, b, 1)
+}
+
+@export("__nedf2")
+func __nedf2(a: UInt64, b: UInt64) -> Int32 {
+    compared(a, b, 1)
+}
+
+@export("__ltdf2")
+func __ltdf2(a: UInt64, b: UInt64) -> Int32 {
+    compared(a, b, 1)
+}
+
+@export("__ledf2")
+func __ledf2(a: UInt64, b: UInt64) -> Int32 {
+    compared(a, b, 1)
+}
+
+@export("__gtdf2")
+func __gtdf2(a: UInt64, b: UInt64) -> Int32 {
+    compared(a, b, -1)
+}
+
+@export("__gedf2")
+func __gedf2(a: UInt64, b: UInt64) -> Int32 {
+    compared(a, b, -1)
+}
+
+// 1 when either is a NaN, else 0.
+@export("__unorddf2")
+func __unorddf2(a: UInt64, b: UInt64) -> Int32 {
+    if (a & ABS_MASK) > INF_REP || (b & ABS_MASK) > INF_REP { 1 } else { 0 }
+}
+
+// ---- Float to integer -------------------------------------------------------
+
+// The magnitude of `a` truncated toward zero, for an unbiased exponent in
+// 0...63: the significand shifted down, or up past 52.
+func truncated(a: UInt64, exponent: Int) -> UInt64 {
+    let significand = (a & SIGNIFICAND_MASK) | IMPLICIT_BIT
+    if exponent < SIGNIFICAND_BITS {
+        return shifted_right(significand, SIGNIFICAND_BITS &- exponent)
+    }
+    shifted_left(significand, exponent &- SIGNIFICAND_BITS)
+}
+
+// The unbiased exponent of `a`, 1024 for an infinity or a NaN.
+func unbiased(a: UInt64) -> Int {
+    exponent_of(a) &- EXPONENT_BIAS
+}
+
+// `a` truncated toward zero at `bits` (32 or 64) bits, signed, as the low bits
+// of a word: 0 below 1 in magnitude, the type's bound of `a`'s sign from 2^bits
+// up, and otherwise the magnitude with `a`'s sign, wrapped to the width.
+func signed_truncation(a: UInt64, bits: Int, max: UInt64) -> UInt64 {
+    let exponent = unbiased(a)
+    let negative = (a & SIGN_BIT) != 0
+    if exponent < 0 {
+        return 0
+    }
+    if exponent >= bits {
+        return if negative { max &+ 1 } else { max }
+    }
+    let magnitude = truncated(a, exponent)
+    if negative { 0 &- magnitude } else { magnitude }
+}
+
+// `a` truncated toward zero at `bits` (32 or 64) bits, unsigned: 0 for a
+// negative `a` or one below 1, all ones from 2^bits up, and otherwise the
+// magnitude.
+func unsigned_truncation(a: UInt64, bits: Int, max: UInt64) -> UInt64 {
+    let exponent = unbiased(a)
+    if (a & SIGN_BIT) != 0 || exponent < 0 {
+        return 0
+    }
+    if exponent >= bits {
+        return max
+    }
+    truncated(a, exponent)
+}
+
+@export("__fixdfsi")
+func __fixdfsi(a: UInt64) -> Int32 {
+    Int32.from(truncating: signed_truncation(a, 32, 0x7FFF_FFFF))
+}
+
+@export("__fixdfdi")
+func __fixdfdi(a: UInt64) -> Int64 {
+    Int64.from(truncating: signed_truncation(a, 64, 0x7FFF_FFFF_FFFF_FFFF))
+}
+
+@export("__fixunsdfsi")
+func __fixunsdfsi(a: UInt64) -> UInt32 {
+    UInt32.from(truncating: unsigned_truncation(a, 32, 0xFFFF_FFFF))
+}
+
+@export("__fixunsdfdi")
+func __fixunsdfdi(a: UInt64) -> UInt64 {
+    unsigned_truncation(a, 64, 0xFFFF_FFFF_FFFF_FFFF)
+}
+
+// ---- integer to Float -------------------------------------------------------
+
+// The `Float` nearest `magnitude`, with `sign` as its sign bit: exact up to 53
+// significant bits, and past that rounded to nearest, ties to even, through
+// two bits below the last kept one and a sticky bit.
+func from_magnitude(magnitude: UInt64, sign: UInt64) -> UInt64 {
+    if magnitude == 0 {
+        return 0
+    }
+    let digits = 64 &- leading_zeros(magnitude)
+    var exponent = digits &- 1
+    var a = magnitude
+    if digits > 53 {
+        if digits == 54 {
+            a = a << 1
+        } else if digits > 55 {
+            let below = a & shifted_right(0xFFFF_FFFF_FFFF_FFFF, 64 &+ 55 &- digits)
+            let sticky: UInt64 = if below != 0 { 1 } else { 0 }
+            a = shifted_right(a, digits &- 55) | sticky
+        }
+        // The last kept bit joins the sticky bit, so adding one carries
+        // into it exactly when the round bit is set and the result is not a
+        // tie to an even neighbour.
+        let odd: UInt64 = if (a & 4) != 0 { 1 } else { 0 }
+        a = (a | odd) &+ 1
+        a = a >> 2
+        if (a & (1 << 53)) != 0 {
+            a = a >> 1
+            exponent = exponent &+ 1
+        }
+    } else {
+        a = shifted_left(a, 53 &- digits)
+    }
+    sign | (UInt64.from(truncating: exponent &+ EXPONENT_BIAS) << 52) | (a & SIGNIFICAND_MASK)
+}
+
+@export("__floatsidf")
+func __floatsidf(a: Int32) -> UInt64 {
+    let bits = UInt64.from(truncating: a as Int64)
+    if a < 0 { from_magnitude(0 &- bits, SIGN_BIT) } else { from_magnitude(bits, 0) }
+}
+
+@export("__floatunsidf")
+func __floatunsidf(a: UInt32) -> UInt64 {
+    from_magnitude(a as UInt64, 0)
+}
+
+@export("__floatdidf")
+func __floatdidf(a: Int64) -> UInt64 {
+    let bits = UInt64.from(truncating: a)
+    if a < 0 { from_magnitude(0 &- bits, SIGN_BIT) } else { from_magnitude(bits, 0) }
+}
+
+@export("__floatundidf")
+func __floatundidf(a: UInt64) -> UInt64 {
+    from_magnitude(a, 0)
+}

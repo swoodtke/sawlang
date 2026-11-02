@@ -4141,6 +4141,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   `Task.spawn` stays refused. SUSPECT an older build, where every group reached
   `pthread_mutex_lock` and the thread seams.
 - **A freestanding object defines `memcpy`/`memset`/`memmove` (and riscv32's 64-bit integer helpers) itself, weakly** (SL-948): the environment owes none of them, its own definition wins, a program's own `@export("memcpy")` replaces std's, and `+forced-atomics` is refused.
+- **On a target with no FP unit the object defines the 19 soft-float routines too** (`__adddf3` … `__floatundidf`, weakly, SL-948): no compiler-rt to link; a NaN result's bits are unspecified, and C passing a `Float` on aarch64 still builds with `-mgeneral-regs-only -mabi=aapcs-soft`.
 - **`--freestanding` on aarch64 implies `--target-features -neon,-fp-armv8`**
   (design 172). An AArch64 core traps Advanced SIMD at EL1 out of reset
   (`CPACR_EL1.FPEN` = 0) and LLVM uses `q` registers to move a struct, so a

@@ -14650,20 +14650,30 @@ refused, since LLVM then calls `__sync_*` routines that no environment is
 told to supply.
 
 On a target with no floating-point unit (aarch64 under the freestanding
-default `-fp-armv8`, riscv32 without `F`/`D`), the environment also supplies
-the soft-float routines `sawc`'s output can reference, exactly `__adddf3`,
-`__subdf3`, `__muldf3`, `__divdf3`, `__eqdf2`, `__nedf2`, `__ltdf2`,
-`__ledf2`, `__gtdf2`, `__gedf2`, `__unorddf2`, `__fixdfsi`, `__fixdfdi`,
-`__fixunsdfsi`, `__fixunsdfdi`, `__floatsidf`, `__floatdidf`,
-`__floatunsidf` and `__floatundidf`, which compiler-rt's builtins provide.
-The list is the same on both targets: `Float` arithmetic, its comparisons and
-`is_nan`, and its conversions to and from every integer width. std's `Float`
-methods (`abs`, `floor`, `ceil`, `round`, `sqrt`, `min`, `max`) reach no
-floating-point routine outside this list and no C math library function, so
-a freestanding environment owes nothing more for them. On aarch64
-each routine takes and returns a `double` in general registers, so the
-environment builds them, and any C that passes `sawc`'s code a `Float`, for
-the soft-float ABI (clang's `-mgeneral-regs-only -mabi=aapcs-soft`).
+default `-fp-armv8`, riscv32 without `D`, or with a `-f` after it), the
+object also defines the soft-float routines `sawc`'s output can reference,
+exactly `__adddf3`, `__subdf3`, `__muldf3`, `__divdf3`, `__eqdf2`,
+`__nedf2`, `__ltdf2`, `__ledf2`, `__gtdf2`, `__gedf2`, `__unorddf2`,
+`__fixdfsi`, `__fixdfdi`, `__fixunsdfsi`, `__fixunsdfdi`, `__floatsidf`,
+`__floatdidf`, `__floatunsidf` and `__floatundidf`, in the same way: written
+in Saw, weak, and included only for such a target. The list is the same on
+both targets: `Float` arithmetic, its comparisons and `is_nan`, and its
+conversions to and from every integer width. Each routine's result is
+compiler-rt's, bit for bit, except the bits of a NaN result, which are
+unspecified: arithmetic rounds to nearest, ties to even, a subnormal result
+included. A conversion to an integer truncates toward zero; one whose value
+the width cannot hold, which only C can ask for since Saw's own conversions
+check the range first, gives compiler-rt's integer-only answer: a magnitude
+of 2^N or more for an N-bit result (an infinity, and a NaN by its sign bit)
+is the bound of its sign, a signed result's magnitude from 2^(N-1) up to 2^N
+wraps to the width, and an unsigned result of a negative value is 0. std's
+`Float` methods (`abs`, `floor`, `ceil`, `round`, `sqrt`, `min`, `max`)
+reach no floating-point routine outside this list and no C math library
+function, so a freestanding environment owes nothing for `Float` at all. On
+aarch64 each routine takes and returns a `double` in general registers, so
+any C that passes `sawc`'s code a `Float`, or defines its own soft-float
+routines in place of std's, is built for the soft-float ABI (clang's
+`-mgeneral-regs-only -mabi=aapcs-soft`).
 
 A freestanding object's roots are its `@export`ed functions. It has no C entry
 point and no program-argument accessors, and a `main` it declares is an

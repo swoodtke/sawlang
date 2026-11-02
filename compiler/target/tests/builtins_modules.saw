@@ -1,10 +1,15 @@
-// The builtins funnel, one row per (target, profile): the std builtins modules
-// a compile loads, the memory routines on every freestanding target and the
-// 64-bit integer helpers where the word is 32 bits, and none hosted (SL-948).
-import sawtarget.layout.{target_builtins_modules}
+// The builtins funnel, one row per (target, features, profile): the std
+// builtins modules a compile loads, read through the feature funnel and the
+// front end's target as the driver reads them. The memory routines load on
+// every freestanding target, the 64-bit integer helpers where the word is 32
+// bits, the soft-float routines where the target has no FP unit, and none
+// hosted (SL-948).
+import sawtarget.layout.{target_builtins_modules, target_effective_features, target_float_unit, target_front_end}
 
-func row(triple: String, freestanding: Bool, want: String) {
-    let modules = target_builtins_modules(triple, freestanding)
+func row(triple: String, explicit: String, freestanding: Bool, want: String) {
+    let features = target_effective_features(triple, explicit, freestanding)
+    let target = target_front_end(triple, features)
+    let modules = target_builtins_modules(triple, freestanding, target.float_unit)
     var got = StringBuilder()
     var k = 0
     while k < modules.len() {
@@ -15,18 +20,42 @@ func row(triple: String, freestanding: Bool, want: String) {
         k = k + 1
     }
     let text = got.build()
-    assert(text.equals(want), "{} freestanding={}: [{}] where the funnel owes [{}]", triple, freestanding, text,
-           want)
+    assert(text.equals(want), "{} [{}] freestanding={}: [{}] where the funnel owes [{}]", triple, explicit,
+           freestanding, text, want)
+}
+
+// Whether `triple` with `features` has an FP unit, by the FPU funnel.
+func unit(triple: String, features: String, want: Bool) {
+    let got = target_float_unit(triple, features)
+    assert(got == want, "{} [{}]: float unit {} where the funnel owes {}", triple, features, got, want)
 }
 
 func main() {
-    row("arm64-apple-darwin", false, "")
-    row("x86_64-unknown-linux-gnu", false, "")
-    row("aarch64-unknown-linux-gnu", false, "")
-    row("aarch64-unknown-none-elf", false, "")
-    row("riscv32-unknown-none-elf", false, "")
-    row("aarch64-unknown-none-elf", true, "builtins.memory")
-    row("aarch64-unknown-linux-gnu", true, "builtins.memory")
-    row("riscv32-unknown-none-elf", true, "builtins.memory builtins.integer")
-    print("builtins modules: 8 rows")
+    // Hosted: nothing, whatever the target's FP unit.
+    row("arm64-apple-darwin", "", false, "")
+    row("x86_64-unknown-linux-gnu", "", false, "")
+    row("aarch64-unknown-linux-gnu", "", false, "")
+    row("aarch64-unknown-none-elf", "", false, "")
+    row("riscv32-unknown-none-elf", "", false, "")
+    // aarch64: the freestanding default turns `fp-armv8` off; a part whose
+    // boot code enables the FP unit names it.
+    row("aarch64-unknown-none-elf", "", true, "builtins.memory builtins.float")
+    row("aarch64-unknown-linux-gnu", "", true, "builtins.memory builtins.float")
+    row("aarch64-unknown-none-elf", "+neon,+fp-armv8", true, "builtins.memory")
+    // riscv32: `D` is the FP unit for `Float`, and a `-f` after it turns it
+    // off.
+    row("riscv32-unknown-none-elf", "", true, "builtins.memory builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "+m,+a,+c", true, "builtins.memory builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f,+d", true, "builtins.memory builtins.integer")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+d,-f", true, "builtins.memory builtins.integer builtins.float")
+    row("riscv32-unknown-none-elf", "+m,+a,+c,+f", true, "builtins.memory builtins.integer builtins.float")
+    // The FPU funnel itself, beside the front end's copy of its answer.
+    unit("arm64-apple-darwin", "", true)
+    unit("x86_64-unknown-linux-gnu", "", true)
+    unit("aarch64-unknown-none-elf", "-neon,-fp-armv8", false)
+    unit("aarch64-unknown-none-elf", "+fp-armv8", true)
+    unit("riscv32-unknown-none-elf", "+d", true)
+    unit("riscv32-unknown-none-elf", "+d,-f", false)
+    unit("riscv32-unknown-none-elf", "+m", false)
+    print("builtins modules: 13 rows, 7 float-unit rows")
 }

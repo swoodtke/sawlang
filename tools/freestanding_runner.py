@@ -7,9 +7,8 @@
 Each RUN case is compiled by sawc (`--freestanding --runtime
 --no-hidden-alloc --target T`, with the suite's three modules through
 `--module-path`), its object's undefined symbols read with `nm` (runtime
-seams, the HAL's symbols, its atomic routines and the spec's soft-float
-routines alone), linked by ld.lld with a boot stub, a C floor and
-compiler-rt's soft-float builtins at a fixed address, booted under
+seams, the HAL's symbols and its atomic routines alone), linked by ld.lld
+with a boot stub and a C floor at a fixed address, booted under
 QEMU, and judged by its console transcript and exit status. A REFUSAL case stops at the compile and is judged by sawc's
 diagnostic. A LINK-REFUSAL case links a second sawc object beside its own and
 is judged by ld.lld's error. A case marked `due` is blocked by a sawc gap and cites the issue
@@ -45,9 +44,6 @@ FS_DIR = os.path.join(REPO, "tests", "freestanding")
 CASES_DIR = os.path.join(FS_DIR, "cases")
 HAL_DIR = os.path.join(FS_DIR, "hal")
 SUPPORT_C = os.path.join(HAL_DIR, "support.c")
-# compiler-rt's soft-float builtins, vendored unmodified (its README names the
-# release and the files).
-COMPILER_RT_DIR = os.path.join(HAL_DIR, "compiler-rt")
 
 # The three modules every case composes, reached the way a kernel reaches its
 # own: through `--module-path`, from a directory.
@@ -79,17 +75,17 @@ EXIT_UNKNOWN = 4
 # written against: a case's source is shared, so a target-dependent number is
 # printed by the program and matched here rather than asserted there. An arch
 # with `off` set is described but not run, and the reason says what it waits on.
-# `soft_float` is the set of compiler-rt routines the spec says sawc's output
-# may reference on the arch (Profiles); tools/test_freestanding_runner.py holds
-# it equal to the spec's list.
 
-# The spec lists one set for both targets, since neither has an FPU here.
-SOFT_FLOAT_ROUTINES = frozenset({
+# The soft-float routines a case object defines itself, neither target having
+# an FPU here (LANGUAGE_SPEC.md, Profiles), in the order `soft_float_vectors`
+# checks them; tools/test_freestanding_runner.py holds the list equal to the
+# spec's.
+SOFT_FLOAT_ROUTINES = (
     "__adddf3", "__subdf3", "__muldf3", "__divdf3",
     "__eqdf2", "__nedf2", "__ltdf2", "__ledf2", "__gtdf2", "__gedf2", "__unorddf2",
     "__fixdfsi", "__fixdfdi", "__fixunsdfsi", "__fixunsdfdi",
     "__floatsidf", "__floatdidf", "__floatunsidf", "__floatundidf",
-})
+)
 
 ARCHES = [
     {
@@ -109,7 +105,6 @@ ARCHES = [
         # beside the case.
         "no_atomics": {"features": "+m,+c", "cc_args": ["-march=rv32imc_zicsr", "-mabi=ilp32"],
                        "support": os.path.join(HAL_DIR, "riscv32", "atomics.c")},
-        "soft_float": SOFT_FLOAT_ROUTINES,
         "word_bytes": 4,
         "load_base": 0x8000_0000,
         "off": None,
@@ -130,7 +125,6 @@ ARCHES = [
         # None keeps sawc's freestanding default (`-neon,-fp-armv8`).
         "features": None,
         "no_atomics": None,
-        "soft_float": SOFT_FLOAT_ROUTINES,
         "word_bytes": 8,
         "load_base": 0x4000_0000,
         "off": None,
@@ -157,18 +151,18 @@ def expectations(arch):
 
 
 # What a RUN case's object may leave undefined besides its atomic routines:
-# the runtime's seams, which fsrt defines, the boot stub's `fs_*` hooks, and
-# the arch's `soft_float` routines from `hal/compiler-rt/`. The memory
-# routines and the 64-bit integer helpers are not here: sawc's freestanding
-# object defines them itself, weakly, so one it leaves undefined is a stray
-# (SL-948). support.c still defines them, and its strong definitions win.
+# the runtime's seams, which fsrt defines, and the boot stub's `fs_*` hooks.
+# The memory routines, the 64-bit integer helpers and the soft-float routines
+# are not here: sawc's freestanding object defines them itself, weakly, so one
+# it leaves undefined is a stray (SL-948). support.c still defines the memory
+# routines, `__udivdi3` and `__umoddi3`, and its strong definitions win.
 HAL_PREFIXES = ("__saw_rt_", "fs_")
 
 # A name shaped like a compiler-rt floating-point builtin: an operation on a
 # float mode (`__adddf3`, `__unorddf2`, `__extendsfdf2`), a float-to-integer
-# conversion (`__fixunsdfsi`) or an integer-to-float one (`__floatundidf`). One
-# outside the arch's `soft_float` list is a routine the spec does not promise
-# an environment supplies.
+# conversion (`__fixunsdfsi`) or an integer-to-float one (`__floatundidf`). An
+# object leaves none undefined: it defines the spec's soft-float routines
+# itself, and no environment is told to supply any other.
 FLOAT_MODE = "(?:hf|sf|df|tf|xf)"
 SOFT_FLOAT_SHAPE = re.compile(r"^__(?:[a-z]+%s[0-9]|fix(?:uns)?%s(?:si|di|ti)|float(?:un)?(?:si|di|ti)%s)$"
                               % (FLOAT_MODE, FLOAT_MODE, FLOAT_MODE))
@@ -292,6 +286,9 @@ INTEGER_HELPER_CHECKS = ["fs check %s_vectors=1" % helper for helper in (
 
 # The checks `int64_operators` prints at each level, in order.
 INT64_OPERATOR_CHECKS = ["fs check %s_operator_rows=1" % kind for kind in ("signed", "unsigned", "shift")]
+
+# The checks `soft_float_vectors` prints at each level, in order.
+SOFT_FLOAT_VECTOR_CHECKS = ["fs check %s_vectors=1" % routine[2:] for routine in SOFT_FLOAT_ROUTINES]
 
 TEST_CASES = [
     {
@@ -530,8 +527,8 @@ TEST_CASES = [
     },
     {
         # Every Float operation as a soft-float call: at -O0 nothing folds, so
-        # each of the spec's routines runs, from `hal/compiler-rt/`, and the
-        # object's references are held to the spec's list.
+        # each of the spec's routines runs, the ones the object defines
+        # itself.
         "name": "soft_float",
         "extra_flags": ["-O0"],
         "expect_out": ["fs value add=0.30000000000000004",
@@ -786,6 +783,22 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # std's soft-float routines, each called by its C symbol on the
+        # soft-float vectors' operands, their results folded into checksums
+        # the vectors hold, at -O0 and, below, at -O2 (SL-948).
+        "name": "soft_float_vectors",
+        "extra_flags": ["-O0"],
+        "expect_out": SOFT_FLOAT_VECTOR_CHECKS + ["fs done soft_float_vectors ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        "name": "soft_float_vectors_optimized",
+        "source": "soft_float_vectors",
+        "extra_flags": ["-O2"],
+        "expect_out": SOFT_FLOAT_VECTOR_CHECKS + ["fs done soft_float_vectors ok"],
+        "expect_clean_exit": True,
+    },
+    {
         # 64-bit `/`, `%` and variable shifts through the operators: on riscv32
         # the object calls the integer helpers it defines, and leaves none of
         # them undefined (SL-947).
@@ -1003,8 +1016,7 @@ def record_clang(arch):
 # =============================================================================
 
 def build_shared(arch, clang):
-    """The boot stub, the C floor and the soft-float routines every image
-    links, built once per arch."""
+    """The boot stub and the C floor every image links, built once per arch."""
     out = build_dir(arch)
     os.makedirs(out, exist_ok=True)
     boot_o = os.path.join(out, "boot.o")
@@ -1013,22 +1025,10 @@ def build_shared(arch, clang):
     checked([clang, target] + arch["cc_args"] + ["-nostdlib", "-c", os.path.join(HAL_DIR, arch["name"], "boot.S"),
                                                  "-o", boot_o])
     # -fno-builtin: support.c DEFINES memcpy, and without it LLVM may rewrite
-    # its byte loop into a call to itself. -ffp-contract=off: compiler-rt's
-    # 64-bit conversions do double arithmetic, and on aarch64 a contracted
-    # multiply-add lowers to a call to libm's `fma`, which no image defines.
-    floor = ["-ffreestanding", "-fno-builtin", "-ffp-contract=off", "-ffunction-sections", "-fdata-sections",
-             "-nostdlib", "-O2", "-c"]
+    # its byte loop into a call to itself.
+    floor = ["-ffreestanding", "-fno-builtin", "-ffunction-sections", "-fdata-sections", "-nostdlib", "-O2", "-c"]
     checked([clang, target] + arch["cc_args"] + floor + [SUPPORT_C, "-o", support_o])
     shared = {"all": [boot_o, support_o], "no_atomics": None}
-    # The soft-float routines, linked into every image; `--gc-sections` keeps
-    # only the ones a case calls.
-    rt_out = os.path.join(out, "compiler-rt")
-    os.makedirs(rt_out, exist_ok=True)
-    for name in sorted(os.listdir(COMPILER_RT_DIR)):
-        if name.endswith(".c"):
-            rt_o = os.path.join(rt_out, name[:-2] + ".o")
-            checked([clang, target] + arch["cc_args"] + floor + [os.path.join(COMPILER_RT_DIR, name), "-o", rt_o])
-            shared["all"].append(rt_o)
     if arch["no_atomics"]:
         atomics_o = os.path.join(out, "atomics.o")
         checked([clang, target] + arch["no_atomics"]["cc_args"] + floor + [arch["no_atomics"]["support"],
@@ -1048,29 +1048,34 @@ def nm_tool(clang):
 
 def references_problem(case, arch, obj, clang):
     """None when every symbol the object leaves undefined is a runtime seam,
-    a symbol the HAL defines (`HAL_PREFIXES`, the arch's `soft_float`), or
-    one of `atomic_routines`, and it references exactly those atomic routines;
-    else why. A routine the object defines itself, as it does the memory
-    routines and the 64-bit integer helpers, is not undefined there. A host
-    library's name here is a call past the runtime ABI (SL-933)."""
+    a symbol the HAL defines (`HAL_PREFIXES`), or one of `atomic_routines`,
+    and it references exactly those atomic routines; else why
+    (`undefined_problem`)."""
     code, out = run([nm_tool(clang), "-u", obj], PROBE_TIMEOUT_S)
     if code != 0:
         return "nm cannot read %s: %s" % (obj, out.strip()[:300])
-    found = {line.split()[-1] for line in out.splitlines() if line.strip()}
+    return undefined_problem(case, arch, {line.split()[-1] for line in out.splitlines() if line.strip()})
+
+
+def undefined_problem(case, arch, found):
+    """Why the symbols `found`, the ones a case object leaves undefined, are
+    not exactly what the environment supplies, or None. A routine the object
+    defines itself (the memory routines, the 64-bit integer helpers, the
+    soft-float routines) is not undefined there, so a soft-float name among
+    them is refused like any stray. A host library's name here is a call past
+    the runtime ABI (SL-933)."""
     referenced = {name for name in found if name.startswith("__atomic_")}
     wanted = atomic_routines(case, arch)
     if referenced != wanted:
         return "the object references the atomic routines %s, not exactly %s" % (sorted(referenced), sorted(wanted))
-    unlisted = sorted(name for name in found
-                      if SOFT_FLOAT_SHAPE.match(name) and name not in arch["soft_float"])
-    if unlisted:
-        return ("the object references the soft-float routine(s) %s, which the spec's list for %s "
-                "(LANGUAGE_SPEC.md, Profiles) does not name" % (", ".join(unlisted), arch["name"]))
-    stray = sorted(name for name in found - referenced - arch["soft_float"]
-                   if not name.startswith(HAL_PREFIXES))
+    soft = sorted(name for name in found if SOFT_FLOAT_SHAPE.match(name))
+    if soft:
+        return ("the object references the soft-float routine(s) %s, which no environment supplies: the object "
+                "defines the spec's soft-float routines itself (LANGUAGE_SPEC.md, Profiles)" % ", ".join(soft))
+    stray = sorted(name for name in found - referenced if not name.startswith(HAL_PREFIXES))
     if stray:
-        return ("the object references %s, which neither the runtime ABI (`__saw_rt_*`), the HAL "
-                "(`fs_*`, the soft-float routines) nor the object itself defines" % ", ".join(stray))
+        return ("the object references %s, which neither the runtime ABI (`__saw_rt_*`), the HAL (`fs_*`) nor "
+                "the object itself defines" % ", ".join(stray))
     return None
 
 

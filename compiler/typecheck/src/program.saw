@@ -217,8 +217,9 @@ public func tc_profile(runtime: Bool, provider: Bool, freestanding: Bool) -> TcP
 }
 
 // What the front end knows of the target a program is compiled for: its
-// triple, the width of its word (`Int`, `UInt` and a pointer), and whether
-// it lowers a word's compare-and-swap to an instruction. Only the target
+// triple, the width of its word (`Int`, `UInt` and a pointer), whether it
+// lowers a word's compare-and-swap to an instruction, and whether it has a
+// floating-point unit for `Float` (`target_float_unit`). Only the target
 // description builds one (`target_front_end`), and every stage entry takes it
 // with no default, so no stage can type a program for one word and lay it out
 // for another. Typecheck reads it here, and every later stage reads it
@@ -227,6 +228,7 @@ public struct TcTarget {
     triple: String
     word_bits: Int
     atomics: Bool
+    float_unit: Bool
 }
 
 public struct TcProgram {
