@@ -143,9 +143,9 @@ entry:
   %l7 = alloca i8, align 1
   %l8 = alloca ptr, align 8
   %l9 = alloca i8, align 1
-  %l10 = alloca [24 x i8], align 8
+  %l10 = alloca ptr, align 8
   %l11 = alloca ptr, align 8
-  %l12 = alloca i64, align 8
+  %l12 = alloca ptr, align 8
   store ptr %p1, ptr %l1
   store i64 %p2, ptr %l2
   br label %bb0
@@ -191,24 +191,20 @@ bb7:
   %t15 = load i64, ptr %l3
   %t16 = inttoptr i64 %t15 to ptr
   store ptr %t16, ptr %l11
-  store i64 0, ptr %l12
   %t17 = load ptr, ptr %l11
-  %t18 = load i64, ptr %l12
-  %t19 = mul i64 %t18, 24
-  %t20 = getelementptr i8, ptr %t17, i64 %t19
-  call void @"saw copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void"(ptr %l10, ptr %t20)
-  %t21 = load ptr, ptr %l10
-  %t22 = getelementptr i8, ptr %l10, i64 8
-  %t23 = load ptr, ptr %t22
-  %t24 = load ptr, ptr %l1
-  %t25 = load i64, ptr %l2
-  call void %t21(ptr %t23, ptr %t24, i64 %t25)
+  store ptr %t17, ptr %l12
+  %t18 = load ptr, ptr %l12
+  store ptr %t18, ptr %l10
+  %t19 = load ptr, ptr %l10
+  %t20 = load ptr, ptr %l1
+  %t21 = load i64, ptr %l2
+  call void %t19(ptr %t20, i64 %t21)
   br label %bb9
 bb8:
   br label %bb2
 bb9:
-  %t26 = load ptr, ptr %l1
-  call void @__saw_rt_panic(ptr %t26, i64 0)
+  %t22 = load ptr, ptr %l1
+  call void @__saw_rt_panic(ptr %t22, i64 0)
   unreachable
 }
 
@@ -311,23 +307,6 @@ bb1:
   store i8 %t5, ptr %l0
   %t6 = load i8, ptr %l0
   ret i8 %t6
-}
-
-define internal void @"saw copy glue (UnsafePointer<Int8>, Int) unsafe sync -> Void"(ptr %p1, ptr %p2) #0 {
-entry:
-  call void @llvm.memcpy.p0.p0.i64(ptr %p1, ptr %p2, i64 24, i1 false)
-  %env.at = getelementptr i8, ptr %p1, i64 8
-  %env = load ptr, ptr %env.at
-  %release.at = getelementptr i8, ptr %p1, i64 16
-  %release = load ptr, ptr %release.at
-  %owns = icmp ne ptr %release, null
-  br i1 %owns, label %owned, label %done
-owned:
-  %count.at = getelementptr i8, ptr %env, i64 -8
-  %old = atomicrmw add ptr %count.at, i64 1 monotonic
-  br label %done
-done:
-  ret void
 }
 
 define internal i64 @"saw std.string.String.len()"(ptr noalias %p1) #0 {

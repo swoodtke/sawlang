@@ -234,39 +234,29 @@ public func __saw_exec_offload_park(job: Int) -> Int {
     park
 }
 
-// The address of a never-freed `(Int) sync -> Bool` function value, the
-// completion check `park_wakes` asks of an offload park, or 0 until the first
-// offload park installs it. Reached only through that install, so a program
-// that never offloads references no offload seam (SL-933).
+// The address of a `FuncPointer<(Int) sync -> Bool>`'s code, the completion
+// check `park_wakes` asks of an offload park, or 0 until the first offload
+// park installs it. Reached only through that install, so a program that
+// never offloads references no offload seam (SL-933).
 static OFFLOAD_CHECK: Atomic<Int> = Atomic(0)
 
 // Installs the offload park's completion check, once per process, ahead of
-// the first park word that names a job. A refused allocation panics, as every
-// executor allocation an offload park makes does.
+// the first park word that names a job. A losing racer installed the same
+// address.
 func install_offload_check() unsafe {
-    if OFFLOAD_CHECK.load() != 0 {
-        return
-    }
-    let size = sizeof<(Int) sync -> Bool>()
-    let align = alignof<(Int) sync -> Bool>()
-    let raw = exec_alloc(size, align, "an offloaded call")
-    let at = raw as UnsafePointer<(Int) sync -> Bool>
-    at[0] = { job: Int in __saw_exec_offload_done(job) }
-    if not OFFLOAD_CHECK.compare_exchange(0, raw as Int) {
-        GlobalAllocator().dealloc(raw, size, align)
-    }
+    let check: FuncPointer<(Int) sync -> Bool> = { job in __saw_exec_offload_done(job) }
+    let _ = OFFLOAD_CHECK.compare_exchange(0, Int.from(truncating: check.address()))
 }
 
 // Whether offload job `job`'s C call has returned, through the installed
 // check. An offload park word is recorded only after the install, so a word
-// that names a job with no check installed was never made by a park. The
-// check is heap-held until a static can hold function values (SL-940).
+// that names a job with no check installed was never made by a park.
 func offload_finished(job: Int) unsafe -> Bool {
     let at = OFFLOAD_CHECK.load()
     if at == 0 {
         panic("executor: a park word names offload job {}, and no offload park was made", job)
     }
-    let check = (at as UnsafePointer<(Int) sync -> Bool>)[0]
+    let check = FuncPointer<(Int) sync -> Bool>.from_raw(at as UnsafePointer<UInt8>)
     check(job)
 }
 
@@ -625,17 +615,14 @@ extension TaskGroup {
     /// tasks run alongside the thread that owns the group, in parallel, so
     /// every value a spawned frame carries must be `Send`. `threads: 1` or
     /// less is the cooperative engine, exactly as `TaskGroup()` is. Returns
-    /// `Err(AllocError)` if the pool's lock cannot be allocated, or, for the
-    /// process's first pool, the record of the pool's code. A worker
+    /// `Err(AllocError)` if the pool's lock cannot be allocated. A worker
     /// thread the operating system refuses panics at the first spawn, naming
     /// the error.
     public init(threads: Int) unsafe -> Result<TaskGroup, AllocError> {
         if threads <= 1 {
             return TaskGroup()
         }
-        if not install_pool_engine() {
-            return AllocError(size: sizeof<PoolEngine>(), align: alignof<PoolEngine>())
-        }
+        install_pool_engine()
         let size = QUEUE_GATE_SLOT * 2
         guard let raw = GlobalAllocator().alloc(size, QUEUE_GATE_ALIGN) else {
             return AllocError(size: size, align: QUEUE_GATE_ALIGN)
@@ -671,8 +658,8 @@ extension TaskGroup {
     // or 0 for the cooperative engine. Every site that decides between the
     // two engines asks here, and a pool's branch reaches pool code only
     // through the record this returns, so a program that makes no pool
-    // references none of it. The record is heap-held, installed by the first
-    // pool, until a static can hold function values (SL-940).
+    // references none of it. The record is `POOL_CODE`, installed by the
+    // first pool.
     //
     // ENTRY POINTS:
     //   TaskGroup.count
@@ -707,48 +694,35 @@ extension TaskGroup {
 // so the thread and gate seams this code reaches are linked only into a
 // program that makes a pool (SL-933).
 struct PoolEngine {
-    lock: (UnsafePointer<TaskGroup>) unsafe sync -> Void
-    unlock: (UnsafePointer<TaskGroup>) unsafe sync -> Void
-    walk_take: (UnsafePointer<TaskGroup>) unsafe sync -> WalkLock
-    walk_give: (UnsafePointer<TaskGroup>) unsafe sync -> Void
-    enqueue: (UnsafePointer<TaskGroup>, UnsafePointer<UInt8>, UnsafePointer<TaskCell>, Bool) unsafe sync -> TaskTicket
-    await_task: (UnsafePointer<TaskGroup>, Int, Int) unsafe sync -> Void
-    retire: (UnsafePointer<TaskGroup>) unsafe sync -> Void
-    destroy_gate: (UnsafePointer<UInt8>) unsafe sync -> Void
+    lock: FuncPointer<(UnsafePointer<TaskGroup>) unsafe sync -> Void>
+    unlock: FuncPointer<(UnsafePointer<TaskGroup>) unsafe sync -> Void>
+    walk_take: FuncPointer<(UnsafePointer<TaskGroup>) unsafe sync -> WalkLock>
+    walk_give: FuncPointer<(UnsafePointer<TaskGroup>) unsafe sync -> Void>
+    enqueue: FuncPointer<(UnsafePointer<TaskGroup>, UnsafePointer<UInt8>, UnsafePointer<TaskCell>, Bool) unsafe sync -> TaskTicket>
+    await_task: FuncPointer<(UnsafePointer<TaskGroup>, Int, Int) unsafe sync -> Void>
+    retire: FuncPointer<(UnsafePointer<TaskGroup>) unsafe sync -> Void>
+    destroy_gate: FuncPointer<(UnsafePointer<UInt8>) unsafe sync -> Void>
 }
 
-// The address of the one `PoolEngine` record, or 0 until the first
-// `TaskGroup(threads:)` installs it. It is never freed: a pool on any thread
-// may call through it at any time.
+// The pool's code, a link-time constant read only by the install below, so
+// a program that makes no pool links none of it.
+static POOL_CODE: PoolEngine = PoolEngine(lock: { g in pool_lock(g) },
+                                          unlock: { g in pool_unlock(g) },
+                                          walk_take: { g in walk_take_pool(g) },
+                                          walk_give: { g in walk_give_pool(g) },
+                                          enqueue: { g, frame, cell, owned in enqueue_pooled(g, frame, cell, owned) },
+                                          await_task: { g, slot, generation in await_task(g, slot, generation) },
+                                          retire: { g in retire_pool(g) },
+                                          destroy_gate: { gate in destroy_pool_gate(gate) })
+
+// The address of `POOL_CODE`, or 0 until the first `TaskGroup(threads:)`
+// installs it.
 static POOL_ENGINE: Atomic<Int> = Atomic(0)
 
-// Installs the pool engine once per process; false when the allocator
-// refused its record. A losing racer frees its spare.
-func install_pool_engine() unsafe -> Bool {
-    if POOL_ENGINE.load() != 0 {
-        return true
-    }
-    let size = sizeof<PoolEngine>()
-    let align = alignof<PoolEngine>()
-    guard let raw = GlobalAllocator().alloc(size, align) else {
-        return false
-    }
-    let at = raw as UnsafePointer<PoolEngine>
-    at[0] = PoolEngine(lock: { g: UnsafePointer<TaskGroup> in pool_lock(g) },
-                       unlock: { g: UnsafePointer<TaskGroup> in pool_unlock(g) },
-                       walk_take: { g: UnsafePointer<TaskGroup> in walk_take_pool(g) },
-                       walk_give: { g: UnsafePointer<TaskGroup> in walk_give_pool(g) },
-                       enqueue: { g: UnsafePointer<TaskGroup>, frame: UnsafePointer<UInt8>,
-                                  cell: UnsafePointer<TaskCell>, owned: Bool in
-                                      enqueue_pooled(g, frame, cell, owned) },
-                       await_task: { g: UnsafePointer<TaskGroup>, slot: Int, generation: Int in
-                                         await_task(g, slot, generation) },
-                       retire: { g: UnsafePointer<TaskGroup> in retire_pool(g) },
-                       destroy_gate: { gate: UnsafePointer<UInt8> in destroy_pool_gate(gate) })
-    if not POOL_ENGINE.compare_exchange(0, raw as Int) {
-        GlobalAllocator().dealloc(raw, size, align)
-    }
-    true
+// Installs the pool engine once per process. A losing racer installed the
+// same address.
+func install_pool_engine() unsafe {
+    let _ = POOL_ENGINE.compare_exchange(0, (&POOL_CODE) as UnsafePointer<PoolEngine> as Int)
 }
 
 // The pool engine record at `at`, which `TaskGroup.engine` answered.
@@ -3432,20 +3406,12 @@ static BT_MAX_NAME: Int = 256
 static ENTRY_GROUP: Atomic<Int> = Atomic(0)
 
 // Installs the task dump as the report the panic sink writes after a panic's
-// message, once per process (std.panic). It is never freed: a panic on any
-// thread may read it at any time.
+// message, once per process (std.panic): the address of its code, which a
+// panic on any thread may read at any time. A losing racer installed the same
+// address.
 func install_panic_report() unsafe {
-    if PANIC_REPORT.load() != 0 {
-        return
-    }
-    let size = sizeof<(UnsafePointer<Int8>, Int) unsafe sync -> Void>()
-    let align = alignof<(UnsafePointer<Int8>, Int) unsafe sync -> Void>()
-    let raw = exec_alloc(size, align, "executor")
-    let at = raw as UnsafePointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void>
-    at[0] = { message: UnsafePointer<Int8>, length: Int in report_on_panic(message, length) }
-    if not PANIC_REPORT.compare_exchange(0, raw as Int) {
-        GlobalAllocator().dealloc(raw, size, align)
-    }
+    let report: FuncPointer<(UnsafePointer<Int8>, Int) unsafe sync -> Void> = report_on_panic
+    let _ = PANIC_REPORT.compare_exchange(0, Int.from(truncating: report.address()))
 }
 
 // The panic path's report: the message, then the dump, on standard error.
@@ -3453,7 +3419,7 @@ func install_panic_report() unsafe {
 // inside another thread's `print` line; the panic seam that ends the process
 // takes it again on this thread. A panic the walk raises takes the plain seam
 // (std.panic), so nothing raises here while the lock is held.
-func report_on_panic(message: UnsafePointer<Int8>, length: Int) unsafe {
+func report_on_panic(message: UnsafePointer<Int8>, length: Int) unsafe sync {
     __saw_rt_output_lock()
     __saw_rt_write_error(message, length)
     let _ = write_task_dump(true)

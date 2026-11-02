@@ -325,9 +325,7 @@ extension Channel<T: Send> {
     // tries again.
     func open_gate(&self) unsafe -> Result<UnsafePointer<UInt8>, ChannelError> {
         let block = self.block
-        if not install_gate_engine() {
-            return ChannelError.Alloc(e: AllocError(size: sizeof<GateEngine>(), align: alignof<GateEngine>()))
-        }
+        install_gate_engine()
         self.lock_queue()
         if (block[0].gate as Int) == 0 {
             let size = 2 * CHANNEL_GATE_SLOT
@@ -479,39 +477,27 @@ extension Channel<T: Send> {
 // this record first, so a program whose receives all park in tasks links
 // none of the gate seams (SL-933).
 struct GateEngine {
-    wake: (UnsafePointer<UInt8>) unsafe sync -> Void
-    destroy: (UnsafePointer<UInt8>) unsafe sync -> Void
+    wake: FuncPointer<(UnsafePointer<UInt8>) unsafe sync -> Void>
+    destroy: FuncPointer<(UnsafePointer<UInt8>) unsafe sync -> Void>
 }
 
-// The address of the one `GateEngine` record, or 0 until the first gate is
-// opened. It is never freed: a channel on any thread may call through it.
+// The gate's code, a link-time constant read only by the install below.
+static GATE_CODE: GateEngine = GateEngine(wake: { gate in wake_gate(gate) },
+                                          destroy: { gate in destroy_gate(gate) })
+
+// The address of `GATE_CODE`, or 0 until the first gate is opened.
 static GATE_ENGINE: Atomic<Int> = Atomic(0)
 
-// Installs the gate engine once per process; false when the allocator
-// refused its record. A losing racer frees its spare.
-func install_gate_engine() unsafe -> Bool {
-    if GATE_ENGINE.load() != 0 {
-        return true
-    }
-    let size = sizeof<GateEngine>()
-    let align = alignof<GateEngine>()
-    guard let raw = GlobalAllocator().alloc(size, align) else {
-        return false
-    }
-    let at = raw as UnsafePointer<GateEngine>
-    at[0] = GateEngine(wake: { gate: UnsafePointer<UInt8> in wake_gate(gate) },
-                       destroy: { gate: UnsafePointer<UInt8> in destroy_gate(gate) })
-    if not GATE_ENGINE.compare_exchange(0, raw as Int) {
-        GlobalAllocator().dealloc(raw, size, align)
-    }
-    true
+// Installs the gate engine once per process. A losing racer installed the
+// same address.
+func install_gate_engine() unsafe {
+    let _ = GATE_ENGINE.compare_exchange(0, (&GATE_CODE) as UnsafePointer<GateEngine> as Int)
 }
 
 // THE GATE FUNNEL: the address of the `GateEngine` that serves the gate at
 // `gate`, or 0 when the channel has none, which is every channel no thread
 // has blocked on. Each site that reaches a gate from code a task runs asks
-// here, and reaches the gate seams only through the record it returns. The
-// record is heap-held until a static can hold function values (SL-940).
+// here, and reaches the gate seams only through the record it returns.
 //
 // ENTRY POINTS:
 //   Channel.wake_threads

@@ -1,6 +1,6 @@
 program	compiler/tests/mono/golden/layouts.saw
 triple	arm64-apple-darwin
-source	3b962df14cfb38d3
+source	4d3f7d5ba126048f
 build	ok
 exit	0
 stdout	"(Int, Bool)\t16\t8"
@@ -21,6 +21,7 @@ stdout	"UnsafePointer<Int8>\t8\t8"
 stdout	"UnsafePointer<Int8>?\t16\t8"
 stdout	"UnsafePointer<Int>\t8\t8"
 stdout	"UnsafePointer<Int>?\t16\t8"
+stdout	"UnsafePointer<UInt8>\t8\t8"
 stdout	"Code\t2\t2"
 stdout	"Code?\t4\t2"
 stdout	"Color\t4\t4"

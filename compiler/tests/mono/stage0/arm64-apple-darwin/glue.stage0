@@ -1,6 +1,6 @@
 program	compiler/tests/mono/golden/glue.saw
 triple	arm64-apple-darwin
-source	fe2d08134cf902f2
+source	67182f24c28084de
 build	ok
 exit	0
 stdout	"(Int, Int)\t16\t8"
@@ -10,4 +10,5 @@ stdout	"Int\t8\t8"
 stdout	"String\t8\t8"
 stdout	"UnsafePointer<Int8>\t8\t8"
 stdout	"UnsafePointer<Int>\t8\t8"
+stdout	"UnsafePointer<UInt8>\t8\t8"
 stdout	""
