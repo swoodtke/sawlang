@@ -11,7 +11,8 @@ seams, the HAL's symbols, its atomic routines and the spec's soft-float
 routines alone), linked by ld.lld with a boot stub, a C floor and
 compiler-rt's soft-float builtins at a fixed address, booted under
 QEMU, and judged by its console transcript and exit status. A REFUSAL case stops at the compile and is judged by sawc's
-diagnostic. A case marked `due` is blocked by a sawc gap and cites the issue
+diagnostic. A LINK-REFUSAL case links a second sawc object beside its own and
+is judged by ld.lld's error. A case marked `due` is blocked by a sawc gap and cites the issue
 that owns it; it must fail, and passing fails the run so the marker comes off.
 
 QEMU, ld.lld and a clang that compiles for the target are host prerequisites.
@@ -264,6 +265,10 @@ def arch_free_problems():
 # `atomic_routines`, and nothing else but runtime seams and the HAL's symbols
 # (`references_problem`). `no_hidden_alloc: False` withholds `--no-hidden-alloc`
 # from a case that is about an allocation the flag refuses.
+# A LINK-REFUSAL case carries `expect_link_error` and `second_object`, the
+# source of another sawc object compiled with no runtime and no suite module:
+# the two objects and the HAL's must fail to link, the error holding those
+# substrings in order, and nothing is booted.
 #
 # The Blade case (`"blade": True`) is `blade build --target T` over
 # `tests/freestanding/bladepkg`: Blade, built by sawc, resolves the package,
@@ -710,6 +715,15 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # An image holds at most one sawc object (LANGUAGE_SPEC.md, Profiles):
+        # a second one fails the link on the backtrace table both define. The
+        # pin becomes a RUN case with SL-955's one final link per image.
+        "name": "link_two_objects",
+        "second_object": "link_two_objects_second",
+        "expect_link_error": ["duplicate symbol: __saw_bt_table\n", "link_two_objects.o",
+                              "link_two_objects_second.o"],
+    },
+    {
         # A wider-than-word integer renders whole; riscv32 only, since on arm64
         # the word already is 64 bits.
         "name": "wide_value_rendering",
@@ -1105,6 +1119,29 @@ def check_refusal(case, arch):
     return in_order(out, case["expect_compile_error"], "diagnostic")
 
 
+def check_link_refusal(case, arch, shared, lld):
+    out_dir = build_dir(arch)
+    obj = os.path.join(out_dir, case["name"] + ".o")
+    second = os.path.join(out_dir, case["second_object"] + ".o")
+    elf = os.path.join(out_dir, case["name"] + ".elf")
+    for stale in (obj, second, elf):
+        if os.path.exists(stale):
+            os.remove(stale)
+    plain = {"name": case["second_object"], "runtime": False, "modules": False}
+    try:
+        checked(sawc_command(case, arch, obj))
+        checked(sawc_command(plain, arch, second))
+    except ToolError as e:
+        return "build error\n%s" % e
+    code, out = run([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
+                    + shared["all"] + [obj, second], BUILD_TIMEOUT_S)
+    if code == 0:
+        return "expected the link to be REFUSED, but it succeeded"
+    if code is None:
+        return "the link timed out after %ds" % BUILD_TIMEOUT_S
+    return in_order(out, case["expect_link_error"], "link error")
+
+
 def build_with_blade(case, arch, lld, clang):
     """Build the case's package for the arch's triple through Blade, which is
     itself built by sawc. Returns the ELF's path; raises ToolError."""
@@ -1192,6 +1229,8 @@ def run_arch(arch, cases, qemu, clang, lld):
     def one(case):
         if case.get("expect_compile_error"):
             return check_refusal(case, arch)
+        if case.get("expect_link_error"):
+            return check_link_refusal(case, arch, shared, lld)
         return check_run(case, arch, shared, lld, qemu, clang)
 
     problems = gate_jobs.map_ordered(one, cases)

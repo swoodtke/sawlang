@@ -1,0 +1,13 @@
+// An image holds at most one object built by sawc (LANGUAGE_SPEC.md,
+// Profiles): this case's object and `link_two_objects_second.saw`'s each
+// carry their own std and backtrace table, and the runner requires their link
+// to fail on the duplicate `__saw_bt_table`. It becomes a running case once
+// separately compiled modules reach one final link (SL-955).
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    check("entered", true)
+    finish("link_two_objects")
+}

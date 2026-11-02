@@ -8,7 +8,9 @@ three modules here (`rt` is `fsrt`, the runtime provider; `core` is `fscore`;
 `data` is `fsdata`) through `--module-path`, links it with `hal/<arch>/boot.S`,
 `hal/support.c` and `hal/<arch>/link.ld`, boots it, and matches its console
 transcript and exit status. The refusal cases stop at the compile and match
-sawc's diagnostic.
+sawc's diagnostic. `link_two_objects` links a second sawc object beside its
+own and requires the link to fail on the duplicate `__saw_bt_table`, since an
+image holds at most one object built by sawc.
 
 ```
 tools/freestanding_runner.py                # every architecture that is on

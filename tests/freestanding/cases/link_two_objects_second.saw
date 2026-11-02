@@ -1,0 +1,7 @@
+// The second object `link_two_objects` is linked with: a plain freestanding
+// compile, no runtime and no suite module, whose only root is one export.
+
+@export("fs_second_hook")
+func second_hook() -> Int {
+    5
+}

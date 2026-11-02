@@ -1430,7 +1430,10 @@ machine-checked.
 | panic sink | `__saw_bt_panic(message, length)` | the panic path of a program that links the executor |
 
 In the other direction, the compiler emits the `__saw_bt_table()` blob that the
-executor's task dump reads.
+executor's task dump reads. Every program object `sawc build` writes defines
+`__saw_bt_table` as an external symbol, and its frame indices are its own, so an
+image links at most one program object; a second one is a duplicate-symbol
+error. The runtime's objects define no table.
 
 What stays synthesized:
 

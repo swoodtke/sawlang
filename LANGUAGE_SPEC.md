@@ -14672,6 +14672,14 @@ in a section of its own, so a kernel's `--gc-sections` link drops what nothing
 reaches, and the code is not position-independent. The object is ELF, since
 Mach-O cannot spell those section names, so a Mach-O triple is refused.
 
+An image, hosted or freestanding, holds at most one program object, the one
+`sawc build` writes; the runtime objects `sawc runtime` builds beside it are not
+program objects and carry no std of their own. A program object carries its own
+std, whose process-wide state and backtrace table exist once per object, so the
+Saw modules that go into one image are compiled together in one `sawc build`,
+with `--module-path` mapping each package. A second program object in the same
+link fails with a duplicate-symbol error naming `__saw_bt_table`.
+
 **A package may BE the runtime.** `[package] runtime = true` in `Saw.toml`
 declares a package a runtime provider (`sawc build --runtime`; blade passes
 v0.18.0's spelling, `--runtime-provider`). It may then `@export` the frozen
