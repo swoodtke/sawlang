@@ -3,7 +3,7 @@
 // into .blade/deps/, and record (version, git source, rev). No network.
 import blade.resolver.*
 import blade.manifest.*
-import std.directory.{Directory}
+import std.env.{Env}
 import std.path.{Path}
 
 extern "C" {
@@ -13,7 +13,7 @@ extern "C" {
 func sh(cmd: String) unsafe -> Bool {
     // Subshell so the quiet-redirect does not hijack a trailing `>>` in `cmd`.
     let full = "( {cmd} ) > /dev/null 2>&1"
-    system(full as UnsafePointer<Int8>) == (0 as Int32)
+    system(full.c_string()!) == (0 as Int32)
 }
 
 func main() {
@@ -27,10 +27,8 @@ func main() {
     assert(sh("cd {repo} && echo '[package]' > Saw.toml && echo 'name = \"libdep\"' >> Saw.toml && echo 'version = \"1.0.0\"' >> Saw.toml"), "dep manifest")
     assert(sh("cd {repo} && git add -A && git commit -q -m init && git tag v1.0.0"), "commit + tag")
 
-    guard let cwd = Directory.current() else {
-        panic("could not get current directory")
-    }
-    let url = "file://{cwd.as_str()}/{repo}"
+    let cwd = try! Env.cwd()
+    let url = "file://{cwd.as_string()}/{repo}"
 
     // A root package that depends on it by git.
     assert(sh("mkdir -p {root}"), "mkdir root")

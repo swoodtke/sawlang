@@ -1002,7 +1002,7 @@ var u = w.copy()       // explicit duplicate
   `lend`s while a `borrows(sync)` borrow is open (forwarding a lock's place, or
   lending its own buffer while holding a lock) must itself be `borrows(sync)`,
   else that `lend` is refused.
-  The frozen dirs (`blade/`, `libs/`, `examples/`) are Stage 0's language,
+  The frozen dir `examples/` is Stage 0's language,
   which writes these places inline too; nothing here is written in it.
   docverify checks doc examples with sawc, so a block that lends is a `saw` or
   `saw-body` block like any other.

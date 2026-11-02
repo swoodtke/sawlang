@@ -144,7 +144,7 @@ public func ls_remote_tags(url: String) -> GitTags? {
     try! cmd.arg("ls-remote")
     try! cmd.arg("--tags")
     try! cmd.arg(url)
-    guard let out = try! cmd.output() else {
+    guard let out = try? cmd.output() else {
         return None
     }
     if not out.success() {
@@ -163,7 +163,7 @@ public func clone_tag(url: String, tag: String, dir: String) -> Bool {
     try! cmd.arg(tag)
     try! cmd.arg(url)
     try! cmd.arg(dir)
-    match cmd.run() {
+    match cmd.wait() {
         case Ok(code) -> code == (0 as Int32),
         case Err(_) -> false
     }
@@ -177,7 +177,7 @@ public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
     try! clone.arg("clone")
     try! clone.arg(url)
     try! clone.arg(dir)
-    let clone_ok = match clone.run() {
+    let clone_ok = match clone.wait() {
         case Ok(code) -> code == (0 as Int32),
         case Err(_) -> false
     }
@@ -190,7 +190,7 @@ public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
     try! co.arg("checkout")
     try! co.arg("--quiet")
     try! co.arg(rev)
-    match co.run() {
+    match co.wait() {
         case Ok(code) -> code == (0 as Int32),
         case Err(_) -> false
     }

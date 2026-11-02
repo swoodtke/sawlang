@@ -4,6 +4,7 @@
 import toml
 import std.data.{Data}
 import std.directory.{Directory}
+import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
 
@@ -108,8 +109,8 @@ public struct Package {
     private version: String
     // design 149: `runtime = true` declares this package a RUNTIME PROVIDER —
     // it implements the `__saw_rt_*` seams itself. Blade passes
-    // `--runtime-provider`, which permits the exports, checks each seam's
-    // signature against sawc/rt/ABI.md, and links no runtime of ours beside it.
+    // `--runtime`, which permits the exports, checks each seam's
+    // signature against runtime/ABI.md, and links no runtime of ours beside it.
     // Absent or any other value means false; a package is not a runtime by
     // accident.
     private runtime: Bool
@@ -162,10 +163,9 @@ extension Manifest {
         let runtime = (doc.section_at(pkg).get("runtime") ?? "false") == "true"
 
         // Get current directory as root
-        let root = if let cwd = Directory.current() {
-            cwd
-        } else {
-            Path(s: ".")
+        let root = match Env.cwd() {
+            case Ok(cwd) -> cwd,
+            case Err(_) -> Path(s: ".")
         }
 
         return Manifest(
@@ -178,7 +178,7 @@ extension Manifest {
         let manifest_path = dir.join("Saw.toml")
 
         if not File.exists(manifest_path) {
-            return ManifestError(msg: "Saw.toml not found in {dir.as_str()}")
+            return ManifestError(msg: "Saw.toml not found in {dir.as_string()}")
         }
 
         var file = try File.open(manifest_path)
@@ -267,7 +267,7 @@ extension Manifest {
     // and its tests write `import <name>.layout`.
     public func own_module_path(&self) -> String {
         let root = self.root_dir.join("src")
-        "{self.package.name}={root.as_str()}"
+        "{self.package.name}={root.as_string()}"
     }
 
     // Whether this package provides the `__saw_rt_*` runtime seams (design 149).

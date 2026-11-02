@@ -8,7 +8,7 @@ version = "0.1.0"
 #
 # It holds the frozen `__saw_rt_*` seams the cases reach but does NOT carry
 # `runtime = true` itself — deliberately, and for the reason `sos/rt/common`
-# gives: that key makes Blade pass `--runtime-provider` to a COMPILE, and this
+# gives: that key makes Blade pass `--runtime` to a COMPILE, and this
 # package is never compiled on its own. The declaration belongs to the thing
 # being built — `bladepkg/Saw.toml` for the Blade case, the runner's command
 # line for every other — and putting it here too would read like the source of

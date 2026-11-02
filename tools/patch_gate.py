@@ -71,6 +71,14 @@ SUITE_INPUTS = {
         "tools/child_groups.py",
         "tools/gate_jobs.py",            # its worker budget
     ),
+    "blade": SAWC_SOURCES + (
+        "blade/",                        # the package manager it builds, tests and self-builds
+        "libs/",                         # the packages whose tests it runs
+        "bin/blade",                     # the shim `blade new` and `blade run` stand for
+        "tools/blade_lane.py",           # the lane
+        "tools/child_groups.py",
+        "tools/gate_jobs.py",
+    ),
     "freestanding": (
         "tests/freestanding/",           # the cases, the three modules, the boot stubs and link scripts
         "tools/freestanding_runner.py",  # the runner and its expectations
@@ -86,7 +94,11 @@ SUITE_INPUTS = {
         "compiler/tools/build.py",       # which builds sawc and writes the target's clang record
         "runtime/",                      # runtime/ABI.md, which the provider's seams are checked against
         "std/",                          # the std every case compiles against
+        # The Blade case builds Blade and drives it over tests/freestanding/bladepkg.
+        "blade/",
+        "libs/",
         # The modules the runner imports.
+        "tools/blade_lane.py",
         "tools/child_groups.py",
         "tools/gate_jobs.py",
     ),
@@ -101,6 +113,7 @@ PARTS = (
     ("fixpoint", ["compiler/tests/fixpoint/fixpoint_lane.py"]),
     ("grammar corpus", [GRAMMAR_CORPUS]),
     ("corpusdiff", ["compiler/tests/corpusdiff/corpusdiff.py", "gate"]),
+    ("blade", ["tools/blade_lane.py"]),
     ("freestanding", ["tools/freestanding_runner.py"]),
 )
 

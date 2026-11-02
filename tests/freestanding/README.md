@@ -32,5 +32,5 @@ blocked by a sawc gap is marked `due` in the runner, citing the issue that
 owns the gap, and must fail with that gap's diagnostic until the gap closes;
 a gap on one architecture marks that row alone (`due_on`).
 
-`bladepkg/` is the Blade case (`blade build --target T`), which is not run:
-Blade is frozen in v0.18.0's language until its port (SL-661).
+`bladepkg/` is the Blade case (`blade build --target T`): the runner builds
+Blade with sawc, then builds the package through it.

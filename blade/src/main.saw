@@ -5,6 +5,7 @@ import blade.cli
 import blade.manifest
 import blade.builder
 import blade.tester
+import std.data.{Data}
 import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}
@@ -70,14 +71,14 @@ func write_new_file(path: Path, content: String) -> Bool {
     let f = match File.create(path) {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            print("Error: Could not create {path.as_str()}: {e}")
+            print("Error: Could not create {path.as_string()}: {e}")
             return false
         }
     }
     match f.write(try! content.to_data()) {
         case Ok(_) -> true,
         case Err(e) -> {
-            print("Error: Could not write {path.as_str()}: {e}")
+            print("Error: Could not write {path.as_string()}: {e}")
             false
         }
     }

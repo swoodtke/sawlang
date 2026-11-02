@@ -503,12 +503,12 @@ func sos_targets_summary(doc: &TomlDoc, flat_target: String) -> String {
 /// accident — `SOS_CLANG` names it when the default is wrong (macOS's Apple
 /// clang mis-drives the riscv integrated assembler).
 public func sos_clang() -> String {
-    Env.get("SOS_CLANG") ?? "clang"
+    (try! Env.get("SOS_CLANG")) ?? "clang"
 }
 
 /// The linker. `SOS_LD` overrides.
 public func sos_ld() -> String {
-    Env.get("SOS_LD") ?? "ld.lld"
+    (try! Env.get("SOS_LD")) ?? "ld.lld"
 }
 
 /// Pack the four band levels into the header's `prio_map` word, low byte first.
@@ -968,24 +968,24 @@ public func write_sosimg(elf_path: Path, img_path: Path, prio_map: UInt,
                          device_len: UInt = 0) -> Result<Int, SosError> {
     var f = match File.open(elf_path) {
         case Ok(handle) -> move handle,
-        case Err(e) -> { return SosError(msg: "could not open {elf_path.as_str()}: {e}") }
+        case Err(e) -> { return SosError(msg: "could not open {elf_path.as_string()}: {e}") }
     }
     let elf = match f.read() {
         case Ok(bytes) -> move bytes,
-        case Err(e) -> { return SosError(msg: "could not read {elf_path.as_str()}: {e}") }
+        case Err(e) -> { return SosError(msg: "could not read {elf_path.as_string()}: {e}") }
     }
     let img = try elf_to_sosimg(&elf, prio_map, arch, device_base, device_len)
     let size = img.len()
     let out = match File.create(img_path) {
         case Ok(handle) -> move handle,
-        case Err(e) -> { return SosError(msg: "could not create {img_path.as_str()}: {e}") }
+        case Err(e) -> { return SosError(msg: "could not create {img_path.as_string()}: {e}") }
     }
     let written = match out.write(move img) {
         case Ok(n) -> n,
-        case Err(e) -> { return SosError(msg: "could not write {img_path.as_str()}: {e}") }
+        case Err(e) -> { return SosError(msg: "could not write {img_path.as_string()}: {e}") }
     }
     if written != size {
-        return SosError(msg: "short write to {img_path.as_str()} ({written} of {size} bytes)")
+        return SosError(msg: "short write to {img_path.as_string()} ({written} of {size} bytes)")
     }
     size
 }

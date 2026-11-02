@@ -4,7 +4,7 @@
 //
 // What reaching this transcript proves, which no other case does: Blade
 // resolved a path-dependency GRAPH for a non-host triple, drove `sawc
-// --freestanding --target <triple>` with `--runtime-provider` out of the
+// --freestanding --target <triple>` with `--runtime` out of the
 // manifest's `runtime = true`, drove the cross clang over an assembly stub and
 // a C floor named by `[sos.<triple>] native`, drove `ld.lld` with the linker
 // script that section names, and emitted a `.sosimg` from the ELF the runner

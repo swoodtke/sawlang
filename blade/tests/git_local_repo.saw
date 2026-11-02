@@ -1,7 +1,7 @@
 // B5: end-to-end git against a LOCAL file:// repository built in .build/scratch
 // (no network). Exercises `git ls-remote --tags` discovery and a tag clone.
 import blade.git.*
-import std.directory.{Directory}
+import std.env.{Env}
 
 extern "C" {
     func system(command: UnsafePointer<Int8>) -> Int32
@@ -11,8 +11,7 @@ extern "C" {
 // quiet-redirect from hijacking a trailing `>>` inside `cmd`.
 func sh(cmd: String) unsafe -> Bool {
     let full = "( {cmd} ) > /dev/null 2>&1"
-    let ptr = full as UnsafePointer<Int8>
-    system(ptr) == (0 as Int32)
+    system(full.c_string()!) == (0 as Int32)
 }
 
 func main() {
@@ -26,10 +25,8 @@ func main() {
     assert(sh("cd {repo} && git add -A && git commit -q -m init && git tag v1.0.0"), "commit + tag v1.0.0")
     assert(sh("cd {repo} && echo '# note' >> Saw.toml && git add -A && git commit -q -m more && git tag v1.2.0"), "commit + tag v1.2.0")
 
-    guard let cwd = Directory.current() else {
-        panic("could not get current directory")
-    }
-    let url = "file://{cwd.as_str()}/{repo}"
+    let cwd = try! Env.cwd()
+    let url = "file://{cwd.as_string()}/{repo}"
 
     guard let tags = ls_remote_tags(url) else {
         panic("git ls-remote failed for {url}")

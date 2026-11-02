@@ -11,8 +11,8 @@ version = "0.1.0"
 # `__saw_rt_*` seams come from the `fscore -> fsrt` dependency chain, and a
 # package build compiles its whole module graph into one unit — so this compile
 # is where those definitions land, and it is the compile that has to say so.
-# Blade passes `--runtime-provider`, which permits the exports and checks each
-# signature against sawc/rt/ABI.md. This is the SECOND door that flag has; the
+# Blade passes `--runtime`, which permits the exports and checks each
+# signature against runtime/ABI.md. This is the SECOND door that flag has; the
 # runner's command line is the first, and the suite covers both because a
 # regression could close either one alone.
 runtime = true

@@ -35,6 +35,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "compiler", "tools"))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 
+import blade_lane  # noqa: E402
 import build  # noqa: E402
 import child_groups  # noqa: E402
 import gate_jobs  # noqa: E402
@@ -262,9 +263,10 @@ def arch_free_problems():
 # (`references_problem`). `no_hidden_alloc: False` withholds `--no-hidden-alloc`
 # from a case that is about an allocation the flag refuses.
 #
-# The Blade case (`blade build --target T` over `tests/freestanding/bladepkg`)
-# is not run: Blade is frozen in v0.18.0's language and sawc cannot build it
-# until its port (SL-661).
+# The Blade case (`"blade": True`) is `blade build --target T` over
+# `tests/freestanding/bladepkg`: Blade, built by sawc, resolves the package,
+# drives sawc, the cross clang and ld.lld, and the runner boots the ELF it
+# leaves under the package's `.build/T/`. Its `expect_out` is the program's.
 
 # The checks `float_methods` and its -O0 twin print, in order.
 FLOAT_METHOD_CHECKS = ["fs check %s=1" % claim for claim in (
@@ -780,6 +782,18 @@ TEST_CASES = [
                                  "a `SpinLock` spins on a hardware read-modify-write, so it needs native atomics",
                                  "--target-features +a"],
     },
+    {
+        # The non-host build path reached through a manifest, on both arches.
+        "name": "bladepkg",
+        "blade": True,
+        "package": "bladepkg",
+        "image": "fsblade",
+        "expect_out": ["fs: hello from a Blade-built image",
+                       "fs check blade_built_image_ran=1",
+                       "fs check blade_arithmetic=1",
+                       "fs done blade_target ok"],
+        "expect_clean_exit": True,
+    },
 ]
 
 INSTALL_HINTS = {
@@ -1011,6 +1025,32 @@ def check_refusal(case, arch):
     return in_order(out, case["expect_compile_error"], "diagnostic")
 
 
+def build_with_blade(case, arch, lld, clang):
+    """Build the case's package for the arch's triple through Blade, which is
+    itself built by sawc. Returns the ELF's path; raises ToolError."""
+    package = os.path.join(FS_DIR, case["package"])
+    target_dir = os.path.join(package, ".build", arch["triple"])
+    elf = os.path.join(target_dir, case["image"] + ".elf")
+    # Blade skips a target whose outputs are current, so a stale ELF must go
+    # with everything else it left.
+    shutil.rmtree(target_dir, ignore_errors=True)
+    try:
+        blade = blade_lane.ensure_blade()
+    except RuntimeError as e:
+        raise ToolError(str(e))
+    # Blade's emitter reads the toolchain from these two, defaulting to whatever
+    # `clang` is first on PATH, which on macOS cannot drive the riscv assembler.
+    env = blade_lane.blade_environment({"SOS_CLANG": clang, "SOS_LD": lld})
+    code, out = blade_lane.run([blade, "build", "--target", arch["triple"]], BUILD_TIMEOUT_S,
+                               cwd=package, env=env)
+    if code != 0:
+        why = "timed out after %ds" % BUILD_TIMEOUT_S if code is None else "exit %d" % code
+        raise ToolError("command failed (%s): blade build --target %s\n%s" % (why, arch["triple"], out))
+    if not os.path.exists(elf):
+        raise ToolError("blade build --target %s left no %s\n%s" % (arch["triple"], elf, out))
+    return elf
+
+
 def check_run(case, arch, shared, lld, qemu, clang):
     out_dir = build_dir(arch)
     obj = os.path.join(out_dir, case["name"] + ".o")
@@ -1022,12 +1062,15 @@ def check_run(case, arch, shared, lld, qemu, clang):
     if case.get("no_atomics"):
         objects.append(shared["no_atomics"])
     try:
-        checked(sawc_command(case, arch, obj))
-        problem = references_problem(case, arch, obj, clang)
-        if problem:
-            return problem
-        checked([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
-                + objects + [obj])
+        if case.get("blade"):
+            elf = build_with_blade(case, arch, lld, clang)
+        else:
+            checked(sawc_command(case, arch, obj))
+            problem = references_problem(case, arch, obj, clang)
+            if problem:
+                return problem
+            checked([lld, "-T", os.path.join(HAL_DIR, arch["name"], "link.ld"), "--gc-sections", "-o", elf]
+                    + objects + [obj])
     except ToolError as e:
         return "build error\n%s" % e
     status, out = run([qemu] + arch["qemu_args"] + ["-nographic", "-kernel", elf], QEMU_TIMEOUT_S)

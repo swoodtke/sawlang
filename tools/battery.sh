@@ -59,6 +59,7 @@ STAGES=(
     "childgroups|no|a TERM to a runner ends every child group it started in a session of its own|$PY tools/test_child_groups.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|runtime/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
+    "blade|no|sawc builds Blade and Blade builds itself, then blade test passes in blade/ and each libs/ package, and blade new + blade run work|$PY tools/blade_lane.py"
     "freestanding|no|sawc's freestanding objects linked and run under QEMU (tests/freestanding); skips when QEMU, ld.lld or a target clang is absent|__FREESTANDING__"
     "gmgate|yes|ownership + concurrency oracles, built by sawc, under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "linux|yes|the run lane on Linux aarch64 and x86_64 (Rosetta) in the sawlang-linux VM; skips when it is down|__LINUX__"

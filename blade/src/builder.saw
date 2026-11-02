@@ -16,6 +16,7 @@ import blade.manifest.*
 import blade.resolver.*
 import blade.lock.*
 import blade.sosimg.*
+import std.data.{Data}
 import std.directory.{Directory}
 import std.env.{Env}
 import std.file.{File}
@@ -78,11 +79,11 @@ func append_dir_saw(b: &var StringBuilder, dir: String) {
     var i = 0
     while i < entries.len() {
         if let e = entries.get(i) {
-            if let ext = e.ext() {
+            if let ext = e.file_extension() {
                 if ext.equals("saw") {
-                    try! b.append(e.as_str())
+                    try! b.append(e.as_string())
                     try! b.append("\n")
-                    try! b.append(read_file(e.as_str()))
+                    try! b.append(read_file(e.as_string()))
                 }
             }
         }
@@ -145,7 +146,7 @@ extension Builder {
     // The compiler command. Honours a `SAWC` override so an in-tree compiler can
     // drive the build (matches the tester).
     public func compiler(&self) -> String {
-        if let c = Env.get("SAWC") {
+        if let c = (try! Env.get("SAWC")) {
             c
         } else {
             "sawc"
@@ -303,14 +304,14 @@ extension Builder {
         // `match` with one diverging arm and one bare-error arm miscompiles
         // (DF-140e) — the arms unify to the error type and the auto-wrap into
         // `Err` is dropped, so the function returns a raw BuildError.
-        match cmd.run() {
+        match cmd.wait() {
             case Ok(code) -> {
                 if code != (0 as Int32) {
                     return BuildError(msg: "{what} failed", code: code)
                 }
             },
             case Err(e) -> {
-                return BuildError(msg: "could not launch {what}: {e.program_name()}")
+                return BuildError(msg: "could not launch {what}: {e}")
             }
         }
         return
@@ -369,7 +370,7 @@ extension Builder {
         // the COMPILE, and a package build compiles its whole module graph
         // into one unit.
         if self.manifest.is_runtime() {
-            try! saw.arg("--runtime-provider")
+            try! saw.arg("--runtime")
         }
         if not cfg.target_features.is_empty() {
             try! saw.arg("--target-features")
@@ -526,9 +527,9 @@ extension Builder {
         }
         // design 149: `[package] runtime = true` says this package implements
         // the `__saw_rt_*` seams. sawc then permits those exports, checks each
-        // signature against rt/ABI.md, and links no runtime of its own beside it.
+        // signature against runtime/ABI.md, and links no runtime of its own beside it.
         if self.manifest.is_runtime() {
-            try! cmd.arg("--runtime-provider")
+            try! cmd.arg("--runtime")
         }
         // The package's own name maps to its module root, so its sources may
         // import one another as `<name>.module`.
@@ -542,10 +543,10 @@ extension Builder {
             i = i + 1
         }
 
-        let exit_code = match cmd.run() {
+        let exit_code = match cmd.wait() {
             case Ok(code) -> code,
             case Err(e) -> {
-                return BuildError(msg: "could not launch compiler: {e.program_name()}")
+                return BuildError(msg: "could not launch compiler: {e}")
             }
         }
         if exit_code == (0 as Int32) {
@@ -665,9 +666,9 @@ extension Builder {
             }
             i = i + 1
         }
-        match cmd.run() {
+        match cmd.wait() {
             case Ok(code) -> code as Int,
-            case Err(e) -> BuildError(msg: "could not launch `{binary_name}`: {e.program_name()}")
+            case Err(e) -> BuildError(msg: "could not launch `{binary_name}`: {e}")
         }
     }
 }

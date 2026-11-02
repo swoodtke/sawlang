@@ -1,6 +1,6 @@
 // design 149 unit (c): `[package] runtime = true` declares a package a runtime
 // PROVIDER — it implements the `__saw_rt_*` seams itself, so Blade passes
-// `--runtime-provider` and sawc links no runtime of its own beside it.
+// `--runtime` and sawc links no runtime of its own beside it.
 //
 // Both directions are checked. A package that says nothing is not a runtime:
 // declaring one by accident would suppress the runtime link and leave every
@@ -17,7 +17,7 @@ extern "C" {
 
 func sh(cmd: String) unsafe -> Bool {
     let full = "( {cmd} ) > /dev/null 2>&1"
-    system(full as UnsafePointer<Int8>) == (0 as Int32)
+    system(full.c_string()!) == (0 as Int32)
 }
 
 // Build the fixture with the real blade binary and hand back what it printed.
@@ -86,7 +86,7 @@ func main() {
     // dropped the flag.
     if let output = build_runtime_fixture() {
         assert(not output.contains("collides with a reserved runtime symbol"),
-               "blade should pass --runtime-provider for `runtime = true`")
+               "blade should pass --runtime for `runtime = true`")
     }
 
     print("manifest_runtime_key: ok")

@@ -975,8 +975,7 @@ bin/sawc tests/corpus/hello.saw -o hello
 
 ### Putting `sawc` and `blade` on your PATH
 
-`make install` builds Blade (with `sawc0`, below, so the first install fetches
-v0.18.0 unless `SAWLANG_V0_ROOT` names a checkout) and symlinks three shims,
+`make install` builds Blade (with `sawc`) and symlinks three shims,
 `sawc`, `sawc0` and `blade`, onto a prefix (`~/.local/bin` by default):
 
 ```bash
@@ -990,9 +989,8 @@ run builds it (which needs clang, and HTTPS to the seed's blob host) and an edit
 reinstall. A tree whose compiler does not build makes `sawc` fail with
 build.py's reason. `sawc0` is v0.18.0's compiler, the Python Stage 0 this tree
 no longer holds: the shim forwards to a v0.18.0 checkout, the one
-`SAWLANG_V0_ROOT` names or else one fetched and cached. Blade is frozen in
-v0.18.0's language, so `blade` runs the `sawc0` beside it unless `SAWC` names
-another compiler. If you would rather install nothing, put `<checkout>/bin` on
+`SAWLANG_V0_ROOT` names or else one fetched and cached. `blade` runs the
+`sawc` beside it unless `SAWC` names another compiler. If you would rather install nothing, put `<checkout>/bin` on
 your `PATH` instead; the shims work either way.
 
 `sawc --version` prints the release. Bumping it is part of shipping a
@@ -1081,9 +1079,8 @@ battery, and application-level testing with `blade test`.
 
 Saw includes Blade, a package manager written in Saw itself. It has a TOML
 parser, a manifest model, a dependency resolver, a deterministic lockfile, git
-fetching, and incremental builds. Blade and its `libs/` packages are frozen in
-v0.18.0's language until their port to `sawc` (blade/README.md), so they build
-with that release's compiler, `sawc0`.
+fetching, and incremental builds. Blade and its `libs/` packages build with
+`sawc` (blade/README.md).
 
 ```bash
 # Build the package manager with v0.18.0's compiler: bin/sawc0 runs the
@@ -1160,8 +1157,8 @@ runtime/               # The runtime, authored in Saw (ABI.md is its contract)
 bin/                   # `sawc`, `sawc0` and `blade` shims (see `make install`)
 tests/corpus/          # The corpus programs, measured on every patch
 examples/              # Frozen: the key of v0.18.0's recorded snapshots
-blade/                 # Blade package manager (written in Saw), frozen
-libs/                  # Real Saw library packages (semver, toml, imgformat), frozen
+blade/                 # Blade package manager (written in Saw)
+libs/                  # Real Saw library packages (semver, toml, imgformat)
 designs/               # Design briefs and the project tracker
 LANGUAGE_SPEC.md       # Full language specification
 GRAMMAR.md             # The formal grammar

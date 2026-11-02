@@ -18,13 +18,13 @@ all: compiler-test
 #   make install PREFIX=/usr/local/bin
 #
 # Blade is built first because its shim execs a binary rather than a script.
-# Blade is frozen in v0.18.0's language (blade/README.md), so the build goes
-# through `bin/sawc0`.
+# Blade is written in Saw (blade/README.md), so the build goes through
+# `bin/sawc`.
 PREFIX ?= $(HOME)/.local/bin
 BLADE_BIN := .build/blade
 
 blade:
-	@bin/sawc0 blade/src/main.saw -o $(BLADE_BIN) \
+	@bin/sawc blade/src/main.saw -o $(BLADE_BIN) \
 		--module-path blade=blade/src \
 		--module-path toml=libs/toml/src \
 		--module-path semver=libs/semver/src \
@@ -86,7 +86,7 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  make compiler-test   - The self-hosted compiler's tests (the default)"
-	@echo "  make blade           - Build the package manager into .build/blade (through sawc0)"
+	@echo "  make blade           - Build the package manager into .build/blade (through sawc)"
 	@echo "  make install         - Put sawc, sawc0 + blade on a PATH (PREFIX=~/.local/bin)"
 	@echo "  make gmgate          - Ownership + concurrency oracles under Guard Malloc (macOS)"
 	@echo "  make abidoc          - runtime/ABI.md describes exactly the frozen seam set"

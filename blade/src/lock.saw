@@ -23,6 +23,7 @@ import std.file.{File}
 import std.path.{Path}
 import std.cbor.{CborEncoder, CborDecoder}
 import std.data.{Data}
+import std.serialize.{EncodeError, DecodeError}
 
 // =============================================================================
 // Lock data
@@ -203,7 +204,7 @@ public func write_lock(res: &Resolution, manifest_hash: String, path: Path) -> B
     let f = match File.create(path) {
         case Ok(handle) -> move handle,
         case Err(e) -> {
-            print("warning: could not create {path.as_str()}: {e}")
+            print("warning: could not create {path.as_string()}: {e}")
             return false
         }
     }
@@ -212,7 +213,7 @@ public func write_lock(res: &Resolution, manifest_hash: String, path: Path) -> B
     match f.write(try! text.to_data()) {
         case Ok(_) -> true,
         case Err(e) -> {
-            print("warning: could not write {path.as_str()}: {e}")
+            print("warning: could not write {path.as_string()}: {e}")
             false
         }
     }

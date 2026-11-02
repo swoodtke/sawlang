@@ -12,6 +12,7 @@ import blade.resolver.*
 import blade.manifest.*
 import std.cbor.{CborEncoder, CborDecoder}
 import std.data.{Data}
+import std.serialize.{EncodeError}
 import std.path.{Path}
 
 func hex(d: &Data) -> String {

@@ -13,11 +13,11 @@ extern "C" {
 
 func sh(cmd: String) unsafe -> Bool {
     let full = "( {cmd} ) > /dev/null 2>&1"
-    system(full as UnsafePointer<Int8>) == (0 as Int32)
+    system(full.c_string()!) == (0 as Int32)
 }
 
 func compiler() -> String {
-    if let c = Env.get("SAWC") {
+    if let c = (try! Env.get("SAWC")) {
         c
     } else {
         "sawc"

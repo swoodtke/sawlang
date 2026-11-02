@@ -14,6 +14,7 @@
 import blade.manifest.*
 import blade.git.*
 import semver.{Version, VersionReq, parse_version, parse_req}
+import std.data.{Data}
 import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}
@@ -363,7 +364,7 @@ func visit(
         // Declared: the raw relative path from the manifest (portable, recorded
         // in the lock). Loc: the normalized directory (identity + module-path).
         declared = path_dir(source)
-        dep_loc = normalize_path(base_dir.join(declared).as_str())
+        dep_loc = normalize_path(base_dir.join(declared).as_string())
     }
 
     // Cycle FIRST: if the name is on the active resolution stack it is an
@@ -437,7 +438,7 @@ func visit(
     // codegen; dogfood DF9).
     let m = match Manifest.load_from(dep_dir) {
         case Ok(x) -> x,
-        case Err(_) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}` at {dep_dir.as_str()}") }
+        case Err(_) -> { return ResolveError(msg: "cannot read manifest for `{dep_name}` at {dep_dir.as_string()}") }
     }
     if not is_git {
         resolved_version = m.version()

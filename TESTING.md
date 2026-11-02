@@ -393,8 +393,8 @@ full; in short, the runner:
 - requires one release number everywhere it is written (the `version` step):
   the driver's `driver_version`, what `sawc --version` prints and the release
   tag in `.sawtracker/version`, so a release bump edits both files;
-- holds each frozen directory (`blade/`, `libs/`,
-  `examples/`, `prototypes/`, `devtools/bench/`, `devtools/dogfood/`) to the
+- holds each frozen directory (`examples/`, `prototypes/`,
+  `devtools/bench/`, `devtools/dogfood/`) to the
   git tree `tools/frozen_trees.tsv` records, with nothing in it uncommitted
   (the `frozen` step). Nothing builds those sources, so this is what keeps
   their v0.18.0 recipes true;
@@ -716,9 +716,10 @@ touching the network.
 
 Runs `compiler/tests/run.py`, the self-hosted compiler's tests (above). It is
 where the compiler's unit programs are compiled and run; no other stage opens
-them. `blade/tests` and `libs/*/tests` are frozen sources that no stage runs
-(their READMEs give the v0.18.0 recipe); `tests/freestanding` is the
-`freestanding` stage's (`tools/freestanding_runner.py`).
+them. `blade/tests` and `libs/*/tests` are the `blade` stage's
+(`tools/blade_lane.py`: `blade test` in `blade/` and in each library);
+`tests/freestanding` is the `freestanding` stage's
+(`tools/freestanding_runner.py`).
 
 The self-hosted compiler's code generation has its own timing report:
 `compiler/tests/run/run_lane.py --bench` times the kernels in
@@ -876,8 +877,7 @@ expected to be emptied again before the brief closes.
 The corpus and the compiler's tests above test the **compiler itself**. A Saw
 *application* (or library) tests its own logic a different way, using the Blade
 package manager — no new language surface, just ordinary Saw programs (design
-49). Blade is frozen in v0.18.0's language (blade/README.md), so `blade test`
-drives v0.18.0's compiler, `sawc0`.
+49). Blade is built by `sawc` (blade/README.md), and `blade test` drives it.
 
 A test is a `.saw` file under the project's `tests/` directory with its own
 `main()`. It **passes by exiting 0** and **fails by any nonzero exit** — most
@@ -928,7 +928,7 @@ blade test
 ```
 
 The compiler command defaults to `sawc` on `PATH`, and the `blade` shim sets it
-to the `sawc0` beside it, since Blade drives Stage 0's command line; set the
+to the `sawc` beside it; set the
 `SAWC` environment variable to point `blade test` at another compiler. The
 compiler's tests and an app's `blade test` suite do not share machinery or
 semantics.
@@ -956,14 +956,14 @@ its directory first, the way `blade/tests/dep_build.saw` does:
 assert(Path(s: ".build/scratch").ensure_dir(), "scratch directory available")
 ```
 
-`sawc0` does not create its output directory, so a test that skips this depends
+`sawc` does not create its output directory, so a test that skips this depends
 on some earlier test having made the directory, and the suite starts failing
 in whatever order the filesystem hands the files back.
 
-### Library packages and the self-hosting bootstrap (design 64 B8)
+### Library packages and the self-hosting build (design 64 B8)
 
 The dependency machinery is extracted into real library packages, each with its
-own `Saw.toml` and `blade test` suite, frozen with Blade (libs/README.md):
+own `Saw.toml` and `blade test` suite (libs/README.md):
 
 - `libs/toml` — the TOML reader (Blade depends on it by path).
 - `libs/semver` — semantic versions / requirements (a `Comparable`/`Printable`
@@ -975,17 +975,15 @@ own `Saw.toml` and `blade test` suite, frozen with Blade (libs/README.md):
   header/segment rules a loader judges by.
 
 Run a package's own tests by pointing Blade at its directory (`blade test`
-from inside `libs/toml`, `libs/semver` or `libs/imgformat`), with
-`SAWLANG_V0_ROOT` naming a v0.18.0 checkout so the `sawc0` that Blade drives
-does not fetch one.
+from inside `libs/toml`, `libs/semver` or `libs/imgformat`); the `blade` stage
+runs all three.
 
 Blade is an application, so its `Saw.lock` is committed. The library packages'
 are not: `blade build` writes no lock in a library, and each ships a one-line
 `.gitignore` covering the `blade update` case.
 
 Because Blade's own `Saw.toml` depends on `libs/toml`, every Blade build runs
-the resolver, writes/uses `Saw.lock`, and passes `--module-path`. The bootstrap
-loop that proves it end to end — Stage 0 builds Blade, that Blade builds Blade
-through its own pipeline and runs Blade's suite, a second build reports "up to
-date", `--force` rebuilds — is v0.18.0's `tools/blade_bootstrap.py`, run in a
-v0.18.0 checkout.
+the resolver, writes/uses `Saw.lock`, and passes `--module-path`. The `blade`
+stage proves it end to end: `sawc` builds Blade, that Blade builds Blade
+through its own pipeline and runs Blade's suite and each library's, and
+`blade new` plus `blade run` make and run a package.

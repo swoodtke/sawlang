@@ -6,6 +6,7 @@
 // each path is, that two targets never share one, and that creating and
 // removing a build directory both work.
 import blade.layout.*
+import std.data.{Data}
 import std.directory.{Directory}
 import std.file.{File}
 import std.path.{Path}

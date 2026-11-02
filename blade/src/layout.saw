@@ -52,7 +52,7 @@ extension Path {
         match Directory.create(self) {
             case Ok(_) -> true,
             case Err(e) -> {
-                print("error: could not create {self.as_str()}: {e}")
+                print("error: could not create {self.as_string()}: {e}")
                 false
             }
         }

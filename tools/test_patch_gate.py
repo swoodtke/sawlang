@@ -47,11 +47,11 @@ def decisions(paths):
     return {name: run for name, run, _, _ in patch_gate.plan(paths, "test")}
 
 
-ALL = ("compiler tests", "fixpoint", "grammar corpus", "corpusdiff", "freestanding")
+ALL = ("compiler tests", "fixpoint", "grammar corpus", "corpusdiff", "blade", "freestanding")
 GRAMMAR_FILES = "grammar: changed .saw files"
 # What a stage after the parser, std or the runtime reaches: everything but the
 # grammar corpus.
-BACKEND = ("compiler tests", "fixpoint", "corpusdiff", "freestanding", GRAMMAR_FILES)
+BACKEND = ("compiler tests", "fixpoint", "corpusdiff", "blade", "freestanding", GRAMMAR_FILES)
 
 # (changed paths, the parts that run). The per-file grammar check is listed
 # when it runs.
@@ -66,20 +66,27 @@ CASES = (
     ({"tests/freestanding/README.md"}, ("compiler tests", "freestanding")),
     ({"tools/freestanding_runner.py"}, ("compiler tests", "freestanding")),
     ({"tools/test_freestanding_runner.py"}, ("compiler tests",)),
-    ({"tools/gate_jobs.py"}, ("compiler tests", "fixpoint", "corpusdiff", "freestanding")),
-    ({"blade/src/main.saw", "libs/toml/src/lib.saw"}, ("compiler tests", GRAMMAR_FILES)),
+    ({"tools/gate_jobs.py"}, ("compiler tests", "fixpoint", "corpusdiff", "blade", "freestanding")),
+    ({"blade/src/main.saw", "libs/toml/src/lib.saw"}, ("compiler tests", "blade", "freestanding", GRAMMAR_FILES)),
+    ({"blade/tests/lock_cbor.saw"}, ("compiler tests", "blade", "freestanding", GRAMMAR_FILES)),
+    ({"blade/README.md"}, ("compiler tests", "blade", "freestanding")),
+    ({"libs/README.md"}, ("compiler tests", "blade", "freestanding")),
+    ({"libs/semver/src/lib.saw"}, ("compiler tests", "blade", "freestanding", GRAMMAR_FILES)),
+    ({"bin/blade"}, ("compiler tests", "blade")),
+    ({"tools/blade_lane.py"}, ("compiler tests", "blade", "freestanding")),
+    ({"tools/frozen_trees.tsv"}, ("compiler tests",)),
     ({"compiler/typecheck/src/check.saw"}, BACKEND),
     ({"compiler/coro/src/api.saw"}, BACKEND),
-    ({"compiler/lex/src/lib.saw"},("compiler tests", "fixpoint", "grammar corpus", "corpusdiff")),
+    ({"compiler/lex/src/lib.saw"},("compiler tests", "fixpoint", "grammar corpus", "corpusdiff", "blade")),
     ({"compiler/typecheck/tests/golden.saw"}, ("compiler tests", "fixpoint", GRAMMAR_FILES)),
     ({"compiler/llvm/src/program.saw"}, BACKEND),
     ({"compiler/target/src/layout.saw"}, BACKEND),
-    ({"compiler/parse/src/grammar.saw"}, ("compiler tests", "fixpoint", "grammar corpus", "corpusdiff")),
+    ({"compiler/parse/src/grammar.saw"}, ("compiler tests", "fixpoint", "grammar corpus", "corpusdiff", "blade")),
     ({"compiler/driver/src/main.saw"}, ALL),
     ({"compiler/tools/build.py"}, ALL),
     ({"std/vector.saw"}, BACKEND),
     ({"runtime/common/os_ops.saw"}, BACKEND),
-    ({"runtime/ABI.md"}, ("compiler tests", "fixpoint", "corpusdiff", "freestanding")),
+    ({"runtime/ABI.md"}, ("compiler tests", "fixpoint", "corpusdiff", "blade", "freestanding")),
     ({"tests/corpus/hello.saw"}, ("compiler tests", "fixpoint", "corpusdiff", GRAMMAR_FILES)),
     ({"examples/hello.saw"}, ("compiler tests", "corpusdiff", GRAMMAR_FILES)),
     ({"tests/float_vectors/shortest.tsv"}, ("compiler tests", "corpusdiff")),
@@ -116,8 +123,9 @@ def check_parts():
               "%s builds sawc but is no corpusdiff input" % directory)
     # A misspelt input would never match a changed path, so the part would
     # silently stop running on the change it exists for.
-    for path in patch_gate.SUITE_INPUTS["freestanding"]:
-        check(os.path.exists(os.path.join(REPO, path)), "freestanding input %s does not exist" % path)
+    for part in ("freestanding", "blade"):
+        for path in patch_gate.SUITE_INPUTS[part]:
+            check(os.path.exists(os.path.join(REPO, path)), "%s input %s does not exist" % (part, path))
 
 
 def row(path, bucket, key="-", detail="-", **extra):

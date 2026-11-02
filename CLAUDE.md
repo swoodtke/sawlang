@@ -53,8 +53,10 @@ compiler/          # The self-hosted compiler, in Saw (epic SL-398; README.md):
                    # arrives as tests/parse/ in SL-406 phase 2.
 examples/          # FROZEN: the Stage 0 snapshots' key (Testing); the live
                    # programs are tests/corpus/
-blade/             # Blade package manager (written in Saw), FROZEN
-libs/              # Real Saw library packages (semver, toml), FROZEN
+blade/             # Blade package manager (written in Saw, built by sawc;
+                   # the `blade` gate part, tools/blade_lane.py)
+libs/              # Real Saw library packages (semver, toml, imgformat), built
+                   # and tested through Blade by the same lane
 libs/imgformat/    # the sosimg layout (design 238 unit 2, moved from sos/):
                    # Blade consumes it via a path dependency, the sawos
                    # kernel via --module-path.
@@ -129,15 +131,13 @@ warnings (SL-879) and `--emit-docs` (SL-880).
 `sawc0` is v0.18.0's compiler, the frozen Python Stage 0. This tree does not
 hold it: `bin/sawc0` forwards to the v0 checkout `tools/toolchain.py v0-root`
 names (`SAWLANG_V0_ROOT`, else v0.18.0 fetched and cached under
-`~/.cache/saw-toolchain`). Only the frozen dirs' recipes (Blade, `libs/`; their
-READMEs; `bin/blade` sets `SAWC` to `sawc0` when unset) and a Stage 0
-snapshot's regeneration run it.
+`~/.cache/saw-toolchain`). Only the frozen dirs' recipes (their READMEs) and a
+Stage 0 snapshot's regeneration run it.
 
 ## Testing
-- **The frozen dirs gate nothing but their own bytes.** Blade, `libs/`,
-  `prototypes/`, `devtools/bench/`,
-  `devtools/dogfood/` and `examples/` are v0.18.0's sources until their port
-  (SL-661); nothing builds them, and run.py's `frozen` step fails a patch that
+- **The frozen dirs gate nothing but their own bytes.** `prototypes/`,
+  `devtools/bench/`, `devtools/dogfood/` and `examples/` are v0.18.0's sources
+  until their port (SL-661); nothing builds them, and run.py's `frozen` step fails a patch that
   changes one (the tree `tools/frozen_trees.tsv` records, nothing uncommitted).
 - `./build.sh test` — the sawtracker patch gate's entry point
   (`.sawtracker/tests.json` runs `./build.sh test --changed-since HEAD^`
@@ -167,7 +167,10 @@ snapshot's regeneration run it.
   any verdict moved from `corpus_diff.tsv`: a new bucket or key, an
   improvement included, or a new detail inside `stage0-wrong`. A patch that
   moves one on purpose records it with `corpusdiff.py run --baseline --jobs N`
-  in the same patch. And the **freestanding QEMU suite**
+  in the same patch. And the **blade lane** (`tools/blade_lane.py`: sawc
+  builds Blade, Blade builds itself, `blade test` passes in `blade/` and each
+  `libs/` package, and `blade new` + `blade run` work) over `blade/`, `libs/`,
+  `bin/blade`, the lane and what sawc is built from. And the **freestanding QEMU suite**
   (`tools/freestanding_runner.py`, `tests/freestanding/`: each case built by
   sawc `--freestanding --runtime`, linked at a fixed address and booted; a
   `due` case cites the issue owning its gap) over `tests/freestanding/`, the
@@ -179,8 +182,8 @@ snapshot's regeneration run it.
   running anything.
 - **PER-COMMIT GATE POLICY (user, Sep 24): run only the tests a change
   affects, and never duplicate what the server runs.** The per-patch gate
-  above runs `fixpoint`, `grammarcorpus`, the corpusdiff gate and the
-  freestanding suite on every
+  above runs `fixpoint`, `grammarcorpus`, the corpusdiff gate, the blade
+  lane and the freestanding suite on every
   patch that reaches their inputs, so NOBODY, implementer or lead, runs them
   per commit or before a submission (the battery keeps them as stages for
   manual runs). The one exception is a change meant to move a corpus verdict
@@ -262,7 +265,7 @@ snapshot's regeneration run it.
   `tools/child_groups.py`, whose handler ends it, and the lane fails on any
   tracked source that makes a group some other way), `floatvectors` (design
   253: the committed Float↔text vectors, bit-exact, plus the Ryū table
-  re-derivation), `abidoc`, `freestanding` (the gate part above, after
+  re-derivation), `abidoc`, `blade` (the gate part above), `freestanding` (the gate part above, after
   `tools/test_freestanding_runner.py` pins its skip-or-fail rule against stub
   tools), then the slow two: `gmgate` (the ownership and
   concurrency oracles, built by sawc, under Guard Malloc, after a self-test
@@ -707,5 +710,5 @@ with no declaration owed, copies retaining each member (139 wrappers carry the
 tier they wrap; 159 fixed the missing retain). A tuple index never eats a
 following `.`, so `t.0.name` and `t.0.1` work and a float literal needs a
 digit on each side (161). Tooling: see TESTING.md. Blade (package manager
-in Saw, frozen in v0.18.0's language) is self-hosting. License: Apache-2.0
+in Saw, built by sawc) is self-hosting. License: Apache-2.0
 WITH LLVM-exception.
