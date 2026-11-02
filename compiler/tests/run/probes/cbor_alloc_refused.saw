@@ -1,0 +1,91 @@
+// probe: stated
+// about: an allocation refused while CborEncoder writes or CborDecoder opens is the Alloc fault, never a panic, and the half-written encoder refuses to finish (SL-938)
+// stage 0: its std reports a refused write as BufferFull and a refused scan as TooLarge
+// speeds: -O0 -O2
+// leaks: none
+// prints: encode with 0 allowed: encode error: the encoder could not allocate memory
+// prints: finish: encode error: an array or map got a different number of items than it declared
+// prints: encode with 1 allowed: encode error: the encoder could not allocate memory
+// prints: finish: encode error: an array or map got a different number of items than it declared
+// prints: encode with 2 allowed: encode error: the encoder could not allocate memory
+// prints: finish: encode error: an array or map got a different number of items than it declared
+// prints: encode with 3 allowed: ok 10 bytes
+// prints: finish: ok
+// prints: encode with 4 allowed: ok 10 bytes
+// prints: finish: ok
+// prints: encode with 5 allowed: ok 10 bytes
+// prints: finish: ok
+// prints: encode with 6 allowed: ok 10 bytes
+// prints: finish: ok
+// prints: encode with 7 allowed: ok 10 bytes
+// prints: finish: ok
+// prints: encode with -1 allowed: ok 10 bytes
+// prints: finish: ok
+// prints: open with 0 allowed: decode error at byte 0: the decoder could not allocate memory
+// prints: open with 1 allowed: ok
+// prints: open with 2 allowed: ok
+// prints: open with -1 allowed: ok
+import std.cbor.{CborDecoder, CborEncoder}
+import std.data.{Data}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+// Writes [ "ab", 300, {1: null} ] through the seam.
+func write_all(enc: &var CborEncoder) -> Result<Void, EncodeError> {
+    try enc.begin_array(3)
+    try enc.write_text("ab")
+    try enc.write_int(300)
+    try enc.begin_map(1)
+    try enc.write_int(1)
+    try enc.write_null()
+    return
+}
+
+// The budget is disarmed before anything is printed, since rendering the
+// error allocates.
+func encode_with(allow: Int) {
+    var enc = CborEncoder()
+    __saw_rt_alloc_deny_after(allow)
+    let r = write_all(&var enc)
+    let done = enc.finish()
+    __saw_rt_alloc_deny_after(-1)
+    match r {
+        case Ok(_) -> print("encode with {} allowed: ok {} bytes", allow, enc.len()),
+        case Err(e) -> print("encode with {} allowed: {}", allow, e)
+    }
+    match done {
+        case Ok(_) -> print("finish: ok"),
+        case Err(e) -> print("finish: {}", e)
+    }
+}
+
+func open_with(allow: Int) {
+    var enc = CborEncoder()
+    try! write_all(&var enc)
+    let blob = try! enc.finish()
+    __saw_rt_alloc_deny_after(allow)
+    let r = CborDecoder.open(bytes: blob.copy())
+    __saw_rt_alloc_deny_after(-1)
+    match r {
+        case Ok(_) -> print("open with {} allowed: ok", allow),
+        case Err(e) -> print("open with {} allowed: {}", allow, e)
+    }
+}
+
+func main() {
+    var allow = 0
+    while allow < 8 {
+        encode_with(allow)
+        allow = allow + 1
+    }
+    encode_with(-1)
+    allow = 0
+    while allow < 3 {
+        open_with(allow)
+        allow = allow + 1
+    }
+    open_with(-1)
+}

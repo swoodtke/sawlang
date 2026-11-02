@@ -6,8 +6,8 @@
 `JsonEncoder`, `JsonDecoder` and `encode`. The `Serialize`, `Deserialize`,
 `Encoder` and `Decoder` traits and the error types `EncodeError`,
 `EncodeFault`, `DecodeError` and `DecodeFault` (each with `describe` or
-`format`) are in `std/serialize.saw`. The `std.cbor` comparisons are the
-target API, pending SL-938. The body also names `JsonValue._write`, which is
+`format`) are in `std/serialize.saw`. The `std.cbor` comparisons name
+`std/cbor.saw`. The body also names `JsonValue._write`, which is
 internal, and `as_number`, `member` and `element`, which `std.json` does not
 declare and this document says it will not.
 

@@ -1,0 +1,211 @@
+// probe: stated
+// about: CborEncoder reports an under-count, an over-count, a second top-level item and an empty finish as CountMismatch, TooDeep past max_depth and unordered or repeated map keys as Unsupported, and writes the shortest head at every width (SL-938)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: under begin: ok
+// prints: under item: ok
+// prints: under finish: encode error: an array or map got a different number of items than it declared
+// prints: short bytes begin: ok
+// prints: short bytes byte: ok
+// prints: short bytes finish: encode error: an array or map got a different number of items than it declared
+// prints: nothing finish: encode error: an array or map got a different number of items than it declared
+// prints: over begin: ok
+// prints: over first: ok
+// prints: over second: encode error: an array or map got a different number of items than it declared
+// prints: over finish: 129 1
+// prints: nested outer: ok
+// prints: nested inner: ok
+// prints: nested a: ok
+// prints: nested b: ok
+// prints: nested c: encode error: an array or map got a different number of items than it declared
+// prints: nested d: encode error: an array or map got a different number of items than it declared
+// prints: nested finish: 130 129 1 2
+// prints: extra byte begin: ok
+// prints: extra byte first: ok
+// prints: extra byte second: encode error: an array or map got a different number of items than it declared
+// prints: extra byte item: encode error: an array or map got a different number of items than it declared
+// prints: two scalars first: ok
+// prints: two scalars second: encode error: an array or map got a different number of items than it declared
+// prints: two scalars finish: 1
+// prints: two arrays first: ok
+// prints: two arrays second: encode error: an array or map got a different number of items than it declared
+// prints: two arrays text: encode error: an array or map got a different number of items than it declared
+// prints: two arrays finish: 128
+// prints: item in bytes begin: ok
+// prints: item in bytes item: encode error: an array or map got a different number of items than it declared
+// prints: negative array: encode error: an array or map got a different number of items than it declared
+// prints: negative map: encode error: an array or map got a different number of items than it declared
+// prints: negative bytes: encode error: an array or map got a different number of items than it declared
+// prints: huge map: encode error: an array or map got a different number of items than it declared
+// prints: depth 1: ok
+// prints: depth 2: ok
+// prints: depth 3: encode error: nesting is deeper than the encoder allows
+// prints: depth empty: ok
+// prints: depth zero scalar: ok
+// prints: depth zero empty: ok
+// prints: depth zero open: encode error: nesting is deeper than the encoder allows
+// prints: sorted map: ok
+// prints: key 1: ok
+// prints: val: ok
+// prints: key 10: ok
+// prints: val: ok
+// prints: key a: ok
+// prints: val: ok
+// prints: sorted finish: 163 1 245 10 244 97 97 246
+// prints: unsorted map: ok
+// prints: key 10: ok
+// prints: val: ok
+// prints: key 1 after 10: encode error: the value has no representation in this format
+// prints: repeated map: ok
+// prints: key 5: ok
+// prints: val: ok
+// prints: key 5 again: encode error: the value has no representation in this format
+// prints: heads: ok
+// prints: heads: 142 0 23 24 24 24 255 25 1 0 25 255 255 26 0 1 0 0 27 0 0 0 1 0 0 0 0 27 255 255 255 255 255 255 255 255 32 55 56 24 59 127 255 255 255 255 255 255 255 27 127 255 255 255 255 255 255 255
+import std.cbor.{CborDecoder, CborEncoder}
+import std.data.{Data}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
+
+func show(label: String, r: Result<Void, EncodeError>) {
+    match r {
+        case Ok(_) -> print("{}: ok", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func bytes_of(label: String, r: Result<Data, EncodeError>) {
+    match r {
+        case Ok(d) -> {
+            var line = StringBuilder()
+            var i = 0
+            while i < d.len() {
+                try! line.append(" ")
+                try! line.append((d.get(i) ?? 0) as Int)
+                i = i + 1
+            }
+            print("{}:{}", label, line.build())
+        },
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func finished(label: String, enc: &CborEncoder) {
+    bytes_of(label, enc.finish())
+}
+
+func main() {
+    // Under-count: an array declared with 2 items and given 1, a byte string
+    // declared with 2 bytes and given 1, and nothing written at all.
+    var under = CborEncoder()
+    show("under begin", under.begin_array(2))
+    show("under item", under.write_int(1))
+    finished("under finish", &under)
+
+    var short_bytes = CborEncoder()
+    show("short bytes begin", short_bytes.begin_bytes(2))
+    show("short bytes byte", short_bytes.write_byte(9))
+    finished("short bytes finish", &short_bytes)
+
+    var nothing = CborEncoder()
+    finished("nothing finish", &nothing)
+
+    // Over-count: a container past its count, a byte past its count, a second
+    // top-level value after a scalar and after a container.
+    var over = CborEncoder()
+    show("over begin", over.begin_array(1))
+    show("over first", over.write_int(1))
+    show("over second", over.write_int(2))
+    finished("over finish", &over)
+
+    var nested = CborEncoder()
+    show("nested outer", nested.begin_array(2))
+    show("nested inner", nested.begin_array(1))
+    show("nested a", nested.write_int(1))
+    show("nested b", nested.write_int(2))
+    show("nested c", nested.write_int(3))
+    show("nested d", nested.write_int(4))
+    finished("nested finish", &nested)
+
+    var extra_byte = CborEncoder()
+    show("extra byte begin", extra_byte.begin_bytes(1))
+    show("extra byte first", extra_byte.write_byte(1))
+    show("extra byte second", extra_byte.write_byte(2))
+    show("extra byte item", extra_byte.write_int(3))
+
+    var two = CborEncoder()
+    show("two scalars first", two.write_int(1))
+    show("two scalars second", two.write_int(2))
+    finished("two scalars finish", &two)
+
+    var two_arrays = CborEncoder()
+    show("two arrays first", two_arrays.begin_array(0))
+    show("two arrays second", two_arrays.begin_array(0))
+    show("two arrays text", two_arrays.write_text("x"))
+    finished("two arrays finish", &two_arrays)
+
+    var item_in_bytes = CborEncoder()
+    show("item in bytes begin", item_in_bytes.begin_bytes(2))
+    show("item in bytes item", item_in_bytes.write_int(1))
+
+    var negative = CborEncoder()
+    show("negative array", negative.begin_array(-1))
+    show("negative map", negative.begin_map(-1))
+    show("negative bytes", negative.begin_bytes(-1))
+    show("huge map", negative.begin_map(Int.max))
+
+    // Depth: an empty container opens no level, so it costs no depth.
+    var shallow = CborEncoder(max_depth: 2)
+    show("depth 1", shallow.begin_array(1))
+    show("depth 2", shallow.begin_array(1))
+    show("depth 3", shallow.begin_array(1))
+    show("depth empty", shallow.begin_array(0))
+
+    var zero = CborEncoder(max_depth: 0)
+    show("depth zero scalar", zero.write_int(1))
+    var zero_array = CborEncoder(max_depth: 0)
+    show("depth zero empty", zero_array.begin_array(0))
+    var zero_open = CborEncoder(max_depth: 0)
+    show("depth zero open", zero_open.begin_array(1))
+
+    // Map keys: sorted by encoded bytes is accepted; out of order and a
+    // repeated key are refused.
+    var sorted = CborEncoder()
+    show("sorted map", sorted.begin_map(3))
+    show("key 1", sorted.write_int(1))
+    show("val", sorted.write_bool(true))
+    show("key 10", sorted.write_int(10))
+    show("val", sorted.write_bool(false))
+    show("key a", sorted.write_text("a"))
+    show("val", sorted.write_null())
+    finished("sorted finish", &sorted)
+
+    var unsorted = CborEncoder()
+    show("unsorted map", unsorted.begin_map(2))
+    show("key 10", unsorted.write_int(10))
+    show("val", unsorted.write_int(0))
+    show("key 1 after 10", unsorted.write_int(1))
+
+    var repeated = CborEncoder()
+    show("repeated map", repeated.begin_map(2))
+    show("key 5", repeated.write_int(5))
+    show("val", repeated.write_int(0))
+    show("key 5 again", repeated.write_int(5))
+
+    // Shortest form at every width boundary, and the 64-bit extremes.
+    var heads = CborEncoder()
+    show("heads", heads.begin_array(14))
+    let wide: [UInt64; 8] = [0, 23, 24, 255, 256, 65_535, 65_536, 4_294_967_296]
+    var i = 0
+    while i < 8 {
+        let _ = heads.write_uint(wide[i])
+        i = i + 1
+    }
+    let _ = heads.write_uint(UInt64.max)
+    let _ = heads.write_int(-1)
+    let _ = heads.write_int(-24)
+    let _ = heads.write_int(-25)
+    let _ = heads.write_int(Int64.min)
+    let _ = heads.write_int(Int64.max)
+    finished("heads", &heads)
+}

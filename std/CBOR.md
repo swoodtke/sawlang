@@ -1,15 +1,13 @@
 # The `std.cbor` wire profile — FROZEN
 
-**Status: not implemented in this tree.** There is no `std/cbor.saw`, so
-`CborEncoder`, `CborDecoder` and `encode` do not exist yet. The
-`Serialize`/`Deserialize`/`Encoder`/`Decoder` traits and the error types
-`EncodeError`/`DecodeError` with their fault enums are in `std/serialize.saw`
-(`std.serialize`). This document is the target wire contract; the port is
-SL-938. `tools/sawcbor.py`
-and the vectors under `tests/cbor_vectors/` are held to the text below, not to
-a Saw implementation.
+**Status: implemented** in `std/cbor.saw` (`CborEncoder`, `CborDecoder` and
+`encode`). The `Serialize`/`Deserialize`/`Encoder`/`Decoder` traits and the
+error types `EncodeError`/`DecodeError` with their fault enums are in
+`std/serialize.saw` (`std.serialize`). `tools/sawcbor.py` and the vectors under
+`tests/cbor_vectors/` are held to the text below, not to a Saw
+implementation.
 
-This document is the contract between v0.18.0's `sawc/std/cbor.saw` and
+This document is the contract between `std/cbor.saw` and
 `tools/sawcbor.py`, in the same sense that `runtime/ABI.md` is the contract
 between the compiler and the runtime seams: the golden vectors under
 `tests/cbor_vectors/` are checked against **this text**, not against whichever

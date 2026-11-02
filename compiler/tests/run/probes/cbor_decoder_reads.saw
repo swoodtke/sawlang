@@ -1,0 +1,145 @@
+// probe: stated
+// about: CborDecoder reads the 64-bit extremes in both signs, reports TypeMismatch, OutOfRange, Truncated and CountMismatch at the item's offset, and skip, at_null and byte strings move the cursor exactly (SL-938)
+// stage 0: has no std.serialize module
+// speeds: -O0 -O2
+// leaks: none
+// prints: uint max as int: decode error at byte 0: the value does not fit the destination type
+// prints: uint max as uint: ok 18446744073709551615
+// prints: int min: ok -9223372036854775808
+// prints: int min as uint: decode error at byte 0: the item is not of the expected type
+// prints: below min: decode error at byte 0: the value does not fit the destination type
+// prints: text as int: decode error at byte 0: the item is not of the expected type
+// prints: text as bool: decode error at byte 0: the item is not of the expected type
+// prints: text: ok hi
+// prints: past the end: decode error at byte 3: the input ended in the middle of an item
+// prints: count: ok 4
+// prints: first: ok 1
+// prints: skip text: ok
+// prints: at null: ok true
+// prints: null: ok
+// prints: byte string: ok 2
+// prints: read during bytes: decode error at byte 7: the array or map holds a different number of items than expected
+// prints: byte one: ok 1
+// prints: byte two: ok 2
+// prints: byte three: decode error at byte 9: the array or map holds a different number of items than expected
+// prints: offset 9
+// prints: expect 2: ok
+// prints: skip nested: ok
+// prints: after: ok 5
+// prints: wrong count: decode error at byte 1: the array or map holds a different number of items than expected
+// prints: expect 4: ok
+// prints: round min: ok -9223372036854775808
+// prints: round max: ok 9223372036854775807
+// prints: round umax: ok 18446744073709551615
+// prints: round -1: ok -1
+// prints: expect 4 again: ok
+// prints: min as Int8: decode error at byte 10: the value does not fit the destination type
+import std.cbor.{CborDecoder, CborEncoder}
+import std.data.{Data}
+import std.serialize.{DecodeError, Decoder, EncodeError, Encoder}
+
+func blob(bytes: &Vector<UInt8>) -> Data {
+    var d = Data()
+    var i = 0
+    while i < bytes.len() {
+        try! d.push(bytes.get(i) ?? 0)
+        i = i + 1
+    }
+    return move d
+}
+
+func opened(label: String, bytes: &Vector<UInt8>) -> CborDecoder? {
+    match CborDecoder.open(bytes: blob(&bytes)) {
+        case Ok(d) -> { return move d },
+        case Err(e) -> {
+            print("{}: open {}", label, e)
+            return None
+        }
+    }
+}
+
+func report<T: Printable>(label: String, r: Result<T, DecodeError>) {
+    match r {
+        case Ok(v) -> print("{}: ok {}", label, v),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func status(label: String, r: Result<Void, DecodeError>) {
+    match r {
+        case Ok(_) -> print("{}: ok", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func main() {
+    // 2^64 - 1 is a valid unsigned and not a valid signed.
+    let max_uint: Vector<UInt8> = [27, 255, 255, 255, 255, 255, 255, 255, 255]
+    if var d = opened("uint max", &max_uint) {
+        report("uint max as int", d.read_int())
+        d.rewind()
+        report("uint max as uint", d.read_uint())
+    }
+    // -2^63 is the lowest signed; -2^63 - 1 does not fit.
+    let min_int: Vector<UInt8> = [59, 127, 255, 255, 255, 255, 255, 255, 255]
+    if var d = opened("int min", &min_int) {
+        report("int min", d.read_int())
+        d.rewind()
+        report("int min as uint", d.read_uint())
+    }
+    let below_min: Vector<UInt8> = [59, 128, 0, 0, 0, 0, 0, 0, 0]
+    if var d = opened("below min", &below_min) {
+        report("below min", d.read_int())
+    }
+    // A text item read as an int, a bool as text, and a read past the end.
+    let text: Vector<UInt8> = [98, 104, 105]
+    if var d = opened("text", &text) {
+        report("text as int", d.read_int())
+        d.rewind()
+        report("text as bool", d.read_bool())
+        d.rewind()
+        report("text", d.read_text())
+        report("past the end", d.read_text())
+    }
+    // [1, "hi", null, h'0102'] read back with skip, at_null and bytes.
+    let mixed: Vector<UInt8> = [132, 1, 98, 104, 105, 246, 66, 1, 2]
+    if var d = opened("mixed", &mixed) {
+        report("count", d.begin_array())
+        report("first", d.read_int())
+        status("skip text", d.skip())
+        report("at null", d.at_null())
+        status("null", d.read_null())
+        report("byte string", d.begin_bytes())
+        report("read during bytes", d.read_int())
+        report("byte one", d.read_byte())
+        report("byte two", d.read_byte())
+        report("byte three", d.read_byte())
+        print("offset {}", d.offset())
+    }
+    // skip over a nested value, then expect_array with the wrong count.
+    let nested: Vector<UInt8> = [130, 129, 129, 0, 5]
+    if var d = opened("nested", &nested) {
+        status("expect 2", d.expect_array(2))
+        status("skip nested", d.skip())
+        report("after", d.read_int())
+        d.rewind()
+        status("wrong count", d.expect_array(3))
+    }
+    // A signed round trip at the 64-bit extremes through the encoder.
+    var enc = CborEncoder()
+    try! enc.begin_array(4)
+    try! enc.write_int(Int64.min)
+    try! enc.write_int(Int64.max)
+    try! enc.write_uint(UInt64.max)
+    try! enc.write_int(-1)
+    let written = try! enc.finish()
+    var back = try! CborDecoder.open(bytes: written.copy())
+    status("expect 4", back.expect_array(4))
+    report("round min", back.read_int())
+    report("round max", back.read_int())
+    report("round umax", back.read_uint())
+    report("round -1", back.read_int())
+    var again = try! CborDecoder.open(bytes: written.copy())
+    status("expect 4 again", again.expect_array(4))
+    report("min as Int8", Int8.deserialize(from: &var again))
+}

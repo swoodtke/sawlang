@@ -18,6 +18,7 @@
 
 import std.cbor.{CborEncoder, CborDecoder}
 import std.data.{Data}
+import std.serialize.{DecodeError}
 
 // One CBOR head byte for an array of one item (major 4, argument 1 inline).
 static ARRAY_OF_ONE: UInt8 = 129u8

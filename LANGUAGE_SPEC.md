@@ -513,7 +513,7 @@ The declaration-site rule is **per module**. A free function is identified by
 (defining module, name), the way a type is, so two modules may hold same-named
 functions of the same shape; neither module knows the other exists.
 `std.json.encode` and `std.cbor.encode` are the pair the standard library
-names (`std.json` declares its half; `std.cbor` is pending SL-938). Which one a call means is decided where the call is written:
+names (`std.json` and `std.cbor` each declare their half). Which one a call means is decided where the call is written:
 
 - A **qualified** call takes exactly the named module's declarations —
   `json.encode(&value)` is json's, whatever `std.cbor` declares.
@@ -5736,7 +5736,7 @@ local it names is *borrowed*, never copied — which is what lets a move-only
 value be handed to something reached through a place:
 
 ```saw-fragment
-var enc = CborEncoder()             // NoCopy, built right here (std.cbor, pending SL-938)
+var enc = CborEncoder()             // NoCopy, built right here (std.cbor)
 var i = 0
 while i < entries.len() {
     try entries[i].serialize(to: &var enc)     // lent, not copied
@@ -8336,14 +8336,15 @@ trait Hashable {            // requires Equatable
 
 ### Serialization (`Serialize`, `Deserialize`, `Encoder`, `Decoder`)
 
-**Status: implemented (SL-833), except `std.cbor`, which is pending SL-938.**
+**Status: implemented (SL-833, SL-938).**
 `std/serialize.saw` declares `Serialize`, `Deserialize`, `Encoder`, `Decoder`
 and the four error types `EncodeError`, `EncodeFault`, `DecodeError` and
 `DecodeFault`, with the library's conformances for every integer width,
 `Bool`, `String`, `Optional` and `Vector`, and `@synthesize` derives both
 directions as described below. Only `Serialize` and `Deserialize` are
 prelude-visible; the rest need `import std.serialize`. `std.json` implements
-the seam (`JsonEncoder`, `JsonDecoder`, `encode`). The rest of this section
+the seam (`JsonEncoder`, `JsonDecoder`, `encode`), and so does `std.cbor`
+(`CborEncoder`, `CborDecoder`, `encode`). The rest of this section
 is the target design (`designs/169-serialize-cbor.md`) where it says more.
 A value writes itself into an `any Encoder`
 and reads itself back out of an `any Decoder`. The traits name a data model;
@@ -8433,13 +8434,13 @@ trait Deserialize {
 
 ### `std.cbor` — the concrete format
 
-**Status: pending SL-938, not implemented.** There is no `std/cbor.saw`, so
-`CborEncoder`, `CborDecoder` and `encode` do not exist; what follows is the
-target API (`designs/169-serialize-cbor.md`).
+**Status: implemented** (`std/cbor.saw`, `std/CBOR.md`; SL-938).
+`CborEncoder` and `CborDecoder` are the format's half of the `std.serialize`
+seam, and the error types are `std.serialize`'s.
 CBOR (RFC 8949) restricted to its **deterministic encoding** profile. The wire
 contract is frozen in `std/CBOR.md`, and `tools/sawcbor.py` is a second
 implementation of that same document over the `cbor2` library; the blobs under
-`tests/cbor_vectors/` are what the two are held to. The module will be
+`tests/cbor_vectors/` are what the two are held to. The module is
 import-required and present in both profiles.
 
 ```saw-fragment
@@ -8462,8 +8463,10 @@ names, so nothing is spent encoding names and schema evolution is a v1 non-goal.
 
 - **`CborEncoder`** writes into a growable buffer it owns. `finish()` hands the
   bytes over and reports `CountMismatch` if an array, map or byte string is
-  still open. An allocation the buffer cannot serve is `EncodeFault.BufferFull`,
-  not a panic, so a value can be encoded under a constrained allocator. Writing
+  still open, or if nothing was written; an item past a container's declared
+  count, or after the top-level item, is `CountMismatch` too. An allocation the
+  buffer cannot serve is `EncodeFault.Alloc`, not a panic, so a value can be
+  encoded under a constrained allocator. Writing
   a map whose keys are out of order or repeated is `Unsupported`: the profile
   has no representation for a non-canonical map, so the encoder cannot emit one.
 - **`CborDecoder.open(bytes:max_depth:max_size:max_items:)` validates the whole
@@ -13769,7 +13772,7 @@ Everything else in std is **import-required**: `File`, `Directory`, `Path`,
 `Data`, `Channel`, `Mutex`, `SpinLock`, `Once`, `Instant`, `IoError`, `Utf8Error`, the
 whole `net` surface (`TcpListener`/`TcpStream`), `yield_now` (std.task —
 design 114), `FixedBuf`/`FixedStringBuilder` (std.fixedbuf),
-`CborEncoder`/`CborDecoder` (std.cbor, pending SL-938), `SlabHead` and the slab free
+`CborEncoder`/`CborDecoder` (std.cbor), `SlabHead` and the slab free
 functions (std.slab), and the
 `process`/`env`/`time` contents. These stay compiler-known for codegen but are not injected into a
 user namespace without an import of its module. A bare reference to one is a
@@ -14428,11 +14431,11 @@ need one of the three [import forms](#imports).
 | `std.json` | `JsonEncoder`, `JsonDecoder`, `JsonValue`, `encode` | no |
 | `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
-The `std.serialize` and `std.json` rows are implemented: `std/serialize.saw`
-declares the four traits, the four error types and the library's conformances,
-and `std/json.saw` declares `JsonValue`, `JsonEncoder`, `JsonDecoder` and
-`encode`. The `std.cbor` row describes the target surface; `std/cbor.saw` does
-not exist (SL-938).
+The `std.serialize`, `std.json` and `std.cbor` rows are implemented:
+`std/serialize.saw` declares the four traits, the four error types and the
+library's conformances, `std/json.saw` declares `JsonValue`, `JsonEncoder`,
+`JsonDecoder` and `encode`, and `std/cbor.saw` declares `CborEncoder`,
+`CborDecoder` and `encode`.
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 `async`/`await`. The NAMESPACE is the engine.

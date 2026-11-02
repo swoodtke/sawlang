@@ -141,9 +141,9 @@ cast_distinct_to_underlying.saw	pass	-	-
 cast_reverse_to_distinct_error.saw	wrong	accepts a refusal test	cannot cast `Int` to `UserId`
 cast_sibling_alias_error.saw	wrong	accepts a refusal test	cannot cast `Int` to `OrderId`
 catch_binding_rename_covers_every_position.saw	pass	-	-
-cbor169_limits.saw	refused	resolve import.unknown-module	no module `std.cbor`
-cbor169_roundtrip.saw	refused	resolve import.unknown-module	no module `std.cbor`
-cbor169_vectors.saw	refused	resolve import.unknown-module	no module `std.cbor`
+cbor169_limits.saw	pass	judged by its own directives (edited since its oracle)	-
+cbor169_roundtrip.saw	pass	judged by its own directives (edited since its oracle)	-
+cbor169_vectors.saw	pass	judged by its own directives (edited since its oracle)	-
 chain_assign_exclusivity_in_literal.saw	wrong	accepts a refusal test	exclusive access violation: `w` is written by this optional-chain assignment while also being accessed in the right-hand side
 channel_pipeline.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 channel_receive_cancel_mt.saw	pass	-	-
@@ -830,7 +830,7 @@ d144_private_type_identity.saw	pass	-	-
 d144_public_same_name_alias.saw	pass	-	-
 d249_bare_import_tie_names_both_origins_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: chime(n: Int) [modules.d249_tie_b]; chime(n: Int) [modules.d249_tie_a
 d249_bare_imports_merge_into_one_overload_set.saw	pass	-	-
-d249_both_std_encoders_bare_is_a_tie_error.saw	refused	resolve import.unknown-module	no module `std.cbor`
+d249_both_std_encoders_bare_is_a_tie_error.saw	pass	judged by its own directives (edited since its oracle)	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: encode(value: &T) [std.cbor]; encode(value: &T) [std.json]
 d249_glob_import_binds_whole_overload_set.saw	pass	-	-
 d249_module_twins_qualified.saw	pass	-	-
 d249_own_declaration_beside_bare_std_import_error.saw	pass	-	call.ambiguous: ambiguous call: these candidates take the arguments equally well, so write labels or type arguments that pick one: dump_tasks() [d249_own_declaration_beside_bare_std_import_error]; dum
@@ -838,7 +838,7 @@ d249_own_declaration_wins_over_unimported_std_name.saw	pass	-	-
 d249_prelude_gate_over_a_std_free_function.saw	pass	-	name.not-in-prelude: `dump_tasks` is not in the prelude and must be imported: `import std.task.{dump_tasks}` selects it
 d249_selective_import_binds_whole_overload_set.saw	pass	-	-
 d249_selective_import_of_one_twin.saw	pass	-	-
-d249_std_json_and_cbor_both_name_encode.saw	refused	resolve import.unknown-module	no module `std.cbor`
+d249_std_json_and_cbor_both_name_encode.saw	pass	-	-
 d249_std_selective_import_of_a_two_owner_name.saw	pass	-	-
 data_advanced.saw	refused	typecheck member.unknown	`std.data.Data` has no method `iter` this module can see
 data_cow_self_append.saw	pass	-	-

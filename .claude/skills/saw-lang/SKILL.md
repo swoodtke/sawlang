@@ -2116,7 +2116,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   on ExplicitCopy/NoCopy operands (transitively, through fields, payloads and
   tuple elements) and did not catch at all on the Copy tier.
 - **SERIALIZATION (design 169): `Serialize` / `Deserialize` over `Encoder` /
-  `Decoder`.** **Status: implemented (SL-833); `std.cbor` is pending SL-938.**
+  `Decoder`.** **Status: implemented (SL-833, SL-938).**
   `std/serialize.saw` declares the four traits, the error types
   `EncodeError`/`EncodeFault`/`DecodeError`/`DecodeFault` and the library's
   conformances (integers, Bool, String, Optional, Vector), and `@synthesize`
@@ -2167,8 +2167,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   ints read back through `read_int_range`/`read_uint_max` (a narrowing cast
   would panic; the range is checked first). An `Optional` of an `Optional`
   does not round-trip: `Some(None)` writes the same null as `None`.
-- **THE FORMAT IS `std.cbor` (design 169 units 3+4)** — **Status: pending
-  SL-938, NOT implemented** (no `std/cbor.saw`; target API below). CBOR RFC 8949 in its
+- **THE FORMAT IS `std.cbor` (design 169 units 3+4)** — **Status:
+  implemented** (SL-938; `std/cbor.saw`). CBOR RFC 8949 in its
   DETERMINISTIC profile, import-required (`import std.cbor.{CborEncoder,
   CborDecoder}`), both profiles. Frozen contract: `std/CBOR.md`; golden
   blobs: `tests/cbor_vectors/` (32 accept + 20 reject, gating the Saw codec AND
@@ -3769,7 +3769,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
   `Command` (std.process), `Env` (std.env),
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
-  `CborEncoder`/`CborDecoder` (std.cbor — design 169, pending SL-938),
+  `CborEncoder`/`CborDecoder` (std.cbor — design 169),
   `JsonEncoder`/`JsonDecoder`/`JsonValue`/`encode` (std.json) and
   `Encoder`/`Decoder`/`EncodeError`/`DecodeError`/`EncodeFault`/`DecodeFault`
   (std.serialize) — `Serialize`/`Deserialize` stay PRELUDE, the formats and

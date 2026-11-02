@@ -17,6 +17,7 @@ import std.cbor.{CborEncoder, CborDecoder}
 import std.data.{Data}
 import std.file.{File}
 import std.path.{Path}
+import std.serialize.{EncodeError}
 
 struct Endpoint {
     port: Int

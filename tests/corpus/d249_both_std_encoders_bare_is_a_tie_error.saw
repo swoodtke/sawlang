@@ -4,9 +4,9 @@
 // names the std file each candidate comes from. Reach for the qualifiers
 // (`json.encode` / `cbor.encode`) instead.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: ambiguous call to `encode`
-// EXPECT-ERROR-CONTAINS: [<std>.json]
-// EXPECT-ERROR-CONTAINS: [<std>.cbor]
+// EXPECT-ERROR-CONTAINS: ambiguous call: these candidates take the arguments equally well
+// EXPECT-ERROR-CONTAINS: [std.json]
+// EXPECT-ERROR-CONTAINS: [std.cbor]
 import std.json.{encode}
 import std.cbor.{encode}
 

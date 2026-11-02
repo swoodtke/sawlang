@@ -573,6 +573,7 @@ extension ResProgram {
         self.std_module("slab")
         self.std_module("serialize")
         self.std_module("json")
+        self.std_module("cbor")
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

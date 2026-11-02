@@ -22,7 +22,8 @@ import std.data.{Data}
 import std.file.{File}
 import std.directory.{Directory}
 import std.path.{Path}
-import std.net.{IoError}
+import std.systemerror.{SystemError}
+import std.serialize.{DecodeFault}
 
 func blob_path(kind: String, name: String) -> Path {
     Path(s: "tests/cbor_vectors/{kind}/{name}.cbor")
@@ -32,7 +33,7 @@ func sidecar_path(kind: String, name: String) -> Path {
     Path(s: "tests/cbor_vectors/{kind}/{name}.json")
 }
 
-func read_bytes(p: Path) -> Result<Data, IoError> {
+func read_bytes(p: Path) -> Result<Data, SystemError> {
     var f = try File.open(p)
     return f.read()
 }
@@ -54,7 +55,7 @@ func vector_names(kind: String) -> Vector<String> {
     // which is free whatever the element's tier.
     var i = 0
     while i < entries.len() {
-        if let ext = borrow entries[i].ext() {
+        if let ext = borrow entries[i].file_extension() {
             if ext.equals("cbor") {
                 if let stem = borrow entries[i].stem() {
                     try! out.push(stem)
@@ -108,7 +109,9 @@ func fault_name(f: DecodeFault) -> String {
         case TrailingBytes -> "TrailingBytes",
         case OutOfRange -> "OutOfRange",
         case UnknownCase -> "UnknownCase",
-        case CountMismatch -> "CountMismatch"
+        case CountMismatch -> "CountMismatch",
+        case Alloc -> "Alloc",
+        case InitFailed -> "InitFailed"
     }
 }
 
