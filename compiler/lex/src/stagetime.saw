@@ -1,0 +1,143 @@
+// The stage-time recorder behind `sawc build --time-stages`. A stage's entry
+// function brackets its work with `stagetime_begin` and `stagetime_end`; the
+// driver turns recording on and prints the totals once the build is over.
+// Every call is one Bool test while recording is off, and recording reads the
+// monotonic clock and nothing else, so it never changes what is compiled.
+//
+// It lives in sawlex because that is the package every other stage already
+// reaches through its imports, and the recorder needs nothing from any of
+// them. The tables are process-wide: sawc runs on one thread and spawns none
+// of its own.
+
+extern "C" {
+    func __saw_rt_clock_monotonic_nanos() -> Int64
+    func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
+}
+
+// The measured steps, in pipeline order, which is the order the report prints
+// them in. A verifier that its stage runs apart from its work has a case of
+// its own; one the stage interleaves with its work stays in the stage's time.
+public enum StageTime: UInt8 {
+    case Resolve = 0
+    case Typecheck = 1
+    case Asserts = 2
+    case Mir = 3
+    case VerifyResolve = 4
+    case VerifyTypecheck = 5
+    case VerifyMir = 6
+    case Eval = 7
+    case Borrowck = 8
+    case VerifyBorrowck = 9
+    case Drops = 10
+    case VerifyDrops = 11
+    case Mono = 12
+    case Coro = 13
+    case CoroLower = 14
+    case VerifyCoro = 15
+    case Llvm = 16
+    case WriteLl = 17
+    case Clang = 18
+    case Link = 19
+    case ClangLink = 20
+    case Dsymutil = 21
+}
+
+static STAGE_TIME_COUNT: Int = 22
+static NANOS_PER_TENTH_MS: Int64 = 100_000
+static TENTHS_PER_MS: Int = 10
+
+unsafe static var STAGE_TIME_ON: Bool = false
+unsafe static var STAGE_TIME_ORIGIN: Int64 = 0
+unsafe static var STAGE_TIME_STARTED: [Int64; STAGE_TIME_COUNT] = [0; STAGE_TIME_COUNT]
+unsafe static var STAGE_TIME_TOTAL: [Int64; STAGE_TIME_COUNT] = [0; STAGE_TIME_COUNT]
+unsafe static var STAGE_TIME_SEEN: [Bool; STAGE_TIME_COUNT] = [false; STAGE_TIME_COUNT]
+
+extension StageTime {
+    // The name the report prints.
+    func label(&self) -> String {
+        match self {
+            case Resolve -> "resolve",
+            case Typecheck -> "typecheck",
+            case Asserts -> "asserts",
+            case Mir -> "mir",
+            case VerifyResolve -> "verify resolve",
+            case VerifyTypecheck -> "verify typecheck",
+            case VerifyMir -> "verify mir",
+            case Eval -> "eval",
+            case Borrowck -> "borrowck",
+            case VerifyBorrowck -> "verify borrowck",
+            case Drops -> "drops",
+            case VerifyDrops -> "verify drops",
+            case Mono -> "mono",
+            case Coro -> "coro",
+            case CoroLower -> "coro lower",
+            case VerifyCoro -> "verify coro",
+            case Llvm -> "llvm",
+            case WriteLl -> "write ll",
+            case Clang -> "clang",
+            case Link -> "link",
+            case ClangLink -> "clang link",
+            case Dsymutil -> "dsymutil"
+        }
+    }
+}
+
+// Starts recording; the `total` line counts from here.
+public func stagetime_enable() unsafe {
+    STAGE_TIME_ON = true
+    STAGE_TIME_ORIGIN = __saw_rt_clock_monotonic_nanos()
+}
+
+// The stage begins; a stage may begin and end any number of times, and its
+// times add up.
+public func stagetime_begin(stage: StageTime) unsafe {
+    if not STAGE_TIME_ON {
+        return
+    }
+    STAGE_TIME_STARTED[stage as Int] = __saw_rt_clock_monotonic_nanos()
+}
+
+public func stagetime_end(stage: StageTime) unsafe {
+    if not STAGE_TIME_ON {
+        return
+    }
+    let at = stage as Int
+    STAGE_TIME_TOTAL[at] = STAGE_TIME_TOTAL[at] + (__saw_rt_clock_monotonic_nanos() - STAGE_TIME_STARTED[at])
+    STAGE_TIME_SEEN[at] = true
+}
+
+// One `time: NAME MS ms` line per stage that ran, in pipeline order, then
+// `time: total MS ms` for the span since `stagetime_enable`, all on standard
+// error. Nothing is written while recording is off.
+public func stagetime_report() unsafe {
+    if not STAGE_TIME_ON {
+        return
+    }
+    let finish = __saw_rt_clock_monotonic_nanos()
+    var text = StringBuilder()
+    var at = 0
+    while at < STAGE_TIME_COUNT {
+        if STAGE_TIME_SEEN[at] {
+            let stage = StageTime.from(raw: at as UInt8)!
+            stagetime_line(&var text, stage.label(), STAGE_TIME_TOTAL[at])
+        }
+        at = at + 1
+    }
+    stagetime_line(&var text, "total", finish - STAGE_TIME_ORIGIN)
+    let report = text.build()
+    if let bytes = report.c_string() {
+        __saw_rt_write_error(bytes, report.len())
+    }
+}
+
+// `time: NAME MS ms\n`, the milliseconds rounded to one decimal.
+func stagetime_line(text: &var StringBuilder, name: String, nanos: Int64) {
+    let tenths = ((nanos + (NANOS_PER_TENTH_MS / 2)) / NANOS_PER_TENTH_MS) as Int
+    try! text.append("time: ")
+    try! text.append(name)
+    try! text.append(" ")
+    try! text.append(tenths / TENTHS_PER_MS)
+    try! text.append(".")
+    try! text.append(tenths % TENTHS_PER_MS)
+    try! text.append(" ms\n")
+}

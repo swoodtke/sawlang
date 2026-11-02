@@ -247,9 +247,11 @@ def judge(failures, counts, records):
 
 
 def check_twin_stderr(failures, counts):
-    """The twin makes a build's clang temporary object names equal, and only
-    those: two link failures naming one stem with different random suffixes
-    agree, and different stems, or a non-build command, still differ."""
+    """The twin makes a build's clang temporary object names equal, and a
+    `--time-stages` build's step times, and only those: two link failures
+    naming one stem with different random suffixes agree, two timed builds
+    naming the same steps agree, and different stems, different steps, or a
+    build without the flag still differ."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fixpoint_twin", TWIN)
     twin = importlib.util.module_from_spec(spec)
@@ -259,6 +261,10 @@ def check_twin_stderr(failures, counts):
         (["build"], a, b"_saw p.main() in p-2e4a88.o\n", True),
         (["build"], a, b"_saw p.main() in q-a69531.o\n", False),
         (["typecheck"], a, b"_saw p.main() in p-2e4a88.o\n", False),
+        (["build", "--time-stages"], b"time: resolve 19.1 ms\ntime: total 361.6 ms\n",
+         b"time: resolve 18.7 ms\ntime: total 359.0 ms\n", True),
+        (["build", "--time-stages"], b"time: resolve 19.1 ms\n", b"time: typecheck 19.1 ms\n", False),
+        (["build"], b"time: resolve 19.1 ms\n", b"time: resolve 18.7 ms\n", False),
     ]
     for args, x, y, same in cases:
         if (twin.comparable_stderr(args, x) == twin.comparable_stderr(args, y)) != same:

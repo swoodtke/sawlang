@@ -11,6 +11,7 @@ import sawdrops.program.{DropsProgram, drops_program}
 import sawdrops.verify.{drops_verify_module}
 import saweval.program.{EvalEnd, EvalKind, EvalProgram, eval_program}
 import saweval.interp.{eval_step_budget}
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
@@ -58,10 +59,13 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     // borrow check and drop elaboration rewrite its bodies; the evaluator
     // only reads it. A program refused here is blocked, and its values
     // would never be read.
+    stagetime_begin(StageTime.Eval)
     var ev = eval_program(&lowered)
     if status == 0 {
         ev.evaluate_all(&lowered)
     }
+    stagetime_end(StageTime.Eval)
+    stagetime_begin(StageTime.Borrowck)
     var bc = borrowck_program(move lowered)
     var m = 0
     while m < bc.mir.tc.res.module_count() {
@@ -71,6 +75,7 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
         }
         m = m + 1
     }
+    stagetime_end(StageTime.Borrowck)
     var k = 0
     while k < bc.diags.len() {
         let d = bc.diags[k]
@@ -84,7 +89,9 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     while m < bc.mir.tc.res.module_count() {
         let info = bc.mir.tc.res.module(m)
         if info.available && not info.interface_only {
+            stagetime_begin(StageTime.VerifyBorrowck)
             let found = borrowck_verify_module(&var bc, m)
+            stagetime_end(StageTime.VerifyBorrowck)
             mir_append_invariants(out: &var head, p: &bc.mir, m: m, problems: &found)
         }
         m = m + 1
@@ -92,7 +99,9 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
     let before = head.build()
     try! out.append(before)
     var blocked = status != 0 || drops_has_invariant(before)
+    stagetime_begin(StageTime.Drops)
     var p = drops_program(move bc)
+    stagetime_end(StageTime.Drops)
     if not blocked {
         var tail = StringBuilder()
         mono_elaborate(&var p, &var tail)
@@ -102,6 +111,7 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
             blocked = true
         }
     }
+    stagetime_begin(StageTime.Mono)
     var mono = mono_program(move p, blocked)
     mono.lowerings = lowerings
     if not blocked {
@@ -109,6 +119,7 @@ public func mono_lower_file(out: &var StringBuilder, path: String, std_root: Str
         mono.run()
         mono_check_layout_asserts(&var mono)
     }
+    stagetime_end(StageTime.Mono)
     move mono
 }
 
@@ -230,7 +241,9 @@ func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
     while m < p.bc.mir.tc.res.module_count() {
         let info = p.bc.mir.tc.res.module(m)
         if info.available && not info.interface_only {
+            stagetime_begin(StageTime.Drops)
             p.elaborate_module(m)
+            stagetime_end(StageTime.Drops)
         }
         m = m + 1
     }
@@ -253,7 +266,9 @@ func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
                 j = j + 1
             }
             mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &met)
+            stagetime_begin(StageTime.VerifyDrops)
             let found = drops_verify_module(&var p, m)
+            stagetime_end(StageTime.VerifyDrops)
             mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &found)
         }
         m = m + 1

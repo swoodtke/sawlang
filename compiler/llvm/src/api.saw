@@ -5,6 +5,7 @@
 
 import sawcoro.api.{coro_append_findings, coro_lower_file, coro_lower_for}
 import sawcoro.program.{CoroProgram}
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawllvm.module.{LlLowering, ll_export_symbol, ll_lowering}
 import sawllvm.program.{llvm_emit_program}
 import sawmono.program.{MonoProgram}
@@ -78,11 +79,13 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
         coro_append_findings(out: &var out, coro: &coro)
         return 1
     }
+    stagetime_begin(StageTime.Llvm)
     let lowering = ll_lowering(&coro)
     // A runtime's source carries no line tables, whatever the flag says.
     let lines = options.debug_info && not coro.mono.dp.bc.mir.tc.profile.runtime_source()
     let text = llvm_emit_program(&var coro.mono, &var target, move lowering, options.speed, options.module_triple,
                                  lines, features: options.features, object: options.object)
+    stagetime_end(StageTime.Llvm)
     if text.len() == 0 {
         try! out.append(head)
         coro_append_findings(out: &var out, coro: &coro)

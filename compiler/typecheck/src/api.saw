@@ -1,6 +1,7 @@
 // The typecheck stage's entry points: a program resolved and its signatures
 // checked, and the record `sawc typecheck` prints for it.
 
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawresolve.api.{append_res_diag, resolve_program}
 import sawresolve.lang.{ResLang}
 import sawresolve.model.{ResDiag, ResModule}
@@ -67,7 +68,10 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
                               freestanding: Bool = false, provider: Bool = false,
                               no_hidden_alloc: Bool = false,
                               builtins: Vector<String> = Vector<String>()) -> TcProgram {
+    stagetime_begin(StageTime.Resolve)
     let res = resolve_program(path, std_root, &names, &dirs, builtins: move builtins)
+    stagetime_end(StageTime.Resolve)
+    stagetime_begin(StageTime.Typecheck)
     var p = tc_program(move res, target)
     p.profile = tc_profile(runtime, provider, freestanding)
     p.no_hidden_alloc = no_hidden_alloc
@@ -116,6 +120,7 @@ public func typecheck_program(path: String, std_root: String, names: &Vector<Str
     tc_check_exports(&var p)
     // A pass after the bodies that forms a type leaves no bound unanswered.
     tc_check_obligations(&var p)
+    stagetime_end(StageTime.Typecheck)
     move p
 }
 

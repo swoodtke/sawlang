@@ -13,6 +13,7 @@ import sawcoro.send.{coro_check_frame_send}
 import sawcoro.spawn.{coro_check_spawns, coro_lower_spawn_sites}
 import sawcoro.suspends.{coro_solve_suspension}
 import sawcoro.verify.{coro_verify_lowering, coro_verify_snapshot}
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
 import sawmono.api.{mono_append_findings, mono_lower_file}
@@ -51,6 +52,7 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
     var mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
                                dirs: &dirs, target: target, runtime: runtime, freestanding: freestanding,
                                provider: provider, no_hidden_alloc: no_hidden_alloc)
+    stagetime_begin(StageTime.Coro)
     var coro = coro_program(move mono)
     if not coro.blocked {
         coro_solve_suspension(&var coro)
@@ -63,6 +65,7 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
         coro_refuse_unlowered(&var coro)
         coro_root_entry_executor(&var coro)
     }
+    stagetime_end(StageTime.Coro)
     move coro
 }
 
@@ -92,14 +95,22 @@ public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
     // rooted for every program that is lowered, after the decisions the
     // dumps print and before the lowering that emits its calls.
     let _ = coro.mono.root_print_failure()
+    stagetime_begin(StageTime.CoroLower)
     coro_lay_out_frames(&var coro, &var target)
+    stagetime_end(StageTime.CoroLower)
+    stagetime_begin(StageTime.VerifyCoro)
     coro_verify_snapshot(&var coro)
+    stagetime_end(StageTime.VerifyCoro)
+    stagetime_begin(StageTime.CoroLower)
     coro_lower_spawn_sites(&var coro)
     coro_lower_drive_sites(&var coro)
     coro_lower_frames(&var coro)
     coro_check_spawns(&var coro)
     coro_check_drive_sites(&var coro)
+    stagetime_end(StageTime.CoroLower)
+    stagetime_begin(StageTime.VerifyCoro)
     coro_verify_lowering(&var coro, &var target)
+    stagetime_end(StageTime.VerifyCoro)
 }
 
 // The record of one program, after its `FILE` line: everything

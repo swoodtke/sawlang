@@ -1,6 +1,7 @@
 // The MIR stage's entry points: a program checked, then lowered, and the
 // record `sawc mir` prints for it.
 
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.derive.{mir_lower_derived_bodies}
 import sawmir.dump.{mir_dump_module}
 import sawmir.lower.{mir_lower_program}
@@ -40,9 +41,11 @@ public func mir_lower_file(path: String, std_root: String, names: &Vector<String
     let tc = asserts_typecheck_program(path, std_root, &names, &dirs, target: target, runtime: runtime,
                                        freestanding: freestanding, provider: provider,
                                        no_hidden_alloc: no_hidden_alloc)
+    stagetime_begin(StageTime.Mir)
     var p = mir_program(move tc)
     mir_lower_program(&var p)
     mir_lower_derived_bodies(&var p)
+    stagetime_end(StageTime.Mir)
     lowerings = lowerings + 1
     move p
 }
@@ -104,11 +107,17 @@ public func mir_append_checks(out: &var StringBuilder, p: &var MirProgram, notes
     }
     var m = 0
     while m < p.tc.res.module_count() {
+        stagetime_begin(StageTime.VerifyResolve)
         let found = res_verify_module(&p.tc.res, m)
+        stagetime_end(StageTime.VerifyResolve)
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &found)
+        stagetime_begin(StageTime.VerifyTypecheck)
         let own = tc_verify_module(&p.tc, m)
+        stagetime_end(StageTime.VerifyTypecheck)
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &own)
+        stagetime_begin(StageTime.VerifyTypecheck)
         let bodies = tc_verify_bodies(&p.tc, m)
+        stagetime_end(StageTime.VerifyTypecheck)
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &bodies)
         var met = Vector<String>()
         var j = 0
@@ -126,7 +135,9 @@ public func mir_append_checks(out: &var StringBuilder, p: &var MirProgram, notes
             j = j + 1
         }
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &met)
+        stagetime_begin(StageTime.VerifyMir)
         let lowered = mir_verify_module(&var p, m)
+        stagetime_end(StageTime.VerifyMir)
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &lowered)
         m = m + 1
     }

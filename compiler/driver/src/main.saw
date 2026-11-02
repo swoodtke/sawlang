@@ -31,6 +31,7 @@
 //   sawc build FILE [-o OUT]       the entry file's program compiled and linked by clang
 //   sawc build -c FILE [-o OUT]    the entry file's program compiled by clang to an object, and not linked
 //   sawc build --emit-ll FILE      the entry file's program as one `.ll` on standard output
+//   sawc build --time-stages FILE  the build, then one `time: STAGE MS ms` line per stage on standard error
 //   sawc build --freestanding FILE the entry file's program compiled under the freestanding profile to an ELF object
 //   sawc build --runtime FILE      the entry file built as its own runtime, linked with none of sawc's
 //   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
@@ -59,6 +60,7 @@ import sawcoro.bttable.{coro_bt_record}
 import sawdrops.api.{DropsOptions, drops_record, drops_record_status}
 import saweval.api.{EvalOptions, eval_record}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_enable, stagetime_end, stagetime_report}
 import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting}
 import sawmir.api.{MirOptions, mir_record}
 import sawmono.api.{MonoOptions, mono_record}
@@ -109,7 +111,7 @@ func driver_usage() -> Int {
     print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
-    print("                  [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("                  [-W borrow-prefix] [--time-stages] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
@@ -191,6 +193,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             i = i + 1
         } else if arg.equals("--emit-ll") {
             emit = true
+        } else if arg.equals("--time-stages") {
+            stagetime_enable()
         } else if arg.equals("--freestanding") {
             freestanding = true
         } else if arg.equals("--runtime") || arg.equals("--runtime-provider") {
@@ -334,13 +338,19 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     try! ll.append(out)
     try! ll.append(".ll")
     let ll_path = ll.build()
-    if not driver_write_file(ll_path, ir.build()) {
+    stagetime_begin(StageTime.WriteLl)
+    let written = driver_write_file(ll_path, ir.build())
+    stagetime_end(StageTime.WriteLl)
+    if not written {
         return 1
     }
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
     if object {
         let arguments = driver_object_arguments(clang_triple, speed, sanitize, freestanding, ll_path, out)
-        return driver_clang("sawc build", compiler, &arguments)
+        stagetime_begin(StageTime.Clang)
+        let compiled = driver_clang("sawc build", compiler, &arguments)
+        stagetime_end(StageTime.Clang)
+        return compiled
     }
     let link = DriverLink(clang: compiler, ll: ll_path, out: out, speed: speed, sanitize: sanitize,
                           triple: clang_triple, debug: debug)
@@ -724,7 +734,10 @@ func driver_link(link: &DriverLink, objects: &Vector<String>) -> Int {
     try! arguments.push("-x")
     try! arguments.push("none")
     driver_link_tail(&var arguments, &link, &objects)
-    driver_clang("sawc build", link.clang, &arguments)
+    stagetime_begin(StageTime.ClangLink)
+    let status = driver_clang("sawc build", link.clang, &arguments)
+    stagetime_end(StageTime.ClangLink)
+    status
 }
 
 // The Mach-O link of a module with line tables, which is reproducible, since
@@ -743,7 +756,9 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     let base = driver_base_name(link.out)
     let object = driver_path(dir, base, ".o")
     let compile = driver_object_arguments(link.triple, link.speed, link.sanitize, false, link.ll, object)
+    stagetime_begin(StageTime.Clang)
     let compiled = driver_clang("sawc build", link.clang, &compile)
+    stagetime_end(StageTime.Clang)
     if compiled != 0 {
         return compiled
     }
@@ -761,7 +776,9 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     try! prefix.append("/")
     try! arguments.push(prefix.build())
     driver_link_tail(&var arguments, &link, &objects)
+    stagetime_begin(StageTime.Link)
     let linked = driver_clang("sawc build", link.clang, &arguments)
+    stagetime_end(StageTime.Link)
     if linked != 0 {
         return linked
     }
@@ -778,7 +795,9 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     try! symbols.push(link.out)
     try! symbols.push("-o")
     try! symbols.push(bundle.build())
+    stagetime_begin(StageTime.Dsymutil)
     let written = driver_tool("sawc build", "dsymutil", dsymutil, &symbols)
+    stagetime_end(StageTime.Dsymutil)
     if written != 0 {
         print("sawc build: dsymutil wrote no {}.dSYM, the line tables a debugger and the crash reporter read; -g0 builds without them", link.out)
         return 1
@@ -1600,7 +1619,7 @@ func main() -> Int {
         return driver_coro(&args)
     }
     if command.equals("build") {
-        return driver_build(&args, 2)
+        return driver_timed_build(&args, 2)
     }
     if command.equals("runtime") {
         return driver_runtime(&args)
@@ -1614,9 +1633,18 @@ func main() -> Int {
         return 0
     }
     if command.starts_with("-") || command.ends_with(".saw") {
-        return driver_build(&args, 1)
+        return driver_timed_build(&args, 1)
     }
     driver_usage()
+}
+
+// `driver_build`, then the stage times `--time-stages` asked for, on standard
+// error whatever the build's status; a build without the flag prints nothing
+// more.
+func driver_timed_build(args: &Vector<String>, first: Int) -> Int {
+    let status = driver_build(&args, first)
+    stagetime_report()
+    status
 }
 
 // The release this compiler is, which `sawc --version` prints as `sawc

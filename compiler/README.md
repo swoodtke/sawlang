@@ -201,6 +201,7 @@ bin/sawc parse --dump FILE...                         # each file's canonical AS
 bin/sawc parse --check FILE...                        # each file's diagnostics
 bin/sawc build FILE -o OUT                            # FILE compiled and linked by clang
 bin/sawc build --emit-ll FILE                         # FILE's `.ll` on standard output
+bin/sawc build --time-stages FILE -o OUT              # the build, then `time: STEP MS ms` per step on standard error
 bin/sawc runtime --out DIR                            # the host's runtime objects, into DIR
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT  # another program
 ```

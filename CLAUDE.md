@@ -111,7 +111,7 @@ use and after any change to their sources, then execs `.build/sawc-stage2`.
 ```bash
 bin/sawc build [-O0|-O1|-O2|-Os|-Oz] [-g|-g0] [-c] [--std-root DIR] [--target TRIPLE]
     [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
-    [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+    [-W borrow-prefix] [--time-stages] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 bin/sawc [build flags] FILE.saw [-o OUT]   # the same, `build` left out
 bin/sawc fix [--check] FILE...  # drops `borrow` prefixes SL:borrowing §12 makes redundant
 bin/sawc lex|parse|resolve|typecheck|mir|eval|borrowck|drops|mono|coro ...

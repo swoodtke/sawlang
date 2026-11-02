@@ -1037,6 +1037,73 @@ def check_default_std_root(failures, counts):
     counts["run default std cases"] = 4
 
 
+TIME_STAGES_SOURCE = """func main() {
+    print("timed")
+}
+"""
+# `sawc build --time-stages`' steps in pipeline order (compiler/lex/src/
+# stagetime.saw), the ones every hosted build runs, and the ones only some do.
+TIME_STAGES_ORDER = ("resolve", "typecheck", "asserts", "mir", "verify resolve", "verify typecheck", "verify mir",
+                     "eval", "borrowck", "verify borrowck", "drops", "verify drops", "mono", "coro",
+                     "coro lower", "verify coro", "llvm", "write ll", "clang", "link", "clang link", "dsymutil")
+TIME_STAGES_ALWAYS = ("resolve", "typecheck", "asserts", "mir", "eval", "borrowck", "drops", "mono", "coro",
+                      "coro lower", "llvm", "write ll")
+TIME_STAGES_LINE = re.compile(r"^time: ([a-z ]+) (\d+\.\d) ms$")
+
+
+def check_time_stages(failures, counts):
+    """`--time-stages` prints one `time: STEP MS ms` line per step that ran,
+    in pipeline order, then `total`, on standard error after the build; the
+    shape is checked and never the values. Without the flag the build writes
+    nothing to either stream, and the `.ll` is the same bytes either way, so
+    recording never changes what is compiled."""
+    work = os.path.join(OUT, "time-stages")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    src = os.path.join(work, "main.saw")
+    with open(src, "w") as fh:
+        fh.write(TIME_STAGES_SOURCE)
+    plain = os.path.join(work, "plain")
+    timed = os.path.join(work, "timed")
+    first = subprocess.run([build.SAWC, "build", "-g0"] + target_flags() + [src, "-o", plain], cwd=work,
+                           capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    second = subprocess.run([build.SAWC, "build", "-g0", "--time-stages"] + target_flags() + [src, "-o", timed],
+                            cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if first.returncode != 0 or second.returncode != 0:
+        failures.append("run time stages: the build fails (%d, %d): %s"
+                        % (first.returncode, second.returncode, (first.stdout + first.stderr + second.stdout
+                                                                 + second.stderr).strip()[:300]))
+        return
+    if first.stdout + first.stderr != "":
+        failures.append("run time stages: a build without the flag prints %r" % (first.stdout + first.stderr)[:300])
+    if second.stdout != "":
+        failures.append("run time stages: the flag adds %r to standard output" % second.stdout[:300])
+    lines = second.stderr.splitlines()
+    seen = []
+    for line in lines:
+        m = TIME_STAGES_LINE.match(line)
+        if m is None:
+            failures.append("run time stages: a line is not `time: STEP MS ms`: %r" % line[:200])
+        else:
+            seen.append(m.group(1))
+    if not seen or seen[-1] != "total":
+        failures.append("run time stages: `total` is not the last line: %r" % seen)
+        return
+    steps = seen[:-1]
+    ranks = [TIME_STAGES_ORDER.index(s) if s in TIME_STAGES_ORDER else -1 for s in steps]
+    if -1 in ranks or ranks != sorted(set(ranks)):
+        failures.append("run time stages: the steps %r are not distinct and in pipeline order" % steps)
+    for need in TIME_STAGES_ALWAYS:
+        if need not in steps:
+            failures.append("run time stages: no `%s` line in %r" % (need, steps))
+    if "clang link" not in steps and not ("clang" in steps and "link" in steps):
+        failures.append("run time stages: no clang or link line in %r" % steps)
+    with open(plain + ".ll", "rb") as a, open(timed + ".ll", "rb") as b:
+        if a.read() != b.read():
+            failures.append("run time stages: --time-stages changes the .ll sawc writes")
+    counts["run time stages checked"] = 1
+
+
 # The `if`s after the long accessor's `lend`: past the round count a capped
 # dataflow over a join numbered below its arms stops at (SL-610).
 LONG_ACCESSOR_IFS = 1100
@@ -2297,6 +2364,7 @@ def run(names=None, write=False):
         builtin_lowering.check(failures, counts)
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
+        check_time_stages(failures, counts)
         check_long_accessor(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

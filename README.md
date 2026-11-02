@@ -1032,7 +1032,8 @@ one per compiler stage (`lex`, `parse`, `resolve`, `typecheck`, `mir`, `eval`,
 ```bash
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]
            [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
-           [-W borrow-prefix] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+           [-W borrow-prefix] [--module-path NAME=DIR]... [--time-stages]
+           (FILE [-o OUT] | --emit-ll FILE)
 sawc fix [--check] [--std-root DIR] [--module-path NAME=DIR]... FILE...
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)

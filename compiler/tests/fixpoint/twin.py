@@ -33,12 +33,20 @@ WRITERS = ("build", "runtime")
 # `check_test_only_exports`).
 CLANG_TEMP_OBJECT = re.compile(rb"-[0-9a-f]{6}\.o\b")
 
+# `--time-stages` writes each step's wall time, which no two runs share; the
+# step names and their order are what the stages must agree on.
+STAGE_TIME = re.compile(rb"^(time: [a-z0-9 +]+ )[0-9]+\.[0-9] ms$", re.MULTILINE)
+
 
 def comparable_stderr(args, err):
-    """`err` with clang's temporary object names made equal, for a build."""
+    """`err` with clang's temporary object names and `--time-stages`' times
+    made equal, for a build."""
     if args[:1] != ["build"]:
         return err
-    return CLANG_TEMP_OBJECT.sub(b"-XXXXXX.o", err)
+    err = CLANG_TEMP_OBJECT.sub(b"-XXXXXX.o", err)
+    if "--time-stages" in args:
+        err = STAGE_TIME.sub(rb"\1N ms", err)
+    return err
 
 
 def first_difference(a, b):
