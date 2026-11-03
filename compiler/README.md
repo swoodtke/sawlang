@@ -219,25 +219,44 @@ marked for SL:hazards S28.
 `--codegen-units=module` (SL-955) compiles the program as one LLVM module per
 Saw module instead of one for the whole program. sawc still runs every stage
 over the whole program and writes the same `OUT.ll`; `llvm/src/split.saw` then
-cuts that text into units (`llvm/src/units.saw` says which module each
-definition belongs to): a generic instance goes with its template's module,
-glue beside its first user, the entry point, the backtrace table and the
-compiler's helpers into a unit of their own, and a module with less than
-256 KB of definitions joins a run of its neighbours. A definition another
-unit names becomes `hidden` instead of `internal`, and a `private
-unnamed_addr constant` is copied into each unit that uses it. The units are
+cuts that text into one unit per Saw module (`llvm/src/units.saw` says which
+module each definition belongs to): a function goes with the module its body
+is written in, a generic instance with its template's, its closure release
+and thread trampoline with it, and the entry point, the backtrace table, the
+task roots' frame descriptors and the compiler's helpers into a unit of their
+own. A definition no module owns, which any module's use can call into being
+(glue of any type, a code-address or function-value thunk, an offload thunk, a
+`try!`'s failure helper), is copied into each unit that uses it as
+`linkonce_odr hidden`, in a comdat of its own on ELF, so the link keeps one
+copy; a `private unnamed_addr constant` is copied too. Within a unit,
+definitions are in symbol order, `@.bytes.N` and metadata are numbered in the
+order the unit names them, every `internal` definition is `hidden`, and glue's
+line tables sit at line 0 of its type's declaring file (the entry file for a
+tuple of builtins), never at a line another module's edit can move. So an edit to one module leaves every other module's unit
+`.ll` byte for byte as it was, with two exceptions: a module that starts or
+stops using a generic instance, `Vector<Foo>.push` say, changes its
+template's unit, and the program unit changes when the backtrace table does
+(a coroutine frame or one of its suspension lines added, removed or moved) or
+a task root's or `main`'s frame descriptor does (`tools/unit_stability.py`
+measures which units an edit changes; run_lane's `check_unit_stability` pins
+it). The units are
 written to `OUT.units/uN.ll` and compiled as child processes
 (`Command.spawn`), at most three quarters of the machine's processors at once
 (`SAW_GATE_JOBS` lowers it), then linked: an executable with the runtime
 objects, or for `-c` and `--freestanding` one object by a relocatable link
-(`-r`, through `ld.lld` for a bare-metal target). `OUT.ll` and the units'
+(`-r`, through `ld.lld` for a bare-metal target). ELF's relocatable link
+keeps a hidden symbol global, so an ELF object is then passed through
+`llvm-objcopy --localize-hidden`, the one the target's record names
+(`build.py`'s `choose_objcopy`), and a split `-c` for a target whose record
+names none is refused, naming it. `OUT.ll` and the units'
 `.ll` stay after every build, as a whole-module build's `OUT.ll` does; the
 unit objects are removed once linked, so after a failed compile or link they
 stay too, for inspecting the unit that failed. `--lto=thin`, the default
 above `-O0`, links the units with ThinLTO; `--lto=full` with full LTO;
-`--lto=none` links them as compiled. An LTO link keeps the executable's
-global symbols global (`-export_dynamic`), as a whole-module link does, so
-an `@export` stays visible to `dlsym`. `--codegen-units=1` is the default and
+`--lto=none` links them as compiled. An LTO link keeps exactly the program's
+`@export`s global (`-exported_symbol` on Mach-O, `--export-dynamic-symbol` on
+ELF), so an `@export` stays visible to `dlsym` and every other symbol is the
+link's to internalize. `--codegen-units=1` is the default and
 the whole-module build. `SAWC_CODEGEN_UNITS` and `SAWC_LTO` set the two for
 every build that does not name them, which is how a lane runs split.
 `--emit-ll` ignores both. SL-955's comments hold the measured trade-off of

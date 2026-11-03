@@ -1165,7 +1165,8 @@ def check_codegen_units(failures, counts):
     """`--codegen-units=module` builds the program it would build whole: one
     module per Saw module, compiled apart and linked at every `--lto`, with
     line tables and without, runs as the whole-module build does, keeps its
-    `@export` a global symbol, writes the same `.ll` beside it, and leaves no
+    `@export` a global symbol (under LTO on Mach-O, the only one), writes the
+    same `.ll` beside it, and leaves no
     unit object behind; `-c` writes
     the one object, which links into the same program; `--emit-ll` ignores
     the flag; and a bad value, or `--lto` on a whole-module build, is a usage
@@ -1221,6 +1222,14 @@ def check_codegen_units(failures, counts):
         if not re.search(r"^\S+ T _?%s$" % CODEGEN_UNITS_EXPORT, symbols.stdout, re.M):
             failures.append("run codegen units: %s does not keep `%s` a global symbol"
                             % (where, CODEGEN_UNITS_EXPORT))
+        # An LTO link keeps exactly the `@export`s global; on Mach-O, where
+        # the export list binds the symbol table, nothing else is defined
+        # global, the backtrace table and `main` included.
+        defined = sorted(line.split()[-1] for line in symbols.stdout.splitlines() if len(line.split()) == 3)
+        if lto in (None, "thin", "full") and speed != "-O0" and (TARGET or build.host_triple()).endswith("-darwin") \
+                and defined != ["_" + CODEGEN_UNITS_EXPORT]:
+            failures.append("run codegen units: %s keeps %r global, not only `%s`"
+                            % (where, defined[:8], CODEGEN_UNITS_EXPORT))
         with open(out + ".ll", "rb") as fh:
             if fh.read() != wholes[(speed, extra[0])]:
                 failures.append("run codegen units: %s writes a .ll the whole-module build does not" % where)
@@ -1261,6 +1270,133 @@ def check_codegen_units(failures, counts):
             failures.append("run codegen units: %s exits %d, not 2 with the usage error: %s"
                             % (why, r.returncode, (r.stdout + r.stderr).strip()[:300]))
     counts["run codegen unit builds checked"] = len(CODEGEN_UNITS_BUILDS) + 1
+
+
+# The edits `check_unit_stability` makes to CODEGEN_UNITS' program, each
+# (file, text replaced, replacement, the edited module's name): a body, a new
+# function and a new string literal in the helper, below its suspension point
+# so the backtrace table, in the program unit, keeps its lines; a new closure
+# signature and a new tuple and array type there, whose glue belongs to no
+# module; and a new call from `main` to an instance it already reaches.
+UNIT_STABILITY_EDITS = (
+    ("helper.saw", "func exported_answer() -> Int {\n    42\n}\n",
+     "func exported_answer() -> Int {\n    probe_length(\"unit stability\") * 0 + 42\n}\n\n"
+     "func probe_length(text: String) -> Int {\n    text.len()\n}\n", "helper"),
+    ("helper.saw", "func exported_answer() -> Int {\n    42\n}\n",
+     "func exported_answer() -> Int {\n    let measure: (String) sync -> Int = { s in s.len() }\n"
+     "    measure(\"unit\") * 0 + 42\n}\n", "helper"),
+    ("helper.saw", "func exported_answer() -> Int {\n    42\n}\n",
+     "func exported_answer() -> Int {\n    let pair = (\"unit\", [\"stability\"])\n"
+     "    pair.1[0].len() * 0 + 42\n}\n", "helper"),
+    ("main.saw", "    print(\"unit\")\n}\n",
+     "    print(\"unit\")\n    let again = helper.twice(2)\n    print(\"{}\", again.0 + again.1)\n}\n", "main"),
+)
+
+
+def check_unit_stability(failures, counts):
+    """An edit to one module of a split build changes that module's unit
+    `.ll` and no other, with line tables and without: each unit's names and
+    order are a function of its own module (SL-955). Units are paired and
+    classed by tools/unit_stability.py's `compare_units`."""
+    import unit_stability
+    work = os.path.join(OUT, "unit-stability")
+    shutil.rmtree(work, ignore_errors=True)
+    sources = {"main.saw": CODEGEN_UNITS_MAIN, "helper.saw": CODEGEN_UNITS_HELPER}
+
+    def units(name, edited, flags):
+        root = os.path.join(work, name)
+        os.makedirs(root, exist_ok=True)
+        for path, text in sources.items():
+            with open(os.path.join(root, path), "w") as fh:
+                fh.write(edited.get(path, text))
+        out = os.path.join(root, "program")
+        r = subprocess.run([build.SAWC, "build", "-O0", "--codegen-units=module"] + flags + target_flags()
+                           + ["main.saw", "-o", out], cwd=root, capture_output=True, text=True,
+                           timeout=BUILD_TIMEOUT)
+        if r.returncode != 0:
+            failures.append("run unit stability: the %s build fails: %s" % (name, (r.stdout + r.stderr).strip()[:300]))
+            return None
+        found = {}
+        for one in sorted(os.listdir(out + ".units")):
+            if one.endswith(".ll"):
+                with open(os.path.join(out + ".units", one)) as fh:
+                    found[one] = fh.read()
+        return found
+
+    checked = 0
+    for flags in ([], ["-g0"]):
+        base = units("base" + "".join(flags), {}, flags)
+        if base is None:
+            return
+        for n, (path, old, new, module) in enumerate(UNIT_STABILITY_EDITS):
+            if sources[path].count(old) != 1:
+                failures.append("run unit stability: the edit of %s does not apply once" % path)
+                continue
+            edited = units("edit%d%s" % (n, "".join(flags)), {path: sources[path].replace(old, new)}, flags)
+            if edited is None:
+                return
+            rows = unit_stability.compare_units(base, edited, module)
+            changed = [r for r in rows if r["kind"] != "same"]
+            if len(changed) != 1 or not changed[0]["edited"]:
+                failures.append("run unit stability: editing %s %s changes %s"
+                                % (path, " ".join(flags) or "-g", ", ".join("%s (%s)" % (r["label"], r["kind"])
+                                                                            for r in changed) or "no unit"))
+            checked += 1
+    counts["run unit stability edits checked"] = checked
+
+
+def check_split_object(failures, counts):
+    """A split ELF `-c` object binds every symbol as the whole-module one
+    does, the backtrace table, the seams, the export and std's weak routines
+    included, and keeps its units' own definitions local (its `main` among
+    them), which `llvm-objcopy --localize-hidden` makes so; a record naming
+    no llvm-objcopy refuses the split build, naming the tool. The refusal
+    runs a copy of sawc beside a copy of the records with the line removed."""
+    probe = os.path.join(PROBES, FREESTANDING_PROBE)
+    problem = bare_metal_record_problem(rel(probe))
+    if problem:
+        failures.append(problem)
+        return
+    work = os.path.join(OUT, "split-object")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+
+    def build_object(sawc, units, out):
+        return subprocess.run([sawc, "build", "--freestanding", "-O0", "--codegen-units=" + units, "--std-root", "std",
+                               "--target", BARE_METAL_TARGET, rel(probe), "-o", out], cwd=REPO, capture_output=True,
+                              text=True, timeout=BUILD_TIMEOUT)
+
+    bound = {}
+    for units in ("1", "module"):
+        obj = os.path.join(work, "units-%s.o" % units)
+        r = build_object(build.SAWC, units, obj)
+        if r.returncode != 0:
+            failures.append("run split object: the --codegen-units=%s object fails: %s"
+                            % (units, (r.stdout + r.stderr).strip()[:300]))
+            return
+        symbols, why = object_symbols(obj, False)
+        if symbols is None:
+            failures.append("run split object: nm cannot read %s: %s" % (rel(obj), why))
+            return
+        bound[units] = {name: kind for name, kind in symbols.items() if not kind.islower()}
+        if any(kind.isupper() for name, kind in symbols.items() if "main(" in name):
+            failures.append("run split object: the --codegen-units=%s object's `main` is not local" % units)
+    if bound["1"] != bound["module"]:
+        changed = sorted(n for n in set(bound["1"]) | set(bound["module"]) if bound["1"].get(n) != bound["module"].get(n))
+        failures.append("run split object: the split object binds %s otherwise than the whole-module one"
+                        % ", ".join(changed[:6]))
+    copied = os.path.join(work, "sawc")
+    shutil.copy(build.SAWC, copied)
+    for path in glob.glob(os.path.join(os.path.dirname(os.path.realpath(build.SAWC)), "sawc-runtime*.txt")):
+        with open(path) as fh:
+            lines = [line for line in fh.read().splitlines(True) if not line.startswith("objcopy ")]
+        with open(os.path.join(work, os.path.basename(path)), "w") as fh:
+            fh.write("".join(lines))
+    r = build_object(copied, "module", os.path.join(work, "refused.o"))
+    if r.returncode == 0 or "llvm-objcopy" not in r.stdout + r.stderr:
+        failures.append("run split object: with no llvm-objcopy recorded the split -c build exits %d: %s"
+                        % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    counts["run split objects bound as whole ones"] = 1
 
 
 def time_stage_lines(failures, stderr, split):
@@ -2307,7 +2443,8 @@ def check_clang_choice(failures, counts):
     override naming no executable is refused by name, with no fallback to the
     candidates. The stage build has written the target's record before any
     of this runs; `configure_target` then rewrites it: its `target` and
-    `clang` lines and no object, since it has no runtime. The candidates are
+    `clang` lines, the `objcopy` line `choose_objcopy` finds, and no object,
+    since it has no runtime. The candidates are
     each `clang-NN` on PATH, the newest first, then `clang`, then Homebrew's."""
     where = "run clang choice for %s" % BARE_METAL_TARGET
     problem = bare_metal_record_problem("clang choice for %s" % BARE_METAL_TARGET)
@@ -2336,6 +2473,11 @@ def check_clang_choice(failures, counts):
             line.startswith("object ") for line in lines):
         failures.append("%s: the record %s is %r, not its target, one clang and no object: %s"
                         % (where, rel(record), lines, why))
+    objcopy = build.choose_objcopy(clang_lines[0][len("clang "):]) if clang_lines else None
+    objcopy_lines = [line for line in lines if line.startswith("objcopy ")]
+    if objcopy_lines != (["objcopy %s" % objcopy] if objcopy else []) or (objcopy and not os.path.exists(objcopy)):
+        failures.append("%s: the record's llvm-objcopy lines are %r, not the one `choose_objcopy` finds (%s)"
+                        % (where, objcopy_lines, objcopy))
     candidates = build.clang_candidates()
     versioned = [re.match(r"^clang-(\d+)$", c) for c in candidates[:-2]]
     versions = [int(m.group(1)) for m in versioned if m]
@@ -2562,6 +2704,8 @@ def run(names=None, write=False):
         check_default_std_root(failures, counts)
         check_time_stages(failures, counts)
         check_codegen_units(failures, counts)
+        check_unit_stability(failures, counts)
+        check_split_object(failures, counts)
         check_long_accessor(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

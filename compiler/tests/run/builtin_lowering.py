@@ -7,7 +7,7 @@ weakly, and no builtin routine reaches itself (SL-948).
 `run_lane.run()` calls `check()`. Each program of `lowering/` it names is
 built by `sawc build --freestanding` for riscv32 (`+m,+a,+c`) and aarch64, at
 -O0, -O1, -O2, -Os and -Oz, and each object's relocations are read with
-`llvm-objdump`:
+`llvm-readobj`, each resolved by the symbol it carries (`readobj_graph`):
 
 - `builtin_uses.saw`'s object defines std's routines, each `W` (`STD_ROUTINES`:
   the memory routines and the soft-float routines on both arches, neither
@@ -85,9 +85,11 @@ CROSS_MODULE_SELF_CALLS = {
     "aarch64-unknown-none-elf": ("-O1", "-O2", "-Os"),
 }
 
-_FUNCTION = re.compile(r"^[0-9a-f]+ <(.*)>:$")
-_RELOCATION = re.compile(r"\sR_\S+\s+(.+)$")
-_OFFSET = re.compile(r"[+-]0x[0-9a-f]+$")
+# A readobj dump's relocation run header, `Section (INDEX) .rela.NAME {`; a
+# symbol's `Section: NAME (0xINDEX)`; a relocation's `Symbol: NAME (INDEX)`.
+_READOBJ_APPLIES = re.compile(r"^Section \((\d+)\) .* \{$")
+_READOBJ_SECTION = re.compile(r"^.* \((0x[0-9A-Fa-f]+)\)$")
+_READOBJ_SYMBOL = re.compile(r"^.* \((\d+)\)$")
 _DEFINE = re.compile(r'^define [^@]*@(?:"([^"]+)"|([\w.$]+))\(')
 _GROUP = re.compile(r"^attributes #(\d+) = \{(.*)\}$")
 
@@ -156,28 +158,95 @@ def text_symbols(nm, obj):
     return found
 
 
-def call_graph(objdump, obj, functions):
-    """{function: the functions its relocations name}. A relocation through a
-    function's section (`.text.NAME`, aarch64's spelling of a local call) names
-    that function; one naming data names nothing here."""
-    dis = subprocess.run([objdump, "-dr", "--no-show-raw-insn", obj], capture_output=True, text=True,
-                         timeout=TIMEOUT).stdout
-    graph = {}
-    current = None
-    for line in dis.splitlines():
-        found = _FUNCTION.match(line)
-        if found:
-            current = found.group(1)
-            graph.setdefault(current, set())
+def call_graph(readobj, obj):
+    """{function: the functions its relocations name} of object `obj`, read
+    by `llvm-readobj` (`readobj_graph`)."""
+    dump = subprocess.run([readobj, "--sections", "--symbols", "--relocations", "--expand-relocs", obj],
+                          capture_output=True, text=True, timeout=TIMEOUT).stdout
+    return readobj_graph(dump)
+
+
+def readobj_blocks(dump):
+    """(sections, symbols, relocations) of an `llvm-readobj --sections
+    --symbols --relocations --expand-relocs` dump: each section and symbol a
+    {field: value} in table order, and each relocation a (the section it
+    applies to by index, {field: value})."""
+    sections, symbols, relocations = [], [], []
+    table = None
+    block = None
+    applies = None
+    for line in dump.splitlines():
+        text = line.strip()
+        if text in ("Sections [", "Symbols [", "Relocations ["):
+            table = text.split()[0]
             continue
-        found = _RELOCATION.search(line)
-        if not found or current is None:
+        found = _READOBJ_APPLIES.match(text)
+        if table == "Relocations" and found:
+            applies = int(found.group(1))
             continue
-        target = _OFFSET.sub("", found.group(1).strip())
-        if target.startswith(".text."):
-            target = target[len(".text."):]
-        if target in functions:
-            graph[current].add(target)
+        if text in ("Section {", "Symbol {", "Relocation {"):
+            block = {}
+            continue
+        if text == "}" and block is not None:
+            if table == "Sections":
+                sections.append(block)
+            elif table == "Symbols":
+                symbols.append(block)
+            elif table == "Relocations":
+                relocations.append((applies, block))
+            block = None
+            continue
+        if block is not None and ": " in text:
+            key, value = text.split(": ", 1)
+            block[key] = value
+    return sections, symbols, relocations
+
+
+def readobj_graph(dump):
+    """{function: the functions its relocations name}, from a readobj dump.
+    Each relocation is resolved by the symbol index it carries: to that
+    function, or, through a section symbol (aarch64's spelling of a local
+    call), to the function of that section at its addend. Local functions of
+    one name from different codegen units, the machine outliner's
+    `OUTLINED_FUNCTION_N`, so stay apart; such a name is keyed `NAME#INDEX`.
+    A relocation naming data names nothing here."""
+    sections, symbols, relocations = readobj_blocks(dump)
+    info = {}
+    for section in sections:
+        info[int(section.get("Index", "-1"))] = int(section.get("Info", "0"))
+    functions = []
+    for index, symbol in enumerate(symbols):
+        found = _READOBJ_SECTION.match(symbol.get("Section", ""))
+        if symbol.get("Type", "").startswith("Function") and found and int(found.group(1), 16) != 0:
+            functions.append((index, symbol["Name"].rsplit(" (", 1)[0], int(found.group(1), 16),
+                              int(symbol.get("Value", "0"), 16), int(symbol.get("Size", "0"))))
+    named = {}
+    for _, name, _, _, _ in functions:
+        named[name] = named.get(name, 0) + 1
+    key = {index: (name if named[name] == 1 else "%s#%d" % (name, index)) for index, name, _, _, _ in functions}
+
+    def at(section, offset, exact):
+        for index, _, where, value, size in functions:
+            if where == section and (offset == value if exact else value <= offset < value + max(size, 1)):
+                return key[index]
+        return None
+
+    graph = {name: set() for name in key.values()}
+    for applies, relocation in relocations:
+        caller = at(info.get(applies, -1), int(relocation.get("Offset", "0"), 16), False)
+        found = _READOBJ_SYMBOL.match(relocation.get("Symbol", ""))
+        if caller is None or not found:
+            continue
+        index = int(found.group(1))
+        if index in key:
+            graph[caller].add(key[index])
+            continue
+        symbol = symbols[index] if index < len(symbols) else {}
+        section = _READOBJ_SECTION.match(symbol.get("Section", ""))
+        if symbol.get("Type", "").startswith("Section") and section:
+            target = at(int(section.group(1), 16), int(relocation.get("Addend", "0"), 16), True)
+            if target is not None:
+                graph[caller].add(target)
     return graph
 
 
@@ -244,9 +313,9 @@ def float_reach_problems(routine, graph):
 
 
 def read(tools, obj, ll):
-    objdump, nm = tools
+    readobj, nm = tools
     symbols = text_symbols(nm, obj)
-    return symbols, call_graph(objdump, obj, symbols), no_builtins(ll)
+    return symbols, call_graph(readobj, obj), no_builtins(ll)
 
 
 def check_std_routines(failures, counts, triple, features, tools, level):
@@ -501,7 +570,129 @@ def check_shift_checks(failures, counts, triple, features):
     counts["run builtin lowering shift checks pinned"] = counts.get("run builtin lowering shift checks pinned", 0) + 1
 
 
+# A readobj dump, cut to what `readobj_graph` reads, of a split object whose
+# two codegen units each kept a local `OUTLINED_FUNCTION_1` in the one merged
+# section: `__floatdidf` calls the second (section symbol, addend 0x20), which
+# calls `helper`; only the first, another unit's, calls `__saw_fail_head`.
+GRAPH_SAMPLE = """Sections [
+  Section {
+    Index: 1
+    Name: .text.__floatdidf (1)
+    Info: 0
+  }
+  Section {
+    Index: 2
+    Name: .rela.text.__floatdidf (2)
+    Info: 1
+  }
+  Section {
+    Index: 3
+    Name: .text.OUTLINED_FUNCTION_1 (3)
+    Info: 0
+  }
+  Section {
+    Index: 4
+    Name: .rela.text.OUTLINED_FUNCTION_1 (4)
+    Info: 3
+  }
+]
+Relocations [
+  Section (2) .rela.text.__floatdidf {
+    Relocation {
+      Offset: 0x10
+      Type: R_AARCH64_CALL26 (283)
+      Symbol: .text.OUTLINED_FUNCTION_1 (1)
+      Addend: 0x20
+    }
+  }
+  Section (4) .rela.text.OUTLINED_FUNCTION_1 {
+    Relocation {
+      Offset: 0x1C
+      Type: R_AARCH64_JUMP26 (282)
+      Symbol: __saw_fail_head (5)
+      Addend: 0x0
+    }
+    Relocation {
+      Offset: 0x24
+      Type: R_AARCH64_JUMP26 (282)
+      Symbol: helper (6)
+      Addend: 0x0
+    }
+  }
+]
+Symbols [
+  Symbol {
+    Name:  (0)
+    Type: None (0x0)
+    Section: Undefined (0x0)
+  }
+  Symbol {
+    Name: .text.OUTLINED_FUNCTION_1 (5)
+    Value: 0x0
+    Type: Section (0x3)
+    Section: .text.OUTLINED_FUNCTION_1 (0x3)
+  }
+  Symbol {
+    Name: OUTLINED_FUNCTION_1 (6)
+    Value: 0x0
+    Size: 32
+    Type: Function (0x2)
+    Section: .text.OUTLINED_FUNCTION_1 (0x3)
+  }
+  Symbol {
+    Name: OUTLINED_FUNCTION_1 (6)
+    Value: 0x20
+    Size: 8
+    Type: Function (0x2)
+    Section: .text.OUTLINED_FUNCTION_1 (0x3)
+  }
+  Symbol {
+    Name: __floatdidf (7)
+    Value: 0x0
+    Size: 64
+    Type: Function (0x2)
+    Section: .text.__floatdidf (0x1)
+  }
+  Symbol {
+    Name: __saw_fail_head (8)
+    Value: 0x0
+    Size: 16
+    Type: Function (0x2)
+    Section: .text.__saw_fail_head (0x5)
+  }
+  Symbol {
+    Name: helper (9)
+    Value: 0x0
+    Size: 16
+    Type: Function (0x2)
+    Section: .text.helper (0x6)
+  }
+]
+"""
+
+
+def check_graph_reading(failures, counts):
+    """`readobj_graph` keeps two units' same-named local fragments apart, so
+    `GRAPH_SAMPLE`'s `__floatdidf` reaches `helper` and not another unit's
+    `__saw_fail_head`, which the graph keyed by name alone would join."""
+    graph = readobj_graph(GRAPH_SAMPLE)
+    want = {"__floatdidf": {"OUTLINED_FUNCTION_1#3"}, "OUTLINED_FUNCTION_1#2": {"__saw_fail_head"},
+            "OUTLINED_FUNCTION_1#3": {"helper"}, "__saw_fail_head": set(), "helper": set()}
+    joined = {}
+    for name, callees in graph.items():
+        joined.setdefault(name.split("#")[0], set()).update(c.split("#")[0] for c in callees)
+    if graph != want:
+        failures.append("run builtin lowering: the recorded split object reads as %r, not %r" % (graph, want))
+    elif float_reach_problems("__floatdidf", graph):
+        failures.append("run builtin lowering: the recorded split object's __floatdidf reaches a panic helper")
+    elif not float_reach_problems("__floatdidf", joined):
+        failures.append("run builtin lowering: the recorded split object no longer joins its fragments by name")
+    else:
+        counts["run builtin lowering split objects read by symbol"] = 1
+
+
 def check(failures, counts):
+    check_graph_reading(failures, counts)
     check_hosted(failures, counts)
     check_soft_float_vectors(failures, counts)
     for triple, features, _ in ARCHES:
@@ -515,9 +706,9 @@ def check(failures, counts):
                 counts.get("run builtin lowering targets skipped, no clang", 0) + 1
             print("builtin lowering: %s not compiled: %s" % (triple, skip))
             continue
-        tools = (llvm_tool(clang, "llvm-objdump"), llvm_tool(clang, "llvm-nm"))
+        tools = (llvm_tool(clang, "llvm-readobj"), llvm_tool(clang, "llvm-nm"))
         if None in tools:
-            failures.append("run builtin lowering: no llvm-objdump or llvm-nm reads %s's objects (%s)"
+            failures.append("run builtin lowering: no llvm-readobj or llvm-nm reads %s's objects (%s)"
                             % (triple, clang))
             continue
         for level in LEVELS:

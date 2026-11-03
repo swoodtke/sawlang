@@ -9,14 +9,15 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_MESSAGE_LIMIT, LL_PART_BOOL, LL_PART_RUN, LL_PART_SIGNED, LL_PART_SIGNED_WIDE,
                       LL_PART_UNSIGNED, LL_PART_UNSIGNED_WIDE, LlParts, ll_part_wide, ll_parts_push}
-import sawllvm.module.{LlEmitter, ll_code_thunk_symbol, ll_is_scalar, ll_symbol, ll_value_thunk_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_code_thunk_symbol, ll_is_scalar, ll_offload_thunk_symbol, ll_symbol,
+                       ll_thread_trampoline_symbol, ll_value_thunk_symbol, ll_value_type}
 import sawllvm.closures.{ll_dealloc_declaration}
 // For the extension writing `debug_artificial`.
 import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawllvm.ops.{ll_lossless, ll_pointer_cast}
 import sawllvm.places.{ll_local_slot}
 import sawllvm.render.{ll_spelled}
-import sawllvm.text.{LlPieces, ll_format_pieces, ll_quoted, ll_string_bytes}
+import sawllvm.text.{LlPieces, ll_format_pieces, ll_string_bytes}
 import sawllvm.attributes.{ll_function_attributes}
 import sawcoro.program.{CoroPoint}
 import sawmono.dump.{mono_dump_layouts}
@@ -1222,11 +1223,7 @@ extension LlEmitter {
     // ENTRY POINTS:
     //     offload_start
     func offload_thunk(&var self, mono: &MonoProgram, ext: Int, sig: &LlExternSig) -> String {
-        var symbol = StringBuilder()
-        try! symbol.append("@\"saw offload thunk ")
-        try! symbol.append(ll_quoted(sig.name))
-        try! symbol.append("\"")
-        let name = symbol.build()
+        let name = ll_offload_thunk_symbol(sig.name)
         var k = 0
         while k < self.declared.len() {
             let one = self.declared.get(k) ?? ""
@@ -2211,11 +2208,7 @@ extension LlEmitter {
     //     thread_spawn
     func thread_trampoline(&var self, mono: &var MonoProgram, target: &var Target, site: &MonoThreadSpawn,
                            block_type: Int, node: Int) -> String {
-        var symbol = StringBuilder()
-        try! symbol.append("@\"saw thread trampoline ")
-        try! symbol.append(ll_quoted(mono.item_name(site.body)))
-        try! symbol.append("\"")
-        let name = symbol.build()
+        let name = ll_thread_trampoline_symbol(&mono, site.body)
         var k = 0
         while k < self.declared.len() {
             let one = self.declared.get(k) ?? ""

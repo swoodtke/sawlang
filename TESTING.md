@@ -613,6 +613,19 @@ SL-955 as a comment headed "SL-955 benchmark: STEP (main COMMIT)", so the
 speed-up work stays measured over time. `tools/test_bench_compile.py` pins the
 table and the argument lists.
 
+### The codegen-unit stability measure (not a stage)
+
+```bash
+./.venv/bin/python tools/unit_stability.py [--case NAME]... [--g0] [--explain N]
+```
+
+Run by hand. Each case builds two copies of sawc's or Blade's sources under
+`.build/unit_stability/` with `--codegen-units=module`, one with an edit to
+one module, and reports which unit `.ll` files differ and how (`bytes`,
+`metadata`, `attributes`, `order` or `content`); `control` edits nothing. The
+run lane's `check_unit_stability` holds the same property on a two-module
+program through the tool's `compare_units`.
+
 ### The citations stage — the files nothing compiles
 
 ```bash

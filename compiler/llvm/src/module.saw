@@ -463,6 +463,36 @@ public func ll_value_thunk_symbol(mono: &MonoProgram, k: Int) -> String {
     out.build()
 }
 
+// The symbol of the release of closure item `k`'s heap environment
+// (`closure_release`).
+public func ll_closure_release_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw closure release ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+// The symbol of the trampoline an OS thread starts thread body item `k`
+// through (`thread_trampoline`).
+public func ll_thread_trampoline_symbol(mono: &MonoProgram, k: Int) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw thread trampoline ")
+    try! out.append(ll_quoted(mono.item_name(k)))
+    try! out.append("\"")
+    out.build()
+}
+
+// The symbol of the thunk an offloaded call of the `extern blocking` named
+// `name` runs on its worker (`offload_thunk`).
+public func ll_offload_thunk_symbol(name: String) -> String {
+    var out = StringBuilder()
+    try! out.append("@\"saw offload thunk ")
+    try! out.append(ll_quoted(name))
+    try! out.append("\"")
+    out.build()
+}
+
 // Whether item `k` is the body of a closure literal coerced to a
 // `FuncPointer`: bare code under its signature's C convention, with no
 // environment parameter.

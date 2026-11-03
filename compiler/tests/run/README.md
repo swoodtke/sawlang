@@ -143,7 +143,9 @@ manifest beside the file it really is. The manifest is a `target TRIPLE` line
 naming the sawc target the objects are built for, a `clang PATH` line naming
 the clang that compiles and links for it, then an `object PATH` line per
 object, which is what `sawc runtime` prints; `compiler/tools/build.py`
-writes it beside Stage 1 and Stage 2 from Stage 1's `sawc runtime` (below).
+writes it beside Stage 1 and Stage 2 from Stage 1's `sawc runtime` (below),
+adding the `objcopy PATH` line a bare-metal record has, since the host's
+clang also writes the freestanding ELF objects of a target with no record.
 The manifest is how sawc knows its host: its `target` is the default of
 `sawc build`, of `--emit-ll` and of `sawc runtime`, so a sawc built on
 Linux aarch64 builds for `aarch64-unknown-linux-gnu`, and the link runs the
@@ -166,8 +168,10 @@ library, so sawc never links for it. A
 build for one without `-c`, `--emit-ll`, `--freestanding` or `--runtime` is
 refused with exit status 2 before anything is written, naming `-c`. With
 `-c` the object is compiled by the clang its record names:
-`sawc-runtime-TRIPLE.txt` beside the binary, a `target` and a `clang` line
-and no object, which every stage build writes for each of build.py's
+`sawc-runtime-TRIPLE.txt` beside the binary, a `target` and a `clang` line,
+an `objcopy PATH` line naming the llvm-objcopy a split `-c` object needs
+(`choose_objcopy`; absent when none is found), and no object, which every
+stage build writes for each of build.py's
 `BARE_METAL_TARGETS` (`configure_bare_metal_targets`, which probes clang
 again only when the record or what `pick_clang` looks at changes) and
 `build.py --runtime TRIPLE` rewrites. Where no capable clang exists, the

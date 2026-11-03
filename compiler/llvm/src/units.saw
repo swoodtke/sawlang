@@ -1,34 +1,39 @@
 // Which codegen unit each of the program's definitions belongs to, when a
-// build compiles its `.ll` per Saw module (SL-955): one unit per module, a
-// generic instance in the unit of its template's module, and the
-// whole-program pieces (the C entry point, the backtrace table, the
-// compiler's helpers) in a unit of their own. The plan names only what the
-// program's items and statics say; the splitter (split.saw) places the rest,
-// and merges the small units.
+// build compiles its `.ll` per Saw module (SL-955): one unit per module, and
+// the whole-program pieces (the C entry point, the backtrace table, the
+// compiler's helpers, the task roots' frame descriptors) in a unit of their
+// own. A definition that belongs to no module, which any module's use may
+// call into being, is copied into each unit that uses it instead. So an edit
+// to one module moves no other module's definitions, except a generic
+// instance, which lives with its template. The splitter (split.saw) places
+// what the plan does not name.
 
 import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
-import sawllvm.module.{ll_resume_symbol, ll_static_symbol, ll_symbol}
+import sawllvm.module.{ll_closure_release_symbol, ll_code_thunk_symbol, ll_descriptor_symbol, ll_offload_thunk_symbol,
+                       ll_resume_symbol, ll_static_symbol, ll_symbol, ll_thread_trampoline_symbol,
+                       ll_value_thunk_symbol}
+import sawllvm.prims.{ll_try_failure_symbol}
 import sawmir.program.{MirProgram}
 import sawmono.program.{MonoItemKind, MonoProgram}
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.program.{TcProgram}
+import sawtypecheck.typeops.{TcClient}
 
-// A unit with fewer bytes of definitions than this joins its neighbours: a
-// clang run and a declaration set per module cost more than the parallel
-// compile wins back below it (SL-955's measurement, sawc and Blade).
-static LL_UNIT_MIN_BYTES: Int = 256 * 1024
+// The plan's unit for a definition copied into each unit that uses it, as
+// `linkonce_odr hidden` (`ll_split_write`).
+public static LL_UNIT_COPY: Int = -2
 
 // The units a split build compiles, by name, and by symbol the unit each
-// item's and static's definition is in. Unit `shared` holds the
-// whole-program pieces and every definition the splitter finds no other
-// home for; a unit smaller than `min_bytes` of definitions joins its
-// neighbours.
+// definition the plan places is in. Unit `shared` holds the whole-program
+// pieces and every definition the splitter finds no other home for.
+// `exports` holds the C symbol of each `@export`, function or static, in
+// declaration order: what a link that optimises across the units keeps global.
 public struct LlUnitPlan {
     names: Vector<String>
     owners: Map<String, Int>
     shared: Int
-    min_bytes: Int
+    exports: Vector<String>
 }
 
 extension LlUnitPlan: NoCopy {}
@@ -36,15 +41,20 @@ extension LlUnitPlan: NoCopy {}
 extension LlUnitPlan {
     // The plan of a whole-module build, which names no unit.
     public init() -> LlUnitPlan {
-        LlUnitPlan(names: Vector<String>(), owners: Map<String, Int>(), shared: 0, min_bytes: LL_UNIT_MIN_BYTES)
+        LlUnitPlan(names: Vector<String>(), owners: Map<String, Int>(), shared: 0, exports: Vector<String>())
     }
 }
 
 // THE UNIT FUNNEL: the plan of `mono`'s program. A function item, a generic
 // instance included, is in the unit of the module its body is written in,
-// which for an instance is its template's; an item with no module of its own
-// (glue) is left to the splitter, which puts it beside its first user. A
-// static is in the unit of the module that declares it.
+// which for an instance is its template's, and so are its resume function,
+// its closure release and its thread trampoline, which only its own body's
+// module makes. A static is in its declaring module's unit, and a task
+// root's frame descriptor, which carries the root's backtrace index, in the
+// shared unit. Every other definition the backend makes for a use, which
+// another module's edit could add or remove, is `LL_UNIT_COPY`: glue of any
+// type, the code-address and function-value thunks taken of an item, an
+// offload thunk, and a `try!`'s failure helper.
 //
 // ENTRY POINTS:
 //   llvm_build_planned
@@ -62,16 +72,42 @@ public func ll_unit_plan(mono: &MonoProgram) -> LlUnitPlan {
         let it = mono.items[k]
         let item = k
         k = k + 1
-        if it.kind == MonoItemKind.Extern || it.body < 0 {
+        if it.kind == MonoItemKind.Extern {
+            if it.decl >= 0 {
+                let name = mono.dp.bc.mir.tc.res.name_text(mono.dp.bc.mir.tc.res.decls[it.decl].name)
+                let _ = try! plan.owners.insert(ll_offload_thunk_symbol(name), LL_UNIT_COPY)
+            }
             continue
         }
-        let home = mono.dp.bc.mir.funcs[it.body].module
+        if it.kind != MonoItemKind.Function {
+            let _ = try! plan.owners.insert(ll_symbol(&mono, item), LL_UNIT_COPY)
+            continue
+        }
+        let home = if it.body >= 0 { mono.dp.bc.mir.funcs[it.body].module } else { -1 }
         if home < 0 {
             continue
         }
         let u = ll_module_unit(&var plan, &var by_module, &mono, home)
         let _ = try! plan.owners.insert(ll_symbol(&mono, item), u)
         let _ = try! plan.owners.insert(ll_resume_symbol(&mono, item), u)
+        let _ = try! plan.owners.insert(ll_code_thunk_symbol(&mono, item), LL_UNIT_COPY)
+        let _ = try! plan.owners.insert(ll_value_thunk_symbol(&mono, item), LL_UNIT_COPY)
+        let _ = try! plan.owners.insert(ll_closure_release_symbol(&mono, item), u)
+        let _ = try! plan.owners.insert(ll_thread_trampoline_symbol(&mono, item), u)
+        if mono.is_task_root(item) || item == mono.main_item {
+            let _ = try! plan.owners.insert(ll_descriptor_symbol(&mono, item), plan.shared)
+        }
+    }
+    // A failing `try!` gets a helper per error type, which is some Result's.
+    var t = 0
+    while t < mono.dp.bc.mir.tc.types.count() {
+        let ty = t
+        t = t + 1
+        if not mono.dp.bc.mir.tc.is_result(ty) || mono.dp.bc.mir.tc.ty(ty).count < 2 {
+            continue
+        }
+        let error = mono.dp.bc.mir.tc.types.arg(ty, 1)
+        let _ = try! plan.owners.insert(ll_try_failure_symbol(&mono, error), LL_UNIT_COPY)
     }
     var d = 0
     while d < mono.dp.bc.mir.tc.res.decls.len() {
@@ -80,9 +116,26 @@ public func ll_unit_plan(mono: &MonoProgram) -> LlUnitPlan {
             let u = ll_module_unit(&var plan, &var by_module, &mono, decl.module)
             let _ = try! plan.owners.insert(ll_static_symbol(&mono, d), u)
         }
+        let exported = mono.dp.bc.mir.tc.export_symbols.get(d) ?? ""
+        if exported.len() > 0 && (decl.kind == ResDeclKind.Static || ll_exports_item(&mono, d)) {
+            try! plan.exports.push(exported)
+        }
         d = d + 1
     }
     move plan
+}
+
+// Whether function declaration `d` is one of the program's exported items,
+// which mono reaches only when the profile roots it.
+func ll_exports_item(mono: &MonoProgram, d: Int) -> Bool {
+    var j = 0
+    while j < mono.export_items.len() {
+        if mono.items[mono.export_items[j]].decl == d {
+            return true
+        }
+        j = j + 1
+    }
+    false
 }
 
 // The unit of module `m`, made the first time a definition names it.

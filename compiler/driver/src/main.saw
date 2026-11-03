@@ -287,8 +287,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     var objects = Vector<String>()
     var clang = StringBuilder()
+    var objcopy = StringBuilder()
     if emit && triple.len() == 0 {
-        triple = driver_read_runtime("sawc build", &var objects, &var clang)
+        triple = driver_read_runtime("sawc build", &var objects, &var clang, &var objcopy)
         if triple.len() == 0 {
             print("sawc build: --emit-ll without --target writes the host's module, which the manifest names")
             return DRIVER_EXIT_USAGE
@@ -296,7 +297,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     var host = ""
     if not emit {
-        host = driver_read_runtime("sawc build", &var objects, &var clang)
+        host = driver_read_runtime("sawc build", &var objects, &var clang, &var objcopy)
         if host.len() == 0 {
             return DRIVER_EXIT_USAGE
         }
@@ -325,14 +326,16 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     let cross = not triple.equals(host)
     var foreign = Vector<String>()
     var foreign_clang = StringBuilder()
+    var foreign_objcopy = StringBuilder()
     if cross {
-        let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang)
+        let configured = driver_read_target_runtime(triple, &var foreign, &var foreign_clang, &var foreign_objcopy)
         if not configured.equals(triple) && target_bare_metal(triple) {
             print("sawc build: --target {} has no clang configured to compile for it: compiler/tools/build.py records one on every build, the one SAWC_CLANG names or else the first that compiles IR for that target of each clang-NN on PATH (the newest first), clang, and Homebrew's LLVM clang ($HOMEBREW_PREFIX/opt/llvm/bin/clang, /opt/homebrew when unset), and found none (`compiler/tools/build.py --runtime {}` says why)", triple, triple)
             return 1
         }
         if not configured.equals(triple) && (freestanding || provider) {
             try! foreign_clang.append(clang.build())
+            try! foreign_objcopy.append(objcopy.build())
         } else if not configured.equals(triple) {
             print("sawc build: --target {} is not this host ({}), and no runtime for it is configured: `compiler/tools/build.py --runtime {}` builds one where a clang passes the opaque-pointer check for that target and its C headers compile shim.c; `sawc mono --layouts --target {}` describes its layouts", triple, host, triple, triple)
             return 1
@@ -366,7 +369,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         let job = DriverSplit(clang: compiler, triple: clang_triple, speed: speed, sanitize: sanitize,
                               freestanding: freestanding, debug: debug, object: object, lto: lto, out: out,
                               jobs: driver_jobs(out), timed: timed,
-                              bare_metal: freestanding || target_bare_metal(triple))
+                              bare_metal: freestanding || target_bare_metal(triple),
+                              objcopy: if cross { foreign_objcopy.build() } else { objcopy.build() })
+        if object && not target_mach_o(triple) && job.objcopy.len() == 0 {
+            print("sawc build: a split -c object for {} needs llvm-objcopy to make its codegen units' hidden symbols local, and the target's record names none: compiler/tools/build.py records the one `clang -print-prog-name=llvm-objcopy` names, else llvm-objcopy or llvm-objcopy-NN on PATH, else Homebrew LLVM's; install LLVM's binary tools (Homebrew's `llvm`, Debian's `llvm-NN`) and run it again, or build with --codegen-units=1", triple)
+            return 1
+        }
         let text = ir.build()
         if provider {
             let none = Vector<String>()
@@ -511,9 +519,11 @@ func driver_default_output(path: String) -> String {
 // directory of the executable this process runs from, its real path, since
 // `argv[0]` names a bare command found through `PATH` or a symbolic link: a
 // `target TRIPLE` line, a `clang PATH` line naming the clang that passed the
-// opaque-pointer check, then an `object PATH` line per runtime object
-// (compiler/tools/build.py writes it).
-func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
+// opaque-pointer check, then an `object PATH` line per runtime object, and an
+// `objcopy PATH` line naming its llvm-objcopy when build.py found one,
+// appended to `objcopy` (compiler/tools/build.py writes it).
+func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &var StringBuilder,
+                         objcopy: &var StringBuilder) -> String {
     let at = driver_beside_binary(command, "sawc-runtime.txt")
     if at.len() == 0 {
         return ""
@@ -522,7 +532,7 @@ func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &
         print("{}: no runtime manifest beside the binary; compiler/tools/build.py writes it", command)
         return ""
     }
-    driver_parse_manifest(command, at, text, &var objects, &var clang)
+    driver_parse_manifest(command, at, text, &var objects, &var clang, &var objcopy)
 }
 
 // The target the runtime manifest of another target `triple` names, read as
@@ -532,7 +542,8 @@ func driver_read_runtime(command: String, objects: &var Vector<String>, clang: &
 // stage build writes for a bare-metal target, naming no object, since it has
 // no runtime. "" when there is none, which is no error: that target is
 // simply not configured.
-func driver_read_target_runtime(triple: String, objects: &var Vector<String>, clang: &var StringBuilder) -> String {
+func driver_read_target_runtime(triple: String, objects: &var Vector<String>, clang: &var StringBuilder,
+                                objcopy: &var StringBuilder) -> String {
     var name = StringBuilder()
     try! name.append("sawc-runtime-")
     try! name.append(triple)
@@ -551,7 +562,7 @@ func driver_read_target_runtime(triple: String, objects: &var Vector<String>, cl
     guard let text = driver_read_source(at) else {
         return ""
     }
-    driver_parse_manifest("sawc build", at, text, &var objects, &var clang)
+    driver_parse_manifest("sawc build", at, text, &var objects, &var clang, &var objcopy)
 }
 
 // The path of the file `name` in the directory of the executable this process
@@ -665,10 +676,11 @@ func driver_file_exists(path: String) -> Bool {
 }
 
 // The target a runtime manifest's `text`, read from `at`, names, its clang
-// appended to `clang` and its objects added to `objects`; "" once what is
-// wrong with it is printed.
+// appended to `clang`, its llvm-objcopy, which a record names when build.py
+// found one, appended to `objcopy`, and its objects added to
+// `objects`; "" once what is wrong with it is printed.
 func driver_parse_manifest(command: String, at: String, text: String, objects: &var Vector<String>,
-                           clang: &var StringBuilder) -> String {
+                           clang: &var StringBuilder, objcopy: &var StringBuilder) -> String {
     var host = ""
     var named = false
     var start = 0
@@ -684,6 +696,8 @@ func driver_parse_manifest(command: String, at: String, text: String, objects: &
                     named = true
                 } else if line.starts_with("object ") {
                     try! objects.push(text.substring(start + 7, k))
+                } else if line.starts_with("objcopy ") {
+                    try! objcopy.append(text.substring(start + 8, k))
                 } else {
                     print("{}: {}: unknown line `{}`", command, at, line)
                     return ""
@@ -957,7 +971,7 @@ func driver_jobs(out: String) -> Int {
 // then an object (`object`) or the executable `out`, optimised across the
 // units as `lto` says, `jobs` clang runs at once; under `timed`, a time line
 // per unit. `bare_metal` is a freestanding object's or a bare-metal target's,
-// which links with `ld.lld`.
+// which links with `ld.lld`. `objcopy` is the target's llvm-objcopy, or "".
 struct DriverSplit {
     clang: String
     triple: String
@@ -971,6 +985,7 @@ struct DriverSplit {
     jobs: Int
     timed: Bool
     bare_metal: Bool
+    objcopy: String
 }
 
 // One run of a tool, which `driver_run_jobs` takes in turn.
@@ -1080,7 +1095,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     if status != 0 {
         return status
     }
-    let linked = driver_split_link(&split, dir, &compiled, &objects)
+    let linked = driver_split_link(&split, dir, &compiled, &objects, &plan.exports)
     if linked != 0 {
         return linked
     }
@@ -1105,8 +1120,10 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
 // target's libraries as `driver_link` links one module, and on Mach-O with
 // line tables as `driver_link_mach_o` does, the LTO objects kept in
 // `DIR/lto` for dsymutil and removed after it. Under `lto` the link
-// optimises across the units (`-flto=`), with as many jobs as the compiles.
-func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>) -> Int {
+// optimises across the units (`-flto=`), with as many jobs as the compiles,
+// and keeps the C symbols `exports` global.
+func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>,
+                       exports: &Vector<String>) -> Int {
     let link = DriverLink(clang: split.clang, ll: "", out: split.out, speed: split.speed, sanitize: split.sanitize,
                           triple: split.triple, debug: split.debug)
     let mach_o = driver_mach_o(split.triple)
@@ -1124,9 +1141,14 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         driver_freestanding_arguments(&var arguments, split.freestanding)
         // LTO would make an executable's global symbols local, `@export`s
         // among them, where a whole-module link keeps each global (so `dlsym`
-        // finds one); a hidden symbol stays the link's to drop.
+        // finds one). Naming exactly the exports keeps them and leaves every
+        // other symbol the link's to internalize.
         if not split.object {
-            try! arguments.push(if mach_o { "-Wl,-export_dynamic" } else { "-Wl,--export-dynamic" })
+            var x = 0
+            while x < exports.len() {
+                try! arguments.push(driver_export_argument(exports.get(x) ?? "", mach_o))
+                x = x + 1
+            }
         }
     }
     // A bare-metal target has no system linker, and a hosted ELF one's may
@@ -1143,7 +1165,16 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         try! arguments.push("-o")
         try! arguments.push(split.out)
         stagetime_begin(StageTime.Link)
-        let status = driver_clang("sawc build", split.clang, &arguments)
+        var status = driver_clang("sawc build", split.clang, &arguments)
+        // ELF's relocatable link keeps a hidden symbol global, where Mach-O's
+        // makes it local; every unit's own definitions are hidden, so they
+        // are made local as a whole-module object's internal ones are.
+        if status == 0 && not mach_o {
+            var localize = Vector<String>()
+            try! localize.push("--localize-hidden")
+            try! localize.push(split.out)
+            status = driver_tool("sawc build", "llvm-objcopy", split.objcopy, &localize)
+        }
         stagetime_end(StageTime.Link)
         return status
     }
@@ -1208,6 +1239,19 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         return driver_remove_lto_objects(kept, split.lto)
     }
     0
+}
+
+// The linker flag that keeps C symbol `symbol` global through an LTO link:
+// Mach-O names it with its leading underscore, ELF as written.
+func driver_export_argument(symbol: String, mach_o: Bool) -> String {
+    var flag = StringBuilder()
+    if mach_o {
+        try! flag.append("-Wl,-exported_symbol,_")
+    } else {
+        try! flag.append("-Wl,--export-dynamic-symbol=")
+    }
+    try! flag.append(symbol)
+    flag.build()
 }
 
 // Removes the LTO objects a link kept at `kept` for dsymutil: under ThinLTO a
@@ -1660,7 +1704,8 @@ func driver_runtime(args: &Vector<String>) -> Int {
     if host.len() == 0 || (program.len() == 0 && out_dir.len() > 0) {
         var unused = Vector<String>()
         var named = StringBuilder()
-        let found = driver_read_runtime("sawc runtime", &var unused, &var named)
+        var no_objcopy = StringBuilder()
+        let found = driver_read_runtime("sawc runtime", &var unused, &var named, &var no_objcopy)
         if found.len() == 0 {
             print("sawc runtime: without a manifest, --target and --clang name what it builds for and with")
             return DRIVER_EXIT_USAGE

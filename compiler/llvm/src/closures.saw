@@ -15,11 +15,10 @@ import sawdrops.program.{DropsProgram}
 import sawllvm.attributes.{ll_function_attributes}
 // For the extension writing `debug_artificial`.
 import sawllvm.debug.{LL_DEBUG_FIRST}
-import sawllvm.module.{LlEmitter, ll_symbol}
+import sawllvm.module.{LlEmitter, ll_closure_release_symbol, ll_symbol}
 import sawllvm.places.{ll_local_slot}
 import sawllvm.prims.{LL_MESSAGE_LIMIT}
 import sawllvm.render.{ll_spelled}
-import sawllvm.text.{ll_quoted}
 import sawmir.build.{mir_func_local}
 import sawmir.program.{MirProgram}
 import sawmono.dump.{mono_dump_layouts}
@@ -173,11 +172,7 @@ extension LlEmitter {
     //     closure_into
     func closure_release(&var self, mono: &var MonoProgram, target: &var Target, item: Int, env_type: Int,
                          node: Int) -> String {
-        var symbol = StringBuilder()
-        try! symbol.append("@\"saw closure release ")
-        try! symbol.append(ll_quoted(mono.item_name(item)))
-        try! symbol.append("\"")
-        let name = symbol.build()
+        let name = ll_closure_release_symbol(&mono, item)
         var k = 0
         while k < self.declared.len() {
             let one = self.declared.get(k) ?? ""

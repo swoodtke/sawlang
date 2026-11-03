@@ -24,8 +24,9 @@ binaries. Stage 1 links against the seed's runtime; every link
 after that takes the runtime Stage 1 builds from `runtime/` with `sawc
 runtime`, cached under `.build/rt2/<key>/` by a key covering Stage 1, `runtime/`,
 std, the target and clang. Beside the stages goes `.build/sawc-runtime.txt`,
-the runtime manifest naming the host, the clang `choose_clang` picked and
-those objects, which a hosted `sawc build` links against.
+the runtime manifest naming the host, the clang `choose_clang` picked, its
+llvm-objcopy (`choose_objcopy`), and those objects, which a
+hosted `sawc build` links against.
 
 Nothing here runs Stage 0: the stages need only Python's standard library,
 clang, and HTTPS to the blob host while the seed's files are not yet cached;
@@ -376,6 +377,43 @@ def clang_version(clang):
     return subprocess.run([clang, "--version"], capture_output=True, text=True).stdout
 
 
+def choose_objcopy(clang):
+    """THE OBJCOPY CHOICE: the llvm-objcopy a target's record names beside
+    `clang`, which a split `sawc build -c` of an ELF object localizes its
+    hidden symbols with: the one `clang -print-prog-name` names when it exists, else
+    `llvm-objcopy` on `PATH`, else `llvm-objcopy-NN` for clang's major version
+    (Debian's pinned versions), else the one beside `homebrew_clang()`. None
+    when there is none; the driver then refuses the split `-c` build, naming
+    it.
+
+    ENTRY POINTS:
+      target_record_lines
+    """
+    said = clang_tool(clang, "llvm-objcopy")
+    if os.path.isabs(said) and os.path.exists(said):
+        return said
+    names = ["llvm-objcopy"]
+    major = re.search(r"clang version (\d+)", clang_version(clang))
+    if major:
+        names.append("llvm-objcopy-%s" % major.group(1))
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+    beside = os.path.join(os.path.dirname(homebrew_clang()), "llvm-objcopy")
+    return beside if os.path.exists(beside) else None
+
+
+def target_record_lines(clang):
+    """The lines a target's record or manifest carries beside its `target`,
+    `clang` and `object` lines: `objcopy PATH` (`choose_objcopy`), or none
+    when no llvm-objcopy is found. A Mach-O host's manifest carries it too:
+    its clang also writes the freestanding ELF objects of a target with no
+    record of its own."""
+    objcopy = choose_objcopy(clang)
+    return "objcopy %s\n" % objcopy if objcopy else ""
+
+
 def runtime_key(triple, clang):
     """What the runtime Stage 1 builds for `triple` with `clang` is a function
     of: Stage 1's binary, the runtime's sources and C shim, the std they
@@ -437,22 +475,27 @@ def runtime_manifest(triple):
 
 # The targets with no operating system, which have no runtime to build: a
 # program for one is compiled to an object and never linked by sawc, so its
-# record names the clang alone. `target_bare_metal` in
+# record names the clang, and the llvm-objcopy a split object needs, alone.
+# `target_bare_metal` in
 # compiler/target/src/layout.saw, which this must agree with.
 BARE_METAL_TARGETS = ("aarch64-unknown-none-elf", "riscv32-unknown-none-elf")
+# The lines a record holds, part of its probe's key, so a record written
+# before a line existed is written again.
+RECORD_FORMAT = "target clang objcopy"
 
 
 def configure_target(triple):
     """Makes `sawc build --target TRIPLE` possible for another target: a
     hosted one gets its runtime (`build_runtime`), and a bare-metal one a
-    record beside the stages naming it and the clang `choose_clang` picks for
-    it, with no object. Returns the error text, or "" when it is written."""
+    record beside the stages naming it, the clang `choose_clang` picks for it
+    and its llvm-objcopy (`target_record_lines`), with no object. Returns the
+    error text, or "" when it is written."""
     if triple not in BARE_METAL_TARGETS:
         return build_runtime(triple)
     clang, why = choose_clang(triple)
     if clang is None:
         return why
-    record = "target %s\nclang %s\n" % (triple, clang)
+    record = "target %s\nclang %s\n" % (triple, clang) + target_record_lines(clang)
     written = runtime_manifest(triple)
     old = None
     if os.path.exists(written):
@@ -477,7 +520,8 @@ def configure_bare_metal_targets():
     for triple in BARE_METAL_TARGETS:
         record = runtime_manifest(triple)
         key_path = record + ".key"
-        looked_at = [os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in clang_candidates()]
+        looked_at = ([os.environ.get("SAWC_CLANG") or ""] + [shutil.which(c) or "" for c in clang_candidates()]
+                     + [RECORD_FORMAT, shutil.which("llvm-objcopy") or ""])
         current = None
         if os.path.exists(record):
             with open(record) as fh:
@@ -538,7 +582,7 @@ def build_runtime(triple=None):
                 fh.write(r.stdout)
             os.replace(done + ".tmp", done)
     with open(done) as fh:
-        manifest = fh.read()
+        manifest = fh.read() + target_record_lines(clang)
     written = runtime_manifest(triple)
     old = None
     if os.path.exists(written):
