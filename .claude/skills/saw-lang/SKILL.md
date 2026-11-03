@@ -4270,6 +4270,7 @@ sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
   Zero-alloc by construction (passes `--no-hidden-alloc`). `FuncPointer<F>.from_raw(addr:
   UnsafePointer<UInt8>)` is the ONE forging member, `unsafe` by the ordinary
   trigger, for a callback arriving from C and a loader reading an entry PC.
+  Store a `FuncPointer`'s `address()` in an `Int` with `Int.from(truncating:)`, never `as Int`: code addresses sit at or above 2^31 on riscv32, where the checked cast traps (SL-940).
   A C callback's `F` names raw pointers, so it carries `unsafe` by design 136's
   rule while the `FuncPointer` stays safe:
   ```saw
@@ -5087,6 +5088,7 @@ construct in the owner and lend `&driver` down.
   try! c.arg(url)
   let code = try! c.wait()
   ```
+  `spawn() -> Result<Child, SystemError>` starts it and returns at once; the `Child`'s `wait()` must run before it drops (an unwaited `Child` panics naming the program), and `Command.wait()` is spawn plus that wait.
   `wait() -> Result<Int32, SystemError>` BLOCKS the calling thread until the
   child exits and never suspends, so a `sync` function may call it: Ok(code) =
   launched + exited (signal death = 128+signum, never a bogus 0; a child's own

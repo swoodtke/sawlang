@@ -14326,7 +14326,7 @@ so the module list below is also the import list: a leaf name is what
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
 `Thread<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
-`Command`/`CommandOutput`/`CommandByteOutput` (std.process — a real argv spawn, never a shell: one
+`Command`/`Child`/`CommandOutput`/`CommandByteOutput` (std.process — a real argv spawn, never a shell: one
 `arg()` is one argv element and nothing in it is split, expanded or executed;
 run `/bin/sh -c` explicitly if a shell is what you want, design 122. `env(name:
 value:)` sets one environment variable in the child's environment only, under
@@ -14335,7 +14335,13 @@ holds `=`, or a NUL byte in a name, value, program or argument, is
 `InvalidArgument` when the command runs. `merge_stderr()` sends the child's
 standard error wherever its standard output goes. `wait() -> Result<Int32,
 SystemError>` blocks the calling thread until the child exits and never
-suspends, so a `sync` function may call it. `output() -> Result<CommandOutput,
+suspends, so a `sync` function may call it. `spawn() -> Result<Child,
+SystemError>` starts the child and returns at once, failing as `wait()` fails
+for a program that cannot be run, so several children can run at once; the
+`Child`'s `wait() -> Result<Int32, SystemError>` blocks the same way and
+returns the same exit code, and `Command.wait()` is a spawn and that wait. A
+`Child` is NoCopy and its fate is written: one dropped before its `wait`
+panics naming the program, and a second `wait` panics too. `output() -> Result<CommandOutput,
 SystemError>` is COOPERATIVE: the stdout drain parks on the child's pipe and the
 wait parks on the child's exit, both through the reactor, so siblings run for the
 child's whole lifetime and no thread waits. A capture that is not UTF-8 is
@@ -16245,6 +16251,7 @@ builds on first use.
 ```
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-c] [--std-root DIR] [--target TRIPLE]
            [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
+           [--codegen-units=1|module] [--lto=thin|full|none]
            [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
@@ -16280,6 +16287,14 @@ sawc --version
   runtime provider: its `@export`s may be the frozen seams, each checked
   against `runtime/ABI.md`, and a hosted one links with none of sawc's runtime
   objects (see Profiles). It combines with `--freestanding` and `-c`.
+- `--codegen-units=module` compiles the program as one LLVM module per Saw
+  module, the modules in parallel, then links them into the one executable
+  or, with `-c` or `--freestanding`, the one object. `--codegen-units=1`, the
+  default, compiles it as a single module. A split build optimises across its
+  modules at the link as `--lto` says: `thin` (ThinLTO, the default above
+  `-O0`), `full` (full LTO), or `none` (the default at `-O0`). `--lto` takes
+  a split build only. Either way the program's meaning is the same and
+  `--emit-ll` writes the same module.
 - `sawc runtime` builds the hosted runtime from `runtime/`.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`

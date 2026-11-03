@@ -202,6 +202,7 @@ bin/sawc parse --check FILE...                        # each file's diagnostics
 bin/sawc build FILE -o OUT                            # FILE compiled and linked by clang
 bin/sawc build --emit-ll FILE                         # FILE's `.ll` on standard output
 bin/sawc build --time-stages FILE -o OUT              # the build, then `time: STEP MS ms` per step on standard error
+bin/sawc build --codegen-units=module FILE -o OUT     # one module per Saw module, compiled in parallel (below)
 bin/sawc runtime --out DIR                            # the host's runtime objects, into DIR
 ./.venv/bin/python compiler/tools/build.py ENTRY.saw -o OUT  # another program
 ```
@@ -214,6 +215,33 @@ checked against the runtime ABI table. The file and process API they use is
 the ruled Stage 0 workaround of SL:open-questions, "SL-522": an unbuffered
 write with an explicit `close`, and a blocking `Command.wait`, each site
 marked for SL:hazards S28.
+
+`--codegen-units=module` (SL-955) compiles the program as one LLVM module per
+Saw module instead of one for the whole program. sawc still runs every stage
+over the whole program and writes the same `OUT.ll`; `llvm/src/split.saw` then
+cuts that text into units (`llvm/src/units.saw` says which module each
+definition belongs to): a generic instance goes with its template's module,
+glue beside its first user, the entry point, the backtrace table and the
+compiler's helpers into a unit of their own, and a module with less than
+256 KB of definitions joins a run of its neighbours. A definition another
+unit names becomes `hidden` instead of `internal`, and a `private
+unnamed_addr constant` is copied into each unit that uses it. The units are
+written to `OUT.units/uN.ll` and compiled as child processes
+(`Command.spawn`), at most three quarters of the machine's processors at once
+(`SAW_GATE_JOBS` lowers it), then linked: an executable with the runtime
+objects, or for `-c` and `--freestanding` one object by a relocatable link
+(`-r`, through `ld.lld` for a bare-metal target). `OUT.ll` and the units'
+`.ll` stay after every build, as a whole-module build's `OUT.ll` does; the
+unit objects are removed once linked, so after a failed compile or link they
+stay too, for inspecting the unit that failed. `--lto=thin`, the default
+above `-O0`, links the units with ThinLTO; `--lto=full` with full LTO;
+`--lto=none` links them as compiled. An LTO link keeps the executable's
+global symbols global (`-export_dynamic`), as a whole-module link does, so
+an `@export` stays visible to `dlsym`. `--codegen-units=1` is the default and
+the whole-module build. `SAWC_CODEGEN_UNITS` and `SAWC_LTO` set the two for
+every build that does not name them, which is how a lane runs split.
+`--emit-ll` ignores both. SL-955's comments hold the measured trade-off of
+each.
 
 Every step of `build.py` is cached by key, so an unchanged tree compiles and
 links nothing. The seed's files are cached under `.build/blobs/` by SHA-256,

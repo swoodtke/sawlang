@@ -1,0 +1,98 @@
+// Which codegen unit each of the program's definitions belongs to, when a
+// build compiles its `.ll` per Saw module (SL-955): one unit per module, a
+// generic instance in the unit of its template's module, and the
+// whole-program pieces (the C entry point, the backtrace table, the
+// compiler's helpers) in a unit of their own. The plan names only what the
+// program's items and statics say; the splitter (split.saw) places the rest,
+// and merges the small units.
+
+import sawborrowck.program.{BorrowckProgram}
+import sawdrops.program.{DropsProgram}
+import sawllvm.module.{ll_resume_symbol, ll_static_symbol, ll_symbol}
+import sawmir.program.{MirProgram}
+import sawmono.program.{MonoItemKind, MonoProgram}
+import sawresolve.model.{ResDeclKind}
+import sawtypecheck.program.{TcProgram}
+
+// A unit with fewer bytes of definitions than this joins its neighbours: a
+// clang run and a declaration set per module cost more than the parallel
+// compile wins back below it (SL-955's measurement, sawc and Blade).
+static LL_UNIT_MIN_BYTES: Int = 256 * 1024
+
+// The units a split build compiles, by name, and by symbol the unit each
+// item's and static's definition is in. Unit `shared` holds the
+// whole-program pieces and every definition the splitter finds no other
+// home for; a unit smaller than `min_bytes` of definitions joins its
+// neighbours.
+public struct LlUnitPlan {
+    names: Vector<String>
+    owners: Map<String, Int>
+    shared: Int
+    min_bytes: Int
+}
+
+extension LlUnitPlan: NoCopy {}
+
+extension LlUnitPlan {
+    // The plan of a whole-module build, which names no unit.
+    public init() -> LlUnitPlan {
+        LlUnitPlan(names: Vector<String>(), owners: Map<String, Int>(), shared: 0, min_bytes: LL_UNIT_MIN_BYTES)
+    }
+}
+
+// THE UNIT FUNNEL: the plan of `mono`'s program. A function item, a generic
+// instance included, is in the unit of the module its body is written in,
+// which for an instance is its template's; an item with no module of its own
+// (glue) is left to the splitter, which puts it beside its first user. A
+// static is in the unit of the module that declares it.
+//
+// ENTRY POINTS:
+//   llvm_build_planned
+public func ll_unit_plan(mono: &MonoProgram) -> LlUnitPlan {
+    var plan = LlUnitPlan()
+    try! plan.names.push("-program")
+    var by_module = Vector<Int>()
+    var m = 0
+    while m < mono.dp.bc.mir.tc.res.module_count() {
+        try! by_module.push(-1)
+        m = m + 1
+    }
+    var k = 0
+    while k < mono.items.len() {
+        let it = mono.items[k]
+        let item = k
+        k = k + 1
+        if it.kind == MonoItemKind.Extern || it.body < 0 {
+            continue
+        }
+        let home = mono.dp.bc.mir.funcs[it.body].module
+        if home < 0 {
+            continue
+        }
+        let u = ll_module_unit(&var plan, &var by_module, &mono, home)
+        let _ = try! plan.owners.insert(ll_symbol(&mono, item), u)
+        let _ = try! plan.owners.insert(ll_resume_symbol(&mono, item), u)
+    }
+    var d = 0
+    while d < mono.dp.bc.mir.tc.res.decls.len() {
+        let decl = mono.dp.bc.mir.tc.res.decls[d]
+        if decl.kind == ResDeclKind.Static && decl.module >= 0 {
+            let u = ll_module_unit(&var plan, &var by_module, &mono, decl.module)
+            let _ = try! plan.owners.insert(ll_static_symbol(&mono, d), u)
+        }
+        d = d + 1
+    }
+    move plan
+}
+
+// The unit of module `m`, made the first time a definition names it.
+func ll_module_unit(plan: &var LlUnitPlan, by_module: &var Vector<Int>, mono: &MonoProgram, m: Int) -> Int {
+    let have = by_module[m]
+    if have >= 0 {
+        return have
+    }
+    let u = plan.names.len()
+    try! plan.names.push(mono.dp.bc.mir.tc.res.module_name(m))
+    by_module[m] = u
+    u
+}

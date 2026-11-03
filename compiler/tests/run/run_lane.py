@@ -1049,12 +1049,18 @@ TIME_STAGES_ORDER = ("resolve", "typecheck", "asserts", "mir", "verify resolve",
 TIME_STAGES_ALWAYS = ("resolve", "typecheck", "asserts", "mir", "eval", "borrowck", "drops", "mono", "coro",
                       "coro lower", "llvm", "write ll")
 TIME_STAGES_LINE = re.compile(r"^time: ([a-z ]+) (\d+\.\d) ms$")
+# A split build's lines ahead of the pipeline's: the split, then one per
+# codegen unit's compile, named by its unit (`driver_split_build`).
+TIME_STAGES_SPLIT = re.compile(r"^time: split (\d+\.\d) ms$")
+TIME_STAGES_UNIT = re.compile(r"^time: clang unit (\S+) (\d+\.\d) ms$")
 
 
 def check_time_stages(failures, counts):
     """`--time-stages` prints one `time: STEP MS ms` line per step that ran,
     in pipeline order, then `total`, on standard error after the build; the
-    shape is checked and never the values. Without the flag the build writes
+    shape is checked and never the values. A split build
+    (`--codegen-units=module`) prints its `split` line and a line per
+    unit's compile ahead of them. Without the flag the build writes
     nothing to either stream, and the `.ll` is the same bytes either way, so
     recording never changes what is compiled."""
     work = os.path.join(OUT, "time-stages")
@@ -1065,20 +1071,213 @@ def check_time_stages(failures, counts):
         fh.write(TIME_STAGES_SOURCE)
     plain = os.path.join(work, "plain")
     timed = os.path.join(work, "timed")
+    split = os.path.join(work, "split")
     first = subprocess.run([build.SAWC, "build", "-g0"] + target_flags() + [src, "-o", plain], cwd=work,
                            capture_output=True, text=True, timeout=BUILD_TIMEOUT)
     second = subprocess.run([build.SAWC, "build", "-g0", "--time-stages"] + target_flags() + [src, "-o", timed],
                             cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
-    if first.returncode != 0 or second.returncode != 0:
-        failures.append("run time stages: the build fails (%d, %d): %s"
-                        % (first.returncode, second.returncode, (first.stdout + first.stderr + second.stdout
-                                                                 + second.stderr).strip()[:300]))
+    third = subprocess.run([build.SAWC, "build", "-g0", "--time-stages", "--codegen-units=module"] + target_flags()
+                           + [src, "-o", split], cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if first.returncode != 0 or second.returncode != 0 or third.returncode != 0:
+        failures.append("run time stages: the build fails (%d, %d, %d): %s"
+                        % (first.returncode, second.returncode, third.returncode,
+                           (first.stdout + first.stderr + second.stdout + second.stderr + third.stdout
+                            + third.stderr).strip()[:300]))
         return
     if first.stdout + first.stderr != "":
         failures.append("run time stages: a build without the flag prints %r" % (first.stdout + first.stderr)[:300])
-    if second.stdout != "":
-        failures.append("run time stages: the flag adds %r to standard output" % second.stdout[:300])
-    lines = second.stderr.splitlines()
+    for r in (second, third):
+        if r.stdout != "":
+            failures.append("run time stages: the flag adds %r to standard output" % r.stdout[:300])
+    if time_stage_lines(failures, second.stderr, False) and time_stage_lines(failures, third.stderr, True):
+        with open(plain + ".ll", "rb") as a, open(timed + ".ll", "rb") as b, open(split + ".ll", "rb") as c:
+            ll = a.read()
+            if ll != b.read():
+                failures.append("run time stages: --time-stages changes the .ll sawc writes")
+            if ll != c.read():
+                failures.append("run time stages: --codegen-units=module changes the .ll sawc writes beside the build")
+        counts["run time stages checked"] = 1
+
+
+# A program whose two modules reach across each other the ways a split build
+# must keep working (`check_codegen_units`): a static, a method, a generic at
+# two types, a closure, a spawned task's frame, and one string literal in
+# both.
+CODEGEN_UNITS_MAIN = """import helper
+import helper.{Tally}
+
+func main() {
+    var t = Tally(n: 1)
+    t.add(by: helper.LIMIT)
+    let pair = helper.twice(t.n)
+    let words = helper.twice("unit")
+    print("{} {} {} {}", pair.0, pair.1, words.0, words.1)
+    print(helper.apply({ x in x * 3 }, 5))
+    var group = TaskGroup()
+    let h = group.spawn(helper.slow_square(6))
+    print(h.join())
+    print("unit")
+}
+"""
+CODEGEN_UNITS_HELPER = """import std.task.{yield_now}
+
+public static LIMIT: Int = 7
+
+public struct Tally {
+    n: Int
+}
+
+extension Tally {
+    public func add(&var self, by: Int) {
+        self.n = self.n + by
+    }
+}
+
+public func twice<T: Copy>(x: T) -> (T, T) {
+    (x, x)
+}
+
+public func apply(f: (Int) -> Int, x: Int) -> Int {
+    f(x)
+}
+
+public func slow_square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+@export("codegen_units_export")
+func exported_answer() -> Int {
+    42
+}
+"""
+# The `@export` the helper declares, which a split executable keeps a global
+# symbol as a whole-module one does, whatever `--lto` says.
+CODEGEN_UNITS_EXPORT = "codegen_units_export"
+CODEGEN_UNITS_OUTPUT = b"8 8 unit unit\n15\n36\nunit\n"
+# The split builds the pin makes beside the whole-module one: a speed, the
+# `--lto` it names (None for the default) and its extra flags.
+CODEGEN_UNITS_BUILDS = (("-O0", None, ["-g0"]), ("-O2", "none", ["-g0"]), ("-O2", "thin", ["-g0"]),
+                        ("-O2", "full", ["-g0"]), ("-O2", "thin", ["-g"]))
+
+
+def check_codegen_units(failures, counts):
+    """`--codegen-units=module` builds the program it would build whole: one
+    module per Saw module, compiled apart and linked at every `--lto`, with
+    line tables and without, runs as the whole-module build does, keeps its
+    `@export` a global symbol, writes the same `.ll` beside it, and leaves no
+    unit object behind; `-c` writes
+    the one object, which links into the same program; `--emit-ll` ignores
+    the flag; and a bad value, or `--lto` on a whole-module build, is a usage
+    error."""
+    work = os.path.join(OUT, "codegen-units")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    src = os.path.join(work, "main.saw")
+    with open(src, "w") as fh:
+        fh.write(CODEGEN_UNITS_MAIN)
+    with open(os.path.join(work, "helper.saw"), "w") as fh:
+        fh.write(CODEGEN_UNITS_HELPER)
+
+    def sawc(args):
+        return subprocess.run([build.SAWC, "build"] + target_flags() + args, cwd=work, capture_output=True,
+                              text=True, timeout=BUILD_TIMEOUT)
+
+    def ran(binary, where):
+        code, out, err = execute(binary)
+        if code != 0 or out != CODEGEN_UNITS_OUTPUT:
+            failures.append("run codegen units: %s exits %s printing %r, not 0 printing %r"
+                            % (where, code, out[:200], CODEGEN_UNITS_OUTPUT))
+
+    def left(binary, where):
+        units = binary + ".units"
+        stray = sorted(f for f in os.listdir(units) if not f.endswith(".ll")) if os.path.isdir(units) else ["?"]
+        if stray:
+            failures.append("run codegen units: %s leaves %r beside its units" % (where, stray))
+
+    wholes = {}
+    for speed, lines in sorted({(b[0], b[2][0]) for b in CODEGEN_UNITS_BUILDS}):
+        whole = os.path.join(work, "whole%s%s" % (speed, lines))
+        r = sawc([speed, lines, "--codegen-units=1", "main.saw", "-o", whole])
+        if r.returncode != 0:
+            failures.append("run codegen units: the whole-module %s %s build fails: %s"
+                            % (speed, lines, (r.stdout + r.stderr).strip()[:300]))
+            return
+        ran(whole, "the whole-module %s %s build" % (speed, lines))
+        with open(whole + ".ll", "rb") as fh:
+            wholes[(speed, lines)] = fh.read()
+    for speed, lto, extra in CODEGEN_UNITS_BUILDS:
+        where = "the %s --lto=%s %s split build" % (speed, lto or "(default)", " ".join(extra))
+        out = os.path.join(work, "split%s-%s%s" % (speed, lto or "default", extra[0]))
+        r = sawc([speed] + extra + ["--codegen-units=module"] + (["--lto=" + lto] if lto else [])
+                 + ["main.saw", "-o", out])
+        if r.returncode != 0 or (r.stdout + r.stderr).strip():
+            failures.append("run codegen units: %s %s: %s" % (where, "fails" if r.returncode else "prints",
+                                                              (r.stdout + r.stderr).strip()[:300]))
+            continue
+        ran(out, where)
+        left(out, where)
+        symbols = subprocess.run(["nm", "-g", out], capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+        if not re.search(r"^\S+ T _?%s$" % CODEGEN_UNITS_EXPORT, symbols.stdout, re.M):
+            failures.append("run codegen units: %s does not keep `%s` a global symbol"
+                            % (where, CODEGEN_UNITS_EXPORT))
+        with open(out + ".ll", "rb") as fh:
+            if fh.read() != wholes[(speed, extra[0])]:
+                failures.append("run codegen units: %s writes a .ll the whole-module build does not" % where)
+        if "-g" in extra and (TARGET or build.host_triple()).endswith("-darwin") and not os.path.isdir(out + ".dSYM"):
+            failures.append("run codegen units: %s writes no .dSYM" % where)
+    obj = os.path.join(work, "object.o")
+    r = sawc(["-O2", "-g0", "-c", "--codegen-units=module", "main.saw", "-o", obj])
+    if r.returncode != 0 or not os.path.isfile(obj):
+        failures.append("run codegen units: the split -c build fails: %s" % (r.stdout + r.stderr).strip()[:300])
+    else:
+        left(os.path.join(work, "object.o"), "the split -c build")
+        triple = TARGET or build.host_triple()
+        clang, objects = None, []
+        with open(build.runtime_manifest(triple)) as fh:
+            for line in fh.read().splitlines():
+                if line.startswith("clang "):
+                    clang = line[len("clang "):]
+                elif line.startswith("object "):
+                    objects.append(line[len("object "):])
+        linked = os.path.join(work, "object")
+        link = subprocess.run([clang, "-target", build.clang_triple(triple), obj] + objects
+                              + build.link_libraries(triple) + ["-o", linked], capture_output=True, text=True,
+                              timeout=BUILD_TIMEOUT)
+        if link.returncode != 0:
+            failures.append("run codegen units: the split -c object does not link: %s"
+                            % (link.stdout + link.stderr).strip()[:300])
+        else:
+            ran(linked, "the split -c object, linked")
+    emitted = sawc(["-O2", "--emit-ll", "main.saw"])
+    split_emitted = sawc(["-O2", "--codegen-units=module", "--emit-ll", "main.saw"])
+    if emitted.returncode != 0 or emitted.stdout != split_emitted.stdout:
+        failures.append("run codegen units: --codegen-units=module changes what --emit-ll writes")
+    for args, why in ((["--codegen-units=2"], "--codegen-units=2"),
+                      (["--codegen-units=1", "--lto=thin"], "--lto=thin on a whole-module build"),
+                      (["--codegen-units=module", "--lto=fast"], "--lto=fast")):
+        r = sawc(args + ["main.saw", "-o", os.path.join(work, "refused")])
+        if r.returncode != 2 or "sawc build:" not in r.stdout:
+            failures.append("run codegen units: %s exits %d, not 2 with the usage error: %s"
+                            % (why, r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    counts["run codegen unit builds checked"] = len(CODEGEN_UNITS_BUILDS) + 1
+
+
+def time_stage_lines(failures, stderr, split):
+    """Checks the `--time-stages` report `stderr`, a split build's when
+    `split` (and then its split and unit lines lead it), and whether its
+    shape held far enough to read the rest."""
+    lines = stderr.splitlines()
+    units = 0
+    if lines and TIME_STAGES_SPLIT.match(lines[0]):
+        lines = lines[1:]
+        while lines and TIME_STAGES_UNIT.match(lines[0]):
+            units += 1
+            lines = lines[1:]
+        if units == 0:
+            failures.append("run time stages: a split build's `split` line is followed by no unit's compile")
+    if split and units == 0:
+        failures.append("run time stages: a split build reports no `split` line and no unit's compile")
     seen = []
     for line in lines:
         m = TIME_STAGES_LINE.match(line)
@@ -1088,7 +1287,7 @@ def check_time_stages(failures, counts):
             seen.append(m.group(1))
     if not seen or seen[-1] != "total":
         failures.append("run time stages: `total` is not the last line: %r" % seen)
-        return
+        return False
     steps = seen[:-1]
     ranks = [TIME_STAGES_ORDER.index(s) if s in TIME_STAGES_ORDER else -1 for s in steps]
     if -1 in ranks or ranks != sorted(set(ranks)):
@@ -1098,10 +1297,7 @@ def check_time_stages(failures, counts):
             failures.append("run time stages: no `%s` line in %r" % (need, steps))
     if "clang link" not in steps and not ("clang" in steps and "link" in steps):
         failures.append("run time stages: no clang or link line in %r" % steps)
-    with open(plain + ".ll", "rb") as a, open(timed + ".ll", "rb") as b:
-        if a.read() != b.read():
-            failures.append("run time stages: --time-stages changes the .ll sawc writes")
-    counts["run time stages checked"] = 1
+    return True
 
 
 # The `if`s after the long accessor's `lend`: past the round count a capped
@@ -2365,6 +2561,7 @@ def run(names=None, write=False):
         check_runtime(failures, counts)
         check_default_std_root(failures, counts)
         check_time_stages(failures, counts)
+        check_codegen_units(failures, counts)
         check_long_accessor(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

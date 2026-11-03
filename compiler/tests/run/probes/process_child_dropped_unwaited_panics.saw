@@ -1,0 +1,16 @@
+// probe: panics
+// about: a `Child` dropped before its `wait` panics naming the program, never leaving a zombie unannounced nor blocking in its deinit (SL-955)
+// stage 0: its frozen std has no `Command.spawn`
+// speeds: -O0 -O2
+// prints: spawned
+// panics: Child: the child `/bin/sh` was dropped without being waited for
+import std.process.{Command}
+
+func main() {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    try! c.arg("exit 0")
+    let child = try! c.spawn()
+    print("spawned")
+    let _ = move child
+}

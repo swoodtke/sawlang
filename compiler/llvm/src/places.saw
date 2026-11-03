@@ -6,8 +6,8 @@ import sawborrowck.program.{BorrowckProgram}
 import sawdrops.program.{DropsProgram}
 import sawllvm.prims.{LL_FAIL_TRY, LL_FAIL_UNWRAP, LL_MESSAGE_LIMIT, LL_PART_RUN, LL_PART_SIGNED, LlParts,
                          ll_parts_push}
-import sawllvm.module.{LlEmitter, ll_bare_code, ll_code_thunk_symbol, ll_export_symbol, ll_is_scalar, ll_symbol,
-                          ll_value_thunk_symbol, ll_value_type}
+import sawllvm.module.{LlEmitter, ll_bare_code, ll_code_thunk_symbol, ll_export_symbol, ll_is_scalar, ll_static_symbol,
+                          ll_symbol, ll_value_thunk_symbol, ll_value_type}
 import sawllvm.text.{ll_double_constant, ll_fit_signed, ll_integer_value, ll_quoted, ll_string_bytes}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirConstKind, MirOperand, MirOperandKind, MirProjKind}
@@ -258,16 +258,7 @@ extension LlEmitter {
     public func static_global(&var self, mono: &var MonoProgram, target: &var Target, d: Int, t: Int,
                               node: Int) -> String {
         let exported = mono.dp.bc.mir.tc.export_symbols.get(d) ?? ""
-        var name = StringBuilder()
-        if exported.len() > 0 {
-            try! name.append("@\"")
-            try! name.append(ll_quoted(exported))
-        } else {
-            try! name.append("@\"static ")
-            try! name.append(ll_quoted(mono.dp.bc.mir.tc.res.decl_identity(d)))
-        }
-        try! name.append("\"")
-        let symbol = name.build()
+        let symbol = ll_static_symbol(&mono, d)
         if self.static_seen(d) {
             return symbol
         }

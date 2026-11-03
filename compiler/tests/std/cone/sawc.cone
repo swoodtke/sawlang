@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 222 declarations in 19 modules
+# 256 declarations in 22 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -31,7 +31,28 @@ std.data: 17
   method String.to_data
   struct Data
 
-std.env: 10
+std.directory: 12
+  extern __saw_rt_fs_dirent_name
+  extern __saw_rt_fs_mkdir
+  extern __saw_rt_fs_opendir
+  extern __saw_rt_fs_rmdir
+  extern closedir
+  extern readdir
+  func is_dot_entry
+  method Directory.create
+  method Directory.exists
+  method Directory.list
+  method Directory.remove
+  struct Directory
+
+std.duration: 4
+  method Duration.as_nanos
+  method Duration.format
+  method Duration.ns
+  struct Duration
+
+std.env: 12
+  extern __saw_rt_env_get
   extern __saw_rt_executable_path
   extern __saw_rt_get_argc
   extern __saw_rt_get_argv
@@ -41,9 +62,10 @@ std.env: 10
   method Env.argument
   method Env.argument_count
   method Env.executable_path
+  method Env.get
   struct Env
 
-std.file: 18
+std.file: 20
   enum OpenMode
   enum SeekOrigin
   extern __saw_rt_fs_lseek
@@ -51,11 +73,13 @@ std.file: 18
   extern __saw_rt_fs_read
   extern __saw_rt_fs_unlink
   extern __saw_rt_fs_write
+  extern access
   extern close
   func file_interrupted
   method File.close
   method File.create
   method File.deinit
+  method File.exists
   method File.open
   method File.opened
   method File.read
@@ -117,13 +141,14 @@ std.panic: 2
   extern __saw_rt_panic
   func panic_sink
 
-std.path: 8
+std.path: 9
   extern __saw_rt_fs_realpath
   extern free
   func system_text
   init Path.init
   method Path.as_string
   method Path.canonical
+  method Path.join
   method Path.parent
   struct Path
 
@@ -149,7 +174,7 @@ std.prelude: 20
   struct Hasher
   struct UnsafeMutableInterior
 
-std.process: 19
+std.process: 23
   extern __saw_rt_proc_spawn
   extern __saw_rt_proc_spawn_env
   extern __saw_rt_proc_try_wait
@@ -162,11 +187,15 @@ std.process: 19
   func process_spawn_failure
   func process_sweep
   init Command.init
+  method Child.deinit
+  method Child.wait
   method Command.arg
   method Command.redirection
+  method Command.spawn
   method Command.spawn_seam
   method Command.spawned
   method Command.wait
+  struct Child
   struct Command
   struct ProcessOrphans
 
@@ -186,7 +215,7 @@ std.set: 6
   method Set.insert
   struct Set
 
-std.string: 28
+std.string: 30
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   func digit_value
@@ -209,9 +238,11 @@ std.string: 28
   method String.is_empty
   method String.last_index_of
   method String.len
+  method String.parse_signed
   method String.parse_unsigned
   method String.starts_with
   method String.substring
+  method String.to_int
   method String.to_uint
   struct String
   struct Utf8Error
@@ -243,21 +274,30 @@ std.systemerror: 6
   method SystemError.raised
   struct SystemError
 
+std.time: 4
+  extern __saw_rt_clock_monotonic_nanos
+  method Instant.elapsed
+  method Instant.now
+  struct Instant
+
 std.utf8: 4
   func utf8_byte
   func utf8_byte_in
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 11
+std.vector: 14
   init Vector.init
   method Vector.copy
   method Vector.deinit
   method Vector.get
+  method Vector.greater_at
   method Vector.grow_target
   method Vector.is_empty
   method Vector.len
   method Vector.pop
   method Vector.push
   method Vector.reserve_slots
+  method Vector.sort
+  method Vector.swap
   struct Vector

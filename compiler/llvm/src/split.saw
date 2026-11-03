@@ -1,0 +1,828 @@
+// The whole program's `.ll` cut into codegen units (SL-955), each a module
+// clang compiles on its own and the link joins: every definition is in
+// exactly one unit, and a unit reaching another's names it by a
+// declaration. The cut reads the text `llvm_emit_program` writes, whose
+// shape it relies on: a header of comments and the target triple, then one
+// top-level entity per line, except a `define`, which runs to the `}` that
+// opens a line.
+//
+// A definition another unit names leaves `internal` and `private` linkage for
+// `hidden`, so the link resolves it and the program still exports nothing
+// it did not. A `private unnamed_addr constant`, whose address nothing may
+// observe, is copied into every unit that names it instead. Every unit
+// carries the module's attribute groups and its named metadata, and the
+// numbered metadata its definitions reach, under their own numbers.
+
+import sawllvm.units.{LlUnitPlan}
+
+// One unit: its name, and its module's text.
+public struct LlUnit {
+    name: String
+    text: String
+}
+
+enum LlEntityKind {
+    case Global,
+    case Declare,
+    case Define,
+    case Attributes,
+    case NamedMeta,
+    case Meta
+}
+
+// One top-level entity of the module: its kind, its bytes `start..stop` (its
+// last line break included), its symbol for a global, a declaration or a
+// definition, and the entities its text names, a run of the splitter's
+// reference pool.
+struct LlEntity {
+    kind: LlEntityKind
+    start: Int
+    stop: Int
+    symbol: String
+    refs_first: Int
+    refs_count: Int
+}
+
+// Where an entity's text goes besides a unit's index: into every unit that
+// names it, or nowhere yet.
+static LL_COPY: Int = -2
+static LL_UNPLACED: Int = -1
+// The longest chain of first users the placement follows.
+static LL_FOLLOW_LIMIT: Int = 64
+
+static LL_NEWLINE: Int = 10
+static LL_QUOTE: Int = 34
+static LL_AT: Int = 64
+static LL_BANG: Int = 33
+static LL_ZERO: Int = 48
+static LL_OPEN_BRACE: Int = 123
+static LL_CLOSE_BRACE: Int = 125
+static LL_OPEN_PAREN: Int = 40
+static LL_CLOSE_PAREN: Int = 41
+static LL_OPEN_BRACKET: Int = 91
+static LL_CLOSE_BRACKET: Int = 93
+static LL_LESS: Int = 60
+static LL_GREATER: Int = 62
+static LL_COMMA: Int = 44
+static LL_SPACE: Int = 32
+static LL_PERCENT: Int = 37
+static LL_SEMICOLON: Int = 59
+
+// The splitter's state over one module's text.
+struct LlSplit {
+    entities: Vector<LlEntity>
+    refs: Vector<Int>
+    by_symbol: Map<String, Int>
+    // By metadata number, its entity, or -1.
+    meta: Vector<Int>
+    // The header's end: past the target triple's line and what precedes it.
+    header_stop: Int
+    // By entity, its unit (or LL_COPY), the first global or
+    // definition naming it (or -1), and whether a unit other than its own
+    // names it.
+    owner: Vector<Int>
+    first_user: Vector<Int>
+    exported: Vector<Bool>
+    // Each unit's own entities, a run of `owned` from `owned_first[u]` to
+    // `owned_first[u + 1]`, and the entities every unit holds.
+    owned_first: Vector<Int>
+    owned: Vector<Int>
+    always: Vector<Int>
+    // The closure's marks, each an entity's last token, so one walk's marks
+    // need no clearing before the next.
+    held_mark: Vector<Int>
+    asked_mark: Vector<Int>
+    token: Int
+}
+
+extension LlSplit: NoCopy {}
+
+// THE SPLIT: module text `text` cut into the units `plan` names, in plan
+// order, each holding at least one definition or global; or no units, with
+// the problem that stopped it in `problems`.
+//
+// ENTRY POINTS:
+//   llvm_build_exporting
+public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<String>) -> Vector<LlUnit> {
+    var s = LlSplit(entities: Vector<LlEntity>(), refs: Vector<Int>(), by_symbol: Map<String, Int>(),
+                    meta: Vector<Int>(), header_stop: 0, owner: Vector<Int>(), first_user: Vector<Int>(),
+                    exported: Vector<Bool>(), owned_first: Vector<Int>(), owned: Vector<Int>(),
+                    always: Vector<Int>(), held_mark: Vector<Int>(), asked_mark: Vector<Int>(), token: 0)
+    var units = Vector<LlUnit>()
+    let why = ll_split_entities(&var s, &text)
+    if why.len() > 0 {
+        try! problems.push(why)
+        return move units
+    }
+    let unresolved = ll_split_references(&var s, &text)
+    if unresolved.len() > 0 {
+        try! problems.push(unresolved)
+        return move units
+    }
+    let count = ll_split_owners(&var s, &text, &plan)
+    ll_split_group(&var s, count)
+    var u = 0
+    while u < count {
+        ll_split_mark_exports(&var s, u)
+        u = u + 1
+    }
+    u = 0
+    while u < count {
+        if s.owned_first[u + 1] > s.owned_first[u] {
+            let unit_text = ll_split_unit_text(&var s, &text, u)
+            try! units.push(LlUnit(name: plan.names.get(u) ?? "-unit", text: unit_text))
+        }
+        u = u + 1
+    }
+    move units
+}
+
+// Whether the bytes of `text` at `at` spell `word`.
+func ll_split_at(text: &String, at: Int, word: String) -> Bool {
+    if at + word.len() > text.len() {
+        return false
+    }
+    var k = 0
+    while k < word.len() {
+        if text.byte_at(at + k) != word.byte_at(k) {
+            return false
+        }
+        k = k + 1
+    }
+    true
+}
+
+// The offset just past the line break of the line starting at `at`.
+func ll_split_line_end(text: &String, at: Int) -> Int {
+    let n = text.len()
+    var k = at
+    while k < n && (text.byte_at(k) as Int) != LL_NEWLINE {
+        k = k + 1
+    }
+    if k < n { k + 1 } else { k }
+}
+
+// The end of the symbol token whose `@` is at `at`: past the closing quote
+// of a quoted one, which holds no quote (`ll_quoted`), else past its last
+// name character.
+func ll_split_symbol_end(text: &String, at: Int) -> Int {
+    let n = text.len()
+    var k = at + 1
+    if k < n && (text.byte_at(k) as Int) == LL_QUOTE {
+        k = k + 1
+        while k < n && (text.byte_at(k) as Int) != LL_QUOTE {
+            k = k + 1
+        }
+        return if k < n { k + 1 } else { k }
+    }
+    while k < n && ll_split_name_byte(text.byte_at(k) as Int) {
+        k = k + 1
+    }
+    k
+}
+
+// Whether byte `b` continues an unquoted LLVM name.
+func ll_split_name_byte(b: Int) -> Bool {
+    (b >= 97 && b <= 122) || (b >= 65 && b <= 90) || ll_split_digit(b) || b == 95 || b == 46 || b == 36 || b == 45
+}
+
+func ll_split_digit(b: Int) -> Bool {
+    b >= LL_ZERO && b <= LL_ZERO + 9
+}
+
+// The one spelling of symbol token `symbol`: a quoted name that needs no
+// quotes is the same symbol as its bare form (`@"memcpy"` is `@memcpy`), so
+// it is keyed bare.
+func ll_split_symbol_key(symbol: String) -> String {
+    let n = symbol.len()
+    if n < 4 || (symbol.byte_at(1) as Int) != LL_QUOTE || ll_split_digit(symbol.byte_at(2) as Int) {
+        return symbol
+    }
+    var k = 2
+    while k < n - 1 {
+        if not ll_split_name_byte(symbol.byte_at(k) as Int) {
+            return symbol
+        }
+        k = k + 1
+    }
+    var out = StringBuilder()
+    try! out.append("@")
+    try! out.append(symbol.substring(2, n - 1))
+    out.build()
+}
+
+// The first symbol token in `start..stop`, or "".
+func ll_split_first_symbol(text: &String, start: Int, stop: Int) -> String {
+    var k = start
+    while k < stop {
+        if (text.byte_at(k) as Int) == LL_AT {
+            return text.substring(k, ll_split_symbol_end(&text, k))
+        }
+        k = k + 1
+    }
+    ""
+}
+
+// The metadata number whose digits start at `at`, and the offset past them.
+func ll_split_number(text: &String, at: Int, stop: Int) -> (Int, Int) {
+    var id = 0
+    var k = at
+    while k < stop && ll_split_digit(text.byte_at(k) as Int) {
+        id = id * 10 + (text.byte_at(k) as Int) - LL_ZERO
+        k = k + 1
+    }
+    (id, k)
+}
+
+// Reads `text` into `s.entities`, recording each symbol's entity and each
+// metadata number's; the reason it cannot, or "".
+func ll_split_entities(s: &var LlSplit, text: &String) -> String {
+    let n = text.len()
+    var at = 0
+    var header = true
+    while at < n {
+        let stop = ll_split_line_end(&text, at)
+        let b = text.byte_at(at) as Int
+        if b == LL_NEWLINE || b == LL_SEMICOLON {
+            at = stop
+            continue
+        }
+        if header && ll_split_at(&text, at, "target ") {
+            s.header_stop = stop
+            at = stop
+            continue
+        }
+        var kind = LlEntityKind.Global
+        var end = stop
+        var symbol = ""
+        if b == LL_AT {
+            symbol = text.substring(at, ll_split_symbol_end(&text, at))
+        } else if ll_split_at(&text, at, "define ") {
+            kind = LlEntityKind.Define
+            symbol = ll_split_first_symbol(&text, at, stop)
+            // A definition runs to the line its closing brace opens.
+            var line = stop
+            var closed = false
+            while line < n && not closed {
+                closed = (text.byte_at(line) as Int) == LL_CLOSE_BRACE
+                line = ll_split_line_end(&text, line)
+            }
+            if not closed {
+                return "the backend's module ends inside a definition the splitter reads"
+            }
+            end = line
+        } else if ll_split_at(&text, at, "declare ") {
+            kind = LlEntityKind.Declare
+            symbol = ll_split_first_symbol(&text, at, stop)
+        } else if ll_split_at(&text, at, "attributes ") {
+            kind = LlEntityKind.Attributes
+        } else if b == LL_BANG && at + 1 < n && ll_split_digit(text.byte_at(at + 1) as Int) {
+            kind = LlEntityKind.Meta
+            let id = ll_split_number(&text, at + 1, stop).0
+            while s.meta.len() <= id {
+                try! s.meta.push(-1)
+            }
+            s.meta[id] = s.entities.len()
+        } else if b == LL_BANG {
+            kind = LlEntityKind.NamedMeta
+        } else {
+            var msg = StringBuilder()
+            try! msg.append("the splitter reads no top-level entity at `")
+            try! msg.append(text.substring(at, if stop - at > 60 { at + 60 } else { stop }))
+            try! msg.append("`")
+            return msg.build()
+        }
+        header = false
+        // A definition's symbol wins over a declaration of it.
+        let named = symbol.len() > 0
+        let key = ll_split_symbol_key(symbol)
+        if named && (kind != LlEntityKind.Declare || not s.by_symbol.contains_key(key)) {
+            let _ = try! s.by_symbol.insert(key, s.entities.len())
+        }
+        try! s.entities.push(LlEntity(kind: kind, start: at, stop: end, symbol: symbol, refs_first: 0, refs_count: 0))
+        at = end
+    }
+    ""
+}
+
+// Records the entities each global, definition and metadata node names, and
+// each entity's first naming global or definition; the first name no entity
+// defines or declares, or "".
+func ll_split_references(s: &var LlSplit, text: &String) -> String {
+    let count = s.entities.len()
+    var stamp = Vector<Int>()
+    var e = 0
+    while e < count {
+        try! stamp.push(-1)
+        try! s.first_user.push(-1)
+        e = e + 1
+    }
+    e = 0
+    while e < count {
+        let entity = s.entities[e]
+        let first = s.refs.len()
+        let symbolic = entity.kind == LlEntityKind.Global || entity.kind == LlEntityKind.Define
+        let scans = symbolic || entity.kind == LlEntityKind.Meta || entity.kind == LlEntityKind.NamedMeta
+        // The entity's own symbol or number is not a reference.
+        var k = entity.start
+        if entity.kind == LlEntityKind.Global {
+            k = entity.start + entity.symbol.len()
+        } else if entity.kind == LlEntityKind.Meta {
+            k = ll_split_number(&text, entity.start + 1, entity.stop).1
+        }
+        while scans && k < entity.stop {
+            let b = text.byte_at(k) as Int
+            if b == LL_AT {
+                let end = ll_split_symbol_end(&text, k)
+                let name = text.substring(k, end)
+                guard let target = s.by_symbol.get(ll_split_symbol_key(name)) else {
+                    var msg = StringBuilder()
+                    try! msg.append("the splitter finds no definition or declaration of `")
+                    try! msg.append(name)
+                    try! msg.append("`")
+                    return msg.build()
+                }
+                if target != e && stamp[target] != e {
+                    stamp[target] = e
+                    try! s.refs.push(target)
+                    if s.first_user[target] < 0 && symbolic {
+                        s.first_user[target] = e
+                    }
+                }
+                k = end
+            } else if b == LL_BANG && k + 1 < entity.stop && ll_split_digit(text.byte_at(k + 1) as Int) {
+                let number = ll_split_number(&text, k + 1, entity.stop)
+                k = number.1
+                let target = s.meta.get(number.0) ?? -1
+                if target < 0 {
+                    return "the splitter finds a metadata reference the module does not define"
+                }
+                if target != e && stamp[target] != e {
+                    stamp[target] = e
+                    try! s.refs.push(target)
+                }
+            } else if b == LL_QUOTE {
+                // A string (a `c"..."` constant, a section, a metadata
+                // string) names nothing.
+                k = k + 1
+                while k < entity.stop && (text.byte_at(k) as Int) != LL_QUOTE {
+                    k = k + 1
+                }
+                k = k + 1
+            } else {
+                k = k + 1
+            }
+        }
+        s.entities[e].refs_first = first
+        s.entities[e].refs_count = s.refs.len() - first
+        e = e + 1
+    }
+    ""
+}
+
+// Places every global and definition: in `plan`'s unit; copied, when it is a
+// `private unnamed_addr constant`; in the shared unit for
+// the compiler's own symbols; else in its first user's unit. Then merges the
+// units below the plan's minimum, and returns the number of units.
+func ll_split_owners(s: &var LlSplit, text: &String, plan: &LlUnitPlan) -> Int {
+    let count = s.entities.len()
+    var e = 0
+    while e < count {
+        try! s.exported.push(false)
+        let entity = s.entities[e]
+        var u = LL_UNPLACED
+        if entity.kind == LlEntityKind.Define || entity.kind == LlEntityKind.Global {
+            let at = entity.start + entity.symbol.len()
+            if let planned = plan.owners.get(entity.symbol) {
+                u = planned
+            } else if entity.kind == LlEntityKind.Global && ll_split_at(&text, at, " = private unnamed_addr constant ") {
+                u = LL_COPY
+            } else if entity.symbol.starts_with("@__saw_") || entity.symbol.starts_with("@llvm.") ||
+                      entity.symbol.equals("@main") {
+                u = plan.shared
+            }
+        }
+        try! s.owner.push(u)
+        e = e + 1
+    }
+    e = 0
+    while e < count {
+        let kind = s.entities[e].kind
+        if (kind == LlEntityKind.Define || kind == LlEntityKind.Global) && s.owner[e] == LL_UNPLACED {
+            s.owner[e] = ll_split_follow(&s, e, plan.shared, 0)
+        }
+        e = e + 1
+    }
+    ll_split_merge(&var s, &plan)
+    plan.names.len()
+}
+
+// The unit of unplaced entity `e`: its first user's, followed while that is
+// unplaced too; `shared` when it has none, a copy uses it first, or the
+// chain is longer than any the backend writes.
+func ll_split_follow(s: &LlSplit, e: Int, shared: Int, depth: Int) -> Int {
+    let user = s.first_user[e]
+    if user < 0 || depth > LL_FOLLOW_LIMIT {
+        return shared
+    }
+    let u = s.owner[user]
+    if u >= 0 {
+        return u
+    }
+    if u == LL_UNPLACED {
+        return ll_split_follow(&s, user, shared, depth + 1)
+    }
+    shared
+}
+
+// Merges each unit whose definitions are smaller than the plan's minimum into
+// a run of its neighbours, in plan order, until the run holds the minimum;
+// the shared unit stays its own.
+func ll_split_merge(s: &var LlSplit, plan: &LlUnitPlan) {
+    let units = plan.names.len()
+    if plan.min_bytes <= 0 {
+        return
+    }
+    var size = Vector<Int>()
+    var u = 0
+    while u < units {
+        try! size.push(0)
+        u = u + 1
+    }
+    var e = 0
+    while e < s.entities.len() {
+        let o = s.owner[e]
+        if o >= 0 && s.entities[e].kind == LlEntityKind.Define {
+            size[o] = size[o] + s.entities[e].stop - s.entities[e].start
+        }
+        e = e + 1
+    }
+    var bucket = Vector<Int>()
+    var open = -1
+    var held = 0
+    u = 0
+    while u < units {
+        if u == plan.shared || size[u] >= plan.min_bytes {
+            try! bucket.push(u)
+        } else {
+            if open < 0 {
+                open = u
+                held = 0
+            }
+            try! bucket.push(open)
+            held = held + size[u]
+            if held >= plan.min_bytes {
+                open = -1
+            }
+        }
+        u = u + 1
+    }
+    e = 0
+    while e < s.entities.len() {
+        let o = s.owner[e]
+        if o >= 0 {
+            s.owner[e] = bucket[o]
+        }
+        e = e + 1
+    }
+}
+
+// Groups the entities by unit (`owned`), notes the ones every unit holds,
+// and readies the closure's marks.
+func ll_split_group(s: &var LlSplit, units: Int) {
+    let count = s.entities.len()
+    var u = 0
+    while u <= units {
+        try! s.owned_first.push(0)
+        u = u + 1
+    }
+    var e = 0
+    while e < count {
+        try! s.held_mark.push(0)
+        try! s.asked_mark.push(0)
+        let o = s.owner[e]
+        if o >= 0 {
+            s.owned_first[o + 1] = s.owned_first[o + 1] + 1
+        }
+        let kind = s.entities[e].kind
+        if kind == LlEntityKind.Attributes || kind == LlEntityKind.NamedMeta {
+            try! s.always.push(e)
+        }
+        e = e + 1
+    }
+    u = 0
+    while u < units {
+        s.owned_first[u + 1] = s.owned_first[u + 1] + s.owned_first[u]
+        u = u + 1
+    }
+    var fill = Vector<Int>()
+    u = 0
+    while u < units {
+        try! fill.push(s.owned_first[u])
+        u = u + 1
+    }
+    e = 0
+    while e < count {
+        try! s.owned.push(0)
+        e = e + 1
+    }
+    e = 0
+    while e < count {
+        let o = s.owner[e]
+        if o >= 0 {
+            s.owned[fill[o]] = e
+            fill[o] = fill[o] + 1
+        }
+        e = e + 1
+    }
+}
+
+// The entities unit `u`'s text holds, in module order: its own globals and
+// definitions, the copies they reach, the declarations they name, the
+// attribute groups and named metadata, and the numbered metadata all of
+// those reach. `needed` gets each other unit's entity they name.
+func ll_split_closure(s: &var LlSplit, u: Int, needed: &var Vector<Int>) -> Vector<Int> {
+    s.token = s.token + 1
+    let token = s.token
+    var held = Vector<Int>()
+    var k = s.owned_first[u]
+    while k < s.owned_first[u + 1] {
+        s.held_mark[s.owned[k]] = token
+        try! held.push(s.owned[k])
+        k = k + 1
+    }
+    k = 0
+    while k < s.always.len() {
+        s.held_mark[s.always[k]] = token
+        try! held.push(s.always[k])
+        k = k + 1
+    }
+    var next = 0
+    while next < held.len() {
+        let one = s.entities[held[next]]
+        next = next + 1
+        var r = 0
+        while r < one.refs_count {
+            let target = s.refs[one.refs_first + r]
+            r = r + 1
+            if s.held_mark[target] == token || s.asked_mark[target] == token {
+                continue
+            }
+            let o = s.owner[target]
+            let kind = s.entities[target].kind
+            if kind == LlEntityKind.Meta || kind == LlEntityKind.Declare || o == LL_COPY {
+                s.held_mark[target] = token
+                try! held.push(target)
+            } else {
+                s.asked_mark[target] = token
+                try! needed.push(target)
+            }
+        }
+    }
+    held.sort()
+    needed.sort()
+    move held
+}
+
+// Marks each entity of another unit that unit `u` names as exported.
+func ll_split_mark_exports(s: &var LlSplit, u: Int) {
+    if s.owned_first[u + 1] == s.owned_first[u] {
+        return
+    }
+    var needed = Vector<Int>()
+    let _ = ll_split_closure(&var s, u, &var needed)
+    var k = 0
+    while k < needed.len() {
+        s.exported[needed[k]] = true
+        k = k + 1
+    }
+}
+
+// Unit `u`'s module text: the header, its globals, declarations and
+// definitions, the declarations of what it names elsewhere, the attribute
+// groups, and its metadata.
+func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int) -> String {
+    var needed = Vector<Int>()
+    let held = ll_split_closure(&var s, u, &var needed)
+    var out = StringBuilder()
+    try! out.append(text.substring(0, s.header_stop))
+    try! out.append("\n")
+    var k = 0
+    while k < held.len() {
+        let e = held[k]
+        k = k + 1
+        let kind = s.entities[e].kind
+        if kind == LlEntityKind.Global || kind == LlEntityKind.Declare || kind == LlEntityKind.Define {
+            ll_split_write(&var out, &s, &text, e)
+        }
+    }
+    k = 0
+    while k < needed.len() {
+        try! out.append(ll_split_declaration(&s, &text, needed[k]))
+        try! out.append("\n")
+        k = k + 1
+    }
+    try! out.append("\n")
+    k = 0
+    while k < held.len() {
+        let e = held[k]
+        k = k + 1
+        let kind = s.entities[e].kind
+        if kind == LlEntityKind.Attributes || kind == LlEntityKind.NamedMeta || kind == LlEntityKind.Meta {
+            try! out.append(text.substring(s.entities[e].start, s.entities[e].stop))
+        }
+    }
+    out.build()
+}
+
+// Writes entity `e` into a unit's text: as it is, or when another unit names
+// it and it is `internal` or `private`, under `hidden`.
+func ll_split_write(out: &var StringBuilder, s: &LlSplit, text: &String, e: Int) {
+    let entity = s.entities[e]
+    var at = entity.start
+    if entity.kind == LlEntityKind.Define {
+        at = at + 7
+    } else if entity.kind == LlEntityKind.Global {
+        at = at + entity.symbol.len() + 3
+    }
+    let linkage_end = ll_split_linkage_end(&text, at)
+    if linkage_end > at && s.owner[e] >= 0 && s.exported[e] {
+        try! out.append(text.substring(entity.start, at))
+        try! out.append("hidden ")
+        try! out.append(text.substring(linkage_end, entity.stop))
+        return
+    }
+    try! out.append(text.substring(entity.start, entity.stop))
+}
+
+// The end of an `internal ` or `private ` linkage word at `at`, or `at`
+// itself when there is none there.
+func ll_split_linkage_end(text: &String, at: Int) -> Int {
+    if ll_split_at(&text, at, "internal ") {
+        return at + 9
+    }
+    if ll_split_at(&text, at, "private ") {
+        return at + 8
+    }
+    at
+}
+
+// The declaration a unit names entity `e` of another unit by: a function's
+// `declare` with its definition's result, parameter types and attributes, or
+// a global's `external` with its type and alignment. One that was `internal`
+// or `private` is `hidden`, as its definition now is.
+func ll_split_declaration(s: &LlSplit, text: &String, e: Int) -> String {
+    let entity = s.entities[e]
+    if entity.kind == LlEntityKind.Define {
+        return ll_split_function_declaration(&text, entity.start, ll_split_line_end(&text, entity.start))
+    }
+    ll_split_global_declaration(&text, entity.start, ll_split_line_end(&text, entity.start), entity.symbol)
+}
+
+// The offset past the linkage and visibility words at `at`, and whether one
+// of them makes the symbol hidden once it is exported.
+func ll_split_skip_linkage(text: &String, at: Int) -> (Int, Bool) {
+    let words = ["internal ", "private ", "hidden ", "weak ", "linkonce_odr ", "unnamed_addr ", "local_unnamed_addr "]
+    var k = at
+    var hidden = false
+    var moved = true
+    while moved {
+        moved = false
+        var w = 0
+        while w < words.len() {
+            if ll_split_at(&text, k, words[w]) {
+                hidden = hidden || w <= 2
+                k = k + words[w].len()
+                moved = true
+            }
+            w = w + 1
+        }
+    }
+    (k, hidden)
+}
+
+// `declare [hidden] RESULT @NAME(TYPES) ATTRIBUTES` for the definition whose
+// head is the line `start..stop`: its parameters without their names, and
+// what follows them up to a section, the subprogram or the body.
+func ll_split_function_declaration(text: &String, start: Int, stop: Int) -> String {
+    let skipped = ll_split_skip_linkage(&text, start + 7)
+    let k = skipped.0
+    var out = StringBuilder()
+    try! out.append("declare ")
+    if skipped.1 {
+        try! out.append("hidden ")
+    }
+    var at = k
+    while at < stop && (text.byte_at(at) as Int) != LL_AT {
+        at = at + 1
+    }
+    let symbol_end = ll_split_symbol_end(&text, at)
+    try! out.append(text.substring(k, symbol_end))
+    try! out.append("(")
+    var p = symbol_end + 1
+    var depth = 0
+    var piece = p
+    var first = true
+    var open = true
+    while p < stop && open {
+        let b = text.byte_at(p) as Int
+        if b == LL_OPEN_PAREN || b == LL_OPEN_BRACKET || b == LL_OPEN_BRACE || b == LL_LESS {
+            depth = depth + 1
+        } else if depth > 0 && (b == LL_CLOSE_PAREN || b == LL_CLOSE_BRACKET || b == LL_CLOSE_BRACE || b == LL_GREATER) {
+            depth = depth - 1
+        } else if depth == 0 && (b == LL_COMMA || b == LL_CLOSE_PAREN) {
+            let param = ll_split_unnamed_parameter(&text, piece, p)
+            if param.len() > 0 {
+                if not first {
+                    try! out.append(", ")
+                }
+                try! out.append(param)
+                first = false
+            }
+            piece = p + 1
+            open = b != LL_CLOSE_PAREN
+        }
+        p = p + 1
+    }
+    try! out.append(")")
+    var end = p
+    while end < stop && not (ll_split_at(&text, end, " section ") || ll_split_at(&text, end, " !dbg ")
+                              || ll_split_at(&text, end, " \{")) {
+        end = end + 1
+    }
+    try! out.append(text.substring(p, end))
+    out.build()
+}
+
+// The parameter at `start..stop` of a definition's head, trimmed and
+// without its `%name`.
+func ll_split_unnamed_parameter(text: &String, start: Int, stop: Int) -> String {
+    var a = start
+    while a < stop && (text.byte_at(a) as Int) == LL_SPACE {
+        a = a + 1
+    }
+    var b = stop
+    var k = a
+    while k + 1 < stop {
+        if (text.byte_at(k) as Int) == LL_SPACE && (text.byte_at(k + 1) as Int) == LL_PERCENT {
+            b = k
+        }
+        k = k + 1
+    }
+    if a < stop && (text.byte_at(a) as Int) == LL_PERCENT {
+        return ""
+    }
+    text.substring(a, b)
+}
+
+// `@NAME = external [hidden] global|constant TYPE[, align N]` for the global
+// whose line is `start..stop`, named `symbol`.
+func ll_split_global_declaration(text: &String, start: Int, stop: Int, symbol: String) -> String {
+    let skipped = ll_split_skip_linkage(&text, start + symbol.len() + 3)
+    let k = skipped.0
+    var out = StringBuilder()
+    try! out.append(symbol)
+    try! out.append(" = external ")
+    if skipped.1 {
+        try! out.append("hidden ")
+    }
+    var kind_end = k
+    if ll_split_at(&text, k, "constant ") {
+        try! out.append("constant ")
+        kind_end = k + 9
+    } else if ll_split_at(&text, k, "global ") {
+        try! out.append("global ")
+        kind_end = k + 7
+    }
+    // The type: one token, or a bracketed aggregate.
+    var t = kind_end
+    var depth = 0
+    var open = true
+    while t < stop && open {
+        let b = text.byte_at(t) as Int
+        if b == LL_OPEN_BRACKET || b == LL_OPEN_BRACE || b == LL_LESS {
+            depth = depth + 1
+        } else if b == LL_CLOSE_BRACKET || b == LL_CLOSE_BRACE || b == LL_GREATER {
+            depth = depth - 1
+            open = depth > 0
+        } else if depth == 0 && (b == LL_SPACE || b == LL_NEWLINE) {
+            open = false
+            t = t - 1
+        }
+        t = t + 1
+    }
+    try! out.append(text.substring(kind_end, t))
+    // The alignment, when the line ends in one.
+    var line_end = stop
+    while line_end > start && (text.byte_at(line_end - 1) as Int) == LL_NEWLINE {
+        line_end = line_end - 1
+    }
+    var a = line_end
+    while a > start && ll_split_digit(text.byte_at(a - 1) as Int) {
+        a = a - 1
+    }
+    if a < line_end && a >= start + 8 && ll_split_at(&text, a - 8, ", align ") {
+        try! out.append(text.substring(a - 8, line_end))
+    }
+    out.build()
+}

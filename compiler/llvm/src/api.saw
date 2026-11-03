@@ -8,6 +8,7 @@ import sawcoro.program.{CoroProgram}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawllvm.module.{LlLowering, ll_export_symbol, ll_lowering}
 import sawllvm.program.{llvm_emit_program}
+import sawllvm.units.{LlUnitPlan, ll_unit_plan}
 import sawmono.program.{MonoProgram}
 import sawtarget.layout.{Target, target_front_end}
 
@@ -54,11 +55,34 @@ public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, path: St
                          names: &names, dirs: &dirs)
 }
 
+// `llvm_build`, with the plan of the program's codegen units (`ll_unit_plan`)
+// in `plan`, which `ll_split` cuts the `.ll` by.
+public func llvm_build_split(out: &var StringBuilder, ir: &var StringBuilder, plan: &var LlUnitPlan, path: String,
+                             options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var exports = Vector<String>()
+    llvm_build_planned(out: &var out, ir: &var ir, exports: &var exports, plan: &var plan, split: true, path: path,
+                       options: &options, names: &names, dirs: &dirs)
+}
+
 // `llvm_build`, with the C symbol of each function the module defines for C
 // added to `exports`, in declaration order.
 public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder, exports: &var Vector<String>,
                                  path: String, options: &BuildOptions, names: &Vector<String>,
                                  dirs: &Vector<String>) -> Int {
+    var plan = LlUnitPlan()
+    llvm_build_planned(out: &var out, ir: &var ir, exports: &var exports, plan: &var plan, split: false, path: path,
+                       options: &options, names: &names, dirs: &dirs)
+}
+
+// THE BUILD: the program through every stage to its `.ll` in `ir`, and with
+// `split`, the plan of its codegen units in `plan`.
+//
+// ENTRY POINTS:
+//   llvm_build_exporting
+//   llvm_build_split
+func llvm_build_planned(out: &var StringBuilder, ir: &var StringBuilder, exports: &var Vector<String>,
+                        plan: &var LlUnitPlan, split: Bool, path: String,
+                        options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var front = StringBuilder()
     let checked_for = target_front_end(options.target, options.features)
     var coro = coro_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
@@ -92,6 +116,9 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
         return 1
     }
     try! ir.append(text)
+    if split {
+        plan = ll_unit_plan(&coro.mono)
+    }
     var k = 0
     while k < coro.mono.export_items.len() {
         let item = coro.mono.export_items[k]

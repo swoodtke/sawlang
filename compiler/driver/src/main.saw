@@ -32,6 +32,8 @@
 //   sawc build -c FILE [-o OUT]    the entry file's program compiled by clang to an object, and not linked
 //   sawc build --emit-ll FILE      the entry file's program as one `.ll` on standard output
 //   sawc build --time-stages FILE  the build, then one `time: STAGE MS ms` line per stage on standard error
+//   sawc build --codegen-units=module FILE  the build with one module per Saw module, compiled in parallel
+//                                  and linked with ThinLTO, or as `--lto=full|none` says
 //   sawc build --freestanding FILE the entry file's program compiled under the freestanding profile to an ELF object
 //   sawc build --runtime FILE      the entry file built as its own runtime, linked with none of sawc's
 //   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
@@ -61,7 +63,9 @@ import sawdrops.api.{DropsOptions, drops_record, drops_record_status}
 import saweval.api.{EvalOptions, eval_record}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_enable, stagetime_end, stagetime_report}
-import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting}
+import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting, llvm_build_split}
+import sawllvm.split.{ll_split}
+import sawllvm.units.{LlUnitPlan}
 import sawmir.api.{MirOptions, mir_record}
 import sawmono.api.{MonoOptions, mono_record}
 import sawparse.api.{ParseOptions, parse_record}
@@ -73,10 +77,12 @@ import sawtypecheck.program.{TcTarget}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
+import std.directory.{Directory}
 import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
-import std.process.{Command}
+import std.process.{Child, Command}
+import std.time
 
 static DRIVER_EXIT_LEX_ERROR: Int = 1
 static DRIVER_EXIT_USAGE: Int = 2
@@ -111,7 +117,8 @@ func driver_usage() -> Int {
     print("                 [--target TRIPLE] [--target-features FEATURES] [--module-path NAME=DIR]... [FILE | @LIST]...")
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
-    print("                  [-W borrow-prefix] [--time-stages] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("                  [-W borrow-prefix] [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]")
+    print("                  [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
@@ -150,7 +157,11 @@ func driver_speed_level(flag: String) -> String {
 // `--runtime-build` is refused, naming `sawc runtime`. `--no-hidden-alloc`
 // has typecheck refuse the allocations no source construct names
 // (`refuse_hidden_allocation`). The program carries DWARF line tables unless
-// `-g0` turns them off; `-g` spells the default (spec, Debug info). Its
+// `-g0` turns them off; `-g` spells the default (spec, Debug info).
+// `--codegen-units=module` compiles one module per Saw module in parallel and
+// links them (`driver_split_build`), optimised across them as `--lto` says
+// (`driver_codegen_choice`); `--codegen-units=1`, the default, compiles the
+// whole program as one module. Its
 // arguments start at `args[first]`: 2 after `build`, and 1 for the implicit
 // form `sawc [FLAG]... FILE.saw`, the command line a Stage 0 consumer already
 // writes.
@@ -171,6 +182,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var warn = false
     var object = false
     var features = ""
+    var units = ""
+    var lto = ""
+    var timed = false
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -179,6 +193,10 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
                       || arg.equals("--sanitize") || arg.equals("--target-features"))
         if level.len() > 0 {
             speed = level
+        } else if arg.starts_with("--codegen-units=") {
+            units = arg.substring(16, arg.len())
+        } else if arg.starts_with("--lto=") {
+            lto = arg.substring(6, arg.len())
         } else if arg.equals("-c") {
             object = true
         } else if arg.equals("-g") {
@@ -195,6 +213,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             emit = true
         } else if arg.equals("--time-stages") {
             stagetime_enable()
+            timed = true
         } else if arg.equals("--freestanding") {
             freestanding = true
         } else if arg.equals("--runtime") || arg.equals("--runtime-provider") {
@@ -240,6 +259,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if path.len() == 0 || (emit && out.len() > 0) {
         return driver_usage()
     }
+    let codegen = driver_codegen_choice(units, lto, speed)
+    if codegen.0.len() == 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    let split = codegen.0.equals("module")
+    lto = codegen.1
     if triple.len() > 0 && not target_known(triple) {
         print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
@@ -329,6 +354,29 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
                                features: features, object: object)
     var record = StringBuilder()
     var ir = StringBuilder()
+    let compiler = if cross { foreign_clang.build() } else { clang.build() }
+    if split {
+        var plan = LlUnitPlan()
+        let built = llvm_build_split(out: &var record, ir: &var ir, plan: &var plan, path: path, options: &options,
+                                     names: &names, dirs: &dirs)
+        if built != 0 {
+            driver_print_refusal(path, &var record)
+            return built
+        }
+        let job = DriverSplit(clang: compiler, triple: clang_triple, speed: speed, sanitize: sanitize,
+                              freestanding: freestanding, debug: debug, object: object, lto: lto, out: out,
+                              jobs: driver_jobs(out), timed: timed,
+                              bare_metal: freestanding || target_bare_metal(triple))
+        let text = ir.build()
+        if provider {
+            let none = Vector<String>()
+            return driver_split_build(&job, &plan, &text, &none)
+        }
+        if cross {
+            return driver_split_build(&job, &plan, &text, &foreign)
+        }
+        return driver_split_build(&job, &plan, &text, &objects)
+    }
     let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
     if status != 0 {
         driver_print_refusal(path, &var record)
@@ -344,9 +392,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if not written {
         return 1
     }
-    let compiler = if cross { foreign_clang.build() } else { clang.build() }
     if object {
-        let arguments = driver_object_arguments(clang_triple, speed, sanitize, freestanding, ll_path, out)
+        let arguments = driver_object_arguments(clang_triple, speed, sanitize, freestanding, "none", ll_path, out)
         stagetime_begin(StageTime.Clang)
         let compiled = driver_clang("sawc build", compiler, &arguments)
         stagetime_end(StageTime.Clang)
@@ -755,7 +802,7 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     }
     let base = driver_base_name(link.out)
     let object = driver_path(dir, base, ".o")
-    let compile = driver_object_arguments(link.triple, link.speed, link.sanitize, false, link.ll, object)
+    let compile = driver_object_arguments(link.triple, link.speed, link.sanitize, false, "none", link.ll, object)
     stagetime_begin(StageTime.Clang)
     let compiled = driver_clang("sawc build", link.clang, &compile)
     stagetime_end(StageTime.Clang)
@@ -811,21 +858,496 @@ func driver_link_mach_o(link: &DriverLink, objects: &Vector<String>) -> Int {
     }
 }
 
+// The codegen units a build asks for and the link-time optimisation of a split
+// one, as (`1` or `module`, `thin`, `full` or `none`); ("", "") once a usage
+// error is printed. `--codegen-units=` and `--lto=` win; without them,
+// `SAWC_CODEGEN_UNITS` and `SAWC_LTO`, which let a lane build every program
+// one way. A split build's link optimises across its units with ThinLTO
+// unless it is `-O0`; a whole-module build is already one unit, so `--lto`
+// takes a split one.
+func driver_codegen_choice(flag_units: String, flag_lto: String, speed: String) -> (String, String) {
+    var units = flag_units
+    if units.len() == 0 {
+        units = driver_environment("SAWC_CODEGEN_UNITS")
+    }
+    if units.len() == 0 {
+        units = "1"
+    }
+    if not (units.equals("1") || units.equals("module")) {
+        print("sawc build: --codegen-units takes `1`, the whole program as one module, or `module`, one per Saw module, not `{}`", units)
+        return ("", "")
+    }
+    var lto = flag_lto
+    if lto.len() > 0 && units.equals("1") {
+        print("sawc build: --lto takes a split build (--codegen-units=module): a whole-module build already optimises the whole program as one module")
+        return ("", "")
+    }
+    if lto.len() == 0 {
+        lto = driver_environment("SAWC_LTO")
+    }
+    if lto.len() == 0 {
+        lto = if speed.equals("-O0") { "none" } else { "thin" }
+    }
+    if not (lto.equals("thin") || lto.equals("full") || lto.equals("none")) {
+        print("sawc build: --lto takes `thin`, `full` or `none`, not `{}`", lto)
+        return ("", "")
+    }
+    (units, lto)
+}
+
+// The value of environment variable `name`, or "" when it is unset or holds
+// no text.
+func driver_environment(name: String) -> String {
+    match Env.get(name) {
+        case Ok(value) -> value ?? "",
+        case Err(_) -> ""
+    }
+}
+
+
+// The clang flag of link-time optimisation `lto`, `thin` or `full`.
+func driver_lto_flag(lto: String) -> String {
+    var flag = StringBuilder()
+    try! flag.append("-flto=")
+    try! flag.append(lto)
+    flag.build()
+}
+
+// A freestanding object's code generation flags (`driver_object_arguments`),
+// which a link that optimises its units passes again for the code it writes.
+func driver_freestanding_arguments(arguments: &var Vector<String>, freestanding: Bool) {
+    if freestanding {
+        try! arguments.push("-ffunction-sections")
+        try! arguments.push("-fdata-sections")
+        try! arguments.push("-fno-pic")
+    }
+}
+
+// The most clang runs a split build keeps going at once: three quarters of
+// the machine's processors, at least one, the ceiling every test lane keeps
+// to; `SAW_GATE_JOBS`, when it names a positive count, lowers it, which a
+// lane running builds side by side sets. The processors are what `getconf
+// _NPROCESSORS_ONLN` reports; when it cannot be asked the build says so and
+// runs one at a time.
+func driver_jobs(out: String) -> Int {
+    var arguments = Vector<String>()
+    try! arguments.push("_NPROCESSORS_ONLN")
+    var cpus = 0
+    if let said = driver_captured(out, "getconf", "getconf", &arguments) {
+        cpus = driver_first_line(said).to_int() ?? 0
+    }
+    if cpus <= 0 {
+        print("sawc build: getconf reports no processor count, so the codegen units compile one at a time")
+        return 1
+    }
+    var ceiling = cpus * 3 / 4
+    if ceiling < 1 {
+        ceiling = 1
+    }
+    let asked = driver_environment("SAW_GATE_JOBS").to_int() ?? 0
+    if asked > 0 && asked < ceiling {
+        return asked
+    }
+    ceiling
+}
+
+// What a split build compiles and links: with `clang`, each unit for the
+// clang triple `triple` at `speed`, instrumented under `sanitize`, as a
+// `freestanding` object's when it is one, with line tables under `debug`;
+// then an object (`object`) or the executable `out`, optimised across the
+// units as `lto` says, `jobs` clang runs at once; under `timed`, a time line
+// per unit. `bare_metal` is a freestanding object's or a bare-metal target's,
+// which links with `ld.lld`.
+struct DriverSplit {
+    clang: String
+    triple: String
+    speed: String
+    sanitize: Bool
+    freestanding: Bool
+    debug: Bool
+    object: Bool
+    lto: String
+    out: String
+    jobs: Int
+    timed: Bool
+    bare_metal: Bool
+}
+
+// One run of a tool, which `driver_run_jobs` takes in turn.
+struct DriverJob {
+    tool: String
+    program: String
+    arguments: Vector<String>
+}
+
+extension DriverJob: NoCopy {}
+
+// A finished job: its index, its exit status and how long it ran.
+struct DriverDone {
+    job: Int
+    status: Int
+    nanos: Int
+}
+
+extern "C" {
+    func __saw_rt_write_error(ptr: UnsafePointer<Int8>, len: Int)
+}
+
+// `sawc build --codegen-units=module`: the program's `.ll`, `text`, written to
+// `OUT.ll` as a whole-module build writes it, and cut by `plan` into one
+// module per Saw module (`ll_split`), each written to `OUT.units/uN.ll` and
+// compiled by clang, `split.jobs` at a time, then
+// linked with `objects` into the executable `OUT`, or for `-c` into the one
+// object `OUT` by a relocatable link (`driver_split_link`). The unit objects
+// are removed once linked. A clang that fails fails the build with its exit
+// status; with `--time-stages` each unit's compile time is a line of its own.
+func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, objects: &Vector<String>) -> Int {
+    var whole = StringBuilder()
+    try! whole.append(split.out)
+    try! whole.append(".ll")
+    stagetime_begin(StageTime.WriteLl)
+    let written = driver_write_file(whole.build(), text)
+    stagetime_end(StageTime.WriteLl)
+    if not written {
+        return 1
+    }
+    let started = time.Instant.now()
+    var problems = Vector<String>()
+    let units = ll_split(&text, &plan, &var problems)
+    if split.timed {
+        driver_time_line("split", started.elapsed().as_nanos() as Int)
+    }
+    if problems.len() > 0 {
+        var k = 0
+        while k < problems.len() {
+            print("sawc build: INVARIANT: {}", problems.get(k) ?? "")
+            k = k + 1
+        }
+        return 1
+    }
+    var named = StringBuilder()
+    try! named.append(split.out)
+    try! named.append(".units")
+    let dir = named.build()
+    if not Directory.exists(Path(s: dir)) {
+        match Directory.create(Path(s: dir)) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                print("sawc build: cannot create {}, where the codegen units are written: {}", dir, e)
+                return 1
+            }
+        }
+    }
+    stagetime_begin(StageTime.WriteLl)
+    var jobs = Vector<DriverJob>()
+    var compiled = Vector<String>()
+    var k = 0
+    while k < units.len() {
+        var stem = StringBuilder()
+        try! stem.append("u")
+        try! stem.append(k)
+        let ll = driver_path(dir, stem.build(), ".ll")
+        let unit_object = driver_path(dir, stem.build(), ".o")
+        if not driver_write_file(ll, units[k].text) {
+            stagetime_end(StageTime.WriteLl)
+            return 1
+        }
+        let arguments = driver_object_arguments(split.triple, split.speed, split.sanitize, split.freestanding,
+                                                split.lto, ll, unit_object)
+        try! jobs.push(DriverJob(tool: "clang", program: split.clang, arguments: move arguments))
+        try! compiled.push(unit_object)
+        k = k + 1
+    }
+    stagetime_end(StageTime.WriteLl)
+    stagetime_begin(StageTime.Clang)
+    let done = driver_run_jobs(&jobs, split.jobs)
+    stagetime_end(StageTime.Clang)
+    var status = 0
+    k = 0
+    while k < done.len() {
+        if split.timed {
+            var line = StringBuilder()
+            try! line.append("clang unit ")
+            let name = units[done[k].job].name
+            try! line.append(name)
+            driver_time_line(line.build(), done[k].nanos)
+        }
+        if done[k].status != 0 && status == 0 {
+            status = done[k].status
+        }
+        k = k + 1
+    }
+    if status != 0 {
+        return status
+    }
+    let linked = driver_split_link(&split, dir, &compiled, &objects)
+    if linked != 0 {
+        return linked
+    }
+    k = 0
+    while k < compiled.len() {
+        let one = compiled.get(k) ?? ""
+        match File.remove(Path(s: one)) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                print("sawc build: cannot remove {}, a codegen unit's object: {}", one, e)
+                return 1
+            }
+        }
+        k = k + 1
+    }
+    0
+}
+
+// Links the unit objects `compiled` of the split build `split`, whose units
+// sit in `dir`. An object build is one relocatable link of them, `-r`, which a
+// bare-metal ELF target does with `ld.lld`; an executable is linked with `objects` and the
+// target's libraries as `driver_link` links one module, and on Mach-O with
+// line tables as `driver_link_mach_o` does, the LTO objects kept in
+// `DIR/lto` for dsymutil and removed after it. Under `lto` the link
+// optimises across the units (`-flto=`), with as many jobs as the compiles.
+func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>) -> Int {
+    let link = DriverLink(clang: split.clang, ll: "", out: split.out, speed: split.speed, sanitize: split.sanitize,
+                          triple: split.triple, debug: split.debug)
+    let mach_o = driver_mach_o(split.triple)
+    var arguments = driver_link_head(&link)
+    if split.object {
+        try! arguments.push("-r")
+        try! arguments.push("-nostdlib")
+    }
+    if not split.lto.equals("none") {
+        try! arguments.push(driver_lto_flag(split.lto))
+        var jobs = StringBuilder()
+        try! jobs.append("-flto-jobs=")
+        try! jobs.append(split.jobs)
+        try! arguments.push(jobs.build())
+        driver_freestanding_arguments(&var arguments, split.freestanding)
+        // LTO would make an executable's global symbols local, `@export`s
+        // among them, where a whole-module link keeps each global (so `dlsym`
+        // finds one); a hidden symbol stays the link's to drop.
+        if not split.object {
+            try! arguments.push(if mach_o { "-Wl,-export_dynamic" } else { "-Wl,--export-dynamic" })
+        }
+    }
+    // A bare-metal target has no system linker, and a hosted ELF one's may
+    // have no LTO plugin.
+    if not mach_o && (split.bare_metal || not split.lto.equals("none")) {
+        try! arguments.push("-fuse-ld=lld")
+    }
+    var k = 0
+    while k < compiled.len() {
+        try! arguments.push(compiled.get(k) ?? "")
+        k = k + 1
+    }
+    if split.object {
+        try! arguments.push("-o")
+        try! arguments.push(split.out)
+        stagetime_begin(StageTime.Link)
+        let status = driver_clang("sawc build", split.clang, &arguments)
+        stagetime_end(StageTime.Link)
+        return status
+    }
+    let lines = split.debug && mach_o
+    var real_dir = ""
+    var kept = ""
+    if lines {
+        real_dir = driver_output_directory(split.out)
+        if real_dir.len() == 0 {
+            return 1
+        }
+        let problem = driver_linker_problem(split.clang, split.out)
+        if problem.len() > 0 {
+            print("sawc build: {}", problem)
+            return 1
+        }
+        try! arguments.push("-Wl,-reproducible")
+        var prefix = StringBuilder()
+        try! prefix.append("-Wl,-oso_prefix,")
+        try! prefix.append(real_dir)
+        try! prefix.append("/")
+        try! arguments.push(prefix.build())
+        if not split.lto.equals("none") {
+            var units_dir = StringBuilder()
+            try! units_dir.append(driver_base_name(split.out))
+            try! units_dir.append(".units")
+            kept = driver_path(driver_path(real_dir, units_dir.build(), ""), "lto", "")
+            var path = StringBuilder()
+            try! path.append("-Wl,-object_path_lto,")
+            try! path.append(kept)
+            try! arguments.push(path.build())
+        }
+    }
+    driver_link_tail(&var arguments, &link, &objects)
+    stagetime_begin(StageTime.Link)
+    let linked = driver_clang("sawc build", split.clang, &arguments)
+    stagetime_end(StageTime.Link)
+    if linked != 0 || not lines {
+        return linked
+    }
+    let dsymutil = driver_clang_tool(split.clang, "dsymutil", split.out)
+    if dsymutil.len() == 0 {
+        return 1
+    }
+    var bundle = StringBuilder()
+    try! bundle.append(split.out)
+    try! bundle.append(".dSYM")
+    var symbols = Vector<String>()
+    try! symbols.push("--oso-prepend-path")
+    try! symbols.push(real_dir)
+    try! symbols.push(split.out)
+    try! symbols.push("-o")
+    try! symbols.push(bundle.build())
+    stagetime_begin(StageTime.Dsymutil)
+    let written = driver_tool("sawc build", "dsymutil", dsymutil, &symbols)
+    stagetime_end(StageTime.Dsymutil)
+    if written != 0 {
+        print("sawc build: dsymutil wrote no {}.dSYM, the line tables a debugger and the crash reporter read; -g0 builds without them", split.out)
+        return 1
+    }
+    if kept.len() > 0 {
+        return driver_remove_lto_objects(kept, split.lto)
+    }
+    0
+}
+
+// Removes the LTO objects a link kept at `kept` for dsymutil: under ThinLTO a
+// directory of them, under full LTO one object.
+func driver_remove_lto_objects(kept: String, lto: String) -> Int {
+    if lto.equals("full") {
+        return match File.remove(Path(s: kept)) {
+            case Ok(_) -> 0,
+            case Err(e) -> {
+                print("sawc build: cannot remove {}, the LTO object the .dSYM was written from: {}", kept, e)
+                1
+            }
+        }
+    }
+    let listed = Directory.list(Path(s: kept))
+    let entries = match listed {
+        case Ok(found) -> move found,
+        case Err(e) -> {
+            print("sawc build: cannot list {}, the LTO objects the .dSYM was written from: {}", kept, e)
+            return 1
+        }
+    }
+    var k = 0
+    while k < entries.len() {
+        let one = entries[k].as_string()
+        k = k + 1
+        match File.remove(Path(s: one)) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                print("sawc build: cannot remove {}, an LTO object the .dSYM was written from: {}", one, e)
+                return 1
+            }
+        }
+    }
+    match Directory.remove(Path(s: kept)) {
+        case Ok(_) -> 0,
+        case Err(e) -> {
+            print("sawc build: cannot remove {}: {}", kept, e)
+            1
+        }
+    }
+}
+
+// Runs every job of `jobs`, at most `workers` children at once: it starts
+// them in order up to the bound, then waits for the oldest and starts the
+// next, so nothing but child processes runs in parallel and sawc stays
+// single-threaded. Returns each job's outcome in job order, its time from its
+// start to its reaping, and a status of 1 for a job that could not run, once
+// the reason is printed.
+func driver_run_jobs(jobs: &Vector<DriverJob>, workers: Int) -> Vector<DriverDone> {
+    let count = jobs.len()
+    var children = Vector<Child>()
+    var started = Vector<time.Instant>()
+    var launched = Vector<Int>()
+    var out = Vector<DriverDone>()
+    var k = 0
+    while k < count {
+        try! out.push(DriverDone(job: k, status: 0, nanos: 0))
+        k = k + 1
+    }
+    var next = 0
+    var oldest = 0
+    while next < count || oldest < children.len() {
+        while next < count && children.len() - oldest < workers {
+            var command = Command(program: jobs[next].program)
+            var i = 0
+            while i < jobs[next].arguments.len() {
+                try! command.arg(jobs[next].arguments.get(i) ?? "")
+                i = i + 1
+            }
+            match command.spawn() {
+                case Ok(child) -> {
+                    try! children.push(move child)
+                    try! started.push(time.Instant.now())
+                    try! launched.push(next)
+                },
+                case Err(e) -> {
+                    print("sawc build: cannot run {}: {}", jobs[next].tool, e)
+                    out[next].status = 1
+                }
+            }
+            next = next + 1
+        }
+        if oldest < children.len() {
+            let job = launched[oldest]
+            let waited = children[oldest].wait()
+            out[job].nanos = started[oldest].elapsed().as_nanos() as Int
+            match waited {
+                case Ok(code) -> {
+                    if code != 0 {
+                        print("sawc build: {} exited {}", jobs[job].tool, code)
+                    }
+                    out[job].status = code as Int
+                },
+                case Err(e) -> {
+                    print("sawc build: cannot run {}: {}", jobs[job].tool, e)
+                    out[job].status = 1
+                }
+            }
+            oldest = oldest + 1
+        }
+    }
+    move out
+}
+
+// `time: NAME MS ms` on standard error, the milliseconds rounded to one
+// decimal, as `--time-stages` reports its steps.
+func driver_time_line(name: String, nanos: Int) unsafe {
+    let tenths = (nanos + 50_000) / 100_000
+    var text = StringBuilder()
+    try! text.append("time: ")
+    try! text.append(name)
+    try! text.append(" ")
+    try! text.append(tenths / 10)
+    try! text.append(".")
+    try! text.append(tenths % 10)
+    try! text.append(" ms\n")
+    let line = text.build()
+    if let bytes = line.c_string() {
+        __saw_rt_write_error(bytes, line.len())
+    }
+}
+
 // THE OBJECT COMPILE: the arguments clang compiles the module at `ll` to the
 // object `out` with, `-c -target TRIPLE SPEED [-fsanitize=address]
-// [FREESTANDING] -x ir LL -o OUT`, for the clang triple `triple`. The module's
-// attribute group already names its subtarget features and size level, which
-// clang reads from the IR. A `freestanding` object puts each function and
-// each global in a section of its own, so a kernel's `--gc-sections` link
-// drops what nothing reaches, and is not position-independent, since a
-// kernel is linked at the address its script names: `-ffunction-sections
-// -fdata-sections -fno-pic`.
+// [FREESTANDING] [-flto=LTO] -x ir LL -o OUT`, for the clang triple `triple`.
+// The module's attribute group already names its subtarget features and size
+// level, which clang reads from the IR. A `freestanding` object puts each
+// function and each global in a section of its own, so a kernel's
+// `--gc-sections` link drops what nothing reaches, and is not
+// position-independent, since a kernel is linked at the address its script
+// names: `-ffunction-sections -fdata-sections -fno-pic`. An `lto` of `thin`
+// or `full` writes a codegen unit's bitcode for the link to optimise.
 // ENTRY POINTS:
 //     driver_build
 //     driver_link_mach_o
 //     driver_runtime
-func driver_object_arguments(triple: String, speed: String, sanitize: Bool, freestanding: Bool, ll: String,
-                             out: String) -> Vector<String> {
+//     driver_split_build
+func driver_object_arguments(triple: String, speed: String, sanitize: Bool, freestanding: Bool, lto: String,
+                             ll: String, out: String) -> Vector<String> {
     var arguments = Vector<String>()
     try! arguments.push("-c")
     try! arguments.push("-target")
@@ -834,10 +1356,9 @@ func driver_object_arguments(triple: String, speed: String, sanitize: Bool, free
     if sanitize {
         try! arguments.push("-fsanitize=address")
     }
-    if freestanding {
-        try! arguments.push("-ffunction-sections")
-        try! arguments.push("-fdata-sections")
-        try! arguments.push("-fno-pic")
+    driver_freestanding_arguments(&var arguments, freestanding)
+    if not lto.equals("none") {
+        try! arguments.push(driver_lto_flag(lto))
     }
     try! arguments.push("-x")
     try! arguments.push("ir")
@@ -1206,7 +1727,7 @@ func driver_runtime(args: &Vector<String>) -> Int {
             print("sawc runtime: --out {} must be a directory that exists; sawc creates none", out_dir)
             return 1
         }
-        let arguments = driver_object_arguments(options.module_triple, speed, false, false, ll, object)
+        let arguments = driver_object_arguments(options.module_triple, speed, false, false, "none", ll, object)
         let compiled = driver_clang("sawc runtime", program, &arguments)
         if compiled != 0 {
             return compiled

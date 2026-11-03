@@ -12,6 +12,8 @@ import sawllvm.text.{ll_c_string, ll_quoted}
 import sawmir.model.{MirDiag, MirFuncKind}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItem, MonoItemKind, MonoProgram}
+// For the extension writing `decl_identity`.
+import sawresolve.dump.{res_sort_strings}
 import sawtarget.layout.{Target, TargetKind, TargetLayout}
 // For the extension answering `is_func_pointer`.
 import sawtypecheck.typeops.{TcClient}
@@ -408,6 +410,22 @@ public func ll_symbol(mono: &MonoProgram, k: Int) -> String {
     try! out.append(ll_quoted(mono.item_name(k)))
     try! out.append("\"")
     out.build()
+}
+
+// The symbol of static `d`'s global: its C symbol when it is exported, else
+// `static` and its identity, quoted.
+public func ll_static_symbol(mono: &MonoProgram, d: Int) -> String {
+    let exported = mono.dp.bc.mir.tc.export_symbols.get(d) ?? ""
+    var name = StringBuilder()
+    if exported.len() > 0 {
+        try! name.append("@\"")
+        try! name.append(ll_quoted(exported))
+    } else {
+        try! name.append("@\"static ")
+        try! name.append(ll_quoted(mono.dp.bc.mir.tc.res.decl_identity(d)))
+    }
+    try! name.append("\"")
+    name.build()
 }
 
 // The C symbol item `k` is defined under when it is an exported function's,

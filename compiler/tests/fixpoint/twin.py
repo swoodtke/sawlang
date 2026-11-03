@@ -34,8 +34,10 @@ WRITERS = ("build", "runtime")
 CLANG_TEMP_OBJECT = re.compile(rb"-[0-9a-f]{6}\.o\b")
 
 # `--time-stages` writes each step's wall time, which no two runs share; the
-# step names and their order are what the stages must agree on.
-STAGE_TIME = re.compile(rb"^(time: [a-z0-9 +]+ )[0-9]+\.[0-9] ms$", re.MULTILINE)
+# step names and their order are what the stages must agree on. A step name is
+# any text: a split build's `clang unit NAME` names a unit by its module
+# (`std.process`) or as `-program`.
+STAGE_TIME = re.compile(rb"^(time: [^\n]+ )[0-9]+\.[0-9] ms$", re.MULTILINE)
 
 
 def comparable_stderr(args, err):

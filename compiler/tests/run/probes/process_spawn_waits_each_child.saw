@@ -1,0 +1,34 @@
+// probe: stated
+// about: `Command.spawn` starts a child and returns, so a second starts while the first runs, and each `Child.wait` returns its own child's exit code; a program that cannot be executed is the spawn's `Err`, naming it (SL-955)
+// stage 0: its frozen std has no `Command.spawn`
+// speeds: -O0 -O2
+// prints: first exits 3
+// prints: second exits 5
+// prints: missing: launch "saw_probe_no_such_program" failed (not found)
+import std.process.{Child, Command}
+
+func started(code: Int) -> Child {
+    var c = Command(program: "/bin/sh")
+    try! c.arg("-c")
+    var script = StringBuilder()
+    try! script.append("sleep 0.1; exit ")
+    try! script.append(code)
+    try! c.arg(script.build())
+    try! c.spawn()
+}
+
+func main() {
+    var first = started(3)
+    var second = started(5)
+    print("first exits {}", try! first.wait())
+    print("second exits {}", try! second.wait())
+    let missing = Command(program: "saw_probe_no_such_program")
+    match missing.spawn() {
+        case Ok(child) -> {
+            var unexpected = move child
+            let _ = unexpected.wait()
+            print("missing: spawned")
+        },
+        case Err(e) -> print("missing: {}", e)
+    }
+}

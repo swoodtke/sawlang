@@ -250,7 +250,7 @@ def check_twin_stderr(failures, counts):
     """The twin makes a build's clang temporary object names equal, and a
     `--time-stages` build's step times, and only those: two link failures
     naming one stem with different random suffixes agree, two timed builds
-    naming the same steps agree, and different stems, different steps, or a
+    naming the same steps (a split build's units among them) agree, and different stems, different steps, or a
     build without the flag still differ."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fixpoint_twin", TWIN)
@@ -264,6 +264,11 @@ def check_twin_stderr(failures, counts):
         (["build", "--time-stages"], b"time: resolve 19.1 ms\ntime: total 361.6 ms\n",
          b"time: resolve 18.7 ms\ntime: total 359.0 ms\n", True),
         (["build", "--time-stages"], b"time: resolve 19.1 ms\n", b"time: typecheck 19.1 ms\n", False),
+        (["build", "--time-stages", "--codegen-units=module"],
+         b"time: split 3.2 ms\ntime: clang unit -program 40.3 ms\ntime: clang unit std.os_ops 12.0 ms\n",
+         b"time: split 2.9 ms\ntime: clang unit -program 77.4 ms\ntime: clang unit std.os_ops 11.4 ms\n", True),
+        (["build", "--time-stages", "--codegen-units=module"], b"time: clang unit std.process 12.0 ms\n",
+         b"time: clang unit std.file 12.0 ms\n", False),
         (["build"], b"time: resolve 19.1 ms\n", b"time: resolve 18.7 ms\n", False),
     ]
     for args, x, y, same in cases:

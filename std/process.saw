@@ -5,7 +5,9 @@
 //! It inherits this process's standard input, output and error and no other
 //! descriptor. Every failure names the program, and a program that cannot be
 //! executed is a failure of its own, so an exit status is always the child's.
-//! `wait` blocks the calling thread until the child exits and never suspends.
+//! `wait` blocks the calling thread until the child exits and never suspends;
+//! `spawn` starts the child and returns at once, and its `Child` is waited for
+//! the same way.
 //! `output` and `output_bytes` are cooperative: each parks the task on the
 //! child's pipe and on its exit, so siblings run for the child's whole life.
 //! `env` sets a variable in the child's environment only. A `Command` holds no
@@ -228,13 +230,19 @@ extension Command {
     /// argument holding a NUL byte, which no argument vector can carry, or a
     /// variable `env` could not set (see `env`): `InvalidArgument`.
     public func wait(&self) unsafe -> Result<Int32, SystemError> {
-        let flags = self.redirection(false)
-        let job = try self.spawned(flags)
-        let status = process_reaped(job)
-        if status < 0 {
-            return SystemError.of("wait", 0 - status, self.program)
-        }
-        process_exit_code(status)
+        var child = try self.spawn()
+        child.wait()
+    }
+
+    /// Starts the program and returns at once, with the `Child` that waits
+    /// for it.
+    ///
+    /// The child runs alongside this process until its `wait`, so several can
+    /// run at once. Returns the `Err(SystemError)` `wait()` returns for a
+    /// program that cannot be run.
+    public func spawn(&self) unsafe -> Result<Child, SystemError> {
+        let job = try self.spawned(self.redirection(false))
+        Child(job: job, program: self.program, waited: false)
     }
 
     /// Runs the program and captures its standard output, parking the task
@@ -684,3 +692,44 @@ func process_holds_nul(text: String) -> Bool {
 }
 
 extension Command: NoCopy {}
+
+/// A child process `Command.spawn` started, which runs until `wait` reaps it.
+///
+/// A `Child` cannot be copied, so exactly one place owns its wait, and every
+/// one is waited for: dropping one before its `wait` panics, naming the
+/// program, since a child nobody waits for would be left a zombie.
+public struct Child {
+    private job: Int
+    private program: String
+    // Set once `wait` has reaped the child, whose job is gone then.
+    private waited: Bool
+}
+
+extension Child {
+    /// Blocks the calling thread until the child exits, and returns its exit
+    /// code, as `Command.wait` reports it.
+    ///
+    /// Returns `Err(SystemError)` naming the program when the wait fails.
+    /// Waiting a second time panics: the child was reaped by the first.
+    public func wait(&var self) unsafe -> Result<Int32, SystemError> {
+        if self.waited {
+            panic("Child.wait: the child `{}` was already waited for", self.program)
+        }
+        self.waited = true
+        let status = process_reaped(self.job)
+        if status < 0 {
+            return SystemError.of("wait", 0 - status, self.program)
+        }
+        process_exit_code(status)
+    }
+}
+
+// The language writes a fate for `Thread` and `Task` handles only, so an
+// unwaited child is caught here, when it is dropped.
+extension Child: NoCopy {
+    func deinit(&var self) {
+        if not self.waited {
+            panic("Child: the child `{}` was dropped without being waited for", self.program)
+        }
+    }
+}
