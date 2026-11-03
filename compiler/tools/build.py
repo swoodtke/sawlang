@@ -217,14 +217,21 @@ def clang_tool(clang, name):
     return r.stdout.strip() or name
 
 
+def driver_arguments(compiler, out, opt="-O2", extra=()):
+    """The argv that has `compiler` build the driver into `out` at `opt`, run
+    from `REPO`; `extra` flags follow `build`. `link_driver` and the compile
+    benchmark (tools/bench_compile.py) both take it from here."""
+    return ([compiler, "build"] + list(extra) + [opt, "--std-root", "std"] + package_arguments(REPO)
+            + [os.path.relpath(DRIVER_ENTRY, REPO), "-o", out])
+
+
 def link_driver(compiler, out):
     """The driver built and linked into `out` at -O2 by the sawc binary
     `compiler`, which reads the runtime manifest beside itself; the error
     text, or "" when it linked. Stage 2 and Stage 3 are both linked here, so
     the fixpoint compares two links made the same way."""
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    r = subprocess.run([compiler, "build", "-O2", "--std-root", "std"] + package_arguments(REPO)
-                       + [os.path.relpath(DRIVER_ENTRY, REPO), "-o", out], cwd=REPO,
+    r = subprocess.run(driver_arguments(compiler, out), cwd=REPO,
                        capture_output=True, text=True, timeout=LINK_TIMEOUT)
     if r.returncode != 0:
         return (r.stdout + r.stderr).strip()[-600:] or "it exited %d" % r.returncode

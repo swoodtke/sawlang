@@ -596,6 +596,23 @@ being tracked: it used to be an untracked scratch file each session rewrote
 from prose, and a gate list nobody can diff is a gate list that quietly loses
 an entry.
 
+### The compile-time benchmark (not a stage)
+
+```bash
+./.venv/bin/python tools/bench_compile.py --runs 3 --json .build/bench/run.json
+```
+
+Run by hand, beside the battery and outside it. It builds five fixed programs
+with `sawc build --time-stages`: sawc itself at -O2 and at -O0, Blade at -O2,
+`compiler/tests/run/hello.saw` at -O0, and the largest corpus program at -O0.
+It holds the suite lock, since the numbers mean nothing while something else
+compiles (`--no-lock` skips it, and the header says so), and prints a Markdown
+table of per-step medians, a header naming the commit, the machine and the
+load, and a warning when the load is above half the cores. Post the table to
+SL-955 as a comment headed "SL-955 benchmark: STEP (main COMMIT)", so the
+speed-up work stays measured over time. `tools/test_bench_compile.py` pins the
+table and the argument lists.
+
 ### The citations stage — the files nothing compiles
 
 ```bash

@@ -86,13 +86,19 @@ def run(argv, timeout, cwd=REPO, env=None):
     return code, out or ""
 
 
+def blade_build_arguments(out, compiler=None, flags=()):
+    """The argv that has `compiler` (default `build.SAWC`) build Blade into
+    `out`; `flags` follow `build`. The compile benchmark shares it."""
+    argv = [compiler or build.SAWC, "build"] + list(flags) + [os.path.join(BLADE_DIR, "src", "main.saw"), "-o", out]
+    for name, directory in MODULE_PATHS:
+        argv += ["--module-path", "%s=%s" % (name, directory)]
+    return argv
+
+
 def build_blade():
     """Compile Blade with sawc into `BLADE_BINARY`: (ok, output)."""
     os.makedirs(WORK_DIR, exist_ok=True)
-    argv = [build.SAWC, "build", os.path.join(BLADE_DIR, "src", "main.saw"), "-o", BLADE_BINARY]
-    for name, directory in MODULE_PATHS:
-        argv += ["--module-path", "%s=%s" % (name, directory)]
-    code, out = run(argv, BUILD_TIMEOUT_S)
+    code, out = run(blade_build_arguments(BLADE_BINARY), BUILD_TIMEOUT_S)
     return code == 0, out
 
 
