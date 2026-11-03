@@ -1993,13 +1993,44 @@ extension TcProgram {
 
 
     // A construct the bootstrap slice does not type yet: refused by name,
-    // never mis-typed.
+    // never mis-typed. Refused once however many paths reach it: resolve may
+    // have refused the node already, and a repeat count is both typed and
+    // folded (typecheck lane: no `ERROR` line twice in one record).
     public func not_in_slice(&var self, id: Int, alt: Alt) {
         var msg = StringBuilder()
         try! msg.append("`")
         try! msg.append(alt_name(alt))
         try! msg.append("` is not in the bootstrap slice yet")
-        self.refuse(id, "slice.not-yet", msg.build())
+        let text = msg.build()
+        if not self.slice_refusal_stands(id, text) {
+            self.refuse(id, "slice.not-yet", text)
+        }
         try! self.skipped.push(id)
+    }
+
+    // Whether resolve or this stage already refused node `id` of the module
+    // being checked as outside the slice, with `message`.
+    func slice_refusal_stands(&self, id: Int, message: String) -> Bool {
+        let m = self.current
+        let n = self.res.nodes[id]
+        var k = 0
+        while k < self.res.diags.len() {
+            let d = self.res.diags[k]
+            let here = d.module == m && d.start == n.start && d.end == n.end
+            if here && d.id.equals("slice.not-yet") && d.message.equals(message) {
+                return true
+            }
+            k = k + 1
+        }
+        k = 0
+        while k < self.diags.len() {
+            let d = self.diags[k]
+            let here = d.module == m && d.start == n.start && d.end == n.end
+            if here && d.id.equals("slice.not-yet") && d.message.equals(message) {
+                return true
+            }
+            k = k + 1
+        }
+        false
     }
 }

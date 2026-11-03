@@ -1,0 +1,12 @@
+// refuses: slice.not-yet at 10:30
+// a `$0` parameter, which resolve refuses and the body's typing reaches again:
+// one refusal, reported once (SL-958)
+
+func apply(x: Int, f: (Int) -> Int) -> Int {
+    f(x)
+}
+
+func main() {
+    let r = apply(x: 5, f: { $0 * 2 })
+    print(r)
+}

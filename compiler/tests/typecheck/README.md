@@ -935,8 +935,9 @@ Every body construct in the slice, and how it is typed:
 | an optional chain read, `a?.b`, and a call through `?.` in an optional assignment's target | `slice.not-yet` (`syntax.expr.optional-member`) |
 | a `try` block whose `try`s propagate more than one error type, which its `error` holds as their union | `slice.not-yet` (error-union) |
 | a `try(as ...)` route | `slice.not-yet` (the alternative) |
-| an open range, `a..` or `..b` | `slice.not-yet` (the alternative) |
+| an open range, `a..` or `..b` | `slice.not-yet` (the alternative); as a repeat count, refused once (repeat-count-range) |
 | `for borrow`, `while borrow`, `move *p` | `slice.not-yet` (the alternative) |
+| a `$0` shorthand parameter | resolve's `slice.not-yet`, refused once (shorthand-parameter) |
 | `break` with a value | `slice.not-yet` (`syntax.stmt.break`) |
 | a method or static method named without its call | `slice.not-yet` (`syntax.expr.member`) |
 | a call of a type parameter with arguments, `T(x)` | `slice.not-yet` (`syntax.expr.call`) |
@@ -1624,7 +1625,10 @@ of several positions. A fixture's first line is
 // refuses: RULE at L:C
 ```
 
-and its first `ERROR` must carry that rule at that position. The second line
+and its first `ERROR` must carry that rule at that position. No refusal or
+golden record holds one `ERROR` line twice: a refusal of one node with one
+message is reported once, however many paths reach the node (resolve's walk
+and this stage's, or a repeat count's typing and its fold). The second line
 says what the fixture shows. A `// message: TEXT` line in the leading comment
 requires that first refusal's message to hold TEXT, which is how a fixture pins
 its fixit.

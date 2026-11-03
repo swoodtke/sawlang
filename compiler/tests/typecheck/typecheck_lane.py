@@ -17,6 +17,7 @@ directory specifies:
   position its `// refuses:` header names, checked with the flags a second
   line `// flags: ...` passes (`--runtime`, for a runtime's seams), and that
   refusal's message holds each `// message:` line of its leading comment;
+- no golden or refusal record holds one `ERROR` line twice;
 - each warning fixture, `warn/NAME.saw`, draws the `-W borrow-prefix`
   warnings its `// warns: N` header counts, holding each `// message:`
   line, and `sawc fix` rewrites it to `warn/NAME.fixed`, which warns no
@@ -26,6 +27,7 @@ directory specifies:
   with no refusal;
 - no record anywhere carries an `INVARIANT` line from either verifier.
 """
+import collections
 import glob
 import os
 import re
@@ -156,6 +158,15 @@ def module_names(record):
     return [line[len("(Module "):] for line in record.split("\n") if line.startswith("(Module ")]
 
 
+def repeated_errors(record):
+    """One sentence per `ERROR` line `record` holds more than once: one
+    refusal of one node, with one message, is reported once, however many
+    paths reach it. Several lines of one rule at different positions or with
+    different messages are distinct refusals and are not repeats."""
+    seen = collections.Counter(line for line in record.split("\n") if line.startswith("ERROR\t"))
+    return ["the refusal %r is reported %d times" % (line, n) for line, n in seen.items() if n > 1]
+
+
 def check_golden(failures, counts, write):
     groups = {}
     for src, exp in golden_cases():
@@ -177,6 +188,8 @@ def check_golden_group(failures, counts, write, flags, cases):
         if os.path.splitext(os.path.basename(src))[0] not in module_names(record):
             failures.append("typecheck golden %s: the record holds no dump of its entry module" % rel(src))
             continue
+        for repeat in repeated_errors(record):
+            failures.append("typecheck golden %s: %s" % (rel(src), repeat))
         if write:
             with open(exp, "w") as fh:
                 fh.write(record)
@@ -274,6 +287,8 @@ def check_refusals(failures, counts, fill):
             continue
         rule, at = m.group(1), m.group(2)
         named.add(rule)
+        for repeat in repeated_errors(record):
+            failures.append("typecheck refusal %s: %s" % (rel(path), repeat))
         if found is None:
             failures.append("typecheck refusal %s: expected %s, nothing refused"
                             % (rel(path), rule))
