@@ -21,7 +21,8 @@ directory specifies:
   `golden/NAME.borrowck`, which carries no `ERROR` or `INVARIANT` line and
   leaves out the `std.` modules' dumps;
 - each refusal fixture, `refuse/RULE.saw` or `refuse/RULE.VARIANT.saw`, is
-  refused first by RULE at the position its `// refuses:` header names, with
+  refused first by RULE at the position its `// refuses:` header names, and
+  by no rule on more than one `ERROR` line, with
   no `INVARIANT` line under `sawc borrowck` nor under `sawc mir`, and every
   rule the borrow check refuses by (`borrowck_rules` in
   `compiler/borrowck/src/check.saw`) has a fixture; a due fixture, headed
@@ -357,13 +358,32 @@ def check_golden(failures, counts, write):
         counts["borrowck golden cases"] = counts.get("borrowck golden cases", 0) + 1
 
 
-def first_error(record):
+def record_errors(record):
+    """[(rule, "L:C")] for each `ERROR` line of `record`, in order."""
+    out = []
     for line in record.split("\n"):
         if line.startswith("ERROR\t"):
             fields = line.split("\t")
             _, row, col = fields[2].rsplit(":", 2)
-            return fields[1], "%s:%s" % (row, col)
-    return None
+            out.append((fields[1], "%s:%s" % (row, col)))
+    return out
+
+
+def first_error(record):
+    errors = record_errors(record)
+    return errors[0] if errors else None
+
+
+def repeated_rules(record):
+    """One sentence per rule `record` refuses by on more than one `ERROR`
+    line, naming each position: a refusal fixture is one conflict per rule,
+    so a second line of a rule is that conflict refused again, at its own
+    position or another."""
+    at = collections.OrderedDict()
+    for rule, position in record_errors(record):
+        at.setdefault(rule, []).append(position)
+    return ["%s is refused %d times, at %s" % (rule, len(where), ", ".join(where))
+            for rule, where in at.items() if len(where) > 1]
 
 
 def write_header(path, found):
@@ -425,6 +445,9 @@ def check_refusals(failures, counts, fill):
                                 % (rel(path), rule, at, found[0], found[1]))
         elif not due:
             covered.add(rule)
+        if not due:
+            for repeat in repeated_rules(record):
+                failures.append("borrowck refusal %s: %s" % (rel(path), repeat))
         # The borrow check is the one that refuses: the stages before it
         # accept the fixture, and no verifier finds a problem in it.
         for line in record.split("\n"):

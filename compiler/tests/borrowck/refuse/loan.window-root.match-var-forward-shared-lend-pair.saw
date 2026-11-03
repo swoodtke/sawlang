@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 54:17
+// refuses: loan.window-root at 54:29
 // a forwarding accessor `(&var self) borrows -> &E` whose `match` arm lends
 // its `var` payload onward reaches the inner accessor's exclusive form through
 // an accessor with a hand-written `&self` half, so a second lend of the inner

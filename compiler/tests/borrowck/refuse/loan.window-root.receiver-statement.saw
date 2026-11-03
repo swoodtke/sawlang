@@ -1,0 +1,33 @@
+// refuses: loan.window-root at 26:9
+// a write through an accessor inside a named shared window on the same root,
+// in a statement that starts at the receiver: the second window's receiver
+// and its root charge meet the first window's loan, refused once (SL-957)
+enum State { case Free, case Live }
+
+struct Slot {
+    state: State
+    n: Int
+}
+
+struct Both {
+    a: [Slot; 4]
+}
+
+extension Both {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Slot {
+        lend self.a[i]
+    }
+}
+
+func named_shared() -> Int {
+    var t = Both(a: [Slot(state: State.Live, n: 1); 4])
+    borrow let s = t[1] {
+        t[2].n = s.n
+    }
+    t[2].n
+}
+
+func main() {
+    print("{}", named_shared())
+}

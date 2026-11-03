@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 17:9
+// refuses: loan.window-root at 17:24
 // a cell-carrying `&self` accessor lending `&var` in the middle of a chain
 // charges its root exclusively even under `borrow let`, and so does every hop
 // it is nested in: a second chain through the root would reach the same cell

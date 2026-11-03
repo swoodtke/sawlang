@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 43:13
+// refuses: loan.window-root at 43:24
 // a `var` arm beside a `let` arm through an accessor with a
 // `@synthesize(shared)` form takes the exclusive form, so a second lend of the
 // root inside the arm conflicts with its window, and growing the payload

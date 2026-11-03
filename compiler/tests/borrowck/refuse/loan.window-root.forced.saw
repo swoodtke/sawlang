@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 27:30
+// refuses: loan.window-root at 27:35
 // a place reached through a forced conditional lend charges its root as any
 // window does (conformance X41, the `!` head)
 

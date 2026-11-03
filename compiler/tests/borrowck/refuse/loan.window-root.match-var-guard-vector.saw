@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 32:13
+// refuses: loan.window-root at 32:24
 // a guarded `var` arm through std `Vector.find`, whose shared form
 // `@synthesize(shared)` derives takes the exclusive form, so a second lend of
 // the root inside the arm conflicts with its window, and growing the payload

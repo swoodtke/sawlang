@@ -1,0 +1,24 @@
+// refuses: loan.closure-carrier at 22:48
+// a `[&var r]` closure beside a lend of `r[1]` passed by `&var` in one call:
+// the window's receiver and its root charge meet the closure's loan, refused
+// once, at the subscript rather than at the `&var` (SL-957)
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func later(f: () -> Void, a: &var Int) {
+    f()
+    a = 5
+}
+
+func main() {
+    var r = Row(cells: [1, 2, 3, 4])
+    later({ [&var r] in r.cells[0] = 2 }, &var r[1])
+    print(r.cells[0])
+}

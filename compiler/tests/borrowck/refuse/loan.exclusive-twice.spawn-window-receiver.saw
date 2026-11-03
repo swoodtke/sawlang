@@ -1,0 +1,26 @@
+// refuses: loan.exclusive-twice at 24:5
+// a write through an accessor on a root a spawned task borrows until its
+// join: the window's receiver and its root charge meet the spawn's loan,
+// refused once, at the subscript (SL-957)
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func fill(r: &var Row) -> Int {
+    r.cells[0] = 1
+    1
+}
+
+func main() {
+    var r = Row(cells: [1, 2, 3, 4])
+    var group = TaskGroup()
+    let h = group.spawn(fill(&var r))
+    r[1] = 5
+    print(h.join())
+}

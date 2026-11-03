@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 42:13
+// refuses: loan.window-root at 42:24
 // a `match` arm's `var` payload over a conditional lend through an accessor
 // with a `@synthesize(shared)` form takes the exclusive form, so a second lend
 // of the root inside the arm conflicts with its window, and growing the

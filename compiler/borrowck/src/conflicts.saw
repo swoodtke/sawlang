@@ -567,12 +567,14 @@ extension BorrowckProgram {
         self.check_access(f, &a, call, &inits, at, &var facts, &live, &created, &open, &var reported)
     }
 
-    // Access `a`, made by instruction `at`, against every live loan on an
+    // Access `made`, made by instruction `at`, against every live loan on an
     // overlapping place, the loans the arguments of window call `skip`
-    // carry excepted; the first conflict is reported, once per source node.
-    func check_access(&var self, f: Int, a: &BorrowckAccess, skip: Int, inits: &MirInit, at: BorrowckSite,
+    // carry excepted; the first conflict is reported, once per source node,
+    // the one `reported_access` picks.
+    func check_access(&var self, f: Int, made: &BorrowckAccess, skip: Int, inits: &MirInit, at: BorrowckSite,
                       facts: &var BorrowckLoans, live: &Vector<Int>, created: &Vector<Int>, open: &Vector<Int>,
                       reported: &var Vector<Int>) {
+        let a = self.reported_access(f, &made, at)
         if a.path.count < 0 || borrowck_seen(&reported, a.node) {
             return
         }
@@ -615,6 +617,28 @@ extension BorrowckProgram {
         } else if found >= 0 {
             self.report_conflict(f, &a, found, &var facts, &var reported)
         }
+    }
+
+    // Access `a`, made by instruction `at`, with the node a conflict it meets
+    // is reported and deduplicated at. The receiver reference of a window
+    // open takes the open's call node: the open's root charge
+    // (`check_window_charge`) meets the same loans at that call, so the two
+    // report once, where the window opens. Every other access keeps its own
+    // node. The rules that read what a statement is (`held_reference`, the
+    // call sets, the assignments) take the statement's node, never this one.
+    //
+    // ENTRY POINTS:
+    //     check_access
+    func reported_access(&self, f: Int, a: &BorrowckAccess, at: BorrowckSite) -> BorrowckAccess {
+        let s = self.instruction_stmt(f, at.b, at.i)
+        if s >= 0 && self.mir.stmts[s].place >= 0 && self.mir.stmts[s].rvalue >= 0 &&
+                self.mir.rvalues[self.mir.stmts[s].rvalue].kind == MirRvalueKind.Ref {
+            let call = self.receiver_open(f, s)
+            if call >= 0 {
+                return BorrowckAccess(kind: a.kind, path: a.path, node: self.mir.calls[call].node, closing: false)
+            }
+        }
+        BorrowckAccess(kind: a.kind, path: a.path, node: a.node, closing: a.closing)
     }
 
     // Whether access `a` is the drop of spawn loan `loan`'s group, which
@@ -1000,6 +1024,16 @@ extension BorrowckProgram {
     // The window whose open takes statement `s`'s destination as an
     // argument, or -1.
     func receiver_window(&self, f: Int, s: Int) -> Int {
+        let call = self.receiver_open(f, s)
+        if call < 0 {
+            return -1
+        }
+        self.mir.calls[call].window
+    }
+
+    // The window-open call that takes statement `s`'s destination as an
+    // argument, or -1.
+    func receiver_open(&self, f: Int, s: Int) -> Int {
         let l = self.bare_local_of(self.mir.stmts[s].place)
         if l < 0 {
             return -1
@@ -1020,7 +1054,7 @@ extension BorrowckProgram {
             while k < c.arg_count {
                 let o = self.mir.operands[self.mir.lists[c.arg_first + k]]
                 if o.place >= 0 && self.bare_local_of(o.place) == l {
-                    return c.window
+                    return block.call
                 }
                 k = k + 1
             }

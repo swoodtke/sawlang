@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 47:13
+// refuses: loan.window-root at 47:25
 // a `var` payload over a forced conditional lend through an accessor with a
 // hand-written `&self` half takes the exclusive form, so a second lend of the
 // root inside the arm conflicts with its window, and growing the payload

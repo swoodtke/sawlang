@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 43:13
+// refuses: loan.window-root at 43:25
 // a `var` payload nested in a pattern over a conditional lend through an
 // accessor with a `@synthesize(shared)` form takes the exclusive form, so a
 // second lend of the root inside the arm conflicts with its window, and

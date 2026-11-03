@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 12:21
+// refuses: loan.window-root at 12:26
 // two unnamed lends of one root passed by `&var` to one call: each window is
 // the statement's, and they are checked together (SL:borrowing §12.1)
 

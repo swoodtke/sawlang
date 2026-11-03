@@ -1,0 +1,27 @@
+// refuses: loan.read-while-exclusive at 23:15
+// a shared lend passed by `&` from an accessor on a root a `borrow var` of
+// its field holds: the window's receiver and its root charge meet the one
+// loan, refused once, at the subscript rather than at the `&` (SL-957)
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    @synthesize(shared)
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func show(n: &Int) {
+    print(n)
+}
+
+func main() {
+    var r = Row(cells: [1, 2, 3, 4])
+    borrow var c = r.cells[0] {
+        show(&r[1])
+        c = 9
+    }
+    print(r.cells[0])
+}

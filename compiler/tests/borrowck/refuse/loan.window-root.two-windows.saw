@@ -1,4 +1,4 @@
-// refuses: loan.window-root at 23:28
+// refuses: loan.window-root at 23:33
 // two exclusive windows on one root in one call (conformance X16, X20, X30)
 
 struct Pair { a: Int, b: Int }

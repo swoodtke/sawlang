@@ -1,0 +1,22 @@
+// refuses: loan.exclusive-twice at 18:9
+// a write through an accessor on a root a `borrow var` of its field holds:
+// the window's receiver and its root charge meet the one loan, refused once,
+// at the subscript (SL-957)
+struct Row {
+    cells: [Int; 4]
+}
+
+extension Row {
+    func [](&var self, i: Int) borrows -> &var Int {
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    var r = Row(cells: [1, 2, 3, 4])
+    borrow var c = r.cells[0] {
+        r[1] = 5
+        c = 9
+    }
+    print(r.cells[0])
+}
