@@ -20,7 +20,11 @@ directory specifies:
   rule its name starts with, checked with the flags a second line
   `// flags: ...` passes, that refusal's message holds each `// message:`
   line of its leading comment, and every rule mono refuses by (`mono_rules`
-  in `compiler/mono/src/worklist.saw`) has a fixture;
+  in `compiler/mono/src/worklist.saw`) has a fixture, and no fixture's
+  record holds one `ERROR` line twice;
+- each program in `backend/`, built by `sawc build --emit-ll`, is refused
+  first at its header's position by its header's rule, with each
+  `// message:` line held and no `ERROR` line twice;
 - each type of a layout table that Stage 0 can spell has Stage 0's size and
   alignment there, read off Stage 0's recorded run of a probe program
   (`stage0/HOST/NAME.stage0`, which `--stage0` writes through the v0
@@ -42,17 +46,20 @@ COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, os.path.join(TESTS, "borrowck"))
+sys.path.insert(0, os.path.join(TESTS, "typecheck"))
 sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
 import borrowck_lane  # noqa: E402
 import oracle  # noqa: E402
+import typecheck_lane  # noqa: E402
 
 # Stage 0's recorded runs of the layout probes, one directory per host
 # triple (README.md, "The lane").
 STAGE0 = os.path.join(HERE, "stage0")
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
+BACKEND = os.path.join(HERE, "backend")
 EXCEPTIONS = os.path.join(HERE, "layout_exceptions.tsv")
 RULES_SOURCE = os.path.join(COMPILER, "mono", "src", "worklist.saw")
 PROBES = os.path.join(REPO, ".build", "mono-lane")
@@ -246,6 +253,8 @@ def check_refusals(failures, counts):
         base = os.path.basename(path)
         if not (base == rule + ".saw" or base.startswith(rule + ".")):
             failures.append("mono refusal %s: the file is not named for %s" % (rel(path), rule))
+        for repeat in typecheck_lane.repeated_errors(got.get(rel(path), "")):
+            failures.append("mono refusal %s: %s" % (rel(path), repeat))
         if rule not in rules:
             failures.append("mono refusal %s: %s is no rule of mono_rules()" % (rel(path), rule))
         found = borrowck_lane.first_error(got.get(rel(path), ""))
@@ -268,6 +277,37 @@ def check_refusals(failures, counts):
         if rule not in covered:
             failures.append("mono rule %s: no refusal fixture names it" % rule)
     counts["mono rules"] = len(rules)
+
+
+def check_backend_refusals(failures, counts):
+    """Each program in `backend/`, built by `sawc build --emit-ll`, is refused
+    first at its header's position by its header's rule, that refusal's
+    message holds each `// message:` line, and no `ERROR` line repeats. The
+    backend refuses through mono's refusal, so these pin what that report
+    says of a refusal the backend makes inside a generic instance."""
+    for path in sorted(glob.glob(os.path.join(BACKEND, "*.saw"))):
+        with open(path) as fh:
+            header = _HEADER.match(fh.readline().rstrip("\n"))
+        if header is None:
+            failures.append("mono backend refusal %s: no `// refuses: RULE at L:C` header" % rel(path))
+            continue
+        r = subprocess.run([build.SAWC, "build", "--emit-ll", rel(path)], cwd=REPO, capture_output=True,
+                           text=True, timeout=TIMEOUT)
+        record = borrowck_lane.records(r.stdout).get(rel(path), "")
+        found = borrowck_lane.first_error(record)
+        want = (header.group(1), header.group(2))
+        if found != want:
+            failures.append("mono backend refusal %s: expected %s at %s first, got %s"
+                            % (rel(path), want[0], want[1], "nothing" if found is None else "%s at %s" % found))
+        else:
+            message = first_message(record)
+            for text in fixture_messages(path):
+                if text not in message:
+                    failures.append("mono backend refusal %s: the message does not hold %r: %s"
+                                    % (rel(path), text, message))
+        for repeat in typecheck_lane.repeated_errors(record):
+            failures.append("mono backend refusal %s: %s" % (rel(path), repeat))
+        counts["mono backend refusals"] = counts.get("mono backend refusals", 0) + 1
 
 
 def read_exceptions():
@@ -435,6 +475,7 @@ def run(write=False):
     check_target_layouts(failures, counts)
     check_own_targets(failures, counts, write)
     check_refusals(failures, counts)
+    check_backend_refusals(failures, counts)
     check_layouts(failures, counts)
     check_lowerings(failures, counts)
     return failures, counts

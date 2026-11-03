@@ -12,6 +12,8 @@ mono/
   golden/                 NAME.saw, a program; NAME.mono, its items; NAME.layouts,
                           its layout table
   refuse/                 RULE.saw or RULE.VARIANT.saw, a program refused
+  backend/                RULE.VARIANT.saw, a program the backend refuses
+                          through mono's refusal
   layout_exceptions.tsv   a type whose layout differs from Stage 0's, and why
   stage0/                 Stage 0's recorded runs of the layout probes (see "The lane")
 ```
@@ -328,7 +330,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a cell the member glue table refuses though typecheck grants the bound, `Bool`'s `compare` or a raw pointer's `equals` (SL-715), a call of a body this program does not lower, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a cell the member glue table refuses though typecheck grants the bound, `Bool`'s `compare` or a raw pointer's `equals` (SL-715), a call of a body this program does not lower, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, `mono.not-yet.generic-instances`, `mono.not-yet.task-root-instance` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `synthesize.unmet-member` | a `@synthesize`d `Equatable`, `Comparable` or `Hashable` whose member glue asks a part that nothing meets: a member type with no conformance, or one the spec gives none (a struct's or an enum's `compare` no conformance writes, a payload-carrying enum's unwritten `equals` or `hash`, a tuple's, an Optional's or a fixed array's `compare`), reached through any Optional, fixed array or tuple glue between the derivation and the member. A derivation nothing reaches is legal (spec, Equality), so it is refused where something first reaches it: at the outermost call the program writes on the chain of instantiations that reached the derived glue, naming the derived type, the member, its type, the trait, any outer derived type it is reached through, and the generic instantiation that call made (SL-941). Any Optional's `== None` reads the tag alone and reaches nothing (SL-945); an Optional's `==` against another Optional reaches the payload's derivation | `.equatable-field`, `-ne`, `-generic`, `-optional-holder`, `-array-holder`, `-tuple-holder`, `.equatable-optional-field`, `-array-field`, `-payload`, `-nested`; the `.comparable-` rows with `-ge`, `-sort`, `-generic`; the `.hashable-` rows with `-set`, `-generic`, `-optional-holder`; the run probe `derived_unmet_member_unreached` builds the derivations nothing reaches, and `none_comparison_presence` compares such Optionals with `None` |
 | `static_assert.failed` | a deferred `static_assert` false at an instantiation of the function holding it: one measuring a type parameter's layout, one naming a const parameter, which folds to the instance's value, or both; one whose condition faults at the instance (a shift by the value out of range) fails too (SL:open-questions D40; SL-548) | `static_assert.failed`, `.const-parameter`, `.const-and-layout`, `.const-fault` |
@@ -341,6 +343,21 @@ nearest call the program writes on the chain of items that reached it
 (each item's origin and the node there), its message naming the std
 position, since that call is the one the program's author can change; the
 backend's `backend.not-yet` refusals go through the same funnel.
+
+A refusal made while deciding a function item at concrete arguments, a
+generic's instance, ends with the clause (in the instantiation `NAME`), so
+each instance of one generic reports its own line at the source node they
+share; a refusal made outside any instance names none. NAME is the instance
+as a reader writes it (`instance_text`): the function's declared name with
+its own type arguments, `line_of<Int>`, after its receiver type for a method,
+`std.map.Map<K, V, std.alloc.GlobalAllocator>.insert` at its arguments, or
+after `Self` for a trait's default body; a closure reads as the function
+enclosing it, and the types are spelled as everywhere else (`type_text`).
+Several items of one instance (its task root, its thread copy, an accessor's
+halves) report its refusal once (`mono.not-yet.task-root-instance`).
+Coroutine lowering's refusals end the same way, a task root's frame check
+naming the root's instance, and the backend's too
+(`mono.not-yet.generic-instances`, `backend/backend.not-yet.generic-instances`).
 
 Unbounded instantiation (polymorphic recursion) is ruled to be refused before
 mono, by a check on the generic call graph (SL:architecture §3.8); that check
@@ -360,7 +377,10 @@ golden program's `--layouts` record for `aarch64-unknown-none-elf` equals its
 record for `aarch64-unknown-linux-gnu` (`SAME_LAYOUT_TARGETS`); that each
 fixture in `refuse/` is refused first at its header's position by the rule its
 name starts with, that refusal's message holding each `// message: TEXT` line
-of the fixture's leading comment, and every rule has a fixture; and that each type of a
+of the fixture's leading comment, and every rule has a fixture; that each
+program in `backend/`, built by `sawc build --emit-ll`, is refused first at its
+header's position by its header's rule, holding each `// message:` line; that
+no refusal record holds one `ERROR` line twice; and that each type of a
 layout table that Stage 0 can spell (not a reference, a function type, `Void`
 or `Never`) has Stage 0's size and alignment: the probe is the golden
 program with its `main` renamed and a new one printing `sizeof` and `alignof`

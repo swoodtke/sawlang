@@ -320,7 +320,7 @@ func coro_refuse_value(coro: &var CoroProgram, root: Int, item: Int, param: Bool
         try! msg.append(", so the task frame cannot cross to a worker thread.")
     }
     let node = coro.item_node(item)
-    coro.refuse(item, node, "coro.spawn-not-send", msg.build())
+    coro.refuse_within(item, root, node, "coro.spawn-not-send", msg.build())
 }
 
 // Refuses parameter `name` of item `item`, in root `root`'s frame, of

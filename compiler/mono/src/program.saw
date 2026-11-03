@@ -12,7 +12,13 @@ import sawmir.build.{mir_func_local}
 import sawmir.program.{MirProgram, mir_diag_message}
 import sawtypecheck.arith.{TcFault}
 import sawtypecheck.program.{TcProgram}
-import sawmir.model.{MirDiag, MirSuspend}
+import sawmir.model.{MirDiag, MirFuncKind, MirSuspend}
+import sawtypecheck.model.{TcLend}
+import sawtypecheck.spell.{tc_effects_text}
+import sawtypecheck.signatures.{TcContext}
+import sawresolve.lang.{ResLang}
+import sawtypecheck.bodydump.{tc_dump_bodies}
+import sawmir.dump.{mir_module_functions}
 import sawtypecheck.types.{TcKind}
 import sawparse.tree.{AstNode}
 import sawresolve.names.{ResIndex}
@@ -549,10 +555,215 @@ extension MonoProgram {
         self.closure_items[r] = item
     }
 
-    // Records a refusal at source node `node`. A node inside std is reported
-    // at the nearest call the program itself writes on the chain of items
-    // that reached it, the std position named in the message, since the
-    // program's author can change only that call.
+    // THE ITEM NAMING FUNNEL: item `k`'s name, which the dump, every later
+    // stage's records and every LLVM symbol of an item spell. It is its
+    // source function, glue type or extern, then what tells it apart from
+    // other items of that source, so two items never share a name and no
+    // symbol is defined twice (golden `names`). The backend's symbol spellers
+    // all go through it.
+    // ENTRY POINTS:
+    //     ll_symbol
+    //     ll_resume_symbol
+    //     ll_descriptor_symbol
+    //     ll_resume_value_symbol
+    //     ll_result_drop_symbol
+    //     instance_text
+    public func item_name(&self, k: Int) -> String {
+        let it = self.items[k]
+        var out = StringBuilder()
+        match it.kind {
+            case Function -> {
+                try! out.append(self.dp.bc.mir.func_name(it.source))
+                // Stage 0 workaround (SL:hazards S4): canonical: self.append_qualifiers(&var out, self.root_decl(it.source))
+                let decl = self.root_decl(it.source)
+                self.append_qualifiers(&var out, decl)
+                self.append_run(&var out, " args", it.args_first, it.args_count)
+                self.append_run(&var out, " inst", it.inst_first, it.inst_count)
+                if it.self_type >= 0 {
+                    try! out.append(" self ")
+                    try! out.append(self.dp.bc.mir.tc.type_text(it.self_type))
+                }
+                if self.is_task_root(k) {
+                    try! out.append(" task root")
+                }
+                if self.thread_keyed(k) {
+                    try! out.append(" thread")
+                }
+            },
+            case DropGlue -> {
+                try! out.append("drop glue ")
+                try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
+            },
+            case CopyGlue -> {
+                try! out.append("copy glue ")
+                try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
+            },
+            case MemberGlue -> {
+                try! out.append("member glue ")
+                try! out.append(self.dp.bc.mir.tc.target_text(it.decl))
+                try! out.append(" on ")
+                try! out.append(self.dp.bc.mir.tc.type_text(it.glue_type))
+            },
+            case Extern -> {
+                try! out.append("extern ")
+                let name = self.dp.bc.mir.tc.res.decls[it.decl].name
+                try! out.append(self.dp.bc.mir.tc.res.name_text(name))
+            }
+        }
+        out.build()
+    }
+
+    // The declaration source function `f` belongs to, a closure's being its
+    // enclosing function's; -1 for none.
+    func root_decl(&self, f: Int) -> Int {
+        var at = f
+        while self.dp.bc.mir.funcs[at].kind == MirFuncKind.Closure && self.dp.bc.mir.funcs[at].parent >= 0 {
+            at = self.dp.bc.mir.funcs[at].parent
+        }
+        self.dp.bc.mir.funcs[at].decl
+    }
+
+    // What the MIR dump's spelling of declaration `d` leaves out, wherever it
+    // could tell `d` from another declaration of that spelling: a lending
+    // member's receiver (an accessor's shared and exclusive pair), the type
+    // an extension of another module's type extends (two extended types of
+    // one name), and that a top-level function's module is a module when the
+    // module is named like a vocabulary declaration, whose members print with
+    // no module.
+    func append_qualifiers(&self, out: &var StringBuilder, d: Int) {
+        if d < 0 {
+            return
+        }
+        let info = self.dp.bc.mir.tc.res.decls[d]
+        let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init
+        if not callable {
+            return
+        }
+        let s = self.dp.bc.mir.tc.sigs[d]
+        if s.lending != TcLend.NotBorrows {
+            match s.receiver {
+                case Shared -> try! out.append(" receiver shared"),
+                case Exclusive -> try! out.append(" receiver exclusive"),
+                case Absent -> {}
+            }
+        }
+        if info.parent >= 0 && self.dp.bc.mir.tc.res.decls[info.parent].kind == ResDeclKind.Extension {
+            let extended = self.dp.bc.mir.tc.ext_target(info.parent)
+            if extended >= 0 && self.dp.bc.mir.tc.res.decls[extended].module != info.module {
+                try! out.append(" extends ")
+                try! out.append(self.dp.bc.mir.tc.nominal_name(extended))
+            }
+        }
+        if info.parent < 0 && self.names_vocabulary(info.module) {
+            try! out.append(" in module ")
+            try! out.append(self.dp.bc.mir.tc.res.module_name(info.module))
+        }
+    }
+
+    // Whether module `m` is outside the vocabulary and named like a top-level
+    // vocabulary declaration, so its `M.f()` reads as that declaration's
+    // member.
+    func names_vocabulary(&self, m: Int) -> Bool {
+        if self.dp.bc.mir.tc.res.is_vocabulary_module(m) {
+            return false
+        }
+        // Stage 0 workaround (SL:hazards S4): canonical: let id = self.dp.bc.mir.tc.res.names.find(self.dp.bc.mir.tc.res.module_name(m))
+        let name = self.dp.bc.mir.tc.res.module_name(m)
+        let id = self.dp.bc.mir.tc.res.names.find(name)
+        if id < 0 {
+            return false
+        }
+        let builtin = self.dp.bc.mir.tc.res.builtin
+        let prelude = self.dp.bc.mir.tc.res.std_prelude
+        self.dp.bc.mir.tc.res.top.first(builtin, id) >= 0 || self.dp.bc.mir.tc.res.top.first(prelude, id) >= 0
+    }
+
+    func append_run(&self, out: &var StringBuilder, word: String, first: Int, count: Int) {
+        if count == 0 {
+            return
+        }
+        try! out.append(word)
+        var j = 0
+        while j < count {
+            try! out.append(" ")
+            let t = self.item_types[first + j]
+            try! out.append(self.dp.bc.mir.tc.type_text(t))
+            j = j + 1
+        }
+    }
+
+    // The instantiation a refusal made while deciding item `k` names, as
+    // `instance_text` spells it: "" unless `k` is a function item at
+    // concrete arguments (`mir_diag_message`).
+    public func instance_name(&self, k: Int) -> String {
+        if k < 0 || k >= self.items.len() {
+            return ""
+        }
+        let it = self.items[k]
+        if it.kind != MonoItemKind.Function || (it.args_count == 0 && it.inst_count == 0 && it.self_type < 0) {
+            return ""
+        }
+        self.instance_text(k)
+    }
+
+    // Function item `k` as a reader writes the instance: the declared name
+    // with the function's own type arguments, `line_of<Int>`, after the
+    // receiver type for a method, `Box<Int>.get`. A closure reads as the
+    // function enclosing it. No module qualifier is owed: the instances
+    // reported at one node are of one declaration, told apart by arguments.
+    public func instance_text(&self, k: Int) -> String {
+        let it = self.items[k]
+        let d = self.root_decl(it.source)
+        if d < 0 {
+            return self.item_name(k)
+        }
+        let info = self.dp.bc.mir.tc.res.decls[d]
+        var out = StringBuilder()
+        if it.self_type >= 0 {
+            try! out.append(self.dp.bc.mir.tc.type_text(it.self_type))
+            try! out.append(".")
+        } else if info.parent >= 0 {
+            let parent = self.dp.bc.mir.tc.res.decls[info.parent]
+            var owner = -1
+            if parent.kind == ResDeclKind.Extension {
+                owner = self.dp.bc.mir.tc.ext_head_decl(info.parent)
+            } else if parent.kind == ResDeclKind.Struct || parent.kind == ResDeclKind.Enum {
+                owner = info.parent
+            }
+            if owner >= 0 {
+                try! out.append(self.dp.bc.mir.tc.nominal_name(owner))
+                self.append_arguments(&var out, it.args_first, it.args_count)
+                try! out.append(".")
+            }
+        }
+        try! out.append(self.dp.bc.mir.tc.res.name_text(info.name))
+        self.append_arguments(&var out, it.inst_first, it.inst_count)
+        out.build()
+    }
+
+    // A run of the item type pool as a type's argument list, `<Int, String>`;
+    // nothing for an empty run.
+    func append_arguments(&self, out: &var StringBuilder, first: Int, count: Int) {
+        if count == 0 {
+            return
+        }
+        try! out.append("<")
+        var j = 0
+        while j < count {
+            if j > 0 {
+                try! out.append(", ")
+            }
+            try! out.append(self.dp.bc.mir.tc.type_text(self.item_types[first + j]))
+            j = j + 1
+        }
+        try! out.append(">")
+    }
+
+    // Records a refusal at source node `node`, inside the current item's
+    // instance. A node inside std is reported at the nearest call the
+    // program itself writes on the chain of items that reached it, the std
+    // position named in the message, since the program's author can change
+    // only that call.
     public func refuse(&var self, node: Int, rule: String, message: String) {
         if node < 0 {
             try! self.problems.push(message)
@@ -582,7 +793,8 @@ extension MonoProgram {
         let am = self.dp.bc.mir.tc.node_module(at)
         let span = self.dp.bc.mir.tc.res.node(at)
         var d = MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text)
-        if let kept = mir_diag_message(&self.dp.bc.mir.tc.res, &self.diags, node, &d) {
+        let instance = self.instance_name(self.current)
+        if let kept = mir_diag_message(&self.dp.bc.mir.tc.res, &self.diags, node, &d, instance: instance) {
             d.message = kept
             try! self.diags.push(d)
         }

@@ -179,10 +179,15 @@ extension MirProgram {
     }
 }
 
-// THE MIR-FAMILY TWIN FILTER: the message refusal `d`, made at node `node`,
-// is reported with, or None. A refusal in a derived twin's body that its
-// accessor's own body already made at the same span is that refusal,
-// reported once; one only the twin makes says so (`res_twin_message`).
+// THE MIR-FAMILY REPORT FUNNEL: the message refusal `d`, made at node `node`,
+// is reported with, or None. A refusal made inside a generic function's
+// instance names it, `instance` being mono's reader spelling of it (empty
+// outside any, as before mono), since every instance reports at the one
+// source node they share; and is reported once per instance, though several
+// items may be one instance (its task root, its thread copy, an accessor's
+// halves). A refusal in a derived twin's body that its accessor's own body
+// already made at the same span is that refusal, reported once; one only the
+// twin makes says so (`res_twin_message`).
 //
 // ENTRY POINTS:
 //     MirProgram.not_yet
@@ -192,20 +197,48 @@ extension MirProgram {
 //     DropsProgram.refuse_fate
 //     EvalProgram.report_bare
 //     MonoProgram.refuse
-//     CoroProgram.refuse
-public func mir_diag_message(res: &ResProgram, diags: &Vector<MirDiag>, node: Int, d: &MirDiag) -> String? {
-    if node < 0 || res.twin_at(node) < 0 {
-        return d.message
+//     CoroProgram.refuse_within
+public func mir_diag_message(res: &ResProgram, diags: &Vector<MirDiag>, node: Int, d: &MirDiag,
+                             instance: String = "") -> String? {
+    var text = d.message
+    if instance.len() > 0 {
+        var named = StringBuilder()
+        try! named.append(text)
+        try! named.append(" (in the instantiation `")
+        try! named.append(instance)
+        try! named.append("`)")
+        text = named.build()
     }
+    if node >= 0 && res.twin_at(node) >= 0 {
+        if mir_diag_made(&diags, &d, None) {
+            return None
+        }
+        text = res_twin_message(text)
+    }
+    if instance.len() > 0 && mir_diag_made(&diags, &d, text) {
+        return None
+    }
+    text
+}
+
+// Whether `diags` holds a refusal by `d`'s rule at `d`'s span, with
+// `message` when one is given.
+func mir_diag_made(diags: &Vector<MirDiag>, d: &MirDiag, message: String?) -> Bool {
     var k = 0
     while k < diags.len() {
         let seen = diags[k]
         if seen.module == d.module && seen.start == d.start && seen.end == d.end && seen.id.equals(d.id) {
-            return None
+            if let text = message {
+                if seen.message.equals(text) {
+                    return true
+                }
+            } else {
+                return true
+            }
         }
         k = k + 1
     }
-    res_twin_message(d.message)
+    false
 }
 
 public func mir_program(tc: TcProgram) -> MirProgram {

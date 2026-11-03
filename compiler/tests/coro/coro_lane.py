@@ -26,6 +26,7 @@ directory specifies:
   `// message:` lines, and every rule coroutine lowering refuses by
   (`coro_rules` in `compiler/coro/src/suspends.saw`) has a fixture, or, for
   a rule no source program reaches (`INJECTED_RULES`), a unit program;
+- no golden or refusal record holds one `ERROR` line twice;
 - over every program of this lane, of the mono lane's goldens and of the run
   lane, coroutine lowering's frame decisions agree with typecheck's
   summaries wherever a summary is unconditional, and every frame is laid
@@ -50,9 +51,11 @@ COMPILER = os.path.dirname(TESTS)
 REPO = os.path.dirname(COMPILER)
 sys.path.insert(0, os.path.join(COMPILER, "tools"))
 sys.path.insert(0, os.path.join(TESTS, "borrowck"))
+sys.path.insert(0, os.path.join(TESTS, "typecheck"))
 
 import build  # noqa: E402
 import borrowck_lane  # noqa: E402
+import typecheck_lane  # noqa: E402
 
 GOLDEN = os.path.join(HERE, "golden")
 REFUSE = os.path.join(HERE, "refuse")
@@ -201,6 +204,8 @@ def check_golden(failures, counts, write, rules, mode, suffix, park_root, prefix
         if record is None:
             failures.append("coro golden %s: no %s record" % (rel(src), mode))
             continue
+        for repeat in typecheck_lane.repeated_errors(record):
+            failures.append("coro golden %s: %s" % (rel(src), repeat))
         if write:
             with open(exp, "w") as fh:
                 fh.write(record)
@@ -357,6 +362,8 @@ def check_refusals(failures, counts, rules):
         if rule not in rules:
             failures.append("coro refusal %s: %s is no rule of coro_rules()" % (rel(path), rule))
         record = got.get(rel(path), "")
+        for repeat in typecheck_lane.repeated_errors(record):
+            failures.append("coro refusal %s: %s" % (rel(path), repeat))
         found = errors(record)
         want = (rule, header.group(2))
         if not found or found[0][:2] != want:

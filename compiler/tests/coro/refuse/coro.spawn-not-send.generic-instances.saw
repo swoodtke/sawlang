@@ -1,0 +1,24 @@
+// refuses: coro.spawn-not-send at 12:1
+// message: (in the instantiation `waiter<coro.spawn-not-send.generic-instances.A>`)
+// A generic root spawned at two instances: each instance is refused at the
+// one declaration they share, and each refusal names its instance, so the two
+// lines differ.
+import std.task.*
+
+struct A {}
+
+struct B {}
+
+func waiter<F>(pool: &TaskGroup, form: F) -> Int {
+    yield_now()
+    1
+}
+
+func main() {
+    var pool = TaskGroup()
+    var group = TaskGroup()
+    let a = group.spawn(waiter(&pool, A()))
+    print(a.join())
+    let b = group.spawn(waiter(&pool, B()))
+    print(b.join())
+}

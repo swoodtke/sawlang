@@ -419,6 +419,13 @@ extension CoroProgram {
     // itself writes on the chain of items that reached `k`, with the std
     // position named in the message, as mono reports its own.
     public func refuse(&var self, k: Int, node: Int, rule: String, message: String) {
+        self.refuse_within(k, k, node, rule, message)
+    }
+
+    // `refuse`, for a refusal of item `k` that a decision about item
+    // `within` makes, whose instance it names: a task root's frame judges
+    // the children it embeds, which every instance of the root shares.
+    public func refuse_within(&var self, k: Int, within: Int, node: Int, rule: String, message: String) {
         if node < 0 {
             try! self.problems.push(message)
             return
@@ -447,7 +454,8 @@ extension CoroProgram {
         let am = self.mono.dp.bc.mir.tc.node_module(at)
         let span = self.mono.dp.bc.mir.tc.res.node(at)
         var d = MirDiag(module: am, start: span.start, end: span.end, id: rule, message: text)
-        if let kept = mir_diag_message(&self.mono.dp.bc.mir.tc.res, &self.diags, node, &d) {
+        let instance = self.mono.instance_name(within)
+        if let kept = mir_diag_message(&self.mono.dp.bc.mir.tc.res, &self.diags, node, &d, instance: instance) {
             d.message = kept
             try! self.diags.push(d)
         }
