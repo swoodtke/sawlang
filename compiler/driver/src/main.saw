@@ -55,26 +55,31 @@
 // INVARIANT line; a usage or I/O failure prints a message and exits 2. With no
 // `--std-root`, a command compiles against the `std/` of the sawlang tree this
 // binary was built in (`driver_std_root`), whatever the working directory.
+// Every command from `resolve` to `build`, `fix` and `runtime` starts from
+// std's front end brought through drop elaboration, read from the std front
+// cache when it holds it and stored there otherwise (`driver_front_cut`),
+// unless `--no-front-cache` or `SAWC_FRONT_CACHE=off` says otherwise.
 
-import sawasserts.layout.{asserts_typecheck_program}
-import sawborrowck.api.{BorrowckOptions, borrowck_record}
+import sawasserts.layout.{asserts_inputs, asserts_program_layer}
+import sawborrowck.api.{BorrowckOptions, BorrowckStart, borrowck_record_from}
 import sawcoro.api.{CoroOptions, coro_record}
 import sawcoro.bttable.{coro_bt_record}
-import sawdrops.api.{DropsOptions, drops_record, drops_record_status}
-import saweval.api.{EvalOptions, eval_record}
+import sawdrops.api.{DropsOptions, DropsStart, drops_record_from, drops_record_status}
+import saweval.api.{EvalOptions, EvalStart, eval_record_from}
 import sawlex.{LexResult, format_doc, format_error, format_token, kind_name, lex, token_kinds}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_enable, stagetime_end, stagetime_report}
 import sawllvm.api.{BuildOptions, llvm_build, llvm_build_exporting, llvm_build_split}
 import sawllvm.split.{ll_split}
 import sawllvm.units.{LlUnitPlan}
-import sawmir.api.{MirOptions, mir_record}
-import sawmono.api.{MonoOptions, mono_record}
+import sawmir.api.{MirOptions, mir_record_from}
+import sawmono.api.{MonoOptions, mono_front_std, mono_record}
+import sawmono.frontimage.{FRONT_IMAGE_FORMAT, FrontCut, front_image_decode, front_image_encode}
 import sawparse.api.{ParseOptions, parse_record}
 import sawparse.reader.{redump}
-import sawresolve.api.{ResolveOptions, resolve_record}
+import sawresolve.api.{ResolveOptions, ResolveStart, resolve_record_from}
 import sawtarget.layout.{TargetFeatureState, target_bare_metal, target_clang_triple, target_effective_features,
                          target_feature_state, target_front_end, target_known, target_mach_o, target_triples}
-import sawtypecheck.program.{TcTarget}
+import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.api.{TypecheckOptions, append_tc_warnings, tc_module_is_std, typecheck_record}
 import sawtypecheck.runtimeabi.{tc_runtime_abi_rows, tc_runtime_shim_seams, tc_runtime_sources}
 import std.data.{Data}
@@ -121,7 +126,9 @@ func driver_usage() -> Int {
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
     print("                  [-W borrow-prefix] [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]")
-    print("                  [--no-object-cache] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("                  [--no-object-cache] [--no-front-cache] [--module-path NAME=DIR]...")
+    print("                  (FILE [-o OUT] | --emit-ll FILE)")
+    print("       (resolve through coro, and fix, each also take --no-front-cache)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
@@ -191,6 +198,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var lto = ""
     var timed = false
     var no_cache = false
+    var no_front = false
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -219,6 +227,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             emit = true
         } else if arg.equals("--no-object-cache") {
             no_cache = true
+        } else if arg.equals("--no-front-cache") {
+            no_front = true
         } else if arg.equals("--time-stages") {
             stagetime_enable()
             timed = true
@@ -277,6 +287,10 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     if cache_entries < 0 {
         return DRIVER_EXIT_USAGE
     }
+    let front_on = driver_front_choice("sawc build", no_front)
+    if front_on < 0 {
+        return DRIVER_EXIT_USAGE
+    }
     if triple.len() > 0 && not target_known(triple) {
         print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
@@ -291,7 +305,9 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     if warn {
         let warned_for = if triple.len() > 0 { triple } else { driver_check_triple() }
-        driver_print_warnings(path, std_root, target_front_end(warned_for, features), &names, &dirs)
+        var warning = driver_front(std_root, target_front_end(warned_for, features), false, false, false,
+                                   front_on == 1, false)
+        driver_print_warnings(path, &var warning, &names, &dirs)
     }
     // A freestanding build writes an object and links nothing.
     if freestanding {
@@ -321,12 +337,14 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         return driver_refuse_mach_o(path, triple)
     }
     features = target_effective_features(triple, features, freestanding)
+    var front = driver_front(std_root, target_front_end(triple, features), false, freestanding, provider,
+                             front_on == 1, timed)
     if emit {
         let emitting = BuildOptions(std_root: std_root, target: triple, speed: speed,
                                     module_triple: target_clang_triple(triple), runtime: false,
                                     freestanding: freestanding, provider: provider, no_hidden_alloc: hidden,
                                     sanitize_address: sanitize, debug_info: debug, features: features, object: object)
-        return driver_emit(path, &emitting, &names, &dirs)
+        return driver_emit(path, &var front, &emitting, &names, &dirs)
     }
     // Another target links against its own runtime, which a manifest of its
     // own names once build.py's clang check has passed for it; the host's
@@ -372,15 +390,16 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     let compiler = if cross { foreign_clang.build() } else { clang.build() }
     if split {
         var plan = LlUnitPlan()
-        let built = llvm_build_split(out: &var record, ir: &var ir, plan: &var plan, path: path, options: &options,
-                                     names: &names, dirs: &dirs)
+        let built = llvm_build_split(out: &var record, ir: &var ir, plan: &var plan, cut: driver_front_cut(&var front),
+                                     path: path, options: &options, names: &names, dirs: &dirs)
         if built != 0 {
             driver_print_refusal(path, &var record)
             return built
         }
         // An ASan unit's object names the path clang reads it at, which no
         // key holds, so a sanitized build is never cached.
-        let cache = if no_cache || sanitize || cache_entries == 0 { "" } else { driver_cache_directory() }
+        let objects_kind = driver_object_kind()
+        let cache = if no_cache || sanitize || cache_entries == 0 { "" } else { driver_cache_directory(&objects_kind) }
         let job = DriverSplit(clang: compiler, triple: clang_triple, speed: speed, sanitize: sanitize,
                               freestanding: freestanding, debug: debug, object: object, lto: lto, out: out,
                               jobs: driver_jobs(out), timed: timed,
@@ -401,7 +420,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
         }
         return driver_split_build(&job, &plan, &text, &objects)
     }
-    let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
+    let status = llvm_build(out: &var record, ir: &var ir, cut: driver_front_cut(&var front), path: path,
+                            options: &options, names: &names, dirs: &dirs)
     if status != 0 {
         driver_print_refusal(path, &var record)
         return status
@@ -438,10 +458,12 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
 
 // `sawc build --emit-ll FILE`: the program's `.ll` on standard output, or
 // the record of what refused it and its status.
-func driver_emit(path: String, options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
+func driver_emit(path: String, front: &var DriverFront, options: &BuildOptions, names: &Vector<String>,
+                 dirs: &Vector<String>) -> Int {
     var record = StringBuilder()
     var ir = StringBuilder()
-    let status = llvm_build(out: &var record, ir: &var ir, path: path, options: &options, names: &names, dirs: &dirs)
+    let status = llvm_build(out: &var record, ir: &var ir, cut: driver_front_cut(&var front), path: path,
+                            options: &options, names: &names, dirs: &dirs)
     if status != 0 {
         driver_print_refusal(path, &var record)
         return status
@@ -492,14 +514,14 @@ func driver_warning_category(category: String) -> Bool {
     false
 }
 
-// The warnings `-W borrow-prefix` asks a build of `path` for `target`,
-// headed by the file, printed when there are any. They never change the exit
-// status.
-func driver_print_warnings(path: String, std_root: String, target: TcTarget, names: &Vector<String>,
-                           dirs: &Vector<String>) {
-    let p = asserts_typecheck_program(path, std_root, &names, &dirs, target: target)
+// The warnings `-W borrow-prefix` asks a build of `path` for, its program's
+// layer typechecked from std's cut for `front`'s target, headed by the file,
+// printed when there are any. They never change the exit status.
+func driver_print_warnings(path: String, front: &var DriverFront, names: &Vector<String>, dirs: &Vector<String>) {
+    var cut = driver_front_cut(&var front)
+    asserts_program_layer(&var cut.drops.bc.mir.tc, path, &names, &dirs, false)
     var found = StringBuilder()
-    append_tc_warnings(out: &var found, p: &p)
+    append_tc_warnings(out: &var found, p: &cut.drops.bc.mir.tc)
     let text = found.build()
     if text.len() == 0 {
         return
@@ -1108,7 +1130,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
         let fetching = time.Instant.now()
         var key = ""
         var hit = false
-        if cache.objects.len() > 0 {
+        if cache.dir.len() > 0 {
             key = driver_object_key(&cache, &units[k].text)
             hit = driver_cache_fetch(&cache, key, compiled[k])
         }
@@ -1161,7 +1183,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
     if status != 0 {
         return status
     }
-    if cache.objects.len() > 0 {
+    if cache.dir.len() > 0 {
         let storing = time.Instant.now()
         k = 0
         while k < compiling.len() {
@@ -1172,7 +1194,7 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
         driver_cache_rotate(&cache)
         cache_nanos = cache_nanos + (storing.elapsed().as_nanos() as Int)
     }
-    if split.timed && cache.objects.len() > 0 {
+    if split.timed && cache.dir.len() > 0 {
         driver_time_line("object cache", cache_nanos)
     }
     let linked = driver_split_link(&split, dir, &compiled, &objects, &plan.exports, cache.thinlto)
@@ -1387,6 +1409,11 @@ static DRIVER_CACHE_ENTRIES: Int = 2048
 // The number an entry's header and every key's description carry; a change
 // to either's layout takes the next one.
 static DRIVER_CACHE_FORMAT: Int = 2
+// The std front cache's bound, in images: a generation holds half of it, so
+// sixteen are kept, about 140 MB at std's 8.9 MB.
+static DRIVER_FRONT_ENTRIES: Int = 16
+// The number a front entry's header and every front key's description carry.
+static DRIVER_FRONT_FORMAT: Int = 1
 // The furthest into an entry its header's line break may be:
 // `sawc-object N KEY LENGTH DIGEST`, with a 64-digit key and digest.
 static DRIVER_CACHE_HEADER_MAX: Int = 192
@@ -1420,10 +1447,25 @@ func driver_cache_choice() -> Int {
     entries
 }
 
-// The object cache's directory: `SAWC_CACHE_DIR`, else
-// `$XDG_CACHE_HOME/sawc`, else `$HOME/.cache/sawc`; "" once a warning says
-// there is none.
-func driver_cache_directory() unsafe -> String {
+// Whether a command uses the std front cache: on unless `off`, its
+// `--no-front-cache`, or `SAWC_FRONT_CACHE=off` says otherwise; 1 for on, 0
+// for off, and -1 once a usage error is printed, headed by `command`.
+func driver_front_choice(command: String, off: Bool) -> Int {
+    let mode = driver_environment("SAWC_FRONT_CACHE")
+    if not (mode.len() == 0 || mode.equals("on") || mode.equals("off")) {
+        print("{}: SAWC_FRONT_CACHE takes `on` or `off`, not `{}`", command, mode)
+        return 0 - 1
+    }
+    if off || mode.equals("off") {
+        return 0
+    }
+    1
+}
+
+// The cache's directory: `SAWC_CACHE_DIR`, else `$XDG_CACHE_HOME/sawc`, else
+// `$HOME/.cache/sawc`; "" once a warning says there is none, for a cache of
+// `kind`.
+func driver_cache_directory(kind: &DriverCacheKind) unsafe -> String {
     let named = driver_environment("SAWC_CACHE_DIR")
     if named.len() > 0 {
         return named
@@ -1436,16 +1478,53 @@ func driver_cache_directory() unsafe -> String {
     if home.len() > 0 {
         return driver_path(driver_path(home, ".cache", ""), "sawc", "")
     }
-    driver_cache_warning("no object cache: none of SAWC_CACHE_DIR, XDG_CACHE_HOME and HOME is set, so every unit is compiled")
+    let what = kind.what
+    let without = kind.without
+    driver_cache_warning("no {what}: none of SAWC_CACHE_DIR, XDG_CACHE_HOME and HOME is set, so {without}")
     ""
 }
 
-// The object cache one split build uses: `objects`, the generations of unit
-// objects, and `thinlto`, the ThinLTO link's own, both "" when the build uses
-// none; `clang` and `fingerprint`, which every key covers; `entries`, the
-// bound; and `token`, which names this build's temporary entries.
+// What a cache's entries are: the directory under the cache's root holding
+// their generations, their file suffix, their first line's magic word and
+// format, and whether that line records the body's SHA-256; and, for its
+// warnings, the cache's name, what a build does instead of a fetch it cannot
+// make, and what it does with no cache at all.
+struct DriverCacheKind {
+    under: String
+    suffix: String
+    magic: String
+    format: Int
+    digested: Bool
+    what: String
+    redo: String
+    without: String
+}
+
+// The object cache's entries: one codegen unit's object each, its bytes'
+// SHA-256 in its first line.
+func driver_object_kind() -> DriverCacheKind {
+    DriverCacheKind(under: "objects", suffix: ".o", magic: "sawc-object", format: DRIVER_CACHE_FORMAT,
+                    digested: true, what: "object cache", redo: "compiling the unit",
+                    without: "every unit is compiled")
+}
+
+// The std front cache's entries: one image of std's cut each, which carries
+// its own length and digest (`front_image_decode`), so the entry's first line
+// records no SHA-256 of its own.
+func driver_front_kind() -> DriverCacheKind {
+    DriverCacheKind(under: "front", suffix: ".img", magic: "sawc-front-entry", format: DRIVER_FRONT_FORMAT,
+                    digested: false, what: "front cache", redo: "computing std's front end",
+                    without: "std's front end is computed")
+}
+
+// A cache one build uses, of `kind`: `dir`, the generations of its entries,
+// "" when the build uses none; for the object cache, `thinlto`, the ThinLTO
+// link's own, and `clang` and `fingerprint`, which every object key covers;
+// `entries`, the bound; and `token`, which names this build's temporary
+// entries.
 struct DriverCache {
-    objects: String
+    kind: DriverCacheKind
+    dir: String
     thinlto: String
     clang: String
     fingerprint: String
@@ -1457,7 +1536,8 @@ struct DriverCache {
 // build uses none of when `split` names none, or once a warning says why it
 // cannot be used.
 func driver_cache_open(split: &DriverSplit) unsafe -> DriverCache {
-    let off = DriverCache(objects: "", thinlto: "", clang: "", fingerprint: "", entries: 0, token: "")
+    let off = DriverCache(kind: driver_object_kind(), dir: "", thinlto: "", clang: "", fingerprint: "", entries: 0,
+                          token: "")
     if split.cache.len() == 0 {
         return off
     }
@@ -1475,8 +1555,8 @@ func driver_cache_open(split: &DriverSplit) unsafe -> DriverCache {
         driver_cache_warning("no object cache: `clang -###` does not describe the compile, so every unit is compiled")
         return off
     }
-    DriverCache(objects: objects, thinlto: thinlto, clang: split.clang, fingerprint: fingerprint,
-                entries: split.cache_entries, token: driver_cache_token())
+    DriverCache(kind: driver_object_kind(), dir: objects, thinlto: thinlto, clang: split.clang,
+                fingerprint: fingerprint, entries: split.cache_entries, token: driver_cache_token())
 }
 
 // Makes the directory `path` and each missing one above it; the reason one
@@ -1576,11 +1656,11 @@ func driver_object_key(cache: &DriverCache, text: &String) unsafe -> String {
     hash.finish()
 }
 
-// The numbers of the cache's generations, the directories `objects/gN`, in
+// The numbers of the cache's generations, the directories `DIR/gN`, in
 // ascending order; anything else there is left alone.
-func driver_cache_generations(objects: String) unsafe -> Vector<Int> {
+func driver_cache_generations(cache: &DriverCache) unsafe -> Vector<Int> {
     var out = Vector<Int>()
-    match Directory.list(Path(s: objects)) {
+    match Directory.list(Path(s: cache.dir)) {
         case Ok(entries) -> {
             var k = 0
             while k < entries.len() {
@@ -1595,41 +1675,47 @@ func driver_cache_generations(objects: String) unsafe -> Vector<Int> {
             }
         },
         case Err(e) -> {
-            driver_cache_warning("cannot list the object cache's generations in {objects}: {e}")
+            let what = cache.kind.what
+            let dir = cache.dir
+            driver_cache_warning("cannot list the {what}'s generations in {dir}: {e}")
         }
     }
     out.sort()
     move out
 }
 
-// The directory of generation `n`.
-func driver_cache_generation(objects: String, n: Int) -> String {
+// The directory of generation `n` in `dir`.
+func driver_cache_generation(dir: String, n: Int) -> String {
     var name = StringBuilder()
     try! name.append("g")
     try! name.append(n)
-    driver_path(objects, name.build(), "")
+    driver_path(dir, name.build(), "")
 }
 
 // Where generation `n` holds `key`'s entry.
-func driver_cache_entry(objects: String, n: Int, key: String) -> String {
-    driver_path(driver_cache_generation(objects, n), key, ".o")
+func driver_cache_entry(cache: &DriverCache, n: Int, key: String) -> String {
+    driver_path(driver_cache_generation(cache.dir, n), key, cache.kind.suffix)
 }
 
-// An entry's first line, which a read checks: the format, the key, and the
-// length and SHA-256 `digest` of the object that follows it.
-func driver_cache_header(key: String, length: Int, digest: String) -> String {
+// An entry's first line, which a read checks: the magic and format, the key,
+// the length of the body that follows it, and, for a kind that records one,
+// the body's SHA-256 `digest`.
+func driver_cache_header(cache: &DriverCache, key: String, length: Int, digest: String) -> String {
     var line = StringBuilder()
-    try! line.append(driver_cache_header_head(key, length))
-    try! line.append(" ")
-    try! line.append(digest)
+    try! line.append(driver_cache_header_head(&cache, key, length))
+    if cache.kind.digested {
+        try! line.append(" ")
+        try! line.append(digest)
+    }
     line.build()
 }
 
 // An entry's first line up to its digest.
-func driver_cache_header_head(key: String, length: Int) -> String {
+func driver_cache_header_head(cache: &DriverCache, key: String, length: Int) -> String {
     var line = StringBuilder()
-    try! line.append("sawc-object ")
-    try! line.append(DRIVER_CACHE_FORMAT)
+    try! line.append(cache.kind.magic)
+    try! line.append(" ")
+    try! line.append(cache.kind.format)
     try! line.append(" ")
     try! line.append(key)
     try! line.append(" ")
@@ -1637,7 +1723,8 @@ func driver_cache_header_head(key: String, length: Int) -> String {
     line.build()
 }
 
-// The hex SHA-256 of an object's bytes, which its entry's header records.
+// The hex SHA-256 of an entry's body, which its header records for a kind
+// that records one.
 func driver_object_digest(bytes: &Data) unsafe -> String {
     var hash = Sha256()
     hash.update(&bytes)
@@ -1647,36 +1734,65 @@ func driver_object_digest(bytes: &Data) unsafe -> String {
 // The newest generation's number, `g1` made when there is none; 0 once a
 // warning says it cannot be.
 func driver_cache_newest(cache: &DriverCache) unsafe -> Int {
-    let generations = driver_cache_generations(cache.objects)
+    let generations = driver_cache_generations(&cache)
     if generations.len() > 0 {
         return generations[generations.len() - 1]
     }
-    let problem = driver_make_directories(driver_cache_generation(cache.objects, 1))
+    let problem = driver_make_directories(driver_cache_generation(cache.dir, 1))
     if problem.len() > 0 {
-        driver_cache_warning("the object cache stores nothing: {problem}")
+        let what = cache.kind.what
+        driver_cache_warning("the {what} stores nothing: {problem}")
         return 0
     }
     1
 }
 
-// Whether the cache holds `key`'s object, which is then written to `object`:
-// found in the newest generation, or in an older one and moved into the
-// newest, so an entry in use outlives the next rotation. An entry that cannot
-// be read, whose header is not its own, or whose object's bytes are not the
-// ones its header's SHA-256 names, is a warning and a miss: the unit is
-// compiled, and its entry stored again. A fetched object is therefore the
-// one clang wrote, byte for byte.
+// An entry read from a cache: where it was found, and its body.
+struct DriverCached {
+    path: String
+    body: Data
+}
+
+extension DriverCached: NoCopy {}
+
+// Whether the cache holds `key`'s object, which is then written to `object`
+// (`driver_cache_read`). A fetched object is the one clang wrote, byte for
+// byte.
 func driver_cache_fetch(cache: &DriverCache, key: String, object: String) unsafe -> Bool {
-    let generations = driver_cache_generations(cache.objects)
-    if generations.len() == 0 {
+    guard let found = driver_cache_read(&cache, key) else {
         return false
     }
+    match driver_write_bytes(object, found.body) {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            driver_cache_warning("cannot write {object} from the object cache: {e}; compiling the unit")
+            false
+        }
+    }
+}
+
+// THE CACHE READ: `key`'s entry's body, found in the newest generation, or in
+// an older one and moved into the newest, so an entry in use outlives the
+// next rotation. An entry that cannot be read, whose header is not its own,
+// or whose body's bytes are not the ones its header's SHA-256 names, is a
+// warning and a miss: the build does the work instead, and stores the entry
+// again.
+// ENTRY POINTS:
+//     driver_cache_fetch
+//     driver_front_cut
+func driver_cache_read(cache: &DriverCache, key: String) unsafe -> DriverCached? {
+    let what = cache.kind.what
+    let redo = cache.kind.redo
+    let generations = driver_cache_generations(&cache)
+    if generations.len() == 0 {
+        return None
+    }
     let newest = generations[generations.len() - 1]
-    let current = driver_cache_entry(cache.objects, newest, key)
+    let current = driver_cache_entry(&cache, newest, key)
     var found = ""
     var k = generations.len() - 1
     while k >= 0 && found.len() == 0 {
-        let at = driver_cache_entry(cache.objects, generations[k], key)
+        let at = driver_cache_entry(&cache, generations[k], key)
         if File.exists(Path(s: at)) {
             if generations[k] == newest {
                 found = at
@@ -1698,13 +1814,13 @@ func driver_cache_fetch(cache: &DriverCache, key: String, object: String) unsafe
         k = k - 1
     }
     if found.len() == 0 {
-        return false
+        return None
     }
     let entry = match driver_read_bytes(found) {
         case Ok(bytes) -> bytes,
         case Err(e) -> {
-            driver_cache_warning("cannot read the object cache entry {found}: {e}; compiling the unit")
-            return false
+            driver_cache_warning("cannot read the {what} entry {found}: {e}; {redo}")
+            return None
         }
     }
     var line = 0 - 1
@@ -1724,38 +1840,33 @@ func driver_cache_fetch(cache: &DriverCache, key: String, object: String) unsafe
             }
         }
     }
-    let head = driver_cache_header_head(key, entry.len() - line - 1)
+    let head = driver_cache_header_head(&cache, key, entry.len() - line - 1)
     var prefix = StringBuilder()
     try! prefix.append(head)
-    try! prefix.append(" ")
-    if line < 0 || not header.starts_with(prefix.build()) {
-        driver_cache_warning("the object cache entry {found} is damaged: its first line does not begin `{head}`; compiling the unit")
-        return false
+    if cache.kind.digested {
+        try! prefix.append(" ")
+    }
+    let begins = prefix.build()
+    let whole = cache.kind.digested && header.starts_with(begins)
+    if line < 0 || not (whole || header.equals(begins)) {
+        driver_cache_warning("the {what} entry {found} is damaged: its first line does not begin `{head}`; {redo}")
+        return None
     }
     guard let body = entry.slice(line + 1, entry.len()) else {
-        return false
+        return None
     }
-    let digest = driver_object_digest(&body)
-    if not header.equals(driver_cache_header(key, body.len(), digest)) {
-        driver_cache_warning("the object cache entry {found} is damaged: its object's SHA-256 is {digest}, not the one its first line records; compiling the unit")
-        return false
-    }
-    match driver_write_bytes(object, body) {
-        case Ok(_) -> true,
-        case Err(e) -> {
-            driver_cache_warning("cannot write {object} from the object cache: {e}; compiling the unit")
-            false
+    if cache.kind.digested {
+        let digest = driver_object_digest(&body)
+        if not header.equals(driver_cache_header(&cache, key, body.len(), digest)) {
+            driver_cache_warning("the {what} entry {found} is damaged: its object's SHA-256 is {digest}, not the one its first line records; {redo}")
+            return None
         }
     }
+    DriverCached(path: found, body: body)
 }
 
-// Stores the object clang wrote at `object` as `key`'s entry in the newest
-// generation: written under this build's own temporary name, then renamed
-// into place, so a build reading the cache meanwhile finds the whole entry or
-// none, and two builds storing one key both succeed. When a rotation removes
-// the generation, or the temporary entry, meanwhile, the store starts again in
-// the newest generation; one that fails every attempt is a warning, and the
-// build goes on.
+// Stores the object clang wrote at `object` as `key`'s entry
+// (`driver_cache_write`).
 func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe {
     let body = match driver_read_bytes(object) {
         case Ok(bytes) -> bytes,
@@ -1764,21 +1875,37 @@ func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe
             return
         }
     }
-    let header = driver_cache_header(key, body.len(), driver_object_digest(&body))
+    driver_cache_write(&cache, key, body, object)
+}
+
+// THE CACHE WRITE: `body` stored as `key`'s entry in the newest generation,
+// `stored` naming it in a warning: written under this build's own temporary
+// name, then renamed into place, so a build reading the cache meanwhile finds
+// the whole entry or none, and two builds storing one key both succeed. When
+// a rotation removes the generation, or the temporary entry, meanwhile, the
+// store starts again in the newest generation; one that fails every attempt
+// is a warning, and the build goes on.
+// ENTRY POINTS:
+//     driver_cache_store
+//     driver_front_cut
+func driver_cache_write(cache: &DriverCache, key: String, body: Data, stored: String) unsafe {
+    let what = cache.kind.what
+    let digest = if cache.kind.digested { driver_object_digest(&body) } else { "" }
+    let header = driver_cache_header(&cache, key, body.len(), digest)
     var line = StringBuilder()
     try! line.append(header)
     try! line.append("\n")
     var entry = match line.build().to_data() {
         case Ok(bytes) -> bytes,
         case Err(e) -> {
-            driver_cache_warning("the object cache does not store {object}: {e}")
+            driver_cache_warning("the {what} does not store {stored}: {e}")
             return
         }
     }
     match entry.append(body) {
         case Ok(_) -> {},
         case Err(e) -> {
-            driver_cache_warning("the object cache does not store {object}: {e}")
+            driver_cache_warning("the {what} does not store {stored}: {e}")
             return
         }
     }
@@ -1789,7 +1916,7 @@ func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe
         if generation == 0 {
             return
         }
-        let final = driver_cache_entry(cache.objects, generation, key)
+        let final = driver_cache_entry(&cache, generation, key)
         var named = StringBuilder()
         try! named.append(final)
         try! named.append(".")
@@ -1813,7 +1940,7 @@ func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe
         }
         attempt = attempt + 1
     }
-    driver_cache_warning("the object cache does not store {object}: {why}")
+    driver_cache_warning("the {what} does not store {stored}: {why}")
 }
 
 // Bounds the cache: when the newest generation holds more than half of
@@ -1823,24 +1950,24 @@ func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe
 // at once both succeed: the second finds the new generation made, and each
 // removal tolerates the other's (`driver_cache_remove_generation`).
 func driver_cache_rotate(cache: &DriverCache) unsafe {
-    let generations = driver_cache_generations(cache.objects)
+    let generations = driver_cache_generations(&cache)
     if generations.len() == 0 {
         return
     }
     let newest = generations[generations.len() - 1]
-    let held = match Directory.list(Path(s: driver_cache_generation(cache.objects, newest))) {
+    let held = match Directory.list(Path(s: driver_cache_generation(cache.dir, newest))) {
         case Ok(entries) -> entries.len(),
         case Err(_) -> 0
     }
     if held <= cache.entries / 2 {
         return
     }
-    let next = driver_cache_generation(cache.objects, newest + 1)
+    let next = driver_cache_generation(cache.dir, newest + 1)
     match Directory.create(Path(s: next)) {
         case Ok(_) -> {},
         case Err(e) -> {
             if not Directory.exists(Path(s: next)) {
-                driver_cache_warning("the object cache cannot start a generation: cannot create {next}: {e}")
+                driver_cache_warning("the {cache.kind.what} cannot start a generation: cannot create {next}: {e}")
                 return
             }
         }
@@ -1848,7 +1975,7 @@ func driver_cache_rotate(cache: &DriverCache) unsafe {
     var k = 0
     while k < generations.len() {
         if generations[k] < newest {
-            driver_cache_remove_generation(cache.objects, generations[k])
+            driver_cache_remove_generation(&cache, generations[k])
         }
         k = k + 1
     }
@@ -1859,8 +1986,9 @@ func driver_cache_rotate(cache: &DriverCache) unsafe {
 // a build still storing into this generation writes, keeps the directory for
 // the next rotation: that build's rename then fails and it stores the entry
 // in the newest generation (`driver_cache_store`).
-func driver_cache_remove_generation(objects: String, n: Int) unsafe {
-    let dir = driver_cache_generation(objects, n)
+func driver_cache_remove_generation(cache: &DriverCache, n: Int) unsafe {
+    let what = cache.kind.what
+    let dir = driver_cache_generation(cache.dir, n)
     let listed = Directory.list(Path(s: dir))
     let entries = match listed {
         case Ok(found) -> move found,
@@ -1876,7 +2004,7 @@ func driver_cache_remove_generation(objects: String, n: Int) unsafe {
                 match e.kind() {
                     case NotFound -> {},
                     case _ -> {
-                        driver_cache_warning("cannot remove the object cache entry {entries[k].as_string()}: {e}")
+                        driver_cache_warning("cannot remove the {what} entry {entries[k].as_string()}: {e}")
                     }
                 }
             }
@@ -1891,7 +2019,7 @@ func driver_cache_remove_generation(objects: String, n: Int) unsafe {
                 case Err(_) -> 0
             }
             if Directory.exists(Path(s: dir)) && left == 0 {
-                driver_cache_warning("cannot remove the object cache generation {dir}: {e}")
+                driver_cache_warning("cannot remove the {what} generation {dir}: {e}")
             }
         }
     }
@@ -1913,9 +2041,9 @@ func driver_write_bytes(path: String, bytes: Data) unsafe -> Result<Void, System
     return
 }
 
-// `sawc build: warning: TEXT` on standard error: what the object cache could
-// not do, which changes how a build gets an object and never which object it
-// gets, so the build goes on.
+// `sawc build: warning: TEXT` on standard error: what the object cache or
+// the std front cache could not do, which changes how a build gets an object
+// or std's cut and never which one it gets, so the build goes on.
 func driver_cache_warning(text: String) unsafe {
     var line = StringBuilder()
     try! line.append("sawc build: warning: ")
@@ -1925,6 +2053,305 @@ func driver_cache_warning(text: String) unsafe {
     if let bytes = message.c_string() {
         __saw_rt_write_error(bytes, message.len())
     }
+}
+
+// Where one command's cuts of std come from: std's layer for one std root,
+// target and profile, read from the std front cache when it holds the cut's
+// key, else computed, and stored there when the cache is `on`. Once the
+// command has one, `image` holds it, so each later program the command
+// compiles decodes that instead of computing std's layer again. `timed`
+// prints the cache's time line (`--time-stages`).
+struct DriverFront {
+    std_root: String
+    target: TcTarget
+    runtime: Bool
+    freestanding: Bool
+    provider: Bool
+    on: Bool
+    timed: Bool
+    opened: Bool
+    cache: DriverCache
+    key: String
+    image: Data
+}
+
+extension DriverFront: NoCopy {}
+
+// The source of std's cuts for a command compiling against `std_root` for
+// `target` under the profile the three flags name, using the std front cache
+// when `on`.
+func driver_front(std_root: String, target: TcTarget, runtime: Bool, freestanding: Bool, provider: Bool, on: Bool,
+                  timed: Bool) unsafe -> DriverFront {
+    let none = DriverCache(kind: driver_front_kind(), dir: "", thinlto: "", clang: "", fingerprint: "",
+                           entries: DRIVER_FRONT_ENTRIES, token: "")
+    DriverFront(std_root: std_root, target: target, runtime: runtime, freestanding: freestanding, provider: provider,
+                on: on, timed: timed, opened: false, cache: none, key: "", image: Data())
+}
+
+// THE FRONT CUT: std's cut for `front`'s std root, target and profile. It is
+// decoded from the image the command already holds; else, with the cache on,
+// read from the entry under its key (`driver_front_key`); else computed by
+// mono's one maker of it (`mono_front_std`), then, with the cache on, stored.
+// An entry that cannot be read or decoded is a warning, and the cut is
+// computed and stored again; the cache never fails a command. A loaded cut
+// skips std's verifiers, which ran when its image was made, and their lines
+// are in it. Under `--time-stages` a load is `front cache load`, and a
+// computed cut `std front end`, then, with the cache on, `front cache store`.
+// ENTRY POINTS:
+//     driver_build
+//     driver_emit
+//     driver_runtime
+//     driver_print_warnings
+//     driver_resolve
+//     driver_fix_file
+//     driver_mono
+//     driver_coro
+func driver_front_cut(front: &var DriverFront) unsafe -> FrontCut {
+    if front.image.len() > 0 {
+        match front_image_decode(front.image.copy()) {
+            case Ok(cut) -> { return move cut },
+            case Err(_) -> {
+                front.image = Data()
+            }
+        }
+    }
+    let started = time.Instant.now()
+    if front.on && not front.opened {
+        driver_front_open(&var front)
+    }
+    if front.on {
+        if let found = driver_cache_read(&front.cache, front.key) {
+            match front_image_decode(found.body.copy()) {
+                case Ok(cut) -> {
+                    front.image = found.body.copy()
+                    if front.timed {
+                        driver_time_line("front cache load", started.elapsed().as_nanos() as Int)
+                    }
+                    return move cut
+                },
+                case Err(e) -> {
+                    let at = found.path
+                    driver_cache_warning("the front cache entry {at} is damaged: {e}; computing std's front end")
+                }
+            }
+        }
+    }
+    let none = Vector<String>()
+    let inputs = asserts_inputs("", &none, &none, front.target, front.freestanding)
+    let computing = time.Instant.now()
+    let cut = mono_front_std(front.std_root, front.target, &inputs, runtime: front.runtime,
+                             freestanding: front.freestanding, provider: front.provider)
+    let computed = computing.elapsed().as_nanos() as Int
+    if front.timed {
+        driver_time_line("std front end", computed)
+    }
+    if front.on {
+        match front_image_encode(&cut) {
+            case Ok(image) -> {
+                driver_cache_write(&front.cache, front.key, image.copy(), "std's front-end image")
+                driver_cache_rotate(&front.cache)
+                front.image = image
+            },
+            case Err(e) -> {
+                driver_cache_warning("the front cache does not store std's front-end image: {e}")
+            }
+        }
+        if front.timed {
+            driver_time_line("front cache store", (started.elapsed().as_nanos() as Int) - computed)
+        }
+    }
+    move cut
+}
+
+// Opens `front`'s cache: its directory made and its key computed, or, once a
+// warning says why neither can be, the cache turned off for the command.
+func driver_front_open(front: &var DriverFront) unsafe {
+    front.opened = true
+    let root = driver_cache_directory(&front.cache.kind)
+    if root.len() == 0 {
+        front.on = false
+        return
+    }
+    let dir = driver_path(root, front.cache.kind.under, "")
+    let problem = driver_make_directories(dir)
+    if problem.len() > 0 {
+        driver_cache_warning("no front cache: {problem}, so std's front end is computed")
+        front.on = false
+        return
+    }
+    guard let key = driver_front_key(&front) else {
+        front.on = false
+        return
+    }
+    front.cache.dir = dir
+    front.cache.token = driver_cache_token()
+    front.key = key
+}
+
+// THE FRONT CACHE KEY: the hex SHA-256 of a versioned description of what
+// std's cut is a function of, or None once a warning says what could not be
+// read. `mono_front_std` reads only these, so two builds whose keys agree
+// make one cut:
+//
+//   in the key                              why
+//   the entry format, the image format      another layout is never looked up
+//   the running binary's SHA-256            the suspension and runtime-ABI
+//                                           tables are compiled in; Stage 1
+//                                           and Stage 2 never share an image
+//   the std root as spelled, its real path  diagnostics and `#file` quote the
+//                                           spelling; the real path is each
+//                                           module's identity
+//   every `.saw` file std's layer can read: its path, length and bytes
+//                                           (`driver_front_std_files`)
+//   the target record: triple, word bits,   the only target facts std's layer
+//   atomics, FP unit                        reads; the builtins modules follow
+//   `runtime`, `freestanding`, `provider`   the profile record (`tc_profile`)
+//
+//   not in it                               why
+//   `--no-hidden-alloc`                     std is exempt; the program's
+//                                           layer sets it
+//   `--module-path`, the entry file         loaded in the program's layer
+//   `-O`, `-g`, `-c`, `--sanitize`, the     read after drops
+//   codegen-unit, LTO and cache flags, `-o`
+//   `-W`, `--notes`, the dump modes         what is printed, not std's state
+//   the environment                         no front-end stage reads one
+//   the working directory                   covered by the root's spelling and
+//                                           real path
+// ENTRY POINTS:
+//     driver_front_open
+func driver_front_key(front: &DriverFront) unsafe -> String? {
+    let binary = match Env.executable_path() {
+        case Ok(path) -> path,
+        case Err(e) -> {
+            driver_cache_warning("no front cache: cannot find this executable's path: {e}, so std's front end is computed")
+            return None
+        }
+    }
+    let compiler = match driver_read_bytes(binary) {
+        case Ok(bytes) -> driver_object_digest(&bytes),
+        case Err(e) -> {
+            driver_cache_warning("no front cache: cannot read {binary}: {e}, so std's front end is computed")
+            return None
+        }
+    }
+    let real = match Path(s: front.std_root).canonical() {
+        case Ok(p) -> p.as_string(),
+        case Err(e) -> {
+            let root = front.std_root
+            driver_cache_warning("no front cache: cannot find the real path of {root}: {e}, so std's front end is computed")
+            return None
+        }
+    }
+    guard let files = driver_front_std_files(front.std_root) else {
+        let root = front.std_root
+        driver_cache_warning("no front cache: cannot list the std root {root}, so std's front end is computed")
+        return None
+    }
+    var hash = Sha256()
+    var head = StringBuilder()
+    try! head.append("sawc-front-cache ")
+    try! head.append(DRIVER_FRONT_FORMAT)
+    try! head.append("\nimage ")
+    try! head.append(FRONT_IMAGE_FORMAT)
+    try! head.append("\ncompiler ")
+    try! head.append(compiler)
+    try! head.append("\nstd-root ")
+    try! head.append(front.std_root.len())
+    try! head.append(" ")
+    try! head.append(front.std_root)
+    try! head.append("\nstd-real ")
+    try! head.append(real.len())
+    try! head.append(" ")
+    try! head.append(real)
+    try! head.append("\ntarget ")
+    try! head.append(front.target.triple)
+    try! head.append(" ")
+    try! head.append(front.target.word_bits)
+    try! head.append(if front.target.atomics { " atomics" } else { " no-atomics" })
+    try! head.append(if front.target.float_unit { " float-unit" } else { " no-float-unit" })
+    try! head.append("\nprofile")
+    try! head.append(if front.runtime { " runtime" } else { " no-runtime" })
+    try! head.append(if front.freestanding { " freestanding" } else { " hosted" })
+    try! head.append(if front.provider { " provider" } else { " no-provider" })
+    try! head.append("\n")
+    let text = head.build()
+    hash.update(&text)
+    var k = 0
+    while k < files.len() {
+        let rel = files[k]
+        k = k + 1
+        let bytes = match driver_read_bytes(driver_path(front.std_root, rel, "")) {
+            case Ok(b) -> b,
+            case Err(e) -> {
+                driver_cache_warning("no front cache: cannot read {rel} in the std root: {e}, so std's front end is computed")
+                return None
+            }
+        }
+        var line = StringBuilder()
+        try! line.append("file ")
+        try! line.append(rel.len())
+        try! line.append(" ")
+        try! line.append(rel)
+        try! line.append(" ")
+        try! line.append(bytes.len())
+        try! line.append("\n")
+        let named = line.build()
+        hash.update(&named)
+        hash.update(&bytes)
+    }
+    hash.finish()
+}
+
+// Every `.saw` file std's layer can read under the std root `root`, as paths
+// relative to it in byte order: the whole root for the new std, and Stage 0's
+// frozen std's `builtin.saw` and `std/` (`detect_std_layout`); None when a
+// directory cannot be listed.
+func driver_front_std_files(root: String) unsafe -> Vector<String>? {
+    var out = Vector<String>()
+    if driver_file_exists(driver_path(root, "prelude.saw", "")) {
+        if not driver_front_walk(root, "", &var out) {
+            return None
+        }
+    } else {
+        try! out.push("builtin.saw")
+        if not driver_front_walk(root, "std", &var out) {
+            return None
+        }
+    }
+    out.sort()
+    move out
+}
+
+// Adds each `.saw` file under `root`'s `rel` (the root itself when empty),
+// in every directory below it, to `out`; false when a directory cannot be
+// listed. An entry that is neither a `.saw` file nor a directory is no
+// source of std's.
+func driver_front_walk(root: String, rel: String, out: &var Vector<String>) unsafe -> Bool {
+    let dir = if rel.len() == 0 { root } else { driver_path(root, rel, "") }
+    let entries = match Directory.list(Path(s: dir)) {
+        case Ok(found) -> move found,
+        case Err(_) -> {
+            return false
+        }
+    }
+    var k = 0
+    while k < entries.len() {
+        let name = entries[k].file_name() ?? ""
+        k = k + 1
+        let child = if rel.len() == 0 { name } else { driver_path(rel, name, "") }
+        if name.ends_with(".saw") {
+            try! out.push(child)
+            continue
+        }
+        let directory = match Directory.list(Path(s: driver_path(root, child, ""))) {
+            case Ok(_) -> true,
+            case Err(_) -> false
+        }
+        if directory && not driver_front_walk(root, child, &var out) {
+            return false
+        }
+    }
+    true
 }
 
 // THE THINLTO CACHE FLAGS: a ThinLTO link keeps each module's optimised
@@ -2386,11 +2813,16 @@ func driver_runtime(args: &Vector<String>) -> Int {
                                sanitize_address: false, debug_info: false, features: "", object: false)
     let names = Vector<String>()
     let dirs = Vector<String>()
+    let front_on = driver_front_choice("sawc runtime", false)
+    if front_on < 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    var front = driver_front(std_root, target_front_end(host, ""), true, false, false, front_on == 1, false)
     if emit.len() > 0 {
         var record = StringBuilder()
         var ir = StringBuilder()
-        let status = llvm_build(out: &var record, ir: &var ir, path: emit, options: &options, names: &names,
-                                dirs: &dirs)
+        let status = llvm_build(out: &var record, ir: &var ir, cut: driver_front_cut(&var front), path: emit,
+                                options: &options, names: &names, dirs: &dirs)
         if status != 0 {
             driver_print_refusal(emit, &var record)
             return status
@@ -2417,8 +2849,9 @@ func driver_runtime(args: &Vector<String>) -> Int {
         var record = StringBuilder()
         var ir = StringBuilder()
         var exports = Vector<String>()
-        let built = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports, path: source,
-                                         options: &options, names: &names, dirs: &dirs)
+        let built = llvm_build_exporting(out: &var record, ir: &var ir, exports: &var exports,
+                                         cut: driver_front_cut(&var front), path: source, options: &options,
+                                         names: &names, dirs: &dirs)
         if built != 0 {
             driver_print_refusal(source, &var record)
             status = 1
@@ -2619,6 +3052,7 @@ func driver_mono(args: &Vector<String>) -> Int {
     var check = false
     var notes = false
     var counted = false
+    var no_front = false
     var std_root = ""
     var triple = driver_check_triple()
     var features = ""
@@ -2638,6 +3072,8 @@ func driver_mono(args: &Vector<String>) -> Int {
             notes = true
         } else if arg.equals("--lowerings") {
             counted = true
+        } else if arg.equals("--no-front-cache") {
+            no_front = true
         } else if (arg.equals("--std-root") || arg.equals("--module-path") || arg.equals("--target")
                    || arg.equals("--target-features")) {
             let value = args.get(i + 1) ?? ""
@@ -2679,6 +3115,11 @@ func driver_mono(args: &Vector<String>) -> Int {
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
+    let front_on = driver_front_choice("sawc mono", no_front)
+    if front_on < 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    var front = driver_front(std_root, checked_for, false, false, false, front_on == 1, false)
     let options = MonoOptions(std_root: std_root, target: checked_for, dump: dump, layouts: layouts, notes: notes)
     var status = 0
     var k = 0
@@ -2689,8 +3130,8 @@ func driver_mono(args: &Vector<String>) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var lowerings = 0
-            let result = mono_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs,
-                                     lowerings: &var lowerings)
+            let result = mono_record(out: &var out, front: driver_front_cut(&var front), path: input.path,
+                                     options: &options, names: &names, dirs: &dirs, lowerings: &var lowerings)
             if counted {
                 driver_append_lowerings(&var out, lowerings)
             }
@@ -2715,6 +3156,7 @@ func driver_coro(args: &Vector<String>) -> Int {
     var bt_table = false
     var check = false
     var notes = false
+    var no_front = false
     var std_root = ""
     var triple = driver_check_triple()
     var features = ""
@@ -2726,6 +3168,8 @@ func driver_coro(args: &Vector<String>) -> Int {
         let arg = args.get(i) ?? ""
         if arg.equals("--dump") {
             dump = true
+        } else if arg.equals("--no-front-cache") {
+            no_front = true
         } else if arg.equals("--layouts") {
             layouts = true
         } else if arg.equals("--lowered") {
@@ -2778,6 +3222,11 @@ func driver_coro(args: &Vector<String>) -> Int {
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
+    let front_on = driver_front_choice("sawc coro", no_front)
+    if front_on < 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    var front = driver_front(std_root, checked_for, false, false, false, front_on == 1, false)
     let options = CoroOptions(std_root: std_root, target: checked_for, dump: dump, layouts: layouts, lowered: lowered,
                               notes: notes)
     var status = 0
@@ -2789,10 +3238,13 @@ func driver_coro(args: &Vector<String>) -> Int {
             try! out.append(input.path)
             try! out.append("\n")
             var result = 0
+            let cut = driver_front_cut(&var front)
             if bt_table {
-                result = coro_bt_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs)
+                result = coro_bt_record(out: &var out, front: move cut, path: input.path, options: &options,
+                                        names: &names, dirs: &dirs)
             } else {
-                result = coro_record(out: &var out, path: input.path, options: &options, names: &names, dirs: &dirs)
+                result = coro_record(out: &var out, front: move cut, path: input.path, options: &options,
+                                     names: &names, dirs: &dirs)
             }
             let printed = driver_print_record(&var out, result)
             if printed > status {
@@ -2902,6 +3354,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var hidden = false
     var counted = false
     var warn = false
+    var no_front = false
     var std_root = ""
     var triple = driver_check_triple()
     var features = ""
@@ -2911,7 +3364,9 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     var i = 2
     while i < args.len() {
         let arg = args.get(i) ?? ""
-        if arg.equals("-W") && typecheck {
+        if arg.equals("--no-front-cache") {
+            no_front = true
+        } else if arg.equals("-W") && typecheck {
             if not driver_warning_category(args.get(i + 1) ?? "") {
                 return DRIVER_EXIT_USAGE
             }
@@ -2976,10 +3431,19 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
     guard let checked_for = driver_check_target(triple, features) else {
         return DRIVER_EXIT_USAGE
     }
-    std_root = driver_std_root(command.build(), std_root)
+    let named = command.build()
+    std_root = driver_std_root(named, std_root)
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
+    let front_on = driver_front_choice(named, no_front)
+    if front_on < 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    // Every stage starts from std's cut, brought through drops whatever stage
+    // the command stops at, so a cut read from the cache and one computed
+    // give every record the same program.
+    var front = driver_front(std_root, checked_for, false, freestanding, provider, front_on == 1, false)
     let options = ResolveOptions(std_root: std_root, dump: dump, notes: notes)
     let checking = TypecheckOptions(std_root: std_root, dump: dump, notes: notes,
                                     interfaces: interfaces, summaries: summaries, warn_borrow_prefix: warn)
@@ -2997,26 +3461,40 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
             try! out.append("\n")
             var result = 0
             var lowerings = 0
+            var cut = driver_front_cut(&var front)
+            // Std's lines, as its layer recorded them when the cut was made.
+            let checked_std = cut.checked
             if stage == DRIVER_STAGE_DROPS {
-                result = drops_record(out: &var out, path: input.path, options: &elaborating, names: &names,
-                                      dirs: &dirs, lowerings: &var lowerings)
+                let start = DropsStart(checked: checked_std, verified: cut.verified, elaborated: cut.elaborated,
+                                       blocked: cut.blocked)
+                let std_layer = cut.layer
+                result = drops_record_from(out: &var out, p: &var cut.drops, std_layer: std_layer, start: start,
+                                           path: input.path, options: &elaborating, names: &names, dirs: &dirs,
+                                           lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_BORROWCK {
-                result = borrowck_record(out: &var out, path: input.path, options: &borrowing, names: &names,
-                                         dirs: &dirs, lowerings: &var lowerings)
+                let start = BorrowckStart(checked: checked_std, verified: cut.verified, verified_std: true)
+                result = borrowck_record_from(out: &var out, p: &var cut.drops.bc, start: start, path: input.path,
+                                              options: &borrowing, names: &names, dirs: &dirs,
+                                              lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_EVAL {
-                result = eval_record(out: &var out, path: input.path, options: &evaluating, names: &names,
-                                     dirs: &dirs, lowerings: &var lowerings)
+                let start = EvalStart(checked: checked_std, verified_std: true)
+                let (taken, values) = (move cut).take_program()
+                var lowered = move taken
+                var evaluated = move values
+                result = eval_record_from(out: &var out, lowered: &var lowered.bc.mir, p: &var evaluated,
+                                          start: start, path: input.path, options: &evaluating, names: &names,
+                                          dirs: &dirs, lowerings: &var lowerings)
             } else if stage == DRIVER_STAGE_MIR {
-                result = mir_record(out: &var out, path: input.path, options: &lowering, names: &names,
-                                    dirs: &dirs, lowerings: &var lowerings)
+                result = mir_record_from(out: &var out, p: &var cut.drops.bc.mir, checked: checked_std,
+                                         verified_std: true, path: input.path, options: &lowering, names: &names,
+                                         dirs: &dirs, lowerings: &var lowerings)
             } else if typecheck {
-                let checked = asserts_typecheck_program(input.path, checking.std_root, &names, &dirs,
-                                                        target: checked_for, freestanding: freestanding,
-                                                        provider: provider, no_hidden_alloc: hidden)
-                result = typecheck_record(out: &var out, p: &checked, options: &checking)
+                asserts_program_layer(&var cut.drops.bc.mir.tc, input.path, &names, &dirs, hidden)
+                result = typecheck_record(out: &var out, p: &cut.drops.bc.mir.tc, options: &checking)
             } else {
-                result = resolve_record(out: &var out, path: input.path, options: &options,
-                                        names: &names, dirs: &dirs)
+                let start = ResolveStart(checked: checked_std, verified_std: true)
+                result = resolve_record_from(out: &var out, p: &var cut.drops.bc.mir.tc.res, start: start,
+                                             path: input.path, options: &options, names: &names, dirs: &dirs)
             }
             if counted {
                 driver_append_lowerings(&var out, lowerings)
@@ -3041,6 +3519,7 @@ func driver_resolve(args: &Vector<String>, stage: Int) -> Int {
 // its names' types are what decide.
 func driver_fix(args: &Vector<String>) -> Int {
     var check = false
+    var no_front = false
     var std_root = ""
     var names = Vector<String>()
     var dirs = Vector<String>()
@@ -3050,6 +3529,8 @@ func driver_fix(args: &Vector<String>) -> Int {
         let arg = args.get(i) ?? ""
         if arg.equals("--check") {
             check = true
+        } else if arg.equals("--no-front-cache") {
+            no_front = true
         } else if arg.equals("--std-root") || arg.equals("--module-path") {
             let value = args.get(i + 1) ?? ""
             if value.len() == 0 {
@@ -3081,11 +3562,17 @@ func driver_fix(args: &Vector<String>) -> Int {
     if std_root.len() == 0 {
         return DRIVER_EXIT_USAGE
     }
+    let front_on = driver_front_choice("sawc fix", no_front)
+    if front_on < 0 {
+        return DRIVER_EXIT_USAGE
+    }
+    var front = driver_front(std_root, target_front_end(driver_check_triple(), ""), false, false, false,
+                             front_on == 1, false)
     var status = 0
     var k = 0
     while k < inputs.len() {
         if let input = inputs.get(k) {
-            if not driver_fix_file(input.path, std_root, check, &names, &dirs) {
+            if not driver_fix_file(input.path, &var front, check, &names, &dirs) {
                 status = 1
             }
         }
@@ -3094,11 +3581,18 @@ func driver_fix(args: &Vector<String>) -> Int {
     status
 }
 
-// One file of `sawc fix`; false when it could not be written.
-func driver_fix_file(path: String, std_root: String, check: Bool, names: &Vector<String>,
+// One file of `sawc fix`, its program's layer typechecked from std's cut for
+// `front`; false when it could not be written.
+func driver_fix_file(path: String, front: &var DriverFront, check: Bool, names: &Vector<String>,
                      dirs: &Vector<String>) -> Bool {
-    let p = asserts_typecheck_program(path, std_root, &names, &dirs,
-                                      target: target_front_end(driver_check_triple(), ""))
+    var cut = driver_front_cut(&var front)
+    asserts_program_layer(&var cut.drops.bc.mir.tc, path, &names, &dirs, false)
+    driver_fix_checked(path, &cut.drops.bc.mir.tc, check)
+}
+
+// `sawc fix`'s record of `path` from its checked program `p`, and the file
+// rewritten unless `check`; false when it could not be written.
+func driver_fix_checked(path: String, p: &TcProgram, check: Bool) -> Bool {
     var record = StringBuilder()
     try! record.append("FILE\t")
     try! record.append(path)

@@ -26,23 +26,24 @@ public enum StageTime: UInt8 {
     case VerifyTypecheck = 5
     case VerifyMir = 6
     case Eval = 7
-    case Borrowck = 8
-    case VerifyBorrowck = 9
-    case Drops = 10
-    case VerifyDrops = 11
-    case Mono = 12
-    case Coro = 13
-    case CoroLower = 14
-    case VerifyCoro = 15
-    case Llvm = 16
-    case WriteLl = 17
-    case Clang = 18
-    case Link = 19
-    case ClangLink = 20
-    case Dsymutil = 21
+    case VerifyEval = 8
+    case Borrowck = 9
+    case VerifyBorrowck = 10
+    case Drops = 11
+    case VerifyDrops = 12
+    case Mono = 13
+    case Coro = 14
+    case CoroLower = 15
+    case VerifyCoro = 16
+    case Llvm = 17
+    case WriteLl = 18
+    case Clang = 19
+    case Link = 20
+    case ClangLink = 21
+    case Dsymutil = 22
 }
 
-static STAGE_TIME_COUNT: Int = 22
+static STAGE_TIME_COUNT: Int = 23
 static NANOS_PER_TENTH_MS: Int64 = 100_000
 static TENTHS_PER_MS: Int = 10
 
@@ -64,6 +65,7 @@ extension StageTime {
             case VerifyTypecheck -> "verify typecheck",
             case VerifyMir -> "verify mir",
             case Eval -> "eval",
+            case VerifyEval -> "verify eval",
             case Borrowck -> "borrowck",
             case VerifyBorrowck -> "verify borrowck",
             case Drops -> "drops",

@@ -94,6 +94,11 @@ static FRONT_IMAGE_HEAD_MAX: Int = 128
 // room above it.
 static FRONT_IMAGE_DEPTH: Int = 16
 
+// The image's format number, its first line's second field: a reader
+// requires its own, and the std front cache's key carries it, so an image of
+// another layout is never looked up.
+public static FRONT_IMAGE_FORMAT: Int = 2
+
 static FRONT_IMAGE_NEWLINE: UInt8 = 10
 // The digest's starting value, and SplitMix64's finalizer constants
 // (Steele, Lea and Flood, "Fast splittable pseudorandom number generators").
@@ -115,13 +120,14 @@ static FRONT_HEX_TEN: Int = 87
 // image by construction; the one hand-written body is TcPendingConstant's,
 // whose cases carry payloads and so have no raw backing to derive from
 // (typecheck/src/model.saw). Its entry points are the image pins
-// (compiler/mono/tests/front_image.saw, front_image_load.saw); the std front
-// cache's store and load join them (SL-955 unit 4a3).
+// (compiler/mono/tests/front_image.saw, front_image_load.saw) and the std
+// front cache's store and load.
 // ENTRY POINTS:
 //     pin_round_trip
 //     pin_damage
 //     pin_load_equals_run
 //     write_std_image
+//     driver_front_cut
 public func front_image_encode(cut: &FrontCut) -> Result<Data, FrontImageError> {
     var enc = CborEncoder(max_depth: FRONT_IMAGE_DEPTH)
     match cut.serialize(to: &var enc) {
@@ -141,8 +147,9 @@ public func front_image_frame(body: Data) -> Result<Data, FrontImageError> {
     // The line is a String, whose layer panics on a refused allocation; the
     // two buffers the image is made of report one.
     var head = StringBuilder()
-    // The format number is the second field; a reader requires its own.
-    try! head.append("sawc-front 2 ")
+    try! head.append("sawc-front ")
+    try! head.append(FRONT_IMAGE_FORMAT)
+    try! head.append(" ")
     try! head.append(body.len())
     try! head.append(" ")
     try! head.append(front_digest_text(front_digest(&body)))
@@ -175,7 +182,7 @@ public func front_image_decode(image: Data) -> Result<FrontCut, FrontImageError>
         case Ok(v) -> move v,
         case Err(e) -> { return FrontImageError.Alloc(e: e) }
     }
-    if fields.len() != 4 || not fields[0].equals("sawc-front") || not fields[1].equals("2") {
+    if fields.len() != 4 || not fields[0].equals("sawc-front") || (fields[1].to_int() ?? -1) != FRONT_IMAGE_FORMAT {
         return FrontImageError.Header
     }
     guard let declared = fields[2].to_int() else {

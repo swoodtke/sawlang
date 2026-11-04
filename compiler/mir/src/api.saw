@@ -9,7 +9,7 @@ import sawmir.model.{MirDiag}
 import sawmir.program.{MirProgram, mir_program}
 import sawmir.verify.{mir_verify_module}
 import sawresolve.api.{append_res_diag}
-import sawresolve.layer.{FrontInputs, FrontLayer, front_layers}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_layer, front_layers}
 import sawresolve.verify.{res_verify_module}
 import sawasserts.layout.{asserts_inputs, asserts_run_layer}
 import sawtypecheck.api.{append_tc_diag, tc_empty_program}
@@ -80,12 +80,34 @@ public func mir_run_layer(p: &var MirProgram, layer: &var FrontLayer, inputs: &F
 // `lowerings`.
 public func mir_record(out: &var StringBuilder, path: String, options: &MirOptions, names: &Vector<String>,
                        dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var p = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
-    let status = mir_append_checks(out: &var out, p: &var p, notes: options.notes)
+    var p = mir_empty_front(options.std_root, options.target)
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layer = front_layer(FrontLayerKind.Std)
+    mir_run_layer(&var p, &var layer, &inputs)
+    mir_record_from(out: &var out, p: &var p, checked: "", verified_std: false, path: path, options: &options,
+                    names: &names, dirs: &dirs, lowerings: &var lowerings)
+}
+
+// `mir_record` for program `p`, which std's layer has already run over:
+// std's cut, computed here or by mono, or read from an image. The program's
+// layer runs from there. With `verified_std`, std's layer verified its
+// modules as it ran, leaving `checked`, and only the program's are verified
+// here; else every module is.
+public func mir_record_from(out: &var StringBuilder, p: &var MirProgram, checked: String, verified_std: Bool,
+                            path: String, options: &MirOptions, names: &Vector<String>, dirs: &Vector<String>,
+                            lowerings: &var Int) -> Int {
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layer = front_layer(FrontLayerKind.Program)
+    mir_run_layer(&var p, &var layer, &inputs)
+    lowerings = lowerings + 1
+    let first = if verified_std { layer.module_first } else { 0 }
+    mir_append_refusals(out: &var out, p: &p, notes: options.notes)
+    try! out.append(checked)
+    mir_append_module_checks(out: &var out, p: &var p, first: first)
     if options.dump {
         mir_append_dumps(out: &var out, p: &p, spans: options.spans)
     }
-    status
+    mir_status(&p)
 }
 
 // Each module checked in full's dump, in load order.

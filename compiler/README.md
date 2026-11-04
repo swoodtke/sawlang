@@ -334,11 +334,40 @@ reused unit as `clang unit NAME cached MS ms`, and the cache's own work as
 `object cache MS ms`. `--no-object-cache`, or `SAWC_OBJECT_CACHE=off`, builds
 without it. Whole-module builds and `--sanitize address` builds use no cache
 (an ASan object names the path clang read it at, whatever its text says), and
-neither `--emit-ll` nor the final link is cached. Every lane that builds split
-uses a cache under `.build/` of its own run, never the user's: the run lane sets
-`SAWC_CACHE_DIR` for itself, `tools/unit_stability.py` builds with the cache
-off, and a split run of another lane under `SAWC_CODEGEN_UNITS=module` sets
-`SAWC_CACHE_DIR` beside it.
+neither `--emit-ll` nor the final link is cached. Every lane uses a cache under
+`.build/` of its own run, never the user's (`gate_cache` in
+`tools/patch_gate.py`; TESTING.md says where each run gets it), and
+`tools/unit_stability.py` builds with the object cache off.
+
+Every front-end command (`build`, `--emit-ll`, `runtime`, `resolve` through
+`coro`, `fix`, and `-W`'s typecheck) starts from std's cut: std's layer
+brought through drop elaboration, the state the image codec
+(`mono/src/frontimage.saw`) writes down. The std front cache holds that image,
+so a build whose key the cache holds reads std's front end instead of
+computing it, and std's verifiers, which ran when the image was made, do not
+run again; their lines are in the image. `driver_front_cut` in
+`driver/src/main.saw` loads the cut or computes it with `mono_front_std` (the
+one maker of it) and stores it, and hands it down to each stage's entry, so a
+loaded cut and a computed one are one value to every stage. The key
+(`driver_front_key`, whose comment holds the table of what is in it and what is
+not) is the SHA-256 of the entry and image formats, the running binary's
+SHA-256, the std root as spelled and its real path, every `.saw` file under the
+std root with its path and bytes, the target record (triple, word bits,
+atomics, FP unit) and the profile flags. Stage 1 and Stage 2 therefore never
+share an image. Entries are `front/gN/KEY.img`, each a `sawc-front-entry 1 KEY
+LENGTH` line followed by the image, which carries its own length and digest;
+they are written, renamed and bounded by generations as objects are, sixteen
+images kept (eight per generation, about 9 MB each). An entry that cannot be
+read, is not its key's, or fails the image's own checks is a warning
+(`sawc build: warning: the front cache entry ... is damaged: ...`); std's front
+end is computed and stored again, and the command goes on. `--time-stages`
+reports a load as `front cache load MS ms`, and a computed cut as
+`std front end MS ms`, then `front cache store MS ms`. `--no-front-cache`, or
+`SAWC_FRONT_CACHE=off`, runs without it (`sawc runtime` takes the variable
+only); any other value of the variable is a usage error. Since std's layer
+always runs through drops, a stage dump's std sections show std as the cut
+holds it, drop-elaborated, while the program's sections show the program at
+that stage.
 
 Every step of `build.py` is cached by key, so an unchanged tree compiles and
 links nothing. The seed's files are cached under `.build/blobs/` by SHA-256,

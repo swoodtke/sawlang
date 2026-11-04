@@ -63,6 +63,7 @@ sys.path.append(os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
 import gate_jobs  # noqa: E402
+import patch_gate  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "fixpoint-lane")
 TWIN = os.path.join(HERE, "twin.py")
@@ -248,13 +249,14 @@ def judge(failures, counts, records):
 
 def check_twin_stderr(failures, counts):
     """The twin makes a build's clang temporary object names equal, and a
-    `--time-stages` build's step times and whether a split build's unit came
-    from the object cache, and leaves out a build's object cache warnings, and
-    only those: two link failures
+    `--time-stages` build's step times, whether a split build's unit came
+    from the object cache and whether std's front-end image was loaded or
+    stored, and leaves out a build's object cache warnings and any command's
+    front cache warnings, and only those: two link failures
     naming one stem with different random suffixes agree, two timed builds
     naming the same steps (a split build's units among them, compiled or
-    `cached`) agree, and different stems, different steps or units, or a
-    build without the flag still differ."""
+    `cached`, and a front-cache load or store) agree, and different stems,
+    different steps or units, or a build without the flag still differ."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fixpoint_twin", TWIN)
     twin = importlib.util.module_from_spec(spec)
@@ -285,6 +287,15 @@ def check_twin_stderr(failures, counts):
         (["build"], b"sawc build: warning: something else\n", b"", False),
         (["typecheck"], b"sawc build: warning: the object cache entry /c/g1/k.o is damaged\n", b"", False),
         (["build"], b"time: resolve 19.1 ms\n", b"time: resolve 18.7 ms\n", False),
+        (["build", "--time-stages"],
+         b"time: std front end 151.0 ms\ntime: front cache store 76.5 ms\ntime: resolve 22.1 ms\n"
+         b"time: eval 0.3 ms\ntime: verify eval 0.4 ms\n",
+         b"time: front cache load 64.9 ms\ntime: resolve 0.5 ms\ntime: eval 0.1 ms\n", True),
+        (["build", "--time-stages"], b"time: front cache load 64.9 ms\ntime: resolve 0.5 ms\n",
+         b"time: front cache load 64.9 ms\ntime: typecheck 0.5 ms\n", False),
+        (["build"], b"time: front cache store 76.5 ms\n", b"time: front cache load 64.9 ms\n", False),
+        (["typecheck"], b"sawc build: warning: the front cache entry /c/front/g1/k.img is damaged\n", b"", True),
+        (["build"], b"sawc build: warning: the front cache entry /c/front/g1/k.img is damaged\n", b"", True),
     ]
     for args, x, y, same in cases:
         if (twin.comparable_stderr(args, x) == twin.comparable_stderr(args, y)) != same:
@@ -395,6 +406,9 @@ def _on_token(check, part_failures, part_counts):
 
 def main():
     start = time.time()
+    # Both stages share the run's sawc cache, never the user's; their keys
+    # differ, so neither reads the other's front-end image.
+    patch_gate.gate_cache()
     failures, counts = run()
     counts["seconds: the whole lane"] = round(time.time() - start)
     for failure in failures:

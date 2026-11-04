@@ -4,8 +4,9 @@
     python tools/test_bench_compile.py
 
 Checks the parser and the median on a recorded `--time-stages` sample, the
-table's shape and blank cells, `--cache`'s rows and unit counts, and that the
-benchmark's argument lists for sawc and Blade are the ones
+table's shape and blank cells, `--cache`'s rows and unit counts,
+`--front-cache`'s rows and builds, and that the benchmark's argument lists
+for sawc and Blade are the ones
 compiler/tools/build.py and tools/blade_lane.py build.
 """
 import os
@@ -107,6 +108,37 @@ check("cache builds' edits exist", [e for s in bench.CACHE_BUILDS for e in s.edi
       [])
 check("cache builds' programs match their edits",
       [e for s in bench.CACHE_BUILDS for e in s.edits if unit_stability.CASES[e].program != s.program], [])
+
+FRONT_COLD = """time: std front end 150.0 ms
+time: front cache store 60.0 ms
+time: resolve 20.0 ms
+time: typecheck 30.0 ms
+time: clang link 80.0 ms
+time: total 340.0 ms
+"""
+FRONT_WARM = """time: front cache load 45.0 ms
+time: resolve 1.0 ms
+time: typecheck 2.0 ms
+time: clang link 80.0 ms
+time: total 150.0 ms
+"""
+check("front cold row", bench.front_row("h", "cold", [bench.parse_times(FRONT_COLD)]),
+      "| h | cold | **340** (340-340) | 50 | 150 | store 60 | 80 |")
+check("front warm row", bench.front_row("h", "warm", [bench.parse_times(FRONT_WARM)]),
+      "| h | warm | **150** (150-150) | 3 | - | load 45 | 80 |")
+check("front off row", bench.front_row("h", "off", [bench.parse_times(SAMPLE)]),
+      "| h | off | **100** (100-100) | 31 | - | - | 40 |")
+check("front table shape", len(bench.format_front_table(
+    [("h", {c: [bench.parse_times(FRONT_WARM)] for c in bench.FRONT_CASES})]).splitlines()), 5)
+fronts = bench.front_builds(compiler)
+check("front builds", [s.name for s in fronts],
+      ["hello -O0", "blade -O2 whole", "blade -O2 split thin", "sawc -O2 split thin, objects warm",
+       "largest corpus -O0"])
+check("front sawc argv is the driver's, split and timed", fronts[3].arguments("o"),
+      build.driver_arguments(compiler, "o", "-O2", ["--time-stages", "--codegen-units=module"]))
+check("front blade split argv", fronts[2].arguments("o"),
+      blade_lane.blade_build_arguments("o", compiler, ["--time-stages", "-O2", "--codegen-units=module"]))
+check("front splits", [s.split for s in fronts], [False, False, True, True, False])
 
 header = bench.header("abc1234", "2026-11-02", "m", 1.0, 2.0, 3, False, "/x/sawc")
 check("header names no-lock", "NOT held" in header, True)

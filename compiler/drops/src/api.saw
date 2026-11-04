@@ -14,7 +14,7 @@ import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag, mir_append_invariants, mir_append_module_checks, mir_append_refusals,
                        mir_empty_front, mir_run_layer, mir_status}
 import sawmir.program.{MirProgram}
-import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_layers}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_layer}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram, TcTarget}
 
@@ -39,25 +39,42 @@ public func drops_record(out: &var StringBuilder, path: String, options: &DropsO
                          dirs: &Vector<String>, lowerings: &var Int) -> Int {
     var p = drops_program(borrowck_program(mir_empty_front(options.std_root, options.target)))
     let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var std_layer = front_layer(FrontLayerKind.Std)
+    var start = DropsStart(checked: "", verified: "", elaborated: "", blocked: false)
+    drops_run_layer(&var p, &var std_layer, &inputs, &var start)
+    drops_record_from(out: &var out, p: &var p, std_layer: std_layer, start: start, path: path, options: &options,
+                      names: &names, dirs: &dirs, lowerings: &var lowerings)
+}
+
+// What std's layer left of the lines a record prints, and whether it left
+// the program blocked.
+public struct DropsStart {
+    checked: String
+    verified: String
+    elaborated: String
+    blocked: Bool
+}
+
+// `drops_record` for program `p`, which std's layer `std_layer` has already
+// run over, leaving `start`: std's cut, computed here or by mono, or read
+// from an image. The program's layer runs from there, and the record prints
+// both layers' lines.
+public func drops_record_from(out: &var StringBuilder, p: &var DropsProgram, std_layer: FrontLayer,
+                              start: DropsStart, path: String, options: &DropsOptions, names: &Vector<String>,
+                              dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layer = front_layer(FrontLayerKind.Program)
+    var state = start
+    drops_run_layer(&var p, &var layer, &inputs, &var state)
+    var layers = Vector<FrontLayer>()
+    try! layers.push(std_layer)
+    try! layers.push(layer)
     var checked = StringBuilder()
+    try! checked.append(state.checked)
     var verified = StringBuilder()
+    try! verified.append(state.verified)
     var elaborated = StringBuilder()
-    var blocked = false
-    var layers = front_layers()
-    var j = 0
-    while j < layers.len() {
-        var layer = layers[j]
-        if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
-            blocked = true
-        }
-        // MIR some verifier found a problem in is not elaborated: the drops
-        // it holds are not the ones the program owes.
-        if not blocked {
-            drops_layer_elaborate(&var p, &layer, &var elaborated)
-        }
-        layers[j] = layer
-        j = j + 1
-    }
+    try! elaborated.append(state.elaborated)
     lowerings = lowerings + 1
     var head = StringBuilder()
     let status = drops_append_front(&var head, &p, options.notes, &checked, &verified)
@@ -87,14 +104,37 @@ public func drops_record(out: &var StringBuilder, path: String, options: &DropsO
     status
 }
 
+// `layer` brought through the layer front, then elaborated unless a layer so
+// far left the program blocked, its lines appended to `state`'s.
+func drops_run_layer(p: &var DropsProgram, layer: &var FrontLayer, inputs: &FrontInputs, state: &var DropsStart) {
+    var checked = StringBuilder()
+    try! checked.append(state.checked)
+    var verified = StringBuilder()
+    try! verified.append(state.verified)
+    var elaborated = StringBuilder()
+    try! elaborated.append(state.elaborated)
+    if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
+        state.blocked = true
+    }
+    // MIR some verifier found a problem in is not elaborated: the drops it
+    // holds are not the ones the program owes.
+    if not state.blocked {
+        drops_layer_elaborate(&var p, &layer, &var elaborated)
+    }
+    state.checked = checked.build()
+    state.verified = verified.build()
+    state.elaborated = elaborated.build()
+}
+
 // THE LAYER FRONT: `layer` lowered, every verifier run over its modules, and
 // borrow checked, its verifier's lines appended to `checked` and its borrow
 // verifier's to `verified`. Says whether the layer leaves the program
 // blocked: a refusal or a broken invariant so far, after which nothing is
 // elaborated.
 // ENTRY POINTS:
-//     drops_record
-//     mono_lower_file
+//     drops_run_layer
+//     mono_front_std
+//     mono_front_program
 public func drops_layer_front(p: &var DropsProgram, layer: &var FrontLayer, inputs: &FrontInputs,
                               checked: &var StringBuilder, verified: &var StringBuilder) -> Bool {
     mir_run_layer(&var p.bc.mir, &var layer, &inputs)
@@ -126,8 +166,9 @@ public func drops_layer_front(p: &var DropsProgram, layer: &var FrontLayer, inpu
 // Drop elaboration over each of `layer`'s modules checked in full, the
 // invariants it met or its verifier finds appended to `out` by module.
 // ENTRY POINTS:
-//     drops_record
-//     mono_lower_file
+//     drops_run_layer
+//     mono_front_std
+//     mono_front_program
 public func drops_layer_elaborate(p: &var DropsProgram, layer: &FrontLayer, out: &var StringBuilder) {
     p.begin_layer()
     var m = layer.module_first

@@ -6,9 +6,10 @@ import sawborrowck.dump.{borrowck_conditions_text}
 import sawborrowck.program.{BorrowckProgram, borrowck_program}
 import sawborrowck.verify.{borrowck_verify_module}
 import sawasserts.layout.{asserts_inputs}
-import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_empty_front, mir_run_layer}
+import sawmir.api.{mir_append_diag, mir_append_invariants, mir_append_module_checks, mir_append_refusals,
+                       mir_empty_front, mir_run_layer, mir_status}
 import sawmir.program.{MirProgram}
-import sawresolve.layer.{FrontLayer, front_layers}
+import sawresolve.layer.{FrontLayer, FrontLayerKind, front_layer}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram, TcTarget}
 
@@ -22,6 +23,16 @@ public struct BorrowckOptions {
     target: TcTarget
 }
 
+// What std's layer left a record to print: its modules' verifier lines from
+// the MIR stage (`checked`) and the borrow check's (`verified`), when its
+// layer verified them as it ran; with `verified_std` false, nothing was
+// verified yet, and the record verifies every module.
+public struct BorrowckStart {
+    checked: String
+    verified: String
+    verified_std: Bool
+}
+
 // The record of one program borrow checked, after its `FILE` line:
 // everything `sawc mir --check` prints, then the borrow check's refusals,
 // each an `ERROR` line, then an `INVARIANT` line per problem its verifier
@@ -32,17 +43,32 @@ public func borrowck_record(out: &var StringBuilder, path: String, options: &Bor
                             names: &Vector<String>, dirs: &Vector<String>, lowerings: &var Int) -> Int {
     var p = borrowck_program(mir_empty_front(options.std_root, options.target))
     let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
-    var layers = front_layers()
-    var j = 0
-    while j < layers.len() {
-        var layer = layers[j]
-        mir_run_layer(&var p.mir, &var layer, &inputs)
-        p.check_layer(&layer)
-        j = j + 1
-    }
+    var layer = front_layer(FrontLayerKind.Std)
+    mir_run_layer(&var p.mir, &var layer, &inputs)
+    p.check_layer(&layer)
+    let start = BorrowckStart(checked: "", verified: "", verified_std: false)
+    borrowck_record_from(out: &var out, p: &var p, start: start, path: path, options: &options, names: &names,
+                         dirs: &dirs, lowerings: &var lowerings)
+}
+
+// `borrowck_record` for program `p`, which std's layer has already run over,
+// leaving `start`: std's cut, computed here or by mono, or read from an
+// image. The program's layer runs from there.
+public func borrowck_record_from(out: &var StringBuilder, p: &var BorrowckProgram, start: BorrowckStart,
+                                 path: String, options: &BorrowckOptions, names: &Vector<String>,
+                                 dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layer = front_layer(FrontLayerKind.Program)
+    mir_run_layer(&var p.mir, &var layer, &inputs)
+    p.check_layer(&layer)
     lowerings = lowerings + 1
-    var status = mir_append_checks(out: &var out, p: &var p.mir, notes: options.notes)
-    var m = 0
+    // A layer that verified std as it ran leaves the lines of std's modules;
+    // only the program's are verified here.
+    let first = if start.verified_std { layer.module_first } else { 0 }
+    mir_append_refusals(out: &var out, p: &p.mir, notes: options.notes)
+    try! out.append(start.checked)
+    mir_append_module_checks(out: &var out, p: &var p.mir, first: first)
+    var status = mir_status(&p.mir)
     var k = 0
     while k < p.diags.len() {
         let d = p.diags[k]
@@ -52,7 +78,8 @@ public func borrowck_record(out: &var StringBuilder, path: String, options: &Bor
     if p.diags.len() > 0 {
         status = 1
     }
-    m = 0
+    try! out.append(start.verified)
+    var m = first
     while m < p.mir.tc.res.module_count() {
         let info = p.mir.tc.res.module(m)
         if info.available && not info.interface_only {

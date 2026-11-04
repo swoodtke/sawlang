@@ -75,6 +75,7 @@ sys.path.append(os.path.join(REPO, "tools"))
 
 import gate_jobs  # noqa: E402
 import build  # noqa: E402
+import patch_gate  # noqa: E402
 import comma_funnel  # noqa: E402
 import depth_funnel  # noqa: E402
 import grammar_tables  # noqa: E402
@@ -1040,6 +1041,9 @@ def main():
         steps, problem = only_steps(options.only)
         if problem:
             parser.error(problem)
+    # Every compile of the run shares the gate's or the battery's cache, else
+    # one of the run's own, never the user's.
+    patch_gate.gate_cache()
     return report(steps)
 
 

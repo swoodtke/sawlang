@@ -10,11 +10,14 @@ corpus, the corpus differential's regression gate and the freestanding QEMU
 suite run only when a changed path is one they read (`SUITE_INPUTS`); without
 the full grammar corpus, each
 changed .saw file gets that check on its own (`PER_FILE`). With no source of
-changed paths, or when git cannot name them, everything runs. `--dry-run`
-prints the decision and runs nothing.
+changed paths, or when git cannot name them, everything runs. Every part
+shares one fresh sawc cache directory (`gate_cache`). `--dry-run` prints the
+decision and runs nothing.
 """
 import argparse
+import atexit
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -241,6 +244,8 @@ def main():
     decisions = plan(paths, how)
     for name, run, reason, _ in decisions:
         print("gate: %s: %s (%s)" % (name, "run" if run else "skip", reason))
+    cache, why = gate_cache(dry_run=args.dry_run)
+    print("gate: sawc cache: %s (%s)" % (os.path.relpath(cache, REPO), why))
     if args.dry_run:
         return 0
 
@@ -258,6 +263,45 @@ def main():
     print("gate: " + "; ".join(results))
     print("gate: time: %s; tests %s" % (lock_wait(), duration(time.time() - tests_start)))
     return 1 if any("FAILED" in r for r in results) else 0
+
+
+# The variable a gate run names its cache directory in, beside SAWC_CACHE_DIR,
+# so a part and its own children know the directory is the run's, not a
+# user's (compiler/tests/run.py's `lane_cache` reads it).
+LANE_CACHE = "SAW_LANE_CACHE_DIR"
+
+
+def gate_cache(dry_run=False):
+    """(directory, why): THE LANE CACHE, the sawc cache every part of this run
+    shares, through SAWC_CACHE_DIR, which each part's children inherit. A
+    directory an enclosing run already made is kept; else a fresh
+    `.build/gate-cache/PID`, removed when the run ends, so each run's first
+    compile makes std's front-end image and its object cache's entries, and
+    nothing reaches the user's cache, whatever SAWC_CACHE_DIR said. A dry run
+    names the directory and makes nothing. tools/battery.sh makes its own by
+    the same rule.
+
+    ENTRY POINTS:
+        main
+        run.py main
+        fixpoint_lane main
+        corpusdiff main
+        blade_lane main
+        freestanding_runner main
+        docverify main
+    """
+    given = os.environ.get(LANE_CACHE)
+    if given and os.environ.get("SAWC_CACHE_DIR") == given:
+        return given, "the enclosing run's"
+    directory = os.path.join(REPO, ".build", "gate-cache", str(os.getpid()))
+    if dry_run:
+        return directory, "fresh for this run, removed when it ends; SAWC_CACHE_DIR names it to every part"
+    shutil.rmtree(directory, ignore_errors=True)
+    os.makedirs(directory)
+    os.environ["SAWC_CACHE_DIR"] = directory
+    os.environ[LANE_CACHE] = directory
+    atexit.register(shutil.rmtree, directory, True)
+    return directory, "fresh for this run, removed when it ends; SAWC_CACHE_DIR names it to every part"
 
 
 def lock_wait():

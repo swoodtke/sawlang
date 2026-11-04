@@ -16,7 +16,8 @@ import sawcoro.verify.{coro_verify_lowering, coro_verify_snapshot}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag}
 import sawmir.program.{MirProgram}
-import sawmono.api.{mono_append_findings, mono_lower_file}
+import sawmono.api.{mono_append_findings, mono_lower_cut, mono_lower_file}
+import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoProgram}
 import sawmono.worklist.{mono_rules}
 import sawtarget.layout.{Target}
@@ -49,9 +50,24 @@ public func coro_lower_file(out: &var StringBuilder, path: String, std_root: Str
                             names: &Vector<String>, dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                             freestanding: Bool = false, provider: Bool = false,
                             no_hidden_alloc: Bool = false) -> CoroProgram {
-    var mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
+    let mono = mono_lower_file(out: &var out, path: path, std_root: std_root, notes: notes, names: &names,
                                dirs: &dirs, target: target, runtime: runtime, freestanding: freestanding,
                                provider: provider, no_hidden_alloc: no_hidden_alloc)
+    coro_decide(move mono)
+}
+
+// `coro_lower_file` for a program whose layer starts from `front`, std's
+// cut, which fixes the std root, the target and the profile.
+public func coro_lower_cut(out: &var StringBuilder, front: FrontCut, path: String, notes: Bool,
+                           names: &Vector<String>, dirs: &Vector<String>, no_hidden_alloc: Bool = false) -> CoroProgram {
+    let mono = mono_lower_cut(out: &var out, front: move front, path: path, notes: notes, names: &names,
+                              dirs: &dirs, no_hidden_alloc: no_hidden_alloc)
+    coro_decide(move mono)
+}
+
+// Mono's program decided: each frame's contents found, and which frames are
+// lowered; nothing is decided for a blocked one.
+func coro_decide(mono: MonoProgram) -> CoroProgram {
     stagetime_begin(StageTime.Coro)
     var coro = coro_program(move mono)
     if not coro.blocked {
@@ -119,11 +135,13 @@ public func coro_lower_for(coro: &var CoroProgram, target: &var Target) {
 // `dump`, each item's frame decision, with `layouts`, each frame laid out
 // for the options' target, or with `lowered`, an `INVARIANT` line per problem
 // the lowering meets, then each lowered frame's resume function for it.
-// Returns 0 when nothing was refused or broken and 1 otherwise.
-public func coro_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
-                        dirs: &Vector<String>) -> Int {
-    var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
-                               names: &names, dirs: &dirs, target: options.target)
+// Returns 0 when nothing was refused or broken and 1 otherwise. The
+// program's layer starts from `front`, std's cut for the options' std root
+// and target.
+public func coro_record(out: &var StringBuilder, front: FrontCut, path: String, options: &CoroOptions,
+                        names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var coro = coro_lower_cut(out: &var out, front: move front, path: path, notes: options.notes, names: &names,
+                              dirs: &dirs)
     coro_append_findings(out: &var out, coro: &coro)
     var status = 0
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {

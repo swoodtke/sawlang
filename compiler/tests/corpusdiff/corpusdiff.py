@@ -53,6 +53,7 @@ import build  # noqa: E402
 import child_groups  # noqa: E402
 import expect  # noqa: E402
 import gate_jobs  # noqa: E402
+import patch_gate  # noqa: E402
 
 REPO = oracle.REPO
 CORPUS = oracle.CORPUS
@@ -922,6 +923,8 @@ def against_baseline(rows):
 
 def main():
     child_groups.install()
+    # Every program's build shares the run's sawc cache, never the user's.
+    patch_gate.gate_cache()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check")

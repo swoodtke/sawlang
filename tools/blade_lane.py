@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 
 import build  # noqa: E402
 import child_groups  # noqa: E402
+import patch_gate  # noqa: E402
 
 BLADE_DIR = os.path.join(REPO, "blade")
 LIBS_DIR = os.path.join(REPO, "libs")
@@ -172,4 +173,6 @@ def lane():
 
 if __name__ == "__main__":
     child_groups.install()
+    # sawc's builds of Blade, and Blade's own, share the run's sawc cache.
+    patch_gate.gate_cache()
     sys.exit(lane())

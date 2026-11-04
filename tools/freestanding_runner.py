@@ -39,6 +39,7 @@ import blade_lane  # noqa: E402
 import build  # noqa: E402
 import child_groups  # noqa: E402
 import gate_jobs  # noqa: E402
+import patch_gate  # noqa: E402
 
 FS_DIR = os.path.join(REPO, "tests", "freestanding")
 CASES_DIR = os.path.join(FS_DIR, "cases")
@@ -1269,6 +1270,8 @@ def run_arch(arch, cases, qemu, clang, lld):
 
 
 def main(argv):
+    # Every case's build shares the run's sawc cache, never the user's.
+    patch_gate.gate_cache()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--arch", metavar="NAME", help="run one architecture (default: every one not off)")
     ap.add_argument("--tools", action="store_true", help="decide the prerequisites, print the decision, run nothing")

@@ -2,22 +2,28 @@
 """The compile-time benchmark (SL-955): five fixed builds, timed by
 `sawc build --time-stages`, as a Markdown table for a tracker comment.
 
-    tools/bench_compile.py [--runs N] [--sawc PATH] [--json FILE] [--no-lock] [--cache]
+    tools/bench_compile.py [--runs N] [--sawc PATH] [--json FILE] [--no-lock] [--cache | --front-cache]
 
 The builds: sawc's own build at -O2 and at -O0 (the argument list of
 compiler/tools/build.py's `driver_arguments`), Blade at -O2 (tools/blade_lane.py's
 `blade_build_arguments`), hello at -O0 and the largest corpus program at -O0.
 Each runs N times; a cell is the median over the runs, and `total` also gets
 its min and max. Outputs go under `.build/bench/`, and no build takes an
-object from the object cache, so a split build under `SAWC_CODEGEN_UNITS`
-measures its compile. The run holds the suite lock
+object from the object cache or std's front end from the std front cache, so
+a split build under `SAWC_CODEGEN_UNITS` measures its compile. The run holds the suite lock
 (`--no-lock` skips it and the header says so), since the numbers mean nothing
 while something else compiles. Run by hand, and post the table to SL-955.
 
 `--cache` measures the object cache instead (`cache_builds`): each split build
 of a copy of its sources with a fresh cache under `.build/bench/`, then again
 with nothing changed, then after each of tools/unit_stability.py's edits to
-one module, with the whole-module build for reference.
+one module, with the whole-module build for reference, the std front cache
+off.
+
+`--front-cache` measures the std front cache (`front_runs`): hello, Blade
+whole and split, sawc split with its objects cached, and the largest corpus
+program, each with the cache off, cold and warm, on a cache under
+`.build/bench/`.
 """
 import argparse
 import collections
@@ -77,11 +83,12 @@ def parse_times(text):
 
 
 def run_once(argv, cwd=REPO, env=None):
-    """The parsed times of one build, with the object cache off unless `env`
-    says otherwise; raises RuntimeError when it fails or prints none."""
+    """The parsed times of one build, with the object cache and the std front
+    cache off unless `env` says otherwise; raises RuntimeError when it fails
+    or prints none."""
     proc = child_groups.start(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, text=True, errors="replace",
-                              env=env or dict(os.environ, SAWC_OBJECT_CACHE="off"))
+                              env=env or dict(os.environ, SAWC_OBJECT_CACHE="off", SAWC_FRONT_CACHE="off"))
     try:
         out, _ = proc.communicate(timeout=BUILD_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -139,7 +146,9 @@ def cache_runs(sawc, spec, runs):
     os.makedirs(os.path.dirname(out), exist_ok=True)
     argv = cache_arguments(sawc, program, spec.speed, spec.units, out)
     cache = os.path.join(root, "object-cache")
-    env = dict(os.environ, SAWC_CACHE_DIR=cache)
+    # The std front cache stays off, so these rows measure the object cache
+    # alone, as they always have; `--front-cache` measures the other.
+    env = dict(os.environ, SAWC_CACHE_DIR=cache, SAWC_FRONT_CACHE="off")
     for name in ("SAWC_OBJECT_CACHE", "SAWC_CACHE_ENTRIES", "SAWC_CODEGEN_UNITS", "SAWC_LTO"):
         env.pop(name, None)
     cases = collections.OrderedDict()
@@ -185,6 +194,88 @@ def format_cache_table(results):
     for name, cases in results:
         for case, runs in cases.items():
             lines.append(cache_row(name, case, runs))
+    return "\n".join(lines)
+
+
+# The std front cache's builds (`--front-cache`): a name and the argv maker
+# for an output path, and whether the build is split, whose object cache is
+# filled first so the rows measure the front cache alone.
+FrontBuild = collections.namedtuple("FrontBuild", "name arguments split")
+
+
+def front_builds(sawc):
+    """The `--front-cache` builds, in table order."""
+    split = ["--codegen-units=module"]
+    return (
+        FrontBuild("hello -O0", lambda out: program_arguments(sawc, HELLO, "-O0", out), False),
+        FrontBuild("blade -O2 whole",
+                   lambda out: blade_lane.blade_build_arguments(out, sawc, [TIME_STAGES, "-O2"]), False),
+        FrontBuild("blade -O2 split thin",
+                   lambda out: blade_lane.blade_build_arguments(out, sawc, [TIME_STAGES, "-O2"] + split), True),
+        FrontBuild("sawc -O2 split thin, objects warm",
+                   lambda out: build.driver_arguments(sawc, out, "-O2", [TIME_STAGES] + split), True),
+        FrontBuild("largest corpus -O0", lambda out: program_arguments(sawc, LARGEST, "-O0", out), False),
+    )
+
+
+# A `--front-cache` row's cases, in order: the cache off, a cold cache that
+# computes std's front end and stores it, and a warm one that loads it.
+FRONT_CASES = ("off", "cold", "warm")
+
+
+def front_runs(spec, runs):
+    """{case: [rows]} of `runs` passes over one `front_builds` entry, each on
+    a cache of its own under `.build/bench/`: a split build's object cache is
+    filled by an untimed build first, then the build runs with the front
+    cache off, cold (its images removed) and warm."""
+    root = os.path.join(BENCH_DIR, "front-" + re.sub(r"[^a-z0-9]+", "-", spec.name))
+    out = os.path.join(root, "program")
+    argv = spec.arguments(out)
+    cache = os.path.join(root, "cache")
+    env = dict(os.environ, SAWC_CACHE_DIR=cache)
+    for name in ("SAWC_FRONT_CACHE", "SAWC_OBJECT_CACHE", "SAWC_CACHE_ENTRIES", "SAWC_CODEGEN_UNITS", "SAWC_LTO"):
+        env.pop(name, None)
+    cases = collections.OrderedDict((case, []) for case in FRONT_CASES)
+    for _ in range(runs):
+        shutil.rmtree(cache, ignore_errors=True)
+        os.makedirs(root, exist_ok=True)
+        if spec.split:
+            run_once(argv, REPO, env)
+        cases["off"].append(run_once(argv, REPO, dict(env, SAWC_FRONT_CACHE="off")))
+        shutil.rmtree(os.path.join(cache, "front"), ignore_errors=True)
+        cases["cold"].append(run_once(argv, REPO, env))
+        cases["warm"].append(run_once(argv, REPO, env))
+    return cases
+
+
+# The steps std's front end and the program's run in, which a row sums.
+FRONT_END_STEPS = ("resolve", "typecheck", "asserts", "mir", "verify resolve", "verify typecheck", "verify mir",
+                   "eval", "verify eval", "borrowck", "verify borrowck", "drops", "verify drops")
+
+
+def front_row(name, case, runs):
+    """One row of the front cache table: the median total, the front end's
+    steps summed, std's front end computed, the cache's load or store, and
+    clang with the link."""
+    summary = summarize(runs)
+    steps = summary["steps"]
+    front = sum(steps.get(s, 0.0) for s in FRONT_END_STEPS)
+    cache = steps.get("front cache load", steps.get("front cache store"))
+    link = sum(steps.get(s, 0.0) for s in ("clang", "link", "clang link", "dsymutil"))
+    return ("| %s | %s | **%.0f** (%.0f-%.0f) | %.0f | %s | %s | %.0f |"
+            % (name, case, summary["total"]["median"], summary["total"]["min"], summary["total"]["max"], front,
+               "%.0f" % steps["std front end"] if "std front end" in steps else "-",
+               "-" if cache is None else "%s %.0f" % ("load" if "front cache load" in steps else "store", cache),
+               link))
+
+
+def format_front_table(results):
+    """The Markdown table of `--front-cache`: a row per build and case."""
+    lines = ["| build | case | total ms (min-max) | front-end steps | std front end | front cache | clang + link |",
+             "|---|---|---:|---:|---:|---:|---:|"]
+    for name, cases in results:
+        for case, runs in cases.items():
+            lines.append(front_row(name, case, runs))
     return "\n".join(lines)
 
 
@@ -272,7 +363,11 @@ def main():
     ap.add_argument("--json", metavar="FILE")
     ap.add_argument("--no-lock", action="store_true", help="skip the suite lock")
     ap.add_argument("--cache", action="store_true", help="measure the object cache: cold, warm and after an edit")
+    ap.add_argument("--front-cache", action="store_true",
+                    help="measure the std front cache: off, cold and warm")
     args = ap.parse_args()
+    if args.cache and args.front_cache:
+        ap.error("--cache and --front-cache measure one cache each")
     if args.runs < 1:
         ap.error("--runs takes at least 1")
     sawc = os.path.abspath(args.sawc)
@@ -293,7 +388,13 @@ def main():
                 cases = cache_runs(sawc, spec, args.runs)
                 cached.append((spec.name, cases))
                 raw[spec.name] = {case: [[list(r) for r in rows] for rows in runs] for case, runs in cases.items()}
-        for name, argv in ([] if args.cache else builds(sawc)):
+        if args.front_cache:
+            for spec in front_builds(sawc):
+                print("bench: %s" % spec.name, file=sys.stderr, flush=True)
+                cases = front_runs(spec, args.runs)
+                cached.append((spec.name, cases))
+                raw[spec.name] = {case: [[list(r) for r in rows] for rows in runs] for case, runs in cases.items()}
+        for name, argv in ([] if args.cache or args.front_cache else builds(sawc)):
             print("bench: %s" % name, file=sys.stderr, flush=True)
             runs = [run_once(argv) for _ in range(args.runs)]
             names.append(name)
@@ -311,7 +412,12 @@ def main():
     commit = git_commit()
     print(header(commit, date, machine, load_before, load_after, args.runs, not args.no_lock, sawc))
     print()
-    print(format_cache_table(cached) if args.cache else format_table(names, summaries))
+    if args.cache:
+        print(format_cache_table(cached))
+    elif args.front_cache:
+        print(format_front_table(cached))
+    else:
+        print(format_table(names, summaries))
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"commit": commit, "date": date, "machine": machine, "cores": cores,

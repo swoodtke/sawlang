@@ -8,6 +8,8 @@ Checks, with nothing built or run:
 
 - `patch_gate.plan` over representative changed-path sets: which parts run,
   and why;
+- `patch_gate.gate_cache`: one fresh sawc cache under `.build/` per run,
+  never a user's, an enclosing run's kept;
 - every script a part runs exists, every directory sawc is built from is an
   input of the corpus differential, and every freestanding input exists;
 - `corpusdiff.regressions`, the baseline's rule, over synthetic rows: a new
@@ -225,9 +227,33 @@ def check_stage_table_threads():
         check(set(got) == {want}, "threads keyed %s by %s, want %s" % (rule, sorted(set(got)), want))
 
 
+def check_gate_cache():
+    """Every gate run's parts share one fresh sawc cache under `.build/`: a
+    user's SAWC_CACHE_DIR is never the run's, a directory an enclosing run
+    made is kept, and a dry run makes nothing."""
+    saved = dict(os.environ)
+    try:
+        os.environ["SAWC_CACHE_DIR"] = "/the/users/cache"
+        os.environ.pop(patch_gate.LANE_CACHE, None)
+        fresh = os.path.join(REPO, ".build", "gate-cache", str(os.getpid()))
+        got, _ = patch_gate.gate_cache(dry_run=True)
+        check(got == fresh, "a dry run names %s, want %s" % (got, fresh))
+        check(os.environ["SAWC_CACHE_DIR"] == "/the/users/cache", "a dry run changes SAWC_CACHE_DIR")
+        got, _ = patch_gate.gate_cache()
+        check(got == fresh and os.path.isdir(fresh), "a run's cache is %s, want a fresh %s" % (got, fresh))
+        check(os.environ["SAWC_CACHE_DIR"] == fresh and os.environ[patch_gate.LANE_CACHE] == fresh,
+              "a run names its cache %s to its parts, want %s" % (os.environ["SAWC_CACHE_DIR"], fresh))
+        kept, why = patch_gate.gate_cache()
+        check(kept == fresh, "a run inside a run makes %s, want the enclosing %s (%s)" % (kept, fresh, why))
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+
+
 def main():
     check_plans()
     check_parts()
+    check_gate_cache()
     check_regressions()
     check_wrong_refusal()
     check_driver_refusals()

@@ -119,6 +119,22 @@ run_freestanding() {
     "$PY" tools/freestanding_runner.py
 }
 
+# Every stage shares one sawc cache of this run's own, never the user's: its
+# first compile makes std's front-end image and the rest load it. A directory
+# an enclosing run made (tools/patch_gate.py's `gate_cache`) is kept; the
+# marker tells a stage's own children the directory is the run's.
+if [ -n "${SAW_LANE_CACHE_DIR:-}" ] && [ "${SAWC_CACHE_DIR:-}" = "$SAW_LANE_CACHE_DIR" ]; then
+    echo "battery: sawc cache $SAWC_CACHE_DIR (the enclosing run's)"
+else
+    SAWC_CACHE_DIR="$REPO/.build/gate-cache/battery-$$"
+    rm -rf "$SAWC_CACHE_DIR"
+    mkdir -p "$SAWC_CACHE_DIR" || exit 2
+    export SAWC_CACHE_DIR
+    export SAW_LANE_CACHE_DIR="$SAWC_CACHE_DIR"
+    trap 'rm -rf "$SAWC_CACHE_DIR"' EXIT
+    echo "battery: sawc cache $SAWC_CACHE_DIR (fresh for this run, removed when it ends)"
+fi
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)

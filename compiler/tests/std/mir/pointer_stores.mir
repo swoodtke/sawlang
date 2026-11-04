@@ -1,8 +1,10 @@
-// The std's stores through a raw pointer as sawc lowers them against std/
+// The std's stores through a raw pointer as std's cut holds them against
+// std/: drop-elaborated, since std's layer always runs through drops
 // (SL-512). A whole pointer slot tracks no occupancy, so each store is a
 // placement that drops nothing first: `Box.make` and `Vector.push` write a
 // fresh slot, and `Vector.set` and `Optional.take_payload` write one their
-// own `move` has just emptied.
+// own `move` has just emptied. `Vector.set`'s drop flag drops the value it
+// was handed only on the path that does not store it.
 // function: fn std.box.Box.make(value: T)
 // function: fn std.vector.Vector.push(value: T)
 // function: fn std.vector.Vector.set(index: Int, value: T)
@@ -71,7 +73,6 @@ fn std.box.Box.make(value: T) -> Result<std.box.Box<T, A>, std.alloc.AllocError>
         _16 = Result<std.box.Box<T, A>, std.alloc.AllocError>::Ok(move _15);
         _0 = move _16;
         drop(_6);
-        drop(_1);
         return;
     }
 
@@ -154,7 +155,6 @@ fn std.vector.Vector.push(value: T) -> Result<Void, std.alloc.AllocError> {
         _19 = Add(copy (*_1).length, const 1: Int);
         (*_1).length = move _19;
         _0 = Result<Void, std.alloc.AllocError>::Ok(const (): Void);
-        drop(_2);
         return;
     }
 
@@ -176,8 +176,10 @@ fn std.vector.Vector.set(index: Int, value: T) -> Void {
     let _9: Int;
     let _10: Int;
     let _11: T;
+    let _12: Bool;
 
     bb0: {
+        _12 = const true: Bool;
         _5 = Lt(copy _2, const 0: Int);
         switch move _5 -> [true: bb4, false: bb3];
     }
@@ -210,8 +212,7 @@ fn std.vector.Vector.set(index: Int, value: T) -> Void {
     }
 
     bb7: {
-        drop(_3);
-        return;
+        switch copy _12 -> [true: bb10, false: bb11];
     }
 
     bb8: {
@@ -220,14 +221,24 @@ fn std.vector.Vector.set(index: Int, value: T) -> Void {
         _8 = move _7[_9];
         _10 = copy _2;
         _7[_10] = move _3;
+        _12 = const false: Bool;
         _11 = move _8;
         drop(_11);
-        drop(_8);
         goto -> bb7;
     }
 
     bb9: {
         goto -> bb7;
+    }
+
+    bb10: {
+        drop(_3);
+        _12 = const false: Bool;
+        goto -> bb11;
+    }
+
+    bb11: {
+        return;
     }
 }
 
@@ -252,7 +263,6 @@ fn Optional.take_payload() -> T? {
         _8 = T?::None;
         _2[_7] = move _8;
         _0 = move _5;
-        drop(_5);
         return;
     }
 }

@@ -51,21 +51,36 @@ STAGE_TIME = re.compile(rb"^(time: [^\n]+ )[0-9]+\.[0-9] ms$", re.MULTILINE)
 # that runs second finds the units the first stored: whether a unit was
 # compiled or `cached` is the cache's state, not the stage's.
 UNIT_CACHED = re.compile(rb"^(time: clang unit \S+) cached ", re.MULTILINE)
-# A warning about the object cache reports its state too: a damaged entry the
-# first stage warns about and stores again is whole when the second runs.
+# A warning about the object cache or the std front cache reports its state
+# too: a damaged entry the first stage warns about and stores again is whole
+# when the second runs. Only a build reads the object cache, and every
+# front-end command reads the front cache.
 CACHE_WARNING = re.compile(rb"^sawc build: warning: [^\n]*object cache[^\n]*\n", re.MULTILINE)
+FRONT_CACHE_WARNING = re.compile(rb"^sawc build: warning: [^\n]*front cache[^\n]*\n", re.MULTILINE)
+# Each stage's key holds its own binary's hash, so each stores std's image on
+# its first invocation and loads it after; but invocations run at once, so
+# one stage can load where the other stores. A load and a store are the
+# cache's state, not the stage's, and so is the time a stage that stores
+# spends computing std's front end, the evaluator's verifier over std among
+# it, which only making the cut runs.
+FRONT_CACHE_TIME = re.compile(rb"^time: front cache (?:load|store) ", re.MULTILINE)
+STD_FRONT_TIME = re.compile(rb"^time: (?:std front end|verify eval) [0-9]+\.[0-9] ms\n", re.MULTILINE)
 
 
 def comparable_stderr(args, err):
-    """`err` with clang's temporary object names and `--time-stages`' times
-    made equal, for a build, a split build's units compiled or `cached`
-    alike, and the object cache's warnings left out."""
+    """`err` with the caches' warnings left out; and, for a build, clang's
+    temporary object names and `--time-stages`' times made equal, a split
+    build's units compiled or `cached` alike, and a front-cache load and store
+    alike."""
+    err = FRONT_CACHE_WARNING.sub(b"", err)
     if args[:1] != ["build"]:
         return err
     err = CLANG_TEMP_OBJECT.sub(b"-XXXXXX.o", err)
     err = CACHE_WARNING.sub(b"", err)
     if "--time-stages" in args:
         err = UNIT_CACHED.sub(rb"\1 ", err)
+        err = STD_FRONT_TIME.sub(b"", err)
+        err = FRONT_CACHE_TIME.sub(b"time: front cache ", err)
         err = STAGE_TIME.sub(rb"\1N ms", err)
     return err
 

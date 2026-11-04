@@ -1046,7 +1046,7 @@ TIME_STAGES_SOURCE = """func main() {
 # `sawc build --time-stages`' steps in pipeline order (compiler/lex/src/
 # stagetime.saw), the ones every hosted build runs, and the ones only some do.
 TIME_STAGES_ORDER = ("resolve", "typecheck", "asserts", "mir", "verify resolve", "verify typecheck", "verify mir",
-                     "eval", "borrowck", "verify borrowck", "drops", "verify drops", "mono", "coro",
+                     "eval", "verify eval", "borrowck", "verify borrowck", "drops", "verify drops", "mono", "coro",
                      "coro lower", "verify coro", "llvm", "write ll", "clang", "link", "clang link", "dsymutil")
 TIME_STAGES_ALWAYS = ("resolve", "typecheck", "asserts", "mir", "eval", "borrowck", "drops", "mono", "coro",
                       "coro lower", "llvm", "write ll")
@@ -1058,6 +1058,9 @@ TIME_STAGES_LINE = re.compile(r"^time: ([a-z ]+) (\d+\.\d) ms$")
 TIME_STAGES_SPLIT = re.compile(r"^time: split (\d+\.\d) ms$")
 TIME_STAGES_UNIT = re.compile(r"^time: clang unit (\S+)( cached)? (\d+\.\d) ms$")
 TIME_STAGES_CACHE = re.compile(r"^time: object cache (\d+\.\d) ms$")
+# The std front cache's lines, ahead of everything: std's cut loaded, or
+# computed and then stored (`driver_front_cut`).
+TIME_STAGES_FRONT = re.compile(r"^time: (front cache load|std front end|front cache store) (\d+\.\d) ms$")
 
 
 def check_time_stages(failures, counts):
@@ -1545,6 +1548,9 @@ def check_object_cache(failures, counts):
                      "SAWC_LTO"):
             env.pop(name, None)
         env["SAWC_CACHE_DIR"] = directory
+        # The std front cache would make each directory too; it has a pin of
+        # its own (`check_front_cache`).
+        env["SAWC_FRONT_CACHE"] = "off"
         env.update(extra or {})
         return env
 
@@ -1792,12 +1798,307 @@ def check_object_cache(failures, counts):
     counts["run object cache cases checked"] = checked
 
 
+# A program the std front cache's pins refuse: its refusal record must be the
+# same bytes whether std's cut is computed or loaded.
+FRONT_CACHE_REFUSED = """func main() {
+    let n: Int = "not a number"
+    print(n)
+}
+"""
+# A freestanding program's root, for the misses under another profile.
+FRONT_CACHE_FREESTANDING = """@export("fs_main")
+func fs_main() -> Int {
+    7
+}
+"""
+
+
+def front_cache_images(directory):
+    """Every std front cache entry under `directory`, by its path from there."""
+    found = []
+    for path in glob.glob(os.path.join(directory, "front", "g*", "*")):
+        found.append(os.path.relpath(path, directory))
+    return sorted(found)
+
+
+def front_cache_environment(directory, extra=None):
+    """The environment of a build on the std front cache at `directory`, the
+    caches' own switches left out unless `extra` sets them."""
+    env = dict(os.environ)
+    for name in ("SAWC_FRONT_CACHE", "SAWC_OBJECT_CACHE", "SAWC_CACHE_ENTRIES", "SAWC_CODEGEN_UNITS", "SAWC_LTO"):
+        env.pop(name, None)
+    env["SAWC_CACHE_DIR"] = directory
+    env.update(extra or {})
+    return env
+
+
+def check_front_cache(failures, counts):
+    """Every front-end command starts from std's cut through drops, which the
+    std front cache holds under its key (`driver_front_key`). A warm build
+    loads it and computes no std layer: `--time-stages` reports
+    `front cache load` and no `std front end`, a cold one both
+    `std front end` and `front cache store`, and only a cold build, or a
+    cold `--emit-ll`, reports `verify eval`, the evaluator's verifier over
+    std that making the cut runs. The `.ll` and a refused
+    program's record are the same bytes cold and warm. Each input of the key
+    misses: an edited std file, another target, another feature set,
+    `--freestanding`, `--runtime`, another binary and another spelling of the
+    std root. A damaged, a truncated and a foreign entry each warn, are
+    computed and stored again. `--no-front-cache` and `SAWC_FRONT_CACHE=off`
+    leave the cache untouched, a bad value is a usage error, and six cold
+    builds at once share one store. Every cache is a fresh directory of the
+    pin's own."""
+    work = os.path.join(OUT, "front-cache")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    for name, text in (("main.saw", TIME_STAGES_SOURCE), ("refused.saw", FRONT_CACHE_REFUSED),
+                       ("free.saw", FRONT_CACHE_FREESTANDING)):
+        with open(os.path.join(work, name), "w") as fh:
+            fh.write(text)
+    cache = os.path.join(work, "cache")
+    checked = 0
+
+    def sawc(args, directory=cache, extra=None, binary=None):
+        return subprocess.run([binary or build.SAWC] + args, cwd=work, capture_output=True, text=True,
+                              timeout=BUILD_TIMEOUT, env=front_cache_environment(directory, extra))
+
+    def timed(args, where, want, directory=cache, extra=None, binary=None, refusal=False):
+        """A `--time-stages` build of `args` whose cut is `want`, `load` or
+        `store`, with no warning; its result, or None once a failure is
+        recorded. With `refusal`, a refusal record is as good as a build:
+        the cut is made before any program is refused."""
+        r = sawc(["build", "--time-stages", "-g0"] + args, directory, extra, binary)
+        lines = [line.split(" ")[1:4] for line in r.stderr.splitlines() if line.startswith("time: ")]
+        loaded = ["front", "cache", "load"] in lines
+        stored = ["front", "cache", "store"] in lines
+        computed = ["std", "front", "end"] in lines
+        refused = refusal and r.returncode == 1 and r.stdout.startswith("FILE\t")
+        if r.returncode != 0 and not refused:
+            failures.append("run front cache: %s fails: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+            return None
+        if "warning" in r.stderr:
+            failures.append("run front cache: %s warns: %s" % (where, r.stderr.strip()[:300]))
+        if want == "load" and not (loaded and not stored and not computed):
+            failures.append("run front cache: %s computes std's front end instead of loading it: %r"
+                            % (where, r.stderr.strip()[:300]))
+        if want == "store" and not (stored and computed and not loaded):
+            failures.append("run front cache: %s loads std's front end instead of computing and storing it: %r"
+                            % (where, r.stderr.strip()[:300]))
+        return r
+
+    # Hits, and equality: cold and warm, the program, the `.ll` and a
+    # refused program's record.
+    cold = timed(["main.saw", "-o", "cold"], "the cold build", "store")
+    warm = timed(["main.saw", "-o", "warm"], "the warm build", "load")
+    if cold is None or warm is None:
+        return
+    # Making the cut runs the evaluator's verifier over std, which only a
+    # build that computes std's front end reports; a cut read back runs none.
+    emitted = sawc(["build", "--time-stages", "--emit-ll", "main.saw"], os.path.join(work, "emit-cold"))
+    for r, where, want in ((cold, "the cold build", True), (emitted, "a cold --emit-ll", True),
+                           (warm, "the warm build", False)):
+        if (re.search(r"^time: verify eval ", r.stderr, re.M) is not None) != want:
+            failures.append("run front cache: %s %s `verify eval`: %r"
+                            % (where, "reports no" if want else "reports", r.stderr.strip()[:300]))
+    checked += 3
+    for name in ("cold", "warm"):
+        code, stdout, _ = execute(os.path.join(work, name))
+        if code != 0 or stdout != b"timed\n":
+            failures.append("run front cache: the %s build's program exits %s printing %r" % (name, code, stdout))
+    if len(front_cache_images(cache)) != 1:
+        failures.append("run front cache: a cold and a warm build store %r, not one image" % front_cache_images(cache))
+    lls = [sawc(["build", "--emit-ll", "main.saw"], extra=extra) for extra in ({"SAWC_FRONT_CACHE": "off"}, None)]
+    if lls[0].returncode != 0 or lls[0].stdout != lls[1].stdout or lls[1].returncode != 0:
+        failures.append("run front cache: the warm --emit-ll is not the uncached one's bytes")
+    refused = [sawc(["build", "refused.saw", "-o", "refused"], extra=extra)
+               for extra in ({"SAWC_FRONT_CACHE": "off"}, None, None)]
+    if refused[0].returncode != 1 or "ERROR\t" not in refused[0].stdout \
+            or any((r.returncode, r.stdout, r.stderr) != (refused[0].returncode, refused[0].stdout, refused[0].stderr)
+                   for r in refused[1:]):
+        failures.append("run front cache: a refused program's record moves with the cache: %r"
+                        % [(r.returncode, r.stdout[:200]) for r in refused])
+    checked += 4
+    # Each input of the key misses, and each miss stores an image of its own.
+    copied_std = os.path.join(work, "std")
+    shutil.copytree(os.path.join(REPO, "std"), copied_std)
+    misses = (
+        (["--std-root", copied_std, "main.saw", "-o", "copy"], "a build against a copy of std"),
+        (["--std-root", os.path.join(work, ".", "std"), "main.saw", "-o", "spelled"],
+         "a build against another spelling of that std root"),
+        (["--emit-ll", "--target", "aarch64-unknown-none-elf", "free.saw"], "a build for another target"),
+        (["--emit-ll", "--target", "aarch64-unknown-none-elf", "--target-features", "-neon,-fp-armv8", "free.saw"],
+         "a build for another feature set"),
+        (["--emit-ll", "--target", "aarch64-unknown-none-elf", "--freestanding", "--target-features",
+          "+neon,+fp-armv8", "free.saw"], "a freestanding build"),
+        (["--emit-ll", "--runtime", "free.saw"], "a runtime provider's build"),
+    )
+    before = len(front_cache_images(cache))
+    for args, where in misses:
+        timed(args, where, "store", refusal=True)
+        timed(args, where + ", again", "load", refusal=True)
+        checked += 2
+    with open(os.path.join(copied_std, "vector.saw"), "a") as fh:
+        fh.write("\n// An edit the std front cache must see.\n")
+    timed(misses[0][0], "a build after an edit to the std copy", "store")
+    checked += 1
+    other = build.STAGE1 if os.path.realpath(build.SAWC) == os.path.realpath(build.STAGE2) else build.STAGE2
+    if os.path.exists(other) and open(other, "rb").read() != open(build.SAWC, "rb").read():
+        timed(["main.saw", "-o", "other"], "a build by the other stage", "store", binary=other)
+        timed(["main.saw", "-o", "other"], "that stage's second build", "load", binary=other)
+        checked += 2
+    else:
+        failures.append("run front cache: no other sawc binary to miss with (%s)" % rel(other))
+    images = front_cache_images(cache)
+    if len(images) != before + len(misses) + 2:
+        failures.append("run front cache: %d misses store %d images, not one each"
+                        % (len(misses) + 2, len(images) - before))
+    # Damage: a byte flipped at the same size, a truncated entry and a foreign
+    # one (another key's image under this key's name) each warn, compute std's
+    # front end, and are stored again.
+    repair = os.path.join(work, "repair")
+    for how in ("flipped", "truncated", "foreign"):
+        shutil.rmtree(repair, ignore_errors=True)
+        if timed(["main.saw", "-o", "fill"], "the build filling a cache for a %s entry" % how, "store",
+                 directory=repair) is None:
+            continue
+        entry = os.path.join(repair, front_cache_images(repair)[0])
+        with open(entry, "rb") as fh:
+            whole = bytearray(fh.read())
+        if how == "flipped":
+            whole[len(whole) // 2] ^= 0xFF
+        elif how == "truncated":
+            whole = whole[:len(whole) // 2]
+        else:
+            first = whole.index(b"\n")
+            head = whole[:first].split(b" ")
+            head[2] = b"0" * len(head[2])
+            whole = bytearray(b" ".join(head)) + whole[first:]
+        with open(entry, "wb") as fh:
+            fh.write(bytes(whole))
+        r = sawc(["build", "--time-stages", "-g0", "main.saw", "-o", "repaired"], repair)
+        code, stdout, _ = execute(os.path.join(work, "repaired"))
+        if r.returncode != 0 or "warning: the front cache entry" not in r.stderr or "is damaged" not in r.stderr \
+                or "time: front cache store" not in r.stderr or code != 0 or stdout != b"timed\n":
+            failures.append("run front cache: past a %s entry the build exits %d, its program %s, warning %r"
+                            % (how, r.returncode, code, r.stderr.strip()[:400]))
+        timed(["main.saw", "-o", "after"], "the build after a %s entry's repair" % how, "load", directory=repair)
+        checked += 1
+    # The switches leave the cache untouched, and a bad value is a usage error.
+    unused = os.path.join(work, "unused")
+    for args, extra, why in ((["--no-front-cache"], None, "--no-front-cache"),
+                             ([], {"SAWC_FRONT_CACHE": "off"}, "SAWC_FRONT_CACHE=off")):
+        for command in (["build", "-g0"] + args + ["main.saw", "-o", "switched"],
+                        ["typecheck", "--check"] + args + ["main.saw"], ["coro", "--check"] + args + ["main.saw"]):
+            r = sawc(command, unused, extra)
+            if r.returncode != 0 or os.path.exists(unused) or r.stderr:
+                failures.append("run front cache: `%s` under %s exits %d and %s the cache"
+                                % (" ".join(command[:2]), why, r.returncode,
+                                   "makes" if os.path.exists(unused) else "leaves"))
+            checked += 1
+    r = sawc(["build", "main.saw", "-o", "refused-usage"], extra={"SAWC_FRONT_CACHE": "maybe"})
+    if r.returncode != 2 or "SAWC_FRONT_CACHE takes" not in r.stdout:
+        failures.append("run front cache: SAWC_FRONT_CACHE=maybe exits %d, not 2 with the usage error: %s"
+                        % (r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    checked += 1
+    # Six cold builds at once share one store.
+    shared = os.path.join(work, "shared")
+    launches = [subprocess.Popen([build.SAWC, "build", "-g0", "main.saw", "-o", os.path.join(work, "shared%d" % k)],
+                                 cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                 env=front_cache_environment(shared)) for k in range(6)]
+    for k, proc in enumerate(launches):
+        try:
+            stdout, stderr = proc.communicate(timeout=BUILD_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            failures.append("run front cache: a concurrent build times out")
+            continue
+        code, printed, _ = execute(os.path.join(work, "shared%d" % k))
+        if proc.returncode != 0 or (stdout + stderr).strip() or code != 0 or printed != b"timed\n":
+            failures.append("run front cache: concurrent build %d exits %d (its program %s): %s"
+                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
+    left = front_cache_images(shared)
+    if len(left) != 1:
+        failures.append("run front cache: six concurrent builds leave %r, not one image" % left)
+    checked += len(launches)
+    counts["run front cache cases checked"] = checked
+
+
+def front_cache_commands():
+    """The commands the differential runs, each relative to the repository:
+    every run program's `.ll`, Blade's, a refused program's record, each
+    stage subcommand's dump of two programs, `fix --check`, `-W`'s warnings,
+    and a freestanding, a provider and a runtime source's `.ll`."""
+    commands = [["build", "--emit-ll", "--std-root", "std", rel(src)] for src in cases()]
+    blade = []
+    for name, directory in (("blade", "blade/src"), ("toml", "libs/toml/src"), ("semver", "libs/semver/src"),
+                            ("imgformat", "libs/imgformat/src")):
+        blade += ["--module-path", "%s=%s" % (name, directory)]
+    commands.append(["build", "--emit-ll", "--std-root", "std"] + blade + ["blade/src/main.saw"])
+    commands.append(["build", "--emit-ll", "--std-root", "std", rel(os.path.join(OUT, "front-differential",
+                                                                               "refused.saw"))])
+    for program in ("compiler/tests/run/traits.saw", "compiler/tests/run/task_spawn.saw"):
+        for stage in ("resolve", "typecheck", "mir", "eval", "borrowck", "drops", "mono", "coro"):
+            commands.append([stage, "--dump", "--std-root", "std", program])
+        commands.append(["coro", "--bt-table", "--std-root", "std", program])
+        commands.append(["typecheck", "--check", "--notes", "--summaries", "-W", "borrow-prefix", "--std-root", "std",
+                         program])
+        commands.append(["fix", "--check", "--std-root", "std", program])
+        commands.append(["build", "--emit-ll", "-W", "borrow-prefix", "--std-root", "std", program])
+    free = rel(os.path.join(OUT, "front-differential", "free.saw"))
+    commands.append(["build", "--emit-ll", "--freestanding", "--target", "riscv32-unknown-none-elf", "--std-root",
+                     "std", free])
+    commands.append(["build", "--emit-ll", "--runtime", "--std-root", "std", free])
+    commands.append(["runtime", "--target", PINNED_TARGET, "--std-root", "std", "--emit-ll",
+                     rel(os.path.join(build.RT_ROOT, "host_macos", "dirent.saw"))])
+    return commands
+
+
+def check_front_cache_differential(failures, counts):
+    """A command with std's cut loaded from the std front cache prints what
+    it prints with the cache off, byte for byte, its exit status the same:
+    every command `front_cache_commands` names, after one pass that fills a
+    cache of the pin's own."""
+    work = os.path.join(OUT, "front-differential")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    for name, text in (("refused.saw", FRONT_CACHE_REFUSED), ("free.saw", FRONT_CACHE_FREESTANDING)):
+        with open(os.path.join(work, name), "w") as fh:
+            fh.write(text)
+    cache = os.path.join(work, "cache")
+    commands = front_cache_commands()
+
+    def one(args, extra):
+        r = subprocess.run([build.SAWC] + args, cwd=REPO, capture_output=True, timeout=BUILD_TIMEOUT,
+                           env=front_cache_environment(cache, extra))
+        return r.returncode, r.stdout, r.stderr
+
+    # The fill: one command of each distinct std cut, in turn.
+    seen = set()
+    for args in commands:
+        cut = tuple(a for a in args if a.startswith("--target") or a in ("--freestanding", "--runtime")) + (args[0] == "runtime",)
+        if cut not in seen:
+            seen.add(cut)
+            one(args, None)
+    off = gate_jobs.map_ordered(lambda args: one(args, {"SAWC_FRONT_CACHE": "off"}), commands)
+    warm = gate_jobs.map_ordered(lambda args: one(args, None), commands)
+    differ = [" ".join(args) for args, a, b in zip(commands, off, warm) if a != b]
+    if differ:
+        failures.append("run front cache differential: %d of %d commands print otherwise with std's cut loaded: %s"
+                        % (len(differ), len(commands), "; ".join(differ[:5])))
+    counts["run front cache differential commands"] = len(commands)
+
+
 def time_stage_lines(failures, stderr, split):
     """Checks the `--time-stages` report `stderr`, a split build's when
     `split` (and then its split and unit lines lead it), and whether its
     shape held far enough to read the rest."""
     lines = stderr.splitlines()
     units = 0
+    # Std's cut, loaded from the std front cache or computed and stored there,
+    # comes first.
+    while lines and TIME_STAGES_FRONT.match(lines[0]):
+        lines = lines[1:]
     if lines and TIME_STAGES_SPLIT.match(lines[0]):
         lines = lines[1:]
         while lines and TIME_STAGES_UNIT.match(lines[0]):
@@ -3063,11 +3364,12 @@ def check_probes(failures, counts, names=None):
 
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
-    # Every split build the lane makes (its own pins, and every program under
+    # Every build the lane makes (its own pins, and every program, split under
     # `SAWC_CODEGEN_UNITS=module`) shares a cache of this run's own, never the
-    # user's.
+    # user's: std's front-end image and the split units' objects.
     shutil.rmtree(OBJECT_CACHE, ignore_errors=True)
     os.environ["SAWC_CACHE_DIR"] = OBJECT_CACHE
+    os.environ["SAW_LANE_CACHE_DIR"] = OBJECT_CACHE
     failures = []
     counts = {}
     srcs = cases(names)
@@ -3108,6 +3410,8 @@ def run(names=None, write=False):
         check_split_object(failures, counts)
         check_sha256(failures, counts)
         check_object_cache(failures, counts)
+        check_front_cache(failures, counts)
+        check_front_cache_differential(failures, counts)
         check_long_accessor(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

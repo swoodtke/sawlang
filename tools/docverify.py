@@ -83,6 +83,7 @@ sys.path.insert(0, str(REPO / "tools"))
 
 import build  # noqa: E402
 import check_citations  # noqa: E402
+import patch_gate  # noqa: E402
 
 # The funnel's entry points. Everything else in this file is generic over them.
 SOURCES = [
@@ -486,6 +487,8 @@ def self_test() -> bool:
 
 
 def main() -> int:
+    # Every example's check shares the run's sawc cache, never the user's.
+    patch_gate.gate_cache()
     ap = argparse.ArgumentParser(description="compile the documentation's Saw examples")
     ap.add_argument("--source", action="append", help="check only this source (repeatable)")
     ap.add_argument("--jobs", type=int, default=max(2, (os.cpu_count() or 4) // 2))

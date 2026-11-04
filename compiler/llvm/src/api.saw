@@ -3,14 +3,15 @@
 // it to a file and runs clang on it (compiler/tests/run/README.md). The
 // backend's input is coroutine lowering's program.
 
-import sawcoro.api.{coro_append_findings, coro_lower_file, coro_lower_for}
+import sawcoro.api.{coro_append_findings, coro_lower_cut, coro_lower_for}
 import sawcoro.program.{CoroProgram}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawllvm.module.{LlLowering, ll_export_symbol, ll_lowering}
 import sawllvm.program.{llvm_emit_program}
 import sawllvm.units.{LlUnitPlan, ll_unit_plan}
+import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoProgram}
-import sawtarget.layout.{Target, target_front_end}
+import sawtarget.layout.{Target}
 
 // How `sawc build` treats its entry file.
 public struct BuildOptions {
@@ -24,8 +25,9 @@ public struct BuildOptions {
     // The driver's three profile flags: whether the file is a source of
     // sawc's runtime (`sawc runtime` alone), whether it is built under the
     // freestanding profile, and whether it is a runtime provider (`--runtime`).
-    // Typecheck makes the profile record from them (`tc_profile`), and the
-    // stages after it read the record, never these.
+    // Std's cut, which the build starts from, is made with them, its
+    // profile record (`tc_profile`) among it, and the stages read the
+    // record, never these.
     runtime: Bool
     freestanding: Bool
     provider: Bool
@@ -47,31 +49,34 @@ public struct BuildOptions {
 
 // The `.ll` of the program whose entry file is `path` into `ir`, returning
 // 0; or, when any stage refused it, the record `sawc mono --check` would
-// print into `out`, returning 1.
-public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, path: String, options: &BuildOptions,
-                       names: &Vector<String>, dirs: &Vector<String>) -> Int {
+// print into `out`, returning 1. The program's layer starts from `cut`,
+// std's cut for the options' std root and profile and for
+// `target_front_end(options.target, options.features)`.
+public func llvm_build(out: &var StringBuilder, ir: &var StringBuilder, cut: FrontCut, path: String,
+                       options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var exports = Vector<String>()
-    llvm_build_exporting(out: &var out, ir: &var ir, exports: &var exports, path: path, options: &options,
-                         names: &names, dirs: &dirs)
+    llvm_build_exporting(out: &var out, ir: &var ir, exports: &var exports, cut: move cut, path: path,
+                         options: &options, names: &names, dirs: &dirs)
 }
 
 // `llvm_build`, with the plan of the program's codegen units (`ll_unit_plan`)
 // in `plan`, which `ll_split` cuts the `.ll` by.
-public func llvm_build_split(out: &var StringBuilder, ir: &var StringBuilder, plan: &var LlUnitPlan, path: String,
-                             options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
+public func llvm_build_split(out: &var StringBuilder, ir: &var StringBuilder, plan: &var LlUnitPlan, cut: FrontCut,
+                             path: String, options: &BuildOptions, names: &Vector<String>,
+                             dirs: &Vector<String>) -> Int {
     var exports = Vector<String>()
-    llvm_build_planned(out: &var out, ir: &var ir, exports: &var exports, plan: &var plan, split: true, path: path,
-                       options: &options, names: &names, dirs: &dirs)
+    llvm_build_planned(out: &var out, ir: &var ir, exports: &var exports, plan: &var plan, split: true,
+                       cut: move cut, path: path, options: &options, names: &names, dirs: &dirs)
 }
 
 // `llvm_build`, with the C symbol of each function the module defines for C
 // added to `exports`, in declaration order.
 public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder, exports: &var Vector<String>,
-                                 path: String, options: &BuildOptions, names: &Vector<String>,
+                                 cut: FrontCut, path: String, options: &BuildOptions, names: &Vector<String>,
                                  dirs: &Vector<String>) -> Int {
     var plan = LlUnitPlan()
-    llvm_build_planned(out: &var out, ir: &var ir, exports: &var exports, plan: &var plan, split: false, path: path,
-                       options: &options, names: &names, dirs: &dirs)
+    llvm_build_planned(out: &var out, ir: &var ir, exports: &var exports, plan: &var plan, split: false,
+                       cut: move cut, path: path, options: &options, names: &names, dirs: &dirs)
 }
 
 // THE BUILD: the program through every stage to its `.ll` in `ir`, and with
@@ -81,14 +86,11 @@ public func llvm_build_exporting(out: &var StringBuilder, ir: &var StringBuilder
 //   llvm_build_exporting
 //   llvm_build_split
 func llvm_build_planned(out: &var StringBuilder, ir: &var StringBuilder, exports: &var Vector<String>,
-                        plan: &var LlUnitPlan, split: Bool, path: String,
+                        plan: &var LlUnitPlan, split: Bool, cut: FrontCut, path: String,
                         options: &BuildOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
     var front = StringBuilder()
-    let checked_for = target_front_end(options.target, options.features)
-    var coro = coro_lower_file(out: &var front, path: path, std_root: options.std_root, notes: false,
-                               names: &names, dirs: &dirs, target: checked_for, runtime: options.runtime,
-                               freestanding: options.freestanding, provider: options.provider,
-                               no_hidden_alloc: options.no_hidden_alloc)
+    var coro = coro_lower_cut(out: &var front, front: move cut, path: path, notes: false, names: &names,
+                              dirs: &dirs, no_hidden_alloc: options.no_hidden_alloc)
     let head = front.build()
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
         try! out.append(head)

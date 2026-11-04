@@ -38,9 +38,11 @@ profile, and the lang-item table.
   a `park_NAME.saw` program builds instead against a copy of std whose
   `task.saw` ends in `parks/task_tail.saw`, which re-exposes the std-internal
   descriptor wait to those programs alone;
-- each `mir/NAME.mir` holds its functions' MIR as sawc lowers them against
-  `std/`, and String's retain and release read the count with a relaxed
-  atomic load and compare it with the immortal sentinel before any atomic
+- each `mir/NAME.mir` holds its functions' MIR as std's cut holds them
+  against `std/`: drop-elaborated, since std's layer always runs through
+  drops, whatever stage `sawc mir --dump` stops the program at; and
+  String's retain and release read the count with a relaxed atomic load and
+  compare it with the immortal sentinel before any atomic
   read-modify-write, and `Data.spare`, past its relaxed sole-owner test,
   issues an acquire fence before it returns the bytes;
 - each `cone/` program's new-std cone (compiler/tools/std_cone.py) equals

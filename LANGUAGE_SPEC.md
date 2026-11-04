@@ -16252,7 +16252,7 @@ builds on first use.
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-c] [--std-root DIR] [--target TRIPLE]
            [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
            [--codegen-units=1|module] [--lto=thin|full|none] [--no-object-cache]
-           [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
+           [--no-front-cache] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
              (--out DIR | --emit-ll FILE)
@@ -16306,6 +16306,15 @@ sawc --version
   checked on every reuse. A cache entry that cannot be read, or whose object
   does not match it, is reported on standard error and the module compiled
   again; it never fails the build. Whole-module and `--sanitize address` builds use no cache.
+- Every command that compiles a program, the stage subcommands from `resolve`
+  on, `fix` and `sawc runtime` included, keeps std's front end (std checked
+  and lowered through drop elaboration, for one std root, target and profile)
+  in the std front cache beside the object cache, and reads it back while std's
+  sources, the target, the profile and the `sawc` binary are unchanged. A
+  build then checks only the program's own modules. A cache entry that cannot
+  be read or does not match is reported on standard error and std's front end
+  computed again; it never fails the build. `--no-front-cache`, or
+  `SAWC_FRONT_CACHE=off` in the environment, compiles without it.
 - `sawc runtime` builds the hosted runtime from `runtime/`.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`

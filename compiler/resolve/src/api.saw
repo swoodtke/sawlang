@@ -4,7 +4,7 @@
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_same_binding}
 import sawresolve.lang.{ResLang}
-import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layers}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layer, front_layers}
 import sawresolve.loader.{res_read_file}
 import sawresolve.model.{ResDiag, ResModule, ResModuleKind}
 import sawresolve.prelude.{res_declare_prelude}
@@ -94,7 +94,32 @@ extension ResProgram {
 // dump when asked for. Returns 0 when nothing was refused and 1 otherwise.
 public func resolve_record(out: &var StringBuilder, path: String, options: &ResolveOptions,
                            names: &Vector<String>, dirs: &Vector<String>) -> Int {
-    let p = resolve_program(path, options.std_root, &names, &dirs)
+    var p = res_program(options.std_root)
+    let inputs = front_inputs(path, &names, &dirs, Vector<String>())
+    var layer = front_layer(FrontLayerKind.Std)
+    res_run_layer(&var p, &var layer, &inputs)
+    let start = ResolveStart(checked: "", verified_std: false)
+    resolve_record_from(out: &var out, p: &var p, start: start, path: path, options: &options, names: &names,
+                        dirs: &dirs)
+}
+
+// What std's layer left a record to print: its modules' verifier lines, when
+// its layer verified them as it ran; with `verified_std` false, nothing was
+// verified yet, and the record verifies every module.
+public struct ResolveStart {
+    checked: String
+    verified_std: Bool
+}
+
+// `resolve_record` for program `p`, which std's layer has already run over,
+// leaving `start`: std's cut, computed here or by mono, or read from an
+// image. The program's layer runs from there.
+public func resolve_record_from(out: &var StringBuilder, p: &var ResProgram, start: ResolveStart, path: String,
+                                options: &ResolveOptions, names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    let inputs = front_inputs(path, &names, &dirs, Vector<String>())
+    var layer = front_layer(FrontLayerKind.Program)
+    res_run_layer(&var p, &var layer, &inputs)
+    let first = if start.verified_std { layer.module_first } else { 0 }
     var k = 0
     while k < p.diags.len() {
         let d = p.diags[k]
@@ -103,7 +128,8 @@ public func resolve_record(out: &var StringBuilder, path: String, options: &Reso
         }
         k = k + 1
     }
-    var m = 0
+    try! out.append(start.checked)
+    var m = first
     while m < p.module_count() {
         let problems = res_verify_module(&p, m)
         var j = 0

@@ -2,10 +2,10 @@
 // evaluated, and the record `sawc eval` prints for it.
 
 import sawasserts.layout.{asserts_inputs}
-import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_dumps, mir_append_invariants,
-                       mir_empty_front, mir_run_layer}
+import sawmir.api.{mir_append_diag, mir_append_dumps, mir_append_invariants, mir_append_module_checks,
+                       mir_append_refusals, mir_empty_front, mir_run_layer, mir_status}
 import sawmir.program.{MirProgram}
-import sawresolve.layer.{FrontLayer, front_layers}
+import sawresolve.layer.{FrontLayer, FrontLayerKind, front_layer}
 import saweval.check.{eval_fault_name}
 import saweval.interp.{eval_step_budget}
 import saweval.program.{EvalProgram, eval_program}
@@ -22,6 +22,14 @@ public struct EvalOptions {
     target: TcTarget
 }
 
+// What std's layer left a record to print: its modules' verifier lines from
+// the MIR stage, when its layer verified them as it ran; with `verified_std`
+// false, nothing was verified yet, and the record verifies every module.
+public struct EvalStart {
+    checked: String
+    verified_std: Bool
+}
+
 // The record of one program evaluated, after its `FILE` line: everything
 // `sawc mir --check` prints, then the evaluator's refusals, each an `ERROR`
 // line, then an `INVARIANT` line per problem its verifier finds, and with
@@ -33,17 +41,35 @@ public func eval_record(out: &var StringBuilder, path: String, options: &EvalOpt
     var lowered = mir_empty_front(options.std_root, options.target)
     var p = eval_program(&lowered)
     let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
-    var layers = front_layers()
-    var j = 0
-    while j < layers.len() {
-        var layer = layers[j]
-        mir_run_layer(&var lowered, &var layer, &inputs)
-        p.grow(&lowered)
-        p.evaluate_all(&lowered, &layer)
-        j = j + 1
-    }
+    var layer = front_layer(FrontLayerKind.Std)
+    mir_run_layer(&var lowered, &var layer, &inputs)
+    p.grow(&lowered)
+    p.evaluate_all(&lowered, &layer)
+    let start = EvalStart(checked: "", verified_std: false)
+    eval_record_from(out: &var out, lowered: &var lowered, p: &var p, start: start, path: path, options: &options,
+                     names: &names, dirs: &dirs, lowerings: &var lowerings)
+}
+
+// `eval_record` for program `lowered` and its values `p`, which std's layer
+// has already run over, leaving `start`: std's cut, computed here or by mono,
+// or read from an image. The program's layer runs from there. The
+// evaluator's verifier checks only the program's modules when std's layer
+// was verified as it ran: making the cut verified std's values, and its
+// lines are in `start.checked`.
+public func eval_record_from(out: &var StringBuilder, lowered: &var MirProgram, p: &var EvalProgram,
+                             start: EvalStart, path: String, options: &EvalOptions, names: &Vector<String>,
+                             dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layer = front_layer(FrontLayerKind.Program)
+    mir_run_layer(&var lowered, &var layer, &inputs)
+    p.grow(&lowered)
+    p.evaluate_all(&lowered, &layer)
     lowerings = lowerings + 1
-    var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
+    let first = if start.verified_std { layer.module_first } else { 0 }
+    mir_append_refusals(out: &var out, p: &lowered, notes: options.notes)
+    try! out.append(start.checked)
+    mir_append_module_checks(out: &var out, p: &var lowered, first: first)
+    var status = mir_status(&lowered)
     var k = 0
     while k < p.diags.len() {
         let d = p.diags[k]
@@ -53,7 +79,7 @@ public func eval_record(out: &var StringBuilder, path: String, options: &EvalOpt
     if p.diags.len() > 0 {
         status = 1
     }
-    var m = 0
+    var m = first
     while m < lowered.tc.res.module_count() {
         let found = p.verify_module(&var lowered, m)
         mir_append_invariants(out: &var out, p: &lowered, m: m, problems: &found)

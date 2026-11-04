@@ -20,9 +20,10 @@
 // The runtime descriptor, which tells a debugger where the live tasks are, is
 // absent until the new std's executor layout has one (SL-577).
 
-import sawcoro.api.{CoroOptions, coro_append_findings, coro_lower_file, coro_lower_for}
+import sawcoro.api.{CoroOptions, coro_append_findings, coro_lower_cut, coro_lower_for}
 import sawcoro.program.{CoroPointKind, CoroProgram, CoroValueKind}
 import sawmono.dump.{mono_dump_layouts}
+import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoProgram}
 
 static CORO_BT_MAGIC: Int = 0x4257_4153
@@ -398,11 +399,12 @@ func coro_bt_string(bytes: &Vector<Int>, at: Int, off: Int) -> String {
 // what `--check` prints, then, once the program is lowered for the options'
 // target, an `INVARIANT` line per problem the lowering meets, and the table
 // it gives, decoded. Returns 0 when nothing was refused or broken and 1
-// otherwise.
-public func coro_bt_record(out: &var StringBuilder, path: String, options: &CoroOptions, names: &Vector<String>,
-                           dirs: &Vector<String>) -> Int {
-    var coro = coro_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
-                               names: &names, dirs: &dirs, target: options.target)
+// otherwise. The program's layer starts from `front`, std's cut for the
+// options' std root and target.
+public func coro_bt_record(out: &var StringBuilder, front: FrontCut, path: String, options: &CoroOptions,
+                           names: &Vector<String>, dirs: &Vector<String>) -> Int {
+    var coro = coro_lower_cut(out: &var out, front: move front, path: path, notes: options.notes, names: &names,
+                              dirs: &dirs)
     coro_append_findings(out: &var out, coro: &coro)
     if coro.blocked || coro.diags.len() > 0 || coro.problems.len() > 0 {
         return 1

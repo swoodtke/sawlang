@@ -6,7 +6,7 @@
 // instantiation (`mono_check_layout_asserts`).
 
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
-import sawresolve.layer.{FrontInputs, FrontLayer, front_inputs, front_layers}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layer}
 import sawtarget.layout.{Target, target_builtins_modules}
 import sawtypecheck.api.{tc_empty_program, tc_run_layer}
 import sawtypecheck.bodies.{tc_check_bodies}
@@ -16,12 +16,8 @@ import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
 
-// The program typechecked through the layout-assert funnel, each layer in
-// turn (`front_layers`).
-// ENTRY POINTS:
-//     driver_resolve
-//     driver_print_warnings
-//     driver_fix_file
+// The program typechecked through the layout-assert funnel, std's layer and
+// then the program's (`asserts_program_layer`).
 public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
                                       dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                                       freestanding: Bool = false, provider: Bool = false,
@@ -29,14 +25,27 @@ public func asserts_typecheck_program(path: String, std_root: String, names: &Ve
     var p = tc_empty_program(std_root, target, runtime: runtime, freestanding: freestanding, provider: provider,
                              no_hidden_alloc: no_hidden_alloc)
     let inputs = asserts_inputs(path, &names, &dirs, target, freestanding)
-    var layers = front_layers()
-    var k = 0
-    while k < layers.len() {
-        var layer = layers[k]
-        asserts_run_layer(&var p, &var layer, &inputs)
-        k = k + 1
-    }
+    var layer = front_layer(FrontLayerKind.Std)
+    asserts_run_layer(&var p, &var layer, &inputs)
+    asserts_program_layer(&var p, path, &names, &dirs, no_hidden_alloc)
     move p
+}
+
+// The program's layer of entry file `path` typechecked through the
+// layout-assert funnel, on `p`, which std's layer has already run over:
+// std's cut, whether computed or read from an image, or std's layer alone.
+// `--no-hidden-alloc` is the program's, since std is exempt from it.
+// ENTRY POINTS:
+//     asserts_typecheck_program
+//     driver_resolve
+//     driver_print_warnings
+//     driver_fix_file
+public func asserts_program_layer(p: &var TcProgram, path: String, names: &Vector<String>, dirs: &Vector<String>,
+                                  no_hidden_alloc: Bool) {
+    p.no_hidden_alloc = no_hidden_alloc
+    let inputs = front_inputs(path, &names, &dirs, Vector<String>())
+    var layer = front_layer(FrontLayerKind.Program)
+    asserts_run_layer(&var p, &var layer, &inputs)
 }
 
 // What the layers load for entry file `path` compiled for `target`. The

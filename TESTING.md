@@ -520,6 +520,40 @@ A KILL can't be caught, so a gate killed that way leaves the lock held. Release
 it with `tools/suite_lock.sh release` once `status` names a holder that is
 gone.
 
+### Where each run gets its sawc cache
+
+sawc keeps std's front end (the std front cache) and split builds' unit
+objects (the object cache) under `$SAWC_CACHE_DIR`, else the user's cache
+directory. No test run reads or writes the user's: every run gets a fresh
+directory under `.build/`, named to sawc through `SAWC_CACHE_DIR`, and removed
+when the run ends. Its first compile stores std's front end, and every later
+compile of the run loads it.
+
+- `./build.sh test` (the per-patch gate, here and on the server, which sets no
+  cache of its own) makes `.build/gate-cache/PID` once, in
+  `tools/patch_gate.py`'s `gate_cache`, and every part inherits it; the
+  `--dry-run` decision names it.
+- `tools/battery.sh` makes `.build/gate-cache/battery-PID` once for all its
+  stages.
+- Run alone, `compiler/tests/run.py`, `fixpoint_lane.py`, `corpusdiff.py`,
+  `tools/blade_lane.py`, `tools/freestanding_runner.py` and `tools/docverify.py`
+  each make `.build/gate-cache/PID` through the same `gate_cache`. A run
+  inside one of the above keeps the enclosing run's directory, which
+  `SAW_LANE_CACHE_DIR` names beside `SAWC_CACHE_DIR`; a `SAWC_CACHE_DIR` set
+  without it, such as a user's own, is never used.
+- The run lane gives itself `.build/run-lane/object-cache-run` on every run,
+  and each of its cache pins a directory of the pin's own.
+- `compiler/tools/build.py`'s stage builds use whatever cache their caller
+  has: the run's under a gate, the user's for `bin/sawc`.
+
+The fixpoint lane's two stages share the run's directory, but each stage's
+key holds its own binary's hash, so neither reads the other's front-end
+image. The run lane's `check_front_cache_differential` requires every
+command it names, every run program's `--emit-ll`, Blade's, a refused
+program's record, each stage subcommand's dump, `fix --check`, `-W` and a
+freestanding, a provider and a runtime source, to print the same bytes with
+std's front end loaded as with the cache off.
+
 ### How many workers the gate uses
 
 One setting sizes every pool the gate runs: `SAW_GATE_JOBS`, read through
@@ -611,12 +645,17 @@ table of per-step medians, a header naming the commit, the machine and the
 load, and a warning when the load is above half the cores. Post the table to
 SL-955 as a comment headed "SL-955 benchmark: STEP (main COMMIT)", so the
 speed-up work stays measured over time. No build takes an object from the
-object cache. `--cache` measures the cache instead: sawc's split -O2 and -O0
+object cache or std's front end from the std front cache. `--cache` measures
+the object cache instead: sawc's split -O2 and -O0
 builds and Blade's split -O2 build, each in a copy of its sources under
 `.build/bench/` with a cache of its own, cold, warm with nothing changed, and
 warm after each of `tools/unit_stability.py`'s edits to one module, beside the
-whole-module builds for reference. `tools/test_bench_compile.py` pins the
-tables and the argument lists.
+whole-module builds for reference, with the front cache off. `--front-cache`
+measures the std front cache: hello -O0, Blade -O2 whole and split, sawc -O2
+split with its objects already cached, and the largest corpus program -O0,
+each with the front cache off, cold and warm, on a cache under
+`.build/bench/`. `tools/test_bench_compile.py` pins the tables and the
+argument lists.
 
 ### The codegen-unit stability measure (not a stage)
 

@@ -10,12 +10,13 @@ import sawdrops.api.{drops_append_elaboration, drops_append_front, drops_has_inv
                          drops_layer_front}
 import sawdrops.program.{DropsProgram, drops_program}
 import sawdrops.verify.{drops_verify_module}
+import saweval.check
 import saweval.program.{EvalEnd, EvalKind, EvalProgram, eval_program}
 import saweval.interp.{eval_step_budget}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
-import sawmir.api.{mir_append_diag, mir_empty_front, mir_status}
+import sawmir.api.{mir_append_diag, mir_append_invariants, mir_empty_front, mir_status}
 import sawmir.program.{MirProgram}
-import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_layer}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layer}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
@@ -51,25 +52,51 @@ public struct MonoOptions {
 // program's `lowerings` says so.
 // THE FRONT END: each layer brought through every stage before mono in turn,
 // std's to drop elaboration before the program's first module is loaded
-// (`mono_front_std`), then the program's from there (`mono_front_program`).
+// (`mono_front_std`), then the program's from there (`mono_lower_cut`).
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
                             names: &Vector<String>, dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                             freestanding: Bool = false, provider: Bool = false,
                             no_hidden_alloc: Bool = false) -> MonoProgram {
     let inputs = asserts_inputs(path, &names, &dirs, target, freestanding)
-    var front = mono_front_std(std_root, target, &inputs, runtime: runtime, freestanding: freestanding,
+    let front = mono_front_std(std_root, target, &inputs, runtime: runtime, freestanding: freestanding,
                                provider: provider)
-    mono_front_program(&var front, &inputs, no_hidden_alloc)
-    mono_from_front(out: &var out, front: move front, notes: notes)
+    mono_lower_cut(out: &var out, front: move front, path: path, notes: notes, names: &names, dirs: &dirs,
+                   no_hidden_alloc: no_hidden_alloc)
+}
+
+// The program whose entry file is `path` brought from `front`, std's cut,
+// whether computed or read from an image, through every stage before mono,
+// then monomorphized, as `mono_lower_file` describes. The cut fixes the std
+// root, the target and the profile.
+public func mono_lower_cut(out: &var StringBuilder, front: FrontCut, path: String, notes: Bool,
+                           names: &Vector<String>, dirs: &Vector<String>, no_hidden_alloc: Bool = false) -> MonoProgram {
+    var program = move front
+    let inputs = mono_program_inputs(path, &names, &dirs)
+    mono_front_program(&var program, &inputs, no_hidden_alloc)
+    mono_from_front(out: &var out, front: move program, notes: notes)
+}
+
+// What the program's layer loads for entry file `path`: the entry and the
+// `--module-path` packages. The target's builtins modules are std's, which
+// std's layer loaded, so the program's names none.
+public func mono_program_inputs(path: String, names: &Vector<String>, dirs: &Vector<String>) -> FrontInputs {
+    front_inputs(path, &names, &dirs, Vector<String>())
 }
 
 // THE CUT: std's layer brought through drop elaboration with eval's values,
 // before anything of the program is loaded. Of `inputs` it reads only the
 // target's builtins modules, so the cut depends on the std root, the target,
 // the profile and the compiler alone; the front-end image writes it down
-// (`front_image_encode`) and reads it back as the same value.
+// (`front_image_encode`) and reads it back as the same value. Every
+// front-end entry starts from it, the stage subcommands that stop before
+// drops included, so a cut loaded from the std front cache and one computed
+// are one value for all of them. Making it runs every verifier over std's
+// modules, the evaluator's too once std's constants are evaluated (std's MIR
+// refused none), so a cut read back has been verified once and runs none;
+// the evaluator's lines go among std's other verifier lines in `checked`.
 // ENTRY POINTS:
 //     mono_lower_file
+//     driver_front_cut
 //     pin_round_trip
 //     pin_damage
 //     pin_load_equals_run
@@ -86,7 +113,7 @@ public func mono_front_std(std_root: String, target: TcTarget, inputs: &FrontInp
     var elaborated = StringBuilder()
     var layer = front_layer(FrontLayerKind.Std)
     let blocked = mono_layer(&var p, &var ev, &var layer, &inputs, &var checked, &var verified, &var elaborated,
-                             false)
+                             false, verify_values: true)
     FrontCut(drops: move p, eval: move ev, layer: layer, checked: checked.build(), verified: verified.build(),
              elaborated: elaborated.build(), blocked: blocked)
 }
@@ -114,10 +141,13 @@ public func mono_front_program(front: &var FrontCut, inputs: &FrontInputs, no_hi
 
 // One layer through every stage before mono: lowered, checked and borrow
 // checked, its constants evaluated, then elaborated unless a layer so far is
-// blocked. Returns whether the program is blocked after it.
+// blocked. With `verify_values`, the evaluator's verifier then checks the
+// layer's values, its lines appended to `checked`: std's layer is verified so
+// in full once, when its cut is made, which is what lets a cut read from an
+// image skip every verifier. Returns whether the program is blocked after it.
 func mono_layer(p: &var DropsProgram, ev: &var EvalProgram, layer: &var FrontLayer, inputs: &FrontInputs,
                 checked: &var StringBuilder, verified: &var StringBuilder, elaborated: &var StringBuilder,
-                blocked_before: Bool) -> Bool {
+                blocked_before: Bool, verify_values: Bool = false) -> Bool {
     var blocked = blocked_before
     if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
         blocked = true
@@ -127,10 +157,27 @@ func mono_layer(p: &var DropsProgram, ev: &var EvalProgram, layer: &var FrontLay
     // program refused here is blocked, and its values would never be read.
     stagetime_begin(StageTime.Eval)
     ev.grow(&p.bc.mir)
-    if mir_status(&p.bc.mir) == 0 {
+    let evaluated = mir_status(&p.bc.mir) == 0
+    if evaluated {
         ev.evaluate_all(&p.bc.mir, &layer)
     }
     stagetime_end(StageTime.Eval)
+    if verify_values && evaluated {
+        var lines = StringBuilder()
+        var m = layer.module_first
+        while m < p.bc.mir.tc.res.module_count() {
+            stagetime_begin(StageTime.VerifyEval)
+            let found = ev.verify_module(&var p.bc.mir, m)
+            stagetime_end(StageTime.VerifyEval)
+            mir_append_invariants(out: &var lines, p: &p.bc.mir, m: m, problems: &found)
+            m = m + 1
+        }
+        let text = lines.build()
+        try! checked.append(text)
+        if drops_has_invariant(text) {
+            blocked = true
+        }
+    }
     if not blocked {
         drops_layer_elaborate(&var p, &layer, &var elaborated)
     }
@@ -319,11 +366,13 @@ func mono_take_statics(mono: &var MonoProgram, ev: &EvalProgram) {
 // `sawc drops --check` prints for it, then mono's refusals, each an `ERROR`
 // line, and an `INVARIANT` line per problem it met; then, as asked, each
 // item's dump or the layout table. Returns 0 when nothing was refused and 1
-// otherwise. The program's lowerings are added to `lowerings`.
-public func mono_record(out: &var StringBuilder, path: String, options: &MonoOptions, names: &Vector<String>,
-                        dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var mono = mono_lower_file(out: &var out, path: path, std_root: options.std_root, notes: options.notes,
-                               names: &names, dirs: &dirs, target: options.target)
+// otherwise. The program's layer starts from `front`, std's cut for the
+// options' std root and target. The program's lowerings are added to
+// `lowerings`.
+public func mono_record(out: &var StringBuilder, front: FrontCut, path: String, options: &MonoOptions,
+                        names: &Vector<String>, dirs: &Vector<String>, lowerings: &var Int) -> Int {
+    var mono = mono_lower_cut(out: &var out, front: move front, path: path, notes: options.notes, names: &names,
+                              dirs: &dirs)
     lowerings = lowerings + mono.lowerings
     var status = 0
     if mono.blocked {
