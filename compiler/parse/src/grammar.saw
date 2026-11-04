@@ -601,6 +601,12 @@ public enum Alt: UInt16 {
 
 public static ALT_COUNT: Int = 592
 
+// The front-end image writes a node's alternative (sawmono.frontimage).
+@synthesize
+extension Alt: Serialize {}
+@synthesize
+extension Alt: Deserialize {}
+
 // The alternative's stable name.
 public func alt_name(alt: Alt) -> String {
     match alt {

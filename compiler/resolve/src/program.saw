@@ -462,3 +462,15 @@ extension ResProgram {
         base
     }
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension ResProgram: Serialize {}
+@synthesize
+extension ResProgram: Deserialize {}
+
+@synthesize
+extension ResPackage: Serialize {}
+@synthesize
+extension ResPackage: Deserialize {}

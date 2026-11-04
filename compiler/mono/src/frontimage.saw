@@ -1,0 +1,264 @@
+// The front end's state after a layer, and the image that writes std's
+// layer's state down and reads it back (SL-955 unit 4).
+
+import sawdrops.program.{DropsProgram}
+import saweval.program.{EvalProgram}
+import sawresolve.layer.{FrontLayer}
+import std.cbor.{CborDecoder, CborEncoder}
+import std.data.{Data}
+import std.serialize.{DecodeError, EncodeError}
+
+// Everything the front end holds once a layer is through drop elaboration:
+// the nested program, eval's values, the record of the layer last run, the
+// verifier and elaboration lines every layer so far appended, and whether
+// any layer left the program blocked. After std's layer this is the cut,
+// which depends on the std root, the target, the profile and the compiler
+// alone, and which the program's layer continues from.
+public struct FrontCut {
+    drops: DropsProgram
+    eval: EvalProgram
+    layer: FrontLayer
+    checked: String
+    verified: String
+    elaborated: String
+    blocked: Bool
+}
+
+extension FrontCut: NoCopy {}
+
+@synthesize
+extension FrontCut: Serialize {}
+@synthesize
+extension FrontCut: Deserialize {}
+
+extension FrontCut {
+    // The program and eval's values, taken out for mono, which owns them
+    // from here.
+    public func take_program(&var self) consumes -> (DropsProgram, EvalProgram) {
+        (move self.drops, move self.eval)
+    }
+}
+
+// Why an image could not be written or read. Each is the caller's to report;
+// none is a panic.
+public enum FrontImageError {
+    // The first line is not `sawc-front 2 LENGTH DIGEST`.
+    case Header,
+    // The body is not the length the first line declares: a truncated or
+    // extended image.
+    case Length(declared: Int, actual: Int),
+    // The body's digest is not the one the first line records: a damaged
+    // image.
+    case Damaged,
+    case Encode(e: EncodeError),
+    case Decode(e: DecodeError),
+    case Alloc(e: AllocError)
+}
+
+extension FrontImageError: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case Header -> try! into.append("the front-end image does not begin `sawc-front 2 LENGTH DIGEST`"),
+            case Length(declared, actual) -> {
+                try! into.append("the front-end image's body is ")
+                try! into.append(actual)
+                try! into.append(" bytes, not the ")
+                try! into.append(declared)
+                try! into.append(" its first line declares")
+            },
+            case Damaged -> try! into.append("the front-end image is damaged: its body's digest is not the one its first line records"),
+            case Encode(e) -> {
+                try! into.append("the front-end image could not be written: ")
+                e.format(into: &var into)
+            },
+            case Decode(e) -> {
+                try! into.append("the front-end image could not be read: ")
+                e.format(into: &var into)
+            },
+            case Alloc(e) -> {
+                try! into.append("the front-end image could not be built: ")
+                e.format(into: &var into)
+            }
+        }
+    }
+}
+
+extension FrontImageError: Error {}
+
+// The longest first line a reader looks for: the magic, the format, the
+// body's length and its digest, each in a few dozen bytes at most.
+static FRONT_IMAGE_HEAD_MAX: Int = 128
+
+// The deepest the cut nests, FrontCut through a resolve binding inside a
+// symbol inside the resolve program, is nine arrays; the reader allows some
+// room above it.
+static FRONT_IMAGE_DEPTH: Int = 16
+
+static FRONT_IMAGE_NEWLINE: UInt8 = 10
+// The digest's starting value, and SplitMix64's finalizer constants
+// (Steele, Lea and Flood, "Fast splittable pseudorandom number generators").
+static FRONT_DIGEST_SEED: UInt64 = 0x9E37_79B9_7F4A_7C15
+static FRONT_MIX_FIRST: UInt64 = 0xBF58_476D_1CE4_E5B9
+static FRONT_MIX_SECOND: UInt64 = 0x94D0_49BB_1331_11EB
+static FRONT_HEX_ZERO: Int = 48
+static FRONT_HEX_TEN: Int = 87
+
+// THE IMAGE CODEC: one encode and one decode over a FrontCut. The image is a
+// first line, `sawc-front 2 LENGTH DIGEST`, then one std.cbor item of LENGTH
+// bytes whose digest is DIGEST, in sixteen hex digits (`front_digest`). The
+// digest is for damage, not for an adversary: a change confined to one 64-bit
+// word of the body always changes it, any other change collides with a chance
+// of about 2^-64, and a length check catches truncation. It is not SHA-256,
+// whose pass over std's 9 MB image would cost about 20 ms of a load the image
+// exists to keep short; nothing that writes the cache is hostile. Every type
+// the cut reaches derives Serialize and Deserialize, so a field added later is in the
+// image by construction; the one hand-written body is TcPendingConstant's,
+// whose cases carry payloads and so have no raw backing to derive from
+// (typecheck/src/model.saw). Its entry points are the image pins
+// (compiler/mono/tests/front_image.saw, front_image_load.saw); the std front
+// cache's store and load join them (SL-955 unit 4a3).
+// ENTRY POINTS:
+//     pin_round_trip
+//     pin_damage
+//     pin_load_equals_run
+//     write_std_image
+public func front_image_encode(cut: &FrontCut) -> Result<Data, FrontImageError> {
+    var enc = CborEncoder(max_depth: FRONT_IMAGE_DEPTH)
+    match cut.serialize(to: &var enc) {
+        case Ok(_) -> {},
+        case Err(e) -> { return FrontImageError.Encode(e: e) }
+    }
+    match enc.finish() {
+        case Ok(body) -> { return front_image_frame(move body) },
+        case Err(e) -> { return FrontImageError.Encode(e: e) }
+    }
+}
+
+// `body` behind the image's first line, which declares its length and
+// records its digest. The image pin frames a body that is no cut with it, to
+// hold the reader to a `Result` there too.
+public func front_image_frame(body: Data) -> Result<Data, FrontImageError> {
+    // The line is a String, whose layer panics on a refused allocation; the
+    // two buffers the image is made of report one.
+    var head = StringBuilder()
+    // The format number is the second field; a reader requires its own.
+    try! head.append("sawc-front 2 ")
+    try! head.append(body.len())
+    try! head.append(" ")
+    try! head.append(front_digest_text(front_digest(&body)))
+    try! head.append("\n")
+    var image = match head.build().to_data() {
+        case Ok(d) -> move d,
+        case Err(e) -> { return FrontImageError.Alloc(e: e) }
+    }
+    match image.append(move body) {
+        case Ok(_) -> {},
+        case Err(e) -> { return FrontImageError.Alloc(e: e) }
+    }
+    return move image
+}
+
+// The cut an image holds, or why it holds none.
+public func front_image_decode(image: Data) -> Result<FrontCut, FrontImageError> {
+    let end = front_head_end(&image)
+    if end < 0 {
+        return FrontImageError.Header
+    }
+    guard let head_bytes = image.slice(0, end) else {
+        return FrontImageError.Header
+    }
+    let head = match head_bytes.to_string() {
+        case Ok(s) -> s,
+        case Err(_) -> { return FrontImageError.Header }
+    }
+    let fields = match head.split(" ") {
+        case Ok(v) -> move v,
+        case Err(e) -> { return FrontImageError.Alloc(e: e) }
+    }
+    if fields.len() != 4 || not fields[0].equals("sawc-front") || not fields[1].equals("2") {
+        return FrontImageError.Header
+    }
+    guard let declared = fields[2].to_int() else {
+        return FrontImageError.Header
+    }
+    let actual = image.len() - end - 1
+    if declared < 0 || declared != actual {
+        return FrontImageError.Length(declared: declared, actual: actual)
+    }
+    guard let body = image.slice(end + 1, image.len()) else {
+        return FrontImageError.Header
+    }
+    let recorded = fields[3]
+    if not front_digest_text(front_digest(&body)).equals(recorded) {
+        return FrontImageError.Damaged
+    }
+    // An item takes at least one byte, so the body's length bounds both the
+    // input and its item count.
+    var dec = match CborDecoder.open(bytes: move body, max_depth: FRONT_IMAGE_DEPTH, max_size: declared,
+                                     max_items: declared) {
+        case Ok(d) -> move d,
+        case Err(e) -> { return FrontImageError.Decode(e: e) }
+    }
+    match FrontCut.deserialize(from: &var dec) {
+        case Ok(cut) -> { return move cut },
+        case Err(e) -> { return FrontImageError.Decode(e: e) }
+    }
+}
+
+// The offset of the first line's newline, or -1 when none comes within
+// FRONT_IMAGE_HEAD_MAX bytes.
+func front_head_end(image: &Data) -> Int {
+    var i = 0
+    while i < image.len() && i < FRONT_IMAGE_HEAD_MAX {
+        if image[i] == FRONT_IMAGE_NEWLINE {
+            return i
+        }
+        i = i + 1
+    }
+    -1
+}
+
+// `body` taken eight bytes at a time as little-endian words, the bytes left
+// over as one last word, each folded in as `h = mix(h ^ w)`. For a fixed word
+// a step is a bijection of `h`, so a change confined to one word always
+// changes the digest. `mix` spreads a difference in any bit across every bit,
+// which a multiply alone does not (it never carries a difference downward,
+// so top-bit flips in two words would cancel); pinned by `pin_damage`.
+func front_digest(body: &Data) -> UInt64 {
+    var h = FRONT_DIGEST_SEED
+    let n = body.len()
+    var i = 0
+    while i < n {
+        var w: UInt64 = 0
+        var k = 0
+        while k < 8 && i + k < n {
+            w = w | ((body[i + k] as UInt64) << (k * 8))
+            k = k + 1
+        }
+        h = front_mix(h ^ w)
+        i = i + 8
+    }
+    h
+}
+
+// SplitMix64's finalizer: each of its five steps is a bijection, and every
+// input bit reaches every output bit.
+func front_mix(x: UInt64) -> UInt64 {
+    var z = x
+    z = (z ^ (z >> 30)) &* FRONT_MIX_FIRST
+    z = (z ^ (z >> 27)) &* FRONT_MIX_SECOND
+    z ^ (z >> 31)
+}
+
+// `h` as sixteen lowercase hex digits.
+func front_digest_text(h: UInt64) -> String {
+    var out = StringBuilder()
+    var shift = 60
+    while shift >= 0 {
+        let nibble = ((h >> shift) & 15) as Int
+        let code = if nibble < 10 { FRONT_HEX_ZERO + nibble } else { FRONT_HEX_TEN + nibble }
+        try! out.append(Byte(code as UInt8))
+        shift = shift - 4
+    }
+    out.build()
+}

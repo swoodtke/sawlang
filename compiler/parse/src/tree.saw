@@ -8,30 +8,30 @@ import sawparse.grammar.{Alt}
 import sawparse.source.{SourceFile}
 
 // What a node is, which decides how the dump prints it.
-public enum NodeShape {
+public enum NodeShape: UInt8 {
     // Built by an alternative, and named by that alternative's Kind.
-    case Built,
+    case Built = 0,
     // One run of an optional chain (GRAMMAR.md section 1).
-    case OptionalChain,
+    case OptionalChain = 1,
     // A declaration's `///` lines, or the file's `//!` lines.
-    case Doc,
+    case Doc = 2,
     // A token, printed as its source spelling.
-    case Token,
+    case Token = 3,
     // A literal run of an interpolated string, printed in quotes.
-    case Segment,
+    case Segment = 4,
     // A blank interpolation segment, the format placeholder `{}`.
-    case Placeholder,
+    case Placeholder = 5,
     // One doc comment line's text, printed quoted.
-    case DocLine,
+    case DocLine = 6,
     // A refusal case's body, its text as written, printed quoted.
-    case RefusalText,
+    case RefusalText = 7,
     // A function's, method's, `init`'s or requirement's body that an interface
     // parse passed over unread, from its `{` to its `}`.
-    case SkippedBody,
+    case SkippedBody = 8,
     // A parameter's default value that an interface parse passed over unread.
-    case SkippedDefault,
+    case SkippedDefault = 9,
     // A static's initializer that an interface parse passed over unread.
-    case SkippedInitializer
+    case SkippedInitializer = 10
 }
 
 public struct AstNode {
@@ -452,3 +452,15 @@ public func tree_problem(tree: &AstTree) -> String? {
     }
     None
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension AstNode: Serialize {}
+@synthesize
+extension AstNode: Deserialize {}
+
+@synthesize
+extension NodeShape: Serialize {}
+@synthesize
+extension NodeShape: Deserialize {}

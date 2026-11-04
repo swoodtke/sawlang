@@ -46,3 +46,11 @@ extension BorrowckProgram {
         }
     }
 }
+
+// The front-end image writes this type (sawmono.frontimage). It is derived,
+// so a field added later is in the image by construction.
+@synthesize
+extension BorrowckProgram: Serialize {}
+
+@synthesize
+extension BorrowckProgram: Deserialize {}

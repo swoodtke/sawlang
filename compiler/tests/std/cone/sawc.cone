@@ -1,10 +1,11 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 273 declarations in 22 modules
+# 345 declarations in 24 modules
 
-std.alloc: 8
+std.alloc: 9
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
+  method AllocError.format
   method GlobalAllocator.alloc
   method GlobalAllocator.dealloc
   requirement Allocator.alloc
@@ -12,12 +13,56 @@ std.alloc: 8
   struct AllocError
   struct GlobalAllocator
 
-std.data: 28
+std.cbor: 41
+  enum CborMajor
+  enum CborSimple
+  func cbor_encoded
+  func cbor_scanned
+  init CborEncoder.init
+  method CborDecoder.begin_array
+  method CborDecoder.byte_at
+  method CborDecoder.check_ready
+  method CborDecoder.check_simple
+  method CborDecoder.check_utf8
+  method CborDecoder.close_item
+  method CborDecoder.compare_in
+  method CborDecoder.container_count
+  method CborDecoder.descend
+  method CborDecoder.next_byte
+  method CborDecoder.offset
+  method CborDecoder.open
+  method CborDecoder.payload_len
+  method CborDecoder.read_bool
+  method CborDecoder.read_head
+  method CborDecoder.read_int
+  method CborDecoder.read_uint
+  method CborDecoder.reserve_stack_frame
+  method CborDecoder.scan
+  method CborDecoder.utf8_width
+  method CborEncoder.begin_array
+  method CborEncoder.check_ready
+  method CborEncoder.compare_out
+  method CborEncoder.finish
+  method CborEncoder.item_done
+  method CborEncoder.open_container
+  method CborEncoder.reserve
+  method CborEncoder.write_bool
+  method CborEncoder.write_head
+  method CborEncoder.write_int
+  method CborEncoder.write_uint
+  struct CborDecoder
+  struct CborEncoder
+  struct CborHead
+  struct CborLevel
+  struct CborScanFrame
+
+std.data: 32
   func data_bytes
   func data_capacity
   func data_of_string
   func data_refcount
   func data_refused
+  init Data.init
   method Data.append
   method Data.byte_ptr
   method Data.copy
@@ -32,12 +77,15 @@ std.data: 28
   method Data.is_unique
   method Data.len
   method Data.place
+  method Data.push
   method Data.ready
   method Data.relocated
+  method Data.reserve
   method Data.reserved
   method Data.slice
   method Data.spare
   method Data.spare_count
+  method Data.store
   method Data.to_string
   method String.to_data
   struct Data
@@ -221,6 +269,32 @@ std.scalar: 6
   method Scalar.value
   struct Scalar
 
+std.serialize: 24
+  enum DecodeFault
+  enum EncodeFault
+  method Bool.deserialize
+  method Bool.serialize
+  method DecodeError.format
+  method DecodeFault.describe
+  method EncodeError.format
+  method EncodeFault.describe
+  method Int.deserialize
+  method Int.serialize
+  requirement Decoder.begin_array
+  requirement Decoder.offset
+  requirement Decoder.read_bool
+  requirement Decoder.read_int
+  requirement Decoder.read_int_range
+  requirement Decoder.read_uint
+  requirement Deserialize.deserialize
+  requirement Encoder.begin_array
+  requirement Encoder.write_bool
+  requirement Encoder.write_int
+  requirement Encoder.write_uint
+  requirement Serialize.serialize
+  struct DecodeError
+  struct EncodeError
+
 std.set: 6
   init Set.init
   method Set.contains
@@ -229,7 +303,7 @@ std.set: 6
   method Set.insert
   struct Set
 
-std.string: 30
+std.string: 31
   extern __saw_rt_alloc
   extern __saw_rt_dealloc
   func digit_value
@@ -254,6 +328,7 @@ std.string: 30
   method String.len
   method String.parse_signed
   method String.parse_unsigned
+  method String.split
   method String.starts_with
   method String.substring
   method String.to_int
@@ -303,7 +378,7 @@ std.utf8: 4
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 14
+std.vector: 15
   init Vector.init
   method Vector.copy
   method Vector.deinit
@@ -314,6 +389,7 @@ std.vector: 14
   method Vector.len
   method Vector.pop
   method Vector.push
+  method Vector.reserve
   method Vector.reserve_slots
   method Vector.sort
   method Vector.swap

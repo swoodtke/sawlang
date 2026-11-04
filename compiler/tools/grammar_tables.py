@@ -220,6 +220,8 @@ def render(model):
     for k, (case, _, _) in enumerate(alts):
         lines.append("    case %s = %d%s" % (case, k, "," if k + 1 < len(alts) else ""))
     lines += ["}", "", "public static ALT_COUNT: Int = %d" % len(alts), ""]
+    lines += ["// The front-end image writes a node's alternative (sawmono.frontimage).",
+              "@synthesize", "extension Alt: Serialize {}", "@synthesize", "extension Alt: Deserialize {}", ""]
     lines += ["// The alternative's stable name.",
               "public func alt_name(alt: Alt) -> String {", "    match alt {"]
     for k, (case, name, _) in enumerate(alts):

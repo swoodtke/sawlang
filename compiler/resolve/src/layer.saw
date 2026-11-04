@@ -6,9 +6,9 @@
 // What a layer loads: std (the builtin module, std's modules and the target's
 // builtins modules), or the program (the `--module-path` packages and the
 // entry, with every module the entry's imports reach).
-public enum FrontLayerKind {
-    case Std,
-    case Program
+public enum FrontLayerKind: UInt8 {
+    case Std = 0,
+    case Program = 1
 }
 
 // THE FRONT-END LAYER: one layer's kind and the watermarks its phases start
@@ -143,3 +143,15 @@ public func front_inputs(path: String, names: &Vector<String>, dirs: &Vector<Str
                          builtins: Vector<String>) -> FrontInputs {
     FrontInputs(path: path, names: names.copy(), dirs: dirs.copy(), builtins: move builtins)
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension FrontLayer: Serialize {}
+@synthesize
+extension FrontLayer: Deserialize {}
+
+@synthesize
+extension FrontLayerKind: Serialize {}
+@synthesize
+extension FrontLayerKind: Deserialize {}

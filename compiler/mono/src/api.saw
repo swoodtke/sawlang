@@ -15,8 +15,9 @@ import saweval.interp.{eval_step_budget}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
 import sawmir.api.{mir_append_diag, mir_empty_front, mir_status}
 import sawmir.program.{MirProgram}
-import sawresolve.layer.{FrontLayer, front_layers}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_layer}
 import sawmono.dump.{mono_dump_layouts}
+import sawmono.frontimage.{FrontCut}
 import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
 import sawmono.worklist.{mono_rules}
 import sawasserts.layout.{AssertsVerdict, asserts_inputs, asserts_verdict}
@@ -48,44 +49,109 @@ public struct MonoOptions {
 // (`TcProfile`); every stage after it reads the record, as it reads
 // `target`'s through the program. The file is lowered once, and the
 // program's `lowerings` says so.
-// THE FRONT END: each layer (`front_layers`) brought through every stage
-// before mono in turn, std's to drop elaboration before the program's first
-// module is loaded, so std's state at that cut is the same for every program
-// on one std root, target and profile.
+// THE FRONT END: each layer brought through every stage before mono in turn,
+// std's to drop elaboration before the program's first module is loaded
+// (`mono_front_std`), then the program's from there (`mono_front_program`).
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
                             names: &Vector<String>, dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                             freestanding: Bool = false, provider: Bool = false,
                             no_hidden_alloc: Bool = false) -> MonoProgram {
-    var p = drops_program(borrowck_program(mir_empty_front(std_root, target, runtime: runtime,
-                                                           freestanding: freestanding, provider: provider,
-                                                           no_hidden_alloc: no_hidden_alloc)))
     let inputs = asserts_inputs(path, &names, &dirs, target, freestanding)
+    var front = mono_front_std(std_root, target, &inputs, runtime: runtime, freestanding: freestanding,
+                               provider: provider)
+    mono_front_program(&var front, &inputs, no_hidden_alloc)
+    mono_from_front(out: &var out, front: move front, notes: notes)
+}
+
+// THE CUT: std's layer brought through drop elaboration with eval's values,
+// before anything of the program is loaded. Of `inputs` it reads only the
+// target's builtins modules, so the cut depends on the std root, the target,
+// the profile and the compiler alone; the front-end image writes it down
+// (`front_image_encode`) and reads it back as the same value.
+// ENTRY POINTS:
+//     mono_lower_file
+//     pin_round_trip
+//     pin_damage
+//     pin_load_equals_run
+//     write_std_image
+public func mono_front_std(std_root: String, target: TcTarget, inputs: &FrontInputs, runtime: Bool = false,
+                           freestanding: Bool = false, provider: Bool = false) -> FrontCut {
+    // `--no-hidden-alloc` is not std's: std is exempt from it, so the cut is
+    // made without it and the program's layer sets it (`mono_front_program`).
+    var p = drops_program(borrowck_program(mir_empty_front(std_root, target, runtime: runtime,
+                                                           freestanding: freestanding, provider: provider)))
     var ev = eval_program(&p.bc.mir)
     var checked = StringBuilder()
     var verified = StringBuilder()
     var elaborated = StringBuilder()
-    var blocked = false
-    var layers = front_layers()
-    var j = 0
-    while j < layers.len() {
-        var layer = layers[j]
-        if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
-            blocked = true
-        }
-        // The constants are evaluated over the layer as lowered, before drop
-        // elaboration rewrites its bodies; the evaluator only reads it. A
-        // program refused here is blocked, and its values would never be read.
-        stagetime_begin(StageTime.Eval)
-        ev.grow(&p.bc.mir)
-        if mir_status(&p.bc.mir) == 0 {
-            ev.evaluate_all(&p.bc.mir, &layer)
-        }
-        stagetime_end(StageTime.Eval)
-        if not blocked {
-            drops_layer_elaborate(&var p, &layer, &var elaborated)
-        }
-        j = j + 1
+    var layer = front_layer(FrontLayerKind.Std)
+    let blocked = mono_layer(&var p, &var ev, &var layer, &inputs, &var checked, &var verified, &var elaborated,
+                             false)
+    FrontCut(drops: move p, eval: move ev, layer: layer, checked: checked.build(), verified: verified.build(),
+             elaborated: elaborated.build(), blocked: blocked)
+}
+
+// The program's layer run on `front`, std's state at the cut, whether
+// computed or read from an image: the two are one value, so the program's
+// layer cannot tell them apart. `front` then holds the whole front end.
+public func mono_front_program(front: &var FrontCut, inputs: &FrontInputs, no_hidden_alloc: Bool) {
+    front.drops.bc.mir.tc.no_hidden_alloc = no_hidden_alloc
+    var checked = StringBuilder()
+    try! checked.append(front.checked)
+    var verified = StringBuilder()
+    try! verified.append(front.verified)
+    var elaborated = StringBuilder()
+    try! elaborated.append(front.elaborated)
+    var layer = front_layer(FrontLayerKind.Program)
+    let blocked = mono_layer(&var front.drops, &var front.eval, &var layer, &inputs, &var checked, &var verified,
+                             &var elaborated, front.blocked)
+    front.layer = layer
+    front.checked = checked.build()
+    front.verified = verified.build()
+    front.elaborated = elaborated.build()
+    front.blocked = blocked
+}
+
+// One layer through every stage before mono: lowered, checked and borrow
+// checked, its constants evaluated, then elaborated unless a layer so far is
+// blocked. Returns whether the program is blocked after it.
+func mono_layer(p: &var DropsProgram, ev: &var EvalProgram, layer: &var FrontLayer, inputs: &FrontInputs,
+                checked: &var StringBuilder, verified: &var StringBuilder, elaborated: &var StringBuilder,
+                blocked_before: Bool) -> Bool {
+    var blocked = blocked_before
+    if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
+        blocked = true
     }
+    // The constants are evaluated over the layer as lowered, before drop
+    // elaboration rewrites its bodies; the evaluator only reads it. A
+    // program refused here is blocked, and its values would never be read.
+    stagetime_begin(StageTime.Eval)
+    ev.grow(&p.bc.mir)
+    if mir_status(&p.bc.mir) == 0 {
+        ev.evaluate_all(&p.bc.mir, &layer)
+    }
+    stagetime_end(StageTime.Eval)
+    if not blocked {
+        drops_layer_elaborate(&var p, &layer, &var elaborated)
+    }
+    blocked
+}
+
+// The front end's report appended to `out`, as `sawc drops --check` prints it,
+// then mono over `front` unless the report blocks it. The program is lowered
+// once, and the program's `lowerings` says so.
+public func mono_from_front(out: &var StringBuilder, front: FrontCut, notes: Bool) -> MonoProgram {
+    let checked_text = front.checked
+    let verified_text = front.verified
+    let elaborated_text = front.elaborated
+    var blocked = front.blocked
+    let (p, ev) = (move front).take_program()
+    var checked = StringBuilder()
+    try! checked.append(checked_text)
+    var verified = StringBuilder()
+    try! verified.append(verified_text)
+    var elaborated = StringBuilder()
+    try! elaborated.append(elaborated_text)
     var head = StringBuilder()
     let status = drops_append_front(&var head, &p, notes, &checked, &verified)
     let before = head.build()

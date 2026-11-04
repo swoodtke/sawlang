@@ -6,15 +6,15 @@
 // the declaration's path, never as an index.
 
 // Where a module's source comes from, which decides how much of it is resolved.
-public enum ResModuleKind {
+public enum ResModuleKind: UInt8 {
     // A file named on the command line, or a module found beside one.
-    case Entry,
+    case Entry = 0,
     // A module of a package mapped with `--module-path`.
-    case Package,
+    case Package = 1,
     // A module of `std`, read for its interface only.
-    case Std,
+    case Std = 2,
     // The synthetic `builtin` module, with `builtin.saw`, also an interface.
-    case Builtin
+    case Builtin = 3
 }
 
 public struct ResModule {
@@ -51,34 +51,34 @@ public struct ResModule {
     decl_count: Int
 }
 
-public enum ResVis {
-    case Private,
-    case Public,
-    case Package,
-    case Parent
+public enum ResVis: UInt8 {
+    case Private = 0,
+    case Public = 1,
+    case Package = 2,
+    case Parent = 3
 }
 
-public enum ResDeclKind {
-    case Struct,
-    case Enum,
-    case Case,
-    case Trait,
-    case Alias,
-    case Static,
-    case Func,
-    case Extern,
-    case Extension,
-    case Method,
-    case Init,
-    case TypeAssign,
-    case AssocType,
-    case Requirement,
-    case Field,
+public enum ResDeclKind: UInt8 {
+    case Struct = 0,
+    case Enum = 1,
+    case Case = 2,
+    case Trait = 3,
+    case Alias = 4,
+    case Static = 5,
+    case Func = 6,
+    case Extern = 7,
+    case Extension = 8,
+    case Method = 9,
+    case Init = 10,
+    case TypeAssign = 11,
+    case AssocType = 12,
+    case Requirement = 13,
+    case Field = 14,
     // A type nothing declares: the primitives, `String`, `Void`, `Never`, the
     // pointer types (SL:open-questions D12).
-    case Primitive,
+    case Primitive = 15,
     // A function nothing declares: `print`, `panic`, `assert`, `sizeof`, `alignof`.
-    case BuiltinFunc
+    case BuiltinFunc = 16
 }
 
 public struct ResDecl {
@@ -105,37 +105,37 @@ public struct ResDecl {
     flag: Bool
 }
 
-public enum ResBindKind {
-    case Unbound,
+public enum ResBindKind: UInt8 {
+    case Unbound = 0,
     // A local, a parameter, a pattern or loop binding, a capture, a receiver.
-    case Local,
+    case Local = 1,
     // A declaration: a type, a static, an extern, a trait, an alias.
-    case Decl,
+    case Decl = 2,
     // A function name: the module's whole overload set for that name.
-    case Overload,
+    case Overload = 3,
     // A bare function name several modules supply, the module's own
     // declarations and its bare imports merged into one overload set (design
     // 249): `decl` indexes the program's `merges` table.
-    case Overloads,
+    case Overloads = 4,
     // One enum case.
-    case Case,
+    case Case = 5,
     // A variant pattern's or implicit member's case, chosen among `name`'s
     // candidates by typecheck from the scrutinee's or expected type.
-    case Cases,
-    case TypeParam,
+    case Cases = 6,
+    case TypeParam = 7,
     // A module, reached through a qualifier or an import path.
-    case Module,
+    case Module = 8,
     // `Self`: the enclosing type, or a trait's own.
-    case SelfType,
+    case SelfType = 9,
     // `T.Item`: the associated type `decl` that type parameter `T`'s bounds
     // declare or inherit; `node`, `name` and `module` are `T`'s, as in its
     // TypeParam binding.
-    case Projection,
+    case Projection = 10,
     // A member selected on a value, or a static member on a type: found in the
     // type's member tables by typecheck, which needs the type.
-    case Member,
+    case Member = 11,
     // Refused; a diagnostic says why.
-    case Error
+    case Error = 12
 }
 
 public struct ResBinding {
@@ -163,18 +163,18 @@ extension ResBinding {
 }
 
 // What a pending name asks of the traits' parents.
-public enum ResPendingKind {
+public enum ResPendingKind: UInt8 {
     // `T.Item`, or `Self.Item` in a trait.
-    case Projection,
+    case Projection = 0,
     // A bare name nothing binds while a bounded type parameter is in scope,
     // refused with its fix-it.
-    case Bare,
+    case Bare = 1,
     // A bare name in a refining trait's members, which names an associated
     // type the trait inherits when one is declared, as its own would.
-    case Inherited,
+    case Inherited = 2,
     // A refining trait's own associated type, refused when the trait inherits
     // one of its name (SL:open-questions D34).
-    case Restated
+    case Restated = 3
 }
 
 // A name whose meaning depends on traits' parents, settled once every module
@@ -210,25 +210,25 @@ public struct ResName {
 }
 
 // How a call's head is classified, once (SL:architecture §3.3).
-public enum ResCallClass {
+public enum ResCallClass: UInt8 {
     // `Foo(...)`: the type's `init` set.
-    case Init,
+    case Init = 0,
     // `f(...)`: an overload set.
-    case Overload,
+    case Overload = 1,
     // `x(...)`: a local holding a function value.
-    case Local,
+    case Local = 2,
     // `T(...)`: a type parameter.
-    case TypeParam,
+    case TypeParam = 3,
     // `E.Case(...)`: an enum case.
-    case Case,
+    case Case = 4,
     // `.Case(...)`: an enum case chosen by the expected type.
-    case ImplicitCase,
+    case ImplicitCase = 5,
     // `x.f(...)`: a method, found from the receiver's type.
-    case Method,
+    case Method = 6,
     // `T.f(...)`: a static method of a named type.
-    case StaticMethod,
+    case StaticMethod = 7,
     // Any other callee: a function value, decided from its type (SL-73).
-    case Value
+    case Value = 8
 }
 
 public struct ResCall {
@@ -238,10 +238,10 @@ public struct ResCall {
     binding: ResBinding
 }
 
-public enum ResImportForm {
-    case Qualifier,
-    case Glob,
-    case Select
+public enum ResImportForm: UInt8 {
+    case Qualifier = 0,
+    case Glob = 1,
+    case Select = 2
 }
 
 public struct ResImport {
@@ -327,3 +327,105 @@ public struct ResConformance {
     target: ResBinding
     trait_binding: ResBinding
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension ResModule: Serialize {}
+@synthesize
+extension ResModule: Deserialize {}
+
+@synthesize
+extension ResDecl: Serialize {}
+@synthesize
+extension ResDecl: Deserialize {}
+
+@synthesize
+extension ResImport: Serialize {}
+@synthesize
+extension ResImport: Deserialize {}
+
+@synthesize
+extension ResSymbol: Serialize {}
+@synthesize
+extension ResSymbol: Deserialize {}
+
+@synthesize
+extension ResExport: Serialize {}
+@synthesize
+extension ResExport: Deserialize {}
+
+@synthesize
+extension ResName: Serialize {}
+@synthesize
+extension ResName: Deserialize {}
+
+@synthesize
+extension ResCall: Serialize {}
+@synthesize
+extension ResCall: Deserialize {}
+
+@synthesize
+extension ResConformance: Serialize {}
+@synthesize
+extension ResConformance: Deserialize {}
+
+@synthesize
+extension ResDiag: Serialize {}
+@synthesize
+extension ResDiag: Deserialize {}
+
+@synthesize
+extension ResTwin: Serialize {}
+@synthesize
+extension ResTwin: Deserialize {}
+
+@synthesize
+extension ResPending: Serialize {}
+@synthesize
+extension ResPending: Deserialize {}
+
+@synthesize
+extension ResLocal: Serialize {}
+@synthesize
+extension ResLocal: Deserialize {}
+
+@synthesize
+extension ResBinding: Serialize {}
+@synthesize
+extension ResBinding: Deserialize {}
+
+@synthesize
+extension ResVis: Serialize {}
+@synthesize
+extension ResVis: Deserialize {}
+
+@synthesize
+extension ResModuleKind: Serialize {}
+@synthesize
+extension ResModuleKind: Deserialize {}
+
+@synthesize
+extension ResDeclKind: Serialize {}
+@synthesize
+extension ResDeclKind: Deserialize {}
+
+@synthesize
+extension ResImportForm: Serialize {}
+@synthesize
+extension ResImportForm: Deserialize {}
+
+@synthesize
+extension ResCallClass: Serialize {}
+@synthesize
+extension ResCallClass: Deserialize {}
+
+@synthesize
+extension ResPendingKind: Serialize {}
+@synthesize
+extension ResPendingKind: Deserialize {}
+
+@synthesize
+extension ResBindKind: Serialize {}
+@synthesize
+extension ResBindKind: Deserialize {}

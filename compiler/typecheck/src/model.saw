@@ -5,6 +5,7 @@
 // arena id, a type by its interner id.
 
 import sawresolve.model.{ResVis}
+import std.serialize.{DecodeError, DecodeFault, Decoder, EncodeError, Encoder}
 
 // The effect slot's words, as bits (syntax.rule.effect-slot).
 public static TC_EFFECT_UNSAFE: Int = 1
@@ -46,29 +47,29 @@ public static TC_TIER_COPY: Int = 0
 public static TC_TIER_EXPLICIT: Int = 1
 public static TC_TIER_NOCOPY: Int = 2
 
-public enum TcReceiver {
+public enum TcReceiver: UInt8 {
     // A free function, a static method, an init: no receiver.
-    case Absent,
-    case Shared,
-    case Exclusive
+    case Absent = 0,
+    case Shared = 1,
+    case Exclusive = 2
 }
 
 // What a `borrows` accessor lends, as the accessor-signature reader classifies
 // its return type (SL:architecture §3.4).
-public enum TcLend {
-    case NotBorrows,
+public enum TcLend: UInt8 {
+    case NotBorrows = 0,
     // `&T`, `&var T`: a place.
-    case Place,
+    case Place = 1,
     // `&T?`, `&var T?`: a place that may be absent.
-    case ConditionalPlace,
+    case ConditionalPlace = 2,
     // `&[T]`, `&var [T]`.
-    case Slice,
+    case Slice = 3,
     // `&[T]?`.
-    case ConditionalSlice,
+    case ConditionalSlice = 4,
     // A borrowing struct, lent by value.
-    case BorrowingStruct,
+    case BorrowingStruct = 5,
     // Anything else, which the checks on `borrows` bodies refuse.
-    case Other
+    case Other = 6
 }
 
 // A declaration's signature. Which fields mean something depends on the kind:
@@ -126,17 +127,17 @@ public struct TcParam {
     escaping: Bool
 }
 
-public enum TcStatusKind {
+public enum TcStatusKind: UInt8 {
     // Written by the type: in the conformance, or another of its extensions.
-    case Written,
+    case Written = 0,
     // Filled by the trait's default body.
-    case Default,
+    case Default = 1,
     // Derived under `@synthesize` (design 128).
-    case Synthesized,
+    case Synthesized = 2,
     // Synthesized with no marker: a `deinit`, and an associated type's
     // absence never is.
-    case Implicit,
-    case Missing
+    case Implicit = 3,
+    case Missing = 4
 }
 
 // How one requirement of a conformance is met.
@@ -159,18 +160,18 @@ public struct TcConformance {
     status_count: Int
 }
 
-public enum TcSource {
+public enum TcSource: UInt8 {
     // A field or case the type's own declaration holds.
-    case Declared,
+    case Declared = 0,
     // A method, static, init or type assignment of an extension.
-    case Extension,
+    case Extension = 1,
     // A trait's default body, through a conformance.
-    case Default,
+    case Default = 2,
     // Derived under `@synthesize`.
-    case Synthesized,
+    case Synthesized = 3,
     // A raw-backed enum's `from(raw:)`, which every such enum has (design
     // 145); its row's declaration is the enum's own.
-    case RawConversion
+    case RawConversion = 4
 }
 
 // One member of a nominal type's table, built once per type; a module's view
@@ -239,79 +240,79 @@ public struct TcObligation {
 // How a body's expression is read where it stands (SL:architecture §3.4,
 // "Out"). The first three are a value use's transfer kind; the rest read a
 // place, or a temporary, without taking it.
-public enum TcUse {
+public enum TcUse: UInt8 {
     // Not an expression, or one nothing has read yet.
-    case Unused,
+    case Unused = 0,
     // A move: a spelled `move`'s place and the value it yields, or a local's
     // by-value read that no later use follows on any path (design 219).
-    case Move,
+    case Move = 1,
     // An implicit copy of a place.
-    case Copy,
+    case Copy = 2,
     // The hand-off of an owned temporary.
-    case Temp,
+    case Temp = 3,
     // A shared borrow: a receiver, an `&`, a comparison operand, a format
     // argument, an interpolated segment.
-    case Borrow,
+    case Borrow = 4,
     // An exclusive borrow: a receiver, an `&var`.
-    case BorrowVar,
+    case BorrowVar = 5,
     // The base of a member, tuple index, force or subscript, which reads on
     // into a part of it.
-    case Project,
+    case Project = 6,
     // An assignment's target.
-    case Write,
+    case Write = 7,
     // A compound assignment's target, read then written.
-    case Update,
+    case Update = 8,
     // What a pattern tests: a scrutinee or an optional binding's subject.
-    case Test
+    case Test = 9
 }
 
 // How a move out of a place is written, which a `NoMove` refusal names.
-public enum TcRelocation {
+public enum TcRelocation: UInt8 {
     // A spelled `move`.
-    case Move,
+    case Move = 0,
     // A generic body's by-value read of a local at its last use.
-    case Read,
+    case Read = 1,
     // A `[move x]` capture.
-    case Capture,
+    case Capture = 2,
     // `take()` of an optional's payload.
-    case Take,
+    case Take = 3,
     // A `match` that consumes an owned binding.
-    case Match
+    case Match = 4
 }
 
 // An implicit conversion, one step of an expression's adjustment chain.
-public enum TcAdjustKind {
+public enum TcAdjustKind: UInt8 {
     // A literal or constant takes the type its position expects (design 87).
-    case Adopt,
+    case Adopt = 0,
     // `Never` becomes whatever the position expects.
-    case Never,
+    case Never = 1,
     // Auto-wrap into an Optional, a Result's `Ok` or its `Err`.
-    case Some,
-    case Ok,
-    case Err,
+    case Some = 2,
+    case Ok = 3,
+    case Err = 4,
     // `&v`, `&var v` of a `Vector` or an array, to a slice.
-    case Slice,
+    case Slice = 5,
     // A reference read through to its referent.
-    case Deref,
+    case Deref = 6,
     // A receiver's implicit borrow, shared or exclusive.
-    case Borrow,
-    case BorrowVar,
+    case Borrow = 7,
+    case BorrowVar = 8,
     // An exclusive reference passed where a shared one is expected.
-    case Shared,
+    case Shared = 9,
     // A concrete value becoming an existential: `any Trait`, `Box<any Error>`.
-    case Erase,
+    case Erase = 10,
     // An integer extended losslessly into a wider one, by its own signedness
     // (spec, Integer Width Agreement).
-    case Widen,
+    case Widen = 11,
     // A `sendable` function value taken at the same function type without
     // the word. The representation is one, so nothing is built.
-    case ForgetSendable,
+    case ForgetSendable = 12,
     // The base of a `?.` hop read as its Optional's payload, on the path
     // where it is present; the absent path leaves the chain (spec, Optionals).
     // The hop holds the payload from its test to its use, exclusively where
     // that use writes (`settle_hops`).
-    case Payload,
-    case PayloadVar
+    case Payload = 13,
+    case PayloadVar = 14
 }
 
 // What a funnel position lets a conversion build beyond the exact and
@@ -342,39 +343,39 @@ public struct TcAdjust {
 }
 
 // What a call, operator, subscript or loop head calls.
-public enum TcRole {
+public enum TcRole: UInt8 {
     // An ordinary call of a function, method, static method or init.
-    case Call,
+    case Call = 0,
     // The memberwise construction of a struct, which no declaration writes.
-    case Memberwise,
+    case Memberwise = 1,
     // An enum case's construction.
-    case Case,
+    case Case = 2,
     // A builtin function: `print`, `panic`, `assert`, `sizeof`, `alignof`.
-    case Builtin,
+    case Builtin = 3,
     // A conversion no declaration writes: a raw-backed enum's `from(raw:)`
     // (design 145), an integer's `from` and `from(truncating:)` (design
     // 170), a distinct alias's construction.
-    case Conversion,
+    case Conversion = 4,
     // An operator a builtin type answers, which no declaration writes.
-    case BuiltinOperator,
+    case BuiltinOperator = 5,
     // An operator a declared method answers: `equals`, `compare`.
-    case Operator,
+    case Operator = 6,
     // The three subscript roles (SL:borrowing §5): a declared or derived
     // getitem or setitem, and the place accessor itself.
-    case Getitem,
-    case Setitem,
-    case Place,
+    case Getitem = 7,
+    case Setitem = 8,
+    case Place = 9,
     // A `for` loop's `next`.
-    case Iterator,
+    case Iterator = 10,
     // A function value's call: its type is the target.
-    case Value,
+    case Value = 11,
     // A cooperative spawn form, `Task.spawn(f(x))`. No declaration answers
     // it, so the record names the form's spelling and no target; its root
     // call `f(x)` keeps a record of its own, and the task makes that call,
     // not the body the form is written in (`TcProgram.spawn_roots`). The
     // OS-thread form, `Thread.spawn { ... }`, takes a brace and is a
     // `Builtin` (`TcProgram.thread_spawn`).
-    case Spawn
+    case Spawn = 12
 }
 
 // One call's resolution: the declaration it calls, and at what. A member of a
@@ -577,11 +578,11 @@ public struct TcItem {
 }
 
 // The positions the constant-position funnel serves, which its refusals name.
-public enum TcConstPosition {
-    case Static,
-    case RawValue,
-    case Align,
-    case Assert
+public enum TcConstPosition: UInt8 {
+    case Static = 0,
+    case RawValue = 1,
+    case Align = 2,
+    case Assert = 3
 }
 
 // The positions a type fixes at compile time, which a constant there serves
@@ -596,10 +597,10 @@ public enum TcConstUse {
 // How far a static's initializer, or a raw-backed case's value, is typed: not
 // yet, being typed ahead of the body phase (so a constant it needs from
 // itself is a cycle), or typed ahead.
-public enum TcStaticTyping {
-    case Untyped,
-    case Typing,
-    case Typed
+public enum TcStaticTyping: UInt8 {
+    case Untyped = 0,
+    case Typing = 1,
+    case Typed = 2
 }
 
 // What a static stands for where a type fixes a constant: not evaluated (it
@@ -608,13 +609,13 @@ public enum TcStaticTyping {
 // needs a layout the bootstrap slice does not fold yet, each with its
 // reason; or one whose type or initializer was refused already, which its
 // own declaration reports.
-public enum TcStaticVerdict {
-    case Unevaluated,
-    case Folds,
-    case NotConstant,
-    case Unfit,
-    case NotYet,
-    case Poisoned
+public enum TcStaticVerdict: UInt8 {
+    case Unevaluated = 0,
+    case Folds = 1,
+    case NotConstant = 2,
+    case Unfit = 3,
+    case NotYet = 4,
+    case Poisoned = 5
 }
 
 // A constant judgment held until every body is typed, by the nodes its check
@@ -657,4 +658,226 @@ public struct TcWarning {
     fix_end: Int
     fix_text: String
     kept: Bool
+}
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction; only
+// TcPendingConstant, whose cases carry payloads, is written by hand below.
+@synthesize
+extension TcSig: Serialize {}
+@synthesize
+extension TcSig: Deserialize {}
+
+@synthesize
+extension TcGeneric: Serialize {}
+@synthesize
+extension TcGeneric: Deserialize {}
+
+@synthesize
+extension TcParam: Serialize {}
+@synthesize
+extension TcParam: Deserialize {}
+
+@synthesize
+extension TcConformance: Serialize {}
+@synthesize
+extension TcConformance: Deserialize {}
+
+@synthesize
+extension TcStatus: Serialize {}
+@synthesize
+extension TcStatus: Deserialize {}
+
+@synthesize
+extension TcMember: Serialize {}
+@synthesize
+extension TcMember: Deserialize {}
+
+@synthesize
+extension TcTier: Serialize {}
+@synthesize
+extension TcTier: Deserialize {}
+
+@synthesize
+extension TcObligation: Serialize {}
+@synthesize
+extension TcObligation: Deserialize {}
+
+@synthesize
+extension TcDiag: Serialize {}
+@synthesize
+extension TcDiag: Deserialize {}
+
+@synthesize
+extension TcWarning: Serialize {}
+@synthesize
+extension TcWarning: Deserialize {}
+
+@synthesize
+extension TcUse: Serialize {}
+@synthesize
+extension TcUse: Deserialize {}
+
+@synthesize
+extension TcAdjust: Serialize {}
+@synthesize
+extension TcAdjust: Deserialize {}
+
+@synthesize
+extension TcCall: Serialize {}
+@synthesize
+extension TcCall: Deserialize {}
+
+@synthesize
+extension TcAllowance: Serialize {}
+@synthesize
+extension TcAllowance: Deserialize {}
+
+@synthesize
+extension TcRelocation: Serialize {}
+@synthesize
+extension TcRelocation: Deserialize {}
+
+@synthesize
+extension TcSummary: Serialize {}
+@synthesize
+extension TcSummary: Deserialize {}
+
+@synthesize
+extension TcAtom: Serialize {}
+@synthesize
+extension TcAtom: Deserialize {}
+
+@synthesize
+extension TcUnit: Serialize {}
+@synthesize
+extension TcUnit: Deserialize {}
+
+@synthesize
+extension TcItem: Serialize {}
+@synthesize
+extension TcItem: Deserialize {}
+
+@synthesize
+extension TcDefault: Serialize {}
+@synthesize
+extension TcDefault: Deserialize {}
+
+@synthesize
+extension TcCapture: Serialize {}
+@synthesize
+extension TcCapture: Deserialize {}
+
+@synthesize
+extension TcStaticTyping: Serialize {}
+@synthesize
+extension TcStaticTyping: Deserialize {}
+
+@synthesize
+extension TcStaticVerdict: Serialize {}
+@synthesize
+extension TcStaticVerdict: Deserialize {}
+
+@synthesize
+extension TcReceiver: Serialize {}
+@synthesize
+extension TcReceiver: Deserialize {}
+
+@synthesize
+extension TcLend: Serialize {}
+@synthesize
+extension TcLend: Deserialize {}
+
+@synthesize
+extension TcStatusKind: Serialize {}
+@synthesize
+extension TcStatusKind: Deserialize {}
+
+@synthesize
+extension TcSource: Serialize {}
+@synthesize
+extension TcSource: Deserialize {}
+
+@synthesize
+extension TcAdjustKind: Serialize {}
+@synthesize
+extension TcAdjustKind: Deserialize {}
+
+@synthesize
+extension TcRole: Serialize {}
+@synthesize
+extension TcRole: Deserialize {}
+
+@synthesize
+extension TcConstPosition: Serialize {}
+@synthesize
+extension TcConstPosition: Deserialize {}
+
+// A payload enum has no raw backing to derive from, so each case is written
+// as an array of its tag, then its payload in declaration order. A case added
+// here needs a tag in both bodies, and the image pin round-trips each case
+// (compiler/mono/tests/front_image.saw).
+extension TcPendingConstant: Serialize {
+    public func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        match self {
+            case Cast(e) -> {
+                try to.begin_array(2)
+                try to.write_uint(0)
+                try e.serialize(to: &var to)
+            },
+            case CertainFault(e, count, shifted, divides) -> {
+                try to.begin_array(5)
+                try to.write_uint(1)
+                try e.serialize(to: &var to)
+                try count.serialize(to: &var to)
+                try shifted.serialize(to: &var to)
+                try divides.serialize(to: &var to)
+            },
+            case SlotRange(e) -> {
+                try to.begin_array(2)
+                try to.write_uint(2)
+                try e.serialize(to: &var to)
+            },
+            case Position(e, pos, d, message) -> {
+                try to.begin_array(5)
+                try to.write_uint(3)
+                try e.serialize(to: &var to)
+                try pos.serialize(to: &var to)
+                try d.serialize(to: &var to)
+                try message.serialize(to: &var to)
+            }
+        }
+        return
+    }
+}
+
+extension TcPendingConstant: Deserialize {
+    public static func deserialize(from: &var any Decoder) sync -> Result<TcPendingConstant, DecodeError> {
+        let start = from.offset()
+        let n = try from.begin_array()
+        let tag = try from.read_uint()
+        if tag == 0 && n == 2 {
+            let e = try Int.deserialize(from: &var from)
+            return TcPendingConstant.Cast(e: e)
+        }
+        if tag == 1 && n == 5 {
+            let e = try Int.deserialize(from: &var from)
+            let count = try Int.deserialize(from: &var from)
+            let shifted = try Int.deserialize(from: &var from)
+            let divides = try Bool.deserialize(from: &var from)
+            return TcPendingConstant.CertainFault(e: e, count: count, shifted: shifted, divides: divides)
+        }
+        if tag == 2 && n == 2 {
+            let e = try Int.deserialize(from: &var from)
+            return TcPendingConstant.SlotRange(e: e)
+        }
+        if tag == 3 && n == 5 {
+            let e = try Int.deserialize(from: &var from)
+            let pos = try TcConstPosition.deserialize(from: &var from)
+            let d = try Int.deserialize(from: &var from)
+            let message = try Int.deserialize(from: &var from)
+            return TcPendingConstant.Position(e: e, pos: pos, d: d, message: message)
+        }
+        return DecodeError(offset: start, fault: DecodeFault.UnknownCase)
+    }
 }

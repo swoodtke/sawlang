@@ -311,6 +311,9 @@ def saw_text(rows):
     out.append("    labels: Vector<String>\n")
     out.append("}\n\n")
     out.append("extension TcStdRows: NoCopy {}\n\n")
+    out.append("// The front-end image writes the table (sawmono.frontimage), derived so a\n")
+    out.append("// field added later is in the image by construction.\n")
+    out.append("@synthesize\nextension TcStdRows: Serialize {}\n@synthesize\nextension TcStdRows: Deserialize {}\n\n")
     out.append("func tc_std_row(rows: &var TcStdRows, key: String, verdict: Int, causes: Int, "
                "label: String) {\n")
     out.append("    try! rows.keys.push(key)\n")

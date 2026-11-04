@@ -194,6 +194,23 @@ the profile and the compiler, which is what lets a later build start from it
 programs. Mono, coroutine lowering and the backend run once, over the whole
 program, after the last layer.
 
+The front-end image writes std's state at that cut down and reads it back
+(`mono/src/frontimage.saw`, the image codec's funnel). It holds the whole
+`FrontCut`: the drop-elaborated program with every table nested in it, from
+resolve's node arena to drops' guards and flags, eval's values, std's layer
+record, and the verifier lines std's layer printed. `mono_front_std` makes the
+cut, and `mono_front_program` runs the program's layer from a cut, computed or
+read, which are one value. The image is a first line, `sawc-front 2 LENGTH
+DIGEST`, then one `std.cbor` item; DIGEST folds each 64-bit word of the item
+through SplitMix64's finalizer, which catches damage, not tampering. Every type the cut reaches derives
+`Serialize` and `Deserialize`, so a field added to a stage's tables is in the
+image without a line written for it; the payload enum `TcPendingConstant` alone
+is written by hand. A truncated or damaged image is a `FrontImageError` the
+caller sees. `mono/tests/front_image.saw` and `front_image_load.saw` pin the
+round trip on the host and both freestanding targets, the damage cases, and a
+build that reads the image against one that computes it; `std_layers.py`
+requires the same image bytes across programs, sawc included.
+
 ## Building
 
 The seed is sawc compiled by clang from its own LLVM IR, which `seed/`

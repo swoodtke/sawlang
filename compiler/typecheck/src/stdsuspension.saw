@@ -734,6 +734,13 @@ public struct TcStdRows {
 
 extension TcStdRows: NoCopy {}
 
+// The front-end image writes the table (sawmono.frontimage), derived so a
+// field added later is in the image by construction.
+@synthesize
+extension TcStdRows: Serialize {}
+@synthesize
+extension TcStdRows: Deserialize {}
+
 func tc_std_row(rows: &var TcStdRows, key: String, verdict: Int, causes: Int, label: String) {
     try! rows.keys.push(key)
     try! rows.verdicts.push(verdict)

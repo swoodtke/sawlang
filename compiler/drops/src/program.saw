@@ -145,3 +145,11 @@ public func drops_within(facts: &MirInit, inner: Int, outer: Int) -> Bool {
     }
     false
 }
+
+// The front-end image writes this type (sawmono.frontimage). It is derived,
+// so a field added later is in the image by construction.
+@synthesize
+extension DropsProgram: Serialize {}
+
+@synthesize
+extension DropsProgram: Deserialize {}

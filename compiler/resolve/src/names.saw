@@ -159,3 +159,15 @@ extension ResIndex {
 
     public func value(&self, entry: Int) -> Int { self.values[entry] }
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension ResIndex: Serialize {}
+@synthesize
+extension ResIndex: Deserialize {}
+
+@synthesize
+extension ResNames: Serialize {}
+@synthesize
+extension ResNames: Deserialize {}

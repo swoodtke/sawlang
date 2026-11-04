@@ -20,16 +20,16 @@ import sawtypecheck.program.{TcProgram}
 // part at `bits`, `count` times. An `Address` is a `FuncPointer`'s code: named
 // function `decl`'s, or with `decl` -1 the coerced literal whose body is MIR
 // function `bits`; it is immortal and opaque, a link-time constant.
-public enum EvalKind {
-    case Integer,
-    case Boolean,
-    case Case,
-    case Unit,
-    case Cell,
-    case Aggregate,
-    case Repeat,
-    case Address,
-    case Missing
+public enum EvalKind: UInt8 {
+    case Integer = 0,
+    case Boolean = 1,
+    case Case = 2,
+    case Unit = 3,
+    case Cell = 4,
+    case Aggregate = 5,
+    case Repeat = 6,
+    case Address = 7,
+    case Missing = 8
 }
 
 // A value, or, `Missing`, the fault that left none.
@@ -56,12 +56,12 @@ extension EvalValue {
 // diagnostic of its own, with no value because a constant it reads was
 // refused, or deferred: a `static_assert` over a layout, which is checked
 // once layouts exist (SL:open-questions D40).
-public enum EvalEnd {
-    case Pending,
-    case Valued,
-    case Refused,
-    case Poisoned,
-    case Deferred
+public enum EvalEnd: UInt8 {
+    case Pending = 0,
+    case Valued = 1,
+    case Refused = 2,
+    case Poisoned = 3,
+    case Deferred = 4
 }
 
 public struct EvalProgram {
@@ -132,3 +132,29 @@ extension EvalProgram {
         }
     }
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension EvalProgram: Serialize {}
+
+@synthesize
+extension EvalProgram: Deserialize {}
+
+@synthesize
+extension EvalValue: Serialize {}
+
+@synthesize
+extension EvalValue: Deserialize {}
+
+@synthesize
+extension EvalEnd: Serialize {}
+
+@synthesize
+extension EvalEnd: Deserialize {}
+
+@synthesize
+extension EvalKind: Serialize {}
+
+@synthesize
+extension EvalKind: Deserialize {}

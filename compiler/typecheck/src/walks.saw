@@ -39,6 +39,13 @@ public struct TcMemo {
 
 extension TcMemo: NoCopy {}
 
+// The front-end image writes a memo (sawmono.frontimage), derived so a field
+// added later is in the image by construction.
+@synthesize
+extension TcMemo: Serialize {}
+@synthesize
+extension TcMemo: Deserialize {}
+
 public func tc_memo() -> TcMemo {
     var a = Vector<Int>()
     var b = Vector<Int>()

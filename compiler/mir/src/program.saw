@@ -295,3 +295,30 @@ extension MirProgram {
         }
     }
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension MirProgram: Serialize {}
+@synthesize
+extension MirProgram: Deserialize {}
+
+@synthesize
+extension MirScopeEntry: Serialize {}
+@synthesize
+extension MirScopeEntry: Deserialize {}
+
+@synthesize
+extension MirLoop: Serialize {}
+@synthesize
+extension MirLoop: Deserialize {}
+
+@synthesize
+extension MirCatch: Serialize {}
+@synthesize
+extension MirCatch: Deserialize {}
+
+@synthesize
+extension MirChain: Serialize {}
+@synthesize
+extension MirChain: Deserialize {}

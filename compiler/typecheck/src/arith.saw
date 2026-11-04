@@ -10,21 +10,27 @@
 // No function here traps on the host: every product, sum and quotient that
 // could leave an `Int` is taken apart into 32-bit or 16-bit pieces first.
 
-public enum TcFault {
+public enum TcFault: UInt8 {
     // No fault: the value stands.
-    case Clean,
+    case Clean = 0,
     // An arithmetic result its type cannot hold.
-    case Overflow,
+    case Overflow = 1,
     // A shift count negative, or at or past the shifted type's width.
-    case ShiftRange,
-    case DivideByZero,
+    case ShiftRange = 2,
+    case DivideByZero = 3,
     // A value converted or adopted into a type that cannot hold it.
-    case NotFit,
+    case NotFit = 4,
     // An expression outside the constant grammar.
-    case NotConstant,
+    case NotConstant = 5,
     // A static whose value depends on itself.
-    case Cycle
+    case Cycle = 6
 }
+
+// The front-end image writes a fault (sawmono.frontimage).
+@synthesize
+extension TcFault: Serialize {}
+@synthesize
+extension TcFault: Deserialize {}
 
 // An evaluated value, or the fault that stopped it.
 public struct TcValue {

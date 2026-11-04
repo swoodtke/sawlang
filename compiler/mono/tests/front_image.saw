@@ -1,0 +1,271 @@
+// The front-end image (SL-955 unit 4): std's state at the cut, written down
+// and read back by the image codec (sawmono.frontimage).
+//
+// With no arguments it runs the pins: the round trip on the host and on the
+// two freestanding targets, and every damaged image the caller's error;
+// `front_image_load.saw` holds the load-equals-run pin. With
+// `--std-image OUT ENTRY [NAME=DIR]...` it writes the std image a build of
+// ENTRY makes to OUT, which `compiler/tests/std/std_layers.py` compares across
+// programs. Paths are the repository root's, where the runner runs.
+
+import sawasserts.layout.{asserts_inputs}
+import sawmono.api.{mono_front_std}
+import sawmono.frontimage.{FrontCut, FrontImageError, front_image_decode, front_image_encode, front_image_frame}
+import sawtarget.layout.{target_front_end}
+import sawtypecheck.model.{TcConstPosition, TcPendingConstant}
+import std.cbor.{CborDecoder, CborEncoder}
+import std.data.{Data}
+import std.env.{Env}
+import std.file
+import std.path.{Path}
+
+static EQUALS_SIGN: UInt8 = 61
+static NEWLINE: UInt8 = 10
+static TOP_BIT: UInt8 = 1 << 7
+// The damage trials: how many of each kind, and the body each one damages.
+static TRIALS: Int = 1000
+static TRIAL_BODY: Int = 4096
+
+// The host target the pins check the program for.
+func host() -> String { "arm64-apple-darwin" }
+
+func main() -> Int {
+    let args = try! Env.args()
+    if (args.get(1) ?? "").equals("--std-image") {
+        return write_std_image(&args)
+    }
+    let image = pin_round_trip(host(), false)
+    let _ = pin_round_trip("riscv32-unknown-none-elf", true)
+    let _ = pin_round_trip("aarch64-unknown-none-elf", true)
+    pin_pending_constants()
+    pin_damage(&image)
+    0
+}
+
+// Std's cut for `triple`, as a build of nothing makes it.
+func std_cut(triple: String, freestanding: Bool) -> FrontCut {
+    let target = target_front_end(triple, "")
+    let names = Vector<String>()
+    let dirs = Vector<String>()
+    let inputs = asserts_inputs("", &names, &dirs, target, freestanding)
+    mono_front_std("std", target, &inputs, freestanding: freestanding)
+}
+
+func image_of(cut: &FrontCut) -> Data {
+    match front_image_encode(&cut) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("the image of a cut cannot be written: {}", e)
+    }
+}
+
+func cut_of(image: Data) -> FrontCut {
+    match front_image_decode(move image) {
+        case Ok(c) -> move c,
+        case Err(e) -> panic("an image the codec wrote cannot be read: {}", e)
+    }
+}
+
+func same(a: &Data, b: &Data) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i = 0
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// Encoding the decoded state gives the bytes it was decoded from. Returns
+// the image, which the other pins read.
+// THE IMAGE CODEC's round-trip pin.
+func pin_round_trip(triple: String, freestanding: Bool) -> Data {
+    let cut = std_cut(triple, freestanding)
+    assert(not cut.blocked, "std's layer is blocked on {}", triple)
+    let image = image_of(&cut)
+    let back = cut_of(image.copy())
+    let again = image_of(&back)
+    assert(same(&image, &again), "the image of std's decoded cut on {} differs from the one it was read from",
+           triple)
+    image
+}
+
+// Each case of the hand-written TcPendingConstant body reads back as itself.
+func pin_pending_constants() {
+    var cases = Vector<TcPendingConstant>()
+    try! cases.push(TcPendingConstant.Cast(e: 7))
+    try! cases.push(TcPendingConstant.CertainFault(e: 3, count: -1, shifted: 12, divides: true))
+    try! cases.push(TcPendingConstant.SlotRange(e: 9))
+    try! cases.push(TcPendingConstant.Position(e: 4, pos: TcConstPosition.Assert, d: 5, message: -1))
+    var enc = CborEncoder()
+    try! cases.serialize(to: &var enc)
+    let blob = try! enc.finish()
+    var dec = try! CborDecoder.open(bytes: blob.copy())
+    let back = try! Vector<TcPendingConstant>.deserialize(from: &var dec)
+    var enc2 = CborEncoder()
+    try! back.serialize(to: &var enc2)
+    let again = try! enc2.finish()
+    assert(back.len() == 4 && same(&blob, &again), "a pending constant does not read back as itself")
+}
+
+// A damaged image is the caller's error, never a panic or another state.
+// THE IMAGE CODEC's damage pin.
+func pin_damage(image: &Data) {
+    let n = image.len()
+    // Truncated by one byte, and by half.
+    expect_refused(image.slice(0, n - 1)!, "an image one byte short", "Length")
+    expect_refused(image.slice(0, n / 2)!, "half an image", "Length")
+    // One byte flipped in the middle of the body, and in its last byte.
+    expect_refused(flipped(&image, n / 2), "an image with a byte flipped in its body", "Damaged")
+    expect_refused(flipped(&image, n - 1), "an image with its last byte flipped", "Damaged")
+    // One byte flipped in the first line, and a first line of another format.
+    expect_refused(flipped(&image, 0), "an image whose magic is damaged", "Header")
+    expect_refused(flipped(&image, 11), "an image of another format", "Header")
+    expect_refused(Data(), "an empty file", "Header")
+    // A body that is well framed and no cut: it is the decoder's to refuse.
+    let body = image.slice(image.len() - 100, image.len())!
+    expect_refused(try! front_image_frame(move body), "a well-framed body that is no cut", "Decode")
+    // The top bit of two and of four aligned words, which a digest that never
+    // carries a difference downward lets cancel.
+    let start = body_start(&image)
+    var two = Vector<Int>()
+    try! two.push(start + 7)
+    try! two.push(start + 15)
+    expect_refused(flipped_bits(&image, &two, TOP_BIT), "top-bit flips at body offsets 7 and 15", "Damaged")
+    var four = two.copy()
+    try! four.push(start + 23)
+    try! four.push(start + 31)
+    expect_refused(flipped_bits(&image, &four, TOP_BIT), "four aligned top-bit flips", "Damaged")
+    pin_damage_trials(&image, start)
+}
+
+// Seeded random trials over a framed 4 KB slice of std's body, small enough
+// to try thousands: pairs of top-bit flips at offsets 8k+7, then pairs of
+// random bits at random offsets. Every one is a damaged image.
+func pin_damage_trials(image: &Data, start: Int) {
+    let body = image.slice(start, start + TRIAL_BODY)!
+    let framed = try! front_image_frame(move body)
+    let at = body_start(&framed)
+    var seed: UInt64 = 0x2545_F491_4F6C_DD1D
+    var trial = 0
+    while trial < 2 * TRIALS {
+        var offsets = Vector<Int>()
+        var mask = TOP_BIT
+        if trial < TRIALS {
+            let a = (next_random(&var seed) % (TRIAL_BODY / 8) as UInt64) as Int
+            var b = (next_random(&var seed) % (TRIAL_BODY / 8) as UInt64) as Int
+            if b == a {
+                b = (a + 1) % (TRIAL_BODY / 8)
+            }
+            try! offsets.push(at + 8 * a + 7)
+            try! offsets.push(at + 8 * b + 7)
+        } else {
+            let a = (next_random(&var seed) % (TRIAL_BODY as UInt64)) as Int
+            var b = (next_random(&var seed) % (TRIAL_BODY as UInt64)) as Int
+            if b == a {
+                b = (a + 1) % TRIAL_BODY
+            }
+            try! offsets.push(at + a)
+            try! offsets.push(at + b)
+            mask = UInt8.from(truncating: 1 << ((next_random(&var seed) % 8) as Int))
+        }
+        expect_refused(flipped_bits(&framed, &offsets, mask), "a random pair of flipped bits", "Damaged")
+        trial = trial + 1
+    }
+}
+
+// xorshift64: the pin's trials are seeded, so a failure repeats.
+func next_random(state: &var UInt64) -> UInt64 {
+    var x = state
+    x = x ^ (x << 13)
+    x = x ^ (x >> 7)
+    x = x ^ (x << 17)
+    state = x
+    x
+}
+
+// Where an image's body starts: after its first line's newline.
+func body_start(image: &Data) -> Int {
+    var i = 0
+    while image[i] != NEWLINE {
+        i = i + 1
+    }
+    i + 1
+}
+
+func flipped(image: &Data, at: Int) -> Data {
+    var d = try! image.detached()
+    try! d.set(at, d[at] ^ 0x20)
+    move d
+}
+
+func flipped_bits(image: &Data, offsets: &Vector<Int>, mask: UInt8) -> Data {
+    var d = try! image.detached()
+    var k = 0
+    while k < offsets.len() {
+        let at = offsets[k]
+        try! d.set(at, d[at] ^ mask)
+        k = k + 1
+    }
+    move d
+}
+
+func expect_refused(image: Data, what: String, kind: String) {
+    match front_image_decode(move image) {
+        case Ok(_) -> panic("{} reads back as a cut", what),
+        case Err(e) -> {
+            let got = match e {
+                case Header -> "Header",
+                case Length(_, _) -> "Length",
+                case Damaged -> "Damaged",
+                case Encode(_) -> "Encode",
+                case Decode(_) -> "Decode",
+                case Alloc(_) -> "Alloc"
+            }
+            assert(got.equals(kind), "{} is refused as {}, not {}: {}", what, got, kind, e)
+        }
+    }
+}
+
+// `--std-image OUT ENTRY [NAME=DIR]...`: the std image a build of ENTRY,
+// with those `--module-path` mappings, makes, written to OUT.
+func write_std_image(args: &Vector<String>) -> Int {
+    let out_path = args.get(2) ?? ""
+    let entry = args.get(3) ?? ""
+    var names = Vector<String>()
+    var dirs = Vector<String>()
+    var k = 4
+    while k < args.len() {
+        let spec = args.get(k) ?? ""
+        guard let eq = spec.index_of(EQUALS_SIGN) else {
+            print("front_image: a mapping is NAME=DIR, not `{}`", spec)
+            return 2
+        }
+        try! names.push(spec.substring(0, eq))
+        try! dirs.push(spec.substring(eq + 1, spec.len()))
+        k = k + 1
+    }
+    let target = target_front_end(host(), "")
+    let inputs = asserts_inputs(entry, &names, &dirs, target, false)
+    let image = image_of(&mono_front_std("std", target, &inputs))
+    match file.File.create(Path(s: out_path)) {
+        case Ok(f) -> {
+            var out = move f
+            match out.write(image) {
+                case Ok(_) -> {},
+                case Err(e) -> {
+                    print("front_image: {}", e)
+                    return 1
+                }
+            }
+        },
+        case Err(e) -> {
+            print("front_image: {}", e)
+            return 1
+        }
+    }
+    0
+}

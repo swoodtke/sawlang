@@ -1,0 +1,108 @@
+// The front-end image's load-equals-run pin (SL-955 unit 4): a build that
+// reads std's image and runs the program's layer from it equals one that
+// computes both layers, a refused program and a `--module-path` one among
+// them. `front_image.saw` holds the codec's other pins. Paths are the
+// repository root's, where the runner runs.
+
+import sawasserts.layout.{asserts_inputs}
+import sawmono.api.{mono_append_findings, mono_from_front, mono_front_program, mono_front_std}
+import sawmono.dump
+import sawmono.frontimage.{FrontCut, front_image_decode, front_image_encode}
+import sawtarget.layout.{target_front_end}
+import std.data.{Data}
+
+// The host target the pin checks the programs for.
+func host() -> String { "arm64-apple-darwin" }
+
+func main() {
+    let target = target_front_end(host(), "")
+    let none = Vector<String>()
+    // Std's image as a build of nothing makes it: the programs below read it
+    // whatever their own inputs are.
+    let inputs = asserts_inputs("", &none, &none, target, false)
+    let image = image_of(&mono_front_std("std", target, &inputs))
+    pin_load_equals_run("compiler/tests/run/hello.saw", &none, &none, false, &image)
+    pin_load_equals_run("compiler/tests/std/layers/ext_probe.saw", &none, &none, false, &image)
+    pin_load_equals_run("tests/corpus/coro_generic_spawn_root_nested_suspending_call.saw", &none, &none, false,
+                        &image)
+    pin_load_equals_run("tests/corpus/closure_captures_self_escaping_error.saw", &none, &none, true, &image)
+    var names = Vector<String>()
+    var dirs = Vector<String>()
+    try! names.push("blade")
+    try! dirs.push("blade/src")
+    try! names.push("toml")
+    try! dirs.push("libs/toml/src")
+    try! names.push("semver")
+    try! dirs.push("libs/semver/src")
+    try! names.push("imgformat")
+    try! dirs.push("libs/imgformat/src")
+    pin_load_equals_run("blade/src/main.saw", &names, &dirs, false, &image)
+}
+
+func image_of(cut: &FrontCut) -> Data {
+    match front_image_encode(&cut) {
+        case Ok(d) -> move d,
+        case Err(e) -> panic("the image of a cut cannot be written: {}", e)
+    }
+}
+
+func cut_of(image: Data) -> FrontCut {
+    match front_image_decode(move image) {
+        case Ok(c) -> move c,
+        case Err(e) -> panic("an image the codec wrote cannot be read: {}", e)
+    }
+}
+
+func same(a: &Data, b: &Data) -> Bool {
+    if a.len() != b.len() {
+        return false
+    }
+    var i = 0
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false
+        }
+        i = i + 1
+    }
+    true
+}
+
+// The program's layer run from std's `image` equals both layers computed, as
+// `mono_lower_file` computes them: the whole front end's state after the
+// program's layer encodes to the same bytes, and mono's record and its items
+// are the same text, so every stage after the front end sees one input.
+// THE IMAGE CODEC's load-equals-run pin.
+func pin_load_equals_run(path: String, names: &Vector<String>, dirs: &Vector<String>, refused: Bool,
+                         image: &Data) {
+    let target = target_front_end(host(), "")
+    let inputs = asserts_inputs(path, &names, &dirs, target, false)
+    var run = mono_front_std("std", target, &inputs)
+    mono_front_program(&var run, &inputs, false)
+    var loaded = cut_of(image.copy())
+    mono_front_program(&var loaded, &inputs, false)
+    assert(same(&image_of(&run), &image_of(&loaded)),
+           "{}: the front end's state after the program's layer differs once std's image is read", path)
+    var computed_out = StringBuilder()
+    let computed = mono_from_front(out: &var computed_out, front: move run, notes: false)
+    var loaded_out = StringBuilder()
+    let mono = mono_from_front(out: &var loaded_out, front: move loaded, notes: false)
+    var a = StringBuilder()
+    try! a.append(computed_out.build())
+    mono_append_findings(out: &var a, mono: &computed)
+    var b = StringBuilder()
+    try! b.append(loaded_out.build())
+    mono_append_findings(out: &var b, mono: &mono)
+    let record = a.build()
+    assert(record.equals(b.build()), "{}: the record differs once std's image is read", path)
+    assert(computed.blocked == refused && mono.blocked == refused, "{}: refused is {}, not {}", path,
+           computed.blocked, refused)
+    if refused {
+        assert(record.len() > 0, "{}: a refused program reports nothing", path)
+        return
+    }
+    var items_a = StringBuilder()
+    computed.dump_items(&var items_a)
+    var items_b = StringBuilder()
+    mono.dump_items(&var items_b)
+    assert(items_a.build().equals(items_b.build()), "{}: mono's items differ once std's image is read", path)
+}

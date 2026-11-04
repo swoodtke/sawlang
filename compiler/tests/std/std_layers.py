@@ -21,10 +21,11 @@ the same std:
   layer rebuilds such a table at the end of the member arena, and the dump
   prints the table it ends with.
 
-What it cannot see: the arenas' contents at the id level and the tables no dump
-prints (the per-node side tables, the type interner's entries). The image unit
-holds those, by encoding std's state at the cut for each program and requiring
-the same bytes.
+and, at the id level, std's front-end image (compiler/mono/src/frontimage.saw):
+the whole state at the cut, every arena and side table no dump prints
+included, encoded as each program's build makes it, must be the same bytes
+for these programs and for sawc itself. `compiler/mono/tests/front_image.saw`
+writes the image (`--std-image`).
 """
 import os
 import re
@@ -43,6 +44,8 @@ import build  # noqa: E402
 
 TIMEOUT = 300
 LAYERS = os.path.join(HERE, "layers")
+IMAGE_TOOL = os.path.join(COMPILER, "mono", "tests", "front_image.saw")
+IMAGE_OUT = os.path.join(REPO, ".build", "std-layers")
 
 
 def blade_flags():
@@ -59,6 +62,52 @@ PROGRAMS = (
     ("ext_probe", os.path.join(LAYERS, "ext_probe.saw"), ()),
     ("blade", os.path.join(blade_lane.BLADE_DIR, "src", "main.saw"), "blade"),
 )
+
+# The image check also covers sawc, whose dumps are too large to compare here.
+IMAGE_PROGRAMS = PROGRAMS + (
+    ("sawc", os.path.join(COMPILER, "driver", "src", "main.saw"), "sawc"),
+)
+
+
+def mappings(flags):
+    """A program's `--module-path` mappings as NAME=DIR, repository-relative."""
+    if flags == "blade":
+        pairs = blade_lane.MODULE_PATHS
+    elif flags == "sawc":
+        pairs = [(name, os.path.join(REPO, path)) for name, path in build.STAGE_PACKAGES]
+    else:
+        pairs = []
+    return ["%s=%s" % (name, os.path.relpath(directory, REPO)) for name, directory in pairs]
+
+
+def check_images():
+    """Failures, and how many programs' std images were compared."""
+    os.makedirs(IMAGE_OUT, exist_ok=True)
+    tool = os.path.join(IMAGE_OUT, "front_image")
+    ok, output = build.build_program(IMAGE_TOOL, tool)
+    if not ok:
+        return ["std layers: the image tool does not build: %s" % output.strip().split("\n")[0]], 0
+    images = {}
+    failures = []
+    for name, path, flags in IMAGE_PROGRAMS:
+        out = os.path.join(IMAGE_OUT, "%s.img" % name)
+        r = subprocess.run([tool, "--std-image", out, rel(path)] + mappings(flags), cwd=REPO,
+                           capture_output=True, text=True, timeout=TIMEOUT)
+        if r.returncode != 0:
+            failures.append("std layers %s: the image tool exits %d: %s"
+                            % (name, r.returncode, (r.stdout + r.stderr).strip()[:200]))
+            continue
+        with open(out, "rb") as fh:
+            images[name] = fh.read()
+    reference = IMAGE_PROGRAMS[0][0]
+    if reference in images:
+        for name, data in images.items():
+            if data != images[reference]:
+                at = next((k for k in range(min(len(data), len(images[reference])))
+                           if data[k] != images[reference][k]), min(len(data), len(images[reference])))
+                failures.append("std layers %s: std's image differs from %s's, first at byte %d (%d bytes "
+                                "against %d)" % (name, reference, at, len(data), len(images[reference])))
+    return failures, len(images)
 
 _ROW_FROM = re.compile(r"\((extension|default|synthesized) ([A-Za-z_][A-Za-z0-9_.]*)\)")
 
@@ -192,8 +241,11 @@ def run():
                     failures.append("std layers %s: %s's %s section differs from %s's: %s"
                                     % (name, module, kind, reference,
                                        first_difference(base[kind][module], other)))
+    image_failures, compared = check_images()
+    failures += image_failures
     counts = {"std layer programs": len(seen),
-              "std layer modules": len(base["drops"])}
+              "std layer modules": len(base["drops"]),
+              "std images compared": compared}
     return failures, counts
 
 

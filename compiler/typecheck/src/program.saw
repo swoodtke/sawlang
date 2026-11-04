@@ -111,21 +111,21 @@ public enum TcSeams {
 }
 
 // The five profiles a compile can be under (spec, Profiles).
-public enum TcProfileKind {
+public enum TcProfileKind: UInt8 {
     // An ordinary program, linked with the runtime sawc builds.
-    case HostedProgram,
+    case HostedProgram = 0,
     // `--freestanding`: an object rooted at its exports, for a kernel or a
     // board to link.
-    case FreestandingProgram,
+    case FreestandingProgram = 1,
     // `--runtime`: a program that is its own runtime, linked with none of
     // sawc's, so it defines every seam it reaches.
-    case HostedProvider,
+    case HostedProvider = 2,
     // `--freestanding --runtime`: the kernel shape, exporting the seams it
     // defines and leaving the rest to its link.
-    case FreestandingProvider,
+    case FreestandingProvider = 3,
     // One source of sawc's runtime, as `sawc runtime` builds it: its exports
     // are its roots, and it has no frames of its own.
-    case RuntimeSource
+    case RuntimeSource = 4
 }
 
 // THE PROFILE RECORD: what the profile a program is compiled under decides
@@ -1098,3 +1098,30 @@ extension TcProgram {
         self.traits[s.trait_first + k]
     }
 }
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension TcProgram: Serialize {}
+@synthesize
+extension TcProgram: Deserialize {}
+
+@synthesize
+extension TcKnown: Serialize {}
+@synthesize
+extension TcKnown: Deserialize {}
+
+@synthesize
+extension TcProfile: Serialize {}
+@synthesize
+extension TcProfile: Deserialize {}
+
+@synthesize
+extension TcTarget: Serialize {}
+@synthesize
+extension TcTarget: Deserialize {}
+
+@synthesize
+extension TcProfileKind: Serialize {}
+@synthesize
+extension TcProfileKind: Deserialize {}

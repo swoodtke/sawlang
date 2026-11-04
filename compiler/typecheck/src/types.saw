@@ -17,35 +17,35 @@ static TC_TYPE_MASK: Int = 0xFFFF_FFFF
 public static TC_HOLDS_ERROR: Int = 1
 public static TC_HOLDS_PARAM: Int = 2
 
-public enum TcKind {
+public enum TcKind: UInt8 {
     // A struct, enum or builtin type applied to arguments: `decl`, the args.
-    case Nominal,
+    case Nominal = 0,
     // A type or const parameter: `decl` its declaring declaration, `a` its
     // index there, so two declarations' `T`s never meet.
-    case Param,
+    case Param = 1,
     // `Self` in a trait: `decl` the trait, substituted by each conformance.
-    case SelfType,
+    case SelfType = 2,
     // `T.Item`: `decl` the AssocType declaration, `a` its trait, the one arg
     // the type it is projected from, a type parameter or a trait's `Self`
     // until substitution replaces it by a type whose conformance assigns the
     // associated type. A trait's own `Item` is the projection on its `Self`.
-    case Projection,
+    case Projection = 3,
     // Elements as args, and a label per element when named.
-    case Tuple,
+    case Tuple = 4,
     // Parameter types as args, `b` the return type, `a` the effect bits.
-    case Func,
+    case Func = 5,
     // `b` the referent; `a` 1 for `&var`.
-    case Ref,
+    case Ref = 6,
     // `b` the element; `a` 1 for `&var [T]`.
-    case Slice,
+    case Slice = 7,
     // `b` the element, the one arg its length.
-    case Array,
+    case Array = 8,
     // `any Trait`: `decl` the trait.
-    case Any,
+    case Any = 9,
     // A constant argument: `a` its value.
-    case ConstInt,
+    case ConstInt = 10,
     // A type that could not be formed; a refusal says why.
-    case Error
+    case Error = 11
 }
 
 public struct TcType {
@@ -73,6 +73,23 @@ public struct TcTypes {
 }
 
 extension TcTypes: NoCopy {}
+
+// The front-end image writes these types (sawmono.frontimage). They are
+// derived, so a field added later is in the image by construction.
+@synthesize
+extension TcTypes: Serialize {}
+@synthesize
+extension TcTypes: Deserialize {}
+
+@synthesize
+extension TcType: Serialize {}
+@synthesize
+extension TcType: Deserialize {}
+
+@synthesize
+extension TcKind: Serialize {}
+@synthesize
+extension TcKind: Deserialize {}
 
 public func tc_types() -> TcTypes {
     var heads = Vector<Int>()
