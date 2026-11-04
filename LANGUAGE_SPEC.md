@@ -9099,7 +9099,10 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   pthread-per-thread engine; the thread identity is never exposed). The
   operating system may refuse a thread (resources exhausted, say), and that
   answer is the `Err`, never a panic; `try! Thread.spawn { ... }` is the
-  spelling for a program that cannot go on without its thread. A body whose
+  spelling for a program that cannot go on without its thread. The form needs
+  no import; naming the type does: `Thread<T>` is `std.thread`'s
+  (`import std.thread.{Thread}`), a module that imports nothing from the task
+  executor. A body whose
   value is `Void` yields a `Thread<Void>`, whose `join()` is a statement:
   binding its `Void` result is the visible-`Void` error, as for any other call.
   The Send capture-audit walks the closure's captures and rejects the first
@@ -10127,17 +10130,17 @@ discard spellings are compile errors, including the `let _ =` that discards a
 
 ```saw-fragment
 Thread.spawn { [n] in crunch(n) }
-// error: the result of this expression is `Result<std.task.Thread<Int>,
+// error: the result of this expression is `Result<std.thread.Thread<Int>,
 //        std.systemerror.SystemError>` and is silently discarded
 
 let _ = Thread.spawn { [n] in crunch(n) }
-// error: `Thread.spawn` hands back a `Result<std.task.Thread<Int>,
+// error: `Thread.spawn` hands back a `Result<std.thread.Thread<Int>,
 //        std.systemerror.SystemError>` whose `Ok` handle must be consumed,
 //        and this one is discarded
 
 var t = try! Thread.spawn { [n] in crunch(n) }
 if urgent { let _ = t.join() }
-// error: `t` holds the `std.task.Thread<Int>` spawned here, which is never
+// error: `t` holds the `std.thread.Thread<Int>` spawned here, which is never
 //        consumed: `t` is dropped with no `join()` or `detach()` of it on
 //        some path
 ```
@@ -10168,7 +10171,7 @@ asks only that the owning type DECLARE a hand-written `deinit`, which is how a
 worker pool outlives the function that starts it:
 
 ```saw-fragment
-import std.task.{Thread}
+import std.thread.{Thread}
 
 struct Pool { workers: Vector<Thread<Void>> }
 
@@ -10205,7 +10208,7 @@ forgets can still reach a thread handle's destructor unconsumed. That path
 panics, naming the type and the fates:
 
 ```
-panic at task.saw:181: Thread was dropped without being joined or detached —
+panic at thread.saw:207: Thread was dropped without being joined or detached —
 `join()` waits for it and takes its result, `detach()` gives the thread to the
 process
 ```
@@ -10422,7 +10425,10 @@ externs and the offload](#blocking-externs-and-the-offload)), since a thread
 cannot be asked to stop and its result has nowhere else to go. A `main` that joins a
 thread suspends there, so it runs the executor and is a task root, and a value
 whose drop blocks may not drop in it (see [Blocking drops](#blocking-drops)); a
-`main` declared `blocking` joins in thread context instead. In thread context,
+`main` declared `blocking` joins in thread context instead, which makes `func
+main() blocking` the executor-free spelling: `std.thread` needs no executor,
+so a program that only starts, joins and detaches threads that way links none
+of it. In thread context,
 in a `Thread.spawn` body, a `blocking` function or a `blocking` `main`,
 `Thread.join()` and `Channel.receive()` run the calling thread's own
 cooperative tasks while one of them is live, ready or parked, and block the
@@ -14058,19 +14064,19 @@ names, then the std names an import gate keeps hidden, and consults qualifiers
 last.
 
 The gated-std tier is what makes `import mine.{Thread}` mean yours. `Thread` is
-`std.task`'s and is merged into every program, but no program may write that
-name until it says `import std.task` — so a file that names its own `Thread`,
+`std.thread`'s and is merged into every program, but no program may write that
+name until it says `import std.thread` — so a file that names its own `Thread`,
 by declaring one or by importing one, has said which it means and the merged one
 steps aside, silently. Declaring and importing behave alike on purpose: one
 intent must not produce two outcomes depending on which spelling the author
 reached for.
 
 ```saw-fragment
-import std.task                                 // the gated module's qualifier
+import std.thread                               // the gated module's qualifier
 import mine.{Thread}                            // ...and this file's own Thread
 
 func run(t: &Thread<Int>) -> Int { t.tag }      // yours
-func park(t: &task.Thread<Int>) -> Int { 0 }    // std's, qualified
+func park(t: &thread.Thread<Int>) -> Int { 0 }  // std's, qualified
 ```
 
 Two limits. A PRELUDE name is not in that tier — it is in scope with nothing
@@ -14460,7 +14466,8 @@ need one of the three [import forms](#imports).
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
 | `std.float` | `Float` ↔ text, and the bit accessors | yes (methods only) |
 | `std.taskgroup` | `TaskGroup`, `Task<T>` | yes |
-| `std.task` | `yield_now`, `Thread<T>` (the `Thread.spawn` handle) | `sleep`, `cancelled` |
+| `std.task` | `yield_now`, `dump_tasks` | `sleep`, `cancelled` |
+| `std.thread` | `Thread<T>` (the `Thread.spawn` handle) | no |
 | `std.channel` | `Channel<T>`, `ChannelError` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
 | `std.once` | `Once<T>` | no |

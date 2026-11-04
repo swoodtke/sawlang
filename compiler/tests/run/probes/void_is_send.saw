@@ -9,7 +9,7 @@
 // there, where its `deinit` joins the workers. The `deinit` joins, so it is
 // `blocking` (SL-782), and the spawned body is thread context.
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 struct Pool { workers: Vector<Thread<Void>> }
 

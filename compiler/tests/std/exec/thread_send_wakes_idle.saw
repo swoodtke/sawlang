@@ -8,7 +8,7 @@
 // per millisecond, more than twice it. macOS only: the bound is set from
 // macOS measurements of `getrusage`.
 import std.channel.{Channel}
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func getrusage(who: Int32, usage: UnsafePointer<Usage>) -> Int32

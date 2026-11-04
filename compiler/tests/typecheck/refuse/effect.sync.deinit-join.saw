@@ -4,7 +4,7 @@
 // pair whose default parks, and a `deinit` runs where nothing may suspend,
 // so the message points at `blocking` on the `deinit` (conformance row K186)
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 struct Pool {
     workers: Vector<Thread<Void>>

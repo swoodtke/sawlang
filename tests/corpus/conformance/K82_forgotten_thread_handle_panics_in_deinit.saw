@@ -21,7 +21,7 @@
 // EXPECT-PANIC-CONTAINS: Thread was dropped without being joined or detached
 // EXPECT-PANIC-CONTAINS: `join()` waits for it
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 func work() {
     print("worked")

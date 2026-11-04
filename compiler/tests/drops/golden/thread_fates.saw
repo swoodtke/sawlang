@@ -7,7 +7,7 @@
 // and `main` is declared `blocking` too: it joins and drops the pool, which
 // only thread context may do.
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 func work() -> Int {
     7

@@ -12,7 +12,7 @@
 // The thread spins until the watcher has dumped, so the joiner is still
 // parked on the thread's exit when the dump reads it; the watcher's sleep only
 // gives the joiner its turn to park, and the gate keeps it parked.
-import std.task.{Thread, dump_tasks}
+import std.task.{dump_tasks}
 
 static GATE: Atomic<Int> = Atomic(0)
 

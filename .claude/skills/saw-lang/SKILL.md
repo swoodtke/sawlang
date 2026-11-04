@@ -2507,7 +2507,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   (design 193): every capture must be `Send` on the way in, and `T` must be
   `Send` on the way back, since the body computes the result on its own thread
   and `join()` hands it over. A `Void` body's handle is `Thread<Void>`, whose
-  `join()` is a statement.
+  `join()` is a statement. Naming the TYPE needs `import std.thread.{Thread}`
+  (`import std.task.{Thread}` is the ordinary "not defined" error; the type
+  left `std.task` in SL-965); the form itself needs no import.
   A borrow capture (`[&var n]`) is refused before
   either question — an escaping closure cannot hold a pointer into the frame
   that spawned it.
@@ -2575,7 +2577,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   type with two obligations.
   The storage rule asks only that the owner DECLARE a deinit, not that it
   actually consume — an owner that forgets meets the runtime backstop:
-  `panic at task.saw:181: Thread was dropped without being joined or detached`,
+  `panic at thread.saw:207: Thread was dropped without being joined or detached`,
   and its `Task` twin.
   GOTCHA for older code: the handle used to JOIN on drop, so
   `let _ = spawn { … }` was a sequential call plus thread overhead and every
@@ -2681,7 +2683,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `copy()`, `any` dispatch) the default runs. std's pairs are
   `Channel.receive` and `Thread.join()` (a task's join PARKS, a cancel does not
   end it). A `main` that joins a thread therefore suspends and is a task root;
-  `func main() blocking` joins in thread context instead. Never
+  `func main() blocking` joins in thread context instead, and is the
+  EXECUTOR-FREE spelling: `std.thread` imports nothing from the executor
+  (SL-965), so a blocking `main` that only starts, joins and detaches threads
+  links none of it, where a plain `main` that joins links all of it. Never
   block from: a closure body, a trait requirement or default body, a
   conformance's implementation, an undeclared `deinit`, a policy `copy()`; and
   a `blocking` function is never a value.
@@ -3581,11 +3586,11 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   (warnings are off by default and never affect the exit code; not yet in
   `sawc`, SL-879).
   **THE GATED-STD TIER IS WHY `import mine.{Thread}` MEANS YOURS (design 255).**
-  `Thread` is `std.task`'s and is merged into every program, but no program may
-  write the name before `import std.task` — so a file that names its own,
+  `Thread` is `std.thread`'s and is merged into every program, but no program may
+  write the name before `import std.thread` — so a file that names its own,
   by DECLARING one or by IMPORTING one, has said which it means and std's steps
   aside, silently, at every form (`{N}`, `.*`, `{N as M}`) and every kind
-  (struct, generic struct, enum). `task.Thread<Int>` still names std's in the
+  (struct, generic struct, enum). `thread.Thread<Int>` still names std's in the
   same file, which is what a weak tier means. Treat it as working now and
   SUSPECT in older builds, where the DECLARATION won and the IMPORT lost: the
   generic-struct case tied and errored ``ambiguous struct `Thread`: defined in
@@ -3769,7 +3774,8 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
   cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
-  `Command` (std.process), `Env` (std.env),
+  `Thread` (std.thread — the handle's TYPE; the `Thread.spawn` form needs no
+  import), `Command` (std.process), `Env` (std.env),
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
   `CborEncoder`/`CborDecoder` (std.cbor — design 169),
   `JsonEncoder`/`JsonDecoder`/`JsonValue`/`encode` (std.json) and

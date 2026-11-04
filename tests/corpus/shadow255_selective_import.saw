@@ -1,6 +1,6 @@
 // Design 255 test 1 — an explicit import SHADOWS an import-gated std name.
-// `Thread<T>` is `std.task`'s, merged into every namespace and nameable only
-// after `import std.task`; a file that says `import x.{Thread}` has named the
+// `Thread<T>` is `std.thread`'s, merged into every namespace and nameable only
+// after `import std.thread`; a file that says `import x.{Thread}` has named the
 // one it means, so the bare name is x's. The member `tagged` exists only on
 // x's, which is what proves which declaration resolved.
 //

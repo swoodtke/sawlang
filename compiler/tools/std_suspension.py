@@ -37,8 +37,9 @@ selective import counting only when it brings a name that parks), and refuses
 to write unless that set equals the modules holding a `suspends` row. The new
 std in `std/` needs no table, since sawc checks its bodies, and the check
 gives it the same cross-check: the modules spelling one of its park points
-(`std.task`'s lang items), closed over their importers, against the modules
-holding a function sawc's summaries say suspends.
+(the lang items of `std.task` and `std.thread`), closed over their
+importers, against the modules holding a function sawc's summaries say
+suspends.
 """
 import argparse
 import glob
@@ -86,8 +87,8 @@ _DECL_HEAD = re.compile(r"^(?:public(?:\([a-z]+\))?\s+)?(?:unsafe\s+)?"
                         r"(?:(?:func|struct|enum|trait|extension|type)\s+|static\s+(?:var\s+)?)"
                         r"([A-Za-z_]\w*)")
 _IDENTITY_SUFFIX = "$m$"
-# The new std's park points, the lang items `std/task.saw` declares; a
-# body parks by calling one.
+# The new std's park points, the lang items `std/task.saw` and
+# `std/thread.saw` declare; a body parks by calling one.
 NEW_STD = os.path.join(REPO, "std")
 NEW_PARK_SPELLINGS = re.compile(r"\b__saw_park_\w+\(")
 # The program whose check covers every new-std module, with the summaries.

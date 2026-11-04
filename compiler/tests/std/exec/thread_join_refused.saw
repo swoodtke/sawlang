@@ -5,7 +5,7 @@
 // naming it rather than reading a result slot nothing wrote. The handle
 // reaches its own thread over a channel. macOS only: `EDEADLK` is 11 there.
 import std.channel.{Channel}
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func __saw_rt_sleep_ns(ns: UInt64)

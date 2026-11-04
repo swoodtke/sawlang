@@ -4,7 +4,7 @@
 // bytes of `x`: past 4096, so a pipe's own atomicity would split it. The
 // lane runs the program many times at each level and reads every line back
 // (`check_print_lines`).
-import std.task.{Thread}
+import std.thread.{Thread}
 
 static LINES: Int = 1000
 static LINE_WIDTH: Int = 5000

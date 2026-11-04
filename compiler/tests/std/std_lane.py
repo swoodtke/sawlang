@@ -38,14 +38,10 @@ profile, and the lang-item table.
   a `park_NAME.saw` program builds instead against a copy of std whose
   `task.saw` ends in `parks/task_tail.saw`, which re-exposes the std-internal
   descriptor wait to those programs alone;
-- while `std/` has no `thread.saw`, the compiler finds the OS-thread engine
-  in either home (SL-965): the lane writes a copy of std whose new
-  `thread.saw` holds `Thread` and its park point, cut out of `task.saw`, with
-  the live-thread count raised by the control block instead of by the spawn
-  lowering. Against each root, the resolve dump's lang-item table equals
-  `thread/lang_items.NAME`, and each `thread/` program builds at -O0 and -O2,
-  prints exactly its `NAME.out` and exits 0; its IR calls the count raise
-  under `std/` and not under the copy;
+- the compiler finds the OS-thread engine in `std.thread` (SL-965): the
+  resolve dump's lang-item table equals `thread/lang_items.std`, and each
+  `thread/` program builds at -O0 and -O2, prints exactly its `NAME.out` and
+  exits 0;
 - each `mir/NAME.mir` holds its functions' MIR as std's cut holds them
   against `std/`: drop-elaborated, since std's layer always runs through
   drops, whatever stage `sawc mir --dump` stops the program at; and
@@ -58,6 +54,8 @@ profile, and the lang-item table.
   nothing of `std.alloc` and no task module, `spinlock`'s neither the
   allocator nor any runtime seam but the panic sink, `interpolation`'s reaches
   the builder and the allocator, and none holds a task module;
+  `thread_detach`'s and `thread_join_blocking`'s, which start OS threads and
+  run no task, reach no reactor, executor-record or clock seam;
 - sawc's own build (the driver with every stage package, the resolve loader
   among them) typechecks, lowers, borrow-checks and drop-elaborates against
   `std/` with no refusal and no invariant, and its new-std cone equals
@@ -109,11 +107,8 @@ CONE = os.path.join(HERE, "cone")
 MIR = os.path.join(HERE, "mir")
 OUT = os.path.join(REPO, ".build", "std-lane")
 PARK_STD = os.path.join(OUT, "park-std")
-# The OS-thread engine's two homes (SL-965): the programs and lang-item
-# tables, and the copy of std holding a `thread.saw`.
+# The OS-thread engine's programs and lang-item table (SL-965).
 THREAD = os.path.join(HERE, "thread")
-THREAD_STD = os.path.join(OUT, "thread-std")
-THREAD_COUNT_RAISE = "__saw_exec_thread_started"
 TIMEOUT = 300
 RUN_TIMEOUT = 60
 
@@ -130,6 +125,10 @@ NO_ALLOCATOR_CONES = ("optional_result", "literal_only", "spinlock")
 # reached only by `String.deinit` of a literal panic message, which never runs,
 # since a literal is immortal (SL-850).
 SEAM_FREE_CONES = {"spinlock": ("__saw_rt_panic", "__saw_rt_lock_owner", "__saw_rt_dealloc")}
+# The cones of programs that start OS threads and run no task, which must
+# reach none of the task executor's seams: a thread needs no executor (SL-965).
+EXECUTOR_FREE_CONES = ("thread_detach", "thread_join_blocking")
+EXECUTOR_SEAMS = re.compile(r"__saw_rt_reactor_\w+|__saw_rt_thread_executor|__saw_rt_clock_monotonic_nanos")
 # The cone of a program that interpolates, which reaches the builder and the
 # allocator.
 BUILDER_CONE = "interpolation"
@@ -523,6 +522,11 @@ def check_cones(failures, counts, write):
                 if seam not in SEAM_FREE_CONES[name]:
                     failures.append("std cone %s: reaches the runtime seam `%s`, which this "
                                     "program must not" % (rel(path), seam))
+        if name in EXECUTOR_FREE_CONES:
+            for seam in re.findall(r"^  extern (\S+)$", text, re.M):
+                if EXECUTOR_SEAMS.fullmatch(seam):
+                    failures.append("std cone %s: reaches the executor seam `%s`, which a "
+                                    "program running no task must not" % (rel(path), seam))
         if name == BUILDER_CONE:
             for wanted in ("std.stringbuilder", "std.alloc"):
                 if wanted not in modules:
@@ -810,82 +814,6 @@ def check_exec(failures, counts):
 
 # ------------------------------------------------------ the thread module
 
-def _block_end(lines, i, what):
-    """The index of the first line at or after `i` that closes a top-level
-    block, a line holding `}` alone."""
-    for j in range(i, len(lines)):
-        if lines[j] == "}\n":
-            return j
-    raise ValueError("task.saw: %s has no closing `}`" % what)
-
-
-def _line_at(lines, prefix, after=0):
-    """The index of the first line at or after `after` starting with `prefix`."""
-    for j in range(after, len(lines)):
-        if lines[j].startswith(prefix):
-            return j
-    raise ValueError("task.saw: no line starts with `%s`" % prefix.strip())
-
-
-def _replace_once(text, old, new, where):
-    if text.count(old) != 1:
-        raise ValueError("%s: `%s` occurs %d times, not once" % (where, old.strip(), text.count(old)))
-    return text.replace(old, new)
-
-
-def make_thread_std():
-    """A fresh copy of `std/` whose new `thread.saw` holds the OS-thread
-    engine's handle, its park point and its detach seam, cut out of
-    `task.saw`, and whose control block raises the live-thread count, so the
-    spawn lowering finds no raise to call: (its root relative to the repo,
-    None), or (None, the failure). Cut by declaration, so an edit inside one
-    leaves the cut alone."""
-    if os.path.exists(os.path.join(REPO, NEW_ROOT, "thread.saw")):
-        return None, "std thread: std/ has a thread.saw, so the copy without one is gone; " \
-            "retire this lane case"
-    shutil.rmtree(THREAD_STD, ignore_errors=True)
-    shutil.copytree(os.path.join(REPO, NEW_ROOT), THREAD_STD)
-    task = os.path.join(THREAD_STD, "task.saw")
-    with open(task, encoding="utf-8") as fh:
-        lines = fh.readlines()
-    try:
-        seam = _line_at(lines, "    func __saw_rt_thread_detach(")
-        extern_first = seam
-        while not lines[extern_first].startswith('extern "C" {'):
-            extern_first -= 1
-        handle_first = _line_at(lines, "/// The handle to a spawned thread")
-        drop = _line_at(lines, "extension Thread<T>: NoCopy {", handle_first)
-        park = _line_at(lines, "public(package) func __saw_park_thread(")
-        park_first = park
-        while lines[park_first - 1].startswith("//"):
-            park_first -= 1
-        cuts = [(extern_first, _block_end(lines, seam, "the detach seam's extern block")),
-                (handle_first, _block_end(lines, drop, "`Thread`'s drop")),
-                (park_first, _block_end(lines, park, "`__saw_park_thread`"))]
-        moved = ["".join(lines[first:last + 1]) for first, last in cuts]
-        kept = [line for k, line in enumerate(lines)
-                if not any(first <= k <= last for first, last in cuts)]
-        imports = [line for line in lines if line.startswith("import ")]
-        engine = _replace_once("\n".join(moved), "        alloc_thread_block<T>()\n",
-                               "        raise_thread_count()\n        alloc_thread_block<T>()\n",
-                               "Thread.__saw_control_block")
-        taskgroup = os.path.join(THREAD_STD, "taskgroup.saw")
-        with open(taskgroup, encoding="utf-8") as fh:
-            group = _replace_once(fh.read(), "public(package) func %s() {" % THREAD_COUNT_RAISE,
-                                  "public(package) func raise_thread_count() {", "taskgroup.saw")
-    except ValueError as e:
-        return None, "std thread: %s" % e
-    with open(taskgroup, "w", encoding="utf-8") as fh:
-        fh.write(group)
-    with open(task, "w", encoding="utf-8") as fh:
-        fh.writelines(kept)
-    head = ("//! The OS-thread engine's handle, moved here from `std.task` by the std\n"
-            "//! lane (compiler/tests/std/std_lane.py).\n\n")
-    with open(os.path.join(THREAD_STD, "thread.saw"), "w", encoding="utf-8") as fh:
-        fh.write(head + "".join(imports) + "import std.taskgroup.{raise_thread_count}\n\n" + engine)
-    return rel(THREAD_STD), None
-
-
 def lang_items(root):
     """The lang-item table of the resolve dump against std root `root`, and
     the dump's problems."""
@@ -924,46 +852,25 @@ def build_and_run_thread(path, root, speed):
     return None
 
 
-def raises_count(path, root):
-    """Whether sawc's IR of thread program `path` against `root` calls the
-    spawn lowering's live-thread count raise, or the failure's text."""
-    r = subprocess.run([build.SAWC, "build", "-O0", "--std-root", root, "--emit-ll", rel(path)],
-                       cwd=REPO, capture_output=True, text=True, timeout=TIMEOUT)
-    if r.returncode != 0:
-        return "sawc emits no IR: %s" % (r.stdout + r.stderr).strip().split("\n")[-1]
-    return any(line.lstrip().startswith(("call ", "%")) and ".%s()" % THREAD_COUNT_RAISE in line
-               for line in r.stdout.split("\n"))
-
-
 def check_thread_home(failures, counts, write):
-    """The OS-thread engine found in `std.task` under `std/` and in
-    `std.thread` under the copy that has one (SL-965)."""
-    copy, failure = make_thread_std()
-    if failure:
-        failures.append(failure)
-        return
+    """The OS-thread engine found in `std.thread` (SL-965): the lang-item
+    table, and the `thread/` programs built and run against `std/`."""
     programs = sorted(glob.glob(os.path.join(THREAD, "*.saw")))
-    for root, name, raised in ((NEW_ROOT, "std", True), (copy, "thread-std", False)):
-        table, problems = lang_items(root)
-        for line in problems:
-            failures.append("std thread %s: %s" % (root, line))
-        expectation = os.path.join(THREAD, "lang_items." + name)
-        if write:
-            with open(expectation, "w", encoding="utf-8") as fh:
-                fh.write(table)
-        elif not os.path.exists(expectation):
-            failures.append("std thread: no %s" % rel(expectation))
-        else:
-            with open(expectation, encoding="utf-8") as fh:
-                if fh.read() != table:
-                    failures.append("std thread %s: its lang-item table differs from %s"
-                                    % (root, rel(expectation)))
-        for path in programs:
-            got = raises_count(path, root)
-            if got is not raised:
-                failures.append("std thread %s (%s): %s" % (rel(path), root, got if isinstance(got, str)
-                                else "the IR %s the count raise" % ("calls" if got else "lacks")))
-    jobs = [(p, root, speed) for p in programs for root in (NEW_ROOT, copy) for speed in ("-O0", "-O2")]
+    table, problems = lang_items(NEW_ROOT)
+    for line in problems:
+        failures.append("std thread %s: %s" % (NEW_ROOT, line))
+    expectation = os.path.join(THREAD, "lang_items.std")
+    if write:
+        with open(expectation, "w", encoding="utf-8") as fh:
+            fh.write(table)
+    elif not os.path.exists(expectation):
+        failures.append("std thread: no %s" % rel(expectation))
+    else:
+        with open(expectation, encoding="utf-8") as fh:
+            if fh.read() != table:
+                failures.append("std thread %s: its lang-item table differs from %s"
+                                % (NEW_ROOT, rel(expectation)))
+    jobs = [(p, NEW_ROOT, speed) for p in programs for speed in ("-O0", "-O2")]
     for failure in gate_jobs.map_ordered(lambda job: build_and_run_thread(*job), jobs, most=4):
         if failure:
             failures.append(failure)

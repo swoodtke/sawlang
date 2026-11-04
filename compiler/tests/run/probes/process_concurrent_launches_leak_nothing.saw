@@ -12,7 +12,7 @@ import std.env.{Env}
 import std.path.{Path}
 import std.process.{Command}
 import std.systemerror.{SystemErrorKind}
-import std.task.{Thread}
+import std.thread.{Thread}
 
 static THREADS: Int = 4
 static LAUNCHES: Int = 20

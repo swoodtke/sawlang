@@ -1,0 +1,432 @@
+//! OS threads: the handle to a thread `Thread.spawn` starts.
+//!
+//! `Thread.spawn { ... }` hands back a `Thread<T>`, a `Thread<Void>` when the
+//! body returns nothing. A thread's fate is explicit: the handle reaches
+//! `join()` or `detach()` on every path, and a handle that reaches its
+//! destructor with neither panics. Nothing exposes the underlying OS thread.
+//! The form needs no import; naming the type does, with
+//! `import std.thread.{Thread}`.
+//!
+//! A thread needs no task executor. A program that runs tasks beside its
+//! threads installs one observer here, which the thread's exit and a
+//! thread-context join report to, so a program that starts threads and runs
+//! no task links none of the executor.
+
+import std.mem.{drop_in_place}
+import std.systemerror.{SystemError}
+
+extern "C" {
+    // Settles the block's ownership with the thread's own exit: 1 when the
+    // thread already finished and the caller frees the block (runtime/ABI.md).
+    func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>) -> Int
+    // 0, or the negated portable tag of a refused join (runtime/ABI.md).
+    func __saw_rt_thread_join(handle: Int) -> Int
+    func __saw_rt_last_raw_code() -> Int
+}
+
+/// The handle to a spawned thread, carrying the result type `T`.
+///
+/// `Thread.spawn { ... }` returns one, a `Thread<Void>` when the body returns
+/// nothing. Take the result with `join`, or give the thread to the process
+/// with `detach`; one of the two on every path, checked where the thread is
+/// spawned. The handle cannot be copied, so exactly one place owns the thread.
+public struct Thread<T> {
+    private block: UnsafePointer<ThreadControlBlock<T>>
+    // Set once the handle's fate, a join or a detach, is written.
+    private joined: Bool
+}
+
+// The control-block pointer blocks both derivations. A handle is one owner of a
+// block the thread engine synchronizes, and the only value that crosses is the
+// result, so both hold exactly when `T` may travel.
+extension Thread<T: Send>: UnsafeSend {}
+extension Thread<T: Send>: UnsafeSync {}
+
+/// Taking a thread's result.
+extension Thread<T> {
+    /// Waits for the thread to finish and returns its result.
+    ///
+    /// A task parks until the thread finishes, and its executor's thread runs
+    /// the other tasks meanwhile. A cancel does not end the wait: a thread
+    /// cannot be asked to stop, and its result has nowhere else to go. In a
+    /// `Thread.spawn` body or a `blocking` function the call waits with the
+    /// calling thread instead: it runs that thread's tasks meanwhile while
+    /// one of them is live, and otherwise blocks the thread. A `main` that
+    /// calls it suspends, and so runs the executor; `func main() blocking`
+    /// joins in thread context instead.
+    ///
+    /// A thread yields its result once, so joining a second time, or after
+    /// `detach`, panics. A join the operating system refuses, as for a
+    /// thread joining itself, panics with the cause.
+    public func join(&var self) unsafe -> T {
+        self.check_fate_open("Thread.join")
+        // The thread's exit leaves the block's negated size in its handshake
+        // word once the result is stored (runtime/ABI.md), and only the exit
+        // writes it while the handle is live. So once the word is negative
+        // the reap waits for nothing but the thread's own return. The word's
+        // address is the handle's block, fixed for its life, so it is read
+        // afresh at each use and no pointer stays in the parked frame.
+        while __saw_atomic_load_i64_seq_cst(self.__saw_exit_word()) >= 0 {
+            __saw_park_thread(thread_join_park(self.__saw_exit_word()))
+        }
+        self.__saw_reap()
+    }
+
+    public func join(&var self) unsafe blocking -> T {
+        self.check_fate_open("Thread.join")
+        notify_observer(ThreadEvent.AwaitExit, self.__saw_exit_word() as Int)
+        self.__saw_reap()
+    }
+
+    // The thread's handshake word, which its exit leaves negative: what a
+    // join waits on before the reap.
+    func __saw_exit_word(&self) unsafe -> UnsafePointer<Int> {
+        thread_exit_word(self.block)
+    }
+
+    // Joins the OS thread and takes its result, the handle's fate still
+    // open: the step both joins end in.
+    func __saw_reap(&var self) unsafe -> T {
+        let result = reap_thread_block(self.block)
+        self.joined = true
+        move result
+    }
+
+    // Ends the handle and gives its control block to a worker pool, which
+    // joins the thread at its teardown (`PoolThread` in std.taskgroup). The
+    // consuming body stands in for the handle's `deinit`, so ending it here
+    // is no unwritten fate.
+    public(package) func __saw_hand_off(&var self) consumes unsafe -> UnsafePointer<ThreadControlBlock<T>> {
+        self.check_fate_open("Thread.__saw_hand_off")
+        self.block
+    }
+
+    // Panics, naming `what`, when the handle's fate is already written: its
+    // block is gone, so nothing may read it.
+    func check_fate_open(&self, what: String) {
+        if self.joined {
+            panic("{}: this thread's fate was already written", what)
+        }
+    }
+
+    /// Gives the thread to the process and gives up its result.
+    ///
+    /// The thread keeps running: values it owns deinit if it completes, and at
+    /// process exit the operating system terminates it wherever it has got to,
+    /// the same boundary a never-completed task has. Nothing may join it
+    /// afterwards. Detaching a second time, or detaching a thread already
+    /// joined, panics.
+    public func detach(&var self) unsafe {
+        if self.joined {
+            panic("Thread.detach: this thread's fate was already written")
+        }
+        // When the thread finished first, the block is this side's: the
+        // result is a live value nobody will read, destroyed here because the
+        // seam cannot name `T`. Otherwise the thread's exit does both.
+        let block = self.block
+        if __saw_rt_thread_detach(block as UnsafePointer<Int8>) != 0 {
+            drop_in_place((&block[0].result) as UnsafePointer<T>)
+            free_thread_block(block)
+        }
+        self.joined = true
+    }
+
+    // Allocates a control block for a thread whose result is a `T`, and
+    // counts the thread as running: the spawn lowering's first step, before
+    // the thread exists.
+    public(package) static func __saw_control_block() unsafe -> UnsafePointer<ThreadControlBlock<T>> {
+        alloc_thread_block<T>()
+    }
+
+    // Returns the handle that owns the control block at `block`, whose
+    // thread is running.
+    public(package) static func __saw_adopt(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Thread<T> {
+        Thread<T>(block: block, joined: false)
+    }
+
+    // The spawn lowering's last step: what the spawn seam's `status` makes of
+    // the block at `block`. 0 means the thread is running, and the handle
+    // adopts the block. A refusal is the seam's negated portable tag: no
+    // thread exists, so the block is freed, the count its allocation raised
+    // is lowered again, and the refusal is the `Err`. The lowering has
+    // already dropped the captures the body never took.
+    public(package) static func __saw_started(block: UnsafePointer<ThreadControlBlock<T>>,
+                                              status: Int) unsafe -> Result<Thread<T>, SystemError> {
+        if status != 0 {
+            let failure = SystemError.of("pthread_create", 0 - status)
+            free_thread_block(block)
+            thread_finished()
+            return move failure
+        }
+        Thread<T>.__saw_adopt(block)
+    }
+
+    // The thread's own exit, after the body's result is stored and its
+    // environment freed: tells the observer the exit begins, ends the detach
+    // handshake, tells the observer the exit is published, then counts the
+    // thread as finished (`thread_finished`). Returns whether this side freed
+    // the block. When the handle detached first, nothing will read the
+    // result, so it is destroyed here and the block freed; otherwise the
+    // joiner or the detacher frees it.
+    public(package) static func __saw_exit(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> Bool {
+        let size = sizeof<ThreadControlBlock<T>>()
+        // The thread's background tasks are cancelled and joined first, while
+        // the handshake still reads the thread as running, so a parked joiner
+        // wakes only once they are done and never waits on the OS thread with
+        // its executor blocked (the run probe `background_close_waits_on_a_join`).
+        notify_observer(ThreadEvent.ExitBegins, 0)
+        // Last: a detacher that frees the block on the other side of this
+        // exchange must find the result stored and the environment released.
+        // The exchange also comes before the running-thread count drops, so a
+        // deadlock walk that reads the count as zero finds a parked joiner's
+        // word set (the run probe `thread_join_exit_while_parked`).
+        let previous = exchange_state(block, 0 - size)
+        // The thread's executor record is published empty and claimable
+        // before the running-thread count drops, so a walk that reads the
+        // count as zero finds no wait of this thread in it.
+        notify_observer(ThreadEvent.ExitPublished, 0)
+        var freed = false
+        if previous == 0 {
+            drop_in_place((&block[0].result) as UnsafePointer<T>)
+            free_thread_block(block)
+            freed = true
+        }
+        thread_finished()
+        freed
+    }
+}
+
+// Panics do not unwind, so a panic raised from this destructor cannot meet
+// another on the way out.
+/// A thread handle is not copyable: one owner, one fate.
+extension Thread<T>: NoCopy {
+    /// Panics if the thread was neither joined nor detached: a thread's fate is
+    /// explicit, and dropping the handle is not one of the fates.
+    public func deinit(&var self) unsafe {
+        if not self.joined {
+            panic("Thread was dropped without being joined or detached — `join()` waits for it and takes its result, `detach()` gives the thread to the process")
+        }
+    }
+}
+
+// A thread's exit: `word` is its park word, the address of its control
+// block's handshake word, which the exit leaves negative, with the join tag
+// (`thread_join_park`). A cancel does not wake it. A park point
+// (SL:coroutines §3.1): the coroutine lowering replaces each call with its
+// park, so this body runs only when a call reached code generation unlowered.
+public(package) func __saw_park_thread(word: Int) {
+    panic("std.thread: a thread park reached code generation unlowered")
+}
+
+// The tag a join's park word carries in its address's two low bits: tag 1 of
+// the executor's park word vocabulary (std.taskgroup), which decodes it.
+public(package) static PARK_TAG_JOIN: Int = 1
+
+// The two low bits a park word's tag occupies.
+static PARK_TAG_BITS: Int = 3
+
+// The park word of a join of the thread whose handshake word is at `word`. A
+// task's `Thread.join` parks on it, and the executor drives on it for a wait
+// in thread context, so both wait for a thread's exit the one way. Panics for
+// a word no park word can name: null, or not aligned to 4, whose low bits the
+// tag needs.
+//
+// ENTRY POINTS:
+//   Thread.join
+//   drive_on_exit
+public(package) func thread_join_park(word: UnsafePointer<Int>) unsafe -> Int {
+    let address = word as Int
+    if address == 0 {
+        panic("Thread.join: the thread's handshake word is null, so no park word can name it")
+    }
+    if (address & PARK_TAG_BITS) != 0 {
+        panic("Thread.join: the thread's handshake word at {} is not aligned to 4, so no park word can name it",
+              address)
+    }
+    address | PARK_TAG_JOIN
+}
+
+// How many `Thread.spawn` bodies are running. Raised by the control block's
+// allocation, before the thread exists, and lowered by the thread's exit once
+// its body's effects are done, as the last thing the thread does, or by a
+// refused spawn. The count is kept whether or not an executor exists, since
+// one may appear while a thread runs. The executor reads it: no run queue
+// knows about a thread, and one may send to a channel a task waits on, so the
+// deadlock walk reports nothing and `idle` waits while it is nonzero (design
+// 230). A pool's workers are taken out of it while they serve the pool
+// (`start_crew`).
+//
+// The lowering needs only a release and the walk's read only an acquire. Both
+// are sequentially consistent instead, as `Atomic` is: stronger, and the
+// executor's poke handshake with `idle` needs it.
+public(package) static RUNNING_THREADS: Atomic<Int> = Atomic(0)
+
+// Counts one running `Thread.spawn` body fewer, then tells the observer, so
+// an executor blocked in the reactor's poll looks again: the last thing a
+// spawned thread does, after its body's effects, and a refused spawn's.
+//
+// ENTRY POINTS:
+//   Thread.__saw_started
+//   Thread.__saw_exit
+func thread_finished() unsafe {
+    // Sequentially consistent, so at least a release of everything the body
+    // did, and ordered ahead of the observer's read.
+    let _ = RUNNING_THREADS.fetch_add(-1)
+    notify_observer(ThreadEvent.Finished, 0)
+}
+
+// What a thread reports to the observer, in this order for one thread's
+// exit: `ExitBegins`, `ExitPublished`, `Finished`. A refused spawn reports
+// `Finished` alone, and a join in thread context `AwaitExit` with the
+// thread's handshake word, ahead of its reap.
+public(package) enum ThreadEvent {
+    case ExitBegins,
+    case ExitPublished,
+    case Finished,
+    case AwaitExit
+}
+
+// The address of a `FuncPointer<(ThreadEvent, Int) sync -> Void>`'s code, the
+// observer, or 0 while none is installed. An event with none installed does
+// nothing, which is what the executor's half of it does for a thread with no
+// executor record: a thread's record is claimed on that thread after the
+// install, so a thread that reads 0 here has none.
+static THREAD_OBSERVER: Atomic<Int> = Atomic(0)
+
+// Installs `observer`, once per process: the executor's call as it makes its
+// first executor record. A losing racer installed the same address.
+public(package) func install_thread_observer(observer: FuncPointer<(ThreadEvent, Int) sync -> Void>) {
+    let _ = THREAD_OBSERVER.compare_exchange(0, Int.from(truncating: observer.address()))
+}
+
+// Reports `event`, with the handshake word `word` for `AwaitExit` and 0
+// otherwise, to the installed observer, when there is one.
+//
+// ENTRY POINTS:
+//   Thread.join
+//   Thread.__saw_exit
+//   thread_finished
+func notify_observer(event: ThreadEvent, word: Int) unsafe {
+    let at = THREAD_OBSERVER.load()
+    if at == 0 {
+        return
+    }
+    let observer = FuncPointer<(ThreadEvent, Int) sync -> Void>.from_raw(at as UnsafePointer<UInt8>)
+    observer(event, word)
+}
+
+// The alignment every control block is allocated and freed at. The detach seam
+// frees a block knowing only its size, at this alignment (runtime/ABI.md), so
+// it is fixed rather than read off the result type.
+static THREAD_BLOCK_ALIGN: Int = 16
+
+// The control block of one spawned thread: the record the compiler's
+// `Thread.spawn` lowering builds, the thread writes its result into, and a
+// `Thread<T>` handle owns, or a pool's `PoolThread` once the handle hands it
+// over. Only that lowering builds one.
+//
+// The layout is the field order, which runtime/ABI.md freezes in one place:
+// `state` sits two words in, at `2 * sizeof(UnsafePointer<UInt8>)`, because
+// `tid` and `env` are each one pointer-sized word. Every size the detach
+// handshake carries or a deallocation passes is `sizeof` of this type.
+public(package) struct ThreadControlBlock<T> {
+    // The OS thread's handle, as `__saw_rt_thread_spawn` stored it.
+    tid: Int
+    // The body's environment, which the thread frees once the body has
+    // taken its captures.
+    env: UnsafePointer<UInt8>
+    // The detach handshake word: the block's size while the thread and its
+    // handle are both live, 0 once the handle detached, and the negated size
+    // once the thread finished.
+    state: Int
+    // The body's result, written by the thread when the body returns.
+    result: T
+}
+
+// The OS-thread surface: join by handle. Spawn stays the compiler's
+// `__saw_rt_thread_spawn` call, since it passes a C function pointer, which a
+// Saw value cannot carry (DF-113b). Dispatch is static: the implementation is
+// chosen at build time, so an `any NativeThread` would cost an allocation for
+// nothing. The member is not named `join`, which std's suspension census
+// would read as `Thread.join`'s parking default (compiler/tools/std_suspension.py).
+trait NativeThread {
+    func wait_for_exit(&self)
+}
+
+struct PosixThread {
+    handle: Int
+}
+
+// A refused join panics with the cause, since `Thread.join` hands back the
+// result with no error channel. A join is refused only for a handle naming no
+// joinable thread, or a thread joining itself.
+extension PosixThread: NativeThread {
+    func wait_for_exit(&self) {
+        if __saw_rt_thread_join(self.handle) != 0 {
+            panic("Thread.join: joining the thread failed (errno {})", __saw_rt_last_raw_code())
+        }
+    }
+}
+
+// Allocates a control block for a thread whose result is a `T`, its handshake
+// word holding the block's size, and counts the thread as running
+// (`RUNNING_THREADS`). Panics if the allocation is refused, naming the
+// request.
+func alloc_thread_block<T>() unsafe -> UnsafePointer<ThreadControlBlock<T>> {
+    let size = sizeof<ThreadControlBlock<T>>()
+    guard let raw = GlobalAllocator().alloc(size, THREAD_BLOCK_ALIGN) else {
+        panic("Thread.spawn: {}", AllocError(size: size, align: THREAD_BLOCK_ALIGN))
+    }
+    let block = raw as UnsafePointer<ThreadControlBlock<T>>
+    block[0].tid = 0
+    block[0].env = 0 as UnsafePointer<UInt8>
+    block[0].state = size
+    let _ = RUNNING_THREADS.fetch_add(1)
+    block
+}
+
+// The handshake word of the block at `block`, which the thread's exit leaves
+// negative once the result is stored: what a join waits on before the reap.
+public(package) func thread_exit_word<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> UnsafePointer<Int> {
+    (&block[0].state) as UnsafePointer<Int>
+}
+
+// Joins the OS thread of the block at `block` and takes its result, freeing
+// the block.
+//
+// ENTRY POINTS:
+//   Thread.__saw_reap
+//   PoolThread.reap
+public(package) func reap_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> T {
+    PosixThread(handle: block[0].tid).wait_for_exit()
+    let at = (&block[0].result) as UnsafePointer<T>
+    // The block is freed next, so the result is moved out of it first.
+    let result = move at[0]
+    free_thread_block(block)
+    move result
+}
+
+// Swaps `value` into the handshake word of the block at `block` and returns
+// what the word held. Sequentially consistent, which is at least the
+// acquire-release runtime/ABI.md asks of each side's exchange.
+func exchange_state<T>(block: UnsafePointer<ThreadControlBlock<T>>, value: Int) unsafe -> Int {
+    let word = (&block[0].state) as UnsafePointer<Int>
+    var seen = __saw_atomic_load_i64_seq_cst(word)
+    while not __saw_atomic_cmpxchg_i64_seq_cst(word, seen, value) {
+        seen = __saw_atomic_load_i64_seq_cst(word)
+    }
+    seen
+}
+
+// Frees the control block at `block`, whose result is moved out, destroyed,
+// or never written.
+//
+// ENTRY POINTS:
+//   reap_thread_block
+//   Thread.detach
+//   Thread.__saw_started
+//   Thread.__saw_exit
+func free_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe {
+    GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ThreadControlBlock<T>>(),
+                              THREAD_BLOCK_ALIGN)
+}

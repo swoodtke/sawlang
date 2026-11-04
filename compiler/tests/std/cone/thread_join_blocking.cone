@@ -1,0 +1,100 @@
+# The cone of compiler/tests/std/cone/thread_join_blocking.saw against the new std (std): every std declaration its
+# functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
+# 77 declarations in 10 modules
+
+std.alloc: 6
+  extern __saw_rt_alloc
+  extern __saw_rt_dealloc
+  method GlobalAllocator.alloc
+  method GlobalAllocator.dealloc
+  struct AllocError
+  struct GlobalAllocator
+
+std.float: 14
+  func __float_decimal_length
+  func __float_log10_pow2
+  func __float_log10_pow5
+  func __float_mul_high
+  func __float_mul_low
+  func __float_mul_shift
+  func __float_multiple_of_pow2
+  func __float_multiple_of_pow5
+  func __float_pow5bits
+  func float_append
+  method Float._raw_exponent
+  method Float._raw_mantissa
+  method Float._shortest
+  method Float.to_bits
+
+std.mem: 1
+  func copy_bytes
+
+std.panic: 2
+  extern __saw_rt_panic
+  func panic_sink
+
+std.prelude: 9
+  enum Optional
+  enum Result
+  func atomic_exchange_word
+  func atomic_load_word
+  method Atomic.compare_exchange
+  method Atomic.load
+  method UnsafeMutableInterior.ptr
+  struct Atomic
+  struct UnsafeMutableInterior
+
+std.scalar: 2
+  method Scalar.value
+  struct Scalar
+
+std.string: 9
+  extern __saw_rt_dealloc
+  func string_bytes
+  func string_length
+  func string_literal
+  method String.byte_at
+  method String.copy
+  method String.deinit
+  method String.len
+  struct String
+
+std.stringbuilder: 15
+  init StringBuilder.init
+  method StringBuilder.append
+  method StringBuilder.append_byte
+  method StringBuilder.append_decimal
+  method StringBuilder.append_decimal_wide
+  method StringBuilder.append_scalar_bytes
+  method StringBuilder.append_text
+  method StringBuilder.deinit
+  method StringBuilder.grow_target
+  method StringBuilder.is_continuation
+  method StringBuilder.mark_truncated
+  method StringBuilder.overflow
+  method StringBuilder.place_byte
+  method StringBuilder.reserve_bytes
+  struct StringBuilder
+
+std.systemerror: 1
+  struct SystemError
+
+std.thread: 18
+  enum ThreadEvent
+  extern __saw_rt_last_raw_code
+  extern __saw_rt_thread_join
+  func __saw_park_thread
+  func free_thread_block
+  func notify_observer
+  func reap_thread_block
+  func thread_exit_word
+  func thread_join_park
+  method PosixThread.wait_for_exit
+  method Thread.__saw_exit_word
+  method Thread.__saw_reap
+  method Thread.check_fate_open
+  method Thread.deinit
+  method Thread.join
+  struct PosixThread
+  struct Thread
+  struct ThreadControlBlock

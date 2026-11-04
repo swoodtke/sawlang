@@ -1,0 +1,13 @@
+// A program that starts an OS thread and detaches it, running no task: a
+// thread needs no executor, so its cone reaches none of the executor's
+// seams (SL-965).
+func crunch(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    let n = 7
+    var t = try! Thread.spawn { [n] in crunch(n) }
+    t.detach()
+    print(n)
+}

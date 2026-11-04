@@ -4,7 +4,7 @@
 // `Optional` or `Result` of `Void` follow. It keeps `Copy`, `Equatable` and
 // `Hashable`.
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 struct Pool { workers: Vector<Thread<Void>> }
 

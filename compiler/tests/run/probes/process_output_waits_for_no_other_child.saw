@@ -8,7 +8,7 @@
 // would take most of a second; one that did not takes milliseconds, so the
 // bound below is far from both.
 import std.process.{Command}
-import std.task.{Thread}
+import std.thread.{Thread}
 import std.time
 
 static TASKS: Int = 4

@@ -7,7 +7,7 @@
 // the live-thread count and pokes the reactor, and the walk then finds the
 // program quiescent and reports it.
 import std.channel.{Channel}
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func __saw_rt_sleep_ns(ns: UInt64)

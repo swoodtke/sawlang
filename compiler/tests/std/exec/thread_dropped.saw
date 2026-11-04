@@ -5,7 +5,7 @@
 // reaches its destructor through the one gap the static check leaves: an
 // owner that declares a `deinit` discharges the obligation, and this one
 // forgets the handle it holds.
-import std.task.{Thread}
+import std.thread.{Thread}
 
 struct Keeper {
     held: Thread<Int>?

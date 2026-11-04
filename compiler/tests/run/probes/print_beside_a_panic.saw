@@ -7,7 +7,7 @@
 // reads, where the printer blocks inside a write holding the output lock and
 // the panic sink's bounded wait must still let the panic out
 // (`check_print_beside_a_panic`).
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func usleep(microseconds: UInt32) -> Int32

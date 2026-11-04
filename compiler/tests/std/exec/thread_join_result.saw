@@ -5,7 +5,7 @@
 // is zero-sized and `join()` is a statement. A capture crosses as the body's
 // parameter: the environment is moved to the heap at the spawn and the body
 // takes each capture out of it.
-import std.task.{Thread}
+import std.thread.{Thread}
 
 func main() {
     let base = 40

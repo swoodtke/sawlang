@@ -12,14 +12,14 @@ fn thread_fates.work() -> Int {
 fn thread_fates.Pool.deinit() blocking -> Void {
     let _0: Void;  // return
     let _1: &var thread_fates.Pool;  // self
-    let _2: &std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>;
+    let _2: &std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>;
     let _3: Int;
     let _4: Bool;
-    let _5: &var std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>;
-    let _6: std.task.Thread<Int>?;
-    let _7: std.task.Thread<Int>;  // held
-    let _8: std.task.Thread<Int>;  // h
-    let _9: &var std.task.Thread<Int>;
+    let _5: &var std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>;
+    let _6: std.thread.Thread<Int>?;
+    let _7: std.thread.Thread<Int>;  // held
+    let _8: std.thread.Thread<Int>;  // h
+    let _9: &var std.thread.Thread<Int>;
     let _10: Int;
 
     bb0: {
@@ -28,7 +28,7 @@ fn thread_fates.Pool.deinit() blocking -> Void {
 
     bb1: {
         _2 = ref(shared, (*_1).workers);
-        _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb3];
+        _3 = call std.vector.Vector.len() (owner std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>) [move _2] -> [return: bb3];
     }
 
     bb2: {
@@ -47,7 +47,7 @@ fn thread_fates.Pool.deinit() blocking -> Void {
 
     bb5: {
         _5 = ref(exclusive, (*_1).workers);
-        _6 = call std.vector.Vector.pop() (owner std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>) [move _5] -> [return: bb7];
+        _6 = call std.vector.Vector.pop() (owner std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>) [move _5] -> [return: bb7];
     }
 
     bb6: {
@@ -62,7 +62,7 @@ fn thread_fates.Pool.deinit() blocking -> Void {
         _7 = move (_6 as Some).0;
         _8 = move _7;
         _9 = ref(exclusive, _8);
-        _10 = call std.task.Thread.join() (owner std.task.Thread<Int>) [move _9] -> [return: bb10];
+        _10 = call std.thread.Thread.join() (owner std.thread.Thread<Int>) [move _9] -> [return: bb10];
     }
 
     bb9: {
@@ -75,17 +75,17 @@ fn thread_fates.Pool.deinit() blocking -> Void {
         goto -> bb6;
     }
 
-    glue std.task.Thread<Int>: deinit std.task.Thread.deinit() in the NoCopy conformance, then structural
-    glue std.task.Thread<Int>?: structural
+    glue std.thread.Thread<Int>: deinit std.thread.Thread.deinit() in the NoCopy conformance, then structural
+    glue std.thread.Thread<Int>?: structural
 }
 
 fn thread_fates.bound() -> Int {
     let _0: Int;  // return
-    let _1: std.task.Thread<Int>;  // t
+    let _1: std.thread.Thread<Int>;  // t
     let _2: () sendable -> Int;
-    let _3: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
-    let _4: std.task.Thread<Int>;
-    let _5: &var std.task.Thread<Int>;
+    let _3: Result<std.thread.Thread<Int>, std.systemerror.SystemError>;
+    let _4: std.thread.Thread<Int>;
+    let _5: &var std.thread.Thread<Int>;
     let _6: Int;
 
     bb0: {
@@ -97,7 +97,7 @@ fn thread_fates.bound() -> Int {
         _4 = move (_3 as Ok!).0;
         _1 = move _4;
         _5 = ref(exclusive, _1);
-        _6 = call std.task.Thread.join() (owner std.task.Thread<Int>) [move _5] -> [return: bb2] suspends;
+        _6 = call std.thread.Thread.join() (owner std.thread.Thread<Int>) [move _5] -> [return: bb2] suspends;
     }
 
     bb2: {
@@ -106,7 +106,7 @@ fn thread_fates.bound() -> Int {
         return;
     }
 
-    glue std.task.Thread<Int>: deinit std.task.Thread.deinit() in the NoCopy conformance, then structural
+    glue std.thread.Thread<Int>: deinit std.thread.Thread.deinit() in the NoCopy conformance, then structural
 }
 
 fn closure#0 of thread_fates.bound() -> Int {
@@ -126,13 +126,13 @@ fn closure#0 of thread_fates.bound() -> Int {
 
 fn thread_fates.matched() -> Void {
     let _0: Void;  // return
-    let _1: Result<std.task.Thread<Int>, std.systemerror.SystemError>;  // spawned
+    let _1: Result<std.thread.Thread<Int>, std.systemerror.SystemError>;  // spawned
     let _2: () sendable -> Int;
-    let _3: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
-    let _4: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
-    let _5: std.task.Thread<Int>;  // h
-    let _6: std.task.Thread<Int>;  // t
-    let _7: &var std.task.Thread<Int>;
+    let _3: Result<std.thread.Thread<Int>, std.systemerror.SystemError>;
+    let _4: Result<std.thread.Thread<Int>, std.systemerror.SystemError>;
+    let _5: std.thread.Thread<Int>;  // h
+    let _6: std.thread.Thread<Int>;  // t
+    let _7: &var std.thread.Thread<Int>;
 
     bb0: {
         _2 = closure#0 of thread_fates.matched() [];
@@ -161,7 +161,7 @@ fn thread_fates.matched() -> Void {
     bb5: {
         _6 = move _5;
         _7 = ref(exclusive, _6);
-        call std.task.Thread.detach() (owner std.task.Thread<Int>) [move _7] -> [return: bb7];
+        call std.thread.Thread.detach() (owner std.thread.Thread<Int>) [move _7] -> [return: bb7];
     }
 
     bb6: {
@@ -178,8 +178,8 @@ fn thread_fates.matched() -> Void {
         goto -> bb2;
     }
 
-    glue Result<std.task.Thread<Int>, std.systemerror.SystemError>: structural
-    glue std.task.Thread<Int>: deinit std.task.Thread.deinit() in the NoCopy conformance, then structural
+    glue Result<std.thread.Thread<Int>, std.systemerror.SystemError>: structural
+    glue std.thread.Thread<Int>: deinit std.thread.Thread.deinit() in the NoCopy conformance, then structural
 }
 
 fn closure#0 of thread_fates.matched() -> Int {
@@ -200,8 +200,8 @@ fn closure#0 of thread_fates.matched() -> Int {
 fn thread_fates.chained() -> Int {
     let _0: Int;  // return
     let _1: () sendable -> Int;
-    let _2: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
-    let _3: &var std.task.Thread<Int>;
+    let _2: Result<std.thread.Thread<Int>, std.systemerror.SystemError>;
+    let _3: &var std.thread.Thread<Int>;
     let _4: Int;
 
     bb0: {
@@ -211,7 +211,7 @@ fn thread_fates.chained() -> Int {
 
     bb1: {
         _3 = ref(exclusive, (_2 as Ok!).0);
-        _4 = call std.task.Thread.join() (owner std.task.Thread<Int>) [move _3] -> [return: bb2] suspends;
+        _4 = call std.thread.Thread.join() (owner std.thread.Thread<Int>) [move _3] -> [return: bb2] suspends;
     }
 
     bb2: {
@@ -220,7 +220,7 @@ fn thread_fates.chained() -> Int {
         return;
     }
 
-    glue Result<std.task.Thread<Int>, std.systemerror.SystemError>: structural
+    glue Result<std.thread.Thread<Int>, std.systemerror.SystemError>: structural
 }
 
 fn closure#0 of thread_fates.chained() -> Int {
@@ -241,12 +241,12 @@ fn closure#0 of thread_fates.chained() -> Int {
 fn thread_fates.stored(pool: &var thread_fates.Pool) -> Void {
     let _0: Void;  // return
     let _1: &var thread_fates.Pool;  // param pool
-    let _2: std.task.Thread<Int>;  // t
+    let _2: std.thread.Thread<Int>;  // t
     let _3: () sendable -> Int;
-    let _4: Result<std.task.Thread<Int>, std.systemerror.SystemError>;
-    let _5: std.task.Thread<Int>;
-    let _6: std.task.Thread<Int>;
-    let _7: &var std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>;
+    let _4: Result<std.thread.Thread<Int>, std.systemerror.SystemError>;
+    let _5: std.thread.Thread<Int>;
+    let _6: std.thread.Thread<Int>;
+    let _7: &var std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>;
     let _8: Result<Void, std.alloc.AllocError>;
     let _9: Void;
 
@@ -260,7 +260,7 @@ fn thread_fates.stored(pool: &var thread_fates.Pool) -> Void {
         _2 = move _5;
         _6 = move _2;
         _7 = ref(exclusive, (*_1).workers);
-        _8 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>) [move _7, move _6] -> [return: bb2];
+        _8 = call std.vector.Vector.push(value: T) (owner std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>) [move _7, move _6] -> [return: bb2];
     }
 
     bb2: {
@@ -292,7 +292,7 @@ fn thread_fates.main() blocking -> Void {
     let _1: Int;
     let _2: Int;
     let _3: thread_fates.Pool;  // pool
-    let _4: std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>;
+    let _4: std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>;
     let _5: thread_fates.Pool;
     let _6: &var thread_fates.Pool;
 
@@ -317,7 +317,7 @@ fn thread_fates.main() blocking -> Void {
     }
 
     bb5: {
-        _4 = call std.vector.Vector.init() (owner std.vector.Vector<std.task.Thread<Int>, std.alloc.GlobalAllocator>) [] -> [return: bb6];
+        _4 = call std.vector.Vector.init() (owner std.vector.Vector<std.thread.Thread<Int>, std.alloc.GlobalAllocator>) [] -> [return: bb6];
     }
 
     bb6: {

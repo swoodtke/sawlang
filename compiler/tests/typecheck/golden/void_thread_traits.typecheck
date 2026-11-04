@@ -1,7 +1,7 @@
 (Module void_thread_traits
   (declarations
     (struct Pool 9:8 private)
-    (field Pool.workers 9:15 private std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator>)
+    (field Pool.workers 9:15 private std.vector.Vector<std.thread.Thread<Void>, std.alloc.GlobalAllocator>)
     (extension 11:1 (target void_thread_traits.Pool) (conforms NoCopy))
     (func nothing 13:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes)))
     (func needs_send 16:6 private (signature (generics (T (bounds Send))) (params (f () -> T owned)) -> Void) (summary body (suspends no) (sync-callable yes)))
@@ -13,7 +13,7 @@
     (func check 34:6 private (signature (params) -> Void) (summary body (suspends no) (sync-callable yes))))
   (members
     (void_thread_traits.Pool
-      (field workers std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator> private declared)
+      (field workers std.vector.Vector<std.thread.Thread<Void>, std.alloc.GlobalAllocator> private declared)
       (method deinit public (synthesized Deinit))))
   (views
     (void_thread_traits.Pool workers deinit))
@@ -47,4 +47,4 @@
       (39:22-39:31 Call.paren Void value temp (call void_thread_traits.nothing()))
       (40:5-40:60 Call.paren Void value temp (call void_thread_traits.needs_send_value(v: T) (inst void_thread_traits.Pool)))
       (40:22-40:59 Call.paren void_thread_traits.Pool value temp (memberwise void_thread_traits.Pool (owner void_thread_traits.Pool)))
-      (40:36-40:58 Call.paren std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<std.task.Thread<Void>, std.alloc.GlobalAllocator>))))))
+      (40:36-40:58 Call.paren std.vector.Vector<std.thread.Thread<Void>, std.alloc.GlobalAllocator> value temp (call std.vector.Vector.init() (owner std.vector.Vector<std.thread.Thread<Void>, std.alloc.GlobalAllocator>))))))

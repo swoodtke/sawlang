@@ -216,8 +216,8 @@ extension ResLangRow {
                    builtin_name: "")
     }
 
-    // A role of the OS-thread engine, at home in `std.thread` (`lang_home`).
-    // Stage 0's root declares it in `std.task` under `builtin_name`, or
+    // A role of the OS-thread engine, at home in `std.thread`. Stage 0's
+    // root declares it in `std.task` under `builtin_name`, or
     // synthesizes it when that is empty.
     static func thread_item(index: Int, name: String, builtin_name: String) -> ResLangRow {
         let builtin_home = if builtin_name.len() > 0 { "std.task" } else { "builtin" }
@@ -321,8 +321,7 @@ extension ResProgram {
             let row = res_lang_row(roles[k])
             var d = -1
             if self.std_new {
-                let home = self.lang_home(&row)
-                d = self.std_top_decl(home, row.name)
+                d = self.std_top_decl(row.home, row.name)
                 if d < 0 {
                     self.refuse_missing_lang(&row)
                 }
@@ -349,21 +348,6 @@ extension ResProgram {
         self.is_vocabulary_module(decl.module) || d == self.lang_item(ResLang.StringStruct)
     }
 
-    // THE THREAD-HOME FUNNEL: the new-std module role row `row` binds in.
-    // That is the row's home, except that the OS-thread engine's home,
-    // `std.thread`, stands for `std.task` under a std root with no
-    // `std.thread` module, whose `std.task` declares the engine (SL-965).
-    // ENTRY POINTS:
-    //     bind_lang_items
-    //     refuse_missing_lang
-    func lang_home(&var self, row: &ResLangRow) -> String {
-        if not row.home.equals("std.thread") {
-            return row.home
-        }
-        let key = self.intern(row.home)
-        if self.find_module(key) >= 0 { row.home } else { "std.task" }
-    }
-
     // The declaration named `name` at the top of std module `home`, or -1.
     func std_top_decl(&var self, home: String, name: String) -> Int {
         let key = self.intern(home)
@@ -388,14 +372,13 @@ extension ResProgram {
     }
 
     func refuse_missing_lang(&var self, row: &ResLangRow) {
-        let home = self.lang_home(&row)
         var msg = StringBuilder()
         try! msg.append("the std root declares no `")
         try! msg.append(row.name)
         try! msg.append("` in `")
-        try! msg.append(home)
+        try! msg.append(row.home)
         try! msg.append("`, which the compiler needs as a lang item")
-        let key = self.intern(home)
+        let key = self.intern(row.home)
         var m = self.find_module(key)
         if m < 0 {
             m = self.builtin

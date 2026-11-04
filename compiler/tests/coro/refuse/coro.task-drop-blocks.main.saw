@@ -6,7 +6,7 @@
 // is refused; the message offers `func main() blocking` (conformance row
 // K182; the lead's ruling on SL-782 1b-ii's OPEN row 5).
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 struct Pool {
     size: Int

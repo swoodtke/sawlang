@@ -3,7 +3,7 @@
 // a `consumes` method on std's `Thread` from an importer, which would write a
 // thread's fate outside `std.task` (SL-832)
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extension Thread<T> {
     func steal(&var self) consumes -> Int {

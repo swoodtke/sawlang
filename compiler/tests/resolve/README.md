@@ -177,7 +177,7 @@ GRAMMAR.md alternative; the last table lists them.
 | member of a module | its surface | multi/imports |
 | member of an enum through its type | the case | calls, patterns, prelude |
 | member of any other type, member or optional member of a value | a selector for typecheck | calls |
-| `Thread.spawn`, whatever `Thread` the scope holds, a program's own included | its head names std's `std.task.Thread` by identity, and the form is a static member of it, which typecheck knows by its spelling | typecheck golden `thread_spawn` |
+| `Thread.spawn`, whatever `Thread` the scope holds, a program's own included | its head names std's `Thread`, the `ThreadStruct` lang item (`std.thread.Thread`; Stage 0's `std.task.Thread`), and the form is a static member of it, which typecheck knows by its spelling | typecheck golden `thread_spawn` |
 | implicit member | a case selector | calls |
 | call head, its arguments | classified once | calls |
 | operators, literals, interpolation, collection literals, casts, `move`, `*`, `&`, `try`, `!`, subscripts | their parts | expressions, lockdown |

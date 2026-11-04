@@ -11,7 +11,7 @@
 // Each result is destroyed exactly once whichever side ends the handshake, so
 // the output holds in either order; the waits make the second order the one a
 // run takes.
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func __saw_rt_sleep_ns(ns: UInt64)

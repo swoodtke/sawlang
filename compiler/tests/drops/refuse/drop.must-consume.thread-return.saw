@@ -2,7 +2,7 @@
 // flags: --std-root std
 // a thread handle returned out of the function that spawned it writes no fate
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 func work() {
     print("worked")

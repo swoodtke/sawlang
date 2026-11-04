@@ -563,7 +563,7 @@ extension ResProgram {
         self.std_module("duration")
         self.std_module("map")
         self.std_module("set")
-        self.optional_std_module("thread")
+        self.std_module("thread")
         self.std_module("task")
         self.std_module("taskgroup")
         self.std_module("channel")
@@ -579,18 +579,6 @@ extension ResProgram {
         self.std_module("serialize")
         self.std_module("json")
         self.std_module("cbor")
-    }
-
-    // Loads new-std module `std.<path>` when its file exists under the std
-    // root. A root without it is complete: the lang items it would hold have
-    // a home there that does (`lang_home`).
-    func optional_std_module(&var self, path: String) {
-        var rel = StringBuilder()
-        try! rel.append(res_dots_to_slashes(&path))
-        try! rel.append(".saw")
-        if File.exists(Path(s: self.std_file(rel.build()))) {
-            self.std_module(path)
-        }
     }
 
     // Stage 0's std modules, each `std.X` at `<std root>/std/X.saw`.

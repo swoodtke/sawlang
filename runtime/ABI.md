@@ -1459,7 +1459,7 @@ What stays synthesized:
   the control block and a per-site trampoline and launches it through
   `__saw_rt_thread_spawn` (a raw C function pointer, DF-113b). Joins go
   through the `NativeThread` trait (`PosixThread` over `__saw_rt_thread_join`,
-  in std/taskgroup.saw, beside the control block's own layout).
+  in std/thread.saw, beside the control block's own layout).
 
 The executor reaches register/unregister/poll/wake only through the `Reactor`
 trait, implemented for the hosted runtime by `SystemReactor` over the instance

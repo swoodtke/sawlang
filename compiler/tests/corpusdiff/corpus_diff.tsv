@@ -390,11 +390,11 @@ conformance/K68_deadlock_report_does_not_fire_on_a_live_program.saw	stage0-wrong
 conformance/K69_cancel_reaches_a_parked_channel_receive.saw	pass	-	-
 conformance/K70_driven_scope_end_release_matrix.saw	pass	-	-
 conformance/K74_send_bound_licenses_a_generic_spawn_capture.saw	stage0-wrong	annotated SL-765	sawc meets its directives
-conformance/K78_singleton_spawn_discard_is_refused.saw	pass	-	result.discarded: the result of this expression is `Result<std.task.Thread<Void>, std.systemerror.SystemError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), or
-conformance/K79_unconsumed_thread_handle_is_refused.saw	pass	-	drop.must-consume: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed: `t` is dropped with no `join()` or `detach()` of it on some path. `join()` waits for it and takes its re
+conformance/K78_singleton_spawn_discard_is_refused.saw	pass	judged by its own directives (edited since its oracle)	result.discarded: the result of this expression is `Result<std.thread.Thread<Void>, std.systemerror.SystemError>` and is silently discarded: handle it (`match` it, `try` or `try!` it, or return it), o
+conformance/K79_unconsumed_thread_handle_is_refused.saw	pass	judged by its own directives (edited since its oracle)	drop.must-consume: `t` holds the `std.thread.Thread<Void>` spawned here, which is never consumed: `t` is dropped with no `join()` or `detach()` of it on some path. `join()` waits for it and takes its
 conformance/K80_group_spawn_handle_may_be_dropped.saw	pass	-	-
-conformance/K81_storage_owner_discharges_the_obligation.saw	stage0-wrong	annotated SL-765	sawc meets its directives
-conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	stage0-wrong	annotated SL-765	sawc meets its directives
+conformance/K81_storage_owner_discharges_the_obligation.saw	pass	judged by its own directives (edited since its oracle)	-
+conformance/K82_forgotten_thread_handle_panics_in_deinit.saw	pass	judged by its own directives (edited since its oracle)	-
 conformance/K83_thread_spawn_body_is_sync_enforced.saw	pass	-	effect.thread-body: cannot suspend in a `Thread.spawn { ... }` body: closure calls `cedes` → `yield_now` (parks the task): a spawned thread runs no executor, so there is nothing there to resume a susp
 conformance/K84_thread_spawn_permits_a_blocking_extern.saw	stage0-wrong	annotated SL-765	sawc meets its directives
 conformance/K85_background_spawn_handle_must_be_consumed.saw	pass	-	drop.must-consume: `Task.spawn` hands back a `std.taskgroup.Task<Int>` that must be consumed, and this one is discarded. Bind it and consume it on every path: `join()` waits for it and takes its resul
@@ -1311,7 +1311,7 @@ errors/spawn_capture_across_iterations.saw	pass	-	loan.exclusive-twice: exclusiv
 errors/spawn_capture_mt_send.saw	stage0-wrong	annotated SL-795	sawc meets its directives
 errors/spawn_capture_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `UnsafePointer<Int8>` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-unsafe
 errors/spawn_capture_unjoined_handle.saw	pass	-	loan.read-while-exclusive: exclusive access violation: `n` cannot be read here — the task spawned at 31:29 holds `&var n` until its group `group` is torn down at the end of this scope (nothing joins i
-errors/spawn_handle_may_not_escape_the_function.saw	pass	-	drop.must-consume: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed: `t` leaves the function by a `return` without consuming it. `join()` waits for it and takes its result,
+errors/spawn_handle_may_not_escape_the_function.saw	pass	judged by its own directives (edited since its oracle)	drop.must-consume: `t` holds the `std.thread.Thread<Void>` spawned here, which is never consumed: `t` leaves the function by a `return` without consuming it. `join()` waits for it and takes its result
 errors/spawn_names_its_engine.saw	pass	-	name.retired: `spawn { ... }` no longer names an engine: write `Thread.spawn { ... }` for an OS thread (blocking, `join()` waits), or `Task.spawn(work(...))` or `group.spawn(work(...))` for a cooperat
 errors/spawn_result_not_send.saw	pass	-	spawn.send: cannot `Thread.spawn`: the closure's result type `spawn_result_not_send.Raw` is not `Send`, so it cannot travel back from the spawned thread to `join()`. Return a Send value; share thread-
 errors/specialized_method_wrong_type.saw	refused	typecheck member.unknown	`std.vector.Vector<Int, std.alloc.GlobalAllocator>` has no method `join` this module can see
@@ -2299,8 +2299,8 @@ shadow255_glob_import.saw	pass	-	-
 shadow255_kinds_and_rename.saw	pass	-	-
 shadow255_local_declaration.saw	pass	-	-
 shadow255_prelude_name_reserved_error.saw	pass	-	name.reserved: `Duration` is a prelude name, so it is reserved and cannot be declared again
-shadow255_qualified_escape.saw	pass	-	-
-shadow255_selective_import.saw	pass	-	-
+shadow255_qualified_escape.saw	pass	judged by its own directives (edited since its oracle)	-
+shadow255_selective_import.saw	pass	judged by its own directives (edited since its oracle)	-
 shadow255_two_imports_ambiguous_error.saw	pass	-	name.ambiguous: ambiguous `Widget`: two imports bind it to different declarations; qualify the use, or import it from a single module
 shadow_derived.saw	pass	-	-
 shadow_for_derived.saw	pass	-	-

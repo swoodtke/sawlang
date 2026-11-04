@@ -1342,8 +1342,9 @@ extension TcProgram {
     // its author's privilege. Only an extension member reaches this: the
     // grammar refuses `consumes` on a trait requirement or default body
     // (`syntax.rule.requirement-borrows`). The thread-fate rule rests on it:
-    // only `std.task` can give `Thread` or `Task` a consuming method, which is
-    // why drops counts one as writing the handle's fate (`is_fate_method`).
+    // only `std.thread` can give `Thread` a consuming method, and only
+    // `std.taskgroup` `Task`, which is why drops counts one as writing the
+    // handle's fate (`is_fate_method`).
     public func check_consumes_placement(&var self, layer: &FrontLayer) {
         var d = layer.decl_first
         while d < self.res.decls.len() {

@@ -8,7 +8,7 @@
 // reading design 189 gives a task-capture borrow released on one path.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: `t` holds the `std.task.Thread<Void>` spawned here, which is never consumed
+// EXPECT-ERROR-CONTAINS: `t` holds the `std.thread.Thread<Void>` spawned here, which is never consumed
 // EXPECT-ERROR-CONTAINS: is dropped with no `join()` or `detach()` of it on some path
 
 func work() {

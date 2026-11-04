@@ -956,8 +956,8 @@ extension DropsProgram {
     // cooperative spawn form mints, `join` or `detach` of a `Thread`, or a
     // `consumes` method of either. A consuming method ends the handle and its
     // body stands in for the handle's `deinit`, and only the defining module
-    // can declare one (`consumes.foreign-type`), so only `std.task` adds a
-    // fate this way.
+    // can declare one (`consumes.foreign-type`), so only `std.thread` and
+    // `std.taskgroup` add a fate this way.
     func is_fate_method(&self, c: &MirCall) -> Bool {
         if c.owner < 0 {
             return false

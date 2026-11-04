@@ -15,7 +15,7 @@
 // thread overhead, because the handle's `deinit` joined.
 //
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: the result of this expression is `Result<std.task.Thread<Void>, std.systemerror.SystemError>` and is silently discarded
+// EXPECT-ERROR-CONTAINS: the result of this expression is `Result<std.thread.Thread<Void>, std.systemerror.SystemError>` and is silently discarded
 
 func work() {
     print("worked")

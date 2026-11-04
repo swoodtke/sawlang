@@ -19,7 +19,7 @@
 // pool of 3
 // worked 3
 
-import std.task.{Thread}
+import std.thread.{Thread}
 
 static WORKED: Atomic<Int> = Atomic(0)
 

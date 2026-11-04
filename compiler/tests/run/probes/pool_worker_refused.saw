@@ -11,7 +11,7 @@
 // per-process thread limit is met. The pool's constructor allocates only its
 // lock, so it succeeds; its first spawn starts the workers, and the refused
 // one panics there, since a spawn has no error channel.
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func pipe(fds: UnsafePointer<Int32>) -> Int32

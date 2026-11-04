@@ -16,6 +16,8 @@
 import std.mem.{copy_bytes, drop_in_place}
 import std.panic.{PANIC_REPORT}
 import std.systemerror.{SystemError}
+import std.thread.{PARK_TAG_JOIN, RUNNING_THREADS, ThreadControlBlock, ThreadEvent, install_thread_observer}
+import std.thread.{reap_thread_block, thread_exit_word, thread_join_park}
 
 // A pool's run-queue lock and its idle workers' condition variable. Both live
 // in one block the group owns, each in a conservative slot: `pthread_mutex_t`
@@ -102,10 +104,10 @@ static PARK_TIMER: Int = 1
 static PARK_FD: Int = -1
 static PARK_UNSET: Int = 3
 
-// The tag bits of an address-carrying park word, and each tag's reason.
+// The tag bits of an address-carrying park word, and each tag's reason. The
+// join's tag is std.thread's (`PARK_TAG_JOIN`), whose join builds that word.
 static PARK_TAG_MASK: Int = 3
 static PARK_TAG_CHANNEL: Int = 0
-static PARK_TAG_JOIN: Int = 1
 static PARK_TAG_OFFLOAD: Int = 2
 
 // The wait a park word names, by the vocabulary above.
@@ -185,7 +187,6 @@ func park_address(park: Int) -> Int {
 //
 // ENTRY POINTS:
 //   __saw_exec_channel_park
-//   __saw_exec_join_park
 //   __saw_exec_offload_park
 func park_on(address: Int, tag: Int, what: String) -> Int {
     if address == 0 {
@@ -258,138 +259,6 @@ func offload_finished(job: Int) unsafe -> Bool {
     }
     let check = FuncPointer<(Int) sync -> Bool>.from_raw(at as UnsafePointer<UInt8>)
     check(job)
-}
-
-// The park word of a join of the thread whose handshake word is at `word`,
-// which `park_reason` and `park_address` read back. A task's `Thread.join`
-// parks on it, and a wait for a thread's exit that drives (`waits_drive`)
-// drives on it, so both wait for a thread's exit the one way and neither
-// blocks the thread's other tasks.
-//
-// ENTRY POINTS:
-//   Thread.join
-//   drive_on_exit
-public(package) func __saw_exec_join_park(word: UnsafePointer<Int>) unsafe -> Int {
-    park_on(word as Int, PARK_TAG_JOIN, "a thread's handshake word")
-}
-
-extern "C" {
-    // 0, or the negated portable tag of a refused join (runtime/ABI.md).
-    func __saw_rt_thread_join(handle: Int) -> Int
-}
-
-// The alignment every control block is allocated and freed at. The detach seam
-// frees a block knowing only its size, at this alignment (runtime/ABI.md), so
-// it is fixed rather than read off the result type.
-static THREAD_BLOCK_ALIGN: Int = 16
-
-// The control block of one spawned thread: the record the compiler's
-// `Thread.spawn` lowering builds, the thread writes its result into, and a
-// `Thread<T>` handle owns, or a pool's `PoolThread` once the handle hands it
-// over. Only that lowering builds one.
-//
-// The layout is the field order, which runtime/ABI.md freezes in one place:
-// `state` sits two words in, at `2 * sizeof(UnsafePointer<UInt8>)`, because
-// `tid` and `env` are each one pointer-sized word. Every size the detach
-// handshake carries or a deallocation passes is `sizeof` of this type.
-public(package) struct ThreadControlBlock<T> {
-    // The OS thread's handle, as `__saw_rt_thread_spawn` stored it.
-    tid: Int
-    // The body's environment, which the thread frees once the body has
-    // taken its captures.
-    env: UnsafePointer<UInt8>
-    // The detach handshake word: the block's size while the thread and its
-    // handle are both live, 0 once the handle detached, and the negated size
-    // once the thread finished.
-    state: Int
-    // The body's result, written by the thread when the body returns.
-    result: T
-}
-
-// The OS-thread surface: join by handle. Spawn stays the compiler's
-// `__saw_rt_thread_spawn` call, since it passes a C function pointer, which a
-// Saw value cannot carry (DF-113b). Dispatch is static: the implementation is
-// chosen at build time, so an `any NativeThread` would cost an allocation for
-// nothing. The member is not named `join`, which std's suspension census
-// would read as `Thread.join`'s parking default (compiler/tools/std_suspension.py).
-trait NativeThread {
-    func wait_for_exit(&self)
-}
-
-struct PosixThread {
-    handle: Int
-}
-
-// A refused join panics with the cause, since `Thread.join` hands back the
-// result with no error channel. A join is refused only for a handle naming no
-// joinable thread, or a thread joining itself.
-extension PosixThread: NativeThread {
-    func wait_for_exit(&self) {
-        if __saw_rt_thread_join(self.handle) != 0 {
-            panic("Thread.join: joining the thread failed (errno {})", __saw_rt_last_raw_code())
-        }
-    }
-}
-
-// Allocates a control block for a thread whose result is a `T`, its handshake
-// word holding the block's size. Panics if the allocation is refused, naming
-// the request.
-public(package) func alloc_thread_block<T>() unsafe -> UnsafePointer<ThreadControlBlock<T>> {
-    let size = sizeof<ThreadControlBlock<T>>()
-    guard let raw = GlobalAllocator().alloc(size, THREAD_BLOCK_ALIGN) else {
-        panic("Thread.spawn: {}", AllocError(size: size, align: THREAD_BLOCK_ALIGN))
-    }
-    let block = raw as UnsafePointer<ThreadControlBlock<T>>
-    block[0].tid = 0
-    block[0].env = 0 as UnsafePointer<UInt8>
-    block[0].state = size
-    block
-}
-
-// The handshake word of the block at `block`, which the thread's exit leaves
-// negative once the result is stored: what a join waits on before the reap.
-public(package) func thread_exit_word<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> UnsafePointer<Int> {
-    (&block[0].state) as UnsafePointer<Int>
-}
-
-// Joins the OS thread of the block at `block` and takes its result, freeing
-// the block.
-//
-// ENTRY POINTS:
-//   Thread.__saw_reap
-//   PoolThread.reap
-public(package) func reap_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe -> T {
-    PosixThread(handle: block[0].tid).wait_for_exit()
-    let at = (&block[0].result) as UnsafePointer<T>
-    // The block is freed next, so the result is moved out of it first.
-    let result = move at[0]
-    free_thread_block(block)
-    move result
-}
-
-// Swaps `value` into the handshake word of the block at `block` and returns
-// what the word held. Sequentially consistent, which is at least the
-// acquire-release runtime/ABI.md asks of each side's exchange.
-public(package) func exchange_state<T>(block: UnsafePointer<ThreadControlBlock<T>>, value: Int) unsafe -> Int {
-    let word = (&block[0].state) as UnsafePointer<Int>
-    var seen = __saw_atomic_load_i64_seq_cst(word)
-    while not __saw_atomic_cmpxchg_i64_seq_cst(word, seen, value) {
-        seen = __saw_atomic_load_i64_seq_cst(word)
-    }
-    seen
-}
-
-// Frees the control block at `block`, whose result is moved out, destroyed,
-// or never written.
-//
-// ENTRY POINTS:
-//   reap_thread_block
-//   Thread.detach
-//   Thread.__saw_started
-//   Thread.__saw_exit
-public(package) func free_thread_block<T>(block: UnsafePointer<ThreadControlBlock<T>>) unsafe {
-    GlobalAllocator().dealloc(block as UnsafePointer<Int8>, sizeof<ThreadControlBlock<T>>(),
-                              THREAD_BLOCK_ALIGN)
 }
 
 // A pool worker's thread, after its `Thread<Void>` handle handed the control
@@ -1124,8 +993,11 @@ func this_executor() unsafe -> UnsafePointer<ExecutorRecord> {
     if __saw_rt_set_thread_executor(record as Int) != 0 {
         panic("executor: the runtime cannot keep this thread's executor record (no thread-specific word)")
     }
-    // Before any task exists, so a panic with one in flight has its dump.
+    // Before any task exists, so a panic with one in flight has its dump, and
+    // before this thread's record is in use, so a thread that finds no
+    // observer installed has no record for it to act on (`thread_event`).
     install_panic_report()
+    observe_threads()
     record
 }
 
@@ -1160,13 +1032,14 @@ func claim_record() unsafe -> UnsafePointer<ExecutorRecord> {
     fresh
 }
 
-// The calling thread is about to end: `Thread.__saw_exit`'s call, after its
-// background group is closed and ahead of the live-thread count dropping. Its
-// record, if it has one, is published empty first, and claimable after that,
-// so a walk that reads a claimable record finds nothing waiting in it (the run
-// probe `executor_records_reused`). A group still registered in it stays
-// there, read by the walk, until whichever thread tears it down unlinks it.
-public(package) func __saw_exec_thread_exiting() unsafe {
+// The calling thread is about to end: its exit's `ExitPublished` event
+// (`thread_event`), after its background group is closed and ahead of the
+// running-thread count dropping. Its record, if it has one, is published
+// empty first, and claimable after that, so a walk that reads a claimable
+// record finds nothing waiting in it (the run probe `executor_records_reused`).
+// A group still registered in it stays there, read by the walk, until
+// whichever thread tears it down unlinks it.
+func __saw_exec_thread_exiting() unsafe {
     let current = __saw_rt_thread_executor()
     if current == 0 {
         return
@@ -2064,7 +1937,7 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 // Whether a sender will ever exist for a channel is not decidable, but a
 // readiness word is published only by running code, so the walk asks only
 // whether any code can run, by elimination. Each of these ends it:
-//   * a running `Thread.spawn` body (`LIVE_THREADS`), read before any
+//   * a running `Thread.spawn` body (`RUNNING_THREADS`), read before any
 //     readiness word: a body that sends and then exits lowers the count after
 //     its send, so a walk that reads the count as zero sees the word set;
 //   * a live frame that is not active and whose park wakes now (`park_wakes`:
@@ -2072,14 +1945,14 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 //   * a frame parked on a timer or a descriptor, since its deadline or the
 //     reactor can wake it;
 //   * any other park that is not a channel's, a join and an offload among
-//     them: a joined thread sets its word before it lowers `LIVE_THREADS`,
+//     them: a joined thread sets its word before it lowers `RUNNING_THREADS`,
 //     and an offloaded call ends on its own thread, so neither waits for
 //     good, and the walk reads neither's object;
 //   * a frame active on another thread's stack: a pool task a worker is
 //     resuming, or a cooperative task its owner is;
 //   * a thread outside the executor (a live record that is not `waiting`),
 //     whichever thread walks: `main`, and any thread that is no
-//     `Thread.spawn` body, is invisible to `LIVE_THREADS`, so this is how the
+//     `Thread.spawn` body, is invisible to `RUNNING_THREADS`, so this is how the
 //     walk learns that a thread owning groups is computing toward a send
 //     rather than waiting. A pool worker's nested drive walks too, while
 //     `main` may be computing (the run probes
@@ -2107,7 +1980,7 @@ static QUIESCENT_NAP_NANOS: UInt64 = 1_000_000
 // ENTRY POINTS:
 //   check_quiescent
 func quiescent_now(waiter: Int, walker: UnsafePointer<ExecutorRecord>) unsafe -> Bool {
-    if LIVE_THREADS.load() != 0 {
+    if RUNNING_THREADS.load() != 0 {
         return false
     }
     if some_thread_runs() {
@@ -2355,7 +2228,7 @@ func host_reactor() unsafe -> Int {
 //
 // ENTRY POINTS:
 //   __saw_exec_chan_wake
-//   __saw_exec_thread_finished
+//   thread_event
 //   enqueue_pooled
 //   worker_resume
 //   Task.cancel
@@ -2366,34 +2239,36 @@ func poke_reactor() {
     }
 }
 
-// How many `Thread.spawn` bodies are running. No run queue knows about one, and
-// one may send to a channel a task waits on, so the deadlock walk reports
-// nothing and `idle` waits while it is nonzero (design 230). Raised at the
-// spawn before the thread exists, and lowered by the thread's exit once its
-// body's effects are done, as the last thing the thread does. A pool's
-// workers are not counted while they serve it (`start_crew`).
+// The executor's half of a thread's life, which std.thread reports to the
+// observer `observe_threads` installs. Each event does nothing for a thread
+// with no executor record, as the three record readers check, and the poke
+// does nothing until a reactor exists, which only an executor path makes.
 //
-// The lowering needs only a release and the walk's read only an acquire. Both
-// are sequentially consistent instead, as `Atomic` is: stronger, and the poke
-// handshake with `idle` needs it (`poke_reactor`).
-static LIVE_THREADS: Atomic<Int> = Atomic(0)
-
-// Counts one more running `Thread.spawn` body: the spawn lowering's call,
-// made before the thread is started. Only that lowering moves the count. A
-// spawn the operating system refuses takes it back with
-// `__saw_exec_thread_finished`.
-public(package) func __saw_exec_thread_started() {
-    let _ = LIVE_THREADS.fetch_add(1)
+// `Finished` follows the running-thread count's drop, so an executor blocked
+// in the reactor's poll looks again: the thread lowers the count and then
+// reads the observer, while `idle` installs the observer before it publishes
+// the reactor and reads the count after, all sequentially consistent, so a
+// thread that found no observer dropped the count before `idle` read it
+// (`poke_reactor`; the run probes `thread_send_wakes_idle` and
+// `thread_join_exit_while_parked`).
+func thread_event(event: ThreadEvent, word: Int) unsafe {
+    match event {
+        case ExitBegins -> __saw_exec_close_background(),
+        case ExitPublished -> __saw_exec_thread_exiting(),
+        case Finished -> poke_reactor(),
+        case AwaitExit -> __saw_exec_await_exit(word as UnsafePointer<Int>)
+    }
 }
 
-// Counts one running `Thread.spawn` body fewer, then wakes an executor blocked
-// in the reactor's poll so its deadlock walk looks again: the last call a
-// spawned thread makes, after its body's effects.
-public(package) func __saw_exec_thread_finished() {
-    // Sequentially consistent, so at least a release of everything the body
-    // did, and ordered ahead of the poke's read (`poke_reactor`).
-    let _ = LIVE_THREADS.fetch_add(-1)
-    poke_reactor()
+// Installs `thread_event` as std.thread's observer, once per process: as the
+// first executor record is made, beside the panic report. So every program
+// that makes an executor links the observer's thread half, its background
+// close and thread-context join among it, whether or not it starts a thread:
+// the install cannot know whether one will start, and a thread that starts
+// later must find its executor's half already there.
+func observe_threads() unsafe {
+    let observer: FuncPointer<(ThreadEvent, Int) sync -> Void> = { event, word in thread_event(event, word) }
+    install_thread_observer(observer)
 }
 
 // A channel's readiness word changed: `send` and `close` call this after they
@@ -2418,7 +2293,7 @@ public(package) func __saw_exec_chan_wake() {
 //
 // A worker is a `Thread.spawn` body but no user thread: whatever it runs is a
 // frame in this group, which the deadlock walk reads directly. So it is taken
-// back out of `LIVE_THREADS` once started, where the count would keep every
+// back out of `RUNNING_THREADS` once started, where the count would keep every
 // program with a pool from reporting a deadlock; `shutdown_crew` puts it back
 // ahead of the join, whose thread exit takes it out again.
 //
@@ -2435,7 +2310,7 @@ func start_crew(group: &var TaskGroup, addr: Int) unsafe {
     while i < n {
         match Thread.spawn({ [addr] in exec_worker(addr) }) {
             case Ok(worker) -> {
-                let _ = LIVE_THREADS.fetch_add(-1)
+                let _ = RUNNING_THREADS.fetch_add(-1)
                 // The worker's fate is the teardown's join (`shutdown_crew`).
                 let block = (move worker).__saw_hand_off()
                 alloc_or_fault(group.crew.push(PoolThread(block: block, reaped: false)), "TaskGroup(threads:)")
@@ -2575,7 +2450,7 @@ func drive_until_set(word: UnsafePointer<Int>) unsafe {
 }
 
 // Joins each of a stopping pool's workers, putting each back in
-// `LIVE_THREADS` first, since its thread's exit takes it out again.
+// `RUNNING_THREADS` first, since its thread's exit takes it out again.
 //
 // This is the group's `Deinit` barrier, which cannot park, so the reap is a
 // plain call rather than `Thread.join`. A worker's exit closes its own
@@ -2587,7 +2462,7 @@ func join_crew(crew: &var Vector<PoolThread>) unsafe {
     let record = this_executor()
     while let worker = crew.pop() {
         var held = move worker
-        let _ = LIVE_THREADS.fetch_add(1)
+        let _ = RUNNING_THREADS.fetch_add(1)
         if waits_drive(record) {
             drive_on_exit(held.exit_word())
         }
@@ -2597,12 +2472,12 @@ func join_crew(crew: &var Vector<PoolThread>) unsafe {
 
 // Runs the calling thread's tasks until the thread whose handshake word is at
 // `word` has exited: a nested sweep whose drive point is parked on that
-// thread's join park (`__saw_exec_join_park`), so `idle` and the deadlock walk
+// thread's join park (`thread_join_park`), so `idle` and the deadlock walk
 // read it as they read a task's `Thread.join`, and the thread's exit pokes the
-// reactor once the word is set (`__saw_exec_thread_finished`). A cancel does
-// not end it, as it does not end a join.
+// reactor once the word is set (`thread_event`). A cancel does not end it, as
+// it does not end a join.
 func drive_on_exit(word: UnsafePointer<Int>) unsafe {
-    var park = __saw_exec_join_park(word)
+    var park = thread_join_park(word)
     var cancel = false
     var context = TaskContext(park: (&park) as UnsafePointer<Int>, cancel: (&cancel) as UnsafePointer<Bool>,
                               task: 0, deadline: 0)
@@ -2611,11 +2486,12 @@ func drive_on_exit(word: UnsafePointer<Int>) unsafe {
     }
 }
 
-// `Thread.join`'s wait in thread context, ahead of its reap: when the wait
-// drives (`waits_drive`), runs the calling thread's tasks until the thread
-// whose handshake word is at `word` has exited, so a thread waiting on one of
-// them finishes; otherwise it returns at once, and the reap blocks the thread.
-public(package) func __saw_exec_await_exit(word: UnsafePointer<Int>) unsafe {
+// `Thread.join`'s wait in thread context, ahead of its reap (its `AwaitExit`
+// event): when the wait drives (`waits_drive`), runs the calling thread's
+// tasks until the thread whose handshake word is at `word` has exited, so a
+// thread waiting on one of them finishes; otherwise it returns at once, and
+// the reap blocks the thread.
+func __saw_exec_await_exit(word: UnsafePointer<Int>) unsafe {
     let current = __saw_rt_thread_executor()
     if current == 0 {
         return

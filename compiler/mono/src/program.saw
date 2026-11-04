@@ -138,10 +138,8 @@ public struct MonoProgram {
     spawn_close_item: Int
     spawn_singleton: Int
     spawn_handle_items: Vector<Int>
-    // What a `Thread.spawn` site's lowering calls (SL-765): the live-thread
-    // count's raise, made at the first site, -1 until then; and by concrete
-    // call, an index of `thread_spawns`, or -1.
-    thread_started_item: Int
+    // What a `Thread.spawn` site's lowering calls (SL-765), by concrete call:
+    // an index of `thread_spawns`, or -1.
     thread_spawns: Vector<MonoThreadSpawn>
     thread_spawn_of: Vector<Int>
     // What a drive site's lowering calls (SL:coroutines A4b), made at the
@@ -263,7 +261,7 @@ public func mono_program(dp: DropsProgram, blocked: Bool) -> MonoProgram {
                 length_item: -1, exec_item: -1, prints: false, print_failure_item: -1,
                 spawn_box_item: -1, spawn_background_item: -1,
                 spawn_close_item: -1, spawn_singleton: -1, spawn_handle_items: Vector<Int>(),
-                thread_started_item: -1, thread_spawns: Vector<MonoThreadSpawn>(), thread_spawn_of: Vector<Int>(),
+                thread_spawns: Vector<MonoThreadSpawn>(), thread_spawn_of: Vector<Int>(),
                 drive_item: -1,
                 drive_steps_item: -1, park_deadline_item: -1, park_register_item: -1, park_pipe_item: -1,
                 equals_item: -1, compare_item: -1, builder_new_item: -1, builder_fixed_item: -1,

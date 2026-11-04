@@ -8,7 +8,7 @@
 // The first body returns only once its handle has detached; the second
 // returns at once, and its handle detaches well after. Each result owns a
 // heap String, so a result destroyed twice would release it twice.
-import std.task.{Thread}
+import std.thread.{Thread}
 
 extern "C" {
     func __saw_rt_sleep_ns(ns: UInt64)
