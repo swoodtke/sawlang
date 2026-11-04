@@ -9,6 +9,7 @@
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_decl_binding}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.candidates.{TcOverrideFault}
 import sawtypecheck.checks.{tc_check_inits}
@@ -26,24 +27,26 @@ import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
 // Every overload set's indistinguishable redeclarations.
-public func tc_check_redeclarations(p: &var TcProgram) {
-    p.check_redeclarations()
+public func tc_check_redeclarations(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_redeclarations(&layer)
 }
 
 extension TcProgram {
-    // Every overload set, each handed to the funnel once: a module's free
-    // functions of one name, the methods of one name and the `init`s one
-    // module's extensions give a type, and a trait's requirements of one
-    // name. A set is per module, since two modules' declarations meet only
-    // at a call that sees both, which refuses an ambiguity there.
-    public func check_redeclarations(&var self) {
-        self.check_function_sets()
-        self.check_member_sets()
-        self.check_requirement_sets()
+    // Every overload set of `layer`'s modules, each handed to the funnel
+    // once: a module's free functions of one name, the methods of one name
+    // and the `init`s one module's extensions give a type, and a trait's
+    // requirements of one name. A set is per module, since two modules'
+    // declarations meet only at a call that sees both, which refuses an
+    // ambiguity there; so an earlier layer's sets are complete, and its types
+    // gain only sets of `layer`'s members.
+    public func check_redeclarations(&var self, layer: &FrontLayer) {
+        self.check_function_sets(&layer)
+        self.check_member_sets(&layer)
+        self.check_requirement_sets(&layer)
     }
 
-    func check_function_sets(&var self) {
-        var d = 0
+    func check_function_sets(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
@@ -74,23 +77,27 @@ extension TcProgram {
         }
     }
 
-    func check_member_sets(&var self) {
+    func check_member_sets(&var self, layer: &FrontLayer) {
         var d = 0
         while d < self.res.decls.len() {
             if self.is_nominal(d) {
-                self.check_members_of(d)
+                self.check_members_of(d, &layer)
             }
             d = d + 1
         }
     }
 
-    // The methods and `init`s every extension of type `d` writes, split into
-    // sets by module, kind and name.
-    func check_members_of(&var self, d: Int) {
+    // The methods and `init`s every extension of type `d` in `layer`'s
+    // modules writes, split into sets by module, kind and name.
+    func check_members_of(&var self, d: Int, layer: &FrontLayer) {
         let exts = self.extensions_in_order(d)
         var written = Vector<Int>()
         var k = 0
         while k < exts.len() {
+            if exts[k] < layer.decl_first {
+                k = k + 1
+                continue
+            }
             let listed = self.members_of(exts[k])
             var j = 0
             while j < listed.len() {
@@ -329,8 +336,8 @@ extension TcProgram {
         out.build()
     }
 
-    func check_requirement_sets(&var self) {
-        var t = 0
+    func check_requirement_sets(&var self, layer: &FrontLayer) {
+        var t = layer.decl_first
         while t < self.res.decls.len() {
             if self.res.decls[t].kind == ResDeclKind.Trait {
                 let listed = self.members_of(t)

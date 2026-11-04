@@ -4,6 +4,7 @@
 
 import sawmir.model.{MirDiag}
 import sawmir.program.{MirProgram}
+import sawresolve.layer.{FrontLayer}
 
 // A drop's label in the side table: none for a statement that is no drop,
 // or a drop no path reaches.
@@ -25,11 +26,23 @@ public struct BorrowckProgram {
 extension BorrowckProgram: NoCopy {}
 
 public func borrowck_program(mir: MirProgram) -> BorrowckProgram {
-    var labels = Vector<Int>()
-    var k = 0
-    while k < mir.stmts.len() {
-        try! labels.push(BORROWCK_LABEL_NONE)
-        k = k + 1
+    var p = BorrowckProgram(mir: move mir, diags: Vector<MirDiag>(), labels: Vector<Int>(), parents: Vector<Int>())
+    p.grow_labels()
+    move p
+}
+
+extension BorrowckProgram {
+    // Grows the label table to every statement a layer's lowering added,
+    // before the layer's modules are checked.
+    public func begin_layer(&var self, layer: &FrontLayer) {
+        self.grow_labels()
     }
-    BorrowckProgram(mir: move mir, diags: Vector<MirDiag>(), labels: move labels, parents: Vector<Int>())
+
+    func grow_labels(&var self) {
+        var k = self.labels.len()
+        while k < self.mir.stmts.len() {
+            try! self.labels.push(BORROWCK_LABEL_NONE)
+            k = k + 1
+        }
+    }
 }

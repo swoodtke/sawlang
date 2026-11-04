@@ -15,6 +15,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.imports.{res_decl_binding, res_is_function, res_same_binding}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.prelude.{res_is_std_intrinsic, res_is_test_driver, res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResImport, ResImportForm, ResLocal,
                          ResModuleKind, ResName, ResPending, ResPendingKind, ResSymbol}
@@ -413,9 +414,9 @@ extension ResProgram {
     // A projection is bound or refused; a bare name is refused with its fix-it;
     // an inherited one is bound, or left or refused as the lookup found it;
     // a refining trait's redeclaration of an inherited one is refused.
-    public func settle_pending(&var self) {
+    public func settle_pending(&var self, layer: &FrontLayer) {
         let saved = self.current
-        var k = 0
+        var k = layer.pending_first
         while k < self.pending.len() {
             let p = self.pending[k]
             self.current = p.module

@@ -13,6 +13,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule}
 import sawresolve.lang.{res_is_park_point}
 import sawresolve.names.{ResIndex}
@@ -94,14 +95,15 @@ public func tc_thread_struck(causes: Int) -> Int {
     causes - (causes & allowed)
 }
 
-// Solves every summary (phase 2).
-public func tc_solve_summaries(p: &var TcProgram) {
-    p.solve_summaries()
+// Solves every summary of `layer` (phase 2).
+public func tc_solve_summaries(p: &var TcProgram, layer: &FrontLayer) {
+    p.solve_summaries(&layer)
 }
 
-// Runs the summary verifier over every module, keeping what it finds.
-public func tc_verify_all_summaries(p: &var TcProgram) {
-    var m = 0
+// Runs the summary verifier over each of `layer`'s modules, keeping what it
+// finds.
+public func tc_verify_all_summaries(p: &var TcProgram, layer: &FrontLayer) {
+    var m = layer.module_first
     while m < p.res.modules.len() {
         let found = p.verify_summaries(m)
         var k = 0
@@ -115,24 +117,28 @@ public func tc_verify_all_summaries(p: &var TcProgram) {
 }
 
 extension TcProgram {
-    public func solve_summaries(&var self) {
-        self.load_std_table()
+    // `layer`'s summaries. An earlier layer's are solved, and none of its
+    // bodies reads a declaration of `layer`'s, so its units stay as they are.
+    public func solve_summaries(&var self, layer: &FrontLayer) {
+        if self.std_keys.len() == 0 {
+            self.load_std_table()
+        }
         let total = self.res.decls.len()
-        var k = 0
+        var k = self.summaries.len()
         while k < total {
             try! self.summaries.push(TcSummary.blank())
             try! self.decl_unit.push(-1)
             k = k + 1
         }
-        self.collect_units()
-        k = 0
+        self.collect_units(&layer)
+        k = layer.decl_first
         while k < total {
             if self.is_function_decl(k) && self.decl_unit[k] < 0 {
                 self.summarize_declared(k)
             }
             k = k + 1
         }
-        self.run_worklist()
+        self.run_worklist(&layer)
     }
 
     // Whether declaration `d` is a function a summary describes: a free
@@ -272,9 +278,9 @@ extension TcProgram {
 extension TcProgram {
     // One unit per declaration with a checked body, in declaration order,
     // each followed by its closures' units, and one per body outside a
-    // declaration.
-    func collect_units(&var self) {
-        var k = 0
+    // declaration: `layer`'s bodies.
+    func collect_units(&var self, layer: &FrontLayer) {
+        var k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
             let d = self.body_decls[k]
@@ -580,11 +586,15 @@ extension TcProgram {
     // the least fixpoint, since every summary starts at the bottom and only
     // grows. A requirement's unit solves only its defaults, since a call of
     // the requirement itself answers through its receiver.
-    func run_worklist(&var self) {
+    func run_worklist(&var self, layer: &FrontLayer) {
         let n = self.units.len()
         var dirty = Vector<Bool>()
         var pending = 0
         var k = 0
+        while k < layer.unit_first {
+            try! dirty.push(false)
+            k = k + 1
+        }
         while k < n {
             let unit = self.units[k]
             let top = unit.top == k && unit.decl >= 0
@@ -605,10 +615,10 @@ extension TcProgram {
             }
             k = k + 1
         }
-        var i = 0
+        var i = layer.unit_first
         while pending > 0 {
             if i >= n {
-                i = 0
+                i = layer.unit_first
             }
             if not dirty[i] {
                 i = i + 1

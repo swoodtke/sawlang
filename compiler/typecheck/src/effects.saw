@@ -11,6 +11,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModule, ResModuleKind, ResVis}
 import sawtypecheck.candidates.{tc_contains}
 // For the extension writing `generic_grants`.
@@ -33,13 +34,13 @@ import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.summaries.{TcAcc, tc_thread_struck}
 import sawtypecheck.types.{TcKind, TcType}
 
-// Runs every check that reads the summaries (phase 3).
-public func tc_check_effects(p: &var TcProgram) {
-    p.check_effects()
+// Runs every check that reads the summaries (phase 3), over `layer`'s part.
+public func tc_check_effects(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_effects(&layer)
 }
 
-public func tc_check_hosted_imports(p: &var TcProgram) {
-    p.check_hosted_imports()
+public func tc_check_hosted_imports(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_hosted_imports(&layer)
 }
 
 // The std modules that rest on an operating system, which the freestanding
@@ -62,12 +63,12 @@ extension TcProgram {
     // Every std module is read whatever the program imports, so the import
     // is the one place the program asks for one; std's own imports are
     // std's business.
-    func check_hosted_imports(&var self) {
+    func check_hosted_imports(&var self, layer: &FrontLayer) {
         if self.profile.hosted() {
             return
         }
         let hosted = tc_hosted_modules()
-        var k = 0
+        var k = layer.import_first
         while k < self.res.imports.len() {
             let imp = self.res.imports[k]
             k = k + 1
@@ -98,8 +99,8 @@ public func tc_format_sync_reason() -> String {
 }
 
 extension TcProgram {
-    public func check_effects(&var self) {
-        var u = 0
+    public func check_effects(&var self, layer: &FrontLayer) {
+        var u = layer.unit_first
         while u < self.units.len() {
             let unit = self.units[u]
             if unit.top == u {
@@ -107,12 +108,12 @@ extension TcProgram {
             }
             u = u + 1
         }
-        self.check_sync_requirements()
-        self.check_format_hooks()
-        self.check_declared_requirements()
+        self.check_sync_requirements(&layer)
+        self.check_format_hooks(&layer)
+        self.check_declared_requirements(&layer)
         self.check_entry_root()
-        self.check_blocking_declarations()
-        self.check_function_values()
+        self.check_blocking_declarations(&layer)
+        self.check_function_values(&layer)
     }
 
     // Each named function taken as a function value (`function_value`), once
@@ -122,8 +123,8 @@ extension TcProgram {
     // until Saw has heap-allocated frames; and one that blocks its thread by
     // inference is refused as a declared `blocking` one is, since the call is
     // made wherever the value goes, a task included.
-    func check_function_values(&var self) {
-        var k = 0
+    func check_function_values(&var self, layer: &FrontLayer) {
+        var k = layer.function_value_first
         while k < self.function_values.len() {
             let e = self.function_values[k]
             k = k + 1
@@ -168,14 +169,14 @@ extension TcProgram {
     // `coro_refuse_suspending_formats`, decided per instance.
     // ENTRY POINTS:
     //     check_effects
-    func check_format_hooks(&var self) {
+    func check_format_hooks(&var self, layer: &FrontLayer) {
         let req = self.format_requirement()
         if req < 0 {
             return
         }
         // A refining trait's conformance (`Error`'s) lists the member again.
         var refused = Vector<Int>()
-        var k = 0
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
@@ -290,8 +291,8 @@ extension TcProgram {
     // silent copy. Each is refused at the declaration, once per parameter.
     // A requirement on a parameter of a method's type is declared by the
     // method's extension, as `extension Vector<T: Copy>` (SL-501).
-    func check_declared_requirements(&var self) {
-        var d = 0
+    func check_declared_requirements(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.summaries.len() {
             let s = self.summaries[d]
             if s.state == TC_SUMMARY_BODY && s.copy_count > 0 {
@@ -1016,8 +1017,8 @@ extension TcProgram {
 
     // A `sync` requirement met by a member not declared `sync` holds when
     // the member is sync-callable, which its summary answers.
-    func check_sync_requirements(&var self) {
-        var k = 0
+    func check_sync_requirements(&var self, layer: &FrontLayer) {
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
@@ -1051,8 +1052,8 @@ extension TcProgram {
     // The declaration-site rules of blocking functions (spec, Blocking
     // functions): where `blocking` may stand, what may not block because no
     // task root sees its call, a pair's default, and the public boundary.
-    func check_blocking_declarations(&var self) {
-        var d = 0
+    func check_blocking_declarations(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let kind = self.res.decls[d].kind
             if kind == ResDeclKind.Func || kind == ResDeclKind.Method || kind == ResDeclKind.Init || kind == ResDeclKind.Requirement {
@@ -1060,9 +1061,9 @@ extension TcProgram {
             }
             d = d + 1
         }
-        self.check_blocking_conformances()
-        self.check_blocking_containment()
-        self.check_extern_declarations()
+        self.check_blocking_conformances(&layer)
+        self.check_blocking_containment(&layer)
+        self.check_extern_declarations(&layer)
     }
 
     // THE EXTERN FUNNEL: every extern declaration of the program, std's
@@ -1072,10 +1073,11 @@ extension TcProgram {
     // agrees on its whole signature and on `blocking`, since the program calls
     // one C function by that name; each is judged against one reference, a
     // std module's when there is one, so a redeclaration of a std seam is
-    // refused where the program writes it.
+    // refused where the program writes it. Every layer's externs are read
+    // for the references, and `layer`'s judged.
     // ENTRY POINTS:
     //     check_blocking_declarations
-    func check_extern_declarations(&var self) {
+    func check_extern_declarations(&var self, layer: &FrontLayer) {
         var symbols = Vector<String>()
         var references = Vector<Int>()
         var d = 0
@@ -1097,7 +1099,7 @@ extension TcProgram {
             }
             d = d + 1
         }
-        d = 0
+        d = layer.decl_first
         while d < self.res.decls.len() {
             if self.is_checked_extern(d) {
                 // Stage 0 workaround (SL:hazards S4): canonical: let symbol = self.name_text(self.res.decls[d].name)
@@ -1542,8 +1544,8 @@ extension TcProgram {
     // `blocking` `deinit`, since its declaration is what another module
     // reads (spec, Blocking drops). A part typed by a parameter is the
     // instance's, decided post-mono.
-    func check_blocking_containment(&var self) {
-        var d = 0
+    func check_blocking_containment(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let kind = self.res.decls[d].kind
             if (kind == ResDeclKind.Struct || kind == ResDeclKind.Enum) && self.publishes(d) && self.blocking_deinit_of(d) < 0 {
@@ -1674,8 +1676,8 @@ extension TcProgram {
     // inferred: refused at the implementation, since a call through the
     // requirement, by a dispatch or a bound, reaches it where no task root
     // sees the call. A copy policy's `copy()` is the compiler's own call.
-    func check_blocking_conformances(&var self) {
-        var k = 0
+    func check_blocking_conformances(&var self, layer: &FrontLayer) {
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1

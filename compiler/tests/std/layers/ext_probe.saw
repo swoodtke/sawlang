@@ -1,0 +1,39 @@
+// A program that reaches into std's tables from its own layer: a conformance
+// of a user type to a std trait, of `String` to a user trait, and extensions
+// of `Data` and `Vector`, which add members to the std types' tables.
+
+import std.data.{Data}
+
+struct Tag { n: Int }
+
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append(self.n)
+    }
+}
+
+trait Shout {
+    func shout(&self) -> Int
+}
+
+extension String: Shout {
+    func shout(&self) -> Int { self.len() }
+}
+
+extension Data {
+    func first_byte(&self) -> Int { (self.get(0) ?? Byte(0)) as Int }
+}
+
+extension Vector<T, A: Allocator> {
+    func twice(&self) -> Int { self.len() * 2 }
+}
+
+func main() {
+    let d = Data()
+    print(d.first_byte())
+    let t = Tag(n: 3)
+    print(t)
+    print("ab".shout())
+    let v: Vector<Int> = [1]
+    print(v.twice())
+}

@@ -6,7 +6,9 @@ build's clang temporary object names aside) and exit status. Configured by FIXPO
 FIXPOINT_LOG (the directory). The two stages run at once when the step holds a
 second token for the call (SAW_GATE_CALL_TOKENS, compiler/tests/run.py) or one
 of the gate's budget is free (`tools/gate_jobs.py`), except for a command that
-writes files, whose two runs would write the same paths. For `sawc lex @LIST`,
+writes files, whose two runs would write the same paths. A command that
+rewrites the files it names in place (`sawc fix`) runs each stage on their
+original contents in turn, and the two must also leave the same files. For `sawc lex @LIST`,
 which lexes many files in one process, the record names each listed file
 whose frame the two stages print differently (`files`), and counts the files.
 
@@ -26,6 +28,13 @@ TOOLS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dir
 
 # The sawc commands that write files at paths their arguments name.
 WRITERS = ("build", "runtime")
+
+# The sawc commands that rewrite, in place, the files their arguments name
+# (`fix`, unless `--check`): two stages run on one file would each read what the
+# other wrote, so each runs on the files' original contents in turn
+# (`run_in_place`). The flags that take a value name no such file.
+REWRITERS = ("fix",)
+VALUE_FLAGS = ("--std-root", "--module-path")
 
 # clang names the object it links through `STEM-XXXXXX.o` with a random
 # suffix, and a link failure's message quotes it, so the two stages' stderr
@@ -72,8 +81,76 @@ def first_difference(a, b):
     return ""
 
 
+def rewritten_files(args):
+    """The files an in-place rewrite's arguments name, each path given or
+    listed in an `@LIST`; [] for a command that rewrites none."""
+    if args[:1] not in [[c] for c in REWRITERS] or "--check" in args:
+        return []
+    paths = []
+    k = 1
+    while k < len(args):
+        a = args[k]
+        k = k + 1
+        if a in VALUE_FLAGS:
+            k = k + 1
+        elif a.startswith("@"):
+            try:
+                with open(a[1:], encoding="utf-8") as fh:
+                    paths += [line for line in fh.read().split("\n") if line]
+            except OSError:
+                pass
+        elif not a.startswith("-"):
+            paths.append(a)
+    return paths
+
+
+def read_or_none(path):
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def put_back(path, data):
+    """File `path` holding `data` again, or absent for None."""
+    if data is None:
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    with open(path, "wb") as fh:
+        fh.write(data)
+
+
+def run_in_place(commands, files):
+    """Each stage run on the original contents of `files`, Stage 1 first: the
+    originals are kept, Stage 1 runs and what it left is read, the originals
+    are put back, and Stage 2 runs, so the files end as Stage 2 left them.
+    Returns both answers and, per file, what each stage left."""
+    originals = [read_or_none(path) for path in files]
+    ref = subprocess.run(commands[0], capture_output=True)
+    ref_left = [read_or_none(path) for path in files]
+    for path, data in zip(files, originals):
+        put_back(path, data)
+    new = subprocess.run(commands[1], capture_output=True)
+    left = [(path, x, read_or_none(path)) for path, x in zip(files, ref_left)]
+    return ref, new, left
+
+
 def run_both(args):
+    """Both stages' answers, and for an in-place rewrite what each left in the
+    files it names (`run_in_place`), else []."""
     commands = [[os.environ["FIXPOINT_REF"]] + args, [os.environ["FIXPOINT_NEW"]] + args]
+    files = rewritten_files(args)
+    if files:
+        return run_in_place(commands, files)
+    ref, new = run_separately(args, commands)
+    return ref, new, []
+
+
+def run_separately(args, commands):
+    """Both stages' answers, at once when a token allows and the command
+    writes nothing."""
     if os.environ.get("SAW_GATE_JOBS") == "1" or not args[:1] or args[0] in WRITERS:
         return tuple(subprocess.run(cmd, capture_output=True) for cmd in commands)
     gate_jobs = token = None
@@ -118,9 +195,13 @@ def split_frames(out):
 
 def main():
     args = sys.argv[1:]
-    ref, new = run_both(args)
+    ref, new, left = run_both(args)
     differs = []
     files = []
+    for path, x, y in left:
+        if x != y:
+            difference = first_difference(x or b"<absent>", y or b"<absent>")
+            differs.append("the file %s it rewrites %s" % (path, difference))
     if ref.returncode != new.returncode:
         differs.append("exit %d under Stage 2, %d under Stage 1" % (new.returncode, ref.returncode))
     if ref.stdout != new.stdout:

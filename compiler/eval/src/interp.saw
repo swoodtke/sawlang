@@ -18,6 +18,7 @@ import sawmir.model.{MirAggregate, MirBlock, MirCallKind, MirConstKind, MirDiag,
                          MirOperandKind, MirPlace, MirRvalue, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
+import sawresolve.layer.{FrontLayer}
 import saweval.program.{EvalEnd, EvalKind, EvalProgram, EvalValue, eval_is_constant_kind}
 import saweval.report.{eval_rules}
 import sawtypecheck.arith.{TcFault, TcValue, tc_arith_binary, tc_arith_compare, tc_arith_convert,
@@ -49,10 +50,12 @@ public func eval_step_budget() -> Int {
 }
 
 extension EvalProgram {
-    // Evaluates every constant position of every lowered function.
-    public func evaluate_all(&var self, mir: &MirProgram) {
+    // Evaluates every constant position of each function `layer` lowered,
+    // before a later stage rewrites its MIR; one reading an earlier layer's
+    // constant reads the value that layer's evaluation left.
+    public func evaluate_all(&var self, mir: &MirProgram, layer: &FrontLayer) {
         let n = mir.funcs.len()
-        var f = 0
+        var f = layer.func_first
         while f < n {
             let info = mir.funcs[f]
             if info.kind == MirFuncKind.Assert && self.layout_assert(&mir, info.root) {

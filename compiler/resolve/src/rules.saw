@@ -2,12 +2,15 @@
 // type's module or its trait's (the orphan rule), and a type conforms to a
 // trait at most once in the program (design 142).
 
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResConformance, ResDecl, ResDeclKind}
 import sawresolve.program.{ResProgram}
 
 extension ResProgram {
-    public func check_conformances(&var self) {
-        var k = 0
+    // Each of `layer`'s conformances, against the orphan rule and against
+    // every conformance declared before it, an earlier layer's included.
+    public func check_conformances(&var self, layer: &FrontLayer) {
+        var k = layer.conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             let type_decl = res_conformance_decl(&c.target)

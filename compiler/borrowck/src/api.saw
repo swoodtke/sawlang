@@ -5,8 +5,10 @@ import sawborrowck.check.{borrowck_rules}
 import sawborrowck.dump.{borrowck_conditions_text}
 import sawborrowck.program.{BorrowckProgram, borrowck_program}
 import sawborrowck.verify.{borrowck_verify_module}
-import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawasserts.layout.{asserts_inputs}
+import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_empty_front, mir_run_layer}
 import sawmir.program.{MirProgram}
+import sawresolve.layer.{FrontLayer, front_layers}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram, TcTarget}
 
@@ -25,19 +27,22 @@ public struct BorrowckOptions {
 // each an `ERROR` line, then an `INVARIANT` line per problem its verifier
 // finds, and with `dump` each checked module's dump. Returns 0 when nothing
 // was refused and 1 otherwise. The lowering is counted in `lowerings`.
+// Each layer is borrow checked in its step, as a build checks it.
 public func borrowck_record(out: &var StringBuilder, path: String, options: &BorrowckOptions,
                             names: &Vector<String>, dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
-    var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
-    var p = borrowck_program(move lowered)
-    var m = 0
-    while m < p.mir.tc.res.module_count() {
-        let info = p.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            p.check_module(m)
-        }
-        m = m + 1
+    var p = borrowck_program(mir_empty_front(options.std_root, options.target))
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layers = front_layers()
+    var j = 0
+    while j < layers.len() {
+        var layer = layers[j]
+        mir_run_layer(&var p.mir, &var layer, &inputs)
+        p.check_layer(&layer)
+        j = j + 1
     }
+    lowerings = lowerings + 1
+    var status = mir_append_checks(out: &var out, p: &var p.mir, notes: options.notes)
+    var m = 0
     var k = 0
     while k < p.diags.len() {
         let d = p.diags[k]

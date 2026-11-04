@@ -1,0 +1,145 @@
+// The front end's layers: std first, through drop elaboration, then the
+// program, starting where std stopped. A layer's state at its end depends on
+// the layers before it and its own sources alone, which is what lets a later
+// build start from it (SL-955 unit 4).
+
+// What a layer loads: std (the builtin module, std's modules and the target's
+// builtins modules), or the program (the `--module-path` packages and the
+// entry, with every module the entry's imports reach).
+public enum FrontLayerKind {
+    case Std,
+    case Program
+}
+
+// THE FRONT-END LAYER: one layer's kind and the watermarks its phases start
+// from, each the length of a program-wide table at the layer's start. Each
+// stage stamps its own watermarks when its step for the layer begins
+// (`begin_layer`), before anything of the layer reaches its tables, so every
+// watermark is the table's length at the cut. A phase reads the entries of the
+// earlier layers it needs and records only for its own layer's. The list below
+// is the position matrix: a phase that ignores the record either redoes an
+// earlier layer, which changes that layer's state, or skips its own.
+// ENTRY POINTS:
+//     res_run_layer
+//     process_imports
+//     check_none_cases
+//     res_resolve_bodies
+//     check_conformances
+//     tc_run_layer
+//     tc_check_hosted_imports
+//     tc_index_generics
+//     tc_evaluate_constant_statics
+//     tc_build_signatures
+//     tc_collect_conformances
+//     tc_check_derived_conformances
+//     tc_check_policy_placement
+//     tc_settle_conformances
+//     tc_check_test_only_copies
+//     tc_check_copy_policies
+//     tc_check_redeclarations
+//     tc_build_members
+//     tc_compute_tiers
+//     tc_check_required_conformances
+//     tc_check_derivations
+//     tc_check_test_only_overlaps
+//     tc_check_containment
+//     tc_check_finite_size
+//     tc_check_unsafe
+//     tc_check_inits
+//     tc_check_entry_point
+//     tc_check_bodies
+//     tc_check_object_safety
+//     tc_check_mutability
+//     tc_check_escaping_consumes
+//     tc_check_closure_traits
+//     tc_check_reference_positions
+//     tc_check_exhaustive
+//     tc_settle_path_uses
+//     tc_solve_summaries
+//     tc_check_effects
+//     tc_check_body_rules
+//     tc_verify_all_summaries
+//     tc_check_atomic_widths
+//     tc_check_memory_views
+//     tc_check_func_pointer_types
+//     tc_check_target_atomics
+//     tc_check_exports
+//     asserts_run_layer
+//     mir_run_layer
+//     mir_lower_program
+//     mir_lower_derived_bodies
+//     EvalProgram.evaluate_all
+//     BorrowckProgram.check_layer
+//     drops_layer_front
+//     drops_layer_elaborate
+public struct FrontLayer {
+    kind: FrontLayerKind
+    // Resolve's tables.
+    module_first: Int
+    decl_first: Int
+    node_first: Int
+    import_first: Int
+    symbol_first: Int
+    conformance_first: Int
+    pending_first: Int
+    call_first: Int
+    name_first: Int
+    // Typecheck's tables.
+    type_first: Int
+    tc_conformance_first: Int
+    obligation_first: Int
+    func_node_first: Int
+    body_root_first: Int
+    tc_call_first: Int
+    closure_first: Int
+    capture_first: Int
+    unit_first: Int
+    pending_constant_first: Int
+    erased_first: Int
+    function_value_first: Int
+    func_pointer_literal_first: Int
+    thread_brace_first: Int
+    memory_construction_first: Int
+    layout_assert_first: Int
+    // MIR's tables.
+    func_first: Int
+    stmt_first: Int
+    place_first: Int
+}
+
+// A layer of kind `kind` whose watermarks no stage has stamped yet: the one
+// place the record is made.
+public func front_layer(kind: FrontLayerKind) -> FrontLayer {
+    FrontLayer(kind: kind, module_first: 0, decl_first: 0, node_first: 0, import_first: 0, symbol_first: 0,
+               conformance_first: 0, pending_first: 0, call_first: 0, name_first: 0, type_first: 0,
+               tc_conformance_first: 0, obligation_first: 0, func_node_first: 0, body_root_first: 0,
+               tc_call_first: 0, closure_first: 0, capture_first: 0, unit_first: 0, pending_constant_first: 0,
+               erased_first: 0, function_value_first: 0, func_pointer_literal_first: 0, thread_brace_first: 0,
+               memory_construction_first: 0, layout_assert_first: 0, func_first: 0, stmt_first: 0, place_first: 0)
+}
+
+// The layers every front-end entry runs, in order: std's, then the program's.
+public func front_layers() -> Vector<FrontLayer> {
+    var out = Vector<FrontLayer>()
+    try! out.push(front_layer(FrontLayerKind.Std))
+    try! out.push(front_layer(FrontLayerKind.Program))
+    move out
+}
+
+// What the layers load from outside the std root: the entry file, each
+// `--module-path` package's name and directory, and the std builtins modules
+// the target takes (`target_builtins_modules`). Std's layer reads only the
+// builtins modules; the program's reads the rest.
+public struct FrontInputs {
+    path: String
+    names: Vector<String>
+    dirs: Vector<String>
+    builtins: Vector<String>
+}
+
+extension FrontInputs: NoCopy {}
+
+public func front_inputs(path: String, names: &Vector<String>, dirs: &Vector<String>,
+                         builtins: Vector<String>) -> FrontInputs {
+    FrontInputs(path: path, names: names.copy(), dirs: dirs.copy(), builtins: move builtins)
+}

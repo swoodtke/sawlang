@@ -9,8 +9,12 @@ import sawdrops.dump.{drops_dump_module}
 import sawdrops.elaborate.{drops_rules}
 import sawdrops.program.{DropsProgram, drops_program}
 import sawdrops.verify.{drops_verify_module}
-import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawasserts.layout.{asserts_inputs}
+import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
+import sawmir.api.{mir_append_diag, mir_append_invariants, mir_append_module_checks, mir_append_refusals,
+                       mir_empty_front, mir_run_layer, mir_status}
 import sawmir.program.{MirProgram}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_layers}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.program.{TcProgram, TcTarget}
 
@@ -33,62 +37,110 @@ public struct DropsOptions {
 // `lowerings`.
 public func drops_record(out: &var StringBuilder, path: String, options: &DropsOptions, names: &Vector<String>,
                          dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
+    var p = drops_program(borrowck_program(mir_empty_front(options.std_root, options.target)))
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var checked = StringBuilder()
+    var verified = StringBuilder()
+    var elaborated = StringBuilder()
+    var blocked = false
+    var layers = front_layers()
+    var j = 0
+    while j < layers.len() {
+        var layer = layers[j]
+        if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
+            blocked = true
+        }
+        // MIR some verifier found a problem in is not elaborated: the drops
+        // it holds are not the ones the program owes.
+        if not blocked {
+            drops_layer_elaborate(&var p, &layer, &var elaborated)
+        }
+        layers[j] = layer
+        j = j + 1
+    }
+    lowerings = lowerings + 1
     var head = StringBuilder()
-    var status = mir_append_checks(out: &var head, p: &var lowered, notes: options.notes)
-    var bc = borrowck_program(move lowered)
-    var m = 0
-    while m < bc.mir.tc.res.module_count() {
-        let info = bc.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            bc.check_module(m)
-        }
-        m = m + 1
-    }
-    var k = 0
-    while k < bc.diags.len() {
-        let d = bc.diags[k]
-        mir_append_diag(out: &var head, p: &bc.mir, d: &d)
-        k = k + 1
-    }
-    if bc.diags.len() > 0 {
-        status = 1
-    }
-    m = 0
-    while m < bc.mir.tc.res.module_count() {
-        let info = bc.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            let found = borrowck_verify_module(&var bc, m)
-            mir_append_invariants(out: &var head, p: &bc.mir, m: m, problems: &found)
-        }
-        m = m + 1
-    }
+    let status = drops_append_front(&var head, &p, options.notes, &checked, &verified)
     let before = head.build()
     try! out.append(before)
-    // MIR some verifier found a problem in is not elaborated: the drops it
-    // holds are not the ones the program owes.
     if status != 0 || drops_has_invariant(before) {
         return status
     }
-    var p = drops_program(move bc)
-    m = 0
+    let done = drops_append_elaboration(&var out, &p, &elaborated)
+    if options.dump {
+        var m = 0
+        while m < p.bc.mir.tc.res.module_count() {
+            let info = p.bc.mir.tc.res.module(m)
+            if info.available && not info.interface_only {
+                drops_dump_module(&var p, &var out, m)
+                try! out.append("\n")
+                if m == p.bc.mir.tc.res.std_prelude {
+                    drops_dump_layers(&var out, &layers)
+                }
+            }
+            m = m + 1
+        }
+    }
+    if done != 0 {
+        return done
+    }
+    status
+}
+
+// THE LAYER FRONT: `layer` lowered, every verifier run over its modules, and
+// borrow checked, its verifier's lines appended to `checked` and its borrow
+// verifier's to `verified`. Says whether the layer leaves the program
+// blocked: a refusal or a broken invariant so far, after which nothing is
+// elaborated.
+// ENTRY POINTS:
+//     drops_record
+//     mono_lower_file
+public func drops_layer_front(p: &var DropsProgram, layer: &var FrontLayer, inputs: &FrontInputs,
+                              checked: &var StringBuilder, verified: &var StringBuilder) -> Bool {
+    mir_run_layer(&var p.bc.mir, &var layer, &inputs)
+    var lines = StringBuilder()
+    mir_append_module_checks(out: &var lines, p: &var p.bc.mir, first: layer.module_first)
+    stagetime_begin(StageTime.Borrowck)
+    p.bc.check_layer(&layer)
+    stagetime_end(StageTime.Borrowck)
+    var borrowed = StringBuilder()
+    var m = layer.module_first
     while m < p.bc.mir.tc.res.module_count() {
         let info = p.bc.mir.tc.res.module(m)
         if info.available && not info.interface_only {
-            p.elaborate_module(m)
+            stagetime_begin(StageTime.VerifyBorrowck)
+            let found = borrowck_verify_module(&var p.bc, m)
+            stagetime_end(StageTime.VerifyBorrowck)
+            mir_append_invariants(out: &var borrowed, p: &p.bc.mir, m: m, problems: &found)
         }
         m = m + 1
     }
-    k = 0
-    while k < p.diags.len() {
-        let d = p.diags[k]
-        mir_append_diag(out: &var out, p: &p.bc.mir, d: &d)
-        k = k + 1
+    let own_text = lines.build()
+    let checked_text = borrowed.build()
+    try! checked.append(own_text)
+    try! verified.append(checked_text)
+    let refused = mir_status(&p.bc.mir) != 0 || p.bc.diags.len() > 0
+    refused || drops_has_invariant(own_text) || drops_has_invariant(checked_text)
+}
+
+// Drop elaboration over each of `layer`'s modules checked in full, the
+// invariants it met or its verifier finds appended to `out` by module.
+// ENTRY POINTS:
+//     drops_record
+//     mono_lower_file
+public func drops_layer_elaborate(p: &var DropsProgram, layer: &FrontLayer, out: &var StringBuilder) {
+    p.begin_layer()
+    var m = layer.module_first
+    while m < p.bc.mir.tc.res.module_count() {
+        let info = p.bc.mir.tc.res.module(m)
+        if info.available && not info.interface_only {
+            stagetime_begin(StageTime.Drops)
+            p.elaborate_module(m)
+            stagetime_end(StageTime.Drops)
+        }
+        m = m + 1
     }
-    if p.diags.len() > 0 {
-        status = 1
-    }
-    m = 0
+    m = layer.module_first
     while m < p.bc.mir.tc.res.module_count() {
         let info = p.bc.mir.tc.res.module(m)
         if info.available && not info.interface_only {
@@ -101,23 +153,97 @@ public func drops_record(out: &var StringBuilder, path: String, options: &DropsO
                 j = j + 1
             }
             mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &met)
+            stagetime_begin(StageTime.VerifyDrops)
             let found = drops_verify_module(&var p, m)
+            stagetime_end(StageTime.VerifyDrops)
             mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &found)
         }
         m = m + 1
     }
-    if options.dump {
-        m = 0
-        while m < p.bc.mir.tc.res.module_count() {
-            let info = p.bc.mir.tc.res.module(m)
-            if info.available && not info.interface_only {
-                drops_dump_module(&var p, &var out, m)
-                try! out.append("\n")
-            }
-            m = m + 1
-        }
+}
+
+// What `sawc borrowck --check` prints for program `p` once every layer is
+// checked: resolve's, typecheck's and the lowering's refusals, the verifiers'
+// lines each layer appended to `checked`, the borrow check's refusals, then
+// its verifier's lines from `verified`. Returns 0 when nothing was refused
+// and 1 otherwise.
+public func drops_append_front(out: &var StringBuilder, p: &DropsProgram, notes: Bool, checked: &StringBuilder,
+                               verified: &StringBuilder) -> Int {
+    mir_append_refusals(out: &var out, p: &p.bc.mir, notes: notes)
+    try! out.append(checked.build())
+    var k = 0
+    while k < p.bc.diags.len() {
+        let d = p.bc.diags[k]
+        mir_append_diag(out: &var out, p: &p.bc.mir, d: &d)
+        k = k + 1
     }
-    status
+    try! out.append(verified.build())
+    if mir_status(&p.bc.mir) != 0 || p.bc.diags.len() > 0 {
+        return 1
+    }
+    0
+}
+
+// The watermarks each layer began at, as the std prelude module's dump closes
+// with them: the program layer's are the tables' lengths at the cut, which
+// std's layer leaves the same for every program on one std root, target and
+// profile (the std lane's `std_layers.py` holds them so).
+public func drops_dump_layers(out: &var StringBuilder, layers: &Vector<FrontLayer>) {
+    try! out.append("layers\n")
+    var k = 0
+    while k < layers.len() {
+        let l = layers[k]
+        k = k + 1
+        try! out.append("  ")
+        match l.kind {
+            case Std -> try! out.append("std"),
+            case Program -> try! out.append("program")
+        }
+        drops_mark(&var out, "modules", l.module_first)
+        drops_mark(&var out, "decls", l.decl_first)
+        drops_mark(&var out, "nodes", l.node_first)
+        drops_mark(&var out, "imports", l.import_first)
+        drops_mark(&var out, "symbols", l.symbol_first)
+        drops_mark(&var out, "conformances", l.conformance_first)
+        drops_mark(&var out, "calls", l.call_first)
+        drops_mark(&var out, "names", l.name_first)
+        drops_mark(&var out, "types", l.type_first)
+        drops_mark(&var out, "checked-conformances", l.tc_conformance_first)
+        drops_mark(&var out, "obligations", l.obligation_first)
+        drops_mark(&var out, "body-roots", l.body_root_first)
+        drops_mark(&var out, "checked-calls", l.tc_call_first)
+        drops_mark(&var out, "closures", l.closure_first)
+        drops_mark(&var out, "captures", l.capture_first)
+        drops_mark(&var out, "units", l.unit_first)
+        drops_mark(&var out, "functions", l.func_first)
+        drops_mark(&var out, "statements", l.stmt_first)
+        drops_mark(&var out, "places", l.place_first)
+        try! out.append("\n")
+    }
+    try! out.append("\n")
+}
+
+func drops_mark(out: &var StringBuilder, what: String, value: Int) {
+    try! out.append(" ")
+    try! out.append(what)
+    try! out.append(" ")
+    try! out.append(value)
+}
+
+// Drop elaboration's refusals, then the lines each layer's elaboration
+// appended to `elaborated`; returns 1 when elaboration refused anything.
+public func drops_append_elaboration(out: &var StringBuilder, p: &DropsProgram, elaborated: &StringBuilder) -> Int {
+    var k = 0
+    while k < p.diags.len() {
+        let d = p.diags[k]
+        mir_append_diag(out: &var out, p: &p.bc.mir, d: &d)
+        k = k + 1
+    }
+    try! out.append(elaborated.build())
+    if p.diags.len() > 0 {
+        return 1
+    }
+    0
 }
 
 static DROPS_NEWLINE: Int = 10

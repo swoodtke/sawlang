@@ -45,22 +45,27 @@ public struct DropsProgram {
 extension DropsProgram: NoCopy {}
 
 public func drops_program(bc: BorrowckProgram) -> DropsProgram {
-    var elaborated = Vector<Bool>()
-    var firsts = Vector<Int>()
-    var counts = Vector<Int>()
-    var k = 0
-    while k < bc.mir.funcs.len() {
-        try! elaborated.push(false)
-        try! firsts.push(0)
-        try! counts.push(0)
-        k = k + 1
-    }
-    DropsProgram(bc: move bc, diags: Vector<MirDiag>(), problems: Vector<String>(), problem_modules: Vector<Int>(),
-                 partial_drops: Vector<Int>(), guards: Vector<Int>(), elaborated: move elaborated, flag_first: move firsts,
-                 flag_count: move counts, flag_local: Vector<Int>(), flag_place: Vector<Int>())
+    var p = DropsProgram(bc: move bc, diags: Vector<MirDiag>(), problems: Vector<String>(),
+                         problem_modules: Vector<Int>(), partial_drops: Vector<Int>(), guards: Vector<Int>(),
+                         elaborated: Vector<Bool>(), flag_first: Vector<Int>(), flag_count: Vector<Int>(),
+                         flag_local: Vector<Int>(), flag_place: Vector<Int>())
+    p.begin_layer()
+    move p
 }
 
 extension DropsProgram {
+    // Grows the per-function tables to every function a layer's lowering
+    // added, before the layer's modules are elaborated.
+    public func begin_layer(&var self) {
+        var k = self.elaborated.len()
+        while k < self.bc.mir.funcs.len() {
+            try! self.elaborated.push(false)
+            try! self.flag_first.push(0)
+            try! self.flag_count.push(0)
+            k = k + 1
+        }
+    }
+
     // Statement `s`'s guard.
     public func guard_of(&self, s: Int) -> Int {
         if s < 0 || s >= self.guards.len() {

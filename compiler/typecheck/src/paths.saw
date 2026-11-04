@@ -12,6 +12,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.candidates.{tc_contains}
@@ -71,8 +72,8 @@ func tc_paths(nodes: Int) -> TcPaths {
 }
 
 // Settles every body's by-value reads of its locals (design 219).
-public func tc_settle_path_uses(p: &var TcProgram) {
-    p.settle_path_uses()
+public func tc_settle_path_uses(p: &var TcProgram, layer: &FrontLayer) {
+    p.settle_path_uses(&layer)
 }
 
 extension TcProgram {
@@ -88,16 +89,15 @@ extension TcProgram {
     //
     // ENTRY POINTS (settle_path_uses):
     //     tc_settle_path_uses
-    public func settle_path_uses(&var self) {
+    public func settle_path_uses(&var self, layer: &FrontLayer) {
         let total = self.res.nodes.len()
-        self.copy_partner = Vector<Int>()
-        var k = 0
+        var k = self.copy_partner.len()
         while k < total {
             try! self.copy_partner.push(-1)
             k = k + 1
         }
         var w = tc_paths(total)
-        k = 0
+        k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
             let d = self.body_decls[k]

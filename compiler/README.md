@@ -181,6 +181,19 @@ and the lexer, whose one file is `lib.saw`, as `sawlex`.
 packages, and every build goes through `build_program` there. The driver is
 `sawc`, which `bin/sawc` runs (building the stages first when they are stale).
 
+The stages from resolve through drop elaboration run in two layers, std's and
+then the program's (`resolve/src/layer.saw`, the front-end layer's funnel).
+Each stage's step of a layer runs its phases over the layer's part of the
+program-wide tables, from the watermarks the layer's record holds, and reads
+the earlier layer's part as finished. Std goes first because no std module
+imports the program, so std's layer can be completed through drop elaboration
+before the program's first module, or a `--module-path` package, is even
+loaded. Std's state at that cut then depends only on the std root, the target,
+the profile and the compiler, which is what lets a later build start from it
+(SL-955 unit 4); the std lane's `std_layers.py` holds std's part the same across
+programs. Mono, coroutine lowering and the backend run once, over the whole
+program, after the last layer.
+
 ## Building
 
 The seed is sawc compiled by clang from its own LLVM IR, which `seed/`

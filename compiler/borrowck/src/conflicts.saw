@@ -1125,19 +1125,20 @@ extension BorrowckProgram {
         move out
     }
 
-    // The parent of every source node, built once.
+    // The parent of every source node, built once per layer: a layer's
+    // nodes are the children of its own nodes alone.
     public func node_parents(&var self) {
         let n = self.mir.tc.res.nodes.len()
-        if self.parents.len() == n {
+        let first = self.parents.len()
+        if first == n {
             return
         }
-        var parents = borrowck_zeros(n)
-        var id = 0
+        var id = first
         while id < n {
-            parents[id] = -1
+            try! self.parents.push(-1)
             id = id + 1
         }
-        id = 0
+        id = first
         while id < n {
             if not self.mir.tc.res.is_leaf(id) {
                 let count = self.mir.tc.res.child_count(id)
@@ -1145,14 +1146,13 @@ extension BorrowckProgram {
                 while k < count {
                     let c = self.mir.tc.res.child(id, k)
                     if c >= 0 && c < n {
-                        parents[c] = id
+                        self.parents[c] = id
                     }
                     k = k + 1
                 }
             }
             id = id + 1
         }
-        self.parents = move parents
     }
 
     // The place method call `node` borrows its receiver from, traced, or a

@@ -16,6 +16,7 @@ import sawmir.model.{MirAggregate, MirCall, MirCallKind, MirConstKind, MirFuncKi
                          MirRvalueKind}
 import sawmir.program.{MirProgram}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.bodydump.{tc_dump_bodies}
 import sawtypecheck.candidates.{tc_contains}
@@ -29,9 +30,10 @@ import sawtypecheck.tier.{tc_compute_tiers}
 import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind}
 
-// Lowers the derived bodies of every module checked in full, refusal-free.
-public func mir_lower_derived_bodies(p: &var MirProgram) {
-    p.lower_derived_bodies()
+// Lowers the derived bodies of `layer`'s conformances in modules checked in
+// full, refusal-free.
+public func mir_lower_derived_bodies(p: &var MirProgram, layer: &FrontLayer) {
+    p.lower_derived_bodies(&layer)
 }
 
 // What a derived body reads its types and requirements through: the
@@ -66,8 +68,8 @@ extension MirProgram {
     // requirement (`derived_body`).
     // ENTRY POINTS:
     //     mir_lower_derived_bodies
-    public func lower_derived_bodies(&var self) {
-        var at = 0
+    public func lower_derived_bodies(&var self, layer: &FrontLayer) {
+        var at = layer.tc_conformance_first
         while at < self.tc.conformances.len() {
             let c = self.tc.conformances[at]
             let req = self.tc.derived_requirement(at)

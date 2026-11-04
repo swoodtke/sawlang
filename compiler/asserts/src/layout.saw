@@ -6,8 +6,9 @@
 // instantiation (`mono_check_layout_asserts`).
 
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
+import sawresolve.layer.{FrontInputs, FrontLayer, front_inputs, front_layers}
 import sawtarget.layout.{Target, target_builtins_modules}
-import sawtypecheck.api.{typecheck_program}
+import sawtypecheck.api.{tc_empty_program, tc_run_layer}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_atomic_widths}
 import sawtypecheck.fold.{TcFold}
@@ -15,39 +16,60 @@ import sawtypecheck.program.{TcProgram, TcTarget}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.typeops.{TcClient}
 
-// THE LAYOUT-ASSERT FUNNEL: the program typechecked, then every deferred
-// `static_assert` over concrete types checked against its layout, in every
-// body and at the top of every file, reachable or not, so `--check` refuses a
-// false one as surely as a build does.
+// The program typechecked through the layout-assert funnel, each layer in
+// turn (`front_layers`).
 // ENTRY POINTS:
 //     driver_resolve
 //     driver_print_warnings
 //     driver_fix_file
-//     mir_lower_file
 public func asserts_typecheck_program(path: String, std_root: String, names: &Vector<String>,
                                       dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                                       freestanding: Bool = false, provider: Bool = false,
                                       no_hidden_alloc: Bool = false) -> TcProgram {
-    // The builtins modules are chosen here, above both target and typecheck,
-    // since the target description depends on typecheck.
-    let builtins = target_builtins_modules(target.triple, freestanding, target.float_unit)
-    var p = typecheck_program(path, std_root, &names, &dirs, target: target, runtime: runtime,
-                              freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc,
-                              builtins: move builtins)
-    stagetime_begin(StageTime.Asserts)
-    asserts_check_concrete(&var p)
-    asserts_check_view_addresses(&var p)
-    stagetime_end(StageTime.Asserts)
+    var p = tc_empty_program(std_root, target, runtime: runtime, freestanding: freestanding, provider: provider,
+                             no_hidden_alloc: no_hidden_alloc)
+    let inputs = asserts_inputs(path, &names, &dirs, target, freestanding)
+    var layers = front_layers()
+    var k = 0
+    while k < layers.len() {
+        var layer = layers[k]
+        asserts_run_layer(&var p, &var layer, &inputs)
+        k = k + 1
+    }
     move p
+}
+
+// What the layers load for entry file `path` compiled for `target`. The
+// builtins modules are chosen here, above both target and typecheck, since
+// the target description depends on typecheck.
+public func asserts_inputs(path: String, names: &Vector<String>, dirs: &Vector<String>, target: TcTarget,
+                           freestanding: Bool) -> FrontInputs {
+    let builtins = target_builtins_modules(target.triple, freestanding, target.float_unit)
+    front_inputs(path, &names, &dirs, move builtins)
+}
+
+// THE LAYOUT-ASSERT FUNNEL: `layer` typechecked, then every deferred
+// `static_assert` over concrete types it holds checked against its layout, in
+// every body and at the top of every file, reachable or not, so `--check`
+// refuses a false one as surely as a build does.
+// ENTRY POINTS:
+//     asserts_typecheck_program
+//     mir_run_layer
+public func asserts_run_layer(p: &var TcProgram, layer: &var FrontLayer, inputs: &FrontInputs) {
+    tc_run_layer(&var p, &var layer, &inputs)
+    stagetime_begin(StageTime.Asserts)
+    asserts_check_concrete(&var p, &layer)
+    asserts_check_view_addresses(&var p, &layer)
+    stagetime_end(StageTime.Asserts)
 }
 
 // Each view built over a constant address, `UnsafeMemory<T, Use>(<int>)`,
 // against `T`'s alignment, which every access through the view assumes
 // (SL-914). An address no constant gives is the author's to align, and a `T`
 // naming a type parameter is laid out by no target here.
-func asserts_check_view_addresses(p: &var TcProgram) {
+func asserts_check_view_addresses(p: &var TcProgram, layer: &FrontLayer) {
     var target = Target(triple: p.target.triple)
-    var k = 0
+    var k = layer.memory_construction_first
     while k < p.memory_constructions.len() {
         let e = p.memory_constructions[k]
         let at = p.memory_addresses[k]
@@ -71,11 +93,11 @@ func asserts_check_view_addresses(p: &var TcProgram) {
     }
 }
 
-// Each deferred assertion that measures no type parameter, against the
-// layouts of the types it measures on the program's target.
-func asserts_check_concrete(p: &var TcProgram) {
+// Each of `layer`'s deferred assertions that measures no type parameter,
+// against the layouts of the types it measures on the program's target.
+func asserts_check_concrete(p: &var TcProgram, layer: &FrontLayer) {
     var target = Target(triple: p.target.triple)
-    var k = 0
+    var k = layer.layout_assert_first
     while k < p.layout_asserts.len() {
         if not p.layout_assert_generic[k] {
             let cond = p.layout_asserts[k]

@@ -52,6 +52,9 @@ profile, and the lang-item table.
   among them) typechecks, lowers, borrow-checks and drop-elaborates against
   `std/` with no refusal and no invariant, and its new-std cone equals
   `cone/sawc.cone` and holds no runtime, task or network module;
+- std's layer of the front end is the same in every program (`std_layers.py`):
+  the cut's counts, std's elaborated MIR, summaries and typecheck dump agree
+  across a program with nothing of its own and ones reaching into std's tables;
 - no fixture here ends a line in whitespace or ends in a blank line.
 """
 import collections
@@ -72,6 +75,7 @@ sys.path.insert(0, TESTS)
 
 import build  # noqa: E402
 import gate_jobs  # noqa: E402
+import std_layers  # noqa: E402
 import oracle  # noqa: E402
 import std_cone  # noqa: E402
 import subset_check  # noqa: E402
@@ -819,7 +823,14 @@ def run(write=False):
     check_mir_pins(failures, counts, write)
     check_cones(failures, counts, write)
     check_driver(failures, counts, write)
+    check_layers(failures, counts)
     return failures, counts
+
+
+def check_layers(failures, counts):
+    found, layer_counts = std_layers.run()
+    failures += found
+    counts.update(layer_counts)
 
 
 def main():

@@ -96,34 +96,39 @@ public func eval_is_constant_kind(kind: MirFuncKind) -> Bool {
 
 // The empty value table over `mir`, every constant position pending.
 public func eval_program(mir: &MirProgram) -> EvalProgram {
-    var values = Vector<EvalValue>()
-    var ends = Vector<EvalEnd>()
-    var active = Vector<Bool>()
-    let funcs = mir.funcs.len()
-    var k = 0
-    while k < funcs {
-        try! values.push(EvalValue.missing(fault: TcFault.NotConstant))
-        try! ends.push(EvalEnd.Pending)
-        try! active.push(false)
-        k = k + 1
-    }
-    var constant_of = Vector<Int>()
-    let decl_count = mir.tc.res.decl_count()
-    k = 0
-    while k < decl_count {
-        try! constant_of.push(-1)
-        k = k + 1
-    }
-    k = 0
-    while k < funcs {
-        let info = mir.funcs[k]
-        let named = info.kind == MirFuncKind.Static || info.kind == MirFuncKind.RawValue
-        if named && info.decl >= 0 && not info.refused {
-            constant_of[info.decl] = k
+    var p = EvalProgram(values: Vector<EvalValue>(), ends: Vector<EvalEnd>(), active: Vector<Bool>(),
+                        parts: Vector<EvalValue>(), constant_of: Vector<Int>(), stack: Vector<Int>(), steps: 0,
+                        diags: Vector<MirDiag>(), last_fault: TcFault.Clean)
+    p.grow(&mir)
+    move p
+}
+
+extension EvalProgram {
+    // The table grown to every function and declaration `mir` holds, each new
+    // constant position pending: a layer's lowering adds them.
+    public func grow(&var self, mir: &MirProgram) {
+        let first = self.values.len()
+        let funcs = mir.funcs.len()
+        var k = first
+        while k < funcs {
+            try! self.values.push(EvalValue.missing(fault: TcFault.NotConstant))
+            try! self.ends.push(EvalEnd.Pending)
+            try! self.active.push(false)
+            k = k + 1
         }
-        k = k + 1
+        k = self.constant_of.len()
+        while k < mir.tc.res.decl_count() {
+            try! self.constant_of.push(-1)
+            k = k + 1
+        }
+        k = first
+        while k < funcs {
+            let info = mir.funcs[k]
+            let named = info.kind == MirFuncKind.Static || info.kind == MirFuncKind.RawValue
+            if named && info.decl >= 0 && not info.refused {
+                self.constant_of[info.decl] = k
+            }
+            k = k + 1
+        }
     }
-    EvalProgram(values: move values, ends: move ends, active: move active, parts: Vector<EvalValue>(),
-                constant_of: move constant_of, stack: Vector<Int>(), steps: 0, diags: Vector<MirDiag>(),
-                last_fault: TcFault.Clean)
 }

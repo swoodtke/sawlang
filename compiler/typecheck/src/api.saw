@@ -2,10 +2,11 @@
 // checked, and the record `sawc typecheck` prints for it.
 
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
-import sawresolve.api.{append_res_diag, resolve_program}
+import sawresolve.api.{append_res_diag, res_run_layer}
 import sawresolve.lang.{ResLang}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layers}
 import sawresolve.model.{ResDiag, ResModule}
-import sawresolve.program.{ResProgram}
+import sawresolve.program.{ResProgram, res_program}
 import sawresolve.verify.{res_verify_module}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.bodychecks.{tc_check_body_rules}
@@ -62,66 +63,94 @@ public struct TypecheckOptions {
 // modules `builtins` names loaded beside std, then builds every
 // declaration's signature, the conformance table, the member tables and the
 // Copy tiers, and runs the checks that need only those (SL:architecture §3.4,
-// "Order").
+// "Order"): std's layer, then the program's (`front_layers`).
 public func typecheck_program(path: String, std_root: String, names: &Vector<String>,
                               dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                               freestanding: Bool = false, provider: Bool = false,
                               no_hidden_alloc: Bool = false,
                               builtins: Vector<String> = Vector<String>()) -> TcProgram {
-    stagetime_begin(StageTime.Resolve)
-    let res = resolve_program(path, std_root, &names, &dirs, builtins: move builtins)
-    stagetime_end(StageTime.Resolve)
-    stagetime_begin(StageTime.Typecheck)
-    var p = tc_program(move res, target)
+    var p = tc_empty_program(std_root, target, runtime: runtime, freestanding: freestanding, provider: provider,
+                             no_hidden_alloc: no_hidden_alloc)
+    let inputs = front_inputs(path, &names, &dirs, move builtins)
+    var layers = front_layers()
+    var k = 0
+    while k < layers.len() {
+        var layer = layers[k]
+        tc_run_layer(&var p, &var layer, &inputs)
+        k = k + 1
+    }
+    move p
+}
+
+// The program under type checking before any layer is loaded, compiled for
+// `target` under the profile the flags name.
+public func tc_empty_program(std_root: String, target: TcTarget, runtime: Bool = false, freestanding: Bool = false,
+                             provider: Bool = false, no_hidden_alloc: Bool = false) -> TcProgram {
+    var p = tc_program(res_program(std_root), target)
     p.profile = tc_profile(runtime, provider, freestanding)
     p.no_hidden_alloc = no_hidden_alloc
-    p.find_known()
-    tc_check_hosted_imports(&var p)
-    tc_index_generics(&var p)
-    tc_evaluate_constant_statics(&var p)
-    tc_build_signatures(&var p)
-    tc_collect_conformances(&var p)
-    tc_check_derived_conformances(&var p)
-    tc_check_policy_placement(&var p)
+    move p
+}
+
+// Typecheck's step of `layer`, after resolve's: the phases of
+// SL:architecture §3.4's order, each over the layer's part of its table.
+public func tc_run_layer(p: &var TcProgram, layer: &var FrontLayer, inputs: &FrontInputs) {
+    stagetime_begin(StageTime.Resolve)
+    res_run_layer(&var p.res, &var layer, &inputs)
+    stagetime_end(StageTime.Resolve)
+    stagetime_begin(StageTime.Typecheck)
+    p.begin_layer(&var layer)
+    let lang = layer.kind == FrontLayerKind.Std
+    if lang {
+        p.find_known()
+    }
+    tc_check_hosted_imports(&var p, &layer)
+    tc_index_generics(&var p, &layer)
+    tc_evaluate_constant_statics(&var p, &layer)
+    tc_build_signatures(&var p, &layer)
+    tc_collect_conformances(&var p, &layer)
+    tc_check_derived_conformances(&var p, &layer)
+    tc_check_policy_placement(&var p, &layer)
     let visible = tc_extension_sets(&p)
-    tc_settle_conformances(&var p, &visible)
-    tc_check_test_only_copies(&var p)
-    tc_check_copy_policies(&var p)
-    tc_check_redeclarations(&var p)
-    tc_build_members(&var p)
-    tc_compute_tiers(&var p)
-    tc_check_required_conformances(&var p)
-    tc_check_derivations(&var p)
-    tc_check_test_only_overlaps(&var p)
+    tc_settle_conformances(&var p, &visible, &layer)
+    tc_check_test_only_copies(&var p, &layer)
+    tc_check_copy_policies(&var p, &layer)
+    tc_check_redeclarations(&var p, &layer)
+    tc_build_members(&var p, &layer)
+    tc_compute_tiers(&var p, &layer)
+    tc_check_required_conformances(&var p, &layer)
+    tc_check_derivations(&var p, &layer)
+    tc_check_test_only_overlaps(&var p, &layer)
     tc_check_obligations(&var p)
-    tc_check_containment(&var p)
-    tc_check_finite_size(&var p)
-    tc_check_unsafe(&var p)
-    tc_check_inits(&var p)
-    tc_check_entry_point(&var p)
-    tc_check_lang_shapes(&var p)
-    tc_check_bodies(&var p)
+    tc_check_containment(&var p, &layer)
+    tc_check_finite_size(&var p, &layer)
+    tc_check_unsafe(&var p, &layer)
+    tc_check_inits(&var p, &layer)
+    tc_check_entry_point(&var p, &layer)
+    if lang {
+        tc_check_lang_shapes(&var p)
+    }
+    tc_check_bodies(&var p, &layer)
     tc_check_obligations(&var p)
-    tc_check_object_safety(&var p)
-    tc_check_mutability(&var p)
-    tc_check_escaping_consumes(&var p)
-    tc_check_closure_traits(&var p)
-    tc_check_reference_positions(&var p)
-    tc_check_exhaustive(&var p)
-    tc_settle_path_uses(&var p)
-    tc_solve_summaries(&var p)
-    tc_check_effects(&var p)
-    tc_check_body_rules(&var p)
-    tc_verify_all_summaries(&var p)
-    tc_check_atomic_widths(&var p)
-    tc_check_memory_views(&var p)
-    tc_check_func_pointer_types(&var p)
-    tc_check_target_atomics(&var p)
-    tc_check_exports(&var p)
+    tc_check_object_safety(&var p, &layer)
+    tc_check_mutability(&var p, &layer)
+    tc_check_escaping_consumes(&var p, &layer)
+    tc_check_closure_traits(&var p, &layer)
+    tc_check_reference_positions(&var p, &layer)
+    tc_check_exhaustive(&var p, &layer)
+    tc_settle_path_uses(&var p, &layer)
+    tc_solve_summaries(&var p, &layer)
+    tc_check_effects(&var p, &layer)
+    tc_check_body_rules(&var p, &layer)
+    tc_verify_all_summaries(&var p, &layer)
+    tc_check_atomic_widths(&var p, &layer)
+    tc_check_memory_views(&var p, &layer)
+    tc_check_func_pointer_types(&var p, &layer)
+    tc_check_target_atomics(&var p, &layer)
+    tc_check_exports(&var p, &layer)
     // A pass after the bodies that forms a type leaves no bound unanswered.
     tc_check_obligations(&var p)
     stagetime_end(StageTime.Typecheck)
-    move p
 }
 
 extension TcProgram {

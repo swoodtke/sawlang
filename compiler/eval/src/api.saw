@@ -1,9 +1,11 @@
 // The evaluator's entry point: a program checked, lowered, its constants
 // evaluated, and the record `sawc eval` prints for it.
 
+import sawasserts.layout.{asserts_inputs}
 import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_dumps, mir_append_invariants,
-                       mir_lower_file}
+                       mir_empty_front, mir_run_layer}
 import sawmir.program.{MirProgram}
+import sawresolve.layer.{FrontLayer, front_layers}
 import saweval.check.{eval_fault_name}
 import saweval.interp.{eval_step_budget}
 import saweval.program.{EvalProgram, eval_program}
@@ -25,12 +27,23 @@ public struct EvalOptions {
 // line, then an `INVARIANT` line per problem its verifier finds, and with
 // `dump` each lowered module's constants. Returns 0 when nothing was refused
 // and 1 otherwise. The lowering is counted in `lowerings`.
+// Each layer's constants are evaluated in its step, as a build evaluates them.
 public func eval_record(out: &var StringBuilder, path: String, options: &EvalOptions, names: &Vector<String>,
                         dirs: &Vector<String>, lowerings: &var Int) -> Int {
-    var lowered = mir_lower_file(path, options.std_root, &names, &dirs, &var lowerings, target: options.target)
-    var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
+    var lowered = mir_empty_front(options.std_root, options.target)
     var p = eval_program(&lowered)
-    p.evaluate_all(&lowered)
+    let inputs = asserts_inputs(path, &names, &dirs, options.target, false)
+    var layers = front_layers()
+    var j = 0
+    while j < layers.len() {
+        var layer = layers[j]
+        mir_run_layer(&var lowered, &var layer, &inputs)
+        p.grow(&lowered)
+        p.evaluate_all(&lowered, &layer)
+        j = j + 1
+    }
+    lowerings = lowerings + 1
+    var status = mir_append_checks(out: &var out, p: &var lowered, notes: options.notes)
     var k = 0
     while k < p.diags.len() {
         let d = p.diags[k]

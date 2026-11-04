@@ -5,25 +5,35 @@
 // and a member where its visibility reaches.
 
 import sawresolve.imports.{res_decl_binding}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDecl, ResDeclKind, ResVis}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TcConformance, TcMember, TcSource, TcStatus, TcStatusKind}
 import sawtypecheck.program.{TcProgram}
+// For the extension writing `ext_target`.
+import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.types.{TcKind}
 import sawtypecheck.walks.{TC_WALK_OWNS, tc_memo}
 
-// Every nominal type's member table.
-public func tc_build_members(p: &var TcProgram) {
-    p.build_members()
+// Every nominal type's member table that `layer` adds or extends.
+public func tc_build_members(p: &var TcProgram, layer: &FrontLayer) {
+    p.build_members(&layer)
 }
 
 extension TcProgram {
-    // Every nominal type's member table, in declaration order.
-    public func build_members(&var self) {
-        self.index_conformance_members()
+    // The member table of each of `layer`'s nominal types, in declaration
+    // order, and of each earlier layer's type an extension or a conformance
+    // of `layer` reaches: that one is built again at the end of the table,
+    // whole, as a single build would have made it, since an earlier layer's
+    // extensions come before `layer`'s; its old run is left unused, so the
+    // tables an earlier layer left stay as they were.
+    public func build_members(&var self, layer: &FrontLayer) {
+        self.index_conformance_members(&layer)
+        let reached = self.types_extended_by(&layer)
         var d = 0
         while d < self.res.decls.len() {
-            if self.is_nominal(d) {
+            let again = d < layer.decl_first && reached[d]
+            if self.is_nominal(d) && (again || d >= layer.decl_first) {
                 self.build_member_table(d)
             }
             d = d + 1
@@ -31,17 +41,47 @@ extension TcProgram {
         self.members_built = true
     }
 
+    // By declaration: whether an earlier layer's nominal type is extended by
+    // one of `layer`'s extensions or conformed by one of its conformances.
+    func types_extended_by(&self, layer: &FrontLayer) -> Vector<Bool> {
+        var out = Vector<Bool>()
+        var d = 0
+        while d < self.res.decls.len() {
+            try! out.push(false)
+            d = d + 1
+        }
+        d = layer.decl_first
+        while d < self.res.decls.len() {
+            if self.res.decls[d].kind == ResDeclKind.Extension {
+                let target = self.ext_target(d)
+                if target >= 0 && target < layer.decl_first {
+                    out[target] = true
+                }
+            }
+            d = d + 1
+        }
+        var k = layer.tc_conformance_first
+        while k < self.conformances.len() {
+            let t = self.conformances[k].type_decl
+            if t >= 0 && t < layer.decl_first {
+                out[t] = true
+            }
+            k = k + 1
+        }
+        move out
+    }
+
     // Each written member that meets a production conformance's requirement,
     // to the requirement's trait: such a member follows the trait's
     // visibility, not its own. A test-only conformance widens nothing, since
     // `follows_trait` answers ordinary code too, which never sees it.
-    func index_conformance_members(&var self) {
-        var d = 0
+    func index_conformance_members(&var self, layer: &FrontLayer) {
+        var d = self.meets_trait.len()
         while d < self.res.decls.len() {
             try! self.meets_trait.push(-1)
             d = d + 1
         }
-        var k = 0
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1

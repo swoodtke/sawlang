@@ -4,6 +4,7 @@
 
 import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirDiag, MirFunc, MirLocal, MirOperand,
                          MirPlace, MirProj, MirRvalue, MirStmt, MirWindow}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.names.{ResIndex}
 import sawresolve.program.{ResProgram, res_twin_message}
 import sawtypecheck.program.{TcProgram}
@@ -241,22 +242,16 @@ func mir_diag_made(diags: &Vector<MirDiag>, d: &MirDiag, message: String?) -> Bo
     false
 }
 
+// The program under MIR lowering over `tc`, its tables sized to what `tc`
+// holds; each layer grows them to what the stages before it add
+// (`begin_layer`).
 public func mir_program(tc: TcProgram) -> MirProgram {
-    let n = tc.res.nodes.len()
-    var leaf_local = Vector<Int>()
-    var leaf_capture = Vector<Int>()
-    var k = 0
-    while k < n {
-        try! leaf_local.push(-1)
-        try! leaf_capture.push(-1)
-        k = k + 1
-    }
-    var accessor_of = Vector<Int>()
-    k = 0
-    while k < tc.res.decls.len() {
-        try! accessor_of.push(-1)
-        k = k + 1
-    }
+    var p = mir_empty_program(move tc)
+    p.grow_tables()
+    move p
+}
+
+func mir_empty_program(tc: TcProgram) -> MirProgram {
     MirProgram(tc: move tc, funcs: Vector<MirFunc>(), locals: Vector<MirLocal>(),
                blocks: Vector<MirBlock>(), stmts: Vector<MirStmt>(), places: Vector<MirPlace>(),
                projs: Vector<MirProj>(), operands: Vector<MirOperand>(), rvalues: Vector<MirRvalue>(),
@@ -266,11 +261,37 @@ public func mir_program(tc: TcProgram) -> MirProgram {
                func_of: ResIndex(), cur: -1, local_base: 0,
                block_base: 0, current: -1, scope: Vector<MirScopeEntry>(),
                scope_marks: Vector<Int>(), loops: Vector<MirLoop>(), catches: Vector<MirCatch>(),
-               chains: Vector<MirChain>(), leaf_local: move leaf_local,
-               touched: Vector<Int>(), leaf_capture: move leaf_capture, pending: Vector<Int>(),
+               chains: Vector<MirChain>(), leaf_local: Vector<Int>(),
+               touched: Vector<Int>(), leaf_capture: Vector<Int>(), pending: Vector<Int>(),
                pending_parents: Vector<Int>(), closure_counts: ResIndex(), function_targets: ResIndex(),
                statement_windows: Vector<Int>(), refused: false, moved_parts: Vector<Int>(),
                leftover_parts: Vector<Int>(), release_fields: Vector<Int>(), release_types: Vector<Int>(),
-               aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: move accessor_of,
+               aux: Vector<Int>(), accessors: Vector<MirAccessor>(), accessor_of: Vector<Int>(),
                order_now: 0, at: -1, at_closing: false, lend_top_open: -1, borrow_spine: -1, borrow_mark: 0)
+}
+
+extension MirProgram {
+    // Stamps MIR's watermarks on `layer`, whose lowering begins once the
+    // stages before it have checked the layer, and grows the per-node and
+    // per-declaration tables to what they hold.
+    public func begin_layer(&var self, layer: &var FrontLayer) {
+        layer.func_first = self.funcs.len()
+        layer.stmt_first = self.stmts.len()
+        layer.place_first = self.places.len()
+        self.grow_tables()
+    }
+
+    func grow_tables(&var self) {
+        var k = self.leaf_local.len()
+        while k < self.tc.res.nodes.len() {
+            try! self.leaf_local.push(-1)
+            try! self.leaf_capture.push(-1)
+            k = k + 1
+        }
+        k = self.accessor_of.len()
+        while k < self.tc.res.decls.len() {
+            try! self.accessor_of.push(-1)
+            k = k + 1
+        }
+    }
 }

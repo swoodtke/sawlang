@@ -21,6 +21,7 @@ import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.prelude.{res_is_test_driver, res_is_test_intrinsic}
 import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResDecl, ResDeclKind,
                              ResModule, ResModuleKind}
@@ -50,9 +51,9 @@ import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType, tc_kind_wraps}
 import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 
-// Checks every body of every module checked in full.
-public func tc_check_bodies(p: &var TcProgram) {
-    p.check_bodies()
+// Checks every body of each of `layer`'s modules checked in full.
+public func tc_check_bodies(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_bodies(&layer)
 }
 
 // A position that expects a value but names no type.
@@ -140,11 +141,12 @@ public enum TcOrigin {
 }
 
 extension TcProgram {
-    // Sizes the side tables, then checks each body of each module that is
-    // not an interface, and settles what each place's use decides.
-    public func check_bodies(&var self) {
+    // Sizes the side tables, then checks each body of each of `layer`'s
+    // modules that is not an interface, and settles what each place's use
+    // decides.
+    public func check_bodies(&var self, layer: &FrontLayer) {
         self.ensure_body_tables()
-        var m = 0
+        var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
             if info.available && not info.interface_only {
@@ -152,25 +154,22 @@ extension TcProgram {
             }
             m = m + 1
         }
-        self.judge_pending_constants()
-        self.check_zero_inits()
-        self.settle_places()
-        self.settle_captures()
-        self.check_func_pointer_literals()
-        self.check_thread_braces()
-        self.check_task_spawn_environments()
+        self.judge_pending_constants(&layer)
+        self.check_zero_inits(&layer)
+        self.settle_places(&layer)
+        self.settle_captures(&layer)
+        self.check_func_pointer_literals(&layer)
+        self.check_thread_braces(&layer)
+        self.check_task_spawn_environments(&layer)
     }
 
-    // Sizes the body half's side tables once: the body phase does, and a
-    // static whose value a type needs has its initializer typed before it
-    // (`evaluate_constant_statics`).
+    // Sizes the body half's side tables to every node: the body phase does,
+    // and a static whose value a type needs has its initializer typed before
+    // it (`evaluate_constant_statics`). The extension sets are derived over
+    // every module, so they are recomputed when a layer adds modules.
     public func ensure_body_tables(&var self) {
-        if self.body_tables {
-            return
-        }
-        self.body_tables = true
         let n = self.res.nodes.len()
-        var k = 0
+        var k = self.expr_types.len()
         while k < n {
             try! self.expr_types.push(-1)
             try! self.typed_count.push(0)
@@ -193,14 +192,18 @@ extension TcProgram {
             try! self.implied_copies.push(-1)
             k = k + 1
         }
-        k = 0
+        k = self.mapped_calls
         while k < self.res.calls.len() {
             let c = self.res.calls[k]
             self.res_call_at[c.node] = k
             k = k + 1
         }
-        let visible = tc_extension_sets(&self)
-        self.ext_visible = move visible
+        self.mapped_calls = self.res.calls.len()
+        let modules = self.res.modules.len()
+        if self.ext_visible.len() != modules * modules {
+            let visible = tc_extension_sets(&self)
+            self.ext_visible = move visible
+        }
     }
 
     func check_module_bodies(&var self, m: Int) {
@@ -1901,10 +1904,10 @@ extension TcProgram {
     // Each held judgment, in the order it was met, now that every body is
     // typed, each in its own module; a judgment whose expression holds a
     // refusal already is not made again.
-    func judge_pending_constants(&var self) {
+    func judge_pending_constants(&var self, layer: &FrontLayer) {
         self.constants_final = true
         let saved = self.save_context()
-        var k = 0
+        var k = layer.pending_constant_first
         while k < self.pending_constants.len() {
             let j = self.pending_constants[k]
             k = k + 1
@@ -9135,8 +9138,8 @@ extension TcProgram {
     // Each `Task.spawn` root's arguments that borrow an environment
     // (`spawn_environment_sources`), refused as `spawn.borrow` refuses a
     // written `&x`: the background task may outlive the environment.
-    func check_task_spawn_environments(&var self) {
-        var k = 0
+    func check_task_spawn_environments(&var self, layer: &FrontLayer) {
+        var k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]
             k = k + 1
@@ -10065,9 +10068,9 @@ extension TcProgram {
     // typed, so a raw-backed case's value has been folded wherever its enum
     // sits: each `ZeroInit` declaration, then each static with no
     // initializer, in modules checked in full.
-    func check_zero_inits(&var self) {
+    func check_zero_inits(&var self, layer: &FrontLayer) {
         let zi = self.known.zero_init
-        var k = 0
+        var k = layer.tc_conformance_first
         while zi >= 0 && k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
@@ -10080,7 +10083,7 @@ extension TcProgram {
                 self.restore_context(saved)
             }
         }
-        var m = 0
+        var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
             m = m + 1
@@ -13021,8 +13024,9 @@ extension TcProgram {
     // `borrows` accessor's receiver: shared, unless the use writes through
     // the place it lends (design 141). Each is read off the use the place's
     // position recorded, following a projection outward to the use that
-    // ends it.
-    public func settle_places(&var self) {
+    // ends it. A body lies in one layer's nodes, so `layer`'s calls and
+    // nodes are settled with the parents of its nodes alone.
+    public func settle_places(&var self, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         var parents = Vector<Int>()
         var k = 0
@@ -13030,7 +13034,7 @@ extension TcProgram {
             try! parents.push(-1)
             k = k + 1
         }
-        k = 0
+        k = layer.node_first
         while k < n {
             let count = self.child_count(k)
             var j = 0
@@ -13041,26 +13045,26 @@ extension TcProgram {
             }
             k = k + 1
         }
-        let order = self.consumer_first(&parents)
+        let order = self.consumer_first(&parents, &layer)
         k = 0
         while k < order.len() {
             self.settle_call(order[k], &parents)
             k = k + 1
         }
-        self.settle_hops(&parents)
-        self.check_plain_subscript_reads(&parents)
-        self.lend_window(&parents)
-        self.check_whole_optional_places(&parents)
-        self.check_old_prefixes(&parents)
+        self.settle_hops(&parents, &layer)
+        self.check_plain_subscript_reads(&parents, &layer)
+        self.lend_window(&parents, &layer)
+        self.check_whole_optional_places(&parents, &layer)
+        self.check_old_prefixes(&parents, &layer)
     }
 
     // A `?.` hop holds its base's payload from its test to the hop's use, so
     // nothing evaluated in between, an argument of the hop's call among
     // them, changes what it reads; the hold is exclusive where that use
     // writes, which turns the base's `payload` step into `payload-var`.
-    func settle_hops(&var self, parents: &Vector<Int>) {
+    func settle_hops(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
-        var k = 0
+        var k = layer.node_first
         while k < n {
             let a = self.payload_adjust(k)
             if a >= 0 && self.use_writes(k, &parents) {
@@ -13086,10 +13090,10 @@ extension TcProgram {
     //     a comparison's operand: against `None` by `==`/`!=` tests, any other reads
     //     `&` and a `borrow` argument read; `&var` and a `borrow var` argument write
     //     an assignment's target writes
-    func check_whole_optional_places(&var self, parents: &Vector<Int>) {
+    func check_whole_optional_places(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         let skipped = self.outside_slice_marks(n)
-        var k = 0
+        var k = layer.node_first
         while k < n {
             let e = k
             k = k + 1
@@ -13263,7 +13267,7 @@ extension TcProgram {
     // earlier hop lends before that earlier hop reads its own use. A hop
     // under an exclusive one is then exclusive too, and charges its root so
     // (SL:borrowing §2.2, §3; pinned by borrowck's loan.window-root.chain-*).
-    func consumer_first(&self, parents: &Vector<Int>) -> Vector<Int> {
+    func consumer_first(&self, parents: &Vector<Int>, layer: &FrontLayer) -> Vector<Int> {
         let n = self.res.nodes.len()
         var depth = Vector<Int>()
         var k = 0
@@ -13272,7 +13276,7 @@ extension TcProgram {
             k = k + 1
         }
         var counts = Vector<Int>()
-        k = 0
+        k = layer.tc_call_first
         while k < self.calls.len() {
             let d = tc_node_depth(self.calls[k].node, &parents, &var depth)
             while counts.len() <= d {
@@ -13290,12 +13294,12 @@ extension TcProgram {
             k = k + 1
         }
         var order = Vector<Int>()
-        k = 0
+        k = layer.tc_call_first
         while k < self.calls.len() {
             try! order.push(-1)
             k = k + 1
         }
-        k = 0
+        k = layer.tc_call_first
         while k < self.calls.len() {
             let d = depth[self.calls[k].node]
             order[starts[d]] = k
@@ -13311,10 +13315,10 @@ extension TcProgram {
     // silently, and lends one that does not, shared, for its expression
     // (SL:borrowing §12.4). An element that copies only by inference owes
     // design 219's requirement (`implied_copies`).
-    func check_plain_subscript_reads(&var self, parents: &Vector<Int>) {
+    func check_plain_subscript_reads(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         let skipped = self.outside_slice_marks(n)
-        var k = 0
+        var k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]
             k = k + 1
@@ -13366,10 +13370,10 @@ extension TcProgram {
     //     for_expr (a `for` head)
     //     match_expr (a scrutinee)
     //     check_let (a `let` or `var` initializer)
-    func lend_window(&var self, parents: &Vector<Int>) {
+    func lend_window(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         let skipped = self.outside_slice_marks(n)
-        var k = 0
+        var k = layer.tc_call_first
         while k < self.calls.len() {
             let at = k
             let e = self.calls[at].node
@@ -13576,9 +13580,9 @@ extension TcProgram {
     // replaces it with the argument's sigil; one whose meaning the unprefixed
     // spelling lacks is recorded as kept, with why. A payload pattern's
     // prefix is judged where its pattern is checked (`judge_prefix_pattern`).
-    func check_old_prefixes(&var self, parents: &Vector<Int>) {
+    func check_old_prefixes(&var self, parents: &Vector<Int>, layer: &FrontLayer) {
         let n = self.res.nodes.len()
-        var k = 0
+        var k = layer.node_first
         while k < n {
             let b = k
             k = k + 1
@@ -14186,8 +14190,8 @@ extension TcProgram {
     // declares, and for a reference parameter, whose reference is copied;
     // otherwise a copy, which only a Copy type makes silently. A borrow of
     // the enclosing frame is refused in a closure that escapes.
-    public func settle_captures(&var self) {
-        if self.closures.len() == 0 {
+    public func settle_captures(&var self, layer: &FrontLayer) {
+        if self.closures.len() == layer.closure_first {
             return
         }
         let n = self.res.nodes.len()
@@ -14197,7 +14201,7 @@ extension TcProgram {
             try! parents.push(-1)
             k = k + 1
         }
-        k = 0
+        k = layer.node_first
         while k < n {
             let count = self.child_count(k)
             var j = 0
@@ -14208,7 +14212,7 @@ extension TcProgram {
             }
             k = k + 1
         }
-        k = 0
+        k = layer.closure_first
         while k < self.closures.len() {
             let e = self.closures[k]
             let d = self.closure_decls[k]
@@ -14237,8 +14241,8 @@ extension TcProgram {
     // settled: it captures nothing, since it is emitted with no environment
     // for a captured value to travel in. What counts is what the body names,
     // a capture list or not, and a method's `self` among them.
-    func check_func_pointer_literals(&var self) {
-        var k = 0
+    func check_func_pointer_literals(&var self, layer: &FrontLayer) {
+        var k = layer.func_pointer_literal_first
         while k < self.func_pointer_literals.len() {
             let e = self.func_pointer_literals[k]
             k = k + 1
@@ -14275,8 +14279,8 @@ extension TcProgram {
     // list does not is refused; and each capture crosses to the spawned
     // thread, so its type must be `Send`, a generic body's declared bounds
     // answering for its parameters (design 242).
-    func check_thread_braces(&var self) {
-        var k = 0
+    func check_thread_braces(&var self, layer: &FrontLayer) {
+        var k = layer.thread_brace_first
         while k < self.thread_braces.len() {
             let brace = self.thread_braces[k]
             k = k + 1

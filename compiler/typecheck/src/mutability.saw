@@ -9,6 +9,7 @@ import sawparse.grammar.{Alt}
 import sawparse.tree.{AstNode}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDeclKind}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.binders.{TcBinder, tc_binder_of, tc_binder_text}
@@ -21,8 +22,8 @@ import sawtypecheck.types.{TcKind}
 
 // Runs the mutability check over every checked body, once each place's use
 // and each closure's captures are settled.
-public func tc_check_mutability(p: &var TcProgram) {
-    p.check_mutability()
+public func tc_check_mutability(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_mutability(&layer)
 }
 
 // What decides a write: allowed, or the reason it is refused and the node
@@ -101,7 +102,9 @@ extension TcProgram {
     //         accessor's call, a `borrow let` head, a `for` head, a
     //         forwarded `lend`, a nested window, a method call's receiver
     //     a `[&var x]` capture (capture_verdict)
-    public func check_mutability(&var self) {
+    // A body lies in one layer's nodes, so `layer`'s are judged with the
+    // parents of its nodes alone.
+    public func check_mutability(&var self, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         var tables = TcMutTables(parents: Vector<Int>(), decl_of_node: Vector<Int>())
         var k = 0
@@ -110,7 +113,7 @@ extension TcProgram {
             try! tables.decl_of_node.push(-1)
             k = k + 1
         }
-        k = 0
+        k = layer.node_first
         while k < n {
             let count = self.child_count(k)
             var j = 0
@@ -129,9 +132,9 @@ extension TcProgram {
             }
             k = k + 1
         }
-        let receivers = self.window_receivers(n)
+        let receivers = self.window_receivers(n, &layer)
         let skipped = self.outside_slice_marks(n)
-        k = 0
+        k = layer.node_first
         while k < n {
             let at = k
             k = k + 1
@@ -158,7 +161,7 @@ extension TcProgram {
                 self.refuse_write(at, u, verdict)
             }
         }
-        k = 0
+        k = layer.capture_first
         while k < self.captures.len() {
             let cap = self.captures[k]
             k = k + 1
@@ -185,15 +188,16 @@ extension TcProgram {
                 self.refuse_write(cap.site, TcUse.BorrowVar, verdict)
             }
         }
-        self.check_exclusive_windows(&skipped, &var tables)
+        self.check_exclusive_windows(&skipped, &var tables, &layer)
     }
 
     // Every window through an accessor that borrows its receiver
     // exclusively at every use (`accessor_exclusive_only`) whose own use
     // reads: its receiver is judged as an exclusive borrow, since nothing
     // else asks. A window whose use writes is judged by that write's walk.
-    func check_exclusive_windows(&var self, skipped: &Vector<Bool>, tables: &var TcMutTables) {
-        var k = 0
+    func check_exclusive_windows(&var self, skipped: &Vector<Bool>, tables: &var TcMutTables,
+                                 layer: &FrontLayer) {
+        var k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]
             k = k + 1
@@ -238,14 +242,14 @@ extension TcProgram {
     // The receivers of `borrows` accessor calls and subscripts: an exclusive
     // one is borrowed because its window's use writes, and that use's walk
     // judges it, crossing the accessor.
-    func window_receivers(&self, n: Int) -> Vector<Bool> {
+    func window_receivers(&self, n: Int, layer: &FrontLayer) -> Vector<Bool> {
         var out = Vector<Bool>()
         var k = 0
         while k < n {
             try! out.push(false)
             k = k + 1
         }
-        k = 0
+        k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]
             k = k + 1

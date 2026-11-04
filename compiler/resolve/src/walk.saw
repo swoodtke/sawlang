@@ -10,6 +10,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.imports.{res_decl_binding}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.kinds.{res_is_capture, res_is_closure_param, res_is_decl_item,
                              res_is_head_binding, res_is_plain_expr, res_is_plain_statement,
                              res_is_statement_alt, res_is_type_alt, res_names_type}
@@ -18,17 +19,17 @@ import sawresolve.model.{ResBindKind, ResBinding, ResCall, ResCallClass, ResConf
                              ResDecl, ResDeclKind, ResModule}
 import sawresolve.program.{ResProgram}
 
-// Phase 3 over the whole program.
-public func res_resolve_bodies(p: &var ResProgram) {
-    p.resolve_bodies()
-    p.settle_pending()
+// Phase 3 over `layer`'s modules.
+public func res_resolve_bodies(p: &var ResProgram, layer: &FrontLayer) {
+    p.resolve_bodies(&layer)
+    p.settle_pending(&layer)
 }
 
 extension ResProgram {
     // Resolves every module's signatures and bodies; an interface module's
     // signatures only, which typecheck and the conformance rules need.
-    func resolve_bodies(&var self) {
-        var m = 0
+    func resolve_bodies(&var self, layer: &FrontLayer) {
+        var m = layer.module_first
         while m < self.modules.len() {
             let info = self.modules[m]
             if info.available {

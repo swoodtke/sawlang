@@ -6,18 +6,20 @@ import sawborrowck.check.{borrowck_rules}
 import sawborrowck.program.{BorrowckProgram, borrowck_program}
 import sawdrops.elaborate.{drops_rules}
 import sawborrowck.verify.{borrowck_verify_module}
-import sawdrops.api.{drops_has_invariant}
+import sawdrops.api.{drops_append_elaboration, drops_append_front, drops_has_invariant, drops_layer_elaborate,
+                         drops_layer_front}
 import sawdrops.program.{DropsProgram, drops_program}
 import sawdrops.verify.{drops_verify_module}
 import saweval.program.{EvalEnd, EvalKind, EvalProgram, eval_program}
 import saweval.interp.{eval_step_budget}
 import sawlex.stagetime.{StageTime, stagetime_begin, stagetime_end}
-import sawmir.api.{mir_append_checks, mir_append_diag, mir_append_invariants, mir_lower_file}
+import sawmir.api.{mir_append_diag, mir_empty_front, mir_status}
 import sawmir.program.{MirProgram}
+import sawresolve.layer.{FrontLayer, front_layers}
 import sawmono.dump.{mono_dump_layouts}
 import sawmono.program.{MonoItemKind, MonoProgram, mono_program}
 import sawmono.worklist.{mono_rules}
-import sawasserts.layout.{AssertsVerdict, asserts_verdict}
+import sawasserts.layout.{AssertsVerdict, asserts_inputs, asserts_verdict}
 import sawtarget.layout.{Target}
 import sawtypecheck.arith.{TcFault}
 import sawtypecheck.bodies.{tc_check_bodies}
@@ -46,74 +48,63 @@ public struct MonoOptions {
 // (`TcProfile`); every stage after it reads the record, as it reads
 // `target`'s through the program. The file is lowered once, and the
 // program's `lowerings` says so.
+// THE FRONT END: each layer (`front_layers`) brought through every stage
+// before mono in turn, std's to drop elaboration before the program's first
+// module is loaded, so std's state at that cut is the same for every program
+// on one std root, target and profile.
 public func mono_lower_file(out: &var StringBuilder, path: String, std_root: String, notes: Bool,
                             names: &Vector<String>, dirs: &Vector<String>, target: TcTarget, runtime: Bool = false,
                             freestanding: Bool = false, provider: Bool = false,
                             no_hidden_alloc: Bool = false) -> MonoProgram {
-    var lowerings = 0
-    var lowered = mir_lower_file(path, std_root, &names, &dirs, &var lowerings, target: target, runtime: runtime,
-                                 freestanding: freestanding, provider: provider, no_hidden_alloc: no_hidden_alloc)
+    var p = drops_program(borrowck_program(mir_empty_front(std_root, target, runtime: runtime,
+                                                           freestanding: freestanding, provider: provider,
+                                                           no_hidden_alloc: no_hidden_alloc)))
+    let inputs = asserts_inputs(path, &names, &dirs, target, freestanding)
+    var ev = eval_program(&p.bc.mir)
+    var checked = StringBuilder()
+    var verified = StringBuilder()
+    var elaborated = StringBuilder()
+    var blocked = false
+    var layers = front_layers()
+    var j = 0
+    while j < layers.len() {
+        var layer = layers[j]
+        if drops_layer_front(&var p, &var layer, &inputs, &var checked, &var verified) {
+            blocked = true
+        }
+        // The constants are evaluated over the layer as lowered, before drop
+        // elaboration rewrites its bodies; the evaluator only reads it. A
+        // program refused here is blocked, and its values would never be read.
+        stagetime_begin(StageTime.Eval)
+        ev.grow(&p.bc.mir)
+        if mir_status(&p.bc.mir) == 0 {
+            ev.evaluate_all(&p.bc.mir, &layer)
+        }
+        stagetime_end(StageTime.Eval)
+        if not blocked {
+            drops_layer_elaborate(&var p, &layer, &var elaborated)
+        }
+        j = j + 1
+    }
     var head = StringBuilder()
-    var status = mir_append_checks(out: &var head, p: &var lowered, notes: notes)
-    // The constants are evaluated over the program as lowered, before the
-    // borrow check and drop elaboration rewrite its bodies; the evaluator
-    // only reads it. A program refused here is blocked, and its values
-    // would never be read.
-    stagetime_begin(StageTime.Eval)
-    var ev = eval_program(&lowered)
-    if status == 0 {
-        ev.evaluate_all(&lowered)
-    }
-    stagetime_end(StageTime.Eval)
-    stagetime_begin(StageTime.Borrowck)
-    var bc = borrowck_program(move lowered)
-    var m = 0
-    while m < bc.mir.tc.res.module_count() {
-        let info = bc.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            bc.check_module(m)
-        }
-        m = m + 1
-    }
-    stagetime_end(StageTime.Borrowck)
-    var k = 0
-    while k < bc.diags.len() {
-        let d = bc.diags[k]
-        mir_append_diag(out: &var head, p: &bc.mir, d: &d)
-        k = k + 1
-    }
-    if bc.diags.len() > 0 {
-        status = 1
-    }
-    m = 0
-    while m < bc.mir.tc.res.module_count() {
-        let info = bc.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            stagetime_begin(StageTime.VerifyBorrowck)
-            let found = borrowck_verify_module(&var bc, m)
-            stagetime_end(StageTime.VerifyBorrowck)
-            mir_append_invariants(out: &var head, p: &bc.mir, m: m, problems: &found)
-        }
-        m = m + 1
-    }
+    let status = drops_append_front(&var head, &p, notes, &checked, &verified)
     let before = head.build()
     try! out.append(before)
-    var blocked = status != 0 || drops_has_invariant(before)
-    stagetime_begin(StageTime.Drops)
-    var p = drops_program(move bc)
-    stagetime_end(StageTime.Drops)
+    if status != 0 || drops_has_invariant(before) {
+        blocked = true
+    }
     if not blocked {
         var tail = StringBuilder()
-        mono_elaborate(&var p, &var tail)
+        let refused = drops_append_elaboration(&var tail, &p, &elaborated)
         let after = tail.build()
         try! out.append(after)
-        if p.diags.len() > 0 || drops_has_invariant(after) {
+        if refused != 0 || drops_has_invariant(after) {
             blocked = true
         }
     }
     stagetime_begin(StageTime.Mono)
     var mono = mono_program(move p, blocked)
-    mono.lowerings = lowerings
+    mono.lowerings = 1
     if not blocked {
         mono_take_statics(&var mono, &ev)
         mono.run()
@@ -231,47 +222,6 @@ func mono_fault_text(f: TcFault) -> String {
         case DivideByZero -> "divides by zero",
         case NotFit -> "converts a value into a type that cannot hold it",
         case _ -> "does not fold"
-    }
-}
-
-// Drop elaboration over every module checked in full, its refusals and the
-// invariants it met or its verifier finds appended to `out`.
-func mono_elaborate(p: &var DropsProgram, out: &var StringBuilder) {
-    var m = 0
-    while m < p.bc.mir.tc.res.module_count() {
-        let info = p.bc.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            stagetime_begin(StageTime.Drops)
-            p.elaborate_module(m)
-            stagetime_end(StageTime.Drops)
-        }
-        m = m + 1
-    }
-    var k = 0
-    while k < p.diags.len() {
-        let d = p.diags[k]
-        mir_append_diag(out: &var out, p: &p.bc.mir, d: &d)
-        k = k + 1
-    }
-    m = 0
-    while m < p.bc.mir.tc.res.module_count() {
-        let info = p.bc.mir.tc.res.module(m)
-        if info.available && not info.interface_only {
-            var met = Vector<String>()
-            var j = 0
-            while j < p.problems.len() {
-                if p.problem_modules[j] == m {
-                    try! met.push(p.problems.get(j) ?? "")
-                }
-                j = j + 1
-            }
-            mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &met)
-            stagetime_begin(StageTime.VerifyDrops)
-            let found = drops_verify_module(&var p, m)
-            stagetime_end(StageTime.VerifyDrops)
-            mir_append_invariants(out: &var out, p: &p.bc.mir, m: m, problems: &found)
-        }
-        m = m + 1
     }
 }
 

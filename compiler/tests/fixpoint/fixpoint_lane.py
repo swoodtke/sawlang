@@ -294,10 +294,71 @@ def check_twin_stderr(failures, counts):
         counts["fixpoint twin stderr cases"] = counts.get("fixpoint twin stderr cases", 0) + 1
 
 
+# A stub stage for `check_twin_rewrites`: it prints what the file it is given
+# holds, then rewrites the file to its own second argument's text.
+TWIN_REWRITER = """import sys
+path = sys.argv[-1]
+with open(path) as fh:
+    print("saw " + fh.read())
+with open(path, "w") as fh:
+    fh.write(%r)
+"""
+
+
+def check_twin_rewrites(failures, counts):
+    """The twin runs an in-place rewrite (`sawc fix`) on each stage in turn,
+    each on the file's original contents, leaves the file as Stage 2 left it,
+    and tells apart two stages that leave different contents. Stub stages
+    stand for the two binaries: each prints what it read and rewrites the
+    file."""
+    work = os.path.join(OUT, "twin-rewrites")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+
+    def stub(name, writes):
+        path = os.path.join(work, name)
+        with open(path, "w") as fh:
+            fh.write("#!%s\n" % sys.executable + TWIN_REWRITER % writes)
+        os.chmod(path, 0o755)
+        return path
+
+    fixed = stub("fixed", "fixed\n")
+    other = stub("other", "otherwise\n")
+    for name, ref, new, agree in (("same", fixed, fixed, True), ("different", fixed, other, False)):
+        log = os.path.join(work, name + "-log")
+        os.makedirs(log)
+        target = os.path.join(work, name + ".saw")
+        with open(target, "w") as fh:
+            fh.write("original\n")
+        env = dict(os.environ, FIXPOINT_REF=ref, FIXPOINT_NEW=new, FIXPOINT_LOG=log)
+        r = subprocess.run([sys.executable, TWIN, "fix", "--std-root", "std", target], env=env,
+                           capture_output=True, text=True, timeout=TIMEOUT)
+        records = []
+        for path in glob.glob(os.path.join(log, "*.json")):
+            with open(path, encoding="utf-8") as fh:
+                records.append(json.loads(fh.read()))
+        with open(target) as fh:
+            left = fh.read()
+        expected_left = "fixed\n" if agree else "otherwise\n"
+        if r.stdout != "saw original\n\n" or len(records) != 1:
+            failures.append("fixpoint: the twin's rewrite case %s: Stage 1 read %r, %d records"
+                            % (name, r.stdout, len(records)))
+        elif bool(records[0]["differs"]) == agree:
+            failures.append("fixpoint: the twin %s two stages that leave %s files: %s"
+                            % ("tells apart" if agree else "equates", "the same" if agree else "different",
+                               records[0]["differs"]))
+        elif left != expected_left:
+            failures.append("fixpoint: the twin's rewrite case %s leaves %r, not Stage 2's %r"
+                            % (name, left, expected_left))
+        else:
+            counts["fixpoint twin rewrite cases"] = counts.get("fixpoint twin rewrite cases", 0) + 1
+
+
 def run():
     failures = []
     counts = {}
     check_twin_stderr(failures, counts)
+    check_twin_rewrites(failures, counts)
     if build_stages(failures, counts):
         # The checks and the replay write apart (`elsewhere/`, `stage3/`,
         # `.build/seed-check/` and the lanes' own directories), so beside the

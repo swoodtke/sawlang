@@ -9,6 +9,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.layer.{FrontLayer, FrontLayerKind}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModuleKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst}
@@ -24,47 +25,50 @@ import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TcMemo, tc_memo}
 
 // Finite struct size.
-public func tc_check_finite_size(p: &var TcProgram) {
-    p.check_finite_size()
+public func tc_check_finite_size(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_finite_size(&layer)
 }
 
 // The signature half of `unsafe`.
-public func tc_check_unsafe(p: &var TcProgram) {
-    p.check_unsafe()
+public func tc_check_unsafe(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_unsafe(&layer)
 }
 
 // The rules on the traits the compiler only derives.
-public func tc_check_derived_conformances(p: &var TcProgram) {
-    p.check_derived_conformances()
+public func tc_check_derived_conformances(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_derived_conformances(&layer)
 }
 
 // The rule that a conformance to `Comparable` or `Hashable` requires
 // `Equatable` beside it.
 // The refusals of a derivation whose members cannot meet its trait.
-public func tc_check_derivations(p: &var TcProgram) {
-    p.check_derivations()
+public func tc_check_derivations(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_derivations(&layer)
 }
 
-public func tc_check_required_conformances(p: &var TcProgram) {
-    p.check_required_conformances()
+public func tc_check_required_conformances(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_required_conformances(&layer)
 }
 
 // The rule that a type's policies are declared in its defining file.
-public func tc_check_policy_placement(p: &var TcProgram) {
-    p.check_policy_placement()
+public func tc_check_policy_placement(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_policy_placement(&layer)
 }
 
 // What an `init` returns, and where `Deinit`'s body, or a consuming body in
 // its place, may be written.
-public func tc_check_inits(p: &var TcProgram) {
-    p.check_inits()
-    p.check_deinit_placement()
-    p.check_consumes_placement()
+public func tc_check_inits(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_inits(&layer)
+    p.check_deinit_placement(&layer)
+    p.check_consumes_placement(&layer)
 }
 
-// The entry point's signature: what `main` may take and return.
-public func tc_check_entry_point(p: &var TcProgram) {
-    p.check_main_signature()
+// The entry point's signature: what `main` may take and return. Only the
+// program's layer holds the entry module.
+public func tc_check_entry_point(p: &var TcProgram, layer: &FrontLayer) {
+    if layer.kind == FrontLayerKind.Program {
+        p.check_main_signature()
+    }
 }
 
 static TC_MASK_UNSEEN: Int = 0
@@ -130,11 +134,14 @@ extension TcProgram {
     // array's element, and the same positions of the generic declarations a
     // member instantiates. A pointer, a reference, a function value and an
     // `any` embed nothing. One refusal per cycle, at its first declaration.
-    public func check_finite_size(&var self) {
+    // An earlier layer's declarations hold none of `layer`'s, so a cycle lies
+    // in one layer: the graph's edges are `layer`'s, and an earlier layer's
+    // masks are built as `layer`'s read them.
+    public func check_finite_size(&var self, layer: &FrontLayer) {
         let n = self.res.decls.len()
         var c = TcContainment(masks: tc_ints(n, 0), states: tc_ints(n, TC_MASK_UNSEEN), met_building: false,
                               edge_first: tc_ints(n, 0), edge_count: tc_ints(n, 0), edges: Vector<Int>())
-        var d = 0
+        var d = layer.decl_first
         while d < n {
             if self.res.decls[d].node >= 0 && c.states[d] == TC_MASK_UNSEEN {
                 self.build_inline_mask(d, &var c)
@@ -144,7 +151,7 @@ extension TcProgram {
         if c.met_building {
             self.solve_inline_masks(&var c)
         }
-        d = 0
+        d = layer.decl_first
         while d < n {
             // Stage 0 workaround (SL:hazards S4): canonical: c.edge_first[d] = c.edges.len()
             let first = c.edges.len()
@@ -170,7 +177,7 @@ extension TcProgram {
         }
         var g = TcComponents(index: tc_ints(n, -1), low: tc_ints(n, 0), on_stack: tc_bools(n),
                              stack: tc_ints(n, -1), depth: 0, next: 0, on_cycle: tc_bools(n))
-        d = 0
+        d = layer.decl_first
         while d < n {
             if g.index[d] < 0 && c.edge_count[d] > 0 {
                 self.containment_component(d, &c, &var g)
@@ -178,7 +185,7 @@ extension TcProgram {
             d = d + 1
         }
         var reported = tc_bools(n)
-        d = 0
+        d = layer.decl_first
         while d < n {
             let info = self.res.decls[d]
             let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
@@ -516,10 +523,10 @@ extension TcProgram {
     // assertion funnel's (`check_thread_assertion`).
     // ENTRY POINTS:
     //     tc_check_derived_conformances
-    public func check_derived_conformances(&var self) {
-        self.check_deinit_parents()
-        self.check_assertion_positions()
-        var k = 0
+    public func check_derived_conformances(&var self, layer: &FrontLayer) {
+        self.check_deinit_parents(&layer)
+        self.check_assertion_positions(&layer)
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
@@ -599,8 +606,8 @@ extension TcProgram {
     // `NoCopy` and `ExplicitCopy`, may: a conformance to any other would give
     // a type a `deinit` with no transfer rule, which no scope exit calls
     // (spec, The Deinit trait).
-    func check_deinit_parents(&var self) {
-        var d = 0
+    func check_deinit_parents(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
@@ -643,8 +650,8 @@ extension TcProgram {
     // is too, by the same trivial-type rule, and `Comparable` has none.
     // ENTRY POINTS:
     //     tc_check_required_conformances
-    public func check_required_conformances(&var self) {
-        var at = 0
+    public func check_required_conformances(&var self, layer: &FrontLayer) {
+        var at = layer.tc_conformance_first
         while at < self.conformances.len() {
             let c = self.conformances[at]
             let traits = self.trait_and_ancestors(c.trait_decl)
@@ -672,8 +679,8 @@ extension TcProgram {
     // derivation is that one's to check.
     // ENTRY POINTS:
     //     tc_check_derivations
-    public func check_derivations(&var self) {
-        var at = 0
+    public func check_derivations(&var self, layer: &FrontLayer) {
+        var at = layer.tc_conformance_first
         while at < self.conformances.len() {
             let req = self.derived_requirement(at)
             if req >= 0 && self.production_status(at, req) < 0 {
@@ -833,8 +840,8 @@ extension TcProgram {
     // movability, zero value or thread behaviour (SL-659). It reads every
     // written conformance: a plain or conditional head, an `@synthesize` one,
     // a test-only extension and a test group's.
-    public func check_policy_placement(&var self) {
-        var k = 0
+    public func check_policy_placement(&var self, layer: &FrontLayer) {
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let at = k
             k = k + 1
@@ -987,8 +994,8 @@ extension TcProgram {
 
     // Each generic parameter's bound and each trait parent that names
     // `UnsafeSend` or `UnsafeSync`, refused where it is written.
-    func check_assertion_positions(&var self) {
-        var d = 0
+    func check_assertion_positions(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
@@ -1085,8 +1092,8 @@ extension TcProgram {
     // An `init` returns its receiver, or `Result<Receiver, E>`; an optional
     // is refused on its own terms, since a `None` names no cause (spec,
     // "What an init may return").
-    public func check_inits(&var self) {
-        var d = 0
+    public func check_inits(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
@@ -1301,9 +1308,9 @@ extension TcProgram {
     // A hand-written `deinit` goes in the extension that declares the type's
     // copy policy (spec, The Deinit trait). Written in any other extension it
     // would be an ordinary method that no scope exit calls.
-    public func check_deinit_placement(&var self) {
+    public func check_deinit_placement(&var self, layer: &FrontLayer) {
         let name = self.res.intern("deinit")
-        var d = 0
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
@@ -1337,8 +1344,8 @@ extension TcProgram {
     // (`syntax.rule.requirement-borrows`). The thread-fate rule rests on it:
     // only `std.task` can give `Thread` or `Task` a consuming method, which is
     // why drops counts one as writing the handle's fate (`is_fate_method`).
-    public func check_consumes_placement(&var self) {
-        var d = 0
+    public func check_consumes_placement(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let m = d
             d = d + 1
@@ -1415,8 +1422,8 @@ extension TcProgram {
 
 // The signature half of `unsafe`.
 extension TcProgram {
-    public func check_unsafe(&var self) {
-        var d = 0
+    public func check_unsafe(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             let callable = info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Method || info.kind == ResDeclKind.Init || info.kind == ResDeclKind.Requirement
@@ -1427,7 +1434,7 @@ extension TcProgram {
             }
             d = d + 1
         }
-        var k = 0
+        var k = layer.func_node_first
         while k < self.func_nodes.len() {
             let node = self.func_nodes[k]
             self.check_function_type(node)
@@ -1588,22 +1595,28 @@ extension TcProgram {
 // `Atomic<X>` formed at another `X` (`narrow_atomics`) is refused once, where
 // a position first carries exactly it, or else where one first carries a type
 // holding it. One formed only by monomorphization is mono's to refuse.
-public func tc_check_atomic_widths(p: &var TcProgram) {
+// A type an earlier layer formed and no position of it carried may be
+// carried by `layer`'s, so every unreported entry is judged; a position of an
+// earlier layer carries only what that layer formed.
+public func tc_check_atomic_widths(p: &var TcProgram, layer: &FrontLayer) {
     var k = 0
     while k < p.narrow_atomics.len() {
         let t = p.narrow_atomics[k]
         k = k + 1
+        if p.narrow_reported[k - 1] {
+            continue
+        }
         // A written type first, then an expression; exactly the type
         // first, then one holding it.
-        var at = tc_first_carrier(&var p, false, t, true)
+        var at = tc_first_carrier(&var p, false, t, true, &layer)
         if at < 0 {
-            at = tc_first_carrier(&var p, true, t, true)
+            at = tc_first_carrier(&var p, true, t, true, &layer)
         }
         if at < 0 {
-            at = tc_first_carrier(&var p, false, t, false)
+            at = tc_first_carrier(&var p, false, t, false, &layer)
         }
         if at < 0 {
-            at = tc_first_carrier(&var p, true, t, false)
+            at = tc_first_carrier(&var p, true, t, false, &layer)
         }
         if at >= 0 {
             p.refuse_narrow_atomic(at, t)
@@ -1612,11 +1625,12 @@ public func tc_check_atomic_widths(p: &var TcProgram) {
     }
 }
 
-// The first node whose written type, or with `expressions` whose
-// expression's type, is `t`, or, unless `exact`, holds it; -1 when none is.
-func tc_first_carrier(p: &var TcProgram, expressions: Bool, t: Int, exact: Bool) -> Int {
+// The first of `layer`'s nodes whose written type, or with `expressions`
+// whose expression's type, is `t`, or, unless `exact`, holds it; -1 when none
+// is.
+func tc_first_carrier(p: &var TcProgram, expressions: Bool, t: Int, exact: Bool, layer: &FrontLayer) -> Int {
     let count = if expressions { p.expr_types.len() } else { p.node_types.len() }
-    var n = 0
+    var n = layer.node_first
     while n < count {
         let carried = if expressions { p.expr_types[n] } else { p.node_types[n] }
         if carried == t || (not exact && carried >= 0 && p.type_holds(carried, t)) {
@@ -1642,7 +1656,7 @@ extension TcProgram {
 // (`memory_views`) is judged once tiers exist and refused once, where a
 // position first carries exactly it, or else where one first carries a type
 // holding it. One formed only by monomorphization is mono's to refuse.
-public func tc_check_memory_views(p: &var TcProgram) {
+public func tc_check_memory_views(p: &var TcProgram, layer: &FrontLayer) {
     var k = 0
     while k < p.memory_views.len() {
         let t = p.memory_views[k]
@@ -1654,15 +1668,15 @@ public func tc_check_memory_views(p: &var TcProgram) {
         if rule.len() == 0 {
             continue
         }
-        var at = tc_first_carrier(&var p, false, t, true)
+        var at = tc_first_carrier(&var p, false, t, true, &layer)
         if at < 0 {
-            at = tc_first_carrier(&var p, true, t, true)
+            at = tc_first_carrier(&var p, true, t, true, &layer)
         }
         if at < 0 {
-            at = tc_first_carrier(&var p, false, t, false)
+            at = tc_first_carrier(&var p, false, t, false, &layer)
         }
         if at < 0 {
-            at = tc_first_carrier(&var p, true, t, false)
+            at = tc_first_carrier(&var p, true, t, false, &layer)
         }
         if at >= 0 {
             p.refuse_memory_view(at, t, rule)
@@ -1677,7 +1691,7 @@ public func tc_check_memory_views(p: &var TcProgram) {
 // a type holding it. One an instantiation forms at no function type holds no
 // value a construction form builds, and its generic body cannot call it
 // (`call_function_value`).
-public func tc_check_func_pointer_types(p: &var TcProgram) {
+public func tc_check_func_pointer_types(p: &var TcProgram, layer: &FrontLayer) {
     var k = 0
     while k < p.func_pointer_types.len() {
         let t = p.func_pointer_types[k]
@@ -1689,15 +1703,15 @@ public func tc_check_func_pointer_types(p: &var TcProgram) {
         if why.len() == 0 {
             continue
         }
-        var at = tc_first_carrier(&var p, false, t, true)
+        var at = tc_first_carrier(&var p, false, t, true, &layer)
         if at < 0 {
-            at = tc_first_carrier(&var p, true, t, true)
+            at = tc_first_carrier(&var p, true, t, true, &layer)
         }
         if at < 0 {
-            at = tc_first_carrier(&var p, false, t, false)
+            at = tc_first_carrier(&var p, false, t, false, &layer)
         }
         if at < 0 {
-            at = tc_first_carrier(&var p, true, t, false)
+            at = tc_first_carrier(&var p, true, t, false, &layer)
         }
         if at >= 0 {
             let m = p.node_module(at)
@@ -1855,7 +1869,7 @@ extension TcProgram {
 // compiler's own atomics stay legal there, as calls to the `__atomic_*`
 // routines the environment supplies (spec, Profiles), so the rule names
 // `SpinLock` alone.
-public func tc_check_target_atomics(p: &var TcProgram) {
+public func tc_check_target_atomics(p: &var TcProgram, layer: &FrontLayer) {
     if p.target.atomics {
         return
     }
@@ -1864,9 +1878,9 @@ public func tc_check_target_atomics(p: &var TcProgram) {
         return
     }
     var naming = Vector<Int>()
-    var at = tc_first_naming(&var p, false, spin, &var naming)
+    var at = tc_first_naming(&var p, false, spin, &var naming, &layer)
     if at < 0 {
-        at = tc_first_naming(&var p, true, spin, &var naming)
+        at = tc_first_naming(&var p, true, spin, &var naming, &layer)
     }
     if at < 0 {
         return
@@ -1879,11 +1893,13 @@ public func tc_check_target_atomics(p: &var TcProgram) {
     p.refuse_in(m, at, "atomics.target", msg.build())
 }
 
-// The first node of a module of the program's own whose written type, or
-// with `expressions` whose expression's type, names declaration `d`
-// anywhere in it; -1 when none does. `naming` memoizes the verdict by type.
-func tc_first_naming(p: &var TcProgram, expressions: Bool, d: Int, naming: &var Vector<Int>) -> Int {
-    var m = 0
+// The first node of one of `layer`'s modules of the program's own whose
+// written type, or with `expressions` whose expression's type, names
+// declaration `d` anywhere in it; -1 when none does. `naming` memoizes the
+// verdict by type.
+func tc_first_naming(p: &var TcProgram, expressions: Bool, d: Int, naming: &var Vector<Int>,
+                     layer: &FrontLayer) -> Int {
+    var m = layer.module_first
     while m < p.res.module_count() {
         let info = p.res.module(m)
         m = m + 1
@@ -1934,9 +1950,9 @@ func tc_type_names(p: &var TcProgram, t: Int, d: Int, naming: &var Vector<Int>) 
 // The refusals of a test-only conformance to a trait a production type already
 // meets in production code, and of a test-only member meeting a requirement a
 // production conformance already meets.
-public func tc_check_test_only_overlaps(p: &var TcProgram) {
-    p.check_test_only_overlaps()
-    p.check_test_only_shadows()
+public func tc_check_test_only_overlaps(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_test_only_overlaps(&layer)
+    p.check_test_only_shadows(&layer)
 }
 
 // Test-only conformances beside production ones.
@@ -1948,8 +1964,8 @@ extension TcProgram {
     // conformance that refines it, or, for `Equatable` and `Hashable`,
     // automatically as a trivially copyable type. The same pair twice is
     // resolve's `conformance.duplicate`.
-    public func check_test_only_overlaps(&var self) {
-        var k = 0
+    public func check_test_only_overlaps(&var self, layer: &FrontLayer) {
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
@@ -2022,8 +2038,8 @@ extension TcProgram {
     // direct call could not choose between the two. One met by a written
     // member is `overload.indistinguishable`'s, a copy policy's `copy()`
     // `copy.test-only-policy`'s and a `deinit` `deinit.outside-policy`'s.
-    public func check_test_only_shadows(&var self) {
-        var d = 0
+    public func check_test_only_shadows(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1

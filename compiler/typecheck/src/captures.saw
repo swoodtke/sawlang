@@ -7,6 +7,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind}
 import sawtypecheck.bodies.{tc_check_bodies}
 import sawtypecheck.checks.{tc_check_unsafe}
@@ -21,23 +22,24 @@ import sawtypecheck.types.{TcKind}
 
 // Refuses each consuming use of a by-value capture in a closure that
 // escapes, once every closure's captures are settled.
-public func tc_check_escaping_consumes(p: &var TcProgram) {
-    p.check_escaping_consumes()
+public func tc_check_escaping_consumes(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_escaping_consumes(&layer)
 }
 
 // Records which closures' captures prove `sendable`, and refuses a closure
 // whose type says it when one does not.
-public func tc_check_closure_traits(p: &var TcProgram) {
-    p.check_closure_traits()
+public func tc_check_closure_traits(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_closure_traits(&layer)
 }
 
 extension TcProgram {
-    // Each closure's first capture that keeps it from being `sendable`, by
-    // the capture rule (`capture_blocks_sendable`) in the declaration that
-    // holds it. A closure whose type says `sendable`, written at its position
-    // or inferred from its captures, is refused naming that capture.
-    public func check_closure_traits(&var self) {
-        var k = 0
+    // Each of `layer`'s closures' first capture that keeps it from being
+    // `sendable`, by the capture rule (`capture_blocks_sendable`) in the
+    // declaration that holds it. A closure whose type says `sendable`,
+    // written at its position or inferred from its captures, is refused
+    // naming that capture.
+    public func check_closure_traits(&var self, layer: &FrontLayer) {
+        var k = layer.closure_first
         while k < self.closures.len() && k < self.capture_first.len() {
             let e = self.closures[k]
             let d = self.closure_decls[k]
@@ -105,8 +107,9 @@ extension TcProgram {
     // against the innermost closure that captured the binding: an inner
     // closure's by-value capture is a value of its own. A spawn form's brace
     // is exempt (`spawn_brace`).
-    public func check_escaping_consumes(&var self) {
-        if self.closures.len() == 0 {
+    // A closure captures only bindings of its own layer's bodies.
+    public func check_escaping_consumes(&var self, layer: &FrontLayer) {
+        if self.closures.len() == layer.closure_first {
             return
         }
         let n = self.res.nodes.len()
@@ -116,7 +119,7 @@ extension TcProgram {
             try! parents.push(-1)
             k = k + 1
         }
-        k = 0
+        k = layer.node_first
         while k < n {
             let count = self.child_count(k)
             var j = 0
@@ -128,7 +131,7 @@ extension TcProgram {
             k = k + 1
         }
         let skipped = self.outside_slice_marks(n)
-        k = 0
+        k = layer.node_first
         while k < n {
             let at = k
             k = k + 1
@@ -150,7 +153,7 @@ extension TcProgram {
                 }
             }
         }
-        k = 0
+        k = layer.capture_first
         while k < self.captures.len() {
             let cap = self.captures[k]
             k = k + 1

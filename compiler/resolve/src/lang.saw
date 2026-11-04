@@ -7,6 +7,7 @@
 // `StringBuilder` to its std's, and leaves unbound the String functions its
 // code generator synthesizes.
 
+import sawresolve.layer.{FrontLayer}
 import sawresolve.loader.{res_read_file}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
@@ -371,12 +372,12 @@ extension ResProgram {
     }
 
     // Refuses every case named `None` outside the Optional role's enum, in
-    // every module the program loaded, so the keyword keeps its one meaning
+    // every module `layer` loaded, so the keyword keeps its one meaning
     // (SL:open-questions D22).
-    public func check_none_cases(&var self) {
+    public func check_none_cases(&var self, layer: &FrontLayer) {
         let optional = self.lang_item(ResLang.OptionalEnum)
         let none = self.intern("None")
-        var d = 0
+        var d = layer.decl_first
         while d < self.decls.len() {
             let decl = self.decls[d]
             if decl.kind == ResDeclKind.Case && decl.name == none && decl.parent != optional && decl.leaf >= 0 {

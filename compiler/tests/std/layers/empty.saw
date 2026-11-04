@@ -1,0 +1,3 @@
+// The program with nothing of its own: its front end is std's layer alone.
+
+func main() {}

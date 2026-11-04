@@ -7,6 +7,7 @@
 
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResExport,
                              ResImport, ResImportForm, ResModule, ResModuleKind, ResName,
                              ResSymbol, ResVis}
@@ -107,11 +108,12 @@ extension ResProgram {
         out.build()
     }
 
-    // Finds every import's module, loading new ones as it goes: the import
-    // list grows as a loaded module's own imports are collected, so one pass
-    // over it reaches every module the program needs.
-    public func process_imports(&var self) {
-        var i = 0
+    // Finds every import of `layer`'s modules, loading new ones as it goes:
+    // the import list grows as a loaded module's own imports are collected,
+    // so one pass over it reaches every module the layer needs. The import
+    // closures are derived over every module, so they are computed whole.
+    public func process_imports(&var self, layer: &FrontLayer) {
+        var i = layer.import_first
         while i < self.imports.len() {
             let imp = self.imports[i]
             self.current = imp.module
@@ -122,11 +124,11 @@ extension ResProgram {
             self.imports[i] = updated
             i = i + 1
         }
-        self.bind_qualifiers()
-        self.find_cycles()
+        self.bind_qualifiers(&layer)
+        self.find_cycles(&layer)
         self.compute_closures()
-        self.compute_surfaces()
-        self.resolve_symbols()
+        self.compute_surfaces(&layer)
+        self.resolve_symbols(&layer)
     }
 
     // Each module's import closure: the module, `builtin` and the modules the
@@ -472,8 +474,8 @@ extension ResProgram {
 
     // Binds each whole-module import's qualifier, refusing a second import
     // that binds one qualifier to another module.
-    func bind_qualifiers(&var self) {
-        var i = 0
+    func bind_qualifiers(&var self, layer: &FrontLayer) {
+        var i = layer.import_first
         while i < self.imports.len() {
             let imp = self.imports[i]
             if imp.form == ResImportForm.Qualifier && imp.target >= 0 {
@@ -512,17 +514,18 @@ extension ResProgram {
 
     // Finds the import cycles among the modules resolution resolves in full:
     // a depth-first walk with an explicit stack, where an edge back to a
-    // module still on the stack closes a cycle.
-    func find_cycles(&var self) {
+    // module still on the stack closes a cycle. An earlier layer's modules
+    // import nothing of `layer`'s, so they were walked whole already.
+    func find_cycles(&var self, layer: &FrontLayer) {
         var state = Vector<Int>()
         var k = 0
         while k < self.modules.len() {
-            try! state.push(0)
+            try! state.push(if k < layer.module_first { 2 } else { 0 })
             k = k + 1
         }
         var stack = Vector<Int>()
         var edge = Vector<Int>()
-        var start = 0
+        var start = layer.module_first
         while start < self.modules.len() {
             let root_info = self.modules[start]
             if state[start] != 0 || root_info.interface_only {
@@ -612,10 +615,12 @@ extension ResProgram {
         self.refuse(imp.node, "import.cycle", msg.build())
     }
 
-    // Each module's surface: its own visible declarations, then what its
-    // `public import`s hand on, grown by a worklist until nothing changes.
-    func compute_surfaces(&var self) {
-        var m = 0
+    // Each of `layer`'s modules' surface: its own visible declarations, then
+    // what its `public import`s hand on, grown by a worklist until nothing
+    // changes. An earlier layer's surfaces are complete, and none of its
+    // modules imports one of `layer`'s.
+    func compute_surfaces(&var self, layer: &FrontLayer) {
+        var m = layer.module_first
         while m < self.modules.len() {
             self.add_own_surface(m)
             m = m + 1
@@ -624,8 +629,11 @@ extension ResProgram {
         var queue = Vector<Int>()
         m = 0
         while m < self.modules.len() {
-            try! queued.push(true)
-            try! queue.push(m)
+            let own = m >= layer.module_first
+            try! queued.push(own)
+            if own {
+                try! queue.push(m)
+            }
             m = m + 1
         }
         var head = 0
@@ -830,15 +838,16 @@ extension ResProgram {
         b.starts_with(parent)
     }
 
-    // Resolves each selective import's names against its module's surface.
-    func resolve_symbols(&var self) {
-        var s = 0
+    // Resolves each of `layer`'s selective imports' names against its
+    // module's surface.
+    func resolve_symbols(&var self, layer: &FrontLayer) {
+        var s = layer.symbol_first
         while s < self.symbols.len() {
             let sym = self.symbols[s]
             self.bare.add(sym.module, sym.bound, s)
             s = s + 1
         }
-        s = 0
+        s = layer.symbol_first
         while s < self.symbols.len() {
             let sym = self.symbols[s]
             let imp = self.imports[sym.import_at]
@@ -866,7 +875,7 @@ extension ResProgram {
             self.record(sym.leaf, b)
             s = s + 1
         }
-        var i = 0
+        var i = layer.import_first
         while i < self.imports.len() {
             let imp = self.imports[i]
             self.current = imp.module

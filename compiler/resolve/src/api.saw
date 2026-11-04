@@ -4,6 +4,7 @@
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.imports.{res_same_binding}
 import sawresolve.lang.{ResLang}
+import sawresolve.layer.{FrontInputs, FrontLayer, FrontLayerKind, front_inputs, front_layers}
 import sawresolve.loader.{res_read_file}
 import sawresolve.model.{ResDiag, ResModule, ResModuleKind}
 import sawresolve.prelude.{res_declare_prelude}
@@ -26,29 +27,65 @@ public struct ResolveOptions {
 // Resolves the program whose entry file is `path`, with each of `names`
 // mapped to the package directory beside it in `dirs`, and with the std
 // builtins modules `builtins` names (`target_builtins_modules`) loaded after
-// std's own. Collection happens as each module loads, then imports, bodies and
-// the rules that need every module.
+// std's own: std's layer, then the program's (`front_layers`).
 public func resolve_program(path: String, std_root: String, names: &Vector<String>,
                             dirs: &Vector<String>, builtins: Vector<String> = Vector<String>()) -> ResProgram {
     var p = res_program(std_root)
+    let inputs = front_inputs(path, &names, &dirs, move builtins)
+    var layers = front_layers()
     var k = 0
-    while k < names.len() {
-        p.add_package(names.get(k) ?? "", dirs.get(k) ?? "")
+    while k < layers.len() {
+        var layer = layers[k]
+        res_run_layer(&var p, &var layer, &inputs)
         k = k + 1
     }
-    p.detect_std_layout()
-    p.load_builtin()
-    p.load_std_modules()
-    p.load_builtins_modules(&builtins)
-    p.bind_lang_items()
-    res_declare_prelude(&var p)
-    p.index_gated_std()
-    let _ = p.load_entry(path)
-    p.process_imports()
-    p.check_none_cases()
-    res_resolve_bodies(&var p)
-    p.check_conformances()
     move p
+}
+
+// Resolve's step of `layer`: its modules loaded, and each collected as it
+// loads; then imports, bodies and the rules that need every module, each over
+// the layer's part of its table. Std's layer reads nothing of the program, so
+// the `--module-path` packages are mapped in the program's.
+public func res_run_layer(p: &var ResProgram, layer: &var FrontLayer, inputs: &FrontInputs) {
+    p.begin_layer(&var layer)
+    match layer.kind {
+        case Std -> {
+            p.detect_std_layout()
+            p.load_builtin()
+            p.load_std_modules()
+            p.load_builtins_modules(&inputs.builtins)
+            p.bind_lang_items()
+            res_declare_prelude(&var p)
+            p.index_gated_std()
+        },
+        case Program -> {
+            var k = 0
+            while k < inputs.names.len() {
+                p.add_package(inputs.names.get(k) ?? "", inputs.dirs.get(k) ?? "")
+                k = k + 1
+            }
+            let _ = p.load_entry(inputs.path)
+        }
+    }
+    p.process_imports(&layer)
+    p.check_none_cases(&layer)
+    res_resolve_bodies(&var p, &layer)
+    p.check_conformances(&layer)
+}
+
+extension ResProgram {
+    // Stamps resolve's watermarks on `layer`, whose step begins.
+    public func begin_layer(&self, layer: &var FrontLayer) {
+        layer.module_first = self.modules.len()
+        layer.decl_first = self.decls.len()
+        layer.node_first = self.nodes.len()
+        layer.import_first = self.imports.len()
+        layer.symbol_first = self.symbols.len()
+        layer.conformance_first = self.conformances.len()
+        layer.pending_first = self.pending.len()
+        layer.call_first = self.calls.len()
+        layer.name_first = self.names.count()
+    }
 }
 
 // The record of one resolved program, after its `FILE` line: an `ERROR` line

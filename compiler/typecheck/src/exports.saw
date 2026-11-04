@@ -4,6 +4,7 @@
 // runtime/ABI.md, `runtimeabi.saw` (design 149).
 
 import sawparse.grammar.{Alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDeclKind, ResModuleKind}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.program.{TcProgram, TcSeams}
@@ -43,16 +44,18 @@ extension TcAbiTable: NoCopy {}
 // backend defines each under its symbol, both reading the record this writes,
 // so the record is what the build emits. sawc has only the normal build,
 // which emits no test-only declaration (SL:testing).
+// Each layer's exports are checked in its step, against every earlier
+// declaration's.
 // ENTRY POINTS:
-//     typecheck_program
-public func tc_check_exports(p: &var TcProgram) {
+//     tc_run_layer
+public func tc_check_exports(p: &var TcProgram, layer: &FrontLayer) {
     var names = Vector<String>()
     var params = Vector<String>()
     var results = Vector<String>()
     var owners = Vector<String>()
     tc_runtime_abi_rows(&var names, &var params, &var results, &var owners)
     let table = TcAbiTable(names: move names, params: move params, results: move results, owners: move owners)
-    var d = 0
+    var d = layer.decl_first
     while d < p.res.decls.len() {
         let info = p.res.decls[d]
         if info.kind == ResDeclKind.Func || info.kind == ResDeclKind.Static {
@@ -69,7 +72,7 @@ public func tc_check_exports(p: &var TcProgram) {
     // A test-only export leaves the record only now, once every export is
     // checked, so it still collides with a production export of its symbol:
     // a test build holds both.
-    d = 0
+    d = layer.decl_first
     while d < p.res.decls.len() {
         if p.res.decls[d].test_only {
             p.export_symbols[d] = ""

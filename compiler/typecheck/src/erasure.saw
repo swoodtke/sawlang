@@ -5,6 +5,7 @@
 // existential is written").
 
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDecl, ResDeclKind}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.checks.{tc_check_unsafe}
@@ -17,8 +18,8 @@ import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TC_WALK_NAMES_SELF}
 
 // Every written `any Trait` whose trait is not object-safe, refused at it.
-public func tc_check_object_safety(p: &var TcProgram) {
-    p.check_object_safety()
+public func tc_check_object_safety(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_object_safety(&layer)
 }
 
 extension TcProgram {
@@ -30,11 +31,11 @@ extension TcProgram {
     //
     // ENTRY POINTS (check_object_safety):
     //     mk_any
-    func check_object_safety(&var self) {
+    func check_object_safety(&var self, layer: &FrontLayer) {
         var judged = Vector<Int>()
         var reasons = Vector<String>()
         var seen = Vector<Int>()
-        var k = 0
+        var k = layer.erased_first
         while k < self.erased_nodes.len() {
             let node = self.erased_nodes[k]
             k = k + 1

@@ -7,6 +7,7 @@ import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.bodies.{tc_check_bodies}
@@ -28,11 +29,11 @@ import sawtypecheck.typeops.{TcClient}
 import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TcMemo, tc_memo}
 
-// Runs every check of this file.
-public func tc_check_body_rules(p: &var TcProgram) {
-    p.check_containment_signatures()
-    p.check_body_rules()
-    p.check_lend_origins()
+// Runs every check of this file over `layer`'s part.
+public func tc_check_body_rules(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_containment_signatures(&layer)
+    p.check_body_rules(&layer)
+    p.check_lend_origins(&layer)
 }
 
 extension TcProgram {
@@ -89,8 +90,8 @@ extension TcProgram {
     // The signature positions a borrowing struct may not reach: a field or a
     // payload, a parameter taken by value, a result other than a `borrows`
     // function's lend of one, and a function type's parameters or result.
-    func check_containment_signatures(&var self) {
-        var d = 0
+    func check_containment_signatures(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             d = d + 1
@@ -126,7 +127,7 @@ extension TcProgram {
                 self.check_static_type(decl)
             }
         }
-        var k = 0
+        var k = layer.func_node_first
         while k < self.func_nodes.len() {
             let node = self.func_nodes[k]
             k = k + 1
@@ -701,9 +702,9 @@ extension TcProgram {
 
 // The walk over every checked body.
 extension TcProgram {
-    func check_body_rules(&var self) {
+    func check_body_rules(&var self, layer: &FrontLayer) {
         var unsafe_noted = Vector<Int>()
-        var k = 0
+        var k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
             let d = self.body_decls[k]
@@ -1089,10 +1090,10 @@ extension TcProgram {
     // ENTRY POINTS:
     //     check_producer_paths
     //     check_origin_node
-    func check_lend_origins(&var self) {
+    func check_lend_origins(&var self, layer: &FrontLayer) {
         var proven = Vector<Int>()
         var refused = Vector<Int>()
-        var k = 0
+        var k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
             let d = self.body_decls[k]
@@ -1103,7 +1104,7 @@ extension TcProgram {
         }
         var heads = Vector<Int>()
         var lent = Vector<Int>()
-        k = 0
+        k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
             k = k + 1

@@ -8,6 +8,7 @@
 // argument can be, primitives included (design 109).
 
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDecl, ResDeclKind, ResModuleKind}
 import sawtypecheck.conform.{TcSubst}
 import sawtypecheck.model.{TC_EFFECT_SENDABLE, TC_TIER_COPY, TC_TIER_EXPLICIT, TC_TIER_NOCOPY, TcConformance,
@@ -19,9 +20,9 @@ import sawtypecheck.types.{TC_HOLDS_ERROR, TcKind, TcType}
 import sawtypecheck.walks.{TC_INSTANTIATION_DEPTH, TC_WALK_CELL, TC_WALK_DEPTH_REFUSED, TC_WALK_ENUM,
                            TC_WALK_NO_MOVE, TC_WALK_TRIVIAL, TcMemo, tc_memo}
 
-// Every nominal type's Copy tier.
-public func tc_compute_tiers(p: &var TcProgram) {
-    p.compute_tiers()
+// Every nominal type's Copy tier, `layer`'s computed.
+public func tc_compute_tiers(p: &var TcProgram, layer: &FrontLayer) {
+    p.compute_tiers(&layer)
 }
 
 // Every type argument recorded since the last call against its bound.
@@ -29,11 +30,11 @@ public func tc_check_obligations(p: &var TcProgram) {
     p.check_obligations()
 }
 
-// The containment rules: the Copy policy's, and `NoMove`'s declared
-// cascade with the policy it requires.
-public func tc_check_containment(p: &var TcProgram) {
-    p.check_containment()
-    p.check_no_move_declarations()
+// The containment rules over `layer`'s declarations: the Copy policy's, and
+// `NoMove`'s declared cascade with the policy it requires.
+public func tc_check_containment(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_containment(&layer)
+    p.check_no_move_declarations(&layer)
 }
 
 static TC_TIER_UNSEEN: Int = 0
@@ -74,15 +75,18 @@ public func tc_bit(k: Int) -> Int {
 }
 
 extension TcProgram {
-    // Every nominal type's tier, in declaration order.
-    public func compute_tiers(&var self) {
-        var k = 0
+    // Every nominal type's tier, in declaration order. An earlier layer's
+    // are computed already, and no conformance of a later layer can give one
+    // a policy, which only its defining file declares.
+    public func compute_tiers(&var self, layer: &FrontLayer) {
+        var k = self.tiers.len()
         while k < self.res.decls.len() {
             try! self.tiers.push(TcTier(state: TC_TIER_UNSEEN, base: TC_TIER_COPY, mask: 0,
                                         declared: false))
             k = k + 1
         }
-        k = 0
+        self.tiers_ready = true
+        k = layer.decl_first
         while k < self.res.decls.len() {
             if self.is_nominal(k) {
                 let _ = self.tier_of_decl(k)
@@ -121,7 +125,7 @@ extension TcProgram {
     // type being classified adds nothing of its own, since a pointer closes
     // any cycle a finite type has.
     public func tier_of_decl(&var self, d: Int) -> TcTier {
-        if self.tiers.len() == 0 {
+        if not self.tiers_ready {
             return self.tier_before_tiers(d)
         }
         let known = self.tiers[d]
@@ -312,8 +316,8 @@ extension TcProgram {
     // A struct or enum holding an ExplicitCopy or NoCopy member, or a struct
     // with a field of a declared Copy type, declares its own policy (spec, The
     // Copy Trait Family, "Containment").
-    public func check_containment(&var self) {
-        var d = 0
+    public func check_containment(&var self, layer: &FrontLayer) {
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
@@ -389,12 +393,12 @@ extension TcProgram {
     // declares `NoMove` itself, so no field's movability changes a type
     // behind its author's back (spec, The `NoMove` trait). A generic holding
     // a type parameter derives it per instance instead.
-    public func check_no_move_declarations(&var self) {
+    public func check_no_move_declarations(&var self, layer: &FrontLayer) {
         let tr = self.known.no_move
         if tr < 0 {
             return
         }
-        var k = 0
+        var k = layer.tc_conformance_first
         while k < self.conformances.len() {
             let c = self.conformances[k]
             k = k + 1
@@ -402,7 +406,7 @@ extension TcProgram {
                 self.refuse_no_move_policy(c)
             }
         }
-        var d = 0
+        var d = layer.decl_first
         while d < self.res.decls.len() {
             let info = self.res.decls[d]
             let own = info.kind == ResDeclKind.Struct || info.kind == ResDeclKind.Enum
@@ -779,10 +783,8 @@ extension TcProgram {
     // during signatures, before any conformance can answer, and what it
     // records afterwards is answered by `check_formed_obligations`.
     public func check_obligations(&var self) {
+        self.obligations_open = true
         var k = self.obligations_checked
-        if k < 0 {
-            k = 0
-        }
         while k < self.obligations.len() {
             let o = self.obligations[k]
             if not self.satisfies(o.arg, o.trait_decl, o.env_decl, o.env_ext, o.module, o.test) {
@@ -797,7 +799,7 @@ extension TcProgram {
     // where the body stands, so each refusal sits among the body's others as
     // an immediate check would put it. Nothing before the funnel opens.
     public func check_formed_obligations(&var self) {
-        if self.obligations_checked >= 0 {
+        if self.obligations_open {
             self.check_obligations()
         }
     }

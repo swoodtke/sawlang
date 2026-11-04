@@ -22,6 +22,7 @@ import sawparse.tree.{AstNode, NodeShape}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_statement_alt, res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResCallClass, ResDecl, ResDeclKind, ResModule}
 import sawresolve.program.{ResProgram}
 import sawtypecheck.adjust.{TC_FIT_NONE}
@@ -44,9 +45,10 @@ import sawtypecheck.model.{TC_BIND_DEFAULT, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS
 import sawtypecheck.summaries.{tc_solve_summaries}
 import sawtypecheck.types.{TcKind, TcType}
 
-// Lowers every body of every module checked in full, refusal-free.
-public func mir_lower_program(p: &var MirProgram) {
-    p.lower_program()
+// Lowers every body of each of `layer`'s modules checked in full,
+// refusal-free.
+public func mir_lower_program(p: &var MirProgram, layer: &FrontLayer) {
+    p.lower_program(&layer)
 }
 
 // A lowered expression: a place, or an operand. `fresh` marks a place that is
@@ -94,25 +96,27 @@ extension MirVal {
 
 // Functions: one per body root typecheck recorded, and one per closure.
 extension MirProgram {
-    // Every body of every module checked in full and refused nowhere, in the
-    // order typecheck checked them, each followed by the closures it holds.
-    public func lower_program(&var self) {
+    // Every body of each of `layer`'s modules checked in full and refused
+    // nowhere, in the order typecheck checked them, each followed by the
+    // closures it holds.
+    public func lower_program(&var self, layer: &FrontLayer) {
         var refused = Vector<Bool>()
         var m = 0
         while m < self.tc.res.modules.len() {
-            try! refused.push(self.tc.module_refused(m))
+            try! refused.push(m >= layer.module_first && self.tc.module_refused(m))
             m = m + 1
         }
         // Accessors first, each split around its `lend`: a window's caller
-        // holds the state record its accessor's split lays out.
-        self.lower_roots(&refused, true)
-        self.lower_roots(&refused, false)
+        // holds the state record its accessor's split lays out. A body calls
+        // only its own layer's accessors and an earlier layer's, lowered then.
+        self.lower_roots(&refused, true, &layer)
+        self.lower_roots(&refused, false, &layer)
     }
 
     // The body roots that are, or with `accessors` false are not, a
     // `borrows` accessor's block.
-    func lower_roots(&var self, refused: &Vector<Bool>, accessors: Bool) {
-        var k = 0
+    func lower_roots(&var self, refused: &Vector<Bool>, accessors: Bool, layer: &FrontLayer) {
+        var k = layer.body_root_first
         while k < self.tc.body_roots.len() {
             let root = self.tc.body_roots[k]
             let d = self.tc.body_decls[k]

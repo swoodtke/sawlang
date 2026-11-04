@@ -11,6 +11,7 @@ import sawparse.tree.{AstNode}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResDeclKind, ResModule}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.checks.{tc_check_unsafe}
@@ -23,8 +24,8 @@ import sawtypecheck.types.{TcKind, TcType}
 import sawtypecheck.walks.{TC_WALK_REFERENCE}
 
 // Runs every reference-position check over the modules checked in full.
-public func tc_check_reference_positions(p: &var TcProgram) {
-    p.check_reference_positions()
+public func tc_check_reference_positions(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_reference_positions(&layer)
 }
 
 // Where a written type stands, which says what it may name.
@@ -97,7 +98,8 @@ extension TcProgram {
     // (check_reference_expressions), a binding (check_reference_bindings), a
     // closure's result (bodies.saw, closure_typed) and a call's
     // instantiation (check_reference_instantiations).
-    public func check_reference_positions(&var self) {
+    // Each of `layer`'s modules, whose nodes' parents are its own.
+    public func check_reference_positions(&var self, layer: &FrontLayer) {
         let n = self.res.nodes.len()
         var parents = Vector<Int>()
         var decl_of_node = Vector<Int>()
@@ -107,7 +109,7 @@ extension TcProgram {
             try! decl_of_node.push(-1)
             k = k + 1
         }
-        k = 0
+        k = layer.node_first
         while k < n {
             let count = self.child_count(k)
             var j = 0
@@ -127,7 +129,7 @@ extension TcProgram {
             k = k + 1
         }
         let skipped = self.outside_slice_marks(n)
-        var m = 0
+        var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
             m = m + 1
@@ -139,7 +141,7 @@ extension TcProgram {
             self.check_reference_expressions(module, info.node_base, info.node_count, &parents, &skipped)
             self.check_reference_bindings(module, info.node_base, info.node_count, &parents, &skipped)
         }
-        self.check_reference_instantiations(&skipped)
+        self.check_reference_instantiations(&skipped, &layer)
     }
 
     // Each outermost written type of module `m`'s nodes.
@@ -412,8 +414,8 @@ extension TcProgram {
     // A call whose type arguments, its own or its owner's, name a reference:
     // a generic holds its argument as storage, so `idn(r)` instantiated at
     // `&Int` would hand the reference back out.
-    func check_reference_instantiations(&var self, skipped: &Vector<Bool>) {
-        var k = 0
+    func check_reference_instantiations(&var self, skipped: &Vector<Bool>, layer: &FrontLayer) {
+        var k = layer.tc_call_first
         while k < self.calls.len() {
             let c = self.calls[k]
             k = k + 1

@@ -24,6 +24,7 @@
 import sawparse.grammar.{Alt, alt_name}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.arith.{tc_arith_fits}
 import sawtypecheck.model.{TC_EFFECT_BLOCKING, TC_EFFECT_BORROWS, TC_EFFECT_BORROWS_SYNC, TC_EFFECT_CONSTEXPR,
@@ -38,8 +39,8 @@ import sawtypecheck.types.{TC_HOLDS_PARAM, TcKind, TcType}
 import sawtypecheck.walks.{TC_WALK_EXT_SELF, TC_WALK_NESTING}
 
 // The generic parameters of every declaration, keyed by where each is declared.
-public func tc_index_generics(p: &var TcProgram) {
-    p.index_generics()
+public func tc_index_generics(p: &var TcProgram, layer: &FrontLayer) {
+    p.index_generics(&layer)
 }
 
 // What the parameter a written generic argument fills takes: a type, a
@@ -82,9 +83,9 @@ extension TcProgram {
     // The generic parameters of every declaration, each keyed by the leaf it
     // is declared at, and each type's extensions. An extension's parameters
     // rename the parameters of the type it extends, so they belong to that
-    // type.
-    public func index_generics(&var self) {
-        var m = 0
+    // type. Each of `layer`'s modules.
+    public func index_generics(&var self, layer: &FrontLayer) {
+        var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
             if info.available {

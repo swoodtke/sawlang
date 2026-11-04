@@ -11,6 +11,7 @@
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResDeclKind}
 import sawtypecheck.arith.{tc_arith_convert, tc_arith_text}
 import sawtypecheck.bodies.{tc_check_bodies}
@@ -37,9 +38,10 @@ struct TcLengthFlow {
 
 extension TcLengthFlow: NoCopy {}
 
-// Evaluates every static a type position names, before signatures are built.
-public func tc_evaluate_constant_statics(p: &var TcProgram) {
-    p.evaluate_constant_statics()
+// Evaluates every static a type position of `layer`'s modules names, before
+// signatures are built.
+public func tc_evaluate_constant_statics(p: &var TcProgram, layer: &FrontLayer) {
+    p.evaluate_constant_statics(&layer)
 }
 
 // What a static's refusal adds, wherever a type fixes a constant.
@@ -51,11 +53,11 @@ extension TcProgram {
     // Each static named where a type fixes a constant, evaluated in turn, the
     // statics its initializer names first.
     // The same walk records each const parameter that sizes an array.
-    func evaluate_constant_statics(&var self) {
+    func evaluate_constant_statics(&var self, layer: &FrontLayer) {
         var found = Vector<Int>()
         var flow = TcLengthFlow(lengths: Vector<Int>(), params: Vector<Int>(), targets: Vector<Int>(),
                                 indexes: Vector<Int>())
-        var m = 0
+        var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
             if info.available && not info.interface_only {
@@ -269,9 +271,15 @@ extension TcProgram {
 
     // Static `d`'s verdict where a type fixes a constant, its initializer
     // typed and folded, after the statics it names. One already being
-    // evaluated is on a cycle, which its own declaration refuses.
+    // evaluated is on a cycle, which its own declaration refuses. One an
+    // earlier layer's body phase typed, since none of that layer's types
+    // named it, is folded as it was typed.
     func evaluate_static(&var self, d: Int) {
-        if self.static_typing[d] != TcStaticTyping.Untyped || self.static_verdicts[d] != TcStaticVerdict.Unevaluated {
+        if self.static_verdicts[d] != TcStaticVerdict.Unevaluated {
+            return
+        }
+        let typed = self.static_typing[d] == TcStaticTyping.Typed
+        if self.static_typing[d] != TcStaticTyping.Untyped && not typed {
             return
         }
         self.build_decl(d)
@@ -304,11 +312,15 @@ extension TcProgram {
             self.static_refused(d, "the static `", &name, "`'s initializer is not a constant expression")
             return
         }
-        self.static_typing[d] = TcStaticTyping.Typing
-        self.prepare_ahead(value, d)
+        if not typed {
+            self.static_typing[d] = TcStaticTyping.Typing
+            self.prepare_ahead(value, d)
+        }
         let before = self.diags.len()
-        self.type_static_ahead(d)
-        self.static_typing[d] = TcStaticTyping.Typed
+        if not typed {
+            self.type_static_ahead(d)
+            self.static_typing[d] = TcStaticTyping.Typed
+        }
         if self.refused_within(value) {
             // Its own declaration says why it is no constant, once.
             self.static_verdicts[d] = TcStaticVerdict.Poisoned

@@ -13,6 +13,7 @@ import sawlex.{escape_text}
 import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.dump.{res_sort_strings}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResBinding, ResDecl, ResDeclKind}
 import sawtypecheck.adjust.{TC_FIT_EXACT}
 import sawtypecheck.arith.{tc_arith_text}
@@ -50,13 +51,13 @@ public struct TcWitness {
 extension TcWitness: NoCopy {}
 
 // Checks every `match` in every body checked.
-public func tc_check_exhaustive(p: &var TcProgram) {
-    p.check_matches()
+public func tc_check_exhaustive(p: &var TcProgram, layer: &FrontLayer) {
+    p.check_matches(&layer)
 }
 
 extension TcProgram {
-    public func check_matches(&var self) {
-        var k = 0
+    public func check_matches(&var self, layer: &FrontLayer) {
+        var k = layer.body_root_first
         while k < self.body_roots.len() {
             let root = self.body_roots[k]
             k = k + 1

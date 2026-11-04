@@ -6,6 +6,7 @@ import sawparse.grammar.{Alt}
 import sawparse.tree.{is_body_node}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.kinds.{res_is_type_alt}
+import sawresolve.layer.{FrontLayer}
 import sawresolve.model.{ResBindKind, ResDecl, ResDeclKind, ResModule}
 import sawtypecheck.model.{TC_EFFECT_BORROWS, TC_FLAG_BLOCKING, TC_FLAG_BORROWS_STRUCT,
                                TC_FLAG_DEFAULT_BODY, TC_FLAG_DERIVED_TWIN, TC_FLAG_STATIC, TC_FLAG_SYNTHESIZE,
@@ -16,9 +17,9 @@ import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{tc_effect_bit}
 import sawtypecheck.types.{TcKind, TcType}
 
-// Every declaration's signature, program-wide.
-public func tc_build_signatures(p: &var TcProgram) {
-    p.build_signatures()
+// Every declaration's signature of `layer`'s modules.
+public func tc_build_signatures(p: &var TcProgram, layer: &FrontLayer) {
+    p.build_signatures(&layer)
 }
 
 static TC_STATE_BUILDING: Int = 3
@@ -27,8 +28,8 @@ static TC_STATE_BUILT: Int = 4
 extension TcProgram {
     // Every declaration's signature, modules in load order and declarations
     // in source order, which is the order types are interned in.
-    public func build_signatures(&var self) {
-        var m = 0
+    public func build_signatures(&var self, layer: &FrontLayer) {
+        var m = layer.module_first
         while m < self.res.modules.len() {
             let info = self.res.modules[m]
             if info.available {

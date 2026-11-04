@@ -9,9 +9,10 @@ import sawmir.model.{MirDiag}
 import sawmir.program.{MirProgram, mir_program}
 import sawmir.verify.{mir_verify_module}
 import sawresolve.api.{append_res_diag}
+import sawresolve.layer.{FrontInputs, FrontLayer, front_layers}
 import sawresolve.verify.{res_verify_module}
-import sawasserts.layout.{asserts_typecheck_program}
-import sawtypecheck.api.{append_tc_diag}
+import sawasserts.layout.{asserts_inputs, asserts_run_layer}
+import sawtypecheck.api.{append_tc_diag, tc_empty_program}
 import sawtypecheck.bodyverify.{tc_verify_bodies}
 import sawtypecheck.program.{TcTarget}
 import sawtypecheck.verify.{tc_verify_module}
@@ -38,16 +39,37 @@ public func mir_lower_file(path: String, std_root: String, names: &Vector<String
                            dirs: &Vector<String>, lowerings: &var Int, target: TcTarget, runtime: Bool = false,
                            freestanding: Bool = false, provider: Bool = false,
                            no_hidden_alloc: Bool = false) -> MirProgram {
-    let tc = asserts_typecheck_program(path, std_root, &names, &dirs, target: target, runtime: runtime,
-                                       freestanding: freestanding, provider: provider,
-                                       no_hidden_alloc: no_hidden_alloc)
-    stagetime_begin(StageTime.Mir)
-    var p = mir_program(move tc)
-    mir_lower_program(&var p)
-    mir_lower_derived_bodies(&var p)
-    stagetime_end(StageTime.Mir)
+    var p = mir_empty_front(std_root, target, runtime: runtime, freestanding: freestanding, provider: provider,
+                            no_hidden_alloc: no_hidden_alloc)
+    let inputs = asserts_inputs(path, &names, &dirs, target, freestanding)
+    var layers = front_layers()
+    var k = 0
+    while k < layers.len() {
+        var layer = layers[k]
+        mir_run_layer(&var p, &var layer, &inputs)
+        k = k + 1
+    }
     lowerings = lowerings + 1
     move p
+}
+
+// The program under MIR lowering before any layer is loaded, compiled for
+// `target` under the profile the flags name.
+public func mir_empty_front(std_root: String, target: TcTarget, runtime: Bool = false, freestanding: Bool = false,
+                            provider: Bool = false, no_hidden_alloc: Bool = false) -> MirProgram {
+    mir_program(tc_empty_program(std_root, target, runtime: runtime, freestanding: freestanding, provider: provider,
+                                 no_hidden_alloc: no_hidden_alloc))
+}
+
+// `layer` checked through the layout-assert funnel, then lowered: its
+// accessors, its bodies and its derived bodies, after every earlier layer's.
+public func mir_run_layer(p: &var MirProgram, layer: &var FrontLayer, inputs: &FrontInputs) {
+    asserts_run_layer(&var p.tc, &var layer, &inputs)
+    stagetime_begin(StageTime.Mir)
+    p.begin_layer(&var layer)
+    mir_lower_program(&var p, &layer)
+    mir_lower_derived_bodies(&var p, &layer)
+    stagetime_end(StageTime.Mir)
 }
 
 // The record of one lowered program, after its `FILE` line: resolve's,
@@ -83,6 +105,22 @@ public func mir_append_dumps(out: &var StringBuilder, p: &MirProgram, spans: Boo
 // verifier's `INVARIANT` lines, as `mir_record` describes; returns 0 when
 // nothing was refused and 1 otherwise.
 public func mir_append_checks(out: &var StringBuilder, p: &var MirProgram, notes: Bool) -> Int {
+    mir_append_refusals(out: &var out, p: &p, notes: notes)
+    mir_append_module_checks(out: &var out, p: &var p, first: 0)
+    mir_status(&p)
+}
+
+// 0 when nothing in lowered program `p` is refused, 1 otherwise.
+public func mir_status(p: &MirProgram) -> Int {
+    if p.tc.error_count() > 0 || p.diags.len() > 0 {
+        return 1
+    }
+    0
+}
+
+// Resolve's, typecheck's and the lowering's refusals, each an `ERROR` line,
+// with `NOTE` lines when asked for.
+public func mir_append_refusals(out: &var StringBuilder, p: &MirProgram, notes: Bool) {
     var k = 0
     while k < p.tc.res.diags.len() {
         let d = p.tc.res.diags[k]
@@ -105,7 +143,13 @@ public func mir_append_checks(out: &var StringBuilder, p: &var MirProgram, notes
         mir_append_diag(out: &var out, p: &p, d: &d)
         k = k + 1
     }
-    var m = 0
+}
+
+// The `INVARIANT` lines every verifier finds in each module from `first` on,
+// in module order: the verifiers run per module, so a layer's modules are
+// verified in its step, before a later stage rewrites their MIR.
+public func mir_append_module_checks(out: &var StringBuilder, p: &var MirProgram, first: Int) {
+    var m = first
     while m < p.tc.res.module_count() {
         stagetime_begin(StageTime.VerifyResolve)
         let found = res_verify_module(&p.tc.res, m)
@@ -141,10 +185,6 @@ public func mir_append_checks(out: &var StringBuilder, p: &var MirProgram, notes
         mir_append_invariants(out: &var out, p: &p, m: m, problems: &lowered)
         m = m + 1
     }
-    if p.tc.error_count() > 0 || p.diags.len() > 0 {
-        return 1
-    }
-    0
 }
 
 public func mir_append_invariants(out: &var StringBuilder, p: &MirProgram, m: Int, problems: &Vector<String>) {
