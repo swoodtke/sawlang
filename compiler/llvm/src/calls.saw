@@ -2093,7 +2093,8 @@ extension LlEmitter {
     // The brace's environment moves from the frame that built it to the
     // heap, the form's one hidden allocation, a refused one panicking. The
     // control block, its handshake word already holding its size, takes it,
-    // the live-thread count is raised, and the thread starts on the site's
+    // the live-thread count is raised where std raises it apart from the
+    // control block (SL-965), and the thread starts on the site's
     // trampoline. A refused start drops every capture, since the body never
     // ran to take them, and frees the environment. `Thread<T>.__saw_started`
     // then settles the seam's status into the site's `Result`: for a refusal
@@ -2105,7 +2106,7 @@ extension LlEmitter {
         let node = info.node
         let at = mono.thread_spawn_at(c)
         let count = mono.thread_started_item
-        if at < 0 || info.dest < 0 || count < 0 {
+        if at < 0 || info.dest < 0 {
             self.refuse_here(&var mono, node, "a `Thread.spawn` site mono did not resolve")
             return
         }
@@ -2130,7 +2131,9 @@ extension LlEmitter {
         let block = self.call_item_direct(&var mono, &var target, site.block, &none, "", node)
         let env_slot = self.offset_addr(block, target.member_offset(&var mono.dp.bc.mir.tc, block_type, 1))
         self.store("ptr", env, env_slot)
-        let _ = self.call_item_direct(&var mono, &var target, count, &none, "", node)
+        if count >= 0 {
+            let _ = self.call_item_direct(&var mono, &var target, count, &none, "", node)
+        }
         let trampoline = self.thread_trampoline(&var mono, &var target, &site, block_type, node)
         let tid_slot = self.offset_addr(block, target.member_offset(&var mono.dp.bc.mir.tc, block_type, 0))
         var seam = StringBuilder()

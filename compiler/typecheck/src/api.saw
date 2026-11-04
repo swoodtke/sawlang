@@ -167,7 +167,6 @@ extension TcProgram {
         let std_set = self.module_named("std.set")
         let std_arc = self.module_named("std.arc")
         let std_task_group = self.module_named("std.taskgroup")
-        let std_task = self.module_named("std.task")
         let std_system_error = self.module_named("std.systemerror")
         let k = TcKnown(optional: self.res.lang_item(ResLang.OptionalEnum),
                         result: self.res.lang_item(ResLang.ResultEnum),
@@ -209,7 +208,7 @@ extension TcProgram {
                         arc: self.top_decl(std_arc, "Arc"),
                         task_group: self.top_decl(std_task_group, "TaskGroup"),
                         task: self.top_decl(std_task_group, "Task"),
-                        thread: self.top_decl(std_task, "Thread"),
+                        thread: self.res.lang_item(ResLang.ThreadStruct),
                         system_error: self.top_decl(std_system_error, "SystemError"),
                         func_pointer: self.top_decl(b, "FuncPointer"),
                         ordering: self.res.lang_item(ResLang.OrderingEnum),

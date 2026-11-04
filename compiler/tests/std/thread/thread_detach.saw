@@ -1,0 +1,12 @@
+// A program that only starts and detaches an OS thread: no join at all, so
+// the handle's fate is the detach handshake alone.
+func crunch(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    let n = 7
+    var t = try! Thread.spawn { [n] in crunch(n) }
+    t.detach()
+    print(n)
+}

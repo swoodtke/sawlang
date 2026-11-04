@@ -96,7 +96,10 @@ public enum ResLang {
     case DeviceStruct,
     case NormalStruct,
     case ReadOnlyStruct,
-    case WriteOnlyStruct
+    case WriteOnlyStruct,
+    // The OS-thread engine's handle, which a `Thread.spawn` site hands back
+    // and whose members its lowering calls (SL-965).
+    case ThreadStruct
 }
 
 // One role's row: its index in the table, the name its declaration carries
@@ -161,6 +164,7 @@ public func res_lang_roles() -> Vector<ResLang> {
     try! out.push(ResLang.NormalStruct)
     try! out.push(ResLang.ReadOnlyStruct)
     try! out.push(ResLang.WriteOnlyStruct)
+    try! out.push(ResLang.ThreadStruct)
     move out
 }
 
@@ -210,6 +214,15 @@ extension ResLangRow {
     static func task_function(index: Int, name: String) -> ResLangRow {
         ResLangRow(index: index, name: name, home: "std.task", builtin_home: "builtin",
                    builtin_name: "")
+    }
+
+    // A role of the OS-thread engine, at home in `std.thread` (`lang_home`).
+    // Stage 0's root declares it in `std.task` under `builtin_name`, or
+    // synthesizes it when that is empty.
+    static func thread_item(index: Int, name: String, builtin_name: String) -> ResLangRow {
+        let builtin_home = if builtin_name.len() > 0 { "std.task" } else { "builtin" }
+        ResLangRow(index: index, name: name, home: "std.thread", builtin_home: builtin_home,
+                   builtin_name: builtin_name)
     }
 }
 
@@ -263,12 +276,13 @@ public func res_lang_row(role: ResLang) -> ResLangRow {
                                          builtin_home: "builtin", builtin_name: ""),
         case PrintFailureFunction -> ResLangRow(index: 40, name: "print_failure", home: "std.panic",
                                                 builtin_home: "builtin", builtin_name: ""),
-        case ParkThreadFunction -> ResLangRow.task_function(41, "__saw_park_thread"),
+        case ParkThreadFunction -> ResLangRow.thread_item(41, "__saw_park_thread", ""),
         case UnsafeMemoryStruct -> ResLangRow.type(42, "UnsafeMemory"),
         case DeviceStruct -> ResLangRow.type(43, "Device"),
         case NormalStruct -> ResLangRow.type(44, "Normal"),
         case ReadOnlyStruct -> ResLangRow.type(45, "ReadOnly"),
-        case WriteOnlyStruct -> ResLangRow.type(46, "WriteOnly")
+        case WriteOnlyStruct -> ResLangRow.type(46, "WriteOnly"),
+        case ThreadStruct -> ResLangRow.thread_item(47, "Thread", "Thread")
     }
 }
 
@@ -286,6 +300,7 @@ extension ResProgram {
     //     dump_string_positions
     //     add_roots
     //     res_is_park_point
+    //     walk_thread_spawn
     public func lang_item(&self, role: ResLang) -> Int {
         let row = res_lang_row(role)
         self.lang[row.index]
@@ -306,7 +321,8 @@ extension ResProgram {
             let row = res_lang_row(roles[k])
             var d = -1
             if self.std_new {
-                d = self.std_top_decl(row.home, row.name)
+                let home = self.lang_home(&row)
+                d = self.std_top_decl(home, row.name)
                 if d < 0 {
                     self.refuse_missing_lang(&row)
                 }
@@ -333,6 +349,21 @@ extension ResProgram {
         self.is_vocabulary_module(decl.module) || d == self.lang_item(ResLang.StringStruct)
     }
 
+    // THE THREAD-HOME FUNNEL: the new-std module role row `row` binds in.
+    // That is the row's home, except that the OS-thread engine's home,
+    // `std.thread`, stands for `std.task` under a std root with no
+    // `std.thread` module, whose `std.task` declares the engine (SL-965).
+    // ENTRY POINTS:
+    //     bind_lang_items
+    //     refuse_missing_lang
+    func lang_home(&var self, row: &ResLangRow) -> String {
+        if not row.home.equals("std.thread") {
+            return row.home
+        }
+        let key = self.intern(row.home)
+        if self.find_module(key) >= 0 { row.home } else { "std.task" }
+    }
+
     // The declaration named `name` at the top of std module `home`, or -1.
     func std_top_decl(&var self, home: String, name: String) -> Int {
         let key = self.intern(home)
@@ -357,13 +388,14 @@ extension ResProgram {
     }
 
     func refuse_missing_lang(&var self, row: &ResLangRow) {
+        let home = self.lang_home(&row)
         var msg = StringBuilder()
         try! msg.append("the std root declares no `")
         try! msg.append(row.name)
         try! msg.append("` in `")
-        try! msg.append(row.home)
+        try! msg.append(home)
         try! msg.append("`, which the compiler needs as a lang item")
-        let key = self.intern(row.home)
+        let key = self.intern(home)
         var m = self.find_module(key)
         if m < 0 {
             m = self.builtin

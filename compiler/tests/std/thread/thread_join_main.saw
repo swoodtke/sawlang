@@ -1,0 +1,12 @@
+// A program whose plain `main` joins an OS thread: the join's parking default
+// makes `main` a task root, so the join parks at the engine's park point
+// until the thread's exit.
+func crunch(n: Int) -> Int {
+    n * n
+}
+
+func main() {
+    let n = 7
+    var t = try! Thread.spawn { [n] in crunch(n) }
+    print(t.join())
+}

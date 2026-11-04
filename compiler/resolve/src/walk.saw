@@ -11,6 +11,7 @@ import sawparse.grammar.{Alt}
 import sawresolve.collect.{res_is_top_level}
 import sawresolve.imports.{res_decl_binding}
 import sawresolve.layer.{FrontLayer}
+import sawresolve.lang.{ResLang}
 import sawresolve.kinds.{res_is_capture, res_is_closure_param, res_is_decl_item,
                              res_is_head_binding, res_is_plain_expr, res_is_plain_statement,
                              res_is_statement_alt, res_is_type_alt, res_names_type}
@@ -1004,22 +1005,18 @@ extension ResProgram {
         member.equals("spawn") && head.equals("Thread")
     }
 
-    // `Thread.spawn` at member node `e`: its head names std's `Thread` by
-    // identity, whatever `Thread` the scope holds, and the form is a static
+    // `Thread.spawn` at member node `e`: its head names std's `Thread`, the
+    // lang item, whatever `Thread` the scope holds, and the form is a static
     // member of it, which typecheck knows by its spelling.
     func walk_thread_spawn(&var self, e: Int, base: Int, leaf: Int) -> ResBinding {
-        let home = self.intern("std.task")
-        let loaded = self.by_name.first(0, home)
-        let m = if loaded >= 0 { self.by_name.value(loaded) } else { -1 }
-        let id = self.intern("Thread")
-        let at = if m >= 0 { self.top.first(m, id) } else { -1 }
-        if at < 0 {
+        let d = self.lang_item(ResLang.ThreadStruct)
+        if d < 0 {
             self.refuse(e, "slice.not-yet",
-                        "`Thread.spawn` under a std root whose `std.task` declares no `Thread` is not in the bootstrap slice yet")
+                        "`Thread.spawn` under a std root that declares no `Thread` is not in the bootstrap slice yet")
             try! self.skipped.push(e)
             return self.error_binding()
         }
-        let d = self.top.value(at)
+        let m = self.decls[d].module
         let head = self.first_leaf(base)
         self.record(head, ResBinding(kind: ResBindKind.Decl, module: m, decl: d, name: -1, node: -1))
         let name = self.leaf_name(leaf)

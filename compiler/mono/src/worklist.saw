@@ -1345,7 +1345,8 @@ extension MonoProgram {
     // A `Thread.spawn` site (SL-765) reaches what its lowering calls: its
     // brace's body, which the site's trampoline runs on the new thread;
     // `Thread<T>`'s `__saw_control_block`, `__saw_started` and `__saw_exit` at
-    // the site's handle type; the live-thread count's raise; and the drop of
+    // the site's handle type; the live-thread count's raise, when std
+    // declares one apart from the control block (SL-965); and the drop of
     // the brace's environment, which a refused spawn runs, the body never
     // having taken its captures.
     func resolve_thread_spawn(&var self, k: Int, c: Int, info: &MirCall) {
@@ -1369,7 +1370,7 @@ extension MonoProgram {
         let started = self.thread_member(k, d, handle, "__saw_started", node)
         let exit = self.thread_member(k, d, handle, "__saw_exit", node)
         let m = self.dp.bc.mir.tc.module_named("std.taskgroup")
-        if self.thread_started_item < 0 {
+        if self.thread_started_item < 0 && self.dp.bc.mir.tc.top_decl(m, "__saw_exec_thread_started") >= 0 {
             self.thread_started_item = self.exec_entry(k, m, "__saw_exec_thread_started", node, "a `Thread.spawn` site")
         }
         if body < 0 || block < 0 || started < 0 || exit < 0 {

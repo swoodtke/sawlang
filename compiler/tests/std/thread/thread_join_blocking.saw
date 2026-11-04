@@ -1,0 +1,12 @@
+// A program that only starts and joins an OS thread, joining in thread
+// context: a `blocking` main takes `Thread.join`'s blocking twin, so no task
+// root exists and the executor never runs.
+func crunch(n: Int) -> Int {
+    n * n
+}
+
+func main() blocking {
+    let n = 7
+    var t = try! Thread.spawn { [n] in crunch(n) }
+    print(t.join())
+}

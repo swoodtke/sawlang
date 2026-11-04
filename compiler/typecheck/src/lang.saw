@@ -221,7 +221,8 @@ func tc_lang_expected(role: ResLang) -> Vector<String> {
         case WriteOnlyStruct -> {
             try! out.push("struct (generics (T))")
             try! out.push("(field value T public)")
-        }
+        },
+        case ThreadStruct -> try! out.push("struct (generics (T))")
     }
     move out
 }
@@ -239,14 +240,17 @@ func tc_lang_alternative(role: ResLang, found: &Vector<String>) -> Bool {
 
 // Whether `role`'s shape is a set of parts its declaration must hold, beside
 // whatever else it declares: the String layer's types carry an API beyond
-// what the compiler synthesizes calls into. When the shape lists fields, they
-// are exactly the declaration's, since they are its representation.
+// what the compiler synthesizes calls into, and the thread handle's members
+// are what its std module makes them, which mono finds by name. When the
+// shape lists fields, they are exactly the declaration's, since they are its
+// representation.
 func tc_lang_contains(role: ResLang) -> Bool {
     match role {
         case StringStruct -> true,
         case StringBuilderStruct -> true,
         case InteriorStruct -> true,
         case AtomicStruct -> true,
+        case ThreadStruct -> true,
         case _ -> false
     }
 }
