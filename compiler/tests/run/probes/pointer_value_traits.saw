@@ -1,0 +1,77 @@
+// probe: stated
+// about: a raw pointer is `Equatable`, `Comparable`, `Hashable` and `Printable` by its address, directly and through a bound: two pointers into one allocation order as their offsets, equal pointers hash equal, a pointer keys a `Set` and a `Map`, and one renders as `0x` and lowercase hex (SL-964)
+// stage 0: not run; Stage 0 grants a raw pointer none of these traits, so the probe states its answers
+// speeds: -O0 -O2
+// prints: true false true false
+// prints: true true true false
+// prints: Less Greater Equal
+// prints: true true
+// prints: true true
+// prints: true true
+// prints: 2 3 2
+// prints: true true true
+// prints: 0x1000 0x0 0xfff0
+// prints: v=0x1000 0x1000
+// prints: true true
+
+func order_name(o: Ordering) -> String {
+    match o {
+        case Less -> "Less",
+        case Equal -> "Equal",
+        case Greater -> "Greater"
+    }
+}
+
+func same<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func order<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
+}
+
+func hashed<T: Hashable>(x: &T) -> Int {
+    var h = Hasher()
+    x.hash(&var h)
+    h.finish()
+}
+
+func shown<T: Printable>(x: &T) -> String {
+    x.to_string()
+}
+
+func main() unsafe {
+    var cells: [Int; 4] = [5, 6, 7, 8]
+    let base = (&cells) as UnsafePointer<Int>
+    let next = base + 1
+    let last = base + 3
+    print("{} {} {} {}", base == base, base == next, base != next, same(base, next))
+    print("{} {} {} {}", base < next, next > base, order(base, last), order(last, next))
+    print("{} {} {}", order_name(base.compare(&next)), order_name(last.compare(&next)), order_name(next.compare(&next)))
+    let again = next - 1
+    print("{} {}", hashed(&base) == hashed(&again), hashed(&base) != hashed(&next))
+    let other = (&cells) as UnsafeConstPointer<Int>
+    print("{} {}", same(other, other + 0), order(other, other + 2))
+    print("{} {}", same((base, 1), (again, 1)), same((base, 1), (next, 1)) == false)
+    var seen = Set<UnsafePointer<Int>>()
+    let _ = try! seen.insert(base)
+    let _ = try! seen.insert(next)
+    let _ = try! seen.insert(again)
+    var at = Map<UnsafePointer<Int>, Int>()
+    let _ = try! at.insert(base, 2)
+    let _ = try! at.insert(next, 3)
+    let _ = try! at.insert(again, 2)
+    print("{} {} {}", seen.len(), at[next], at[base])
+    var sorted = Vector<UnsafePointer<Int>>()
+    try! sorted.push(last)
+    try! sorted.push(base)
+    try! sorted.push(next)
+    sorted.sort()
+    print("{} {} {}", sorted[0] == base, sorted[1] == next, sorted[2] == last)
+    let page = 4096 as UnsafePointer<Int>
+    let zero = 0 as UnsafePointer<UInt8>
+    let high = 65_520 as UnsafeConstPointer<Int>
+    print("{} {} {}", page, zero, high)
+    print("{} {}", "v={page}", shown(&page))
+    print("{} {}", page.to_string().equals("0x1000"), "{zero}".equals("0x0"))
+}

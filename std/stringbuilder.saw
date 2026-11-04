@@ -13,6 +13,12 @@ import std.string.{string_from_bytes}
 
 static ASCII_ZERO: Int = 48
 static MINUS_SIGN: Int = 45
+static ASCII_LOWER_A: Int = 97
+static ASCII_LOWER_X: Int = 120
+static DECIMAL_DIGITS: Int = 10
+static HEX_BASE: UInt = 16
+static HEX_DIGIT_BITS: Int = 4
+static HEX_PREFIX_LEN: Int = 2
 static FIRST_CAPACITY: Int = 16
 
 // The truncation marker a fixed builder stamps when content does not fit: `…`
@@ -161,6 +167,35 @@ extension StringBuilder {
     /// Appends the decimal rendering of `value`, at 64 bits on every target.
     public func append(&var self, value: UInt64) -> Result<Void, AllocError> {
         self.append_decimal_wide(false, value)
+    }
+
+    // Appends `0x` and the lowercase hexadecimal digits of `address`, with no
+    // leading zeros. The one rendering of an address: the `format` the
+    // compiler gives a raw pointer and a `FuncPointer` calls it.
+    func append(&var self, address: UInt) -> Result<Void, AllocError> {
+        var digits = 1
+        var probe = address
+        while probe >= HEX_BASE {
+            probe = probe / HEX_BASE
+            digits = digits + 1
+        }
+        let needed = self.length + HEX_PREFIX_LEN + digits + 1
+        if not self.reserve_bytes(needed) && not self.fixed {
+            return AllocError(size: self.grow_target(needed), align: 1)
+        }
+        self.place_byte(ASCII_ZERO)
+        self.place_byte(ASCII_LOWER_X)
+        var i = digits
+        while i > 0 {
+            i = i - 1
+            let digit = ((address >> (i * HEX_DIGIT_BITS)) % HEX_BASE) as Int
+            if digit < DECIMAL_DIGITS {
+                self.place_byte(ASCII_ZERO + digit)
+            } else {
+                self.place_byte(ASCII_LOWER_A + (digit - DECIMAL_DIGITS))
+            }
+        }
+        return
     }
 
     /// Appends the shortest decimal text that reads back as `value`.

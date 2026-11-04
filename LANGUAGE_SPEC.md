@@ -2857,6 +2857,10 @@ trait Printable {
   renders unsigned through every path — `print`, interpolation and `to_string()`
   agree on the full `0..2^64-1` range (design 122 closed DF-119b, where
   `print(UInt.max)` alone emitted `-1`).
+- The raw pointers (`UnsafePointer<T>`, `UnsafeConstPointer<T>`) and
+  `FuncPointer<F>` conform builtin too. Each renders its address as `0x` and
+  lowercase hexadecimal digits with no leading zeros: `0x1000`, and `0x0` for
+  the zero address.
 - User types conform **by hand** — there is *no* auto-conformance or synthesis
   (that is the deferred `Debug` design's territory).
 - **String interpolation** `"{expr}"` and **`print(expr)`** accept any Printable
@@ -8132,8 +8136,14 @@ is what keeps "a raw-backed enum value is always a declared case" true.
 `==` / `!=`; conformance mirrors the Copy family's house rule:
 
 - **Auto-conform:** trivial (POD) structs — the exact set that auto-conforms to
-  `Copy` — and payload-free enums. Integers, `Bool`, `Float`, `String` and
-  `Void` conform builtin (a `Void` equals itself, so `Void?` compares).
+  `Copy` — and payload-free enums. Integers, `Bool`, `Float`, `String`,
+  `Void`, the raw pointers (`UnsafePointer<T>`, `UnsafeConstPointer<T>`) and
+  `FuncPointer<F>` conform builtin (a `Void` equals itself, so `Void?`
+  compares). Two raw pointers are equal when they hold one address. Two
+  function pointers are equal exactly when they hold one code address:
+  pointers built from one named function are equal, and pointers to two
+  different functions are not, since the compiler never merges two functions
+  into one address.
 - **Opt-in with synthesis:** every other struct/enum declares the conformance and
   marks it `@synthesize` to have the comparison derived: memberwise `&&` for
   structs, payload-deep for enums (equal tag, then the active variant's payload
@@ -8186,8 +8196,11 @@ trait Comparable {          // requires Equatable
 }
 ```
 
-- **Builtin:** integer types, `Float`, and `String` conform builtin. Integers
-  and `Float` lower directly to `icmp`/`fcmp`; `String` compares
+- **Builtin:** integer types, `Float`, `Bool`, `String`, the raw pointers and
+  `FuncPointer<F>` conform builtin. Integers and `Float` lower directly to
+  `icmp`/`fcmp`. `Bool` orders `false < true`. A raw pointer and a function
+  pointer order by address, read as an unsigned word, so two pointers into
+  one allocation order as their offsets do. `String` compares
   **byte-lexicographically** (= code-point order for ASCII / UTF-8; a shorter
   string that is a prefix of a longer one is `Less`).
 - **No auto-conformance.** Unlike `Equatable`, a struct/enum is *never*
@@ -8322,7 +8335,8 @@ trait Hashable {            // requires Equatable
 - Conformance **mirrors `Equatable`'s gating exactly:** trivial (POD) structs
   and payload-free enums auto-conform; everything else opts in with
   `@synthesize extension T: Hashable {}` (which streams each field / active
-  payload); primitives, `String` and `Void` conform builtin, and a tuple is
+  payload); primitives, `String` and `Void` conform builtin (a raw pointer and
+  a function pointer hash their address), and a tuple is
   `Hashable` iff every element is. `Hashable` **requires
   Equatable**. In a generic body the bound carries it, as a bound carries a
   `Send` parent: `T: Hashable` meets a `T: Equatable` bound.

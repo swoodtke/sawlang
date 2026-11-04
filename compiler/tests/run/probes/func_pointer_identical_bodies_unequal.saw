@@ -1,0 +1,21 @@
+// probe: stated
+// about: two functions with identical bodies hold two code addresses, so their `FuncPointer`s compare unequal, named functions and zero-capture literals alike, optimized too: equality is identity of the code address (SL-964)
+// stage 0: not run; Stage 0 grants a `FuncPointer` no `Equatable`, so the probe states its answers
+// speeds: -O0 -O2
+// prints: false false false true
+// prints: true true
+// prints: 24
+
+func twice_a(n: Int) sync -> Int { n * 2 }
+func twice_b(n: Int) sync -> Int { n * 2 }
+
+func main() {
+    let a: FuncPointer<(Int) sync -> Int> = twice_a
+    let b: FuncPointer<(Int) sync -> Int> = twice_b
+    let c: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+    let d: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+    let again: FuncPointer<(Int) sync -> Int> = twice_a
+    print("{} {} {} {}", a == b, c == d, a == c, a == again)
+    print("{} {}", a.address() != b.address(), c.address() != d.address())
+    print("{}", a(3) + b(3) + c(3) + d(3))
+}

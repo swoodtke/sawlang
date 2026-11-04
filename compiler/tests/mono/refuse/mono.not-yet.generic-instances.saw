@@ -1,13 +1,13 @@
 // refuses: mono.not-yet at 7:5
-// message: (in the instantiation `order<Int, Bool>`)
-// A generic refused at two instances whose refused part is the same, `Bool`'s
-// missing `compare`: each instance is refused at the one node they share, and
-// each refusal names its instance, so the two lines differ.
+// message: (in the instantiation `order<Int, Float>`)
+// A generic refused at two instances whose refused part is the same, a
+// generic `<=` at `Float` (SL-722 Q3): each instance is refused at the one
+// node they share, and each refusal names its instance, so the two differ.
 func order<T, U: Comparable>(tag: T, a: U, b: U) -> Bool {
-    a < b
+    a <= b
 }
 
 func main() {
-    print(order(1, false, true))
-    print(order("x", false, true))
+    print(order(1, 1.5, 2.5))
+    print(order("x", 1.5, 2.5))
 }

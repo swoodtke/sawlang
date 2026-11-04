@@ -1147,24 +1147,29 @@ extension TcProgram {
         true
     }
 
-    // The builtin conformances of the types no source declares (design 109):
-    // the numbers, `Bool` and `String` meet the value traits, and the raw
-    // pointers only Copy and Equatable. `Void` is granted `Send` and `Sync`
-    // here (it holds no state); its Copy comes from `classify`, and its
-    // Equatable and Hashable from `is_trivial` through `nominal_satisfies`.
+    // The builtin conformances of the types no source declares (design 109),
+    // per trait as the spec lists them. Every primitive is `ExplicitCopy`
+    // (its Copy comes from `classify`). Equality and Hashing hold for every
+    // primitive, and Ordering and Printable for every one but `Void`: the
+    // numbers, `Bool`, `String`, the raw pointers and `FuncPointer`, a
+    // pointer by its address. `Send` and `Sync` hold for every primitive but
+    // the raw pointers, which are `Send` only through a type that asserts it.
     public func primitive_grants(&self, d: Int, tr: Int) -> Bool {
         let info = self.res.decls[d]
         if info.kind != ResDeclKind.Primitive {
             return false
         }
-        if d == self.known.void_type {
-            return tr == self.known.explicit_copy || tr == self.known.send || tr == self.known.sync
+        let k = self.known
+        if tr == k.explicit_copy || tr == k.equatable || tr == k.hashable {
+            return true
         }
-        let pointer = d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer
-        if pointer {
-            return tr == self.known.explicit_copy || tr == self.known.equatable
+        if tr == k.comparable || tr == k.printable {
+            return d != k.void_type
         }
-        tr == self.known.explicit_copy || tr == self.known.equatable || tr == self.known.comparable || tr == self.known.hashable || tr == self.known.printable || tr == self.known.send || tr == self.known.sync
+        if tr == k.send || tr == k.sync {
+            return d != k.unsafe_pointer && d != k.unsafe_const_pointer
+        }
+        false
     }
 
     // Whether `t` is trivially copyable: a number, `Bool`, a pointer, or a

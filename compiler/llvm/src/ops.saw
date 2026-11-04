@@ -231,6 +231,12 @@ extension LlEmitter {
             self.float_binary_into(&var mono, &var target, op, a, b, dest, node)
             return
         }
+        // A zero-sized type has one value, which equals itself.
+        if l.kind == TargetKind.Zero && (op.equals("==") || op.equals("!=")) {
+            let same = if op.equals("==") { "1" } else { "0" }
+            self.store("i8", same, dest)
+            return
+        }
         if l.kind != TargetKind.Int && l.kind != TargetKind.Pointer {
             self.refuse_here(&var mono, node, "an operator on this type is not in the backend slice yet")
             return
@@ -241,9 +247,10 @@ extension LlEmitter {
             return
         }
         // A pointer-sized operand is compared by address only when both are
-        // raw pointers: a reference's address is not its referent's value.
+        // addresses, raw pointers or `FuncPointer`s: a reference's address is
+        // not its referent's value.
         if l.kind == TargetKind.Pointer {
-            let raw = ll_raw_pointer(&mono.dp.bc.mir.tc, left_type) && ll_raw_pointer(&mono.dp.bc.mir.tc, right_type)
+            let raw = ll_address_value(&mono.dp.bc.mir.tc, left_type) && ll_address_value(&mono.dp.bc.mir.tc, right_type)
             if not raw || ll_compare_predicate(op, false).len() == 0 {
                 var msg = StringBuilder()
                 try! msg.append("the operator `")
@@ -1257,6 +1264,12 @@ func ll_signed_min(bits: Int) -> String {
 func ll_raw_pointer(tc: &TcProgram, t: Int) -> Bool {
     let d = tc.nominal_decl(t)
     d >= 0 && (d == tc.known.unsafe_pointer || d == tc.known.unsafe_const_pointer)
+}
+
+// Whether `t`'s value is an address it is compared by: a raw pointer or a
+// `FuncPointer`.
+func ll_address_value(tc: &TcProgram, t: Int) -> Bool {
+    ll_raw_pointer(&tc, t) || tc.is_func_pointer(t)
 }
 
 // The instruction and predicate of Float operator `op`, or "" for one a

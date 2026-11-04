@@ -153,10 +153,10 @@ one builder (`build_member_glue`) builds each lowered cell's body. A scalar's:
 | kind | `copy()` | `equals` | `compare` | `hash` | `format` |
 |---|---|---|---|---|---|
 | every integer width, signed and unsigned | the value | `==` | `<`, then `==`, at the type's signedness | its bits as an `Int` into `write_int`, a narrow width zero-extended | its decimal digits through `append(value: Int)` |
-| `Bool` | the value | `==` | refused: the spec grants no `Comparable` (SL-715) | 1 or 0 into `write_int` | `true` or `false` through `append(s:)` |
+| `Bool` | the value | `==` | `<`, then `==`, unsigned, so `false < true` | 1 or 0 into `write_int` | `true` or `false` through `append(s:)` |
 | `Float` | the value | `==`, IEEE (`fcmp oeq`) | `<`, then `>`, else `Equal`, so a NaN pair is `Equal`; a generic `<=` or `>=` desugared to it is refused until SL-722 Q3 rules on NaN | 0 when `== 0.0`, else its bits read through its address, into `write_int` | its shortest round-trip text through `append(value: Float)`, found on the builder's member table by its parameter type |
-| a raw pointer | the value | refused: the spec grants no `Equatable` (SL-715) | | | |
-| `Void` | nothing | | | | |
+| an address: a raw pointer or a `FuncPointer` | the value | `==` of the addresses | `<`, then `==`, of the addresses, unsigned | the address, cast to its `UInt` word, as an `Int` into `write_int` | `0x` and lowercase hex digits through the builder's `append(address: UInt)` |
+| `Void` | nothing | `true`: its one value equals itself | | nothing written | |
 
 An unsigned 64-bit value past `Int.max` is appended as its quotient by ten,
 when that is not zero, then its last digit. Each append panics as `try!` does
@@ -165,17 +165,21 @@ included, so a `Map`'s order is too (run programs `scalar_copy`,
 `scalar_equals`, `scalar_compare`, `scalar_hash`, `scalar_format`, the
 probe `void_copy_hook`, and for `Float`, over the two zeros, a NaN and the
 infinities, `float_hook_copy`, `float_hook_equals`, `float_hook_compare` and
-`float_hook_hash`). An empty cell is one typecheck grants no
-conformance for.
+`float_hook_hash`; for `Bool`'s order and the addresses, the probes
+`bool_comparable_order`, `pointer_value_traits` and
+`func_pointer_value_traits`, and for `Void`, `void_equatable_hashable`,
+which state their answers). An empty cell is one
+typecheck grants no conformance for.
 
 An aggregate's hook asks its parts' hooks in turn, each a requirement call
 that the requirement funnel resolves as it resolves any, at the place the
 glue was first reached, so a part's hook is its written member, a default
-body or member glue again, and a part's refusal is reported there
-(`mono.not-yet.derived`, a `Bool` field's `compare`; `mono.not-yet.aggregate`,
-a raw pointer in a tuple). A part whose type the spec gives no such
-conformance, asked by a `@synthesize`d struct's or enum's glue, is that
-derivation's unmet member instead (`synthesize.unmet-member`, under Rules).
+body or member glue again, and a part's refusal is reported there. While
+typecheck grants only what mono lowers, no part's hook reaches the glue's own
+refusal, so no fixture holds one. A part
+whose type the spec gives no such conformance, asked by a `@synthesize`d
+struct's or enum's glue, is that derivation's unmet member instead
+(`synthesize.unmet-member`, under Rules).
 Each answer is Stage 0's:
 
 | kind | `equals` | `compare` | `hash` |
@@ -338,7 +342,7 @@ nullable pointer (null is `None`), and an aggregate by value is refused.
 
 | rule | refuses | fixture |
 |---|---|---|
-| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a cell the member glue table refuses though typecheck grants the bound, `Bool`'s `compare` or a raw pointer's `equals` (SL-715), a call of a body this program does not lower, an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.std`, `mono.not-yet.aggregate`, `mono.not-yet.derived`, `mono.not-yet.bool-order`, `mono.not-yet.pointer-equality`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, `mono.not-yet.generic-instances`, `mono.not-yet.task-root-instance` |
+| `mono.not-yet` | what the backend's slice does not lower: a builtin outside it, a format argument or an interpolated part whose rendering the slice does not make (no builder role bound, or a `format` member glue would synthesize for anything but a scalar, which the member glue table refuses), a requirement no member, default or member glue in the slice meets that is not a derivation's unmet member (`synthesize.unmet-member`): a call of a body this program does not lower, a construction `T()` through a type parameter at a type that is not a fieldless struct with no `init` (SL-966), an erased box whose allocator is not a fieldless struct with no `init`, a generic `<=` or `>=` at `Float` (a `compare` call MIR's ordering mark names), whose answer over a NaN is unruled (SL-722 Q3) | `mono.not-yet.std`, `mono.not-yet.float-order-le`, `mono.not-yet.float-order-ge`, `mono.not-yet.generic-instances`, `mono.not-yet.task-root-instance` |
 | `mono.depth` | a concrete argument nested more than 64 deep, once per program, at the first call that met the limit | `mono.depth`, `mono.depth.method`, `mono.depth.recursive`, and `mono.depth.branching`, whose argument doubles its parts at each step |
 | `synthesize.unmet-member` | a `@synthesize`d `Equatable`, `Comparable` or `Hashable` whose member glue asks a part that nothing meets: a member type with no conformance, or one the spec gives none (a struct's or an enum's `compare` no conformance writes, a payload-carrying enum's unwritten `equals` or `hash`, a tuple's, an Optional's or a fixed array's `compare`), reached through any Optional, fixed array or tuple glue between the derivation and the member. A derivation nothing reaches is legal (spec, Equality), so it is refused where something first reaches it: at the outermost call the program writes on the chain of instantiations that reached the derived glue, naming the derived type, the member, its type, the trait, any outer derived type it is reached through, and the generic instantiation that call made (SL-941). Any Optional's `== None` reads the tag alone and reaches nothing (SL-945); an Optional's `==` against another Optional reaches the payload's derivation | `.equatable-field`, `-ne`, `-generic`, `-optional-holder`, `-array-holder`, `-tuple-holder`, `.equatable-optional-field`, `-array-field`, `-payload`, `-nested`; the `.comparable-` rows with `-ge`, `-sort`, `-generic`; the `.hashable-` rows with `-set`, `-generic`, `-optional-holder`; the run probe `derived_unmet_member_unreached` builds the derivations nothing reaches, and `none_comparison_presence` compares such Optionals with `None` |
 | `static_assert.failed` | a deferred `static_assert` false at an instantiation of the function holding it: one measuring a type parameter's layout, one naming a const parameter, which folds to the instance's value, or both; one whose condition faults at the instance (a shift by the value out of range) fails too (SL:open-questions D40; SL-548) | `static_assert.failed`, `.const-parameter`, `.const-and-layout`, `.const-fault` |
@@ -350,7 +354,9 @@ A refusal whose node lies in std or the builtin module is reported at the
 nearest call the program writes on the chain of items that reached it
 (each item's origin and the node there), its message naming the std
 position, since that call is the one the program's author can change; the
-backend's `backend.not-yet` refusals go through the same funnel.
+backend's `backend.not-yet` refusals go through the same funnel
+(`mono.not-yet.std`, a construction through a type parameter in
+`Vector.push`).
 
 A refusal made while deciding a function item at concrete arguments, a
 generic's instance, ends with the clause (in the instantiation `NAME`), so

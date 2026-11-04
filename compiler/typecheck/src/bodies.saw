@@ -5168,19 +5168,20 @@ extension TcProgram {
         self.refuse(e, "operator.undefined", "the `Equatable` trait declares no `equals` requirement")
     }
 
+    // Whether a comparison of two `t`s is a builtin operator: the numbers,
+    // `Bool`, `String`, the raw pointers and `FuncPointer` for every
+    // comparison (`Bool` and an address ordered unsigned), and for `==` and
+    // `!=` a payload-free enum and an Optional of those.
     func builtin_comparable(&var self, t: Int, equality: Bool) -> Bool {
-        if self.is_numeric(t) || self.is_string(t) {
+        if self.is_numeric(t) || self.is_string(t) || self.is_bool(t) {
+            return true
+        }
+        let d = self.nominal_decl(t)
+        if d >= 0 && (d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer || d == self.known.func_pointer) {
             return true
         }
         if not equality {
             return false
-        }
-        if self.is_bool(t) {
-            return true
-        }
-        let d = self.nominal_decl(t)
-        if d == self.known.unsafe_pointer || d == self.known.unsafe_const_pointer {
-            return true
         }
         // An Optional of a `String` is no scalar the backend compares in
         // place, so it takes the structural `equals` instead.

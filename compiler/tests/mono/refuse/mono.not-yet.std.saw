@@ -1,12 +1,27 @@
-// refuses: mono.not-yet at 10:5
+// refuses: mono.not-yet at 25:10
+// message: (inside
+// message: std/vector.saw:
 // A refusal met inside std is reported at the program's own call that
-// reached it, the std position named in its message: `Vector.sort` orders
-// its elements through `Comparable.compare`, which the scalar table refuses
-// for `Bool` though typecheck grants the bound (SL-715).
+// reached it, the std position named in its message: `Vector.push` builds
+// its allocator as `A()`, which the slice lowers only for a fieldless struct
+// with no `init` (SL-966).
+struct Counted { start: Int }
+
+extension Counted {
+    init() -> Counted { Counted(start: 0) }
+}
+
+extension Counted: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
 func main() {
-    var v: Vector<Bool> = Vector()
-    try! v.push(true)
-    try! v.push(false)
-    v.sort()
+    var v = Vector<Int, Counted>()
+    try! v.push(1)
     print("{}", v.len())
 }

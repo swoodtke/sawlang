@@ -1,0 +1,36 @@
+// probe: stated
+// about: `Void` is `Equatable` and `Hashable` (it equals itself and hashes as nothing), directly and through a bound, alone and inside a tuple, an Optional and a fixed array (SL-964)
+// stage 0: not run; the probe states its answers
+// speeds: -O0 -O2
+// prints: true false true true
+// prints: true true
+// prints: true false true
+// prints: true false true
+// prints: true false true
+
+func nothing() {}
+
+func absent() -> Void? { None }
+
+func present() -> Void? {
+    let o: Void? = nothing()
+    o
+}
+
+func same<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func hashed<T: Hashable>(x: T) -> Int {
+    var h = Hasher()
+    x.hash(&var h)
+    h.finish()
+}
+
+func main() {
+    print("{} {} {} {}", nothing() == nothing(), nothing() != nothing(), same(nothing(), nothing()), nothing().equals(&nothing()))
+    print("{} {}", hashed(nothing()) == hashed(nothing()), hashed((1, nothing())) == hashed((1, nothing())))
+    print("{} {} {}", same((1, nothing()), (1, nothing())), same((1, nothing()), (2, nothing())), (1, nothing()) == (1, nothing()))
+    print("{} {} {}", same(present(), present()), same(present(), absent()), hashed(present()) != hashed(absent()))
+    print("{} {} {}", same([nothing(), nothing()], [nothing(), nothing()]), present() == absent(), [nothing()] == [nothing()])
+}

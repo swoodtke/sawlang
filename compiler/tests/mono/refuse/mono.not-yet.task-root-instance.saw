@@ -1,17 +1,17 @@
 // refuses: mono.not-yet at 9:5
-// message: (in the instantiation `order<Bool>`)
-// One instance that is two items, the generic called directly and spawned,
-// each its own item: the refusal is reported once, naming the instance.
+// message: (in the instantiation `order<Float>`)
+// One instance that is two items, called directly and spawned: the refusal,
+// a generic `<=` at `Float`, is reported once, naming it (SL-722 Q3).
 import std.task.*
 
 func order<T: Comparable>(a: T, b: T) -> Bool {
     yield_now()
-    a < b
+    a <= b
 }
 
 func main() {
-    print(order(false, true))
+    print(order(1.5, 2.5))
     var group = TaskGroup()
-    let h = group.spawn(order(true, false))
+    let h = group.spawn(order(2.5, 1.5))
     print(h.join())
 }

@@ -1,0 +1,75 @@
+// probe: stated
+// about: a `FuncPointer` is `Equatable`, `Comparable`, `Hashable` and `Printable` by its code address, directly and through a bound: one named function's pointers are equal and hash equal, two functions' are unequal and order as their addresses, a `FuncPointer` keys a `Set` and a `Map`, and one renders as `0x` and lowercase hex (SL-964)
+// stage 0: not run; Stage 0 grants a `FuncPointer` none of these traits, so the probe states its answers
+// speeds: -O0 -O2
+// prints: true false true false
+// prints: true true false
+// prints: true true
+// prints: true true true
+// prints: Equal true
+// prints: 2 20 4
+// prints: true true
+// prints: 0x1000 v=0x1000 0x1000
+// prints: true
+
+func doubled(n: Int) sync -> Int { n * 2 }
+func bumped(n: Int) sync -> Int { n + 1 }
+
+func same<T: Equatable>(a: T, b: T) -> Bool {
+    a == b
+}
+
+func order<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
+}
+
+func hashed<T: Hashable>(x: &T) -> Int {
+    var h = Hasher()
+    x.hash(&var h)
+    h.finish()
+}
+
+func shown<T: Printable>(x: &T) -> String {
+    x.to_string()
+}
+
+func order_name(o: Ordering) -> String {
+    match o {
+        case Less -> "Less",
+        case Equal -> "Equal",
+        case Greater -> "Greater"
+    }
+}
+
+func entry_at(pc: Int) unsafe -> FuncPointer<(Int) sync -> Int> {
+    FuncPointer<(Int) sync -> Int>.from_raw(pc as UnsafePointer<UInt8>)
+}
+
+func main() {
+    let d: FuncPointer<(Int) sync -> Int> = doubled
+    let again: FuncPointer<(Int) sync -> Int> = doubled
+    let b: FuncPointer<(Int) sync -> Int> = bumped
+    print("{} {} {} {}", d == again, d == b, d != b, same(d, b))
+    let low = d.address() < b.address()
+    print("{} {} {}", (d < b) == low, order(b, d) == (not low), order(d, again))
+    print("{} {}", hashed(&d) == hashed(&again), hashed(&d) != hashed(&b))
+    print("{} {} {}", same(d, again), (d <= again) && (d >= again), (b > d) == low)
+    print("{} {}", order_name(d.compare(&again)), (order_name(d.compare(&b)) == "Less") == low)
+    var seen = Set<FuncPointer<(Int) sync -> Int>>()
+    let _ = try! seen.insert(d)
+    let _ = try! seen.insert(b)
+    let _ = try! seen.insert(again)
+    var calls = Map<FuncPointer<(Int) sync -> Int>, Int>()
+    let _ = try! calls.insert(d, 10)
+    let _ = try! calls.insert(b, 4)
+    let _ = try! calls.insert(again, 20)
+    print("{} {} {}", seen.len(), calls[d], calls[b])
+    var sorted = Vector<FuncPointer<(Int) sync -> Int>>()
+    try! sorted.push(b)
+    try! sorted.push(d)
+    sorted.sort()
+    print("{} {}", (sorted[0] == d) == low, sorted[0](5) + sorted[1](5) == 16)
+    let page = entry_at(4096)
+    print("{} {} {}", page, "v={page}", shown(&page))
+    print("{}", d.to_string().len() > 2)
+}

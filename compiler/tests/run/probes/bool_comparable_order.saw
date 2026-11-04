@@ -1,0 +1,52 @@
+// probe: stated
+// about: `Bool` is `Comparable` with `false < true`, ordered unsigned at every route: the operators, `compare`, a `T: Comparable` bound, `Vector.sort`, and a derived `Comparable` over a `Bool` field (SL-964)
+// stage 0: not run; Stage 0 refuses `Bool` as `Comparable`, so the probe states its answers
+// speeds: -O0 -O2
+// prints: true true false false
+// prints: true true false true
+// prints: Less Greater Equal
+// prints: true false
+// prints: false true true
+// prints: true false
+
+func order_name(o: Ordering) -> String {
+    match o {
+        case Less -> "Less",
+        case Equal -> "Equal",
+        case Greater -> "Greater"
+    }
+}
+
+func order<T: Comparable>(a: T, b: T) -> Bool {
+    a < b
+}
+
+func before<T: Comparable>(a: &T, b: &T) -> Bool {
+    a.compare(&b) == Ordering.Less
+}
+
+struct Reading {
+    id: Int,
+    on: Bool
+}
+
+@synthesize
+extension Reading: Comparable {}
+
+func main() {
+    let no = false
+    let yes = true
+    print("{} {} {} {}", yes > no, no < yes, yes < no, no > yes)
+    print("{} {} {} {}", no <= yes, yes >= no, yes <= no, yes >= yes)
+    print("{} {} {}", order_name(no.compare(&yes)), order_name(yes.compare(&no)), order_name(yes.compare(&yes)))
+    print("{} {}", order(false, true), order(true, false))
+    var v: Vector<Bool> = Vector()
+    try! v.push(true)
+    try! v.push(false)
+    try! v.push(true)
+    v.sort()
+    print("{} {} {}", v[0], v[1], v[2])
+    let off = Reading(id: 1, on: false)
+    let on = Reading(id: 1, on: true)
+    print("{} {}", before(&off, &on), before(&on, &on))
+}

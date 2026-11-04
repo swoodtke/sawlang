@@ -479,7 +479,7 @@ extension MonoProgram {
         if self.dp.bc.mir.tc.is_float(t) {
             return MonoGlueKind.Floating
         }
-        if self.dp.bc.mir.raw_pointer(t) {
+        if self.dp.bc.mir.raw_pointer(t) || self.dp.bc.mir.tc.is_func_pointer(t) {
             return MonoGlueKind.Pointer
         }
         let void_decl = self.dp.bc.mir.tc.known.void_type
@@ -512,16 +512,18 @@ extension MonoProgram {
 
     // THE MEMBER GLUE TABLE: why member glue does not synthesize requirement
     // `req` on concrete type `t`, or "" when it does. A row is a glue kind, a
-    // column a hook. A scalar's cell is lowered where the spec grants the kind
-    // that builtin conformance (Equality, Ordering, Hashing, the Copy family)
-    // and the backend lowers the kind's values. An aggregate's `equals`,
+    // column a hook. A scalar's every hook is lowered, the spec granting each
+    // its builtin conformance (Equality, Ordering, Hashing, Printable, the
+    // Copy family): an integer, `Bool`, `Float`, and an address (a raw
+    // pointer or a `FuncPointer`); `Void`'s, `equals` and `hash`. An
+    // aggregate's `equals`,
     // `compare` and `hash` are its parts' hooks, where the spec grants the
     // trait: by a written `@synthesize`, automatically (a trivial struct's or
     // a payload-free enum's `Equatable` and `Hashable`), or through the parts
     // (a tuple's, an Optional's or a fixed array's `Equatable` and
     // `Hashable`). The `copy()` of a type copied by its bits is member glue
-    // copying them, whatever its row, a `FuncPointer` (no row of its own)
-    // included; an aggregate's otherwise is its copy glue (`glued`). Every
+    // copying them, whatever its row; an aggregate's otherwise is its copy
+    // glue (`glued`). Every
     // other cell says what it lacks.
     // ENTRY POINTS:
     //     member_glue_of
@@ -539,20 +541,15 @@ extension MonoProgram {
         }
         match kind {
             case Integer -> "",
-            case Boolean -> {
-                if hook == MonoHook.Compare {
-                    return "the spec gives `Bool` no builtin `Comparable` (SL-715)"
-                }
-                ""
-            },
+            case Boolean -> "",
             case Floating -> "",
-            case Pointer -> {
-                if hook == MonoHook.Equals {
-                    return "the spec gives a raw pointer no builtin `Equatable` (SL-715)"
+            case Pointer -> "",
+            case Empty -> {
+                if hook == MonoHook.Equals || hook == MonoHook.Hash {
+                    return ""
                 }
                 other
             },
-            case Empty -> other,
             case Struct -> self.nominal_refusal(req, t, false),
             case Enum -> self.nominal_refusal(req, t, true),
             case Tuple -> self.composite_refusal(hook, "a tuple"),
@@ -609,9 +606,7 @@ extension MonoProgram {
     // the spec grants `t` no such conformance, as typecheck does at a direct
     // use: a struct's or an enum's `equals`, `compare` or `hash` that no
     // conformance gives it, and a tuple's, an Optional's or a fixed array's
-    // `compare`. A cell typecheck grants and the spec does not, `Bool`'s
-    // `compare` or a raw pointer's `equals`, is an open question rather than
-    // the program's error (SL-715).
+    // `compare`.
     // ENTRY POINTS:
     //     member_glue_of
     public func spec_withholds(&var self, req: Int, t: Int) -> Bool {
@@ -739,11 +734,17 @@ extension MonoProgram {
         self.dp.bc.mir.temp_of(rv)
     }
 
-    // `equals(other:)`: `==` of the two referents.
+    // `equals(other:)`: `==` of the two referents; `true` for `Void`, whose
+    // one value equals itself.
     func build_scalar_equals(&var self, k: Int, t: Int) {
         let bool_type = self.dp.bc.mir.tc.bool_type()
         let other = self.dp.bc.mir.tc.mk_ref(false, t)
         let f = self.begin_hook(bool_type, t, other)
+        if self.glue_kind(t) == MonoGlueKind.Empty {
+            let yes = self.dp.bc.mir.op_const(MirConstKind.Bool, "true", bool_type)
+            self.return_value(k, f, yes)
+            return
+        }
         let same = self.compared("==", t)
         let value = self.dp.bc.mir.move_local(same)
         self.return_value(k, f, value)
@@ -797,15 +798,21 @@ extension MonoProgram {
     }
 
     // `hash(h:)`: the value's bits fed to the hasher's `write_int(n:)` as an
-    // `Int`, a narrow value zero-extended whatever its sign, a Bool as 1 or 0
-    // and a Float as `float_word` reads it, which are the words Stage 0
-    // feeds.
+    // `Int`, a narrow value zero-extended whatever its sign, a Bool as 1 or 0,
+    // a Float as `float_word` reads it, which are the words Stage 0 feeds,
+    // and an address as its unsigned word. `Void` feeds nothing: its one
+    // value has nothing to tell apart.
     func build_scalar_hash(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
         let s = self.dp.bc.mir.tc.sigs[req]
         let into = self.dp.bc.mir.tc.params[s.param_first].ty
         let f = self.begin_hook(void_type, t, into)
+        if self.glue_kind(t) == MonoGlueKind.Empty {
+            self.dp.bc.mir.ret()
+            self.finish_glue(k, f)
+            return
+        }
         let hasher = self.dp.bc.mir.tc.referent(into)
         let word_type = self.dp.bc.mir.tc.int_type()
         let write = self.glue_member(hasher, "write_int", "n", word_type)
@@ -820,6 +827,11 @@ extension MonoProgram {
             value = self.bool_word(t)
         } else if self.dp.bc.mir.tc.is_float(t) {
             value = self.float_word(t)
+        } else if self.glue_kind(t) == MonoGlueKind.Pointer {
+            let uint_decl = self.dp.bc.mir.tc.known.uint
+            let uint_type = self.dp.bc.mir.tc.prim(uint_decl)
+            let address = self.address_word(t)
+            value = self.hash_word(address, uint_type)
         } else {
             let bits = self.referent_copy(1, t)
             value = self.hash_word(bits, t)
@@ -827,6 +839,17 @@ extension MonoProgram {
         let _ = self.call_member(write, hasher, value)
         self.dp.bc.mir.ret()
         self.finish_glue(k, f)
+    }
+
+    // `(*_1)`, an address (a raw pointer's or a `FuncPointer`'s), as the
+    // unsigned word it is.
+    func address_word(&var self, t: Int) -> Int {
+        let uint_decl = self.dp.bc.mir.tc.known.uint
+        let uint_type = self.dp.bc.mir.tc.prim(uint_decl)
+        let value = self.referent_copy(1, t)
+        let rv = self.dp.bc.mir.rv_one(MirRvalueKind.Cast, uint_type, "", value)
+        let l = self.dp.bc.mir.temp_of(rv)
+        self.dp.bc.mir.move_local(l)
     }
 
     // `(*_1)`, a Bool, as the `Int` 1 or 0.
@@ -944,8 +967,9 @@ extension MonoProgram {
     // its last digit; an integer wider than the word is appended in parts
     // that each fit the word (`append_wider`). A Float is the builder's
     // `append(value: Float)`, the one formatter every position that shows a
-    // Float reaches. An append fails only for a growable builder's refused
-    // growth, which panics as `try!` does.
+    // Float reaches, and an address the builder's `append(address: UInt)`,
+    // the one that renders a pointer. An append fails only for a growable
+    // builder's refused growth, which panics as `try!` does.
     func build_scalar_format(&var self, k: Int, t: Int, req: Int) {
         let void_decl = self.dp.bc.mir.tc.known.void_type
         let void_type = self.dp.bc.mir.tc.prim(void_decl)
@@ -953,6 +977,20 @@ extension MonoProgram {
         let into = self.dp.bc.mir.tc.params[s.param_first].ty
         let f = self.begin_hook(void_type, t, into)
         let builder = self.dp.bc.mir.tc.referent(into)
+        if self.glue_kind(t) == MonoGlueKind.Pointer {
+            let uint_decl = self.dp.bc.mir.tc.known.uint
+            let uint_type = self.dp.bc.mir.tc.prim(uint_decl)
+            let hex = self.glue_member(builder, "append", "address", uint_type)
+            if hex < 0 {
+                self.refuse(-1, "mono.not-yet", "an address's `Printable.format` with no `append(address: UInt)` on the builder")
+            } else {
+                let address = self.address_word(t)
+                self.append_checked(hex, builder, address)
+            }
+            self.dp.bc.mir.ret()
+            self.finish_glue(k, f)
+            return
+        }
         if self.dp.bc.mir.tc.is_float(t) {
             let float_type = self.dp.bc.mir.tc.float_type()
             let shortest = self.glue_member(builder, "append", "value", float_type)
