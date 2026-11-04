@@ -1,0 +1,73 @@
+// probe: stated
+// about: a raw-backed enum written into a vector element through a `&var self` method lands while a generic `copy()` of the enum is instantiated elsewhere in the program, and the enum gets no copy glue (SL-961)
+// stage 0: not run; the probe pins sawc's copy of a raw-backed enum, the bits at every site, which Stage 0's backend does not share
+// speeds: -O0 -O2
+// ll omits: saw copy glue raw_enum_element_writes_beside_generic_copy.Use
+// prints: copied 1, the copy Move
+// prints: entries left Unused after the fill: 0
+// prints: Move 5, Copy 5
+enum Use: UInt8 {
+    case Unused = 0,
+    case Move = 1,
+    case Copy = 2
+}
+
+struct Uses { table: Vector<Use> }
+
+extension Uses: NoCopy {}
+
+extension Uses {
+    func set(&var self, i: Int, u: Use) {
+        self.table[i] = u
+    }
+}
+
+func copy_all<T: ExplicitCopy>(v: &Vector<T>) -> Vector<T> {
+    var out = Vector<T>()
+    var i = 0
+    while i < v.len() {
+        try! out.push(v[i].copy())
+        i = i + 1
+    }
+    move out
+}
+
+func name(u: Use) -> String {
+    match u {
+        case Unused -> "Unused",
+        case Move -> "Move",
+        case Copy -> "Copy"
+    }
+}
+
+func main() {
+    var v = Vector<Use>()
+    try! v.push(Use.Move)
+    let c = copy_all(&v)
+    print("copied {}, the copy {}", c.len(), name(c[0]))
+    var uses = Uses(table: Vector<Use>())
+    var i = 0
+    while i < 10 {
+        try! uses.table.push(Use.Unused)
+        i = i + 1
+    }
+    i = 0
+    while i < 10 {
+        uses.set(i, if i % 2 == 0 { Use.Move } else { Use.Copy })
+        i = i + 1
+    }
+    var unused = 0
+    var moves = 0
+    var copies = 0
+    i = 0
+    while i < 10 {
+        match uses.table[i] {
+            case Unused -> unused = unused + 1,
+            case Move -> moves = moves + 1,
+            case Copy -> copies = copies + 1
+        }
+        i = i + 1
+    }
+    print("entries left Unused after the fill: {}", unused)
+    print("Move {}, Copy {}", moves, copies)
+}

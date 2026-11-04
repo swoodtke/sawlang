@@ -14,7 +14,7 @@ import sawllvm.text.{ll_integer_value}
 import sawmir.build.{mir_func_local}
 import sawmir.model.{MirAggregate, MirConstKind, MirOperandKind, MirRvalue}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MONO_KEY_COPY, MonoProgram}
+import sawmono.program.{MonoProgram}
 import sawtarget.layout.{Target, TargetKind}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.spell.{tc_effects_text}
@@ -96,7 +96,6 @@ extension LlEmitter {
         if l.length == 1 || el.kind == TargetKind.Zero {
             return
         }
-        let glue = mono.glue_item(element, MONO_KEY_COPY)
         let word = self.word
         let counter = self.slot(target.word, target.word)
         self.store(word, "1", counter)
@@ -132,17 +131,7 @@ extension LlEmitter {
         try! gep.append(" ")
         try! gep.append(off)
         let at = self.assign(gep.build())
-        if glue >= 0 {
-            var line = StringBuilder()
-            try! line.append("call void ")
-            try! line.append(self.plain_symbol(&var mono, glue))
-            try! line.append("(ptr ")
-            try! line.append(at)
-            try! line.append(", ptr ")
-            try! line.append(dest)
-            try! line.append(")")
-            self.put(line.build())
-        } else {
+        if not self.copy_glue_into(&var mono, &var target, element, at, dest, node) {
             self.copy_bits(&el, at, dest)
         }
         var step = StringBuilder()

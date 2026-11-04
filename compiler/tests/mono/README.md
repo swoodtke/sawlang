@@ -105,7 +105,7 @@ source's local and block numbering. Then each call is resolved to its item:
 | call | resolved to |
 |---|---|
 | a function, a method, an `init` | its body at the receiver's arguments and the call's own |
-| a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel); so is an `equals`, `compare` or `hash` the type meets with no conformance at all, through a tuple's, an Optional's or a fixed array's parts or a trivially copyable struct's or enum's automatic conformance (`met_without_conformance`); a `copy()` of `Copy` or `ExplicitCopy` on a struct, an enum, a tuple or an array is the type's copy glue instead, whether a conformance synthesizes it or the type meets the bound with no conformance at all, through the Copy tier or a composite's parts. Which glue answers is `glued`'s one decision |
+| a trait requirement on a concrete owner | the owner's conformance: the member it writes, or the trait's default body under `Self`; a requirement met with neither, by a derivation or by a builtin type's own conformance, is its member glue (`resolve_requirement`, the one funnel); so is an `equals`, `compare` or `hash` the type meets with no conformance at all, through a tuple's, an Optional's or a fixed array's parts or a trivially copyable struct's or enum's automatic conformance (`met_without_conformance`); a `copy()` of `Copy` or `ExplicitCopy` on a struct, an enum, a tuple or an array that is not copied by its bits is the type's copy glue instead, whether a conformance synthesizes it or the type meets the bound with no conformance at all, through the Copy tier or a composite's parts, and on one that is copied by its bits it is member glue copying them. Which glue answers is `glued`'s one decision |
 | a trait requirement on an `any Trait` owner | no item: a vtable slot (below), which the backend calls through the receiver's vtable |
 | a parameter's default value | the default's function |
 | a window's open or close | the accessor's prologue or epilogue |
@@ -130,7 +130,11 @@ answers (`glued`):
   glue appears only where a generic body's `copy` lands on such a type, or
   where a `copy()` call under a `T: ExplicitCopy` or `T: Copy` bound does
   (run programs `explicit_copy_bound_every_owner`,
-  `vector_iter_owning_elements`).
+  `vector_iter_owning_elements`). A type copied by its bits has no copy glue,
+  whatever reaches it, so every copy glue is a memory value's, which the
+  backend calls in one shape, `void (ptr dest, ptr src)`, through one funnel
+  (`copy_glue_into` in `compiler/llvm/src/places.saw`); a raw-backed enum, a
+  scalar, would be defined returning its value (SL-961).
 
 A type that owns nothing has no glue. A function value's drop glue and copy
 glue are items with no MIR body, which the backend writes as the release and
@@ -198,8 +202,12 @@ the backend cannot compare in place, SL-759) pin the kinds at each position
 (an operator, a bound, an interpolation, a `Map` key or `Set` element,
 `Vector.sort`), and the probe
 `automatic_hashable_through_bound` the one Stage 0 refuses. A `copy()` on a
-struct, an enum, a tuple, an array or a function value is its copy glue
-(above); every other hook on any other type is refused as `mono.not-yet`.
+struct, an enum, a tuple, an array or a function value that is not copied by
+its bits is its copy glue (above), and on a struct, an enum, a tuple, an
+Optional or an array that is, it is member glue answering the value, as a
+scalar's is (the probes `raw_enum_copies_beside_generic_copy` and
+`raw_enum_copies_beside_vector_iteration`); every other hook on any other type
+is refused as `mono.not-yet`.
 
 **Task roots.** A cooperative spawn site (`Task.spawn(f(x))`) is no call of
 its root: the task runs the root in a *task root*, a separate specialization

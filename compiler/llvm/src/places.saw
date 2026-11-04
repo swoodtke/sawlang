@@ -688,22 +688,49 @@ extension LlEmitter {
             return
         }
         let src = self.place_addr(&var mono, &var target, op.place, node)
-        if op.kind == MirOperandKind.Copy {
-            let glue = mono.glue_item(op.ty, MONO_KEY_COPY)
-            if glue >= 0 {
-                var line = StringBuilder()
-                try! line.append("call void ")
-                try! line.append(self.plain_symbol(&var mono, glue))
-                try! line.append("(ptr ")
-                try! line.append(dest)
-                try! line.append(", ptr ")
-                try! line.append(src)
-                try! line.append(")")
-                self.put(line.build())
-                return
-            }
+        if op.kind == MirOperandKind.Copy && self.copy_glue_into(&var mono, &var target, op.ty, dest, src, node) {
+            return
         }
         self.copy_bits(&l, dest, src)
+    }
+
+    // THE COPY GLUE CALL: the copy of the `t` at address `src` into `dest`
+    // through `t`'s copy glue; false, with nothing written, when mono made
+    // none, so the copy is the bits. Mono makes copy glue only for a type
+    // not copied by its bits, whose layout is memory, so every one is
+    // defined `void (ptr dest, ptr src)`: a body returning a memory value
+    // through `sret`, or a function value's retain. A copy glue of any other
+    // layout would be defined returning its value, and is refused rather
+    // than called in a shape its definition does not have (SL-961).
+    // ENTRY POINTS:
+    //     operand_into
+    //     builtin_copy
+    //     repeat_into
+    public func copy_glue_into(&var self, mono: &var MonoProgram, target: &var Target, t: Int, dest: String,
+                               src: String, node: Int) -> Bool {
+        let glue = mono.glue_item(t, MONO_KEY_COPY)
+        if glue < 0 {
+            return false
+        }
+        let l = self.lay_at(&var mono, &var target, t, node)
+        if l.kind != TargetKind.Memory {
+            var msg = StringBuilder()
+            try! msg.append("copy glue for `")
+            try! msg.append(mono.dp.bc.mir.tc.type_text(t))
+            try! msg.append("`, whose layout is not memory, is not in the backend slice")
+            self.refuse_here(&var mono, node, msg.build())
+            return true
+        }
+        var line = StringBuilder()
+        try! line.append("call void ")
+        try! line.append(self.plain_symbol(&var mono, glue))
+        try! line.append("(ptr ")
+        try! line.append(dest)
+        try! line.append(", ptr ")
+        try! line.append(src)
+        try! line.append(")")
+        self.put(line.build())
+        true
     }
 
     // The address of operand `o`'s value, of type `t`: a place's own for a

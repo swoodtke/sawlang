@@ -1,0 +1,56 @@
+// probe: stated
+// about: iterating and copying a `Vector` of a raw-backed enum, whose std bodies call the element's `copy()` through a bound, leaves the enum's copies elsewhere as its bits, with no copy glue (SL-961)
+// stage 0: not run; the probe pins sawc's copy of a raw-backed enum, the bits at every site, which Stage 0's backend does not share
+// speeds: -O0 -O2
+// ll omits: saw copy glue raw_enum_copies_beside_vector_iteration.Level
+// prints: iterated 0 1 2
+// prints: copied 3, last 2
+// prints: assign local 2
+// prints: assign field 2
+// prints: assign vector element 2
+// prints: struct initialiser 2
+// prints: optional unwrap 2
+enum Level: UInt8 {
+    case Low = 0,
+    case Mid = 1,
+    case High = 2
+}
+
+struct Holder { level: Level, n: Int }
+
+func key(l: &Level) -> Int {
+    match l {
+        case Low -> 0,
+        case Mid -> 1,
+        case High -> 2
+    }
+}
+
+func main() {
+    var levels = Vector<Level>()
+    try! levels.push(Level.Low)
+    try! levels.push(Level.Mid)
+    try! levels.push(Level.High)
+    var seen = StringBuilder()
+    for l in levels.iter() {
+        try! seen.append(" ")
+        try! seen.append(key(&l))
+    }
+    print("iterated{}", seen.build())
+    let copied = levels.copy()
+    print("copied {}, last {}", copied.len(), key(&copied[2]))
+    let b = Level.High
+    var a = Level.Low
+    a = b
+    print("assign local {}", key(&a))
+    var h = Holder(level: Level.Low, n: 0)
+    h.level = b
+    print("assign field {}", key(&h.level))
+    levels[0] = b
+    print("assign vector element {}", key(&levels[0]))
+    let s = Holder(level: b, n: 1)
+    print("struct initialiser {}", key(&s.level))
+    let o: Level? = b
+    let u = o!
+    print("optional unwrap {}", key(&u))
+}

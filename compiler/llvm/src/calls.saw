@@ -24,7 +24,7 @@ import sawmono.dump.{mono_dump_layouts}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirOperand, MirOperandKind, MirSwitchKind,
                          MirTermKind}
 import sawmir.program.{MirProgram}
-import sawmono.program.{MONO_KEY_COPY, MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram, MonoThreadSpawn}
+import sawmono.program.{MONO_KEY_DROP, MonoItem, MonoItemKind, MonoProgram, MonoThreadSpawn}
 import sawresolve.program.{ResProgram}
 import sawtarget.layout.{Target, TargetCClass, TargetCase, TargetKind, TargetLayout, TargetShape}
 import sawtypecheck.model.{TC_FLAG_VARIADIC}
@@ -1625,20 +1625,9 @@ extension LlEmitter {
         } else {
             dest = self.slot(l.size, l.align)
         }
-        let glue = mono.glue_item(t, MONO_KEY_COPY)
-        if glue < 0 {
+        if not self.copy_glue_into(&var mono, &var target, t, dest, src, node) {
             self.copy_bits(&l, dest, src)
-            return
         }
-        var line = StringBuilder()
-        try! line.append("call void ")
-        try! line.append(self.plain_symbol(&var mono, glue))
-        try! line.append("(ptr ")
-        try! line.append(dest)
-        try! line.append(", ptr ")
-        try! line.append(src)
-        try! line.append(")")
-        self.put(line.build())
     }
 
     // The atomic intrinsics, as LLVM atomics of the orderings their names

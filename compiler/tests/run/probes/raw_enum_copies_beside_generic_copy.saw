@@ -1,0 +1,151 @@
+// probe: stated
+// about: every copy site of a raw-backed enum copies its value while a generic `copy()` of the enum is instantiated, through member glue that copies the bits, never copy glue (SL-961)
+// stage 0: not run; the probe pins sawc's copy of a raw-backed enum, the bits at every site, which Stage 0's backend does not share
+// speeds: -O0 -O2
+// ll omits: saw copy glue raw_enum_copies_beside_generic_copy.Level
+// prints: generic copy 2
+// prints: assign local 2, source 2
+// prints: assign field 2
+// prints: assign vector element 2
+// prints: assign array element 2
+// prints: assign through a reference 2
+// prints: argument 2, source 2
+// prints: return 2
+// prints: struct initialiser 2
+// prints: enum payload initialiser 2
+// prints: tuple initialiser 2
+// prints: array initialiser 2 2
+// prints: repeat initialiser 2 2 2
+// prints: closure capture 2
+// prints: escaping closure capture 2
+// prints: thread capture 2
+// prints: task argument 2
+// prints: copy 2
+// prints: optional unwrap 2
+// prints: optional coalesce 2
+// prints: optional if let 2
+// prints: optional copy 2
+// prints: result payload 2
+// prints: vector get 2
+enum Level: UInt8 {
+    case Low = 0,
+    case Mid = 1,
+    case High = 2
+}
+
+struct Holder { level: Level, n: Int }
+
+enum Wrap {
+    case Has(level: Level),
+    case No
+}
+
+func dup<T: ExplicitCopy>(x: &T) -> T { x.copy() }
+
+func make(k: Int) -> Level {
+    if k == 0 { Level.Low } else if k == 1 { Level.Mid } else { Level.High }
+}
+
+func key(l: &Level) -> Int {
+    match l {
+        case Low -> 0,
+        case Mid -> 1,
+        case High -> 2
+    }
+}
+
+func run(f: () -> Int) -> Int { f() }
+
+func put(p: &var Level, src: &Level) { p = src }
+
+func take(l: Level) -> Int { key(&l) }
+
+func get(h: &Holder) -> Level { h.level }
+
+func assignments() {
+    var a = make(0)
+    let b = make(2)
+    a = b
+    print("assign local {}, source {}", key(&a), key(&b))
+    var h = Holder(level: make(0), n: 0)
+    h.level = b
+    print("assign field {}", key(&h.level))
+    var v = Vector<Level>()
+    try! v.push(make(0))
+    v[0] = b
+    print("assign vector element {}", key(&v[0]))
+    var arr = [make(0), make(1)]
+    arr[1] = b
+    print("assign array element {}", key(&arr[1]))
+    var r = make(0)
+    put(&var r, &b)
+    print("assign through a reference {}", key(&r))
+}
+
+func transfers() {
+    let b = make(2)
+    print("argument {}, source {}", take(b), key(&b))
+    let h = Holder(level: make(2), n: 0)
+    let got = get(&h)
+    print("return {}", key(&got))
+    let s = Holder(level: b, n: 1)
+    print("struct initialiser {}", key(&s.level))
+    let w = Wrap.Has(level: b)
+    let payload = match w {
+        case Has(level) -> key(&level),
+        case No -> -1
+    }
+    print("enum payload initialiser {}", payload)
+    let t = (b, 5)
+    print("tuple initialiser {}", key(&t.0))
+    let arr = [b, b]
+    print("array initialiser {} {}", key(&arr[0]), key(&arr[1]))
+    let rep = [b; 3]
+    print("repeat initialiser {} {} {}", key(&rep[0]), key(&rep[1]), key(&rep[2]))
+}
+
+func captures() {
+    let b = make(2)
+    print("closure capture {}", run({ [b] in key(&b) }))
+    let f = { [b] in key(&b) }
+    print("escaping closure capture {}", f())
+    var th = try! Thread.spawn { [b] in key(&b) }
+    print("thread capture {}", th.join())
+    var group = TaskGroup()
+    let task = group.spawn(take(b))
+    print("task argument {}", task.join())
+}
+
+func payloads() {
+    let b = make(2)
+    let c = b.copy()
+    print("copy {}", key(&c))
+    let o: Level? = b
+    let u = o!
+    print("optional unwrap {}", key(&u))
+    let d = o ?? make(1)
+    print("optional coalesce {}", key(&d))
+    if let e = o { print("optional if let {}", key(&e)) } else { print("optional if let none") }
+    let oc = o.copy()
+    if let e = oc { print("optional copy {}", key(&e)) } else { print("optional copy none") }
+    let res: Result<Level, Int> = b
+    let ok = match res {
+        case Ok(l) -> key(&l),
+        case Err(_) -> -1
+    }
+    print("result payload {}", ok)
+    var v = Vector<Level>()
+    try! v.push(b)
+    let g = v.get(0)!
+    print("vector get {}", key(&g))
+}
+
+func main() {
+    let seed = make(2)
+    let d = dup(&seed)
+    print("generic copy {}", key(&d))
+    assignments()
+    transfers()
+    captures()
+    payloads()
+}
