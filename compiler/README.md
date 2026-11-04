@@ -262,6 +262,54 @@ every build that does not name them, which is how a lane runs split.
 `--emit-ll` ignores both. SL-955's comments hold the measured trade-off of
 each.
 
+A split build keeps each unit's object in the object cache and reuses it, so
+an edit to one module compiles that module's unit and not the rest. The key
+(`driver_object_key` in `driver/src/main.saw`) is the SHA-256
+(`driver/src/sha256.saw`) of a versioned description: the clang path, what
+`clang -### FLAGS -x ir /dev/null` prints for the unit compile's flags (the
+version and toolchain directory, the cc1 binary it runs, and its whole command
+line, which carries the target and its deployment version, the SDK, every flag,
+the working directory, and what clang's configuration files and environment
+such as `CCC_OVERRIDE_OPTIONS` change), and the unit's text. The unit's path is
+not in it: each unit names itself as its `source_filename`, without which an
+ELF object and LTO bitcode would carry the path clang read it at. One gap is
+known and accepted: a clang replaced in place by another build of the same
+version string (a local LLVM build at one path, say) changes none of that, so
+clear the cache, or build with `--no-object-cache`, after replacing one.
+
+The cache is `$SAWC_CACHE_DIR`, else `$XDG_CACHE_HOME/sawc`, else
+`$HOME/.cache/sawc`. Entries live in `objects/gN/KEY.o`, each a
+`sawc-object 2 KEY LENGTH DIGEST` line followed by the object, `DIGEST` the
+object's SHA-256, written under a name of the build's own and renamed into
+place, so builds sharing the cache never see half an entry. Every fetch checks
+the object's length and SHA-256 against the line, so a reused object is the
+bytes clang wrote; an entry of an older format is never reused, since the
+format is in the key too. It is bounded by generations: when the newest generation holds
+more than half of `SAWC_CACHE_ENTRIES` (2048, about six whole split builds of
+sawc per generation), a build starts the next and removes every generation older
+than the one before it; an entry found in an older generation is moved into the
+newest, so what was used since the last rotation survives the next. A rotation
+racing another build's store leaves a generation that still has an entry for
+the next one, and a store whose generation or temporary entry is removed starts
+again in the newest. A ThinLTO link keeps its per-module results in `thinlto/`
+(`-cache_path_lto` / `--thinlto-cache-dir`), pruned by the linker: an entry
+unused for a week goes, at most a tenth of the disk's free space, and on ELF at
+most 1 GiB. An entry that cannot be read, whose first line is not its own, or
+whose object's bytes are not the ones that line's SHA-256 names (a byte
+changed at the same size included), and a cache directory that cannot be made
+or written, are warnings on standard error (`sawc build: warning: ...`); the
+unit is compiled, its entry stored again, and the build goes on, since a
+verified cache only decides how an object is made. `--time-stages` reports a
+reused unit as `clang unit NAME cached MS ms`, and the cache's own work as
+`object cache MS ms`. `--no-object-cache`, or `SAWC_OBJECT_CACHE=off`, builds
+without it. Whole-module builds and `--sanitize address` builds use no cache
+(an ASan object names the path clang read it at, whatever its text says), and
+neither `--emit-ll` nor the final link is cached. Every lane that builds split
+uses a cache under `.build/` of its own run, never the user's: the run lane sets
+`SAWC_CACHE_DIR` for itself, `tools/unit_stability.py` builds with the cache
+off, and a split run of another lane under `SAWC_CODEGEN_UNITS=module` sets
+`SAWC_CACHE_DIR` beside it.
+
 Every step of `build.py` is cached by key, so an unchanged tree compiles and
 links nothing. The seed's files are cached under `.build/blobs/` by SHA-256,
 and the seed binary is built under `.build/seed/<key>/`, its key covering the

@@ -130,6 +130,8 @@ import float_lowering  # noqa: E402
 import riscv32_ir  # noqa: E402
 
 OUT = os.path.join(REPO, ".build", "run-lane")
+# The object cache of one run of the lane (`run`).
+OBJECT_CACHE = os.path.join(OUT, "object-cache-run")
 # Stage 0's recorded runs, one directory per host triple (README.md, "The
 # oracle").
 STAGE0 = os.path.join(HERE, "stage0")
@@ -1050,9 +1052,12 @@ TIME_STAGES_ALWAYS = ("resolve", "typecheck", "asserts", "mir", "eval", "borrowc
                       "coro lower", "llvm", "write ll")
 TIME_STAGES_LINE = re.compile(r"^time: ([a-z ]+) (\d+\.\d) ms$")
 # A split build's lines ahead of the pipeline's: the split, then one per
-# codegen unit's compile, named by its unit (`driver_split_build`).
+# codegen unit, named by its unit and marked `cached` when its object came
+# from the object cache, then the cache's own work when it has one
+# (`driver_split_build`).
 TIME_STAGES_SPLIT = re.compile(r"^time: split (\d+\.\d) ms$")
-TIME_STAGES_UNIT = re.compile(r"^time: clang unit (\S+) (\d+\.\d) ms$")
+TIME_STAGES_UNIT = re.compile(r"^time: clang unit (\S+)( cached)? (\d+\.\d) ms$")
+TIME_STAGES_CACHE = re.compile(r"^time: object cache (\d+\.\d) ms$")
 
 
 def check_time_stages(failures, counts):
@@ -1399,6 +1404,394 @@ def check_split_object(failures, counts):
     counts["run split objects bound as whole ones"] = 1
 
 
+# The object cache's SHA-256 (compiler/driver/src/sha256.saw), driven through
+# its public surface: each printed digest is of the parts of one message, fed
+# in order, and SHA256_MESSAGES lists the same messages for hashlib.
+SHA256_SOURCE = r"""import sawdriver.sha256.{Sha256}
+import std.data.{Data}
+
+func digest(parts: &Vector<String>) unsafe -> String {
+    var hash = Sha256()
+    var k = 0
+    while k < parts.len() {
+        hash.update(&parts[k])
+        k = k + 1
+    }
+    hash.finish()
+}
+
+func repeated(text: String, times: Int) -> String {
+    var out = StringBuilder()
+    var k = 0
+    while k < times {
+        try! out.append(text)
+        k = k + 1
+    }
+    out.build()
+}
+
+func main() unsafe {
+    var empty: Vector<String> = [""]
+    print(digest(&empty))
+    var abc: Vector<String> = ["abc"]
+    print(digest(&abc))
+    var two_blocks: Vector<String> = ["abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"]
+    print(digest(&two_blocks))
+    var long: Vector<String> = ["abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu"]
+    print(digest(&long))
+    var million: Vector<String> = [repeated("aaaaaaaaaa", 100_000)]
+    print(digest(&million))
+    var lengths: Vector<Int> = [55, 56, 63, 64, 65, 119, 120]
+    var k = 0
+    while k < lengths.len() {
+        var one: Vector<String> = [repeated("x", lengths[k])]
+        print(digest(&one))
+        k = k + 1
+    }
+    var parts: Vector<String> = [repeated("a", 63), "bb", repeated("c", 130), "", "d"]
+    print(digest(&parts))
+    var nul: Vector<String> = ["x", "a\0b", repeated("e", 70)]
+    print(digest(&nul))
+    var mixed = Sha256()
+    let text = repeated("m", 70)
+    mixed.update(&text)
+    let bytes = try! repeated("n", 130).to_data()
+    mixed.update(&bytes)
+    let nothing = Data()
+    mixed.update(&nothing)
+    print(mixed.finish())
+}
+"""
+SHA256_MESSAGES = ([b""], [b"abc"], [b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"],
+                   [b"abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopq"
+                    b"rsmnopqrstnopqrstu"], [b"a" * 1000000]) + tuple(
+    [b"x" * n] for n in (55, 56, 63, 64, 65, 119, 120)) + (
+    [b"a" * 63, b"bb", b"c" * 130, b"", b"d"], [b"x", b"a\0b", b"e" * 70], [b"m" * 70, b"n" * 130, b""])
+# FIPS 180-4's own answers for its first five messages, which hold hashlib to
+# the standard too.
+SHA256_FIPS = ("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+               "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+               "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
+               "cf5b16a778af8380036ce59e7b0492370b249b11e8f07a51afac45037afee9d1",
+               "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
+
+
+def check_sha256(failures, counts):
+    """The object cache's SHA-256 gives FIPS 180-4's digests, and hashlib's
+    for messages fed in parts across block boundaries, at each padding length
+    near a block's end, holding a NUL byte, and fed as `Data` beside text."""
+    import hashlib
+    work = os.path.join(OUT, "sha256")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    src = os.path.join(work, "main.saw")
+    with open(src, "w") as fh:
+        fh.write(SHA256_SOURCE)
+    binary = os.path.join(work, "sha256")
+    r = subprocess.run([build.SAWC, "build", "-O1", "-g0"] + target_flags()
+                       + ["--module-path", "sawdriver=" + os.path.join(COMPILER, "driver", "src"), src, "-o", binary],
+                       cwd=work, capture_output=True, text=True, timeout=BUILD_TIMEOUT)
+    if r.returncode != 0:
+        failures.append("run sha256: the vector program fails to build: %s" % (r.stdout + r.stderr).strip()[:300])
+        return
+    code, out, _ = execute(binary)
+    got = out.decode("utf-8", "replace").splitlines()
+    wanted = [hashlib.sha256(b"".join(parts)).hexdigest() for parts in SHA256_MESSAGES]
+    if list(SHA256_FIPS) != wanted[:len(SHA256_FIPS)]:
+        failures.append("run sha256: hashlib disagrees with FIPS 180-4's vectors")
+    if code != 0 or got != wanted:
+        bad = [k for k in range(len(wanted)) if k >= len(got) or got[k] != wanted[k]]
+        failures.append("run sha256: exit %s, and the digests of messages %r are not hashlib's" % (code, bad))
+    counts["run sha256 vectors checked"] = len(wanted)
+
+
+# A codegen unit's `--time-stages` line: compiled, or taken from the object
+# cache.
+OBJECT_CACHE_UNIT = re.compile(r"^time: clang unit (\S+)( cached)? \d+\.\d ms$", re.M)
+# The clang a run of the object cache's pin names in place of the
+# manifest's: it logs each run, then runs the real one.
+OBJECT_CACHE_WRAPPER = """#!/bin/sh
+printf '%%s\\n' "$*" >> "%s"
+exec "%s" "$@"
+"""
+
+
+def check_object_cache(failures, counts):
+    """A split build takes each unit's object from the object cache when the
+    cache holds its key and runs no clang for it: the program is the same
+    bytes, cold and warm, at -O0 and through ThinLTO's own cache. Each key
+    input misses (the speed, the LTO mode, line tables, the unit's text, the
+    environment clang reads, another clang); a damaged entry (its header, or
+    one byte of its object at the same size) or an unreadable one is
+    a warning, a compile and a fresh entry; builds sharing the cache at once
+    all succeed while it rotates; a used entry moves to the newest generation
+    and an unused one is evicted; and `--no-object-cache`,
+    `SAWC_OBJECT_CACHE=off`, whole-module builds and sanitized ones touch no
+    cache, while a bad setting is a usage error. Every cache here is a fresh
+    directory of the pin's own."""
+    work = os.path.join(OUT, "object-cache")
+    shutil.rmtree(work, ignore_errors=True)
+    os.makedirs(work)
+    with open(os.path.join(work, "main.saw"), "w") as fh:
+        fh.write(CODEGEN_UNITS_MAIN)
+    helper = os.path.join(work, "helper.saw")
+    with open(helper, "w") as fh:
+        fh.write(CODEGEN_UNITS_HELPER)
+    cache = os.path.join(work, "cache")
+
+    def environment(directory, extra=None):
+        env = dict(os.environ)
+        for name in ("SAWC_OBJECT_CACHE", "SAWC_CACHE_ENTRIES", "CCC_OVERRIDE_OPTIONS", "SAWC_CODEGEN_UNITS",
+                     "SAWC_LTO"):
+            env.pop(name, None)
+        env["SAWC_CACHE_DIR"] = directory
+        env.update(extra or {})
+        return env
+
+    def sawc(args, out, directory=cache, extra=None, binary=None):
+        return subprocess.run([binary or build.SAWC, "build", "--time-stages", "--codegen-units=module"]
+                              + target_flags() + args + ["main.saw", "-o", os.path.join(work, out)], cwd=work,
+                              capture_output=True, text=True, timeout=BUILD_TIMEOUT,
+                              env=environment(directory, extra))
+
+    def units(r, where):
+        """{unit: cached?} of a build, or None once its failure is recorded."""
+        if r.returncode != 0:
+            failures.append("run object cache: %s fails: %s" % (where, (r.stdout + r.stderr).strip()[:300]))
+            return None
+        if "sawc build: warning" in r.stderr:
+            failures.append("run object cache: %s warns: %s" % (where, r.stderr.strip()[:300]))
+        found = {m.group(1): bool(m.group(2)) for m in OBJECT_CACHE_UNIT.finditer(r.stderr)}
+        if not found:
+            failures.append("run object cache: %s reports no unit" % where)
+            return None
+        return found
+
+    def expect(r, where, cached, out=None):
+        """Every unit of the build cached, or none; its program runs."""
+        found = units(r, where)
+        if found is None:
+            return None
+        if set(found.values()) != {cached}:
+            failures.append("run object cache: %s takes %s from the cache, not %s"
+                            % (where, sorted(u for u, c in found.items() if c), "every unit" if cached else "none"))
+        if out:
+            code, stdout, _ = execute(os.path.join(work, out))
+            if code != 0 or stdout != CODEGEN_UNITS_OUTPUT:
+                failures.append("run object cache: %s's program exits %s printing %r" % (where, code, stdout[:200]))
+        return found
+
+    def entries(directory=cache):
+        """{generation: sorted entry names} of a cache."""
+        objects = os.path.join(directory, "objects")
+        if not os.path.isdir(objects):
+            return {}
+        return {g: sorted(os.listdir(os.path.join(objects, g))) for g in os.listdir(objects)}
+
+    def read(name):
+        with open(os.path.join(work, name), "rb") as fh:
+            return fh.read()
+
+    checked = 0
+    # A hit reuses the object and the program is the same bytes; so it is
+    # with line tables, whose debug map names the unit objects.
+    def same_bytes(name, where, cold):
+        """Whether the program `name` (and its line tables beside it) is the
+        bytes `cold` holds, the cold build's; a Mach-O link signs an
+        executable under its file name, so both builds write one path."""
+        built = read(name)
+        dsym = os.path.join(work, name + ".dSYM", "Contents", "Resources", "DWARF", name)
+        lines = open(dsym, "rb").read() if os.path.exists(dsym) else b""
+        if (built, lines) != cold:
+            failures.append("run object cache: %s is not the cold build's bytes" % where)
+
+    def keep(name):
+        dsym = os.path.join(work, name + ".dSYM", "Contents", "Resources", "DWARF", name)
+        return read(name), (open(dsym, "rb").read() if os.path.exists(dsym) else b"")
+
+    for lines in ("-g0", "-g"):
+        out = "program" + lines
+        cold = expect(sawc(["-O0", lines], out), "the cold -O0 %s build" % lines, False, out)
+        if cold is None:
+            return
+        kept = keep(out)
+        warm = expect(sawc(["-O0", lines], out), "the warm -O0 %s build" % lines, True, out)
+        if warm is None:
+            return
+        # Without line tables the link is not `-reproducible`, and ld64 then
+        # stamps each executable with a fresh UUID, cache or no cache.
+        if lines == "-g":
+            same_bytes(out, "the warm -O0 %s build" % lines, kept)
+        if sorted(cold) != sorted(warm):
+            failures.append("run object cache: the warm build's units %r are not the cold one's" % sorted(warm))
+        checked += 2
+    stored = sum(len(names) for names in entries().values())
+    if stored != len(cold) * 2:
+        failures.append("run object cache: two cold builds of %d units store %d entries" % (len(cold), stored))
+    # Each input of the key misses: the speed, the LTO mode, the environment
+    # clang reads.
+    expect(sawc(["-O1", "-g0"], "speed"), "an -O1 build after -O0's", False, "speed")
+    expect(sawc(["-O2", "-g0", "--lto=none"], "lto"), "an -O2 --lto=none build", False, "lto")
+    expect(sawc(["-O2", "-g0", "--lto=thin"], "lto"), "an -O2 --lto=thin build after --lto=none's", False, "lto")
+    kept = keep("lto")
+    expect(sawc(["-O2", "-g0", "--lto=thin"], "lto"), "a warm -O2 --lto=thin build", True, "lto")
+    same_bytes("lto", "the warm ThinLTO build, through ThinLTO's cache,", kept)
+    if not os.listdir(os.path.join(cache, "thinlto")):
+        failures.append("run object cache: a ThinLTO link keeps nothing in %s" % rel(os.path.join(cache, "thinlto")))
+    # `#` keeps clang from reporting the edit on standard error.
+    expect(sawc(["-O0", "-g0"], "override", extra={"CCC_OVERRIDE_OPTIONS": "# +-O1"}),
+           "a build under CCC_OVERRIDE_OPTIONS", False, "override")
+    checked += 5
+    # An edit to one module misses its unit and only it.
+    path, old, new, module = UNIT_STABILITY_EDITS[0]
+    with open(helper, "w") as fh:
+        fh.write(CODEGEN_UNITS_HELPER.replace(old, new))
+    edited = units(sawc(["-O0", "-g0"], "edited"), "the build after an edit to helper")
+    with open(helper, "w") as fh:
+        fh.write(CODEGEN_UNITS_HELPER)
+    if edited is not None and sorted(u for u, c in edited.items() if not c) != [module]:
+        failures.append("run object cache: an edit to helper compiles %r, not only `%s`"
+                        % (sorted(u for u, c in edited.items() if not c), module))
+    checked += 1
+    # Another clang misses every unit, and a hit runs no clang at all: a copy
+    # of sawc whose records name a clang that logs its runs.
+    real_clang = manifest_clang(TARGET or build.host_triple())
+    log = os.path.join(work, "clang.log")
+    wrapper = os.path.join(work, "clang")
+    with open(wrapper, "w") as fh:
+        fh.write(OBJECT_CACHE_WRAPPER % (log, real_clang))
+    os.chmod(wrapper, 0o755)
+    copied = os.path.join(work, "sawc")
+    shutil.copy(build.SAWC, copied)
+    for record in glob.glob(os.path.join(os.path.dirname(os.path.realpath(build.SAWC)), "sawc-runtime*.txt")):
+        with open(record) as fh:
+            lines = [("clang %s\n" % wrapper) if line.startswith("clang ") else line
+                     for line in fh.read().splitlines(True)]
+        with open(os.path.join(work, os.path.basename(record)), "w") as fh:
+            fh.write("".join(lines))
+    std_root = ["--std-root", os.path.join(REPO, "std")]
+    expect(sawc(std_root + ["-O0", "-g0"], "wrapped", binary=copied), "a build through another clang", False,
+           "wrapped")
+    with open(log, "w"):
+        pass
+    expect(sawc(std_root + ["-O0", "-g0"], "wrapped-warm", binary=copied), "a warm build through it", True,
+           "wrapped-warm")
+    with open(log) as fh:
+        compiles = [line for line in fh.read().splitlines() if " -x ir " in line and "-###" not in line]
+    if compiles:
+        failures.append("run object cache: a warm build runs clang on %d unit(s): %s" % (len(compiles), compiles[0][:200]))
+    checked += 2
+    # A truncated entry, an unreadable one and one whose object has a byte
+    # flipped at the same size, in a cache of one build's units: a warning
+    # naming each, the three units compiled, and their entries stored again.
+    repair = os.path.join(work, "repair")
+    expect(sawc(["-O0", "-g0"], "unrepaired", repair), "the build filling a cache", False, "unrepaired")
+    names = entries(repair).get("g1", [])
+    if len(names) < 3:
+        failures.append("run object cache: one build fills its cache's g1 with %r" % names)
+        return
+    truncated = os.path.join(repair, "objects", "g1", names[0])
+    unreadable = os.path.join(repair, "objects", "g1", names[1])
+    flipped = os.path.join(repair, "objects", "g1", names[2])
+    with open(truncated, "rb") as fh:
+        whole = fh.read()
+    with open(truncated, "wb") as fh:
+        fh.write(whole[:len(whole) // 2])
+    os.chmod(unreadable, 0)
+    with open(flipped, "rb") as fh:
+        whole = bytearray(fh.read())
+    body = whole.index(b"\n") + 1
+    at = body + (len(whole) - body) // 2
+    whole[at] ^= 0xFF
+    with open(flipped, "wb") as fh:
+        fh.write(bytes(whole))
+    r = sawc(["-O0", "-g0"], "repaired", repair)
+    if os.path.exists(unreadable):
+        os.chmod(unreadable, 0o644)
+    warned = r.stderr.splitlines()
+    if r.returncode != 0 \
+            or not any("is damaged: its first line" in w and names[0][:-2] in w for w in warned) \
+            or not any("cannot read the object cache entry" in w and names[1][:-2] in w for w in warned) \
+            or not any("is damaged: its object's SHA-256" in w and names[2][:-2] in w for w in warned):
+        failures.append("run object cache: a truncated, an unreadable and a flipped entry exit %d warning %r"
+                        % (r.returncode, r.stderr.strip()[:600]))
+    else:
+        code, stdout, _ = execute(os.path.join(work, "repaired"))
+        compiled = [u for u, c in ((m.group(1), m.group(2)) for m in OBJECT_CACHE_UNIT.finditer(r.stderr)) if not c]
+        if code != 0 or stdout != CODEGEN_UNITS_OUTPUT or len(compiled) != 3:
+            failures.append("run object cache: past a truncated, an unreadable and a flipped entry the program exits "
+                            "%s printing %r, compiling %r" % (code, stdout[:200], compiled))
+        expect(sawc(["-O0", "-g0"], "after-repair", repair), "the build after the repair", True, "after-repair")
+    checked += 3
+    # The switches, and the builds no cache serves.
+    for args, extra, why in ((["--no-object-cache"], None, "--no-object-cache"),
+                             ([], {"SAWC_OBJECT_CACHE": "off"}, "SAWC_OBJECT_CACHE=off")):
+        unused = os.path.join(work, "unused")
+        r = sawc(["-O0", "-g0"] + args, "switched", unused, extra)
+        found = expect(r, why, False, "switched")
+        if found is not None and (os.path.exists(unused) or "object cache" in r.stderr):
+            failures.append("run object cache: a build under %s uses a cache" % why)
+        checked += 1
+    whole = os.path.join(work, "whole-cache")
+    r = subprocess.run([build.SAWC, "build", "--codegen-units=1", "-O0", "-g0"] + target_flags()
+                       + ["main.saw", "-o", os.path.join(work, "whole")], cwd=work, capture_output=True, text=True,
+                       timeout=BUILD_TIMEOUT, env=environment(whole))
+    if r.returncode != 0 or os.path.exists(whole):
+        failures.append("run object cache: a whole-module build exits %d and %s a cache"
+                        % (r.returncode, "makes" if os.path.exists(whole) else "makes no"))
+    sanitized = os.path.join(work, "sanitized-cache")
+    r = sawc(["-O0", "-g0", "--sanitize", "address"], "sanitized", sanitized)
+    if r.returncode != 0 or os.path.exists(sanitized) or " cached " in r.stderr:
+        failures.append("run object cache: a sanitized split build exits %d and %s a cache"
+                        % (r.returncode, "uses" if os.path.exists(sanitized) else "uses no"))
+    for extra, why in (({"SAWC_OBJECT_CACHE": "maybe"}, "SAWC_OBJECT_CACHE=maybe"),
+                       ({"SAWC_CACHE_ENTRIES": "1"}, "SAWC_CACHE_ENTRIES=1")):
+        r = sawc(["-O0", "-g0"], "refused", extra=extra)
+        if r.returncode != 2 or "sawc build:" not in r.stdout:
+            failures.append("run object cache: %s exits %d, not 2 with the usage error: %s"
+                            % (why, r.returncode, (r.stdout + r.stderr).strip()[:300]))
+    checked += 4
+    # Generations: a used entry moves forward, an unused one is evicted.
+    small = os.path.join(work, "generations")
+    bound = {"SAWC_CACHE_ENTRIES": "4"}
+    expect(sawc(["-O0", "-g0"], "gen-a", small, bound), "the first build into a small cache", False, "gen-a")
+    after_first = entries(small)
+    expect(sawc(["-O0", "-g0"], "gen-b", small, bound), "its rebuild", True, "gen-b")
+    after_rebuild = entries(small)
+    if sorted(after_first) != ["g1", "g2"] or after_first["g2"] or sorted(after_rebuild) != ["g2", "g3"] \
+            or after_rebuild["g2"] != after_first["g1"] or after_rebuild["g3"]:
+        failures.append("run object cache: a rebuild does not move its entries forward: %r, then %r"
+                        % ({g: len(n) for g, n in after_first.items()}, {g: len(n) for g, n in after_rebuild.items()}))
+    expect(sawc(["-O1", "-g0"], "gen-c", small, bound), "an -O1 build into it", False, "gen-c")
+    expect(sawc(["-O2", "-g0", "--lto=none"], "gen-d", small, bound), "an -O2 build into it", False, "gen-d")
+    expect(sawc(["-O0", "-g0"], "gen-e", small, bound), "the -O0 build after two rotations", False, "gen-e")
+    if len(entries(small)) != 2:
+        failures.append("run object cache: the small cache holds generations %r, not two" % sorted(entries(small)))
+    checked += 5
+    # Builds sharing one cache at once, rotating it as they go.
+    shared = os.path.join(work, "shared")
+    launches = []
+    for k, speed in enumerate(("-O0", "-O1", "-O0", "-O1", "-O0", "-O1")):
+        out = os.path.join(work, "shared%d" % k)
+        launches.append(subprocess.Popen([build.SAWC, "build", "--codegen-units=module", speed, "-g0"] + target_flags()
+                                         + ["main.saw", "-o", out], cwd=work, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, text=True, env=environment(shared, bound)))
+    for k, proc in enumerate(launches):
+        try:
+            stdout, stderr = proc.communicate(timeout=BUILD_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            failures.append("run object cache: a concurrent build times out")
+            continue
+        code, printed, _ = execute(os.path.join(work, "shared%d" % k))
+        if proc.returncode != 0 or (stdout + stderr).strip() or code != 0 or printed != CODEGEN_UNITS_OUTPUT:
+            failures.append("run object cache: concurrent build %d exits %d (its program %s): %s"
+                            % (k, proc.returncode, code, (stdout + stderr).strip()[:300]))
+    checked += len(launches)
+    counts["run object cache cases checked"] = checked
+
+
 def time_stage_lines(failures, stderr, split):
     """Checks the `--time-stages` report `stderr`, a split build's when
     `split` (and then its split and unit lines lead it), and whether its
@@ -1409,6 +1802,8 @@ def time_stage_lines(failures, stderr, split):
         lines = lines[1:]
         while lines and TIME_STAGES_UNIT.match(lines[0]):
             units += 1
+            lines = lines[1:]
+        if lines and TIME_STAGES_CACHE.match(lines[0]):
             lines = lines[1:]
         if units == 0:
             failures.append("run time stages: a split build's `split` line is followed by no unit's compile")
@@ -2668,6 +3063,11 @@ def check_probes(failures, counts, names=None):
 
 def run(names=None, write=False):
     os.makedirs(OUT, exist_ok=True)
+    # Every split build the lane makes (its own pins, and every program under
+    # `SAWC_CODEGEN_UNITS=module`) shares a cache of this run's own, never the
+    # user's.
+    shutil.rmtree(OBJECT_CACHE, ignore_errors=True)
+    os.environ["SAWC_CACHE_DIR"] = OBJECT_CACHE
     failures = []
     counts = {}
     srcs = cases(names)
@@ -2706,6 +3106,8 @@ def run(names=None, write=False):
         check_codegen_units(failures, counts)
         check_unit_stability(failures, counts)
         check_split_object(failures, counts)
+        check_sha256(failures, counts)
+        check_object_cache(failures, counts)
         check_long_accessor(failures, counts)
     check_probes(failures, counts, names)
     return failures, counts, dues

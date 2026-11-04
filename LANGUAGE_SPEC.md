@@ -16251,7 +16251,7 @@ builds on first use.
 ```
 sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-c] [--std-root DIR] [--target TRIPLE]
            [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime]
-           [--codegen-units=1|module] [--lto=thin|full|none]
+           [--codegen-units=1|module] [--lto=thin|full|none] [--no-object-cache]
            [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)
 sawc [BUILD-FLAG]... FILE.saw [-o OUT]     the same as `sawc build`
 sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]
@@ -16295,6 +16295,17 @@ sawc --version
   `-O0`), `full` (full LTO), or `none` (the default at `-O0`). `--lto` takes
   a split build only. Either way the program's meaning is the same and
   `--emit-ll` writes the same module.
+- A split build keeps each module's object in the object cache and reuses
+  it while that module's LLVM module, the clang and its flags are
+  unchanged, so a rebuild after an edit compiles the edited modules and
+  little else; a ThinLTO link keeps its own results there too. The cache is
+  `$SAWC_CACHE_DIR`, else `$XDG_CACHE_HOME/sawc`, else `~/.cache/sawc`, and
+  holds about 2048 objects (`SAWC_CACHE_ENTRIES`), dropping the ones no build
+  has used for longest. `--no-object-cache`, or `SAWC_OBJECT_CACHE=off` in the
+  environment, builds without it. Each entry records its object's SHA-256,
+  checked on every reuse. A cache entry that cannot be read, or whose object
+  does not match it, is reported on standard error and the module compiled
+  again; it never fails the build. Whole-module and `--sanitize address` builds use no cache.
 - `sawc runtime` builds the hosted runtime from `runtime/`.
 - The stage subcommands (`lex` through `coro`) run the compiler's front end to
   that stage and `--dump` its result or `--check` it; `sawc coro --check FILE`

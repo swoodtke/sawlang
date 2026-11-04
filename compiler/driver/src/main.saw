@@ -33,7 +33,8 @@
 //   sawc build --emit-ll FILE      the entry file's program as one `.ll` on standard output
 //   sawc build --time-stages FILE  the build, then one `time: STAGE MS ms` line per stage on standard error
 //   sawc build --codegen-units=module FILE  the build with one module per Saw module, compiled in parallel
-//                                  and linked with ThinLTO, or as `--lto=full|none` says
+//                                  and linked with ThinLTO, or as `--lto=full|none` says, each unit's
+//                                  object reused from the object cache unless `--no-object-cache`
 //   sawc build --freestanding FILE the entry file's program compiled under the freestanding profile to an ELF object
 //   sawc build --runtime FILE      the entry file built as its own runtime, linked with none of sawc's
 //   sawc runtime --out DIR         the host's, or --target's, runtime objects built into DIR
@@ -82,7 +83,9 @@ import std.env.{Env}
 import std.file.{File}
 import std.path.{Path}
 import std.process.{Child, Command}
+import std.systemerror.{SystemError}
 import std.time
+import sha256.{Sha256}
 
 static DRIVER_EXIT_LEX_ERROR: Int = 1
 static DRIVER_EXIT_USAGE: Int = 2
@@ -118,7 +121,7 @@ func driver_usage() -> Int {
     print("       sawc build [-O0 | -O1 | -O2 | -Os | -Oz] [-g | -g0] [-c] [--std-root DIR] [--target TRIPLE]")
     print("                  [--target-features FEATURES] [--sanitize address] [--freestanding] [--runtime] [--no-hidden-alloc]")
     print("                  [-W borrow-prefix] [--time-stages] [--codegen-units=1|module] [--lto=thin|full|none]")
-    print("                  [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
+    print("                  [--no-object-cache] [--module-path NAME=DIR]... (FILE [-o OUT] | --emit-ll FILE)")
     print("       sawc runtime [--std-root DIR] [--rt-root DIR] [--target TRIPLE] [--clang PATH]")
     print("                    (--out DIR | --emit-ll FILE)")
     print("       sawc [BUILD-FLAG]... FILE.saw [-o OUT]   the same as `sawc build`")
@@ -160,7 +163,9 @@ func driver_speed_level(flag: String) -> String {
 // `-g0` turns them off; `-g` spells the default (spec, Debug info).
 // `--codegen-units=module` compiles one module per Saw module in parallel and
 // links them (`driver_split_build`), optimised across them as `--lto` says
-// (`driver_codegen_choice`); `--codegen-units=1`, the default, compiles the
+// (`driver_codegen_choice`), reusing the object of every unit whose key the
+// object cache holds unless `--no-object-cache` says otherwise
+// (`driver_object_key`); `--codegen-units=1`, the default, compiles the
 // whole program as one module. Its
 // arguments start at `args[first]`: 2 after `build`, and 1 for the implicit
 // form `sawc [FLAG]... FILE.saw`, the command line a Stage 0 consumer already
@@ -185,6 +190,7 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     var units = ""
     var lto = ""
     var timed = false
+    var no_cache = false
     var i = first
     while i < args.len() {
         let arg = args.get(i) ?? ""
@@ -211,6 +217,8 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             i = i + 1
         } else if arg.equals("--emit-ll") {
             emit = true
+        } else if arg.equals("--no-object-cache") {
+            no_cache = true
         } else if arg.equals("--time-stages") {
             stagetime_enable()
             timed = true
@@ -265,6 +273,10 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
     }
     let split = codegen.0.equals("module")
     lto = codegen.1
+    let cache_entries = driver_cache_choice()
+    if cache_entries < 0 {
+        return DRIVER_EXIT_USAGE
+    }
     if triple.len() > 0 && not target_known(triple) {
         print("sawc: unknown target {triple}")
         return DRIVER_EXIT_USAGE
@@ -366,11 +378,15 @@ func driver_build(args: &Vector<String>, first: Int) -> Int {
             driver_print_refusal(path, &var record)
             return built
         }
+        // An ASan unit's object names the path clang reads it at, which no
+        // key holds, so a sanitized build is never cached.
+        let cache = if no_cache || sanitize || cache_entries == 0 { "" } else { driver_cache_directory() }
         let job = DriverSplit(clang: compiler, triple: clang_triple, speed: speed, sanitize: sanitize,
                               freestanding: freestanding, debug: debug, object: object, lto: lto, out: out,
                               jobs: driver_jobs(out), timed: timed,
                               bare_metal: freestanding || target_bare_metal(triple),
-                              objcopy: if cross { foreign_objcopy.build() } else { objcopy.build() })
+                              objcopy: if cross { foreign_objcopy.build() } else { objcopy.build() },
+                              cache: cache, cache_entries: cache_entries)
         if object && not target_mach_o(triple) && job.objcopy.len() == 0 {
             print("sawc build: a split -c object for {} needs llvm-objcopy to make its codegen units' hidden symbols local, and the target's record names none: compiler/tools/build.py records the one `clang -print-prog-name=llvm-objcopy` names, else llvm-objcopy or llvm-objcopy-NN on PATH, else Homebrew LLVM's; install LLVM's binary tools (Homebrew's `llvm`, Debian's `llvm-NN`) and run it again, or build with --codegen-units=1", triple)
             return 1
@@ -972,6 +988,8 @@ func driver_jobs(out: String) -> Int {
 // units as `lto` says, `jobs` clang runs at once; under `timed`, a time line
 // per unit. `bare_metal` is a freestanding object's or a bare-metal target's,
 // which links with `ld.lld`. `objcopy` is the target's llvm-objcopy, or "".
+// `cache` is the object cache's directory, "" when the build uses none, and
+// `cache_entries` the most entries it keeps (`driver_cache_choice`).
 struct DriverSplit {
     clang: String
     triple: String
@@ -986,6 +1004,8 @@ struct DriverSplit {
     timed: Bool
     bare_metal: Bool
     objcopy: String
+    cache: String
+    cache_entries: Int
 }
 
 // One run of a tool, which `driver_run_jobs` takes in turn.
@@ -1013,9 +1033,13 @@ extern "C" {
 // module per Saw module (`ll_split`), each written to `OUT.units/uN.ll` and
 // compiled by clang, `split.jobs` at a time, then
 // linked with `objects` into the executable `OUT`, or for `-c` into the one
-// object `OUT` by a relocatable link (`driver_split_link`). The unit objects
-// are removed once linked. A clang that fails fails the build with its exit
-// status; with `--time-stages` each unit's compile time is a line of its own.
+// object `OUT` by a relocatable link (`driver_split_link`). A unit whose key
+// the object cache holds takes its object from there and is not compiled, and
+// each one compiled is stored (`driver_cache_fetch`, `driver_cache_store`).
+// The unit objects are removed once linked. A clang that fails fails the
+// build with its exit status; with `--time-stages` each unit's compile time,
+// or `cached` and its fetch time, is a line of its own, in unit order, and
+// the cache's own work one more.
 func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, objects: &Vector<String>) -> Int {
     var whole = StringBuilder()
     try! whole.append(split.out)
@@ -1054,48 +1078,104 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
         }
     }
     stagetime_begin(StageTime.WriteLl)
-    var jobs = Vector<DriverJob>()
     var compiled = Vector<String>()
+    var lls = Vector<String>()
     var k = 0
     while k < units.len() {
         var stem = StringBuilder()
         try! stem.append("u")
         try! stem.append(k)
         let ll = driver_path(dir, stem.build(), ".ll")
-        let unit_object = driver_path(dir, stem.build(), ".o")
         if not driver_write_file(ll, units[k].text) {
             stagetime_end(StageTime.WriteLl)
             return 1
         }
-        let arguments = driver_object_arguments(split.triple, split.speed, split.sanitize, split.freestanding,
-                                                split.lto, ll, unit_object)
-        try! jobs.push(DriverJob(tool: "clang", program: split.clang, arguments: move arguments))
-        try! compiled.push(unit_object)
+        try! lls.push(ll)
+        try! compiled.push(driver_path(dir, stem.build(), ".o"))
         k = k + 1
     }
     stagetime_end(StageTime.WriteLl)
+    // Each unit's key, and the time its object took to fetch from the cache,
+    // or -1 for a unit clang compiles.
+    let looking = time.Instant.now()
+    let cache = driver_cache_open(&split)
+    var keys = Vector<String>()
+    var fetched = Vector<Int>()
+    var jobs = Vector<DriverJob>()
+    var compiling = Vector<Int>()
+    k = 0
+    while k < units.len() {
+        let fetching = time.Instant.now()
+        var key = ""
+        var hit = false
+        if cache.objects.len() > 0 {
+            key = driver_object_key(&cache, &units[k].text)
+            hit = driver_cache_fetch(&cache, key, compiled[k])
+        }
+        try! keys.push(key)
+        if hit {
+            try! fetched.push(fetching.elapsed().as_nanos() as Int)
+        } else {
+            try! fetched.push(0 - 1)
+            let arguments = driver_object_arguments(split.triple, split.speed, split.sanitize, split.freestanding,
+                                                    split.lto, lls[k], compiled[k])
+            try! jobs.push(DriverJob(tool: "clang", program: split.clang, arguments: move arguments))
+            try! compiling.push(k)
+        }
+        k = k + 1
+    }
+    var cache_nanos = looking.elapsed().as_nanos() as Int
     stagetime_begin(StageTime.Clang)
     let done = driver_run_jobs(&jobs, split.jobs)
     stagetime_end(StageTime.Clang)
     var status = 0
+    var compile_nanos = Vector<Int>()
+    k = 0
+    while k < units.len() {
+        try! compile_nanos.push(0)
+        k = k + 1
+    }
     k = 0
     while k < done.len() {
-        if split.timed {
-            var line = StringBuilder()
-            try! line.append("clang unit ")
-            let name = units[done[k].job].name
-            try! line.append(name)
-            driver_time_line(line.build(), done[k].nanos)
-        }
+        compile_nanos[compiling[done[k].job]] = done[k].nanos
         if done[k].status != 0 && status == 0 {
             status = done[k].status
         }
         k = k + 1
     }
+    if split.timed {
+        k = 0
+        while k < units.len() {
+            var line = StringBuilder()
+            try! line.append("clang unit ")
+            try! line.append(units[k].name)
+            if fetched[k] >= 0 {
+                try! line.append(" cached")
+                driver_time_line(line.build(), fetched[k])
+            } else {
+                driver_time_line(line.build(), compile_nanos[k])
+            }
+            k = k + 1
+        }
+    }
     if status != 0 {
         return status
     }
-    let linked = driver_split_link(&split, dir, &compiled, &objects, &plan.exports)
+    if cache.objects.len() > 0 {
+        let storing = time.Instant.now()
+        k = 0
+        while k < compiling.len() {
+            let u = compiling[k]
+            driver_cache_store(&cache, keys[u], compiled[u])
+            k = k + 1
+        }
+        driver_cache_rotate(&cache)
+        cache_nanos = cache_nanos + (storing.elapsed().as_nanos() as Int)
+    }
+    if split.timed && cache.objects.len() > 0 {
+        driver_time_line("object cache", cache_nanos)
+    }
+    let linked = driver_split_link(&split, dir, &compiled, &objects, &plan.exports, cache.thinlto)
     if linked != 0 {
         return linked
     }
@@ -1121,9 +1201,11 @@ func driver_split_build(split: &DriverSplit, plan: &LlUnitPlan, text: &String, o
 // line tables as `driver_link_mach_o` does, the LTO objects kept in
 // `DIR/lto` for dsymutil and removed after it. Under `lto` the link
 // optimises across the units (`-flto=`), with as many jobs as the compiles,
-// and keeps the C symbols `exports` global.
+// and keeps the C symbols `exports` global; a ThinLTO link keeps its
+// per-module results in `thinlto` when it names a directory
+// (`driver_thinlto_cache_arguments`).
 func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<String>, objects: &Vector<String>,
-                       exports: &Vector<String>) -> Int {
+                       exports: &Vector<String>, thinlto: String) -> Int {
     let link = DriverLink(clang: split.clang, ll: "", out: split.out, speed: split.speed, sanitize: split.sanitize,
                           triple: split.triple, debug: split.debug)
     let mach_o = driver_mach_o(split.triple)
@@ -1139,6 +1221,9 @@ func driver_split_link(split: &DriverSplit, dir: String, compiled: &Vector<Strin
         try! jobs.append(split.jobs)
         try! arguments.push(jobs.build())
         driver_freestanding_arguments(&var arguments, split.freestanding)
+        if split.lto.equals("thin") && thinlto.len() > 0 {
+            driver_thinlto_cache_arguments(&var arguments, thinlto, mach_o)
+        }
         // LTO would make an executable's global symbols local, `@export`s
         // among them, where a whole-module link keeps each global (so `dlsym`
         // finds one). Naming exactly the exports keeps them and leaves every
@@ -1295,6 +1380,576 @@ func driver_remove_lto_objects(kept: String, lto: String) -> Int {
     }
 }
 
+// The object cache's default bound, in entries: a generation holds half of
+// it, about six whole split builds of sawc (one entry per unit, 158 for
+// sawc), so what a working tree builds stays cached across a rotation.
+static DRIVER_CACHE_ENTRIES: Int = 2048
+// The number an entry's header and every key's description carry; a change
+// to either's layout takes the next one.
+static DRIVER_CACHE_FORMAT: Int = 2
+// The furthest into an entry its header's line break may be:
+// `sawc-object N KEY LENGTH DIGEST`, with a 64-digit key and digest.
+static DRIVER_CACHE_HEADER_MAX: Int = 192
+// The bytes of /dev/urandom an entry's temporary name carries.
+static DRIVER_CACHE_TOKEN_BYTES: Int = 8
+// How often a store tries again in the newest generation when rotations by
+// other builds remove the one it writes into (`driver_cache_store`).
+static DRIVER_CACHE_STORE_ATTEMPTS: Int = 3
+
+// The most entries the object cache keeps: `SAWC_CACHE_ENTRIES`, else
+// DRIVER_CACHE_ENTRIES; 0 when `SAWC_OBJECT_CACHE=off` turns the cache off
+// for every build, as a lane may; -1 once a usage error is printed.
+func driver_cache_choice() -> Int {
+    let mode = driver_environment("SAWC_OBJECT_CACHE")
+    if not (mode.len() == 0 || mode.equals("on") || mode.equals("off")) {
+        print("sawc build: SAWC_OBJECT_CACHE takes `on` or `off`, not `{}`", mode)
+        return 0 - 1
+    }
+    var entries = DRIVER_CACHE_ENTRIES
+    let named = driver_environment("SAWC_CACHE_ENTRIES")
+    if named.len() > 0 {
+        entries = named.to_int() ?? 0
+        if entries < 2 {
+            print("sawc build: SAWC_CACHE_ENTRIES takes the most entries the object cache keeps, a count of at least 2, not `{}`", named)
+            return 0 - 1
+        }
+    }
+    if mode.equals("off") {
+        return 0
+    }
+    entries
+}
+
+// The object cache's directory: `SAWC_CACHE_DIR`, else
+// `$XDG_CACHE_HOME/sawc`, else `$HOME/.cache/sawc`; "" once a warning says
+// there is none.
+func driver_cache_directory() unsafe -> String {
+    let named = driver_environment("SAWC_CACHE_DIR")
+    if named.len() > 0 {
+        return named
+    }
+    let xdg = driver_environment("XDG_CACHE_HOME")
+    if xdg.len() > 0 {
+        return driver_path(xdg, "sawc", "")
+    }
+    let home = driver_environment("HOME")
+    if home.len() > 0 {
+        return driver_path(driver_path(home, ".cache", ""), "sawc", "")
+    }
+    driver_cache_warning("no object cache: none of SAWC_CACHE_DIR, XDG_CACHE_HOME and HOME is set, so every unit is compiled")
+    ""
+}
+
+// The object cache one split build uses: `objects`, the generations of unit
+// objects, and `thinlto`, the ThinLTO link's own, both "" when the build uses
+// none; `clang` and `fingerprint`, which every key covers; `entries`, the
+// bound; and `token`, which names this build's temporary entries.
+struct DriverCache {
+    objects: String
+    thinlto: String
+    clang: String
+    fingerprint: String
+    entries: Int
+    token: String
+}
+
+// The object cache of the split build `split`, its directories made; one the
+// build uses none of when `split` names none, or once a warning says why it
+// cannot be used.
+func driver_cache_open(split: &DriverSplit) unsafe -> DriverCache {
+    let off = DriverCache(objects: "", thinlto: "", clang: "", fingerprint: "", entries: 0, token: "")
+    if split.cache.len() == 0 {
+        return off
+    }
+    let objects = driver_path(split.cache, "objects", "")
+    let thinlto = driver_path(split.cache, "thinlto", "")
+    var problem = driver_make_directories(objects)
+    if problem.len() == 0 {
+        problem = driver_make_directories(thinlto)
+    }
+    if problem.len() > 0 {
+        driver_cache_warning("no object cache: {problem}, so every unit is compiled")
+        return off
+    }
+    guard let fingerprint = driver_cache_fingerprint(&split) else {
+        driver_cache_warning("no object cache: `clang -###` does not describe the compile, so every unit is compiled")
+        return off
+    }
+    DriverCache(objects: objects, thinlto: thinlto, clang: split.clang, fingerprint: fingerprint,
+                entries: split.cache_entries, token: driver_cache_token())
+}
+
+// Makes the directory `path` and each missing one above it; the reason one
+// cannot be made, or "". One another build makes meanwhile is no failure.
+func driver_make_directories(path: String) unsafe -> String {
+    var k = 1
+    while k <= path.len() {
+        if k == path.len() || (path.byte_at(k) as Int) == DRIVER_SLASH {
+            let prefix = path.substring(0, k)
+            if not Directory.exists(Path(s: prefix)) {
+                match Directory.create(Path(s: prefix)) {
+                    case Ok(_) -> {},
+                    case Err(e) -> {
+                        if not Directory.exists(Path(s: prefix)) {
+                            return "cannot create {prefix}: {e}"
+                        }
+                    }
+                }
+            }
+        }
+        k = k + 1
+    }
+    ""
+}
+
+// What clang makes of a unit compile of `split`'s, as `clang -###` prints it
+// without running anything, for `/dev/null` in and out: its version and
+// toolchain directory, the cc1 binary it runs and that binary's whole command
+// line, which carries what the environment and clang's configuration files
+// change (the deployment target, the SDK, `CCC_OVERRIDE_OPTIONS`); None once
+// clang cannot be asked.
+func driver_cache_fingerprint(split: &DriverSplit) unsafe -> String? {
+    var arguments = Vector<String>()
+    try! arguments.push("-###")
+    let compile = driver_object_arguments(split.triple, split.speed, split.sanitize, split.freestanding, split.lto,
+                                          "/dev/null", "/dev/null")
+    var k = 0
+    while k < compile.len() {
+        try! arguments.push(compile.get(k) ?? "")
+        k = k + 1
+    }
+    driver_captured(split.out, "clang", split.clang, &arguments)
+}
+
+// A name no other build's temporary entry takes: random bytes in hex, or,
+// where /dev/urandom cannot be read, the time.
+func driver_cache_token() unsafe -> String {
+    var out = StringBuilder()
+    match File.open(Path(s: "/dev/urandom")) {
+        case Ok(handle) -> {
+            var file = move handle
+            match file.read(size: DRIVER_CACHE_TOKEN_BYTES) {
+                case Ok(bytes) -> {
+                    var k = 0
+                    while k < bytes.len() {
+                        try! out.append((bytes.get(k) ?? Byte(0)) as Int)
+                        try! out.append("-")
+                        k = k + 1
+                    }
+                },
+                case Err(_) -> {}
+            }
+            let _ = file.close()
+        },
+        case Err(_) -> {}
+    }
+    try! out.append(time.unix_timestamp() as Int)
+    out.build()
+}
+
+// THE OBJECT CACHE KEY: the hex SHA-256 of a versioned description of what a
+// codegen unit's object is a function of, `text` the unit's module: the
+// format, clang's path and `cache.fingerprint` (its version and toolchain,
+// every flag, and what the environment changes), then the text. The unit's
+// path is not in it: each unit names itself as its `source_filename`
+// (compiler/llvm/src/split.saw), and a sanitized unit, whose object names
+// its path whatever the text says, is never cached (`driver_build`). A clang
+// replaced in place by another build of the same version is not seen
+// (compiler/README.md).
+// ENTRY POINTS:
+//     driver_split_build
+func driver_object_key(cache: &DriverCache, text: &String) unsafe -> String {
+    var description = StringBuilder()
+    try! description.append("sawc-object-cache ")
+    try! description.append(DRIVER_CACHE_FORMAT)
+    try! description.append("\nclang ")
+    try! description.append(cache.clang)
+    try! description.append("\n")
+    try! description.append(cache.fingerprint)
+    try! description.append("\nunit ")
+    try! description.append(text.len())
+    try! description.append("\n")
+    let head = description.build()
+    var hash = Sha256()
+    hash.update(&head)
+    hash.update(&text)
+    hash.finish()
+}
+
+// The numbers of the cache's generations, the directories `objects/gN`, in
+// ascending order; anything else there is left alone.
+func driver_cache_generations(objects: String) unsafe -> Vector<Int> {
+    var out = Vector<Int>()
+    match Directory.list(Path(s: objects)) {
+        case Ok(entries) -> {
+            var k = 0
+            while k < entries.len() {
+                let name = entries[k].file_name() ?? ""
+                if name.starts_with("g") {
+                    let n = name.substring(1, name.len()).to_int() ?? 0
+                    if n > 0 {
+                        try! out.push(n)
+                    }
+                }
+                k = k + 1
+            }
+        },
+        case Err(e) -> {
+            driver_cache_warning("cannot list the object cache's generations in {objects}: {e}")
+        }
+    }
+    out.sort()
+    move out
+}
+
+// The directory of generation `n`.
+func driver_cache_generation(objects: String, n: Int) -> String {
+    var name = StringBuilder()
+    try! name.append("g")
+    try! name.append(n)
+    driver_path(objects, name.build(), "")
+}
+
+// Where generation `n` holds `key`'s entry.
+func driver_cache_entry(objects: String, n: Int, key: String) -> String {
+    driver_path(driver_cache_generation(objects, n), key, ".o")
+}
+
+// An entry's first line, which a read checks: the format, the key, and the
+// length and SHA-256 `digest` of the object that follows it.
+func driver_cache_header(key: String, length: Int, digest: String) -> String {
+    var line = StringBuilder()
+    try! line.append(driver_cache_header_head(key, length))
+    try! line.append(" ")
+    try! line.append(digest)
+    line.build()
+}
+
+// An entry's first line up to its digest.
+func driver_cache_header_head(key: String, length: Int) -> String {
+    var line = StringBuilder()
+    try! line.append("sawc-object ")
+    try! line.append(DRIVER_CACHE_FORMAT)
+    try! line.append(" ")
+    try! line.append(key)
+    try! line.append(" ")
+    try! line.append(length)
+    line.build()
+}
+
+// The hex SHA-256 of an object's bytes, which its entry's header records.
+func driver_object_digest(bytes: &Data) unsafe -> String {
+    var hash = Sha256()
+    hash.update(&bytes)
+    hash.finish()
+}
+
+// The newest generation's number, `g1` made when there is none; 0 once a
+// warning says it cannot be.
+func driver_cache_newest(cache: &DriverCache) unsafe -> Int {
+    let generations = driver_cache_generations(cache.objects)
+    if generations.len() > 0 {
+        return generations[generations.len() - 1]
+    }
+    let problem = driver_make_directories(driver_cache_generation(cache.objects, 1))
+    if problem.len() > 0 {
+        driver_cache_warning("the object cache stores nothing: {problem}")
+        return 0
+    }
+    1
+}
+
+// Whether the cache holds `key`'s object, which is then written to `object`:
+// found in the newest generation, or in an older one and moved into the
+// newest, so an entry in use outlives the next rotation. An entry that cannot
+// be read, whose header is not its own, or whose object's bytes are not the
+// ones its header's SHA-256 names, is a warning and a miss: the unit is
+// compiled, and its entry stored again. A fetched object is therefore the
+// one clang wrote, byte for byte.
+func driver_cache_fetch(cache: &DriverCache, key: String, object: String) unsafe -> Bool {
+    let generations = driver_cache_generations(cache.objects)
+    if generations.len() == 0 {
+        return false
+    }
+    let newest = generations[generations.len() - 1]
+    let current = driver_cache_entry(cache.objects, newest, key)
+    var found = ""
+    var k = generations.len() - 1
+    while k >= 0 && found.len() == 0 {
+        let at = driver_cache_entry(cache.objects, generations[k], key)
+        if File.exists(Path(s: at)) {
+            if generations[k] == newest {
+                found = at
+            } else {
+                // A rename another build makes first leaves this one nothing
+                // to move, and the entry where that build put it.
+                match File.rename(Path(s: at), Path(s: current)) {
+                    case Ok(_) -> {
+                        found = current
+                    },
+                    case Err(_) -> {
+                        if File.exists(Path(s: current)) {
+                            found = current
+                        }
+                    }
+                }
+            }
+        }
+        k = k - 1
+    }
+    if found.len() == 0 {
+        return false
+    }
+    let entry = match driver_read_bytes(found) {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> {
+            driver_cache_warning("cannot read the object cache entry {found}: {e}; compiling the unit")
+            return false
+        }
+    }
+    var line = 0 - 1
+    var i = 0
+    while i < entry.len() && i < DRIVER_CACHE_HEADER_MAX && line < 0 {
+        if ((entry.get(i) ?? Byte(0)) as Int) == DRIVER_NEWLINE {
+            line = i
+        }
+        i = i + 1
+    }
+    var header = ""
+    if line > 0 {
+        if let head = entry.slice(0, line) {
+            header = match head.to_string() {
+                case Ok(text) -> text,
+                case Err(_) -> ""
+            }
+        }
+    }
+    let head = driver_cache_header_head(key, entry.len() - line - 1)
+    var prefix = StringBuilder()
+    try! prefix.append(head)
+    try! prefix.append(" ")
+    if line < 0 || not header.starts_with(prefix.build()) {
+        driver_cache_warning("the object cache entry {found} is damaged: its first line does not begin `{head}`; compiling the unit")
+        return false
+    }
+    guard let body = entry.slice(line + 1, entry.len()) else {
+        return false
+    }
+    let digest = driver_object_digest(&body)
+    if not header.equals(driver_cache_header(key, body.len(), digest)) {
+        driver_cache_warning("the object cache entry {found} is damaged: its object's SHA-256 is {digest}, not the one its first line records; compiling the unit")
+        return false
+    }
+    match driver_write_bytes(object, body) {
+        case Ok(_) -> true,
+        case Err(e) -> {
+            driver_cache_warning("cannot write {object} from the object cache: {e}; compiling the unit")
+            false
+        }
+    }
+}
+
+// Stores the object clang wrote at `object` as `key`'s entry in the newest
+// generation: written under this build's own temporary name, then renamed
+// into place, so a build reading the cache meanwhile finds the whole entry or
+// none, and two builds storing one key both succeed. When a rotation removes
+// the generation, or the temporary entry, meanwhile, the store starts again in
+// the newest generation; one that fails every attempt is a warning, and the
+// build goes on.
+func driver_cache_store(cache: &DriverCache, key: String, object: String) unsafe {
+    let body = match driver_read_bytes(object) {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> {
+            driver_cache_warning("the object cache does not store {object}: {e}")
+            return
+        }
+    }
+    let header = driver_cache_header(key, body.len(), driver_object_digest(&body))
+    var line = StringBuilder()
+    try! line.append(header)
+    try! line.append("\n")
+    var entry = match line.build().to_data() {
+        case Ok(bytes) -> bytes,
+        case Err(e) -> {
+            driver_cache_warning("the object cache does not store {object}: {e}")
+            return
+        }
+    }
+    match entry.append(body) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            driver_cache_warning("the object cache does not store {object}: {e}")
+            return
+        }
+    }
+    var why = ""
+    var attempt = 0
+    while attempt < DRIVER_CACHE_STORE_ATTEMPTS {
+        let generation = driver_cache_newest(&cache)
+        if generation == 0 {
+            return
+        }
+        let final = driver_cache_entry(cache.objects, generation, key)
+        var named = StringBuilder()
+        try! named.append(final)
+        try! named.append(".")
+        try! named.append(cache.token)
+        try! named.append(".tmp")
+        let temporary = named.build()
+        match driver_write_bytes(temporary, entry) {
+            case Ok(_) -> {
+                match File.rename(Path(s: temporary), Path(s: final)) {
+                    case Ok(_) -> {
+                        return
+                    },
+                    case Err(e) -> {
+                        why = "{e}"
+                    }
+                }
+            },
+            case Err(e) -> {
+                why = "{e}"
+            }
+        }
+        attempt = attempt + 1
+    }
+    driver_cache_warning("the object cache does not store {object}: {why}")
+}
+
+// Bounds the cache: when the newest generation holds more than half of
+// `cache.entries`, a new generation starts and every one older than the one
+// before it is removed, so the cache holds about `entries` entries and every
+// entry used since the last rotation survives the next. Two builds rotating
+// at once both succeed: the second finds the new generation made, and each
+// removal tolerates the other's (`driver_cache_remove_generation`).
+func driver_cache_rotate(cache: &DriverCache) unsafe {
+    let generations = driver_cache_generations(cache.objects)
+    if generations.len() == 0 {
+        return
+    }
+    let newest = generations[generations.len() - 1]
+    let held = match Directory.list(Path(s: driver_cache_generation(cache.objects, newest))) {
+        case Ok(entries) -> entries.len(),
+        case Err(_) -> 0
+    }
+    if held <= cache.entries / 2 {
+        return
+    }
+    let next = driver_cache_generation(cache.objects, newest + 1)
+    match Directory.create(Path(s: next)) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            if not Directory.exists(Path(s: next)) {
+                driver_cache_warning("the object cache cannot start a generation: cannot create {next}: {e}")
+                return
+            }
+        }
+    }
+    var k = 0
+    while k < generations.len() {
+        if generations[k] < newest {
+            driver_cache_remove_generation(cache.objects, generations[k])
+        }
+        k = k + 1
+    }
+}
+
+// Removes generation `n` and its entries. An entry or the directory already
+// gone is another build's removal, and an entry that appears meanwhile, which
+// a build still storing into this generation writes, keeps the directory for
+// the next rotation: that build's rename then fails and it stores the entry
+// in the newest generation (`driver_cache_store`).
+func driver_cache_remove_generation(objects: String, n: Int) unsafe {
+    let dir = driver_cache_generation(objects, n)
+    let listed = Directory.list(Path(s: dir))
+    let entries = match listed {
+        case Ok(found) -> move found,
+        case Err(_) -> {
+            return
+        }
+    }
+    var k = 0
+    while k < entries.len() {
+        match File.remove(entries[k]) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                match e.kind() {
+                    case NotFound -> {},
+                    case _ -> {
+                        driver_cache_warning("cannot remove the object cache entry {entries[k].as_string()}: {e}")
+                    }
+                }
+            }
+        }
+        k = k + 1
+    }
+    match Directory.remove(Path(s: dir)) {
+        case Ok(_) -> {},
+        case Err(e) -> {
+            let left = match Directory.list(Path(s: dir)) {
+                case Ok(found) -> found.len(),
+                case Err(_) -> 0
+            }
+            if Directory.exists(Path(s: dir)) && left == 0 {
+                driver_cache_warning("cannot remove the object cache generation {dir}: {e}")
+            }
+        }
+    }
+}
+
+// The bytes of the file at `path`.
+func driver_read_bytes(path: String) unsafe -> Result<Data, SystemError> {
+    var file = try File.open(Path(s: path))
+    let bytes = try file.read()
+    try file.close()
+    return bytes
+}
+
+// Writes `bytes` to the file at `path`, replacing what it holds.
+func driver_write_bytes(path: String, bytes: Data) unsafe -> Result<Void, SystemError> {
+    var file = try File.create(Path(s: path))
+    let _ = try file.write(bytes)
+    try file.close()
+    return
+}
+
+// `sawc build: warning: TEXT` on standard error: what the object cache could
+// not do, which changes how a build gets an object and never which object it
+// gets, so the build goes on.
+func driver_cache_warning(text: String) unsafe {
+    var line = StringBuilder()
+    try! line.append("sawc build: warning: ")
+    try! line.append(text)
+    try! line.append("\n")
+    let message = line.build()
+    if let bytes = message.c_string() {
+        __saw_rt_write_error(bytes, message.len())
+    }
+}
+
+// THE THINLTO CACHE FLAGS: a ThinLTO link keeps each module's optimised
+// result in `dir`, keyed by the linker on the module and what it imports,
+// and prunes it by the linker's own policy: an entry unused for a week goes,
+// the check runs at most hourly, and the directory takes at most a tenth of
+// the disk's free space, and on ELF at most 1 GiB (ld64 has no byte cap).
+// `mach_o` picks ld64's spelling over lld's.
+func driver_thinlto_cache_arguments(arguments: &var Vector<String>, dir: String, mach_o: Bool) {
+    var path = StringBuilder()
+    if mach_o {
+        try! path.append("-Wl,-cache_path_lto,")
+        try! path.append(dir)
+        try! arguments.push(path.build())
+        try! arguments.push("-Wl,-prune_interval_lto,3600")
+        try! arguments.push("-Wl,-prune_after_lto,604800")
+        try! arguments.push("-Wl,-max_relative_cache_size_lto,10")
+    } else {
+        try! path.append("-Wl,--thinlto-cache-dir=")
+        try! path.append(dir)
+        try! arguments.push(path.build())
+        try! arguments.push("-Wl,--thinlto-cache-policy=prune_interval=1h:prune_after=168h:cache_size=10%:cache_size_bytes=1g")
+    }
+}
+
 // Runs every job of `jobs`, at most `workers` children at once: it starts
 // them in order up to the bound, then waits for the oldest and starts the
 // next, so nothing but child processes runs in parallel and sawc stays
@@ -1387,6 +2042,7 @@ func driver_time_line(name: String, nanos: Int) unsafe {
 // or `full` writes a codegen unit's bitcode for the link to optimise.
 // ENTRY POINTS:
 //     driver_build
+//     driver_cache_fingerprint
 //     driver_link_mach_o
 //     driver_runtime
 //     driver_split_build

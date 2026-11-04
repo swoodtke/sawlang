@@ -19,7 +19,10 @@
 // metadata it holds are numbered within it, in the order its text first names
 // them, the fixed debug nodes keeping their numbers. Each unit carries the
 // named metadata, and the attribute groups and numbered metadata its text
-// names.
+// names. Each unit names itself as its `source_filename`, which LLVM would
+// otherwise take from the path clang reads it at, so its object is a function
+// of its text (ELF's file symbol, LTO bitcode); the name is distinct per unit,
+// as ThinLTO's identifiers of local symbols such as `@.bytes.N` need.
 
 import sawllvm.debug.{LL_DEBUG_FIRST}
 import sawllvm.units.{LlUnitPlan}
@@ -145,8 +148,9 @@ public func ll_split(text: &String, plan: &LlUnitPlan, problems: &var Vector<Str
     var u = 0
     while u < count {
         if s.owned_first[u + 1] > s.owned_first[u] {
-            let unit_text = ll_split_unit_text(&var s, &text, u)
-            try! units.push(LlUnit(name: plan.names.get(u) ?? "-unit", text: unit_text))
+            let name = plan.names.get(u) ?? "-unit"
+            let unit_text = ll_split_unit_text(&var s, &text, u, name)
+            try! units.push(LlUnit(name: name, text: unit_text))
         }
         u = u + 1
     }
@@ -559,12 +563,13 @@ func ll_split_closure(s: &var LlSplit, u: Int, needed: &var Vector<Int>) -> Vect
     move held
 }
 
-// Unit `u`'s module text: the header; its byte constants, other globals,
-// declarations and definitions, then the declarations of what it names
-// elsewhere, each run in symbol order; the attribute groups, named metadata
-// and numbered metadata. Byte constants and metadata take the unit's own
-// numbers (`ll_split_number_unit`).
-func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int) -> String {
+// Unit `u`'s module text: the header and its `source_filename`, `name`; its
+// byte constants, other globals, declarations and definitions, then the
+// declarations of what it names elsewhere, each run in symbol order; the
+// attribute groups, named metadata and numbered metadata. Byte constants and
+// metadata take the unit's own numbers (`ll_split_number_unit`). A unit's
+// name is a module path or `-program`, which needs no escape in a quoted name.
+func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int, name: String) -> String {
     var needed = Vector<Int>()
     let held = ll_split_closure(&var s, u, &var needed)
     var pool = Vector<Int>()
@@ -596,7 +601,9 @@ func ll_split_unit_text(s: &var LlSplit, text: &String, u: Int) -> String {
     ll_split_number_unit(&var s, &text, &globals, &defines, &tail)
     var out = StringBuilder()
     try! out.append(text.substring(0, s.header_stop))
-    try! out.append("\n")
+    try! out.append("source_filename = \"")
+    try! out.append(name)
+    try! out.append("\"\n\n")
     k = 0
     while s.comdats && k < defines.len() {
         let e = defines[k]

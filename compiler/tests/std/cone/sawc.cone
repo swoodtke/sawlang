@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 256 declarations in 22 modules
+# 273 declarations in 22 modules
 
 std.alloc: 8
   extern __saw_rt_alloc
@@ -12,19 +12,30 @@ std.alloc: 8
   struct AllocError
   struct GlobalAllocator
 
-std.data: 17
+std.data: 28
   func data_bytes
   func data_capacity
   func data_of_string
   func data_refcount
   func data_refused
+  method Data.append
+  method Data.byte_ptr
   method Data.copy
   method Data.count
   method Data.decoded
   method Data.deinit
   method Data.first_byte
+  method Data.get
   method Data.grow
+  method Data.grown
+  method Data.has_room
+  method Data.is_unique
+  method Data.len
+  method Data.place
+  method Data.ready
+  method Data.relocated
   method Data.reserved
+  method Data.slice
   method Data.spare
   method Data.spare_count
   method Data.to_string
@@ -65,12 +76,13 @@ std.env: 12
   method Env.get
   struct Env
 
-std.file: 20
+std.file: 22
   enum OpenMode
   enum SeekOrigin
   extern __saw_rt_fs_lseek
   extern __saw_rt_fs_open
   extern __saw_rt_fs_read
+  extern __saw_rt_fs_rename
   extern __saw_rt_fs_unlink
   extern __saw_rt_fs_write
   extern access
@@ -84,6 +96,7 @@ std.file: 20
   method File.opened
   method File.read
   method File.remove
+  method File.rename
   method File.write
   struct File
 
@@ -141,13 +154,14 @@ std.panic: 2
   extern __saw_rt_panic
   func panic_sink
 
-std.path: 9
+std.path: 10
   extern __saw_rt_fs_realpath
   extern free
   func system_text
   init Path.init
   method Path.as_string
   method Path.canonical
+  method Path.file_name
   method Path.join
   method Path.parent
   struct Path
@@ -266,16 +280,19 @@ std.stringbuilder: 17
   method StringBuilder.reserve_bytes
   struct StringBuilder
 
-std.systemerror: 6
+std.systemerror: 7
   enum SystemErrorKind
   extern __saw_rt_last_raw_code
   func system_error_kind
+  method SystemError.kind
   method SystemError.of
   method SystemError.raised
   struct SystemError
 
-std.time: 4
+std.time: 6
   extern __saw_rt_clock_monotonic_nanos
+  extern __saw_rt_unix_timestamp_secs
+  func unix_timestamp
   method Instant.elapsed
   method Instant.now
   struct Instant

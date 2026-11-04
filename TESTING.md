@@ -610,8 +610,13 @@ compiles (`--no-lock` skips it, and the header says so), and prints a Markdown
 table of per-step medians, a header naming the commit, the machine and the
 load, and a warning when the load is above half the cores. Post the table to
 SL-955 as a comment headed "SL-955 benchmark: STEP (main COMMIT)", so the
-speed-up work stays measured over time. `tools/test_bench_compile.py` pins the
-table and the argument lists.
+speed-up work stays measured over time. No build takes an object from the
+object cache. `--cache` measures the cache instead: sawc's split -O2 and -O0
+builds and Blade's split -O2 build, each in a copy of its sources under
+`.build/bench/` with a cache of its own, cold, warm with nothing changed, and
+warm after each of `tools/unit_stability.py`'s edits to one module, beside the
+whole-module builds for reference. `tools/test_bench_compile.py` pins the
+tables and the argument lists.
 
 ### The codegen-unit stability measure (not a stage)
 
@@ -620,7 +625,7 @@ table and the argument lists.
 ```
 
 Run by hand. Each case builds two copies of sawc's or Blade's sources under
-`.build/unit_stability/` with `--codegen-units=module`, one with an edit to
+`.build/unit_stability/` with `--codegen-units=module` and no object cache, one with an edit to
 one module, and reports which unit `.ll` files differ and how (`bytes`,
 `metadata`, `attributes`, `order` or `content`); `control` edits nothing. The
 run lane's `check_unit_stability` holds the same property on a two-module

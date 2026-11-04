@@ -131,7 +131,8 @@ def build_units(sawc, program, root, flags):
     the extra `flags`."""
     out = os.path.join(root, "out", "program")
     os.makedirs(os.path.dirname(out), exist_ok=True)
-    argv = [sawc, "build", "-O0", "--codegen-units=module", "--std-root", "std"] + list(flags)
+    # The units' text is what is measured; no object from the user's cache is wanted.
+    argv = [sawc, "build", "-O0", "--codegen-units=module", "--no-object-cache", "--std-root", "std"] + list(flags)
     for name, rel in program.packages:
         argv += ["--module-path", "%s=%s" % (name, rel)]
     argv += [program.entry, "-o", out]

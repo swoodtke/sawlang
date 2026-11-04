@@ -1,0 +1,187 @@
+// SHA-256 (FIPS 180-4), which keys the object cache (`driver_object_key`)
+// and verifies each entry's object. std has no hash of this strength, and a
+// cache key must not collide by accident: an object found under a colliding
+// key would be linked into a program it was never compiled for. run_lane's
+// `check_sha256` pins it against FIPS 180-4's vectors.
+
+import std.data.{Data}
+
+static SHA256_ROUND: [UInt32; 64] = [
+    0x428a_2f98, 0x7137_4491, 0xb5c0_fbcf, 0xe9b5_dba5, 0x3956_c25b, 0x59f1_11f1, 0x923f_82a4, 0xab1c_5ed5,
+    0xd807_aa98, 0x1283_5b01, 0x2431_85be, 0x550c_7dc3, 0x72be_5d74, 0x80de_b1fe, 0x9bdc_06a7, 0xc19b_f174,
+    0xe49b_69c1, 0xefbe_4786, 0x0fc1_9dc6, 0x240c_a1cc, 0x2de9_2c6f, 0x4a74_84aa, 0x5cb0_a9dc, 0x76f9_88da,
+    0x983e_5152, 0xa831_c66d, 0xb003_27c8, 0xbf59_7fc7, 0xc6e0_0bf3, 0xd5a7_9147, 0x06ca_6351, 0x1429_2967,
+    0x27b7_0a85, 0x2e1b_2138, 0x4d2c_6dfc, 0x5338_0d13, 0x650a_7354, 0x766a_0abb, 0x81c2_c92e, 0x9272_2c85,
+    0xa2bf_e8a1, 0xa81a_664b, 0xc24b_8b70, 0xc76c_51a3, 0xd192_e819, 0xd699_0624, 0xf40e_3585, 0x106a_a070,
+    0x19a4_c116, 0x1e37_6c08, 0x2748_774c, 0x34b0_bcb5, 0x391c_0cb3, 0x4ed8_aa4a, 0x5b9c_ca4f, 0x682e_6ff3,
+    0x748f_82ee, 0x78a5_636f, 0x84c8_7814, 0x8cc7_0208, 0x90be_fffa, 0xa450_6ceb, 0xbef9_a3f7, 0xc671_78f2,
+]
+static SHA256_BLOCK: Int = 64
+// ASCII `0` and the distance from a hex digit's value to its letter, `a` - 10.
+static SHA256_DIGIT_ZERO: Int = 48
+static SHA256_LETTER_OFFSET: Int = 87
+
+// A SHA-256 in progress: the chaining state, the message schedule a block
+// expands into, the bytes of a block not yet complete, and the length so far.
+public struct Sha256 {
+    private state: [UInt32; 8]
+    private schedule: [UInt32; 64]
+    private pending: [UInt8; 64]
+    private pending_len: Int
+    private total: Int
+}
+
+extension Sha256: NoCopy {}
+
+func sha256_rotate(x: UInt32, n: UInt32) -> UInt32 {
+    (x >> n) | (x << (32 - n))
+}
+
+extension Sha256 {
+    public init() -> Sha256 {
+        Sha256(state: [0x6a09_e667, 0xbb67_ae85, 0x3c6e_f372, 0xa54f_f53a, 0x510e_527f, 0x9b05_688c, 0x1f83_d9ab,
+                       0x5be0_cd19],
+               schedule: [0; 64], pending: [0; 64], pending_len: 0, total: 0)
+    }
+
+    // Adds the bytes of `text` to the message.
+    public func update(&var self, text: &String) unsafe {
+        let count = text.len()
+        if let p = text.c_string() {
+            self.absorb(p as UnsafePointer<UInt8>, count)
+            return
+        }
+        // A string holding a NUL lends no C string; its bytes go one by one.
+        var k = 0
+        while k < count {
+            var one: [UInt8; 1] = [0; 1]
+            one[0] = text.byte_at(k) as UInt8
+            self.absorb((&one) as UnsafePointer<UInt8>, 1)
+            k = k + 1
+        }
+    }
+
+    // Adds `bytes` to the message.
+    public func update(&var self, bytes: &Data) unsafe {
+        let count = bytes.len()
+        if count > 0 {
+            self.absorb(bytes.byte_ptr() as UnsafePointer<UInt8>, count)
+        }
+    }
+
+    // The digest of the message as 64 lowercase hex digits; the hasher then
+    // holds a finished message and is not updated again.
+    public func finish(&var self) unsafe -> String {
+        let bits = (self.total as UInt64) * 8
+        var tail: [UInt8; 72] = [0; 72]
+        tail[0] = 0x80
+        // Pads to 56 bytes past a block boundary, then the 8-byte length.
+        let used = (self.pending_len + 1) % SHA256_BLOCK
+        let zeros = if used <= 56 { 56 - used } else { 120 - used }
+        let length_at = 1 + zeros
+        var j = 0
+        while j < 8 {
+            tail[length_at + j] = UInt8.from(truncating: bits >> ((56 - j * 8) as UInt64))
+            j = j + 1
+        }
+        self.absorb((&tail) as UnsafePointer<UInt8>, length_at + 8)
+        var out = StringBuilder()
+        var i = 0
+        while i < 8 {
+            var shift = 28
+            while shift >= 0 {
+                let nibble = ((self.state[i] >> (shift as UInt32)) & 0xF) as Int
+                let code = if nibble < 10 { SHA256_DIGIT_ZERO + nibble } else { SHA256_LETTER_OFFSET + nibble }
+                try! out.append(Byte(code as UInt8))
+                shift = shift - 4
+            }
+            i = i + 1
+        }
+        out.build()
+    }
+
+    // Adds `count` bytes at `bytes`: completes the pending block first, then
+    // compresses whole blocks where they lie, and keeps what is left over.
+    func absorb(&var self, bytes: UnsafePointer<UInt8>, count: Int) unsafe {
+        self.total = self.total + count
+        var at = 0
+        if self.pending_len > 0 {
+            while at < count && self.pending_len < SHA256_BLOCK {
+                self.pending[self.pending_len] = bytes[at]
+                self.pending_len = self.pending_len + 1
+                at = at + 1
+            }
+            if self.pending_len < SHA256_BLOCK {
+                return
+            }
+            // A copy, since the block is read through a pointer while the
+            // compression writes `self`.
+            var block = self.pending
+            self.compress((&block) as UnsafePointer<UInt8>)
+            self.pending_len = 0
+        }
+        while at + SHA256_BLOCK <= count {
+            self.compress(bytes + at)
+            at = at + SHA256_BLOCK
+        }
+        while at < count {
+            self.pending[self.pending_len] = bytes[at]
+            self.pending_len = self.pending_len + 1
+            at = at + 1
+        }
+    }
+
+    // One 64-byte block at `block` folded into the state.
+    func compress(&var self, block: UnsafePointer<UInt8>) unsafe {
+        var t = 0
+        while t < 16 {
+            let b0 = block[t * 4] as UInt32
+            let b1 = block[t * 4 + 1] as UInt32
+            let b2 = block[t * 4 + 2] as UInt32
+            let b3 = block[t * 4 + 3] as UInt32
+            self.schedule[t] = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3
+            t = t + 1
+        }
+        while t < 64 {
+            let w15 = self.schedule[t - 15]
+            let w2 = self.schedule[t - 2]
+            let s0 = sha256_rotate(w15, 7) ^ sha256_rotate(w15, 18) ^ (w15 >> 3)
+            let s1 = sha256_rotate(w2, 17) ^ sha256_rotate(w2, 19) ^ (w2 >> 10)
+            self.schedule[t] = self.schedule[t - 16] &+ s0 &+ self.schedule[t - 7] &+ s1
+            t = t + 1
+        }
+        var a = self.state[0]
+        var b = self.state[1]
+        var c = self.state[2]
+        var d = self.state[3]
+        var e = self.state[4]
+        var f = self.state[5]
+        var g = self.state[6]
+        var h = self.state[7]
+        t = 0
+        while t < 64 {
+            let s1 = sha256_rotate(e, 6) ^ sha256_rotate(e, 11) ^ sha256_rotate(e, 25)
+            let choice = (e & f) ^ (~e & g)
+            let t1 = h &+ s1 &+ choice &+ SHA256_ROUND[t] &+ self.schedule[t]
+            let s0 = sha256_rotate(a, 2) ^ sha256_rotate(a, 13) ^ sha256_rotate(a, 22)
+            let majority = (a & b) ^ (a & c) ^ (b & c)
+            h = g
+            g = f
+            f = e
+            e = d &+ t1
+            d = c
+            c = b
+            b = a
+            a = t1 &+ s0 &+ majority
+            t = t + 1
+        }
+        self.state[0] = self.state[0] &+ a
+        self.state[1] = self.state[1] &+ b
+        self.state[2] = self.state[2] &+ c
+        self.state[3] = self.state[3] &+ d
+        self.state[4] = self.state[4] &+ e
+        self.state[5] = self.state[5] &+ f
+        self.state[6] = self.state[6] &+ g
+        self.state[7] = self.state[7] &+ h
+    }
+}

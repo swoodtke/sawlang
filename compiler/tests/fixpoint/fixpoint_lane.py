@@ -248,9 +248,12 @@ def judge(failures, counts, records):
 
 def check_twin_stderr(failures, counts):
     """The twin makes a build's clang temporary object names equal, and a
-    `--time-stages` build's step times, and only those: two link failures
+    `--time-stages` build's step times and whether a split build's unit came
+    from the object cache, and leaves out a build's object cache warnings, and
+    only those: two link failures
     naming one stem with different random suffixes agree, two timed builds
-    naming the same steps (a split build's units among them) agree, and different stems, different steps, or a
+    naming the same steps (a split build's units among them, compiled or
+    `cached`) agree, and different stems, different steps or units, or a
     build without the flag still differ."""
     import importlib.util
     spec = importlib.util.spec_from_file_location("fixpoint_twin", TWIN)
@@ -269,6 +272,18 @@ def check_twin_stderr(failures, counts):
          b"time: split 2.9 ms\ntime: clang unit -program 77.4 ms\ntime: clang unit std.os_ops 11.4 ms\n", True),
         (["build", "--time-stages", "--codegen-units=module"], b"time: clang unit std.process 12.0 ms\n",
          b"time: clang unit std.file 12.0 ms\n", False),
+        (["build", "--time-stages", "--codegen-units=module"],
+         b"time: clang unit -program 40.3 ms\ntime: clang unit std.os_ops 12.0 ms\ntime: object cache 3.1 ms\n",
+         b"time: clang unit -program cached 0.2 ms\ntime: clang unit std.os_ops cached 0.1 ms\n"
+         b"time: object cache 2.8 ms\n", True),
+        (["build", "--time-stages", "--codegen-units=module"], b"time: clang unit std.process cached 0.2 ms\n",
+         b"time: clang unit std.file cached 0.2 ms\n", False),
+        (["build", "--codegen-units=module"], b"time: clang unit std.process 12.0 ms\n",
+         b"time: clang unit std.process cached 12.0 ms\n", False),
+        (["build", "--codegen-units=module"],
+         b"sawc build: warning: the object cache entry /c/g1/k.o is damaged: its first line is not `x`\n", b"", True),
+        (["build"], b"sawc build: warning: something else\n", b"", False),
+        (["typecheck"], b"sawc build: warning: the object cache entry /c/g1/k.o is damaged\n", b"", False),
         (["build"], b"time: resolve 19.1 ms\n", b"time: resolve 18.7 ms\n", False),
     ]
     for args, x, y, same in cases:

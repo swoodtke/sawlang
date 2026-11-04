@@ -38,15 +38,25 @@ CLANG_TEMP_OBJECT = re.compile(rb"-[0-9a-f]{6}\.o\b")
 # any text: a split build's `clang unit NAME` names a unit by its module
 # (`std.process`) or as `-program`.
 STAGE_TIME = re.compile(rb"^(time: [^\n]+ )[0-9]+\.[0-9] ms$", re.MULTILINE)
+# The two stages of one split build share the lane's object cache, so the one
+# that runs second finds the units the first stored: whether a unit was
+# compiled or `cached` is the cache's state, not the stage's.
+UNIT_CACHED = re.compile(rb"^(time: clang unit \S+) cached ", re.MULTILINE)
+# A warning about the object cache reports its state too: a damaged entry the
+# first stage warns about and stores again is whole when the second runs.
+CACHE_WARNING = re.compile(rb"^sawc build: warning: [^\n]*object cache[^\n]*\n", re.MULTILINE)
 
 
 def comparable_stderr(args, err):
     """`err` with clang's temporary object names and `--time-stages`' times
-    made equal, for a build."""
+    made equal, for a build, a split build's units compiled or `cached`
+    alike, and the object cache's warnings left out."""
     if args[:1] != ["build"]:
         return err
     err = CLANG_TEMP_OBJECT.sub(b"-XXXXXX.o", err)
+    err = CACHE_WARNING.sub(b"", err)
     if "--time-stages" in args:
+        err = UNIT_CACHED.sub(rb"\1 ", err)
         err = STAGE_TIME.sub(rb"\1N ms", err)
     return err
 

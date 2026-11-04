@@ -4,9 +4,9 @@
     python tools/test_bench_compile.py
 
 Checks the parser and the median on a recorded `--time-stages` sample, the
-table's shape and blank cells, and that the benchmark's argument lists for
-sawc and Blade are the ones compiler/tools/build.py and tools/blade_lane.py
-build.
+table's shape and blank cells, `--cache`'s rows and unit counts, and that the
+benchmark's argument lists for sawc and Blade are the ones
+compiler/tools/build.py and tools/blade_lane.py build.
 """
 import os
 import sys
@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(REPO, "compiler", "tools"))
 import bench_compile as bench  # noqa: E402
 import blade_lane  # noqa: E402
 import build  # noqa: E402
+import unit_stability  # noqa: E402
 
 SAMPLE = """hello, world
 time: asserts 0.0 ms
@@ -80,6 +81,32 @@ check("blade default argv", blade_lane.blade_build_arguments("o")[:2], [build.SA
 check("five builds", [n for n, _ in bench.builds(compiler)],
       ["sawc -O2", "sawc -O0", "blade -O2", "hello -O0", "largest corpus -O0"])
 check("fixed inputs exist", [os.path.exists(bench.HELLO), os.path.exists(bench.LARGEST)], [True, True])
+
+CACHE_SAMPLE = """time: split 3.0 ms
+time: clang unit -program cached 0.2 ms
+time: clang unit std.string 40.0 ms
+time: clang unit main cached 0.4 ms
+time: object cache 5.0 ms
+time: clang 41.0 ms
+time: link 20.0 ms
+time: dsymutil 4.0 ms
+time: total 90.0 ms
+"""
+cache_rows = bench.parse_times(CACHE_SAMPLE)
+check("units compiled", bench.units_compiled(cache_rows), (1, 3))
+check("cache row", bench.cache_row("b", "warm", [cache_rows]),
+      "| b | warm | **90** (90-90) | 41 | 24 | 5 | 1 of 3 |")
+whole_rows = bench.parse_times(SAMPLE)
+check("whole-module cache row", bench.cache_row("w", "cold", [whole_rows]),
+      "| w | cold | **100** (100-100) | 40 | 0 | - | 1 of 1 |")
+check("cache table shape", len(bench.format_cache_table([("b", {"cold": [cache_rows], "warm": [cache_rows]})])
+                               .splitlines()), 4)
+check("cache argv", bench.cache_arguments("/x/sawc", unit_stability.PROGRAMS["blade"], "-O2", "module", "o")[:7],
+      ["/x/sawc", "build", "--time-stages", "-O2", "--codegen-units=module", "--std-root", "std"])
+check("cache builds' edits exist", [e for s in bench.CACHE_BUILDS for e in s.edits if e not in unit_stability.CASES],
+      [])
+check("cache builds' programs match their edits",
+      [e for s in bench.CACHE_BUILDS for e in s.edits if unit_stability.CASES[e].program != s.program], [])
 
 header = bench.header("abc1234", "2026-11-02", "m", 1.0, 2.0, 3, False, "/x/sawc")
 check("header names no-lock", "NOT held" in header, True)

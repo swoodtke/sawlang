@@ -2,22 +2,31 @@
 """The compile-time benchmark (SL-955): five fixed builds, timed by
 `sawc build --time-stages`, as a Markdown table for a tracker comment.
 
-    tools/bench_compile.py [--runs N] [--sawc PATH] [--json FILE] [--no-lock]
+    tools/bench_compile.py [--runs N] [--sawc PATH] [--json FILE] [--no-lock] [--cache]
 
 The builds: sawc's own build at -O2 and at -O0 (the argument list of
 compiler/tools/build.py's `driver_arguments`), Blade at -O2 (tools/blade_lane.py's
 `blade_build_arguments`), hello at -O0 and the largest corpus program at -O0.
 Each runs N times; a cell is the median over the runs, and `total` also gets
-its min and max. Outputs go under `.build/bench/`. The run holds the suite lock
+its min and max. Outputs go under `.build/bench/`, and no build takes an
+object from the object cache, so a split build under `SAWC_CODEGEN_UNITS`
+measures its compile. The run holds the suite lock
 (`--no-lock` skips it and the header says so), since the numbers mean nothing
 while something else compiles. Run by hand, and post the table to SL-955.
+
+`--cache` measures the object cache instead (`cache_builds`): each split build
+of a copy of its sources with a fresh cache under `.build/bench/`, then again
+with nothing changed, then after each of tools/unit_stability.py's edits to
+one module, with the whole-module build for reference.
 """
 import argparse
+import collections
 import datetime
 import json
 import os
 import platform
 import re
+import shutil
 import statistics
 import subprocess
 import sys
@@ -67,10 +76,12 @@ def parse_times(text):
     return rows
 
 
-def run_once(argv):
-    """The parsed times of one build; raises RuntimeError when it fails or prints none."""
-    proc = child_groups.start(argv, cwd=REPO, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT, text=True, errors="replace")
+def run_once(argv, cwd=REPO, env=None):
+    """The parsed times of one build, with the object cache off unless `env`
+    says otherwise; raises RuntimeError when it fails or prints none."""
+    proc = child_groups.start(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, errors="replace",
+                              env=env or dict(os.environ, SAWC_OBJECT_CACHE="off"))
     try:
         out, _ = proc.communicate(timeout=BUILD_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -85,6 +96,96 @@ def run_once(argv):
     if not any(step == "total" for step, _ in rows):
         raise RuntimeError("no `time: total` line from %s" % " ".join(argv))
     return rows
+
+
+# The object cache's builds (`--cache`): a name, tools/unit_stability.py's
+# program, the speed, the codegen units, and the unit_stability cases whose
+# edits are measured after the warm build.
+CacheBuild = collections.namedtuple("CacheBuild", "name program speed units edits")
+CACHE_BUILDS = (
+    CacheBuild("sawc -O2 split thin", "sawc", "-O2", "module", ("sawc-body", "sawc-string", "sawc-new-call")),
+    CacheBuild("sawc -O0 split", "sawc", "-O0", "module", ("sawc-body", "sawc-string", "sawc-new-call")),
+    CacheBuild("blade -O2 split thin", "blade", "-O2", "module", ("blade-body", "blade-string")),
+    CacheBuild("sawc -O2 whole", "sawc", "-O2", "1", ()),
+    CacheBuild("blade -O2 whole", "blade", "-O2", "1", ()),
+)
+CACHED_UNIT = re.compile(r"^clang unit \S+ cached$")
+
+
+def cache_arguments(sawc, program, speed, units, out):
+    """The argv of a timed build of `program`'s copy, run from the copy."""
+    argv = [sawc, "build", TIME_STAGES, speed, "--codegen-units=" + units, "--std-root", "std"]
+    for name, rel in program.packages:
+        argv += ["--module-path", "%s=%s" % (name, rel)]
+    return argv + [program.entry, "-o", out]
+
+
+def units_compiled(rows):
+    """(units compiled, units) of a split build's parsed times."""
+    units = [step for step, _ in rows if step.startswith("clang unit ")]
+    return len([u for u in units if not CACHED_UNIT.match(u)]), len(units)
+
+
+def cache_runs(sawc, spec, runs):
+    """{case: [rows]} of `runs` passes over one CACHE_BUILDS entry: a cold
+    build into a fresh cache, a warm one with nothing changed, and one after
+    each edit, applied in the copy and undone after; a whole-module build is
+    its cold build alone."""
+    import unit_stability
+    program = unit_stability.PROGRAMS[spec.program]
+    root = os.path.join(BENCH_DIR, "cache-" + re.sub(r"[^a-z0-9]+", "-", spec.name))
+    unit_stability.copy_program(program, root)
+    out = os.path.join(root, "out", "program")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    argv = cache_arguments(sawc, program, spec.speed, spec.units, out)
+    cache = os.path.join(root, "object-cache")
+    env = dict(os.environ, SAWC_CACHE_DIR=cache)
+    for name in ("SAWC_OBJECT_CACHE", "SAWC_CACHE_ENTRIES", "SAWC_CODEGEN_UNITS", "SAWC_LTO"):
+        env.pop(name, None)
+    cases = collections.OrderedDict()
+    for _ in range(runs):
+        shutil.rmtree(cache, ignore_errors=True)
+        cases.setdefault("cold", []).append(run_once(argv, root, env))
+        if spec.units == "1":
+            continue
+        cases.setdefault("warm, no edit", []).append(run_once(argv, root, env))
+        for edit in spec.edits:
+            case = unit_stability.CASES[edit]
+            path = os.path.join(root, case.path)
+            with open(path) as fh:
+                original = fh.read()
+            unit_stability.apply_edit(case, root)
+            try:
+                cases.setdefault("warm, " + case.about, []).append(run_once(argv, root, env))
+            finally:
+                with open(path, "w") as fh:
+                    fh.write(original)
+    return cases
+
+
+def cache_row(name, case, runs):
+    """One row of the cache table: the median total and the medians of
+    clang, the link (with dsymutil) and the cache's own work, and the units
+    compiled, for one case's runs."""
+    summary = summarize(runs)
+    steps = summary["steps"]
+    link = (steps.get("link", 0.0) + steps.get("clang link", 0.0) + steps.get("dsymutil", 0.0))
+    compiled, units = units_compiled(runs[-1])
+    return ("| %s | %s | **%.0f** (%.0f-%.0f) | %.0f | %.0f | %s | %s |"
+            % (name, case, summary["total"]["median"], summary["total"]["min"], summary["total"]["max"],
+               steps.get("clang", 0.0), link,
+               "%.0f" % steps["object cache"] if "object cache" in steps else "-",
+               "%d of %d" % (compiled, units) if units else "1 of 1"))
+
+
+def format_cache_table(results):
+    """The Markdown table of `--cache`: a row per build and case."""
+    lines = ["| build | case | total ms (min-max) | clang | link | object cache | units compiled |",
+             "|---|---|---:|---:|---:|---:|---:|"]
+    for name, cases in results:
+        for case, runs in cases.items():
+            lines.append(cache_row(name, case, runs))
+    return "\n".join(lines)
 
 
 def summarize(runs):
@@ -170,6 +271,7 @@ def main():
     ap.add_argument("--sawc", default=build.SAWC)
     ap.add_argument("--json", metavar="FILE")
     ap.add_argument("--no-lock", action="store_true", help="skip the suite lock")
+    ap.add_argument("--cache", action="store_true", help="measure the object cache: cold, warm and after an edit")
     args = ap.parse_args()
     if args.runs < 1:
         ap.error("--runs takes at least 1")
@@ -184,8 +286,14 @@ def main():
         if load_before is not None and load_before > cores / 2:
             print("warning: 1-minute load %.2f is above half the %d cores; the numbers are noisy"
                   % (load_before, cores), file=sys.stderr)
-        names, summaries, raw = [], [], {}
-        for name, argv in builds(sawc):
+        names, summaries, raw, cached = [], [], {}, []
+        if args.cache:
+            for spec in CACHE_BUILDS:
+                print("bench: %s" % spec.name, file=sys.stderr, flush=True)
+                cases = cache_runs(sawc, spec, args.runs)
+                cached.append((spec.name, cases))
+                raw[spec.name] = {case: [[list(r) for r in rows] for rows in runs] for case, runs in cases.items()}
+        for name, argv in ([] if args.cache else builds(sawc)):
             print("bench: %s" % name, file=sys.stderr, flush=True)
             runs = [run_once(argv) for _ in range(args.runs)]
             names.append(name)
@@ -203,7 +311,7 @@ def main():
     commit = git_commit()
     print(header(commit, date, machine, load_before, load_after, args.runs, not args.no_lock, sawc))
     print()
-    print(format_table(names, summaries))
+    print(format_cache_table(cached) if args.cache else format_table(names, summaries))
     if args.json:
         with open(args.json, "w") as fh:
             json.dump({"commit": commit, "date": date, "machine": machine, "cores": cores,
