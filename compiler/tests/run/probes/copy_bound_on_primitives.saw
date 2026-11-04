@@ -1,0 +1,64 @@
+// probe: stated
+// about: a `copy()` through a `Copy` bound on every primitive copies its bits through member glue, as the `ExplicitCopy` bound does, and a `FuncPointer` copies under either bound (SL-962)
+// stage 0: not run; the probe states the copy each instantiation prints, so it needs no Stage 0 oracle
+// speeds: -O0 -O2
+// ll defines: saw member glue Copy.copy() on Int
+// ll omits: saw copy glue Int
+// ll omits: saw copy glue FuncPointer<(Int) sync -> Int>
+// prints: Int -3 9223372036854775807
+// prints: Int8 -128 Int16 -300 Int32 2147483647 Int64 -9223372036854775808
+// prints: UInt 18446744073709551615 UInt8 255 UInt16 65535
+// prints: UInt32 4294967295 UInt64 18446744073709551615
+// prints: Bool true false
+// prints: Byte 200
+// prints: Float 1.5
+// prints: pointer 5 const pointer 6
+// prints: function pointer 42 42
+
+func dup<T: Copy>(x: &T) -> T {
+    x.copy()
+}
+
+func spelled<T: ExplicitCopy>(x: &T) -> T {
+    x.copy()
+}
+
+func pointers() unsafe {
+    var x = 5
+    var y = 6
+    let p = (&x) as UnsafePointer<Int>
+    let q = (&y) as UnsafeConstPointer<Int>
+    let a = dup(&p)
+    let b = dup(&q)
+    print("pointer {} const pointer {}", a[0], b[0])
+}
+
+func main() {
+    let small = -3
+    let big = Int.max
+    print("Int {} {}", dup(&small), dup(&big))
+    let i8: Int8 = Int8.min
+    let i16: Int16 = -300
+    let i32: Int32 = Int32.max
+    let i64: Int64 = Int64.min
+    print("Int8 {} Int16 {} Int32 {} Int64 {}", dup(&i8), dup(&i16), dup(&i32), dup(&i64))
+    let u = UInt.max
+    let u8: UInt8 = 255
+    let u16: UInt16 = UInt16.max
+    print("UInt {} UInt8 {} UInt16 {}", dup(&u), dup(&u8), dup(&u16))
+    let u32: UInt32 = UInt32.max
+    let u64: UInt64 = UInt64.max
+    print("UInt32 {} UInt64 {}", dup(&u32), dup(&u64))
+    let yes = true
+    let no = false
+    print("Bool {} {}", dup(&yes), dup(&no))
+    let b = Byte(200)
+    print("Byte {}", dup(&b) as Int)
+    let f = 1.5
+    print("Float {}", dup(&f))
+    pointers()
+    let doubled: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
+    let g = dup(&doubled)
+    let h = spelled(&doubled)
+    print("function pointer {} {}", g(21), h(21))
+}

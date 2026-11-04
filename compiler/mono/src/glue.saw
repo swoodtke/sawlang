@@ -519,8 +519,9 @@ extension MonoProgram {
     // trait: by a written `@synthesize`, automatically (a trivial struct's or
     // a payload-free enum's `Equatable` and `Hashable`), or through the parts
     // (a tuple's, an Optional's or a fixed array's `Equatable` and
-    // `Hashable`). An aggregate's `copy()` is member glue when the aggregate
-    // is copied by its bits, and its copy glue otherwise (`glued`). Every
+    // `Hashable`). The `copy()` of a type copied by its bits is member glue
+    // copying them, whatever its row, a `FuncPointer` (no row of its own)
+    // included; an aggregate's otherwise is its copy glue (`glued`). Every
     // other cell says what it lacks.
     // ENTRY POINTS:
     //     member_glue_of
@@ -533,7 +534,7 @@ extension MonoProgram {
         if hook == MonoHook.Other {
             return other
         }
-        if hook == MonoHook.Duplicate && self.aggregate_kind(kind) && mono_copies_bitwise(&var self.dp.bc.mir.tc, t) {
+        if hook == MonoHook.Duplicate && mono_copies_bitwise(&var self.dp.bc.mir.tc, t) {
             return ""
         }
         match kind {
@@ -546,20 +547,12 @@ extension MonoProgram {
             },
             case Floating -> "",
             case Pointer -> {
-                if hook == MonoHook.Duplicate {
-                    return ""
-                }
                 if hook == MonoHook.Equals {
                     return "the spec gives a raw pointer no builtin `Equatable` (SL-715)"
                 }
                 other
             },
-            case Empty -> {
-                if hook == MonoHook.Duplicate {
-                    return ""
-                }
-                other
-            },
+            case Empty -> other,
             case Struct -> self.nominal_refusal(req, t, false),
             case Enum -> self.nominal_refusal(req, t, true),
             case Tuple -> self.composite_refusal(hook, "a tuple"),

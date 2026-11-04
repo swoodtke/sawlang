@@ -1675,7 +1675,8 @@ extension MonoProgram {
     // requirement met otherwise, by another derivation or by a builtin
     // type's own conformance, is the glue that synthesizes it.
     // A bound is also met with no conformance at all (`met_without_conformance`),
-    // so that requirement reaches `glued` too. A requirement nothing meets is
+    // a primitive's `Copy` by its tier among them, so that requirement reaches
+    // `glued` too (probe `copy_bound_on_primitives`). A requirement nothing meets is
     // refused: as a derivation's unmet member when a derived type's glue asked
     // (`refuse_unmet_member`), else as outside the slice. `item` is -1 unless
     // the answer is glue.
@@ -1750,15 +1751,17 @@ extension MonoProgram {
     }
 
     // Whether `owner` meets the trait of requirement `req` with no
-    // conformance written. A `copy()` bound through the Copy tier or a
-    // composite's parts, when copy glue builds the type; an `equals`,
-    // `compare` or `hash` bound through a tuple's, an Optional's or a fixed
-    // array's parts, or automatically for a trivially copyable struct or enum
-    // (spec, Equality and Hashing). The member glue table then says which of
-    // these the spec grants.
+    // conformance written. A `copy()` bound through the Copy tier, which is
+    // where a primitive's `Copy` comes from (`primitive_grants` names only
+    // its `ExplicitCopy`): by its bits for a type copied by them, else
+    // through a composite's parts when copy glue builds the type. An
+    // `equals`, `compare` or `hash` bound through a tuple's, an Optional's or
+    // a fixed array's parts, or automatically for a trivially copyable struct
+    // or enum (spec, Equality and Hashing). The member glue table then says
+    // which of these the spec grants.
     func met_without_conformance(&var self, req: Int, owner: Int) -> Bool {
         if self.copy_hook(req) {
-            return self.copy_glue_builds(owner)
+            return mono_copies_bitwise(&var self.dp.bc.mir.tc, owner) || self.copy_glue_builds(owner)
         }
         if not self.structural_hook(req) {
             return false
