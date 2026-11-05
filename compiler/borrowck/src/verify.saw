@@ -27,6 +27,7 @@ extension BorrowckProgram {
     func verify_func(&var self, f: Int, out: &var Vector<String>) {
         let info = self.mir.funcs[f]
         let facts = self.mir.init_analysis(f)
+        var cur = facts.cursor()
         var b = 0
         while b < info.block_count {
             let block = self.mir.blocks[info.block_first + b]
@@ -41,8 +42,8 @@ extension BorrowckProgram {
                 b = b + 1
                 continue
             }
-            var state = facts.entry_state(b)
-            if state.len() != facts.path_count() {
+            facts.enter(&var cur, b)
+            if cur.state.len() != facts.path_count() {
                 self.verify_problem(f, b, -1, "has no initialisation state for every path", &var out)
             }
             var s = block.first
@@ -55,7 +56,7 @@ extension BorrowckProgram {
                     while k < accesses.len() {
                         let a = accesses[k]
                         if a.kind == MirAccessKind.Drop && a.path >= 0 && not a.cut {
-                            want = borrowck_label_of(state[a.path])
+                            want = borrowck_label_of(cur.state[a.path])
                         }
                         k = k + 1
                     }
@@ -76,7 +77,7 @@ extension BorrowckProgram {
                 var k = 0
                 while k < accesses.len() {
                     let a = accesses[k]
-                    facts.apply(&var state, &a)
+                    facts.apply_to(&var cur, &a)
                     k = k + 1
                 }
                 s = stmt.next

@@ -41,7 +41,9 @@ lane over `run/`, which builds each program with `sawc build` and compares
 its binary's output with Stage 0's recorded run; runs the sanitizer lane, which
 builds the coroutine programs with `sawc build --sanitize address`, holds
 each to its plain build and requires an overlap injected past the verifier
-to be reported at its access; and checks that the Stage 0
+to be reported at its access; runs the complexity lane over `complexity/`,
+which holds the growth of a build in one long construct under a ceiling per
+shape; and checks that the Stage 0
 snapshot in `coro/stage0/` is whole and prints the coroutine census, which
 gates nothing; and checks that a serial and a parallel run print the same
 (`parallel_order.py`); and checks LANGUAGE_SPEC.md's std module table against
@@ -129,6 +131,9 @@ import coro_lane  # noqa: E402
 sys.path.insert(0, os.path.join(HERE, "run"))
 import run_lane  # noqa: E402
 import sanitize_lane  # noqa: E402
+
+sys.path.insert(0, os.path.join(HERE, "complexity"))
+import complexity_lane  # noqa: E402
 
 UNIT_OUT = os.path.join(REPO, ".build", "compiler-tests")
 LEX_FIXTURES = os.path.join(HERE, "lex")
@@ -670,6 +675,13 @@ def run_sanitize(run):
         run.count(key, n)
 
 
+def run_complexity(run):
+    """The complexity lane (compiler/tests/complexity/complexity_lane.py): each
+    generated shape's median instruction ratio between 2N and N under its
+    ceiling plus its slack."""
+    _run_module(run, complexity_lane)
+
+
 def run_census(run):
     """The coroutine census (compiler/tests/coro/census.py), as information:
     only a Stage 0 snapshot that is not whole fails, and the census's lines
@@ -741,6 +753,7 @@ STEPS = (
     Step("coro", "built"),
     Step("programs", "built", calls_overlap=True),
     Step("sanitize", "built", calls_overlap=True),
+    Step("complexity", "built", calls_overlap=True),
     Step("census", "built", calls_overlap=True, width=2),
     Step("parallel_order", "built", calls_overlap=True),
 )

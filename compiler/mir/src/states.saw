@@ -1,0 +1,458 @@
+// THE STATE STORE: one function's per-path conditions at many program points,
+// each point a vector id in one arena. A vector is never written once made,
+// so an id names one vector for good. The converse does not hold: two vectors
+// built apart may be equal under different ids, so a client compares ids only
+// against `zero()` or against the id it passed in. A function large enough
+// for a row per block to cost blocks times paths keeps its vectors as binary
+// trees that share every subtree two points agree on, so a point costs what
+// changed since the point it came from; a smaller one keeps a dense row per
+// vector, which costs less there than the trees' bookkeeping (SL-970).
+//
+// In either form the zero vector has the one id `zero()`, so a vector is all
+// zero exactly when its id is `zero()`, and `join` and `set` return the id
+// they were given when they change nothing. Paths past `width` read 0.
+//
+// ENTRY POINTS (mir_states):
+//     init_analysis (compiler/mir/src/initialisation.saw)
+//     refined_entries (compiler/drops/src/verify.saw)
+// CLIENTS (MirCursor, through `MirInit.cursor` or `mir_cursor`):
+//     verify_flow (compiler/mir/src/verify.saw)
+//     check_func (compiler/borrowck/src/check.saw)
+//     verify_func (compiler/borrowck/src/verify.saw)
+//     collect_flags (compiler/drops/src/elaborate.saw)
+//     verify_flow (compiler/drops/src/verify.saw)
+//     coro_lifetimes_of (compiler/coro/src/lifetimes.saw)
+
+// The most cells, blocks times paths, a function keeps as dense rows: about
+// where the trees start to cost less, measured on generated long functions.
+static MIR_STATES_DENSE_CELLS: Int = 16384
+
+public struct MirStates {
+    width: Int
+    dense: Bool
+    // Dense: the rows, `width` cells each, row 0 the zero vector. Trees: the
+    // nodes, two slots each; at height 1 the slots are path conditions, above
+    // it two nodes of the height below.
+    nodes: Vector<Int>
+    rows: Int
+    height: Int
+    // By node: the AND and the OR of every condition below it, so a join
+    // that adds nothing to a subtree returns at its top rather than walking
+    // every slot where the two trees differ.
+    ands: Vector<Int>
+    ors: Vector<Int>
+    // By height: the node every slot of which reads 0.
+    zeros: Vector<Int>
+}
+
+extension MirStates: NoCopy {}
+
+// The store for vectors over `width` paths at `blocks` blocks, holding only
+// the zero vector.
+public func mir_states(width: Int, blocks: Int) -> MirStates {
+    var s = MirStates(width: width, dense: true, nodes: Vector<Int>(), rows: 1, height: 1, ands: Vector<Int>(),
+                      ors: Vector<Int>(), zeros: Vector<Int>())
+    if width * blocks <= MIR_STATES_DENSE_CELLS {
+        var k = 0
+        while k < width {
+            try! s.nodes.push(0)
+            k = k + 1
+        }
+        return move s
+    }
+    s.dense = false
+    while (1 << s.height) < width {
+        s.height = s.height + 1
+    }
+    try! s.zeros.push(-1)
+    let z1 = s.node(1, 0, 0)
+    try! s.zeros.push(z1)
+    var t = 2
+    while t <= s.height {
+        let below = s.zeros[t - 1]
+        let z = s.node(t, below, below)
+        try! s.zeros.push(z)
+        t = t + 1
+    }
+    move s
+}
+
+extension MirStates {
+    // The zero vector.
+    public func zero(&self) -> Int {
+        if self.dense {
+            return 0
+        }
+        self.zeros[self.height]
+    }
+
+    // The vector `values` holds, one condition per path.
+    public func from_values(&var self, values: &Vector<Int>) -> Int {
+        if self.dense {
+            var k = 0
+            while k < self.width {
+                if k < values.len() && values[k] != 0 {
+                    return self.row_of(&values)
+                }
+                k = k + 1
+            }
+            return 0
+        }
+        var level = Vector<Int>()
+        var k = 0
+        let span = 1 << self.height
+        while k < span {
+            let a = if k < values.len() { values[k] } else { 0 }
+            let b = if k + 1 < values.len() { values[k + 1] } else { 0 }
+            try! level.push(self.node_at(1, a, b))
+            k = k + 2
+        }
+        var t = 2
+        while t <= self.height {
+            var up = Vector<Int>()
+            k = 0
+            while k < level.len() {
+                try! up.push(self.node_at(t, level[k], level[k + 1]))
+                k = k + 2
+            }
+            level = move up
+            t = t + 1
+        }
+        level[0]
+    }
+
+    // Path `q`'s condition in vector `root`.
+    public func get(&self, root: Int, q: Int) -> Int {
+        if self.dense {
+            return self.nodes[root * self.width + q]
+        }
+        var n = root
+        var t = self.height
+        while t > 1 {
+            n = self.nodes[2 * n + ((q >> (t - 1)) & 1)]
+            t = t - 1
+        }
+        self.nodes[2 * n + (q & 1)]
+    }
+
+    // Vector `root` with path `q` set to `v`: `root` itself when it already
+    // holds `v` there.
+    public func set(&var self, root: Int, q: Int, v: Int) -> Int {
+        if self.get(root, q) == v {
+            return root
+        }
+        if self.dense {
+            return self.row_set(root, q, v)
+        }
+        var path = Vector<Int>()
+        var n = root
+        var t = self.height
+        while t > 1 {
+            try! path.push(n)
+            n = self.nodes[2 * n + ((q >> (t - 1)) & 1)]
+            t = t - 1
+        }
+        var made = -1
+        if (q & 1) == 0 {
+            made = self.node_at(1, v, self.nodes[2 * n + 1])
+        } else {
+            made = self.node_at(1, self.nodes[2 * n], v)
+        }
+        t = 2
+        var k = path.len() - 1
+        while k >= 0 {
+            let up = path[k]
+            k = k - 1
+            if ((q >> (t - 1)) & 1) == 0 {
+                made = self.node_at(t, made, self.nodes[2 * up + 1])
+            } else {
+                made = self.node_at(t, self.nodes[2 * up], made)
+            }
+            t = t + 1
+        }
+        made
+    }
+
+    // `a` with `b` OR-ed in, path by path: `a` itself when `b` adds nothing.
+    public func join(&var self, a: Int, b: Int) -> Int {
+        if self.dense {
+            return self.row_join(a, b)
+        }
+        self.join_at(a, b, self.height)
+    }
+
+    // Appends to `out` each path where vectors `a` and `b` differ, in path
+    // order; a subtree the two share costs nothing.
+    public func diff(&self, a: Int, b: Int, out: &var Vector<Int>) {
+        if a == b {
+            return
+        }
+        if self.dense {
+            var q = 0
+            while q < self.width {
+                if self.nodes[a * self.width + q] != self.nodes[b * self.width + q] {
+                    try! out.push(q)
+                }
+                q = q + 1
+            }
+            return
+        }
+        self.diff_at(a, b, self.height, 0, &var out)
+    }
+
+    // Vector `root` as one condition per path.
+    public func values(&self, root: Int) -> Vector<Int> {
+        var out = Vector<Int>()
+        if self.dense {
+            var q = 0
+            while q < self.width {
+                try! out.push(self.nodes[root * self.width + q])
+                q = q + 1
+            }
+            return move out
+        }
+        self.values_at(root, self.height, 0, &var out)
+        move out
+    }
+
+    // A new row holding `values`, which is not all zero.
+    func row_of(&var self, values: &Vector<Int>) -> Int {
+        var q = 0
+        while q < self.width {
+            try! self.nodes.push(if q < values.len() { values[q] } else { 0 })
+            q = q + 1
+        }
+        self.rows = self.rows + 1
+        self.rows - 1
+    }
+
+    // Row `root` with path `q` set to `v`, which it does not hold there.
+    func row_set(&var self, root: Int, q: Int, v: Int) -> Int {
+        let from = root * self.width
+        var live = v != 0
+        var k = 0
+        while k < self.width && not live {
+            if k != q && self.nodes[from + k] != 0 {
+                live = true
+            }
+            k = k + 1
+        }
+        if not live {
+            return 0
+        }
+        k = 0
+        while k < self.width {
+            let c = if k == q { v } else { self.nodes[from + k] }
+            try! self.nodes.push(c)
+            k = k + 1
+        }
+        self.rows = self.rows + 1
+        self.rows - 1
+    }
+
+    func row_join(&var self, a: Int, b: Int) -> Int {
+        if a == b || b == 0 {
+            return a
+        }
+        if a == 0 {
+            return b
+        }
+        let fa = a * self.width
+        let fb = b * self.width
+        var adds = false
+        var k = 0
+        while k < self.width && not adds {
+            if (self.nodes[fb + k] & (-1 - self.nodes[fa + k])) != 0 {
+                adds = true
+            }
+            k = k + 1
+        }
+        if not adds {
+            return a
+        }
+        k = 0
+        while k < self.width {
+            let c = self.nodes[fa + k] | self.nodes[fb + k]
+            try! self.nodes.push(c)
+            k = k + 1
+        }
+        self.rows = self.rows + 1
+        self.rows - 1
+    }
+
+    func node(&var self, t: Int, a: Int, b: Int) -> Int {
+        let id = self.nodes.len() / 2
+        try! self.nodes.push(a)
+        try! self.nodes.push(b)
+        if t == 1 {
+            try! self.ands.push(a & b)
+            try! self.ors.push(a | b)
+        } else {
+            try! self.ands.push(self.ands[a] & self.ands[b])
+            try! self.ors.push(self.ors[a] | self.ors[b])
+        }
+        id
+    }
+
+    // A node of height `t` over `a` and `b`: the shared zero node when both
+    // read 0, which keeps the zero vector's id unique.
+    func node_at(&var self, t: Int, a: Int, b: Int) -> Int {
+        if t == 1 && a == 0 && b == 0 {
+            return self.zeros[1]
+        }
+        if t > 1 && a == self.zeros[t - 1] && b == self.zeros[t - 1] {
+            return self.zeros[t]
+        }
+        self.node(t, a, b)
+    }
+
+    func join_at(&var self, a: Int, b: Int, t: Int) -> Int {
+        if a == b || (self.ors[b] & (-1 - self.ands[a])) == 0 {
+            return a
+        }
+        if a == self.zeros[t] {
+            return b
+        }
+        let al = self.nodes[2 * a]
+        let ar = self.nodes[2 * a + 1]
+        let bl = self.nodes[2 * b]
+        let br = self.nodes[2 * b + 1]
+        if t == 1 {
+            let l = al | bl
+            let r = ar | br
+            if l == al && r == ar {
+                return a
+            }
+            return self.node_at(1, l, r)
+        }
+        let l = self.join_at(al, bl, t - 1)
+        let r = self.join_at(ar, br, t - 1)
+        if l == al && r == ar {
+            return a
+        }
+        self.node_at(t, l, r)
+    }
+
+    func diff_at(&self, a: Int, b: Int, t: Int, base: Int, out: &var Vector<Int>) {
+        if a == b {
+            return
+        }
+        if t == 1 {
+            if self.nodes[2 * a] != self.nodes[2 * b] {
+                try! out.push(base)
+            }
+            if self.nodes[2 * a + 1] != self.nodes[2 * b + 1] {
+                try! out.push(base + 1)
+            }
+            return
+        }
+        let half = 1 << (t - 1)
+        self.diff_at(self.nodes[2 * a], self.nodes[2 * b], t - 1, base, &var out)
+        self.diff_at(self.nodes[2 * a + 1], self.nodes[2 * b + 1], t - 1, base + half, &var out)
+    }
+
+    func values_at(&self, n: Int, t: Int, base: Int, out: &var Vector<Int>) {
+        if base >= self.width {
+            return
+        }
+        if t == 1 {
+            try! out.push(self.nodes[2 * n])
+            if base + 1 < self.width {
+                try! out.push(self.nodes[2 * n + 1])
+            }
+            return
+        }
+        self.values_at(self.nodes[2 * n], t - 1, base, &var out)
+        self.values_at(self.nodes[2 * n + 1], t - 1, base + (1 << (t - 1)), &var out)
+    }
+}
+
+// A dense vector of conditions a client walks, kept in step with the store
+// so moving it to another point costs what differs (`MirInit.enter`). Its
+// `state` is read freely and written only through `write`, which logs the
+// path so the next move can restore it.
+public struct MirCursor {
+    state: Vector<Int>
+    // The vector `state` holds, but for the paths `touched` names.
+    base: Int
+    touched: Vector<Int>
+    // Per path, the walk `touched` last logged it in.
+    mark: Vector<Int>
+    walk: Int
+}
+
+extension MirCursor: NoCopy {}
+
+extension MirCursor {
+    public func write(&var self, q: Int, v: Int) {
+        if self.mark[q] != self.walk {
+            self.mark[q] = self.walk
+            try! self.touched.push(q)
+        }
+        self.state[q] = v
+    }
+
+    // Moves the cursor to vector `root` of `states`.
+    public func load(&var self, states: &MirStates, root: Int) {
+        if states.dense {
+            var q = 0
+            while q < states.width {
+                self.state[q] = states.get(root, q)
+                q = q + 1
+            }
+            self.touched.clear()
+            self.walk = self.walk + 1
+            self.base = root
+            return
+        }
+        var k = 0
+        while k < self.touched.len() {
+            let q = self.touched[k]
+            self.state[q] = states.get(self.base, q)
+            k = k + 1
+        }
+        self.touched.clear()
+        self.walk = self.walk + 1
+        if root == self.base {
+            return
+        }
+        var changed = Vector<Int>()
+        states.diff(self.base, root, &var changed)
+        k = 0
+        while k < changed.len() {
+            let q = changed[k]
+            self.state[q] = states.get(root, q)
+            k = k + 1
+        }
+        self.base = root
+    }
+
+    // The vector `state` holds now, made in `states`.
+    public func snapshot(&self, states: &var MirStates) -> Int {
+        if self.touched.len() == 0 {
+            return self.base
+        }
+        if states.dense {
+            return states.from_values(&self.state)
+        }
+        var root = self.base
+        var k = 0
+        while k < self.touched.len() {
+            let q = self.touched[k]
+            root = states.set(root, q, self.state[q])
+            k = k + 1
+        }
+        root
+    }
+}
+
+// A cursor at vector `root` of `states`.
+public func mir_cursor(states: &MirStates, root: Int) -> MirCursor {
+    var mark = Vector<Int>()
+    var k = 0
+    while k < states.width {
+        try! mark.push(0)
+        k = k + 1
+    }
+    MirCursor(state: states.values(root), base: root, touched: Vector<Int>(), mark: move mark, walk: 1)
+}

@@ -155,6 +155,9 @@ compiler/
                       and `sawc runtime`'s specification (README.md), and
                       programs whose sawc-built binaries' output must agree
                       with Stage 0's recorded runs (stage0/)
+    complexity/       the complexity lane (complexity_lane.py): the generated
+                      long-construct shapes (shapes.py) and a ceiling per shape on
+                      its build's growth (ceilings.tsv)
     corpusdiff/       the whole-corpus differential against Stage 0's snapshot
                       (stage0/), for information
     fixpoint/         the fixpoint lane (fixpoint_lane.py): Stage 2, sawc
@@ -210,6 +213,22 @@ caller sees. `mono/tests/front_image.saw` and `front_image_load.saw` pin the
 round trip on the host and both freestanding targets, the damage cases, and a
 build that reads the image against one that computes it; `std_layers.py`
 requires the same image bytes across programs, sawc included.
+
+The initialisation analysis (`mir/src/initialisation.saw`) keeps each block's
+entry conditions in one state store per function (`mir/src/states.saw`, the
+store's funnel). A state is an id into the store and is never written once
+made, so an id names one vector for good. The zero vector has the one id
+`zero()`, and `join` and `set` return the id they were given when they change
+nothing, which is how the worklist sees that a block's entry stopped growing.
+Two states built apart may be equal under different ids, so ids are compared
+only in those two ways. A function of at most 16,384 cells, blocks times move paths, keeps a
+dense row per state; a larger one keeps persistent binary trees that share
+every subtree two states agree on, so a long function costs what changes
+between points rather than blocks times paths. The MIR verifier, the borrow
+check and its verifier, drop elaboration and its verifier, and coroutine
+lifetimes each walk the blocks with one `MirCursor`, a dense row that moves to
+the next block's entry by the paths that differ. Drop elaboration's verifier
+solves its refined entries in a store of its own.
 
 ## Building
 
@@ -613,6 +632,28 @@ below that runs sawc runs Stage 2. It checks these things.
   must be refused where it says; hello's `.ll` and one runtime source's are
   pinned; and `sawc runtime` writes the same bytes twice and refuses a
   runtime that leaves a seam undefined or defines one twice.
+- **Complexity** (`tests/complexity/complexity_lane.py`): each row of
+  `tests/complexity/ceilings.tsv` names a shape of `tests/complexity/shapes.py`,
+  one long construct of size N (a constructor's arguments, `let`s, calls,
+  `match` arms, parameters, suspension points), its N, its ceiling and its
+  slack. The lane builds the shape at 2, N and 2N with `sawc build --emit-ll`
+  and takes r = (I(2N) − I(2)) / (I(N) − I(2)), I the instructions the build
+  retires (`/usr/bin/time -l` on macOS, `perf stat` on Linux). A linear
+  compiler gives r near 2 and a quadratic stage near 4. The count is not
+  exact: one binary's count for one build moves by up to about 1% from run to
+  run. So the lane relies on the ratio, with each row's measured spread as its
+  slack: `--write` builds a row 7 times and records the worst r as its ceiling
+  and twice the spread, at least 0.1, as its slack, and the lane fails a row
+  whose median r over 3 runs passes ceiling plus slack. Ceilings only go down
+  and N only goes up: a change that makes a shape cheaper records its lower
+  ceiling with `--write`, which lowers one only by more than 0.03, and a unit
+  that makes a shape near-linear adds its row at N = 1,600 with
+  `--write --add SHAPE=1600` (or moves it there with `--raise`). ctor returns
+  with typecheck's argument binding made linear, and yields with the coroutine
+  passes. The lane fails a ceilings file that drops a row, lowers an N, or at
+  the same N raises a ceiling or a ceiling plus slack, against HEAD or HEAD^.
+  Linux without an instruction counter checks only the rows under a ceiling of
+  2.5, by time, against 3.0, and skips the rest.
 
 Two lanes run apart from the runner. The corpus differential's regression
 gate (`tests/corpusdiff/README.md`) runs every corpus program through sawc

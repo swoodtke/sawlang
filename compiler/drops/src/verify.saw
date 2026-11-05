@@ -21,14 +21,15 @@
 
 import sawdrops.elaborate.{drops_rules}
 import sawdrops.program.{DROPS_KEEP, DROPS_NOT_A_DROP, DROPS_PLAIN, DROPS_SET, DropsProgram,
-                             drops_flag_effect, drops_within}
+                             drops_flag_effect}
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind,
-                                  MirInit, mir_init_apply_all}
+                                  MirInit, mir_init_apply_all_to}
 import sawmir.model.{MirFuncKind, MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind,
                          MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
+import sawmir.states.{MirStates, mir_cursor, mir_states}
 import sawresolve.model.{ResDeclKind}
 import sawtypecheck.typeops.{TcClient}
 
@@ -79,29 +80,26 @@ extension DropsProgram {
         }
     }
 
-    // The conditions at each block's entry of the output, `block * paths +
-    // path`, solved with the shared analysis's own accesses and transfer and
-    // one fact elaboration adds: the false edge of a switch on a drop flag
-    // leaves the flag's path, and every path inside it, not whole. The flag
-    // checks below prove each flag follows its path, which makes that fact
-    // sound. A block no path reaches keeps no conditions at all.
-    func refined_entries(&self, f: Int, facts: &MirInit) -> Vector<Int> {
+    // The conditions at each block's entry of the output, a vector of
+    // `states` per block, solved with the shared analysis's own accesses and
+    // transfer and one fact elaboration adds: the false edge of a switch on a
+    // drop flag leaves the flag's path, and every path inside it, not whole.
+    // The flag checks below prove each flag follows its path, which makes
+    // that fact sound. A block no path reaches keeps the zero vector.
+    func refined_entries(&self, f: Int, facts: &MirInit, states: &var MirStates) -> Vector<Int> {
         let info = self.bc.mir.funcs[f]
-        let n = facts.path_count()
+        let zero = states.zero()
         var entry = Vector<Int>()
         var k = 0
-        while k < info.block_count * n {
-            try! entry.push(0)
+        while k < info.block_count {
+            try! entry.push(zero)
             k = k + 1
         }
         if info.block_count == 0 {
             return move entry
         }
-        k = 0
-        while k < n {
-            entry[k] = facts.entry[k]
-            k = k + 1
-        }
+        let first = facts.entry_state(0)
+        entry[0] = states.from_values(&first)
         // A worklist swept in reverse postorder, to the fixpoint: a block is
         // walked again only when its entry grew.
         let order = self.bc.mir.init_block_order(f)
@@ -111,6 +109,7 @@ extension DropsProgram {
             try! pending.push(k == 0)
             k = k + 1
         }
+        var cur = mir_cursor(&states, zero)
         var left = 1
         while left > 0 {
             var i = 0
@@ -122,29 +121,17 @@ extension DropsProgram {
                 }
                 pending[b] = false
                 left = left - 1
-                var state = Vector<Int>()
-                var live = false
-                k = 0
-                while k < n {
-                    let c = entry[b * n + k]
-                    if c != 0 {
-                        live = true
-                    }
-                    try! state.push(c)
-                    k = k + 1
-                }
-                if live {
+                if entry[b] != zero {
                     let unwritten = self.bc.mir.init_unwritten_edge(f, b)
-                    var skipped = Vector<Int>()
+                    cur.load(&states, entry[b])
+                    self.bc.mir.init_walk_block_to(f, b, &facts, &var cur)
+                    let walked = cur.snapshot(&var states)
+                    var skipped = walked
                     if unwritten >= 0 {
-                        k = 0
-                        while k < n {
-                            try! skipped.push(state[k])
-                            k = k + 1
-                        }
-                        self.bc.mir.init_walk_unwritten(f, b, &facts, &var skipped)
+                        cur.load(&states, entry[b])
+                        self.bc.mir.init_walk_unwritten_to(f, b, &facts, &var cur)
+                        skipped = cur.snapshot(&var states)
                     }
-                    self.bc.mir.init_walk_block(f, b, &facts, &var state)
                     let block = self.bc.mir.blocks[info.block_first + b]
                     let succ = self.bc.mir.init_successors(f, b)
                     var unflagged = -1
@@ -160,30 +147,26 @@ extension DropsProgram {
                     while j < succ.len() {
                         let target = succ[j]
                         j = j + 1
-                        var edge = Vector<Int>()
-                        k = 0
-                        while k < n {
-                            var c = if target == unwritten { skipped[k] } else { state[k] }
-                            if target == unflagged && q >= 0 && drops_within(&facts, k, q) && (c & MIR_INIT_WHOLE) != 0 {
-                                c = c - MIR_INIT_WHOLE
+                        var edge = if target == unwritten { skipped } else { walked }
+                        if target == unflagged && q >= 0 {
+                            let inside = facts.subtree(q)
+                            k = 0
+                            while k < inside.len() {
+                                let c = states.get(edge, inside[k])
+                                if (c & MIR_INIT_WHOLE) != 0 {
+                                    edge = states.set(edge, inside[k], c - MIR_INIT_WHOLE)
+                                }
+                                k = k + 1
                             }
-                            try! edge.push(c)
-                            k = k + 1
                         }
-                        var grew = false
-                        k = 0
-                        while k < n {
-                            let at = target * n + k
-                            let joined = entry[at] | edge[k]
-                            if joined != entry[at] {
-                                entry[at] = joined
-                                grew = true
+                        let had = entry[target]
+                        let joined = states.join(had, edge)
+                        if joined != had {
+                            entry[target] = joined
+                            if not pending[target] {
+                                pending[target] = true
+                                left = left + 1
                             }
-                            k = k + 1
-                        }
-                        if grew && not pending[target] {
-                            pending[target] = true
-                            left = left + 1
                         }
                     }
                 }
@@ -211,49 +194,41 @@ extension DropsProgram {
     func verify_flow(&var self, f: Int, facts: &MirInit, out: &var Vector<String>) {
         let info = self.bc.mir.funcs[f]
         let preds = self.single_predecessors(f)
-        let entries = self.refined_entries(f, &facts)
-        let n = facts.path_count()
+        var states = mir_states(facts.path_count(), info.block_count)
+        let entries = self.refined_entries(f, &facts, &var states)
+        let zero = states.zero()
+        var cur = mir_cursor(&states, zero)
         var b = 0
         while b < info.block_count {
-            var state = Vector<Int>()
-            var live = false
-            var k = 0
-            while k < n {
-                let c = entries[b * n + k]
-                if c != 0 {
-                    live = true
-                }
-                try! state.push(c)
-                k = k + 1
-            }
-            if live {
+            if entries[b] != zero {
+                cur.load(&states, entries[b])
                 let block = self.bc.mir.blocks[info.block_first + b]
                 var s = block.first
                 while s >= 0 {
                     let stmt = self.bc.mir.stmts[s]
                     let accesses = self.bc.mir.init_stmt_accesses(f, s, &facts)
                     if stmt.kind == MirStmtKind.Drop {
-                        self.verify_drop(f, b, s, &facts, &state, &accesses, &preds, &var out)
+                        self.verify_drop(f, b, s, &facts, &cur.state, &accesses, &preds, &var out)
                     }
-                    mir_init_apply_all(&facts, &var state, &accesses)
+                    mir_init_apply_all_to(&facts, &var cur, &accesses)
                     s = stmt.next
                 }
                 if block.term == MirTermKind.Switch && block.switch_kind == MirSwitchKind.Bool {
                     let flag = self.flag_read(f, block.operand)
-                    if flag >= 0 && state[flag] != MIR_INIT_WHOLE {
+                    if flag >= 0 && cur.state[flag] != MIR_INIT_WHOLE {
                         self.verify_problem(f, b, -1, "reads a drop flag some path has not set", &var out)
                     }
                 }
                 let term = self.bc.mir.init_term_accesses(f, b, &facts)
-                mir_init_apply_all(&facts, &var state, &term)
+                mir_init_apply_all_to(&facts, &var cur, &term)
                 if block.term == MirTermKind.Return {
                     let receiver = self.consumed_receiver(f)
-                    k = 0
+                    var k = 0
                     while k < info.local_count {
                         let l = mir_func_local(&self.bc.mir, f, k)
-                        var leaks = l.owned && self.still_whole(&facts, &state, k)
+                        var leaks = l.owned && self.still_whole(&facts, &cur.state, k)
                         if receiver && k == 1 {
-                            leaks = self.receiver_leaks(&facts, &state)
+                            leaks = self.receiver_leaks(&facts, &cur.state)
                         }
                         if leaks {
                             var text = StringBuilder()
@@ -448,7 +423,7 @@ extension DropsProgram {
         }
         let first = self.bc.mir.blocks[info.block_first]
         let start = self.flag_value_at_entry(f, first.first, flag)
-        let whole = facts.entry[q] == MIR_INIT_WHOLE
+        let whole = facts.entry_at(0, q) == MIR_INIT_WHOLE
         let want = if whole { DROPS_SET } else { 0 }
         if start != want {
             self.verify_problem(f, 0, -1, "starts a drop flag against its path's entry conditions", &var out)

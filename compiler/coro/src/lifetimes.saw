@@ -21,7 +21,7 @@
 import sawcoro.program.{CoroFrame, CoroProgram, CoroSuspend, CoroValue, CoroValueKind}
 import sawcoro.suspends.{coro_call_suspends}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
-                              mir_init_apply_all}
+                              mir_init_apply_all_to}
 import sawmir.model.{MirCallKind, MirFuncKind, MirProjKind, MirStmt, MirStmtKind, MirTermKind}
 
 // One function's program points and its locals' lifetimes over them:
@@ -82,9 +82,10 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
     let width = info.window_count
     var p = 0
     var b = 0
+    var cur = facts.cursor()
     while b < info.block_count {
         let block = coro.mono.dp.bc.mir.blocks[info.block_first + b]
-        var state = facts.entry_state(b)
+        facts.enter(&var cur, b)
         // The window this block's terminator opens, whose record its prologue
         // writes from the terminator on, and the one it closes, whose record
         // its epilogue reads until the call returns.
@@ -101,7 +102,7 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
         var s = block.first
         while s >= 0 {
             let stmt = coro.mono.dp.bc.mir.stmts[s]
-            coro_mark_live(&facts, &state, &var lt, p)
+            coro_mark_live(&facts, &cur.state, &var lt, p)
             coro_mark_destination(&coro, &stmt, &var lt, p)
             coro_mark_records(&coro, f, &open, b * width, -1, -1, &var lt, p)
             if stmt.kind == MirStmtKind.Budget {
@@ -112,11 +113,11 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
                 }
             }
             let accesses = coro.mono.dp.bc.mir.init_stmt_accesses(f, s, &facts)
-            mir_init_apply_all(&facts, &var state, &accesses)
+            mir_init_apply_all_to(&facts, &var cur, &accesses)
             p = p + 1
             s = stmt.next
         }
-        coro_mark_live(&facts, &state, &var lt, p)
+        coro_mark_live(&facts, &cur.state, &var lt, p)
         coro_mark_records(&coro, f, &open, b * width, opening, -1, &var lt, p)
         let suspends = coro_block_suspends(&coro, f, b)
         if block.term == MirTermKind.Call && not suspends {
@@ -141,13 +142,13 @@ public func coro_lifetimes_of(coro: &CoroProgram, f: Int) -> CoroLifetimes {
                     try! taken.push(a)
                 }
             }
-            mir_init_apply_all(&facts, &var state, &taken)
-            coro_mark_live(&facts, &state, &var lt, p)
+            mir_init_apply_all_to(&facts, &var cur, &taken)
+            coro_mark_live(&facts, &cur.state, &var lt, p)
             try! lt.suspends.push(CoroSuspend(block: b, point: p, call: block.call))
             p = p + 1
             if coro_block_returns(&coro, f, b) {
-                mir_init_apply_all(&facts, &var state, &written)
-                coro_mark_live(&facts, &state, &var lt, p)
+                mir_init_apply_all_to(&facts, &var cur, &written)
+                coro_mark_live(&facts, &cur.state, &var lt, p)
                 coro_mark_records(&coro, f, &open, b * width, opening, closing, &var lt, p)
                 try! lt.returns.push(p)
                 p = p + 1

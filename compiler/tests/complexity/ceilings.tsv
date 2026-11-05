@@ -1,0 +1,12 @@
+# The complexity lane's rows (complexity_lane.py): a shape of shapes.py, the N
+# it is built at, the worst r = (I(2N) - I(2)) / (I(N) - I(2)) of the runs
+# `--write` measured, and the row's slack, twice their spread and at least 0.1.
+# A row fails when the median r of the lane's runs passes ceiling plus slack.
+# A ceiling only goes down and an N only goes up, both by
+# `complexity_lane.py --write`; a shape gets its row, at N = 1,600, from the
+# unit that makes it near-linear.
+shape	N	ceiling	slack
+lets	1600	3.37	0.10
+calls	1600	3.47	0.10
+match	1600	3.81	0.10
+params	1600	3.29	0.10

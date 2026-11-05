@@ -24,7 +24,7 @@ import sawdrops.program.{DROPS_KEEP, DROPS_PLAIN, DROPS_SET, DropsProgram, drops
 import sawmir.build.{mir_func_local}
 import sawmir.dump.{mir_module_functions}
 import sawmir.initialisation.{MIR_INIT_PARTIAL, MIR_INIT_WHOLE, MirAccess, MirAccessKind, MirInit,
-                                  mir_init_apply_all}
+                                  mir_init_apply_all_to}
 import sawmir.model.{MirBlock, MirCall, MirCallKind, MirConstKind, MirDiag, MirFuncKind, MirLocal, MirLocalKind,
                          MirOperandKind, MirProjKind, MirRvalueKind, MirStmt, MirStmtKind, MirSwitchKind, MirTermKind,
                          mir_owes_fate}
@@ -111,10 +111,11 @@ extension DropsProgram {
         self.flag_first[f] = first
         var paths = Vector<Int>()
         self.adopt_take_flags(f, &facts, &var paths)
+        var cur = facts.cursor()
         var b = 0
         while b < info.block_count {
             if facts.reached[b] {
-                var state = facts.entry_state(b)
+                facts.enter(&var cur, b)
                 let block = self.bc.mir.blocks[info.block_first + b]
                 var s = block.first
                 while s >= 0 {
@@ -128,7 +129,7 @@ extension DropsProgram {
                             continue
                         }
                         let flagged_drop = a.kind == MirAccessKind.Drop && self.bc.labels[s] == BORROWCK_LABEL_FLAGGED
-                        if flagged_drop && (state[a.path] & MIR_INIT_PARTIAL) != 0 {
+                        if flagged_drop && (cur.state[a.path] & MIR_INIT_PARTIAL) != 0 {
                             try! self.partial_drops.push(s)
                             self.problem(f, s, "is a flagged drop of a place a part of which may have moved out, which no flag can decide")
                         } else if flagged_drop || a.kind == MirAccessKind.Transfer {
@@ -136,7 +137,7 @@ extension DropsProgram {
                             self.add_flag(f, &facts, &var paths, a.path, a.place, fresh)
                         }
                     }
-                    mir_init_apply_all(&facts, &var state, &accesses)
+                    mir_init_apply_all_to(&facts, &var cur, &accesses)
                     s = stmt.next
                 }
             }
@@ -320,7 +321,7 @@ extension DropsProgram {
             let at = self.flag_first[f] + j
             let p = self.flag_place[at]
             let q = self.bc.mir.init_path_of(p, &facts)
-            let whole = q >= 0 && facts.entry[q] == MIR_INIT_WHOLE
+            let whole = q >= 0 && facts.entry_at(0, q) == MIR_INIT_WHOLE
             let flag = self.flag_local[at]
             self.assign_flag(flag, whole)
             j = j + 1

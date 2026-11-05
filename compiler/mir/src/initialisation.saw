@@ -27,6 +27,7 @@ import sawmir.dump.{mir_module_functions}
 import sawmir.model.{MirAccessor, MirCallKind, MirFuncKind, MirLocalKind, MirOperandKind, MirProjKind, MirRvalueKind,
                          MirStmtKind, MirSwitchKind, MirTermKind}
 import sawmir.program.{MirProgram}
+import sawmir.states.{MirCursor, MirStates, mir_cursor, mir_states}
 import sawtypecheck.model.{TC_EFFECT_CONSUMES}
 
 // The conditions, one bit each.
@@ -106,8 +107,9 @@ public struct MirInit {
     path_ty: Vector<Int>
     path_child: Vector<Int>
     path_sibling: Vector<Int>
-    // `block * path_count + path`: the conditions at the block's entry.
-    entry: Vector<Int>
+    // By block, the conditions at its entry, a vector of `states`.
+    entry_roots: Vector<Int>
+    states: MirStates
     reached: Vector<Bool>
     // An epilogue's loads of a flagged record field at the head of a site's
     // resume block where that site carries the local whole: a write, not a
@@ -155,16 +157,50 @@ extension MirInit {
         state[q]
     }
 
-    // Block `b`'s entry conditions, one per path.
+    // Block `b`'s entry conditions, one per path. A client walking many
+    // blocks moves one cursor instead (`enter`), which costs what differs.
     public func entry_state(&self, b: Int) -> Vector<Int> {
-        let n = self.path_local.len()
-        var out = Vector<Int>()
+        self.states.values(self.entry_roots[b])
+    }
+
+    // Path `q`'s conditions at block `b`'s entry.
+    public func entry_at(&self, b: Int, q: Int) -> Int {
+        self.states.get(self.entry_roots[b], q)
+    }
+
+    // A cursor for walking this function's blocks, at no block yet.
+    public func cursor(&self) -> MirCursor {
+        mir_cursor(&self.states, self.states.zero())
+    }
+
+    // Moves `cur` to block `b`'s entry conditions.
+    public func enter(&self, cur: &var MirCursor, b: Int) {
+        cur.load(&self.states, self.entry_roots[b])
+    }
+
+    // `apply` on a cursor's conditions, each path it changes logged.
+    public func apply_to(&self, cur: &var MirCursor, a: &MirAccess) {
+        let set = mir_init_access_sets(&a)
+        if set == 0 {
+            return
+        }
+        let inside = self.subtree(a.path)
         var k = 0
-        while k < n {
-            try! out.push(self.entry[b * n + k])
+        while k < inside.len() {
+            cur.write(inside[k], set)
             k = k + 1
         }
-        move out
+        if set != MIR_INIT_MOVED {
+            return
+        }
+        var up = self.path_parent[a.path]
+        while up >= 0 {
+            let had = cur.state[up]
+            if (had & MIR_INIT_WHOLE) != 0 {
+                cur.write(up, (had - MIR_INIT_WHOLE) | MIR_INIT_PARTIAL)
+            }
+            up = self.path_parent[up]
+        }
     }
 
     // Path `q` and every path inside it, `q` first.
@@ -193,20 +229,8 @@ extension MirInit {
     // the path and everything in it whole or moved: the moved bit makes every
     // later use a use after move, and the whole bit makes its drop flagged.
     public func apply(&self, state: &var Vector<Int>, a: &MirAccess) {
-        if a.path < 0 || a.cut {
-            return
-        }
-        var set = 0
-        let moving = a.kind == MirAccessKind.Move || a.kind == MirAccessKind.Transfer
-        if moving {
-            set = MIR_INIT_MOVED
-        } else if a.kind == MirAccessKind.Write {
-            set = MIR_INIT_WHOLE
-        } else if a.kind == MirAccessKind.Drop {
-            set = MIR_INIT_DROPPED
-        } else if a.kind == MirAccessKind.Resume || a.kind == MirAccessKind.Take {
-            set = MIR_INIT_WHOLE | MIR_INIT_MOVED
-        } else {
+        let set = mir_init_access_sets(&a)
+        if set == 0 {
             return
         }
         let inside = self.subtree(a.path)
@@ -215,7 +239,7 @@ extension MirInit {
             state[inside[k]] = set
             k = k + 1
         }
-        if not moving {
+        if set != MIR_INIT_MOVED {
             return
         }
         var up = self.path_parent[a.path]
@@ -227,6 +251,27 @@ extension MirInit {
             up = self.path_parent[up]
         }
     }
+}
+
+// The conditions access `a` leaves its path and every path inside it in, or 0
+// when it changes nothing (`MirInit.apply`).
+func mir_init_access_sets(a: &MirAccess) -> Int {
+    if a.path < 0 || a.cut {
+        return 0
+    }
+    if a.kind == MirAccessKind.Move || a.kind == MirAccessKind.Transfer {
+        return MIR_INIT_MOVED
+    }
+    if a.kind == MirAccessKind.Write {
+        return MIR_INIT_WHOLE
+    }
+    if a.kind == MirAccessKind.Drop {
+        return MIR_INIT_DROPPED
+    }
+    if a.kind == MirAccessKind.Resume || a.kind == MirAccessKind.Take {
+        return MIR_INIT_WHOLE | MIR_INIT_MOVED
+    }
+    0
 }
 
 // The label of a drop of a path whose conditions are `own`.
@@ -283,8 +328,9 @@ extension MirProgram {
                            path_local: Vector<Int>(), path_parent: Vector<Int>(),
                            path_kind: Vector<MirProjKind>(), path_decl: Vector<Int>(),
                            path_index: Vector<Int>(), path_ty: Vector<Int>(), path_child: Vector<Int>(),
-                           path_sibling: Vector<Int>(), entry: Vector<Int>(), reached: Vector<Bool>(),
-                           plain_loads: self.record_plain_loads(f), gone_entries: self.record_gone_entries(f))
+                           path_sibling: Vector<Int>(), entry_roots: Vector<Int>(), states: mir_states(0, 0),
+                           reached: Vector<Bool>(), plain_loads: self.record_plain_loads(f),
+                           gone_entries: self.record_gone_entries(f))
         var k = 0
         while k < info.local_count {
             try! facts.path_local.push(k)
@@ -299,28 +345,33 @@ extension MirProgram {
         }
         self.init_collect_paths(f, &var facts)
         let n = facts.path_count()
-        k = 0
-        while k < info.block_count * n {
-            try! facts.entry.push(0)
-            k = k + 1
-        }
+        facts.states = mir_states(n, info.block_count)
+        let zero = facts.states.zero()
         k = 0
         while k < info.block_count {
+            try! facts.entry_roots.push(zero)
             try! facts.reached.push(k == 0)
             k = k + 1
         }
         if info.block_count == 0 {
             return move facts
         }
+        var first = Vector<Int>()
         k = 0
         while k < n {
             let l = facts.path_local[k]
             let param = l >= 1 && l <= info.param_count
-            facts.entry[k] = if param { MIR_INIT_WHOLE } else { MIR_INIT_UNASSIGNED }
+            try! first.push(if param { MIR_INIT_WHOLE } else { MIR_INIT_UNASSIGNED })
             k = k + 1
         }
+        facts.entry_roots[0] = facts.states.from_values(&first)
+        // By block, the paths an edge into it leaves moved (`gone_entries`).
+        var gone_first = Vector<Int>()
+        var gone_paths = Vector<Int>()
+        self.init_gone_paths(&facts, &var gone_first, &var gone_paths)
         // A worklist swept in reverse postorder: a block is walked again only
-        // when its entry conditions grew.
+        // when its entry conditions grew. One cursor walks every block, so a
+        // block costs its accesses and what its entry differs by.
         let order = self.init_block_order(f)
         var pending = Vector<Bool>()
         k = 0
@@ -328,6 +379,7 @@ extension MirProgram {
             try! pending.push(k == 0)
             k = k + 1
         }
+        var cur = facts.cursor()
         var left = 1
         while left > 0 {
             var i = 0
@@ -339,13 +391,15 @@ extension MirProgram {
                 }
                 pending[b] = false
                 left = left - 1
-                var state = facts.entry_state(b)
-                self.init_walk_block(f, b, &facts, &var state)
+                facts.enter(&var cur, b)
+                self.init_walk_block_to(f, b, &facts, &var cur)
+                let walked = cur.snapshot(&var facts.states)
                 let unwritten = self.init_unwritten_edge(f, b)
-                var skipped = Vector<Int>()
+                var skipped = walked
                 if unwritten >= 0 {
-                    skipped = facts.entry_state(b)
-                    self.init_walk_unwritten(f, b, &facts, &var skipped)
+                    facts.enter(&var cur, b)
+                    self.init_walk_unwritten_to(f, b, &facts, &var cur)
+                    skipped = cur.snapshot(&var facts.states)
                 }
                 let succ = self.init_successors(f, b)
                 var j = 0
@@ -357,19 +411,17 @@ extension MirProgram {
                         facts.reached[target] = true
                         grew = true
                     }
-                    var q = 0
-                    while q < n {
-                        let at = target * n + q
-                        var out = if target == unwritten { skipped[q] } else { state[q] }
-                        if facts.gone_on_entry(target, facts.path_local[q]) {
-                            out = MIR_INIT_MOVED
-                        }
-                        let joined = facts.entry[at] | out
-                        if joined != facts.entry[at] {
-                            facts.entry[at] = joined
-                            grew = true
-                        }
-                        q = q + 1
+                    var out = if target == unwritten { skipped } else { walked }
+                    var g = gone_first[target]
+                    while g < gone_first[target + 1] {
+                        out = facts.states.set(out, gone_paths[g], MIR_INIT_MOVED)
+                        g = g + 1
+                    }
+                    let had = facts.entry_roots[target]
+                    let joined = facts.states.join(had, out)
+                    if joined != had {
+                        facts.entry_roots[target] = joined
+                        grew = true
                     }
                     if grew && not pending[target] {
                         pending[target] = true
@@ -379,6 +431,33 @@ extension MirProgram {
             }
         }
         move facts
+    }
+
+    // By block, the paths whose local `gone_entries` pairs with it, as runs
+    // `paths[first[b]]` up to `paths[first[b + 1]]`, each in path order.
+    func init_gone_paths(&self, facts: &MirInit, first: &var Vector<Int>, paths: &var Vector<Int>) {
+        let count = facts.block_count
+        var b = 0
+        while b <= count {
+            try! first.push(0)
+            b = b + 1
+        }
+        if facts.gone_entries.len() == 0 {
+            return
+        }
+        b = 0
+        while b < count {
+            first[b] = paths.len()
+            var q = 0
+            while q < facts.path_count() {
+                if facts.gone_on_entry(b, facts.path_local[q]) {
+                    try! paths.push(q)
+                }
+                q = q + 1
+            }
+            b = b + 1
+        }
+        first[count] = paths.len()
     }
 
     // Function `f`'s blocks in reverse postorder from the entry, then those
@@ -454,12 +533,26 @@ extension MirProgram {
         mir_init_apply_all(&facts, &var state, &accesses)
     }
 
+    // `init_walk_block` on a cursor.
+    public func init_walk_block_to(&self, f: Int, b: Int, facts: &MirInit, cur: &var MirCursor) {
+        let info = self.funcs[f]
+        let block = self.blocks[info.block_first + b]
+        var s = block.first
+        while s >= 0 {
+            let accesses = self.init_stmt_accesses(f, s, &facts)
+            mir_init_apply_all_to(&facts, &var cur, &accesses)
+            s = self.stmts[s].next
+        }
+        let accesses = self.init_term_accesses(f, b, &facts)
+        mir_init_apply_all_to(&facts, &var cur, &accesses)
+    }
+
     // THE ABSENT-EDGE FUNNEL: a call writes its destination on its return
     // edge alone. On a conditional open's absent edge the accessor lent
     // nothing and nothing is written (the backend's `conditional_open`), so
     // that edge carries the block's conditions with every access applied but
     // the destination's write. `init_unwritten_edge` names the edge and
-    // `init_walk_unwritten` gives its conditions.
+    // `init_walk_unwritten_to` gives its conditions.
     // ENTRY POINTS (init_unwritten_edge):
     //     init_analysis
     //     refined_entries (compiler/drops/src/verify.saw)
@@ -476,15 +569,15 @@ extension MirProgram {
         c.absent
     }
 
-    // Applies every access of block `b` to `state` but its call's write of
-    // its destination: the conditions `init_unwritten_edge`'s edge carries.
-    public func init_walk_unwritten(&self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>) {
+    // Applies every access of block `b` to `cur` but its call's write of its
+    // destination: the conditions `init_unwritten_edge`'s edge carries.
+    public func init_walk_unwritten_to(&self, f: Int, b: Int, facts: &MirInit, cur: &var MirCursor) {
         let info = self.funcs[f]
         let block = self.blocks[info.block_first + b]
         var s = block.first
         while s >= 0 {
             let accesses = self.init_stmt_accesses(f, s, &facts)
-            mir_init_apply_all(&facts, &var state, &accesses)
+            mir_init_apply_all_to(&facts, &var cur, &accesses)
             s = self.stmts[s].next
         }
         let dest = self.calls[block.call].dest
@@ -494,7 +587,7 @@ extension MirProgram {
             let a = accesses[k]
             k = k + 1
             if not (a.kind == MirAccessKind.Write && a.place == dest) {
-                facts.apply(&var state, &a)
+                facts.apply_to(&var cur, &a)
             }
         }
     }
@@ -1275,6 +1368,16 @@ public func mir_init_apply_all(facts: &MirInit, state: &var Vector<Int>, accesse
     while k < accesses.len() {
         let a = accesses[k]
         facts.apply(&var state, &a)
+        k = k + 1
+    }
+}
+
+// Each of `accesses` applied to a cursor's conditions, in order.
+public func mir_init_apply_all_to(facts: &MirInit, cur: &var MirCursor, accesses: &Vector<MirAccess>) {
+    var k = 0
+    while k < accesses.len() {
+        let a = accesses[k]
+        facts.apply_to(&var cur, &a)
         k = k + 1
     }
 }

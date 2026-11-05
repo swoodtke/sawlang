@@ -52,6 +52,7 @@ import sawmir.model.{MirAccessor, MirArm, MirBlock, MirCall, MirCallKind, MirFun
                          MirTermKind, mir_spawn_leading}
 import sawmir.program.{MirProgram}
 import sawmir.split.{MirHalf}
+import sawmir.states.{MirCursor}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.model.{ResDeclKind}
 import sawresolve.program.{ResProgram}
@@ -1995,10 +1996,11 @@ extension MirProgram {
         let replaced = self.init_consumes_replacements(f, &facts)
         let moves = partial.len() == 0 && replaced.len() == 0
         let open = self.window_entries(f)
+        var cur = facts.cursor()
         var b = 0
         while b < info.block_count {
             if facts.reached[b] {
-                var state = facts.entry_state(b)
+                facts.enter(&var cur, b)
                 var windows = Vector<Bool>()
                 var k = 0
                 while k < info.window_count {
@@ -2009,13 +2011,13 @@ extension MirProgram {
                 var s = block.first
                 while s >= 0 {
                     let accesses = self.init_stmt_accesses(f, s, &facts)
-                    self.check_accesses(f, b, &facts, &var state, &accesses, moves, &var out)
+                    self.check_accesses(f, b, &facts, &var cur, &accesses, moves, &var out)
                     s = self.stmts[s].next
                 }
                 let accesses = self.init_term_accesses(f, b, &facts)
-                self.check_accesses(f, b, &facts, &var state, &accesses, moves, &var out)
+                self.check_accesses(f, b, &facts, &var cur, &accesses, moves, &var out)
                 if block.term == MirTermKind.Return {
-                    self.check_return(f, b, &facts, &state, &windows, moves, &var out)
+                    self.check_return(f, b, &facts, &cur.state, &windows, moves, &var out)
                 }
                 if block.term == MirTermKind.Call {
                     let c = self.calls[block.call]
@@ -2064,21 +2066,21 @@ extension MirProgram {
         }
     }
 
-    // Each of `accesses` checked against `state`, then applied to it: a use,
-    // a part's write included, of a local some path dropped with nothing
-    // assigned since; a drop of a path some path dropped already, or whose
-    // part some path moved out; an assignment to a whole owned local that
-    // may still be live, so the scope exit before it does not drop it.
-    func check_accesses(&self, f: Int, b: Int, facts: &MirInit, state: &var Vector<Int>,
+    // Each of `accesses` checked against `cur`'s conditions, then applied to
+    // them: a use, a part's write included, of a local some path dropped with
+    // nothing assigned since; a drop of a path some path dropped already, or
+    // whose part some path moved out; an assignment to a whole owned local
+    // that may still be live, so the scope exit before it does not drop it.
+    func check_accesses(&self, f: Int, b: Int, facts: &MirInit, cur: &var MirCursor,
                         accesses: &Vector<MirAccess>, moves: Bool, out: &var Vector<String>) {
         var k = 0
         while k < accesses.len() {
             let a = accesses[k]
             k = k + 1
             if moves && a.path >= 0 {
-                self.check_access(f, b, &facts, &state, &a, &var out)
+                self.check_access(f, b, &facts, &cur.state, &a, &var out)
             }
-            facts.apply(&var state, &a)
+            facts.apply_to(&var cur, &a)
         }
     }
 

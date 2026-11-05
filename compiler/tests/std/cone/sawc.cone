@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 348 declarations in 24 modules
+# 349 declarations in 24 modules
 
 std.alloc: 9
   extern __saw_rt_alloc
@@ -381,8 +381,9 @@ std.utf8: 4
   func utf8_error_offset
   func utf8_sequence_width
 
-std.vector: 15
+std.vector: 16
   init Vector.init
+  method Vector.clear
   method Vector.copy
   method Vector.deinit
   method Vector.get

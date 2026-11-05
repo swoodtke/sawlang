@@ -414,7 +414,29 @@ full; in short, the runner:
   pinned in `compiler/tests/grammar/fixtures/trees/`, the refusals pinned in
   `compiler/tests/grammar/fixtures/refusals/`, and for every rule the recognizer
   applies, a fixture it is seen deciding: switched off, the fixture's tree
-  count changes or its refused text parses.
+  count changes or its refused text parses;
+- holds the compiler near-linear in one long construct (the `complexity`
+  step). Each row of `compiler/tests/complexity/ceilings.tsv` builds its shape
+  at 2, N and 2N, and the median over 3 runs of the ratio of the instructions
+  the builds retire over the size-2 build's, (I(2N) − I(2)) / (I(N) − I(2)),
+  must stay under the row's ceiling plus its slack. Ceilings only go down and a
+  row's N only goes up.
+
+```bash
+./.venv/bin/python compiler/tests/complexity/complexity_lane.py                       # the lane alone
+./.venv/bin/python compiler/tests/complexity/complexity_lane.py --write               # lower the ceilings a change earned
+./.venv/bin/python compiler/tests/complexity/complexity_lane.py --write --add ctor=1600   # a shape made near-linear
+```
+
+`--write` builds each row 7 times: a row it adds or raises takes the worst r as
+its ceiling and twice the spread, at least 0.1, as its slack, and a row it
+keeps is lowered only by more than 0.03. A change that lowers a ceiling says so
+in its patch. `--write` refuses to raise a ceiling, and the step fails a
+ceilings file that drops a row, lowers an N, or at the same N raises a ceiling
+or a ceiling plus slack, against HEAD or HEAD^. A shape's row is added, at
+N = 1,600, by the unit that makes it near-linear. On Linux the counter is
+`perf stat -e instructions`; with no counter there, only rows under a ceiling
+of 2.5 are checked, by wall time against 3.0.
 
 The full-corpus recognizer run is the battery's `grammarcorpus` lane:
 
