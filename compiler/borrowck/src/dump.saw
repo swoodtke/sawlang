@@ -11,6 +11,7 @@ import sawmir.initialisation.{MIR_INIT_DROPPED, MIR_INIT_MOVED, MIR_INIT_PARTIAL
                                   MIR_INIT_WHOLE, MirInit, mir_init_apply_all}
 import sawmir.model.{MirProjKind, MirStmtKind}
 import sawmir.program.{MirProgram}
+import sawmir.states.{mir_cursor}
 import sawresolve.dump.{res_sort_strings}
 import sawresolve.program.{ResProgram}
 
@@ -92,10 +93,10 @@ extension BorrowckProgram {
             }
             try! out.append(": \{\n")
             var state = facts.entry_state(b)
-            let lives = self.instruction_live(f, b, &var loans)
-            let lw = loans.loan_words
+            var at_live = mir_cursor(&loans.live_bits, loans.live_bits.zero())
+            let lives = self.instruction_live(f, b, &var loans, &var at_live)
             let ww = loans.window_words
-            var created = borrowck_slice(&loans.created_in, b * lw, lw)
+            var created = loans.created_at(b)
             var open = borrowck_slice(&loans.open_in, b * ww, ww)
             let block = self.mir.blocks[info.block_first + b]
             var i = 0
@@ -216,8 +217,7 @@ extension BorrowckProgram {
     // `{LK ...} `: the loans live before instruction `i`.
     func append_live_loans(&self, out: &var StringBuilder, loans: &BorrowckLoans, lives: &Vector<Int>, i: Int,
                            created: &Vector<Int>, open: &Vector<Int>) {
-        let words = loans.local_words
-        let live = borrowck_slice(&lives, i * words, words)
+        let live = loans.live_bits.values(lives[i])
         try! out.append("\{")
         var first = true
         var n = 0

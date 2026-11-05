@@ -41,6 +41,7 @@ import sawmir.model.{MirAggregate, MirCallKind, MirConstKind, MirFuncKind, MirLo
                          MirRvalue, MirRvalueKind, MirStmtKind, MirSuspend, MirSwitchKind, MirTermKind,
                          mir_spawn_leading}
 import sawmir.program.{MirProgram}
+import sawmir.states.{MirCursor, MirStates, mir_cursor, mir_states}
 import sawtypecheck.model.{TC_EFFECT_ESCAPING, TcReceiver}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.typeops.{TcClient}
@@ -165,12 +166,18 @@ public struct BorrowckLoans {
     window_exclusive: Vector<Bool>
     // Bit sets per block: the locals live at its end, the loans created (and,
     // for a spawn loan, not yet released) on some path to its entry, the
-    // windows open at its entry.
+    // windows open at its entry. The first two are vectors of words in state
+    // stores, `live_out_roots` and `created_roots` by block, read whole with
+    // `live_out_at` and `created_at`, so a point costs what changed there.
+    // Liveness is kept only for the locals that carry a loan, the only ones
+    // `is_live` reads (`holder_local`).
     local_words: Int
     loan_words: Int
     window_words: Int
-    live_out: Vector<Int>
-    created_in: Vector<Int>
+    live_bits: MirStates
+    live_out_roots: Vector<Int>
+    loan_bits: MirStates
+    created_roots: Vector<Int>
     open_in: Vector<Int>
     reached: Vector<Bool>
     // Per local: the last `borrowck_trace` walk that reached it, by
@@ -182,6 +189,34 @@ public struct BorrowckLoans {
     release_loan: Vector<Int>
     release_block: Vector<Int>
     release_stmt: Vector<Int>
+    // The instruction table: block `b`'s instructions are `inst_stmt[inst_first[b]]`
+    // up to `inst_stmt[inst_first[b + 1]]`, each a statement, the last -1 for
+    // the terminator. An instruction's index into the table is its site.
+    inst_first: Vector<Int>
+    inst_stmt: Vector<Int>
+    // Runs by site: the loans each instruction creates and the spawn-loan
+    // releases after it, each in loan order (`borrowck_runs`).
+    site_first: Vector<Int>
+    site_loans: Vector<Int>
+    release_first: Vector<Int>
+    release_at: Vector<Int>
+    // Per local, the first window-open call in block order taking it whole
+    // as an argument, or -1.
+    open_taking: Vector<Int>
+    // Runs by local: the loans it carries; by window: its window loans and
+    // the loans tied to it; and the spawn loans. Each in loan order.
+    held_first: Vector<Int>
+    held_loans: Vector<Int>
+    window_first: Vector<Int>
+    window_loans: Vector<Int>
+    spawn_list: Vector<Int>
+    // Per loan, the last `live_candidates` walk that gathered it, by
+    // `gather_walks`, so a walk needs no set of its own.
+    gathered: Vector<Int>
+    gather_walks: Int
+    // Per local, whether it carries some loan; and whether any does.
+    holder_local: Vector<Bool>
+    any_holder: Bool
 }
 
 extension BorrowckLoans: NoCopy {}
@@ -229,6 +264,28 @@ public func borrowck_zeros(count: Int) -> Vector<Int> {
     move out
 }
 
+// Bit `k` of a cursor's words set on or off, through the cursor's log.
+public func borrowck_cursor_bit(cur: &var MirCursor, k: Int, on: Bool) {
+    let at = k / BORROWCK_WORD_BITS
+    let mask = 1 << (k % BORROWCK_WORD_BITS)
+    let old = cur.state[at]
+    let word = if on { old | mask } else { old & (-1 - mask) }
+    if word != old {
+        cur.write(at, word)
+    }
+}
+
+// `count` falses.
+func borrowck_falses(count: Int) -> Vector<Bool> {
+    var out = Vector<Bool>()
+    var k = 0
+    while k < count {
+        try! out.push(false)
+        k = k + 1
+    }
+    move out
+}
+
 // The `words` words of `set` from `base`.
 public func borrowck_slice(set: &Vector<Int>, base: Int, words: Int) -> Vector<Int> {
     var out = Vector<Int>()
@@ -256,6 +313,71 @@ public func borrowck_join(dst: &var Vector<Int>, base: Int, src: &Vector<Int>) -
     changed
 }
 
+// The pairs `keys[k]`, `values[k]` bucketed by key: on return `first[key]` up
+// to `first[key + 1]` index `items`, which holds that key's values in pair
+// order. A key outside `0 .. count` is left out.
+public func borrowck_runs(keys: &Vector<Int>, values: &Vector<Int>, count: Int, first: &var Vector<Int>,
+                          items: &var Vector<Int>) {
+    first = borrowck_zeros(count + 1)
+    var k = 0
+    while k < keys.len() {
+        let key = keys[k]
+        if key >= 0 && key < count {
+            first[key + 1] += 1
+        }
+        k = k + 1
+    }
+    k = 0
+    while k < count {
+        first[k + 1] += first[k]
+        k = k + 1
+    }
+    items = borrowck_zeros(first[count])
+    var at = borrowck_slice(&first, 0, count)
+    k = 0
+    while k < keys.len() {
+        let key = keys[k]
+        if key >= 0 && key < count {
+            items[at[key]] = values[k]
+            at[key] += 1
+        }
+        k = k + 1
+    }
+}
+
+// The site of statement `s` of block `b`, or of `b`'s terminator when `s` is
+// -1; -1 when `b` holds no such statement. The search starts at `hint` when
+// it lies in `b`, and leaves `hint` at the site found, so a run of queries in
+// statement order walks each block once.
+func borrowck_site(facts: &BorrowckLoans, b: Int, s: Int, hint: &var Int) -> Int {
+    if b < 0 || b + 1 >= facts.inst_first.len() {
+        return -1
+    }
+    let start = facts.inst_first[b]
+    let end = facts.inst_first[b + 1]
+    if s < 0 {
+        return end - 1
+    }
+    var at = if hint >= start && hint < end { hint } else { start }
+    let from = at
+    while at < end {
+        if facts.inst_stmt[at] == s {
+            hint = at
+            return at
+        }
+        at = at + 1
+    }
+    at = start
+    while at < from {
+        if facts.inst_stmt[at] == s {
+            hint = at
+            return at
+        }
+        at = at + 1
+    }
+    -1
+}
+
 extension BorrowckPath {
     public static func none() -> BorrowckPath {
         BorrowckPath(local: -1, static_decl: -1, first: 0, count: -1)
@@ -265,6 +387,42 @@ extension BorrowckPath {
 extension BorrowckLoans {
     public func loan_count(&self) -> Int {
         self.loans.len()
+    }
+
+    // How many instructions block `b` holds: its statements, then its
+    // terminator.
+    public func inst_count(&self, b: Int) -> Int {
+        self.inst_first[b + 1] - self.inst_first[b]
+    }
+
+    // The statement instruction `i` of block `b` is, or -1 for its
+    // terminator.
+    public func inst_stmt_at(&self, b: Int, i: Int) -> Int {
+        self.inst_stmt[self.inst_first[b] + i]
+    }
+
+    // The locals live at block `b`'s end, one bit each.
+    public func live_out_at(&self, b: Int) -> Vector<Int> {
+        self.live_bits.values(self.live_out_roots[b])
+    }
+
+    // The loans created on some path to block `b`'s entry, one bit each.
+    public func created_at(&self, b: Int) -> Vector<Int> {
+        self.loan_bits.values(self.created_roots[b])
+    }
+
+    // The locals that carry a loan, one bit each: the ones whose liveness
+    // the analysis keeps.
+    public func holder_mask(&self) -> Vector<Int> {
+        var out = borrowck_zeros(self.local_words)
+        var l = 0
+        while l < self.holder_local.len() {
+            if self.holder_local[l] {
+                borrowck_set_bit(&var out, 0, l)
+            }
+            l = l + 1
+        }
+        move out
     }
 
     // Projection `k` of path `p`.
@@ -316,6 +474,88 @@ extension BorrowckLoans {
             k = k + 1
         }
         false
+    }
+
+    // Every loan `is_live` can accept where `live`, `created` and `open`
+    // hold, each once, in loan order: those a live local carries and that
+    // were created, those of or tied to an open window, and the spawn loans.
+    // A superset of the live loans, gathered from what is live rather than
+    // by asking every loan. `live_root`, when not -1, is `live` as a vector
+    // of `live_bits`, whose nonzero words are then found without a walk of
+    // every word.
+    public func live_candidates(&var self, live: &Vector<Int>, live_root: Int, created: &Vector<Int>,
+                                open: &Vector<Int>) -> Vector<Int> {
+        self.gather_walks = self.gather_walks + 1
+        let walk = self.gather_walks
+        var out = Vector<Int>()
+        var nonzero = Vector<Int>()
+        if live_root >= 0 {
+            self.live_bits.diff(self.live_bits.zero(), live_root, &var nonzero)
+        } else {
+            var x = 0
+            while x < live.len() {
+                if live[x] != 0 {
+                    try! nonzero.push(x)
+                }
+                x = x + 1
+            }
+        }
+        var nz = 0
+        while nz < nonzero.len() {
+            let index = nonzero[nz]
+            nz = nz + 1
+            var word = live[index]
+            var bit = 0
+            while word != 0 {
+                if (word & 1) != 0 {
+                    let l = index * BORROWCK_WORD_BITS + bit
+                    var at = self.held_first[l]
+                    while at < self.held_first[l + 1] {
+                        let n = self.held_loans[at]
+                        at = at + 1
+                        if self.gathered[n] != walk && borrowck_bit(&created, 0, n) {
+                            self.gathered[n] = walk
+                            try! out.push(n)
+                        }
+                    }
+                }
+                word = word >> 1
+                bit = bit + 1
+            }
+        }
+        var w = 0
+        while w < open.len() {
+            var word = open[w]
+            var bit = 0
+            while word != 0 {
+                if (word & 1) != 0 {
+                    let window = w * BORROWCK_WORD_BITS + bit
+                    var at = self.window_first[window]
+                    while at < self.window_first[window + 1] {
+                        let n = self.window_loans[at]
+                        at = at + 1
+                        if self.gathered[n] != walk {
+                            self.gathered[n] = walk
+                            try! out.push(n)
+                        }
+                    }
+                }
+                word = word >> 1
+                bit = bit + 1
+            }
+            w = w + 1
+        }
+        var k = 0
+        while k < self.spawn_list.len() {
+            let n = self.spawn_list[k]
+            k = k + 1
+            if self.gathered[n] != walk {
+                self.gathered[n] = walk
+                try! out.push(n)
+            }
+        }
+        out.sort()
+        move out
     }
 
     // Whether index local `l` holds a constant, and its value: -1 for none.
@@ -383,10 +623,17 @@ extension BorrowckProgram {
                                   const_value: Vector<Int>(), window_path: Vector<BorrowckPath>(),
                                   window_exclusive: Vector<Bool>(), local_words: borrowck_words(info.local_count),
                                   loan_words: 0, window_words: borrowck_words(info.window_count),
-                                  live_out: Vector<Int>(), created_in: Vector<Int>(), open_in: Vector<Int>(),
+                                  live_bits: mir_states(0, 0), live_out_roots: Vector<Int>(),
+                                  loan_bits: mir_states(0, 0), created_roots: Vector<Int>(), open_in: Vector<Int>(),
                                   reached: Vector<Bool>(), trace_mark: borrowck_zeros(info.local_count),
                                   trace_walks: 0, release_loan: Vector<Int>(), release_block: Vector<Int>(),
-                                  release_stmt: Vector<Int>())
+                                  release_stmt: Vector<Int>(), inst_first: Vector<Int>(), inst_stmt: Vector<Int>(),
+                                  site_first: Vector<Int>(), site_loans: Vector<Int>(),
+                                  release_first: Vector<Int>(), release_at: Vector<Int>(), open_taking: Vector<Int>(),
+                                  held_first: Vector<Int>(), held_loans: Vector<Int>(), window_first: Vector<Int>(),
+                                  window_loans: Vector<Int>(), spawn_list: Vector<Int>(), gathered: Vector<Int>(),
+                                  gather_walks: 0, holder_local: Vector<Bool>(), any_holder: false)
+        self.loan_instructions(f, &var facts)
         self.loan_defs(f, &var facts)
         self.loan_windows(f, &var facts)
         self.loan_collect(f, &var facts)
@@ -394,9 +641,134 @@ extension BorrowckProgram {
         self.loan_holders(f, &var facts)
         self.loan_ties(f, &var facts)
         facts.loan_words = borrowck_words(facts.loans.len())
+        self.loan_index(f, &var facts)
         self.loan_liveness(f, &var facts)
         self.loan_forward(f, &var facts)
         move facts
+    }
+
+    // Function `f`'s instruction table, so finding an instruction's statement
+    // costs one lookup rather than a walk of its block.
+    func loan_instructions(&self, f: Int, facts: &var BorrowckLoans) {
+        let info = self.mir.funcs[f]
+        var b = 0
+        while b < info.block_count {
+            try! facts.inst_first.push(facts.inst_stmt.len())
+            var s = self.mir.blocks[info.block_first + b].first
+            while s >= 0 {
+                try! facts.inst_stmt.push(s)
+                s = self.mir.stmts[s].next
+            }
+            try! facts.inst_stmt.push(-1)
+            b = b + 1
+        }
+        try! facts.inst_first.push(facts.inst_stmt.len())
+    }
+
+    // The runs the per-instruction questions read once the loans are known:
+    // the loans each instruction creates and the releases after it, so a step
+    // costs its own loans rather than a scan of every loan; and each local's
+    // first window open (`open_taking`).
+    func loan_index(&self, f: Int, facts: &var BorrowckLoans) {
+        let sites = facts.inst_stmt.len()
+        var keys = Vector<Int>()
+        var values = Vector<Int>()
+        // Loans and releases are listed in block and statement order, so each
+        // search resumes where the last one stopped.
+        var hint = 0
+        var n = 0
+        while n < facts.loans.len() {
+            let loan = facts.loans[n]
+            try! keys.push(borrowck_site(&facts, loan.block, loan.stmt, &var hint))
+            try! values.push(n)
+            n = n + 1
+        }
+        borrowck_runs(&keys, &values, sites, &var facts.site_first, &var facts.site_loans)
+        keys.clear()
+        values.clear()
+        hint = 0
+        var r = 0
+        while r < facts.release_loan.len() {
+            try! keys.push(borrowck_site(&facts, facts.release_block[r], facts.release_stmt[r], &var hint))
+            try! values.push(r)
+            r = r + 1
+        }
+        borrowck_runs(&keys, &values, sites, &var facts.release_first, &var facts.release_at)
+        let info = self.mir.funcs[f]
+        keys.clear()
+        values.clear()
+        n = 0
+        while n < facts.loans.len() {
+            let loan = facts.loans[n]
+            var k = 0
+            while k < loan.holder_count {
+                try! keys.push(facts.holders[loan.holder_first + k])
+                try! values.push(n)
+                k = k + 1
+            }
+            n = n + 1
+        }
+        borrowck_runs(&keys, &values, info.local_count, &var facts.held_first, &var facts.held_loans)
+        var l = 0
+        while l < info.local_count {
+            let holds = facts.held_first[l + 1] > facts.held_first[l]
+            try! facts.holder_local.push(holds)
+            if holds {
+                facts.any_holder = true
+            }
+            l = l + 1
+        }
+        keys.clear()
+        values.clear()
+        n = 0
+        while n < facts.loans.len() {
+            let loan = facts.loans[n]
+            if loan.kind == BorrowckLoanKind.Window {
+                try! keys.push(loan.window)
+                try! values.push(n)
+            }
+            var k = 0
+            while k < loan.tie_count {
+                try! keys.push(facts.ties[loan.tie_first + k])
+                try! values.push(n)
+                k = k + 1
+            }
+            if loan.kind == BorrowckLoanKind.Spawn {
+                try! facts.spawn_list.push(n)
+            }
+            try! facts.gathered.push(0)
+            n = n + 1
+        }
+        borrowck_runs(&keys, &values, info.window_count, &var facts.window_first, &var facts.window_loans)
+        l = 0
+        while l < info.local_count {
+            try! facts.open_taking.push(-1)
+            l = l + 1
+        }
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term != MirTermKind.Call {
+                continue
+            }
+            let c = self.mir.calls[block.call]
+            if c.kind != MirCallKind.WindowOpen || c.window < 0 {
+                continue
+            }
+            var k = 0
+            while k < c.arg_count {
+                let o = self.mir.operands[self.mir.lists[c.arg_first + k]]
+                k = k + 1
+                if o.place < 0 {
+                    continue
+                }
+                let taken = self.bare_local_of(o.place)
+                if taken >= 0 && facts.open_taking[taken] < 0 {
+                    facts.open_taking[taken] = block.call
+                }
+            }
+        }
     }
 
     // The statements and calls that assign each local whole, and the
@@ -934,6 +1306,11 @@ extension BorrowckProgram {
         }
         var holders = Vector<Int>()
         var stamp = borrowck_zeros(info.local_count)
+        // The edges by source local, each source's in edge order.
+        var edge_first = Vector<Int>()
+        var edge_to = Vector<Int>()
+        borrowck_runs(&from, &to, info.local_count, &var edge_first, &var edge_to)
+        var refs = false
         var n = 0
         while n < facts.loans.len() {
             var loan = facts.loans[n]
@@ -946,32 +1323,40 @@ extension BorrowckProgram {
                 while at < holders.len() {
                     let l = holders[at]
                     at = at + 1
-                    var e = 0
-                    while e < from.len() {
-                        if from[e] == l && stamp[to[e]] != n + 1 {
-                            stamp[to[e]] = n + 1
-                            try! holders.push(to[e])
-                        }
+                    var e = edge_first[l]
+                    while e < edge_first[l + 1] {
+                        let t = edge_to[e]
                         e = e + 1
+                        if stamp[t] != n + 1 {
+                            stamp[t] = n + 1
+                            try! holders.push(t)
+                        }
                     }
                 }
             }
             loan.holder_first = first
             loan.holder_count = holders.len() - first
+            if loan.kind == BorrowckLoanKind.Ref && loan.holder_count > 0 {
+                refs = true
+            }
             facts.loans[n] = loan
             n = n + 1
         }
         facts.holders = move holders
-        n = 0
-        while n < facts.loans.len() {
-            var loan = facts.loans[n]
-            if loan.kind == BorrowckLoanKind.Ref && loan.holder_count > 0 {
-                let h = facts.holders[loan.holder_first]
-                loan.captured = self.used_by_closure(f, h)
-                loan.argument = self.passed_to_call(f, h)
-                facts.loans[n] = loan
+        if refs {
+            let closured = self.closure_operands(f)
+            let passed = self.call_arguments(f)
+            n = 0
+            while n < facts.loans.len() {
+                var loan = facts.loans[n]
+                if loan.kind == BorrowckLoanKind.Ref && loan.holder_count > 0 {
+                    let h = facts.holders[loan.holder_first]
+                    loan.captured = closured[h]
+                    loan.argument = passed[h]
+                    facts.loans[n] = loan
+                }
+                n = n + 1
             }
-            n = n + 1
         }
         self.spawn_loans(f, &var facts, &from, &to)
         self.handle_flows(f, &var facts, &from, &to)
@@ -1577,10 +1962,11 @@ extension BorrowckProgram {
         kind == TcKind.Ref || kind == TcKind.Slice || kind == TcKind.Func
     }
 
-    // Whether local `l` of function `f` is an operand of a closure, or of the
-    // environment local a closure is built over (`capture_site`).
-    func used_by_closure(&self, f: Int, l: Int) -> Bool {
+    // Per local of function `f`: whether it is an operand of a closure, or of
+    // the environment local a closure is built over (`capture_site`).
+    func closure_operands(&self, f: Int) -> Vector<Bool> {
         let info = self.mir.funcs[f]
+        var out = borrowck_falses(info.local_count)
         var b = 0
         while b < info.block_count {
             let block = self.mir.blocks[info.block_first + b]
@@ -1594,46 +1980,48 @@ extension BorrowckProgram {
                         dest = self.mir.places[stmt.place].local
                     }
                     let closure = rv.kind == MirRvalueKind.Aggregate && rv.aggregate == MirAggregate.Closure
-                    let site = closure || self.capture_site(f, &rv, dest)
-                    if site && self.operands_name(rv.first, rv.count, l) {
-                        return true
+                    if closure || self.capture_site(f, &rv, dest) {
+                        self.mark_operands(rv.first, rv.count, &var out)
                     }
                 }
                 s = stmt.next
             }
             b = b + 1
         }
-        false
+        move out
     }
 
-    // Whether local `l` of function `f` is a call's argument.
-    func passed_to_call(&self, f: Int, l: Int) -> Bool {
+    // Per local of function `f`: whether it is a call's argument.
+    func call_arguments(&self, f: Int) -> Vector<Bool> {
         let info = self.mir.funcs[f]
+        var out = borrowck_falses(info.local_count)
         var b = 0
         while b < info.block_count {
             let block = self.mir.blocks[info.block_first + b]
             if block.term == MirTermKind.Call {
                 let c = self.mir.calls[block.call]
-                if c.kind != MirCallKind.WindowOpen && self.operands_name(c.arg_first, c.arg_count, l) {
-                    return true
+                if c.kind != MirCallKind.WindowOpen {
+                    self.mark_operands(c.arg_first, c.arg_count, &var out)
                 }
             }
             b = b + 1
         }
-        false
+        move out
     }
 
-    // Whether an operand of the run names local `l` whole.
-    func operands_name(&self, first: Int, count: Int, l: Int) -> Bool {
+    // Marks in `out` each local an operand of the run names whole.
+    func mark_operands(&self, first: Int, count: Int, out: &var Vector<Bool>) {
         var k = 0
         while k < count {
             let o = self.mir.operands[self.mir.lists[first + k]]
-            if o.kind != MirOperandKind.Const && o.place >= 0 && self.bare_local_of(o.place) == l {
-                return true
-            }
             k = k + 1
+            if o.kind != MirOperandKind.Const && o.place >= 0 {
+                let l = self.bare_local_of(o.place)
+                if l >= 0 && l < out.len() {
+                    out[l] = true
+                }
+            }
         }
-        false
     }
 
     // Each loan a window's argument carries is tied to the window: it lives
@@ -1641,22 +2029,30 @@ extension BorrowckProgram {
     // epilogue has run.
     func loan_ties(&self, f: Int, facts: &var BorrowckLoans) {
         let info = self.mir.funcs[f]
+        var opens = Vector<Int>()
+        var b = 0
+        while b < info.block_count {
+            let block = self.mir.blocks[info.block_first + b]
+            b = b + 1
+            if block.term == MirTermKind.Call {
+                let c = self.mir.calls[block.call]
+                if c.kind == MirCallKind.WindowOpen && c.window >= 0 {
+                    try! opens.push(block.call)
+                }
+            }
+        }
         var ties = Vector<Int>()
         var n = 0
         while n < facts.loans.len() {
             var loan = facts.loans[n]
             let first = ties.len()
-            var b = 0
-            while b < info.block_count {
-                let block = self.mir.blocks[info.block_first + b]
-                if block.term == MirTermKind.Call {
-                    let c = self.mir.calls[block.call]
-                    if c.kind == MirCallKind.WindowOpen && c.window >= 0 && self.args_carry(&facts, n, c.arg_first,
-                                                                                            c.arg_count) {
-                        try! ties.push(c.window)
-                    }
+            var k = 0
+            while k < opens.len() {
+                let c = self.mir.calls[opens[k]]
+                k = k + 1
+                if self.args_carry(&facts, n, c.arg_first, c.arg_count) {
+                    try! ties.push(c.window)
                 }
-                b = b + 1
             }
             loan.tie_first = first
             loan.tie_count = ties.len() - first
@@ -1682,25 +2078,37 @@ extension BorrowckProgram {
         false
     }
 
-    // The locals live at each block's end: read, moved, borrowed or reached
-    // through later on some path before a whole assignment. A drop reads
-    // nothing a loan protects, and a `return` reads the return place. A
-    // worklist swept in postorder, to the fixpoint: a block is walked again
-    // only when a successor's live set grew.
+    // The locals carrying a loan that are live at each block's end: read,
+    // moved, borrowed or reached through later on some path before a whole
+    // assignment. A drop reads nothing a loan protects, and a `return` reads
+    // the return place. Each local's liveness is its own, so leaving out the
+    // others changes no answer. A worklist swept in postorder, to the
+    // fixpoint: a block is walked again only when a successor's live set grew.
     func loan_liveness(&self, f: Int, facts: &var BorrowckLoans) {
         let info = self.mir.funcs[f]
-        let words = facts.local_words
         let count = info.block_count
-        facts.live_out = borrowck_zeros(count * words)
-        var live_in = borrowck_zeros(count * words)
+        // A vector at each instruction at most (`instruction_live`).
+        facts.live_bits = mir_states(facts.local_words, facts.inst_stmt.len())
+        let zero = facts.live_bits.zero()
+        var live_in = Vector<Int>()
+        var k = 0
+        while k < count {
+            try! facts.live_out_roots.push(zero)
+            try! live_in.push(zero)
+            k = k + 1
+        }
+        if not facts.any_holder {
+            return
+        }
         let order = self.mir.init_block_order(f)
         let preds = self.borrowck_predecessors(f)
         var pending = Vector<Bool>()
-        var k = 0
+        k = 0
         while k < count {
             try! pending.push(true)
             k = k + 1
         }
+        var cur = mir_cursor(&facts.live_bits, zero)
         var left = count
         while left > 0 {
             var i = order.len() - 1
@@ -1713,16 +2121,19 @@ extension BorrowckProgram {
                 pending[b] = false
                 left = left - 1
                 let succ = self.mir.init_successors(f, b)
-                var out = borrowck_zeros(words)
+                var out = zero
                 var j = 0
                 while j < succ.len() {
-                    let entry = borrowck_slice(&live_in, succ[j] * words, words)
-                    let _ = borrowck_join(&var out, 0, &entry)
+                    out = facts.live_bits.join(out, live_in[succ[j]])
                     j = j + 1
                 }
-                let _ = borrowck_join(&var facts.live_out, b * words, &out)
-                let start = self.block_live_in(f, b, &var facts, &out)
-                if borrowck_join(&var live_in, b * words, &start) {
+                facts.live_out_roots[b] = facts.live_bits.join(facts.live_out_roots[b], out)
+                cur.load(&facts.live_bits, out)
+                self.block_live_in(f, b, &var facts, &var cur)
+                let start = cur.commit(&var facts.live_bits)
+                let had = live_in[b]
+                live_in[b] = facts.live_bits.join(had, start)
+                if live_in[b] != had {
                     j = preds.first[b]
                     while j < preds.first[b + 1] {
                         let p = preds.blocks[j]
@@ -1774,40 +2185,47 @@ extension BorrowckProgram {
         BorrowckPreds(first: move first, blocks: move blocks)
     }
 
-    // The locals live before block `b` runs, from `out`, those live at its
-    // end.
-    func block_live_in(&self, f: Int, b: Int, facts: &var BorrowckLoans, out: &Vector<Int>) -> Vector<Int> {
-        let count = self.instruction_count(f, b)
-        let words = out.len()
-        var live = borrowck_slice(&out, 0, words)
+    // Moves `cur` from the locals live at block `b`'s end to those live
+    // before it runs.
+    func block_live_in(&self, f: Int, b: Int, facts: &var BorrowckLoans, cur: &var MirCursor) {
+        let count = facts.inst_count(b)
         var i = count - 1
         while i >= 0 {
             let accesses = self.instruction_accesses(f, b, i, &var facts)
-            self.step_live(f, b, i, &accesses, &var live)
+            self.step_live_to(f, b, i == count - 1, &accesses, &facts.holder_local, &var cur)
             i = i - 1
         }
-        move live
     }
 
     // The locals live before each instruction of block `b`: instruction
-    // `i`'s set at `i * local_words`.
-    public func instruction_live(&self, f: Int, b: Int, facts: &var BorrowckLoans) -> Vector<Int> {
-        let count = self.instruction_count(f, b)
-        let words = facts.local_words
-        var out = borrowck_zeros(count * words)
-        var live = borrowck_slice(&facts.live_out, b * words, words)
+    // `i`'s set is vector `[i]` of `live_bits`. `cur` is any cursor over
+    // `live_bits`, which this moves.
+    public func instruction_live(&self, f: Int, b: Int, facts: &var BorrowckLoans, cur: &var MirCursor) -> Vector<Int> {
+        let count = facts.inst_count(b)
+        var out = Vector<Int>()
+        var k = 0
+        while k < count {
+            try! out.push(facts.live_out_roots[b])
+            k = k + 1
+        }
+        if not facts.any_holder {
+            return move out
+        }
+        cur.load(&facts.live_bits, facts.live_out_roots[b])
         var i = count - 1
         while i >= 0 {
             let accesses = self.instruction_accesses(f, b, i, &var facts)
-            self.step_live(f, b, i, &accesses, &var live)
-            let _ = borrowck_join(&var out, i * words, &live)
+            self.step_live_to(f, b, i == count - 1, &accesses, &facts.holder_local, &var cur)
+            out[i] = cur.commit(&var facts.live_bits)
             i = i - 1
         }
         move out
     }
 
-    // `live` before instruction `i` of block `b`, from `live` after it.
-    public func step_live(&self, f: Int, b: Int, i: Int, accesses: &Vector<BorrowckAccess>, live: &var Vector<Int>) {
+    // `live` before an instruction of block `b`, from `live` after it;
+    // `last` says the instruction is the block's terminator.
+    public func step_live(&self, f: Int, b: Int, last: Bool, accesses: &Vector<BorrowckAccess>,
+                          live: &var Vector<Int>) {
         var k = 0
         while k < accesses.len() {
             let a = accesses[k]
@@ -1827,40 +2245,36 @@ extension BorrowckProgram {
         }
         let info = self.mir.funcs[f]
         let block = self.mir.blocks[info.block_first + b]
-        if i == self.instruction_count(f, b) - 1 && block.term == MirTermKind.Return {
+        if last && block.term == MirTermKind.Return {
             borrowck_set_bit(&var live, 0, 0)
         }
     }
 
-    // How many instructions block `b` holds: its statements, then its
-    // terminator.
-    public func instruction_count(&self, f: Int, b: Int) -> Int {
-        let info = self.mir.funcs[f]
-        let block = self.mir.blocks[info.block_first + b]
-        var n = 1
-        var s = block.first
-        while s >= 0 {
-            n = n + 1
-            s = self.mir.stmts[s].next
-        }
-        n
-    }
-
-    // The statement instruction `i` of block `b` is, or -1 for its
-    // terminator.
-    public func instruction_stmt(&self, f: Int, b: Int, i: Int) -> Int {
-        let info = self.mir.funcs[f]
-        let block = self.mir.blocks[info.block_first + b]
-        var s = block.first
+    // `step_live` on a cursor's words, for the locals `holders` marks.
+    func step_live_to(&self, f: Int, b: Int, last: Bool, accesses: &Vector<BorrowckAccess>, holders: &Vector<Bool>,
+                      cur: &var MirCursor) {
         var k = 0
-        while s >= 0 {
-            if k == i {
-                return s
+        while k < accesses.len() {
+            let a = accesses[k]
+            if a.kind == BorrowckAccessKind.Write && a.path.count == 0 && a.path.local >= 0 && holders[a.path.local] {
+                borrowck_cursor_bit(&var cur, a.path.local, false)
             }
             k = k + 1
-            s = self.mir.stmts[s].next
         }
-        return -1
+        k = 0
+        while k < accesses.len() {
+            let a = accesses[k]
+            let whole_write = a.kind == BorrowckAccessKind.Write && a.path.count == 0
+            if a.path.local >= 0 && a.kind != BorrowckAccessKind.Drop && not whole_write && holders[a.path.local] {
+                borrowck_cursor_bit(&var cur, a.path.local, true)
+            }
+            k = k + 1
+        }
+        let info = self.mir.funcs[f]
+        let block = self.mir.blocks[info.block_first + b]
+        if last && block.term == MirTermKind.Return && holders.len() > 0 && holders[0] {
+            borrowck_cursor_bit(&var cur, 0, true)
+        }
     }
 
     // Instruction `i` of block `b`'s accesses, in evaluation order: an
@@ -1871,7 +2285,7 @@ extension BorrowckProgram {
         var out = Vector<BorrowckAccess>()
         let info = self.mir.funcs[f]
         let block = self.mir.blocks[info.block_first + b]
-        let s = self.instruction_stmt(f, b, i)
+        let s = facts.inst_stmt_at(b, i)
         if s >= 0 {
             let stmt = self.mir.stmts[s]
             if stmt.kind == MirStmtKind.Assign {
@@ -1971,13 +2385,14 @@ extension BorrowckProgram {
     // open.
     func loan_forward(&self, f: Int, facts: &var BorrowckLoans) {
         let info = self.mir.funcs[f]
-        let lw = facts.loan_words
         let ww = facts.window_words
-        facts.created_in = borrowck_zeros(info.block_count * lw)
+        facts.loan_bits = mir_states(facts.loan_words, info.block_count)
+        let zero = facts.loan_bits.zero()
         facts.open_in = borrowck_zeros(info.block_count * ww)
         var k = 0
         while k < info.block_count {
             try! facts.reached.push(k == 0)
+            try! facts.created_roots.push(zero)
             k = k + 1
         }
         if info.block_count == 0 {
@@ -2000,6 +2415,7 @@ extension BorrowckProgram {
             try! pending.push(k == 0)
             k = k + 1
         }
+        var cur = mir_cursor(&facts.loan_bits, zero)
         var left = 1
         while left > 0 {
             var at = 0
@@ -2011,14 +2427,15 @@ extension BorrowckProgram {
                 }
                 pending[b] = false
                 left = left - 1
-                var created = borrowck_slice(&facts.created_in, b * lw, lw)
+                cur.load(&facts.loan_bits, facts.created_roots[b])
                 var open = borrowck_slice(&facts.open_in, b * ww, ww)
-                let count = self.instruction_count(f, b)
+                let count = facts.inst_count(b)
                 var i = 0
                 while i < count {
-                    self.step_forward(&facts, f, b, i, &var created, &var open)
+                    self.step_forward_to(&facts, f, b, i, &var cur, &var open)
                     i = i + 1
                 }
+                let created = cur.snapshot(&var facts.loan_bits)
                 let succ = self.mir.init_successors(f, b)
                 let switched = self.mir.switched_local(f, b)
                 var j = 0
@@ -2041,7 +2458,10 @@ extension BorrowckProgram {
                         facts.reached[target] = true
                         grew = true
                     }
-                    if borrowck_join(&var facts.created_in, target * lw, &created) {
+                    let had = facts.created_roots[target]
+                    let joined = facts.loan_bits.join(had, created)
+                    if joined != had {
+                        facts.created_roots[target] = joined
                         grew = true
                     }
                     if borrowck_join(&var facts.open_in, target * ww, &leaving) {
@@ -2061,25 +2481,51 @@ extension BorrowckProgram {
     // window opens on its present edge, which `loan_forward` applies.
     public func step_forward(&self, facts: &BorrowckLoans, f: Int, b: Int, i: Int, created: &var Vector<Int>,
                              open: &var Vector<Int>) {
-        let s = self.instruction_stmt(f, b, i)
-        var n = 0
-        while n < facts.loans.len() {
-            let loan = facts.loans[n]
-            if loan.block == b && loan.stmt == s && loan.kind != BorrowckLoanKind.Window {
+        let site = facts.inst_first[b] + i
+        var at = facts.site_first[site]
+        while at < facts.site_first[site + 1] {
+            let n = facts.site_loans[at]
+            at = at + 1
+            if facts.loans[n].kind != BorrowckLoanKind.Window {
                 borrowck_set_bit(&var created, 0, n)
             }
-            n = n + 1
         }
-        var r = 0
-        while r < facts.release_loan.len() {
-            if facts.release_block[r] == b && facts.release_stmt[r] == s {
-                borrowck_clear_bit(&var created, 0, facts.release_loan[r])
+        at = facts.release_first[site]
+        while at < facts.release_first[site + 1] {
+            let r = facts.release_at[at]
+            at = at + 1
+            borrowck_clear_bit(&var created, 0, facts.release_loan[r])
+        }
+        if facts.inst_stmt[site] < 0 {
+            self.close_window_at(f, b, &var open)
+        }
+    }
+
+    // `step_forward` with the created loans on a cursor over `loan_bits`.
+    public func step_forward_to(&self, facts: &BorrowckLoans, f: Int, b: Int, i: Int, created: &var MirCursor,
+                                open: &var Vector<Int>) {
+        let site = facts.inst_first[b] + i
+        var at = facts.site_first[site]
+        while at < facts.site_first[site + 1] {
+            let n = facts.site_loans[at]
+            at = at + 1
+            if facts.loans[n].kind != BorrowckLoanKind.Window {
+                borrowck_cursor_bit(&var created, n, true)
             }
-            r = r + 1
         }
-        if s >= 0 {
-            return
+        at = facts.release_first[site]
+        while at < facts.release_first[site + 1] {
+            let r = facts.release_at[at]
+            at = at + 1
+            borrowck_cursor_bit(&var created, facts.release_loan[r], false)
         }
+        if facts.inst_stmt[site] < 0 {
+            self.close_window_at(f, b, &var open)
+        }
+    }
+
+    // Shuts the window block `b`'s terminator closes, if it is a close.
+    func close_window_at(&self, f: Int, b: Int, open: &var Vector<Int>) {
         let info = self.mir.funcs[f]
         let block = self.mir.blocks[info.block_first + b]
         if block.term == MirTermKind.Call {
@@ -2092,8 +2538,8 @@ extension BorrowckProgram {
 
     // Whether instruction `i` of block `b` may suspend: a call that may, or
     // a yield-capable budget point.
-    public func suspends_at(&self, f: Int, b: Int, i: Int) -> Bool {
-        let s = self.instruction_stmt(f, b, i)
+    public func suspends_at(&self, facts: &BorrowckLoans, f: Int, b: Int, i: Int) -> Bool {
+        let s = facts.inst_stmt_at(b, i)
         if s >= 0 {
             let stmt = self.mir.stmts[s]
             return stmt.kind == MirStmtKind.Budget && stmt.yields

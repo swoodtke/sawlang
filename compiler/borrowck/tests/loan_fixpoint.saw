@@ -1,6 +1,6 @@
 // The loan analysis's block dataflows reach their fixpoints (SL-619). Each
-// function of the borrow check's loop and window goldens has its facts,
-// `live_out`, `reached`, `created_in` and `open_in`, recomputed here by
+// function of the borrow check's loop and window goldens has its facts, the
+// live locals, `reached`, the created loans and `open_in`, recomputed here by
 // round-robin sweeps in index order until a sweep changes nothing, and the
 // two must agree on every block. A worklist that fails to walk a block again
 // when a backedge brings it more disagrees inside a loop. Paths are the
@@ -64,10 +64,11 @@ func recomputed_live_out(p: &BorrowckProgram, f: Int, facts: &var BorrowckLoans)
             if borrowck_join(&var live_out, b * words, &live) {
                 changed = true
             }
-            var i = p.instruction_count(f, b) - 1
+            let last = facts.inst_count(b) - 1
+            var i = last
             while i >= 0 {
                 let accesses = p.instruction_accesses(f, b, i, &var facts)
-                p.step_live(f, b, i, &accesses, &var live)
+                p.step_live(f, b, i == last, &accesses, &var live)
                 i = i - 1
             }
             if borrowck_join(&var live_in, b * words, &live) {
@@ -117,7 +118,7 @@ func check_forward(p: &BorrowckProgram, f: Int, facts: &BorrowckLoans) {
             var created = borrowck_slice(&created_in, at * lw, lw)
             var open = borrowck_slice(&open_in, at * ww, ww)
             var i = 0
-            while i < p.instruction_count(f, at) {
+            while i < facts.inst_count(at) {
                 p.step_forward(&facts, f, at, i, &var created, &var open)
                 i = i + 1
             }
@@ -152,8 +153,26 @@ func check_forward(p: &BorrowckProgram, f: Int, facts: &BorrowckLoans) {
         assert(reached[k] == facts.reached[k], "the loan analysis and the recomputation disagree on a reached block")
         k = k + 1
     }
-    assert(same(&created_in, &facts.created_in), "the loans created on some path disagree with the recomputation")
+    let have = blocks_of(&facts, count, true)
+    assert(same(&created_in, &have), "the loans created on some path disagree with the recomputation")
     assert(same(&open_in, &facts.open_in), "the windows open at a block's entry disagree with the recomputation")
+}
+
+// The analysis's per-block sets, one block after another: the loans created
+// at each entry, or the locals live at each end.
+func blocks_of(facts: &BorrowckLoans, count: Int, loans: Bool) -> Vector<Int> {
+    var out = Vector<Int>()
+    var b = 0
+    while b < count {
+        let row = if loans { facts.created_at(b) } else { facts.live_out_at(b) }
+        var k = 0
+        while k < row.len() {
+            try! out.push(row[k])
+            k = k + 1
+        }
+        b = b + 1
+    }
+    move out
 }
 
 // Every function of `path`, module `name`, has the facts the recomputation
@@ -172,8 +191,16 @@ func check(path: String, name: String, names: &Vector<String>, dirs: &Vector<Str
         let info = p.mir.funcs[f]
         if info.module == m {
             var facts = p.borrowck_loans(f)
-            let live_out = recomputed_live_out(&p, f, &var facts)
-            assert(same(&live_out, &facts.live_out), "the live locals disagree with the recomputation")
+            // The analysis keeps the liveness of a local that carries a loan.
+            var live_out = recomputed_live_out(&p, f, &var facts)
+            let mask = facts.holder_mask()
+            var w = 0
+            while w < live_out.len() {
+                live_out[w] = live_out[w] & mask[w % mask.len()]
+                w = w + 1
+            }
+            let have = blocks_of(&facts, info.block_count, false)
+            assert(same(&live_out, &have), "the live locals disagree with the recomputation")
             check_forward(&p, f, &facts)
             if info.window_count > 0 || info.block_count > 4 {
                 interesting = interesting + 1

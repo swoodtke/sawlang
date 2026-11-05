@@ -10,15 +10,24 @@
 //
 // In either form the zero vector has the one id `zero()`, so a vector is all
 // zero exactly when its id is `zero()`, and `join` and `set` return the id
-// they were given when they change nothing. Paths past `width` read 0.
+// they were given when they change nothing. Paths past `width` read 0. A cell
+// is any Int and a join ORs cells, so a cell may also be one word of a bit
+// set, as the loan analysis stores its locals and its loans.
 //
 // ENTRY POINTS (mir_states):
 //     init_analysis (compiler/mir/src/initialisation.saw)
 //     refined_entries (compiler/drops/src/verify.saw)
+//     loan_liveness (compiler/borrowck/src/loans.saw)
+//     loan_forward (compiler/borrowck/src/loans.saw)
 // CLIENTS (MirCursor, through `MirInit.cursor` or `mir_cursor`):
 //     verify_flow (compiler/mir/src/verify.saw)
 //     check_func (compiler/borrowck/src/check.saw)
 //     verify_func (compiler/borrowck/src/verify.saw)
+//     loan_liveness (compiler/borrowck/src/loans.saw)
+//     loan_forward (compiler/borrowck/src/loans.saw)
+//     check_loans (compiler/borrowck/src/conflicts.saw)
+//     check_prologue (compiler/borrowck/src/conflicts.saw)
+//     dump_func (compiler/borrowck/src/dump.saw)
 //     collect_flags (compiler/drops/src/elaborate.saw)
 //     verify_flow (compiler/drops/src/verify.saw)
 //     coro_lifetimes_of (compiler/coro/src/lifetimes.saw)
@@ -425,6 +434,16 @@ extension MirCursor {
             k = k + 1
         }
         self.base = root
+    }
+
+    // `snapshot`, after which the cursor stands at that vector with nothing
+    // logged, so a run of commits costs each one's own changes.
+    public func commit(&var self, states: &var MirStates) -> Int {
+        let root = self.snapshot(&var states)
+        self.base = root
+        self.touched.clear()
+        self.walk = self.walk + 1
+        root
     }
 
     // The vector `state` holds now, made in `states`.
