@@ -1,6 +1,6 @@
 # The cone of compiler/driver/src/main.saw against the new std (std): every std declaration its
 # functions reach, read off sawc's typecheck dump by compiler/tools/std_cone.py.
-# 345 declarations in 24 modules
+# 348 declarations in 24 modules
 
 std.alloc: 9
   extern __saw_rt_alloc
@@ -202,7 +202,8 @@ std.panic: 2
   extern __saw_rt_panic
   func panic_sink
 
-std.path: 10
+std.path: 13
+  extern __saw_rt_fs_getcwd
   extern __saw_rt_fs_realpath
   extern free
   func system_text
@@ -210,8 +211,10 @@ std.path: 10
   method Path.as_string
   method Path.canonical
   method Path.file_name
+  method Path.is_absolute
   method Path.join
   method Path.parent
+  method Path.realpath_text
   struct Path
 
 std.prelude: 20

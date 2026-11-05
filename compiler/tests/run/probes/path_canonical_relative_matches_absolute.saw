@@ -1,0 +1,116 @@
+// probe: stated
+// about: `Path.canonical` of a relative path gives what its absolute spelling under the working directory gives, the result or the error, whatever the spelling and from a symlinked working directory too (SL-969)
+// stage 0: its frozen std has no `Path.canonical`
+// speeds: -O0 -O2
+// leaks: none
+// prints: relative is absolute: true
+// prints: relative resolves as its absolute spelling: true
+// prints: `./`-prefixed resolves as its absolute spelling: true
+// prints: `..`-containing resolves as its absolute spelling: true
+// prints: leaving and re-entering resolves as its absolute spelling: true
+// prints: `.` resolves as its absolute spelling: true
+// prints: case-varied answers as its absolute spelling: true
+// prints: missing answers as its absolute spelling: true
+// prints: realpath "path_canonical_relative_missing.txt" failed (not found)
+// prints: realpath "" failed (not found)
+// prints: symlinked working directory resolves as its absolute spelling: true
+// prints: `..` from a symlinked working directory resolves as its absolute spelling: true
+// prints: removed working directory: realpath "file.txt" failed (not found)
+// prints: cleaned up true
+//
+// The probe makes its own directory beside where it runs, named for its
+// process, and works inside it. The case-varied spelling resolves on a
+// case-insensitive volume and is `NotFound` on a case-sensitive one, so its line
+// compares the two outcomes rather than stating one. A removed working
+// directory cannot be read, so that line is realpath's own answer for the
+// relative spelling.
+
+import std.directory.{Directory}
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+import std.process.{Command}
+import std.systemerror.{SystemError}
+
+extern "C" {
+    func getpid() -> Int32
+}
+
+func process_id() unsafe -> Int32 {
+    getpid()
+}
+
+func outcome(p: String) -> String {
+    match Path(s: p).canonical() {
+        case Ok(found) -> "ok {found.as_string()}",
+        case Err(e) -> "err {e.kind().describe()}"
+    }
+}
+
+func canonical_text(p: String) -> String {
+    match Path(s: p).canonical() {
+        case Ok(found) -> found.as_string(),
+        case Err(e) -> "{e}"
+    }
+}
+
+// Prints whether `relative` resolves, and to what `absolute` resolves to.
+func resolves(label: String, relative: String, absolute: String) {
+    let got = outcome(relative)
+    print("{} resolves as its absolute spelling: {}", label, got.starts_with("ok ") && got == outcome(absolute))
+}
+
+// Prints whether `relative` and `absolute` give one outcome, a result or an error.
+func answers(label: String, relative: String, absolute: String) {
+    print("{} answers as its absolute spelling: {}", label, outcome(relative) == outcome(absolute))
+}
+
+func main() {
+    let home = try! Env.cwd()
+    let name = "path_canonical_relative_{process_id()}"
+    try! Directory.create(Path(s: name))
+    try! Env.set_cwd(Path(s: name))
+    let root = (try! Env.cwd()).as_string()
+    try! Directory.create(Path(s: "sub"))
+    try! Directory.create(Path(s: "gone"))
+    var made = try! File.create(Path(s: "sub/file.txt"))
+    try! made.close()
+    var link = Command(program: "/bin/ln")
+    try! link.arg("-s")
+    try! link.arg("sub")
+    try! link.arg("link")
+    let _ = try! link.wait()
+
+    print("relative is absolute: {}", Path(s: canonical_text("sub/file.txt")).is_absolute())
+    resolves("relative", "sub/file.txt", "{root}/sub/file.txt")
+    resolves("`./`-prefixed", "./sub/file.txt", "{root}/sub/file.txt")
+    resolves("`..`-containing", "sub/../sub/file.txt", "{root}/sub/file.txt")
+    resolves("leaving and re-entering", "../{name}/sub/file.txt", "{root}/sub/file.txt")
+    resolves("`.`", ".", root)
+    answers("case-varied", "SUB/FILE.TXT", "{root}/SUB/FILE.TXT")
+    answers("missing", "path_canonical_relative_missing.txt", "{root}/path_canonical_relative_missing.txt")
+    print(canonical_text("path_canonical_relative_missing.txt"))
+    print(canonical_text(""))
+
+    try! Env.set_cwd(Path(s: "link"))
+    resolves("symlinked working directory", "file.txt", "{root}/sub/file.txt")
+    resolves("`..` from a symlinked working directory", "..", root)
+
+    try! Env.set_cwd(Path(s: "{root}/gone"))
+    let removed_gone = succeeded(Directory.remove(Path(s: "{root}/gone")))
+    print("removed working directory: {}", canonical_text("file.txt"))
+
+    try! Env.set_cwd(home)
+    let removed_link = succeeded(File.remove(Path(s: "{name}/link")))
+    let removed_file = succeeded(File.remove(Path(s: "{name}/sub/file.txt")))
+    let removed_sub = succeeded(Directory.remove(Path(s: "{name}/sub")))
+    let removed_root = succeeded(Directory.remove(Path(s: name)))
+    print("cleaned up {}", removed_gone && removed_link && removed_file && removed_sub && removed_root)
+}
+
+func succeeded(r: Result<Void, SystemError>) -> Bool {
+    match r {
+        case Ok(_) -> true,
+        case Err(_) -> false
+    }
+}
