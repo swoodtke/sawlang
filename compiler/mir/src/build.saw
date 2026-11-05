@@ -358,13 +358,16 @@ extension MirProgram {
     // ENTRY POINTS (relinquish_operands):
     //     assign
     //     emit_call
+    // The last operand goes first: its hand-off entry is the newest, so each
+    // removal finds its entry on top of the scope, and removing distinct
+    // entries leaves the same scope and marks in either order (SL-970).
     func relinquish_operands(&var self, first: Int, count: Int) {
-        var k = 0
-        while k < count {
+        var k = count - 1
+        while k >= 0 {
             // Stage 0 workaround (SL:hazards S4): canonical: self.relinquish_operand(self.lists[first + k])
             let o = self.lists[first + k]
             self.relinquish_operand(o)
-            k = k + 1
+            k = k - 1
         }
     }
 
@@ -1558,15 +1561,19 @@ extension MirProgram {
         if at < 0 {
             return
         }
-        var kept = Vector<MirScopeEntry>()
-        k = 0
-        while k < self.scope.len() {
-            if k != at {
-                try! kept.push(self.scope[k])
+        if at == self.scope.len() - 1 {
+            let _ = self.scope.pop()
+        } else {
+            var kept = Vector<MirScopeEntry>()
+            k = 0
+            while k < self.scope.len() {
+                if k != at {
+                    try! kept.push(self.scope[k])
+                }
+                k = k + 1
             }
-            k = k + 1
+            self.scope = move kept
         }
-        self.scope = move kept
         // A scope opened after the entry starts one entry earlier now.
         k = 0
         while k < self.scope_marks.len() {

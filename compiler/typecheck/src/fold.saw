@@ -615,7 +615,10 @@ extension TcProgram {
     // ENTRY POINTS (pattern_value):
     //     same_test
     //     check_pattern_range
+    //     check_duplicate_arms
     //     duplicate_text
+    //     compile_rows
+    //     split_literal_chain
     public func pattern_value(&self, p: Int) -> TcPatternValue {
         var v = TcPatternValue(kind: TcPatternKind.Other, low: 0, high: 0, inclusive: false, text: "", misfit: -1,
                                misfit_negated: false)

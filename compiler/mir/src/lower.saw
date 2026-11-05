@@ -32,7 +32,7 @@ import sawtypecheck.checks.{tc_check_unsafe}
 import sawtypecheck.candidates.{tc_contains}
 import sawtypecheck.conform.{TcSubst, tc_extension_sets}
 import sawtypecheck.declarations.{tc_build_signatures}
-import sawtypecheck.fold.{TcSameTest}
+import sawtypecheck.fold.{TcPatternKind, TcPatternValue, TcSameTest}
 import sawtypecheck.program.{TcProgram}
 import sawtypecheck.signatures.{TcContext}
 import sawtypecheck.spell.{tc_effects_text}
@@ -4054,18 +4054,25 @@ extension MirProgram {
             }
             j = j + 1
         }
-        var values = Vector<Int>()
+        // By argument, whether any argument after it is impure, in one
+        // backward pass: asking it of every later argument made a long
+        // argument list quadratic (SL-970).
+        var impure_after = Vector<Bool>()
         var k = 0
         while k < written.len() {
+            try! impure_after.push(false)
+            k = k + 1
+        }
+        k = written.len() - 2
+        while k >= 0 {
+            impure_after[k] = impure_after[k + 1] || not self.is_pure(written[k + 1])
+            k = k - 1
+        }
+        var values = Vector<Int>()
+        k = 0
+        while k < written.len() {
             let o = self.operand(written[k])
-            var later_effects = defaults || loans
-            var i = k + 1
-            while i < written.len() {
-                if not self.is_pure(written[i]) {
-                    later_effects = true
-                }
-                i = i + 1
-            }
+            let later_effects = defaults || loans || impure_after[k]
             if later_effects {
                 try! values.push(self.snapshot(o))
             } else {
@@ -6606,6 +6613,13 @@ public struct MirMatch {
 
 extension MirMatch: NoCopy {}
 
+// Whether a literal pattern's value is a key a test compares by alone: an
+// integer or a string its type holds, never a `Bool`, whose false edge also
+// settles the other literal, nor a range.
+func mir_keyed_value(v: &TcPatternValue) -> Bool {
+    (v.kind == TcPatternKind.Integer || v.kind == TcPatternKind.Text) && v.misfit < 0
+}
+
 // `match` as a decision tree.
 extension MirProgram {
     // `match`: the scrutinee's place, then a decision tree of switches on
@@ -6752,7 +6766,10 @@ extension MirProgram {
 
     // The tree for `rows`, in order of priority: the first row's first
     // refutable test splits them, and a row left with nothing to test is a
-    // leaf, its guard tested there.
+    // leaf, its guard tested there. A test's false edge goes on in this loop
+    // rather than in a call, so a chain of N tests takes no stack per test;
+    // every row the false edge keeps is simplified already, being a row of
+    // `simple` or one with a cell taken out.
     func compile_rows(&var self, state: &var MirMatch, rows: &Vector<MirRow>, root: Int) {
         if not self.live() {
             return
@@ -6768,22 +6785,36 @@ extension MirProgram {
             try! simple.push(self.simplify(&var state, r))
             k = k + 1
         }
-        let top = simple[0]
-        if top.count == 0 {
-            var rest = Vector<MirRow>()
-            k = 1
-            while k < simple.len() {
-                try! rest.push(simple[k])
-                k = k + 1
+        while {
+            let top = simple[0]
+            if top.count == 0 {
+                var rest = Vector<MirRow>()
+                k = 1
+                while k < simple.len() {
+                    try! rest.push(simple[k])
+                    k = k + 1
+                }
+                self.leaf(&var state, top.arm, &rest, root)
+                return
             }
-            self.leaf(&var state, top.arm, &rest, root)
-            return
-        }
-        let cell = state.cells[top.first]
-        if self.is_constructor(cell.pattern) {
-            self.split_constructors(&var state, &simple, cell.place, root)
-        } else {
-            self.split_test(&var state, &simple, cell, root)
+            let cell = state.cells[top.first]
+            if self.is_constructor(cell.pattern) {
+                self.split_constructors(&var state, &simple, cell.place, root)
+                return
+            }
+            let mine = self.tc.pattern_value(cell.pattern)
+            if mir_keyed_value(&mine) {
+                simple = self.split_literal_chain(&var state, &simple, cell.place, mine.kind, root)
+            } else {
+                simple = self.split_test(&var state, &simple, cell, root)
+            }
+            if not self.live() {
+                return
+            }
+            if simple.len() == 0 {
+                self.unreachable()
+                return
+            }
         }
     }
 
@@ -7041,8 +7072,9 @@ extension MirProgram {
     // pattern tests the same values follows its true edge only, settled; one
     // testing a different value its false edge only; any other row, a range
     // or an untested place, both edges. Patterns are compared by value, so a
-    // spelling never sends a row past an arm that matches.
-    func split_test(&var self, state: &var MirMatch, rows: &Vector<MirRow>, cell: MirCell, root: Int) {
+    // spelling never sends a row past an arm that matches. Returns the rows
+    // of the false edge, which it leaves current, for the caller to compile.
+    func split_test(&var self, state: &var MirMatch, rows: &Vector<MirRow>, cell: MirCell, root: Int) -> Vector<MirRow> {
         let o = self.pattern_test(cell)
         let yes = self.new_block()
         let no = self.new_block()
@@ -7076,7 +7108,103 @@ extension MirProgram {
         self.enter(yes)
         self.compile_rows(&var state, &passed, root)
         self.enter(no)
-        self.compile_rows(&var state, &failed, root)
+        move failed
+    }
+
+    // `split_test` for each test of a chain on place `p`, its first one the
+    // first row's integer or string literal of `kind`, indexed once rather
+    // than comparing every row at every test (SL-970). A row's cell at `p`
+    // decides alone: a keyed literal of `kind` leaves the false edge at the
+    // test of its value, its true edge that test's only; any other row, with
+    // no cell at `p` or one no value compares with, takes both edges of every
+    // test. The chain goes on while the false edge's first row tests a keyed
+    // literal at `p` first, and returns the rows left when it stops, every
+    // row of `rows` it has not settled, in order (none once its edge is dead).
+    func split_literal_chain(&var self, state: &var MirMatch, rows: &Vector<MirRow>, p: Int, kind: TcPatternKind,
+                             root: Int) -> Vector<MirRow> {
+        let n = rows.len()
+        var at = Vector<Int>()
+        var keyed = Vector<Bool>()
+        var next_same = Vector<Int>()
+        var settled = Vector<Bool>()
+        var values = Vector<TcPatternValue>()
+        var both = Vector<Int>()
+        var k = 0
+        while k < n {
+            let c = self.cell_at(&state, rows[k], p)
+            try! at.push(c)
+            var v = TcPatternValue(kind: TcPatternKind.Other, low: 0, high: 0, inclusive: false, text: "", misfit: -1,
+                                   misfit_negated: false)
+            if c >= 0 {
+                v = self.tc.pattern_value(state.cells[c].pattern)
+            }
+            let key = c >= 0 && v.kind == kind && mir_keyed_value(&v)
+            try! keyed.push(key)
+            if not key {
+                try! both.push(k)
+            }
+            try! values.push(v)
+            try! next_same.push(-1)
+            try! settled.push(false)
+            k = k + 1
+        }
+        // Each keyed row's next row of the same value, from a backward pass.
+        var newest_int = Map<Int, Int>()
+        var newest_text = Map<String, Int>()
+        k = n - 1
+        while k >= 0 {
+            if keyed[k] {
+                let v = values[k]
+                if kind == TcPatternKind.Integer {
+                    next_same[k] = newest_int.get(v.low) ?? -1
+                    let _ = try! newest_int.insert(v.low, k)
+                } else {
+                    next_same[k] = newest_text.get(v.text) ?? -1
+                    let _ = try! newest_text.insert(v.text, k)
+                }
+            }
+            k = k - 1
+        }
+        // The first row not settled; every row before it is settled, and
+        // since rows of `both` never are, it is the first row of its value.
+        var top = 0
+        while keyed[top] && at[top] == rows[top].first {
+            let cell = state.cells[at[top]]
+            let o = self.pattern_test(cell)
+            let yes = self.new_block()
+            let no = self.new_block()
+            self.switch_bool(o, yes, no)
+            var passed = Vector<MirRow>()
+            var same = top
+            var b = 0
+            while same >= 0 || b < both.len() {
+                if same >= 0 && (b >= both.len() || same < both[b]) {
+                    try! passed.push(self.without(&var state, rows[same], at[same]))
+                    settled[same] = true
+                    same = next_same[same]
+                } else {
+                    try! passed.push(rows[both[b]])
+                    b = b + 1
+                }
+            }
+            self.enter(yes)
+            self.compile_rows(&var state, &passed, root)
+            self.enter(no)
+            while top < n && settled[top] {
+                top = top + 1
+            }
+            if top == n || not self.live() {
+                return Vector<MirRow>()
+            }
+        }
+        var rest = Vector<MirRow>()
+        while top < n {
+            if not settled[top] {
+                try! rest.push(rows[top])
+            }
+            top = top + 1
+        }
+        move rest
     }
 
     // Row `r` without its cell `at`.
